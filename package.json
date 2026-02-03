@@ -18,6 +18,7 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.2.30",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/themes": "^3.3.0",
     "@xterm/addon-fit": "^0.11.0",
