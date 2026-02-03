@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'">
+    <title>Console-1</title>
+    <link rel="stylesheet" href="styles/main.css">
+    <link rel="stylesheet" href="../../../node_modules/@xterm/xterm/css/xterm.css">
+    <script type="importmap">
+    {
+        "imports": {
+            "@xterm/xterm": "../../../node_modules/@xterm/xterm/lib/xterm.mjs",
+            "@xterm/addon-fit": "../../../node_modules/@xterm/addon-fit/lib/addon-fit.mjs",
+            "@xterm/addon-web-links": "../../../node_modules/@xterm/addon-web-links/lib/addon-web-links.mjs"
+        }
+    }
+    </script>
+</head>
+<body>
+    <div id="app">
+        <header id="header">
+            <div id="mode-tabs">
+                <button id="shell-tab" class="mode-tab active" data-mode="SHELL">
+                    <span class="indicator"></span>
+                    Shell
+                </button>
+                <button id="claude-tab" class="mode-tab" data-mode="CLAUDE">
+                    <span class="indicator"></span>
+                    Claude
+                </button>
+            </div>
+            <div id="shortcuts-hint">
+                <span class="shortcut">Esc+s</span> Shell
+                <span class="shortcut">Esc+c</span> Claude
+            </div>
+        </header>
+        <main id="terminal-container"></main>
+        <footer id="status-bar">
+            <span id="status-mode">SHELL</span>
+            <span id="status-info"></span>
+        </footer>
+    </div>
+    <script src="../../dist/renderer/index.js" type="module"></script>
+</body>
+</html>

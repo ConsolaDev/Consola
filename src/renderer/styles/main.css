@@ -1,0 +1,173 @@
+/* CSS Variables for theming */
+:root {
+    --bg-primary: #1e1e1e;
+    --bg-secondary: #252526;
+    --bg-tertiary: #2d2d30;
+    --text-primary: #cccccc;
+    --text-secondary: #808080;
+    --accent-shell: #4ec9b0;
+    --accent-claude: #c586c0;
+    --border-color: #3c3c3c;
+    --header-height: 40px;
+    --status-height: 24px;
+}
+
+/* Reset and base styles */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+html, body {
+    height: 100%;
+    overflow: hidden;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+}
+
+#app {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+}
+
+/* Header with mode tabs */
+#header {
+    height: var(--header-height);
+    background-color: var(--bg-secondary);
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 12px;
+    -webkit-app-region: drag;
+}
+
+#mode-tabs {
+    display: flex;
+    gap: 4px;
+    -webkit-app-region: no-drag;
+}
+
+.mode-tab {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 16px;
+    border: none;
+    border-radius: 4px;
+    background-color: transparent;
+    color: var(--text-secondary);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+}
+
+.mode-tab:hover {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.mode-tab.active {
+    background-color: var(--bg-tertiary);
+    color: var(--text-primary);
+}
+
+.mode-tab .indicator {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--text-secondary);
+    transition: background-color 0.15s ease;
+}
+
+.mode-tab.active .indicator {
+    background-color: var(--accent-shell);
+}
+
+.mode-tab[data-mode="CLAUDE"].active .indicator {
+    background-color: var(--accent-claude);
+}
+
+#shortcuts-hint {
+    font-size: 11px;
+    color: var(--text-secondary);
+    -webkit-app-region: no-drag;
+}
+
+.shortcut {
+    display: inline-block;
+    padding: 2px 6px;
+    margin-right: 4px;
+    background-color: var(--bg-tertiary);
+    border-radius: 3px;
+    font-family: monospace;
+    font-size: 10px;
+}
+
+/* Terminal container */
+#terminal-container {
+    flex: 1;
+    background-color: var(--bg-primary);
+    padding: 4px;
+    overflow: hidden;
+}
+
+#terminal-container .xterm {
+    height: 100%;
+}
+
+#terminal-container .xterm-viewport {
+    overflow-y: auto !important;
+}
+
+/* Status bar */
+#status-bar {
+    height: var(--status-height);
+    background-color: var(--bg-secondary);
+    border-top: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    padding: 0 12px;
+    font-size: 12px;
+    gap: 16px;
+}
+
+#status-mode {
+    font-weight: 600;
+    color: var(--accent-shell);
+}
+
+#status-mode.claude {
+    color: var(--accent-claude);
+}
+
+#status-info {
+    color: var(--text-secondary);
+}
+
+/* Focus styles */
+:focus {
+    outline: none;
+}
+
+/* Scrollbar styling */
+::-webkit-scrollbar {
+    width: 10px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--bg-primary);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--bg-tertiary);
+    border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--border-color);
+}
