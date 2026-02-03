@@ -14,6 +14,23 @@ export const IPC_CHANNELS = {
     SESSION_CREATE: 'session:create',
     SESSION_DESTROY: 'session:destroy',
     SESSION_LIST: 'session:list',
+
+    // Claude Agent channels (Renderer -> Main)
+    AGENT_START: 'agent:start',           // Start a new agent query
+    AGENT_INTERRUPT: 'agent:interrupt',   // Interrupt running query
+    AGENT_GET_STATUS: 'agent:get-status', // Get current agent status
+
+    // Claude Agent channels (Main -> Renderer)
+    AGENT_INIT: 'agent:init',                       // Session initialized
+    AGENT_MESSAGE: 'agent:message',                 // Raw SDK message
+    AGENT_ASSISTANT_MESSAGE: 'agent:assistant-message', // Assistant response
+    AGENT_STREAM: 'agent:stream',                   // Streaming event
+    AGENT_TOOL_PENDING: 'agent:tool-pending',       // Tool execution started
+    AGENT_TOOL_COMPLETE: 'agent:tool-complete',     // Tool execution completed
+    AGENT_RESULT: 'agent:result',                   // Final result
+    AGENT_ERROR: 'agent:error',                     // Error occurred
+    AGENT_STATUS_CHANGED: 'agent:status-changed',   // Status update
+    AGENT_NOTIFICATION: 'agent:notification',       // Notification from agent
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';
