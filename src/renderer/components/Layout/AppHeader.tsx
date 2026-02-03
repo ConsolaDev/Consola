@@ -1,5 +1,6 @@
 import { useNavigationStore } from '../../stores/navigationStore';
 import { SidebarToggle } from '../Sidebar/SidebarToggle';
+import { TabBar } from '../TabBar';
 
 export function AppHeader() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -11,7 +12,7 @@ export function AppHeader() {
         <SidebarToggle />
       </div>
       <div className={`app-header-content ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
-        {/* Future: Tab bar will go here */}
+        <TabBar />
       </div>
     </header>
   );

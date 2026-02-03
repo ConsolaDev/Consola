@@ -1,5 +1,6 @@
 import { Folder, GitBranch } from 'lucide-react';
 import { useWorkspaceStore, type Project } from '../../stores/workspaceStore';
+import { useTabStore } from '../../stores/tabStore';
 import { ProjectActionsMenu } from './ProjectActionsMenu';
 
 interface ProjectNavItemProps {
@@ -9,13 +10,26 @@ interface ProjectNavItemProps {
 
 export function ProjectNavItem({ project, workspaceId }: ProjectNavItemProps) {
   const removeProject = useWorkspaceStore((state) => state.removeProjectFromWorkspace);
+  const openTab = useTabStore((state) => state.openTab);
+  const closeTabsForProject = useTabStore((state) => state.closeTabsForProject);
+  const activeTabId = useTabStore((state) => state.activeTabId);
+
+  const isActive = activeTabId === `project-${project.id}`;
+
+  const handleClick = () => {
+    openTab('project', project.id, workspaceId);
+  };
 
   const handleRemove = () => {
+    closeTabsForProject(project.id);
     removeProject(workspaceId, project.id);
   };
 
   return (
-    <div className="project-nav-item">
+    <button
+      className={`project-nav-item ${isActive ? 'active' : ''}`}
+      onClick={handleClick}
+    >
       <span className="project-nav-item-icon">
         {project.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
       </span>
@@ -24,6 +38,6 @@ export function ProjectNavItem({ project, workspaceId }: ProjectNavItemProps) {
         projectName={project.name}
         onRemove={handleRemove}
       />
-    </div>
+    </button>
   );
 }
