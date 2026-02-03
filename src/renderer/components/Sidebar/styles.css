@@ -7,13 +7,7 @@
   height: 100%;
   background: var(--color-bg-sidebar);
   border-right: 1px solid var(--color-border);
-  transition: width var(--transition-normal), min-width var(--transition-normal);
   overflow: hidden;
-}
-
-.sidebar.collapsed {
-  width: var(--sidebar-collapsed-width);
-  min-width: var(--sidebar-collapsed-width);
 }
 
 /* Sidebar navigation */
@@ -113,16 +107,6 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
-}
-
-.sidebar.collapsed .nav-item {
-  justify-content: center;
-  padding: var(--space-2);
-}
-
-.sidebar.collapsed .nav-item-label,
-.sidebar.collapsed .nav-item-shortcut {
-  display: none;
 }
 
 /* Sidebar footer */

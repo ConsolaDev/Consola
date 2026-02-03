@@ -4,10 +4,10 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 export type ViewType = 'home' | 'workspace' | 'settings';
 
 interface NavigationState {
-  isSidebarCollapsed: boolean;
+  isSidebarHidden: boolean;
   expandedWorkspaces: Record<string, boolean>;
   toggleSidebar: () => void;
-  setSidebarCollapsed: (collapsed: boolean) => void;
+  setSidebarHidden: (hidden: boolean) => void;
   toggleWorkspaceExpanded: (workspaceId: string) => void;
   setWorkspaceExpanded: (workspaceId: string, expanded: boolean) => void;
   isWorkspaceExpanded: (workspaceId: string) => boolean;
@@ -16,10 +16,10 @@ interface NavigationState {
 export const useNavigationStore = create<NavigationState>()(
   persist(
     (set, get) => ({
-      isSidebarCollapsed: false,
+      isSidebarHidden: false,
       expandedWorkspaces: {},
-      toggleSidebar: () => set((state) => ({ isSidebarCollapsed: !state.isSidebarCollapsed })),
-      setSidebarCollapsed: (collapsed) => set({ isSidebarCollapsed: collapsed }),
+      toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
+      setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
       toggleWorkspaceExpanded: (workspaceId) =>
         set((state) => ({
           expandedWorkspaces: {
@@ -44,7 +44,7 @@ export const useNavigationStore = create<NavigationState>()(
       name: 'console-1-navigation',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
-        isSidebarCollapsed: state.isSidebarCollapsed,
+        isSidebarHidden: state.isSidebarHidden,
         expandedWorkspaces: state.expandedWorkspaces,
       }),
     }

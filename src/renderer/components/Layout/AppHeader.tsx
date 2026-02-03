@@ -2,15 +2,15 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { SidebarToggle } from '../Sidebar/SidebarToggle';
 
 export function AppHeader() {
-  const isSidebarCollapsed = useNavigationStore((state) => state.isSidebarCollapsed);
+  const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
 
   return (
     <header className="app-header">
       <div className="app-header-drag-region" />
-      <div className={`app-header-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
+      <div className={`app-header-sidebar ${isSidebarHidden ? 'hidden' : ''}`}>
         <SidebarToggle />
       </div>
-      <div className="app-header-content">
+      <div className={`app-header-content ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
         {/* Future: Tab bar will go here */}
       </div>
     </header>
