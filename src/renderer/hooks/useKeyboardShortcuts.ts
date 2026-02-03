@@ -1,15 +1,18 @@
 import { useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useNavigationStore } from '../stores/navigationStore';
-import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ThemeMode } from '../stores/settingsStore';
 
-export function useKeyboardShortcuts() {
+interface UseKeyboardShortcutsOptions {
+  onNewWorkspace?: () => void;
+}
+
+export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const navigate = useNavigate();
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
-  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const { theme, setTheme } = useSettingsStore();
+  const { onNewWorkspace } = options;
 
   const toggleTheme = useCallback(() => {
     const themeOrder: ThemeMode[] = ['light', 'dark', 'system'];
@@ -29,11 +32,10 @@ export function useKeyboardShortcuts() {
         return;
       }
 
-      // Cmd/Ctrl + N : New workspace
+      // Cmd/Ctrl + N : New workspace (opens dialog)
       if (isMod && event.key === 'n') {
         event.preventDefault();
-        const workspace = createWorkspace('New Workspace');
-        navigate(`/workspace/${workspace.id}`);
+        onNewWorkspace?.();
         return;
       }
 
@@ -54,5 +56,5 @@ export function useKeyboardShortcuts() {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, toggleSidebar, createWorkspace, toggleTheme]);
+  }, [navigate, toggleSidebar, toggleTheme, onNewWorkspace]);
 }
