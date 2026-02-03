@@ -3,11 +3,10 @@ import { Box, Text, Flex } from '@radix-ui/themes';
 
 interface ThinkingBlockProps {
   content: string;
-  defaultExpanded?: boolean;
 }
 
-export function ThinkingBlock({ content, defaultExpanded = false }: ThinkingBlockProps) {
-  const [expanded, setExpanded] = useState(defaultExpanded);
+export function ThinkingBlock({ content }: ThinkingBlockProps) {
+  const [expanded, setExpanded] = useState(false);
 
   return (
     <Box className="thinking-block">
@@ -19,7 +18,9 @@ export function ThinkingBlock({ content, defaultExpanded = false }: ThinkingBloc
         style={{ cursor: 'pointer' }}
       >
         <span className="thinking-chevron">{expanded ? '▼' : '▶'}</span>
-        <Text size="1" color="gray">Thinking</Text>
+        <Text size="1" color="gray">
+          View thinking ({content.length.toLocaleString()} chars)
+        </Text>
       </Flex>
       {expanded && (
         <Box className="thinking-content">

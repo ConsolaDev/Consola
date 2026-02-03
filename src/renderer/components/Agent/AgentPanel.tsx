@@ -4,6 +4,7 @@ import { useAgent } from '../../hooks/useAgent';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ToolStatus } from './ToolStatus';
+import { ProcessingIndicator } from './ProcessingIndicator';
 
 export function AgentPanel() {
   const {
@@ -12,7 +13,7 @@ export function AgentPanel() {
     messages,
     activeTools,
     error,
-    streaming,
+    isProcessing,
     sendMessage,
     interrupt,
     clearError
@@ -39,22 +40,23 @@ export function AgentPanel() {
     <Flex direction="column" className="agent-panel">
       {/* Messages area */}
       <Box ref={scrollRef} className="messages-container">
-        {messages.length === 0 ? (
+        {messages.length === 0 && !isProcessing ? (
           <Flex align="center" justify="center" className="empty-state">
             <Text color="gray">Start a conversation with Claude</Text>
           </Flex>
         ) : (
-          messages.map(msg => (
-            <ChatMessage
-              key={msg.id}
-              type={msg.type}
-              content={msg.content}
-              contentBlocks={msg.contentBlocks}
-              isStreaming={msg.isStreaming}
-              isThinking={streaming.isThinking && msg.isStreaming}
-              timestamp={msg.timestamp}
-            />
-          ))
+          <>
+            {messages.map(msg => (
+              <ChatMessage
+                key={msg.id}
+                type={msg.type}
+                content={msg.content}
+                contentBlocks={msg.contentBlocks}
+                timestamp={msg.timestamp}
+              />
+            ))}
+            {isProcessing && <ProcessingIndicator />}
+          </>
         )}
       </Box>
 
