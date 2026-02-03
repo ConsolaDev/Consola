@@ -44,8 +44,73 @@ export interface TerminalAPI {
     removeModeChangedListener: (callback: (mode: TerminalMode) => void) => void;
 }
 
+// Claude Agent SDK Types
+export interface AgentInitEvent {
+    sessionId: string;
+    model: string;
+    tools: string[];
+    mcpServers: { name: string; status: string }[];
+}
+
+export interface AgentMessageEvent {
+    uuid: string;
+    sessionId: string;
+    content: unknown;
+}
+
+export interface AgentToolEvent {
+    toolName: string;
+    toolInput: unknown;
+    toolResponse?: unknown;
+}
+
+export interface AgentResultEvent {
+    subtype: string;
+    sessionId: string;
+    result: string | null;
+    isError: boolean;
+    numTurns: number;
+    totalCostUsd: number;
+    usage: {
+        input_tokens: number | null;
+        output_tokens: number | null;
+    };
+}
+
+export interface AgentStatus {
+    isRunning: boolean;
+    sessionId: string | null;
+    model: string | null;
+    permissionMode: string | null;
+}
+
+export interface AgentQueryOptions {
+    prompt: string;
+    allowedTools?: string[];
+    maxTurns?: number;
+    resume?: string;
+    continue?: boolean;
+}
+
+export interface ClaudeAgentAPI {
+    startQuery: (options: AgentQueryOptions) => void;
+    interrupt: () => void;
+    getStatus: () => Promise<AgentStatus>;
+    onInit: (callback: (data: AgentInitEvent) => void) => void;
+    onAssistantMessage: (callback: (data: AgentMessageEvent) => void) => void;
+    onStream: (callback: (data: unknown) => void) => void;
+    onToolPending: (callback: (data: AgentToolEvent) => void) => void;
+    onToolComplete: (callback: (data: AgentToolEvent) => void) => void;
+    onResult: (callback: (data: AgentResultEvent) => void) => void;
+    onError: (callback: (data: { message: string }) => void) => void;
+    onStatusChanged: (callback: (data: AgentStatus) => void) => void;
+    onNotification: (callback: (data: { message: string; title?: string }) => void) => void;
+    removeListener: (event: string, callback: Function) => void;
+}
+
 declare global {
     interface Window {
         terminalAPI: TerminalAPI;
+        claudeAgentAPI: ClaudeAgentAPI;
     }
 }
