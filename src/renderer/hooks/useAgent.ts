@@ -64,6 +64,10 @@ export function useAgent() {
     lastResult: store.lastResult,
     error: store.error,
 
+    // Streaming
+    streaming: store.streaming,
+    isThinking: store.streaming.isThinking,
+
     // Actions
     sendMessage,
     interrupt,
