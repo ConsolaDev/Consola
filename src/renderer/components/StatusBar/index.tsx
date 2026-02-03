@@ -1,17 +1,28 @@
 import { Flex, Text } from '@radix-ui/themes';
+import * as Tabs from '@radix-ui/react-tabs';
 import { useTerminalStore } from '../../stores/terminalStore';
 import './styles.css';
 
 export default function StatusBar() {
-  const { mode, isConnected, dimensions } = useTerminalStore();
+  const { mode, switchMode, isConnected, dimensions } = useTerminalStore();
 
   return (
     <footer className="status-bar">
       <Flex gap="4" align="center">
         <span className={`status-indicator ${isConnected ? 'connected' : ''}`} />
-        <Text size="1" className={`mode-label ${mode.toLowerCase()}`}>
-          {mode}
-        </Text>
+
+        <Tabs.Root value={mode} onValueChange={(v) => switchMode(v as 'SHELL' | 'CLAUDE')}>
+          <Tabs.List className="tabs-list">
+            <Tabs.Trigger value="SHELL" className="tab-trigger">
+              <span className="indicator shell" />
+              <Text size="1" weight="medium">Shell</Text>
+            </Tabs.Trigger>
+            <Tabs.Trigger value="CLAUDE" className="tab-trigger">
+              <span className="indicator claude" />
+              <Text size="1" weight="medium">Claude</Text>
+            </Tabs.Trigger>
+          </Tabs.List>
+        </Tabs.Root>
       </Flex>
 
       <Text size="1" className="dimensions">
