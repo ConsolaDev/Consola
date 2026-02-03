@@ -1,20 +1,25 @@
-import { Settings, Home } from 'lucide-react';
+import { Settings, Home, Plus } from 'lucide-react';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
 import { NavItem } from './NavItem';
 import { WorkspaceNavItem } from './WorkspaceNavItem';
-import { WorkspaceHeader } from './WorkspaceHeader';
-import { SidebarToggle } from './SidebarToggle';
 import './styles.css';
 
 export function Sidebar() {
   const isSidebarCollapsed = useNavigationStore((state) => state.isSidebarCollapsed);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
+  const { openDialog } = useCreateWorkspace();
+
+  const newWorkspaceButton = (
+    <button className="sidebar-section-button" onClick={openDialog}>
+      <Plus size={14} />
+    </button>
+  );
 
   return (
     <aside className={`sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
-      <WorkspaceHeader />
-
       <div className="sidebar-nav">
         <NavItem
           icon={<Home size={16} />}
@@ -25,7 +30,21 @@ export function Sidebar() {
 
       <div className="sidebar-section">
         {!isSidebarCollapsed && (
-          <div className="sidebar-section-title">Workspaces</div>
+          <div className="sidebar-section-header">
+            <span className="sidebar-section-title">Workspaces</span>
+            <Tooltip.Provider delayDuration={200}>
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>{newWorkspaceButton}</Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
+                    New Workspace
+                    <span className="tooltip-shortcut">⌘N</span>
+                    <Tooltip.Arrow className="tooltip-arrow" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+          </div>
         )}
         <nav className="workspace-list">
           {workspaces.map((workspace) => (
@@ -41,7 +60,6 @@ export function Sidebar() {
           to="/settings"
           shortcut="⌘,"
         />
-        <SidebarToggle />
       </div>
     </aside>
   );
