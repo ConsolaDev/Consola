@@ -2,7 +2,8 @@ import { NavLink } from 'react-router-dom';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { FileText, ChevronRight, ChevronDown } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
-import type { Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { WorkspaceActionsMenu } from './WorkspaceActionsMenu';
 
 interface WorkspaceNavItemProps {
   workspace: Workspace;
@@ -11,11 +12,16 @@ interface WorkspaceNavItemProps {
 export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
   const isExpanded = useNavigationStore((state) => state.isWorkspaceExpanded(workspace.id));
   const toggleExpanded = useNavigationStore((state) => state.toggleWorkspaceExpanded);
+  const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
 
   const handleChevronClick = (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     toggleExpanded(workspace.id);
+  };
+
+  const handleDelete = () => {
+    deleteWorkspace(workspace.id);
   };
 
   return (
@@ -37,6 +43,11 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
           </span>
           <span className="nav-item-label">{workspace.name}</span>
         </NavLink>
+        <WorkspaceActionsMenu
+          workspaceId={workspace.id}
+          workspaceName={workspace.name}
+          onDelete={handleDelete}
+        />
       </div>
       <Collapsible.Content className="workspace-collapsible-content">
         <div className="project-list">
