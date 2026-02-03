@@ -1,0 +1,18 @@
+.terminal-container {
+  flex: 1;
+  background: var(--bg-primary);
+  padding: 8px;
+  overflow: hidden;
+}
+
+.terminal-container .xterm {
+  height: 100%;
+}
+
+.terminal-container .xterm-viewport {
+  overflow-y: auto !important;
+}
+
+.terminal-container .xterm-screen {
+  padding: 4px;
+}
