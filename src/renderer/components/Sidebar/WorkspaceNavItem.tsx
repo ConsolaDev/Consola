@@ -1,6 +1,6 @@
 import { NavLink } from 'react-router-dom';
-import * as Tooltip from '@radix-ui/react-tooltip';
-import { FileText } from 'lucide-react';
+import * as Collapsible from '@radix-ui/react-collapsible';
+import { FileText, ChevronRight, ChevronDown } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import type { Workspace } from '../../stores/workspaceStore';
 
@@ -9,37 +9,48 @@ interface WorkspaceNavItemProps {
 }
 
 export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
-  const isSidebarCollapsed = useNavigationStore((state) => state.isSidebarCollapsed);
+  const isExpanded = useNavigationStore((state) => state.isWorkspaceExpanded(workspace.id));
+  const toggleExpanded = useNavigationStore((state) => state.toggleWorkspaceExpanded);
 
-  const content = (
-    <NavLink
-      to={`/workspace/${workspace.id}`}
-      className={({ isActive }) => `nav-item workspace-nav-item ${isActive ? 'active' : ''}`}
-    >
-      <span className="nav-item-icon">
-        <FileText size={16} />
-      </span>
-      {!isSidebarCollapsed && (
-        <span className="nav-item-label">{workspace.name}</span>
-      )}
-    </NavLink>
+  const handleChevronClick = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    toggleExpanded(workspace.id);
+  };
+
+  return (
+    <Collapsible.Root open={isExpanded} onOpenChange={() => toggleExpanded(workspace.id)}>
+      <div className="workspace-nav-item-container">
+        <button
+          className="workspace-expand-toggle"
+          onClick={handleChevronClick}
+          aria-label={isExpanded ? 'Collapse workspace' : 'Expand workspace'}
+        >
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </button>
+        <NavLink
+          to={`/workspace/${workspace.id}`}
+          className={({ isActive }) => `nav-item workspace-nav-item ${isActive ? 'active' : ''}`}
+        >
+          <span className="nav-item-icon">
+            <FileText size={16} />
+          </span>
+          <span className="nav-item-label">{workspace.name}</span>
+        </NavLink>
+      </div>
+      <Collapsible.Content className="workspace-collapsible-content">
+        <div className="project-list">
+          {workspace.projects.length === 0 ? (
+            <div className="project-list-empty">No projects</div>
+          ) : (
+            workspace.projects.map((project) => (
+              <div key={project.id} className="project-nav-item-placeholder">
+                {project.name}
+              </div>
+            ))
+          )}
+        </div>
+      </Collapsible.Content>
+    </Collapsible.Root>
   );
-
-  if (isSidebarCollapsed) {
-    return (
-      <Tooltip.Provider delayDuration={200}>
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>{content}</Tooltip.Trigger>
-          <Tooltip.Portal>
-            <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
-              {workspace.name}
-              <Tooltip.Arrow className="tooltip-arrow" />
-            </Tooltip.Content>
-          </Tooltip.Portal>
-        </Tooltip.Root>
-      </Tooltip.Provider>
-    );
-  }
-
-  return content;
 }
