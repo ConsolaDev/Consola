@@ -320,3 +320,89 @@
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
+
+/* Workspace actions trigger */
+.workspace-actions-trigger {
+  position: absolute;
+  right: var(--space-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  z-index: 1;
+}
+
+.workspace-nav-item-container:hover .workspace-actions-trigger {
+  opacity: 1;
+}
+
+.workspace-actions-trigger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.workspace-actions-trigger[data-state='open'] {
+  opacity: 1;
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+/* Dropdown menu */
+.dropdown-content {
+  min-width: 160px;
+  padding: var(--space-1);
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevation-2);
+  z-index: var(--z-dropdown);
+  animation: dropdown-fade-in 150ms ease-out;
+}
+
+@keyframes dropdown-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.dropdown-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  outline: none;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.dropdown-item:hover,
+.dropdown-item:focus {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.dropdown-item-destructive {
+  color: var(--color-error);
+}
+
+.dropdown-item-destructive:hover,
+.dropdown-item-destructive:focus {
+  background: var(--color-error-bg);
+  color: var(--color-error);
+}
