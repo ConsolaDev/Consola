@@ -1,14 +1,11 @@
 import { Box, Text } from '@radix-ui/themes';
 import { ThinkingBlock } from './ThinkingBlock';
-import { StreamingIndicator } from './StreamingIndicator';
 import type { ContentBlock } from '../../stores/agentStore';
 
 interface ChatMessageProps {
   type: 'user' | 'assistant';
   content: string;
   contentBlocks?: ContentBlock[];
-  isStreaming?: boolean;
-  isThinking?: boolean;
   timestamp: number;
 }
 
@@ -16,8 +13,6 @@ export function ChatMessage({
   type,
   content,
   contentBlocks,
-  isStreaming,
-  isThinking,
   timestamp
 }: ChatMessageProps) {
   const isUser = type === 'user';
@@ -36,7 +31,6 @@ export function ChatMessage({
               <ThinkingBlock
                 key={idx}
                 content={block.thinking}
-                defaultExpanded={isStreaming}
               />
             );
           }
@@ -46,22 +40,20 @@ export function ChatMessage({
           if (block.type === 'tool_use') {
             return (
               <Box key={idx} className="tool-use-inline">
-                <Text size="1" color="gray">Using {block.name}...</Text>
+                <Text size="1" color="gray">Used {block.name}</Text>
               </Box>
             );
           }
           return null;
         })}
-        {isStreaming && <StreamingIndicator isThinking={isThinking || false} />}
       </Box>
     );
   };
 
   return (
-    <Box className={`chat-message ${isUser ? 'user' : 'assistant'} ${isStreaming ? 'streaming' : ''}`}>
+    <Box className={`chat-message ${isUser ? 'user' : 'assistant'}`}>
       <Text size="1" className="message-meta">
         {isUser ? 'You' : 'Claude'} · {new Date(timestamp).toLocaleTimeString()}
-        {isStreaming && <span className="streaming-badge">streaming</span>}
       </Text>
       {renderContent()}
     </Box>
