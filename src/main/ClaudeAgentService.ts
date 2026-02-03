@@ -1,12 +1,11 @@
 import { EventEmitter } from 'events';
-import {
-  query,
-  Options,
-  SDKMessage,
-  PreToolUseHookInput,
-  PostToolUseHookInput,
-  NotificationHookInput
-} from '@anthropic-ai/claude-agent-sdk';
+
+// Types only - actual SDK loaded dynamically
+type SDKMessage = any;
+type Options = any;
+type PreToolUseHookInput = { tool_name: string; tool_input: unknown };
+type PostToolUseHookInput = { tool_name: string; tool_input: unknown; tool_response: unknown };
+type NotificationHookInput = { message: string; title?: string };
 
 export interface AgentQueryOptions {
   prompt: string;
@@ -69,8 +68,25 @@ export interface ClaudeAgentServiceEvents {
   'message': (message: SDKMessage) => void;
 }
 
+// SDK type
+type SDK = { query: (opts: { prompt: string; options?: Options }) => AsyncIterable<SDKMessage> };
+
+// Lazy-loaded SDK module
+let sdkModule: SDK | null = null;
+
+// Use Function constructor to prevent TypeScript from transforming import() to require()
+const dynamicImport = new Function('modulePath', 'return import(modulePath)') as (modulePath: string) => Promise<SDK>;
+
+async function getSDK(): Promise<SDK> {
+  if (!sdkModule) {
+    // Dynamic import for ESM module compatibility
+    sdkModule = await dynamicImport('@anthropic-ai/claude-agent-sdk');
+  }
+  return sdkModule!;
+}
+
 export class ClaudeAgentService extends EventEmitter {
-  private currentQuery: ReturnType<typeof query> | null = null;
+  private currentQuery: AsyncIterable<SDKMessage> | null = null;
   private abortController: AbortController | null = null;
   private status: AgentStatus = {
     isRunning: false,
@@ -88,6 +104,8 @@ export class ClaudeAgentService extends EventEmitter {
       throw new Error('Query already in progress');
     }
 
+    const sdk = await getSDK();
+
     this.abortController = new AbortController();
     this.status.isRunning = true;
     this.emit('status-changed', { ...this.status });
@@ -102,32 +120,29 @@ export class ClaudeAgentService extends EventEmitter {
       includePartialMessages: true,
       hooks: {
         PreToolUse: [{
-          hooks: [async (input) => {
-            const toolInput = input as PreToolUseHookInput;
+          hooks: [async (input: PreToolUseHookInput) => {
             this.emit('tool-pending', {
-              toolName: toolInput.tool_name,
-              toolInput: toolInput.tool_input
+              toolName: input.tool_name,
+              toolInput: input.tool_input
             });
             return {};
           }]
         }],
         PostToolUse: [{
-          hooks: [async (input) => {
-            const toolInput = input as PostToolUseHookInput;
+          hooks: [async (input: PostToolUseHookInput) => {
             this.emit('tool-complete', {
-              toolName: toolInput.tool_name,
-              toolInput: toolInput.tool_input,
-              toolResponse: toolInput.tool_response
+              toolName: input.tool_name,
+              toolInput: input.tool_input,
+              toolResponse: input.tool_response
             });
             return {};
           }]
         }],
         Notification: [{
-          hooks: [async (input) => {
-            const notifInput = input as NotificationHookInput;
+          hooks: [async (input: NotificationHookInput) => {
             this.emit('notification', {
-              message: notifInput.message,
-              title: notifInput.title
+              message: input.message,
+              title: input.title
             });
             return {};
           }]
@@ -136,7 +151,7 @@ export class ClaudeAgentService extends EventEmitter {
     };
 
     try {
-      this.currentQuery = query({ prompt: options.prompt, options: sdkOptions });
+      this.currentQuery = sdk.query({ prompt: options.prompt, options: sdkOptions });
 
       for await (const message of this.currentQuery) {
         this.handleMessage(message);
