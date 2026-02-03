@@ -4,6 +4,7 @@ import { FileText, ChevronRight, ChevronDown } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { WorkspaceActionsMenu } from './WorkspaceActionsMenu';
+import { ProjectNavItem } from './ProjectNavItem';
 
 interface WorkspaceNavItemProps {
   workspace: Workspace;
@@ -55,9 +56,11 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
             <div className="project-list-empty">No projects</div>
           ) : (
             workspace.projects.map((project) => (
-              <div key={project.id} className="project-nav-item-placeholder">
-                {project.name}
-              </div>
+              <ProjectNavItem
+                key={project.id}
+                project={project}
+                workspaceId={workspace.id}
+              />
             ))
           )}
         </div>
