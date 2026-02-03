@@ -202,3 +202,10 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
         }
     },
 });
+
+// Expose Dialog API to renderer
+contextBridge.exposeInMainWorld('dialogAPI', {
+    selectFolders: (): Promise<Array<{ path: string; name: string; isGitRepo: boolean }>> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
+    },
+});

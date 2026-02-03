@@ -1,4 +1,6 @@
-import { ipcMain, BrowserWindow } from 'electron';
+import { ipcMain, BrowserWindow, dialog } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
 import { TerminalService } from './TerminalService';
 import { ClaudeAgentService } from './ClaudeAgentService';
 import { TerminalMode, AgentQueryOptions } from '../shared/types';
@@ -159,6 +161,22 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             permissionMode: null
         };
     });
+
+    // Handle folder picker dialog
+    ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
+        const result = await dialog.showOpenDialog({
+            properties: ['openDirectory', 'multiSelections'],
+            title: 'Select Project Folders'
+        });
+        if (result.canceled) return [];
+
+        // Check each folder for .git
+        return result.filePaths.map(folderPath => ({
+            path: folderPath,
+            name: path.basename(folderPath),
+            isGitRepo: fs.existsSync(path.join(folderPath, '.git'))
+        }));
+    });
 }
 
 export function cleanupIpcHandlers(): void {
@@ -183,4 +201,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_START);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INTERRUPT);
     ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
+
+    // Remove dialog IPC handlers
+    ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
 }

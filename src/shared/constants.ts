@@ -31,6 +31,9 @@ export const IPC_CHANNELS = {
     AGENT_ERROR: 'agent:error',                     // Error occurred
     AGENT_STATUS_CHANGED: 'agent:status-changed',   // Status update
     AGENT_NOTIFICATION: 'agent:notification',       // Notification from agent
+
+    // Dialog channels
+    DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';
