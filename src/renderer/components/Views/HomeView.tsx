@@ -1,16 +1,16 @@
-import { useNavigate } from 'react-router-dom';
 import { Plus, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useTabStore } from '../../stores/tabStore';
 import './styles.css';
 
 export function HomeView() {
-  const navigate = useNavigate();
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
+  const openTab = useTabStore((state) => state.openTab);
 
   const handleCreateWorkspace = () => {
     const workspace = createWorkspace('New Workspace');
-    navigate(`/workspace/${workspace.id}`);
+    openTab('workspace', workspace.id);
   };
 
   return (

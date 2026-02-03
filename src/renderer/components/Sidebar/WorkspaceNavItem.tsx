@@ -1,8 +1,8 @@
-import { NavLink } from 'react-router-dom';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { FileText, ChevronRight, ChevronDown } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { useTabStore } from '../../stores/tabStore';
 import { WorkspaceActionsMenu } from './WorkspaceActionsMenu';
 import { ProjectNavItem } from './ProjectNavItem';
 
@@ -14,6 +14,11 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
   const isExpanded = useNavigationStore((state) => state.isWorkspaceExpanded(workspace.id));
   const toggleExpanded = useNavigationStore((state) => state.toggleWorkspaceExpanded);
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
+  const openTab = useTabStore((state) => state.openTab);
+  const closeTabsForWorkspace = useTabStore((state) => state.closeTabsForWorkspace);
+  const activeTabId = useTabStore((state) => state.activeTabId);
+
+  const isActive = activeTabId === `workspace-${workspace.id}`;
 
   const handleChevronClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -21,7 +26,12 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
     toggleExpanded(workspace.id);
   };
 
+  const handleClick = () => {
+    openTab('workspace', workspace.id);
+  };
+
   const handleDelete = () => {
+    closeTabsForWorkspace(workspace.id);
     deleteWorkspace(workspace.id);
   };
 
@@ -35,15 +45,15 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
         >
           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
-        <NavLink
-          to={`/workspace/${workspace.id}`}
-          className={({ isActive }) => `nav-item workspace-nav-item ${isActive ? 'active' : ''}`}
+        <button
+          className={`nav-item workspace-nav-item ${isActive ? 'active' : ''}`}
+          onClick={handleClick}
         >
           <span className="nav-item-icon">
             <FileText size={16} />
           </span>
           <span className="nav-item-label">{workspace.name}</span>
-        </NavLink>
+        </button>
         <WorkspaceActionsMenu
           workspaceId={workspace.id}
           workspaceName={workspace.name}

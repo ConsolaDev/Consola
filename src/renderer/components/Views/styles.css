@@ -85,7 +85,8 @@
 
 .workspace-view-header {
   display: flex;
-  align-items: center;
+  flex-direction: column;
+  gap: var(--space-1);
   padding: var(--space-4) var(--space-6);
   border-bottom: 1px solid var(--color-border);
 }
@@ -95,6 +96,12 @@
   font-size: var(--font-size-lg);
   font-weight: var(--font-weight-semibold);
   color: var(--color-text-primary);
+}
+
+.workspace-view-subtitle {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
 }
 
 .workspace-view-content {
