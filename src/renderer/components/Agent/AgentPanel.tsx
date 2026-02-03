@@ -12,6 +12,7 @@ export function AgentPanel() {
     messages,
     activeTools,
     error,
+    streaming,
     sendMessage,
     interrupt,
     clearError
@@ -48,6 +49,9 @@ export function AgentPanel() {
               key={msg.id}
               type={msg.type}
               content={msg.content}
+              contentBlocks={msg.contentBlocks}
+              isStreaming={msg.isStreaming}
+              isThinking={streaming.isThinking && msg.isStreaming}
               timestamp={msg.timestamp}
             />
           ))
