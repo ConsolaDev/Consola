@@ -1,5 +1,6 @@
 import { Outlet } from 'react-router-dom';
 import { Sidebar } from '../Sidebar';
+import { AppHeader } from './AppHeader';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
 import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
@@ -12,10 +13,13 @@ export function Layout() {
 
   return (
     <div className="layout">
-      <Sidebar />
-      <main className="content-area">
-        <Outlet />
-      </main>
+      <AppHeader />
+      <div className="layout-body">
+        <Sidebar />
+        <main className="content-area">
+          <Outlet />
+        </main>
+      </div>
     </div>
   );
 }
