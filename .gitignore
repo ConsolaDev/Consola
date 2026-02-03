@@ -4,4 +4,8 @@ dist/
 /.idea/
 .claude/settings.local.json
 .idea/
-dist/
+
+# Playwright
+tests/e2e/screenshots/
+test-results/
+playwright-report/
