@@ -1,0 +1,40 @@
+.status-bar {
+  height: 28px;
+  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-color);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px;
+}
+
+.status-indicator {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+
+.status-indicator.connected {
+  background: #4ade80;
+  box-shadow: 0 0 6px #4ade80;
+}
+
+.mode-label {
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.mode-label.shell {
+  color: var(--accent-shell);
+}
+
+.mode-label.claude {
+  color: var(--accent-claude);
+}
+
+.dimensions {
+  color: var(--text-secondary);
+  font-family: monospace;
+}
