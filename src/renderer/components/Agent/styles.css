@@ -176,6 +176,27 @@
   background: var(--red-10);
 }
 
+/* Processing Indicator */
+.processing-indicator {
+  padding: 12px 16px;
+  background: var(--gray-a2);
+  border-radius: 8px;
+  margin-bottom: 12px;
+}
+
+.processing-indicator .spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--gray-6);
+  border-top-color: var(--accent-9);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
 /* Thinking Block */
 .thinking-block {
   margin: 8px 0;
