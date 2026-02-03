@@ -1,4 +1,4 @@
-export type TerminalMode = 'SHELL' | 'CLAUDE';
+export type TerminalMode = 'SHELL' | 'CLAUDE' | 'AGENT';
 
 export type DataCallback = (data: string) => void;
 export type ModeCallback = (mode: TerminalMode) => void;

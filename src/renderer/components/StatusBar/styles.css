@@ -66,6 +66,11 @@
   box-shadow: 0 0 6px var(--accent-claude);
 }
 
+.tab-trigger[data-state="active"] .indicator.agent {
+  background: var(--accent-agent, #a855f7);
+  box-shadow: 0 0 6px var(--accent-agent, #a855f7);
+}
+
 .dimensions {
   color: var(--text-secondary);
   font-family: monospace;
