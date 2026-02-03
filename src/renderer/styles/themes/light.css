@@ -1,0 +1,43 @@
+/* Notion-inspired light theme */
+[data-theme='light'] {
+  /* Background colors */
+  --color-bg-primary: #ffffff;
+  --color-bg-secondary: #f7f6f3;
+  --color-bg-tertiary: #ffffff;
+  --color-bg-sidebar: #f7f6f3;
+
+  /* Hover & active states */
+  --color-bg-hover: rgba(55, 53, 47, 0.04);
+  --color-bg-active: rgba(55, 53, 47, 0.08);
+  --color-bg-selected: rgba(35, 131, 226, 0.14);
+
+  /* Text colors */
+  --color-text-primary: rgb(55, 53, 47);
+  --color-text-secondary: rgba(55, 53, 47, 0.65);
+  --color-text-tertiary: rgba(55, 53, 47, 0.45);
+  --color-text-disabled: rgba(55, 53, 47, 0.35);
+
+  /* Border colors */
+  --color-border: rgba(55, 53, 47, 0.09);
+  --color-border-strong: rgba(55, 53, 47, 0.16);
+
+  /* Accent colors */
+  --color-accent: rgb(35, 131, 226);
+  --color-accent-hover: rgb(0, 119, 212);
+  --color-accent-text: #ffffff;
+
+  /* Semantic colors */
+  --color-success: rgb(68, 131, 97);
+  --color-warning: rgb(203, 145, 47);
+  --color-error: rgb(212, 76, 71);
+  --color-info: rgb(35, 131, 226);
+
+  /* Scrollbar */
+  --color-scrollbar-track: transparent;
+  --color-scrollbar-thumb: rgba(55, 53, 47, 0.16);
+  --color-scrollbar-thumb-hover: rgba(55, 53, 47, 0.28);
+
+  /* Shadows - lighter for light theme */
+  --shadow-elevation-1: 0 1px 3px rgba(0, 0, 0, 0.08);
+  --shadow-elevation-2: 0 3px 6px rgba(0, 0, 0, 0.12);
+}
