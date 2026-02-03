@@ -224,3 +224,99 @@
 .tooltip-arrow {
   fill: var(--color-bg-tertiary);
 }
+
+/* Workspace nav item container */
+.workspace-nav-item-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.workspace-nav-item-container .workspace-nav-item {
+  flex: 1;
+  padding-left: var(--space-6);
+}
+
+/* Expand/collapse toggle */
+.workspace-expand-toggle {
+  position: absolute;
+  left: var(--space-1);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  z-index: 1;
+}
+
+.workspace-nav-item-container:hover .workspace-expand-toggle {
+  opacity: 1;
+}
+
+.workspace-expand-toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Collapsible content animation */
+.workspace-collapsible-content {
+  overflow: hidden;
+}
+
+.workspace-collapsible-content[data-state='open'] {
+  animation: collapsible-slide-down 150ms ease-out;
+}
+
+.workspace-collapsible-content[data-state='closed'] {
+  animation: collapsible-slide-up 150ms ease-out;
+}
+
+@keyframes collapsible-slide-down {
+  from {
+    height: 0;
+    opacity: 0;
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+}
+
+@keyframes collapsible-slide-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+  }
+  to {
+    height: 0;
+    opacity: 0;
+  }
+}
+
+/* Project list */
+.project-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding-left: var(--space-4);
+}
+
+.project-list-empty {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
+
+.project-nav-item-placeholder {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
