@@ -29,12 +29,10 @@ export interface ToolUseBlock {
 
 export type ContentBlock = TextBlock | ThinkingBlock | ToolUseBlock;
 
-// Streaming state
-export interface StreamingState {
-  activeMessageId: string | null;
-  textBuffer: string;
-  thinkingBuffer: string;
-  isThinking: boolean;
+// Processing state (simplified from streaming)
+export interface ProcessingState {
+  isProcessing: boolean;
+  currentMessageId: string | null;
 }
 
 // Message type for chat display
@@ -43,7 +41,6 @@ export interface Message {
   type: 'user' | 'assistant';
   content: string;
   contentBlocks?: ContentBlock[];
-  isStreaming?: boolean;
   timestamp: number;
 }
 
@@ -81,8 +78,8 @@ interface AgentState {
   lastResult: AgentResultEvent | null;
   error: string | null;
 
-  // Streaming
-  streaming: StreamingState;
+  // Processing
+  processing: ProcessingState;
 
   // Actions
   sendMessage: (prompt: string, options?: {
@@ -136,18 +133,6 @@ function getPlainText(blocks: ContentBlock[]): string {
     .join('\n');
 }
 
-// Build content blocks from streaming state
-function buildContentBlocks(streaming: StreamingState): ContentBlock[] {
-  const blocks: ContentBlock[] = [];
-  if (streaming.thinkingBuffer) {
-    blocks.push({ type: 'thinking', thinking: streaming.thinkingBuffer });
-  }
-  if (streaming.textBuffer) {
-    blocks.push({ type: 'text', text: streaming.textBuffer });
-  }
-  return blocks;
-}
-
 // Generate a UUID (fallback for environments without crypto.randomUUID)
 function generateId(): string {
   if (typeof crypto !== 'undefined' && crypto.randomUUID) {
@@ -174,11 +159,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   toolHistory: [],
   lastResult: null,
   error: null,
-  streaming: {
-    activeMessageId: null,
-    textBuffer: '',
-    thinkingBuffer: '',
-    isThinking: false
+  processing: {
+    isProcessing: false,
+    currentMessageId: null
   },
 
   // === Public Actions ===
@@ -238,37 +221,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const contentBlocks = extractContentBlocks(data.content);
     const plainText = getPlainText(contentBlocks);
 
-    set(state => {
-      // Check if this is finalizing a streaming message
-      const existingIdx = state.messages.findIndex(
-        m => m.id === data.uuid && m.isStreaming
-      );
+    const message: Message = {
+      id: data.uuid,
+      type: 'assistant',
+      content: plainText,
+      contentBlocks,
+      timestamp: Date.now()
+    };
 
-      const message: Message = {
-        id: data.uuid,
-        type: 'assistant',
-        content: plainText,
-        contentBlocks,
-        isStreaming: false,
-        timestamp: Date.now()
-      };
-
-      if (existingIdx >= 0) {
-        // Replace streaming message with final
-        const messages = [...state.messages];
-        messages[existingIdx] = message;
-        return {
-          messages,
-          streaming: { activeMessageId: null, textBuffer: '', thinkingBuffer: '', isThinking: false }
-        };
-      } else {
-        // Add new message
-        return {
-          messages: [...state.messages, message],
-          streaming: { activeMessageId: null, textBuffer: '', thinkingBuffer: '', isThinking: false }
-        };
-      }
-    });
+    set(state => ({
+      messages: [...state.messages, message],
+      processing: { isProcessing: false, currentMessageId: null }
+    }));
   },
 
   _handleToolPending: (data: AgentToolEvent) => {
@@ -326,79 +290,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   _handleStream: (data: { event: any; uuid: string }) => {
-    const { event, uuid } = data;
-
-    // Handle content block start
-    if (event.type === 'content_block_start') {
-      if (event.content_block?.type === 'thinking') {
-        set(state => ({
-          streaming: { ...state.streaming, isThinking: true, activeMessageId: uuid }
-        }));
-      } else if (event.content_block?.type === 'text') {
-        set(state => ({
-          streaming: { ...state.streaming, isThinking: false, activeMessageId: uuid }
-        }));
-      }
-    }
-
-    // Handle content block delta
-    if (event.type === 'content_block_delta') {
-      const delta = event.delta;
-
-      if (delta?.type === 'thinking_delta') {
-        set(state => ({
-          streaming: {
-            ...state.streaming,
-            thinkingBuffer: state.streaming.thinkingBuffer + (delta.thinking || ''),
-            activeMessageId: uuid
-          }
-        }));
-      }
-
-      if (delta?.type === 'text_delta') {
-        set(state => ({
-          streaming: {
-            ...state.streaming,
-            textBuffer: state.streaming.textBuffer + (delta.text || ''),
-            isThinking: false,
-            activeMessageId: uuid
-          }
-        }));
-      }
-    }
-
-    // Update or create streaming message
+    // Just mark that we're processing - don't accumulate text
     set(state => {
-      const { streaming } = state;
-
-      // Only create/update if we have content
-      if (!streaming.textBuffer && !streaming.thinkingBuffer) {
-        return state;
-      }
-
-      const messages = [...state.messages];
-      const streamingIdx = messages.findIndex(m => m.id === uuid && m.isStreaming);
-
-      if (streamingIdx >= 0) {
-        // Update existing streaming message
-        messages[streamingIdx] = {
-          ...messages[streamingIdx],
-          content: streaming.textBuffer,
-          contentBlocks: buildContentBlocks(streaming)
+      if (!state.processing.isProcessing) {
+        return {
+          processing: { isProcessing: true, currentMessageId: data.uuid }
         };
-      } else {
-        // Create new streaming message
-        messages.push({
-          id: uuid,
-          type: 'assistant',
-          content: streaming.textBuffer,
-          contentBlocks: buildContentBlocks(streaming),
-          isStreaming: true,
-          timestamp: Date.now()
-        });
       }
-
-      return { messages };
+      return state;
     });
   }
 }));
