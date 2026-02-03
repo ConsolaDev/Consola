@@ -39,7 +39,7 @@
 .app-header-sidebar.hidden {
   width: auto;
   min-width: auto;
-  padding-left: 80px; /* Space for macOS traffic light buttons */
+  padding-left: 72px; /* Space for macOS traffic light buttons */
   justify-content: flex-start;
 }
 

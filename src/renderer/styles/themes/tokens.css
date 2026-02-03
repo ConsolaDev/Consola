@@ -42,7 +42,7 @@
   /* Layout */
   --sidebar-width: 240px;
   --sidebar-collapsed-width: 48px;
-  --header-height: 52px;
+  --header-height: 40px;
 
   /* Transitions */
   --transition-fast: 0.1s ease;
