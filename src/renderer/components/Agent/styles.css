@@ -61,53 +61,6 @@
   font-size: var(--font-size-xs);
 }
 
-/* Tool status */
-.tool-status {
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-bg-secondary);
-  border-top: 1px solid var(--color-border);
-}
-
-.tool-status-label {
-  color: var(--color-text-secondary);
-  display: block;
-  margin-bottom: var(--space-1);
-  font-size: var(--font-size-xs);
-}
-
-.tool-item {
-  padding: 2px 0;
-}
-
-.tool-badge {
-  font-size: 9px;
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-sm);
-  font-weight: var(--font-weight-medium);
-  text-transform: uppercase;
-}
-
-.tool-badge.pending {
-  background: var(--yellow-3);
-  color: var(--yellow-11);
-}
-
-.tool-badge.complete {
-  background: var(--green-3);
-  color: var(--green-11);
-}
-
-.tool-badge.error {
-  background: var(--red-3);
-  color: var(--red-11);
-}
-
-.tool-name {
-  color: var(--color-text-primary);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
 /* Chat input */
 .chat-input-container {
   padding: var(--space-1) var(--space-2);
@@ -435,6 +388,43 @@
 
 .diff-line.context .diff-line-content {
   color: var(--color-text-secondary);
+}
+
+/* Bash Output */
+.bash-output {
+  margin-left: var(--space-4);
+  margin-top: var(--space-1);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border);
+}
+
+.bash-interrupted {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 2px var(--space-2);
+  background: var(--yellow-a3);
+  color: var(--yellow-11);
+  font-size: var(--font-size-xs);
+  border-radius: var(--radius-sm);
+  margin-bottom: var(--space-1);
+}
+
+.bash-stderr-section {
+  margin-top: var(--space-2);
+}
+
+.bash-stderr-label {
+  font-size: var(--font-size-xs);
+  color: var(--red-9);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-1);
+  display: block;
+}
+
+.bash-stderr {
+  background: var(--red-a2);
+  color: var(--red-11);
 }
 
 /* Command suggestions - positioned above input */

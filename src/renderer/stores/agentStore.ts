@@ -69,8 +69,7 @@ export interface InstanceState {
   // Messages
   messages: Message[];
 
-  // Tools
-  activeTools: ToolExecution[];
+  // Tool history (for inline display in messages)
   toolHistory: ToolExecution[];
 
   // Results
@@ -95,7 +94,6 @@ function createDefaultInstanceState(): InstanceState {
     availableTools: [],
     mcpServers: [],
     messages: [],
-    activeTools: [],
     toolHistory: [],
     lastResult: null,
     error: null,
@@ -266,7 +264,6 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   clearMessages: (instanceId) => {
     set(state => updateInstance(state, instanceId, () => ({
       messages: [],
-      activeTools: [],
       toolHistory: [],
       lastResult: null,
       sessionId: null
@@ -321,7 +318,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       timestamp: Date.now()
     };
     set(state => updateInstance(state, instanceId, (instance) => ({
-      activeTools: [...instance.activeTools, tool]
+      toolHistory: [...instance.toolHistory, tool]
     })));
   },
 
@@ -331,16 +328,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const instance = state.instances[instanceId];
       if (!instance) return state;
 
-      // Find the pending tool - prefer matching by toolUseId, fall back to name
+      // Find the pending tool in history - prefer matching by toolUseId, fall back to name
       let pendingIndex = -1;
       if (toolData.toolUseId) {
-        pendingIndex = instance.activeTools.findIndex(
+        pendingIndex = instance.toolHistory.findIndex(
           t => t.toolUseId === toolData.toolUseId && t.status === 'pending'
         );
       }
       // Fallback to name-based matching if no toolUseId or not found
       if (pendingIndex === -1) {
-        pendingIndex = instance.activeTools.findIndex(
+        pendingIndex = instance.toolHistory.findIndex(
           t => t.toolName === toolData.toolName && t.status === 'pending'
         );
       }
@@ -349,21 +346,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         return state;
       }
 
-      const pendingTool = instance.activeTools[pendingIndex];
-      const completedTool: ToolExecution = {
-        ...pendingTool,
-        toolUseId: toolData.toolUseId || pendingTool.toolUseId,
+      // Update the tool in place
+      const newToolHistory = [...instance.toolHistory];
+      newToolHistory[pendingIndex] = {
+        ...newToolHistory[pendingIndex],
+        toolUseId: toolData.toolUseId || newToolHistory[pendingIndex].toolUseId,
         toolResponse: toolData.toolResponse,
         status: 'complete'
       };
 
-      // Remove from active, add to history
-      const newActiveTools = [...instance.activeTools];
-      newActiveTools.splice(pendingIndex, 1);
-
       return updateInstance(state, instanceId, () => ({
-        activeTools: newActiveTools,
-        toolHistory: [...instance.toolHistory, completedTool]
+        toolHistory: newToolHistory
       }));
     });
   },

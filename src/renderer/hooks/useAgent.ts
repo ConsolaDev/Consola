@@ -15,7 +15,6 @@ const emptyInstanceState: InstanceState = {
   availableTools: [],
   mcpServers: [],
   messages: [],
-  activeTools: [],
   toolHistory: [],
   lastResult: null,
   error: null,
@@ -113,8 +112,7 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     // Messages
     messages: instanceState.messages,
 
-    // Tool tracking
-    activeTools: instanceState.activeTools,
+    // Tool history (for inline display in messages)
     toolHistory: instanceState.toolHistory,
 
     // Results

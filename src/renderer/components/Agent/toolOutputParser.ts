@@ -4,6 +4,28 @@ export interface ParsedToolOutput {
   isError: boolean;
 }
 
+// Bash output format from the agent
+export interface BashOutput {
+  stdout: string;
+  stderr: string;
+  interrupted: boolean;
+  isImage: boolean;
+}
+
+function isBashOutput(response: unknown): response is BashOutput {
+  if (!response || typeof response !== 'object') return false;
+  const obj = response as Record<string, unknown>;
+  return (
+    typeof obj.stdout === 'string' &&
+    typeof obj.stderr === 'string' &&
+    typeof obj.interrupted === 'boolean'
+  );
+}
+
+export function parseBashOutput(response: unknown): BashOutput | null {
+  return isBashOutput(response) ? response : null;
+}
+
 export function parseToolOutput(response: unknown): ParsedToolOutput {
   // Handle null/undefined
   if (response === null || response === undefined) {
