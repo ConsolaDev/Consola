@@ -95,7 +95,7 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, mod
         value={input}
         onChange={handleChange}
         onKeyDown={handleKeyDown}
-        placeholder="What would you like to know?"
+        placeholder="What would you like to do?"
         disabled={disabled || isRunning}
         rows={1}
       />

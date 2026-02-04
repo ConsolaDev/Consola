@@ -100,6 +100,13 @@
   cursor: not-allowed;
 }
 
+.chat-input-textarea:focus,
+.chat-input-textarea:focus-visible {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+
 /* Input toolbar */
 .chat-input-toolbar {
   display: flex;
