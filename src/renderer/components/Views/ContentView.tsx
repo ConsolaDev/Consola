@@ -49,10 +49,18 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
     <div className="workspace-view">
       <div className="workspace-view-header">
         <h1 className="workspace-view-title">
-          {project ? project.name : workspace.name}
+          {project ? (
+            <>
+              <span className="workspace-view-breadcrumb">{workspace.name}</span>
+              <span className="workspace-view-separator">/</span>
+              <span>{project.name}</span>
+            </>
+          ) : (
+            workspace.name
+          )}
         </h1>
-        {project && (
-          <p className="workspace-view-subtitle">{workspace.name}</p>
+        {project?.path && (
+          <span className="workspace-view-path">{project.path}</span>
         )}
       </div>
       <div className="workspace-view-content">
