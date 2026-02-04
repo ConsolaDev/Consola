@@ -1,4 +1,7 @@
+import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { AgentPanel } from '../Agent/AgentPanel';
+import { ContextPlaceholder } from './ContextPlaceholder';
 import './styles.css';
 
 interface ContentViewProps {
@@ -8,6 +11,11 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
+
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: 'content-view-split',
+    storage: localStorage,
+  });
 
   const workspace = getWorkspace(workspaceId);
 
@@ -38,23 +46,19 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
         )}
       </div>
       <div className="workspace-view-content">
-        <div className="workspace-placeholder">
-          {project ? (
-            <>
-              <p>Project: {project.path}</p>
-              <p className="workspace-placeholder-hint">
-                Chat panel and context tabs coming soon
-              </p>
-            </>
-          ) : (
-            <>
-              <p>Workspace content will appear here</p>
-              <p className="workspace-placeholder-hint">
-                Chat panel and context tabs coming soon
-              </p>
-            </>
-          )}
-        </div>
+        <Group
+          orientation="horizontal"
+          defaultLayout={defaultLayout}
+          onLayoutChanged={onLayoutChanged}
+        >
+          <Panel id="agent" defaultSize="60%" minSize="20%">
+            <AgentPanel />
+          </Panel>
+          <Separator className="resize-handle" />
+          <Panel id="context" minSize="20%">
+            <ContextPlaceholder />
+          </Panel>
+        </Group>
       </div>
     </div>
   );
