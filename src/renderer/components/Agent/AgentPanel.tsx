@@ -18,6 +18,7 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
     isRunning,
     messages,
     activeTools,
+    toolHistory,
     error,
     isProcessing,
     sendMessage,
@@ -59,6 +60,7 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
                 content={msg.content}
                 contentBlocks={msg.contentBlocks}
                 timestamp={msg.timestamp}
+                toolHistory={toolHistory}
               />
             ))}
             {isProcessing && <ProcessingIndicator />}
