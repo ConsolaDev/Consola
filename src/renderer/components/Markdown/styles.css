@@ -1,0 +1,217 @@
+/* Markdown Content Styles */
+.markdown-content {
+  line-height: var(--line-height-relaxed, 1.7);
+}
+
+.markdown-content p {
+  margin: 0 0 var(--space-2, 8px) 0;
+}
+
+.markdown-content p:last-child {
+  margin-bottom: 0;
+}
+
+.markdown-content h1,
+.markdown-content h2,
+.markdown-content h3,
+.markdown-content h4,
+.markdown-content h5,
+.markdown-content h6 {
+  margin: var(--space-3, 12px) 0 var(--space-2, 8px) 0;
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.markdown-content h1:first-child,
+.markdown-content h2:first-child,
+.markdown-content h3:first-child {
+  margin-top: 0;
+}
+
+.markdown-content h1 {
+  font-size: 1.5em;
+}
+
+.markdown-content h2 {
+  font-size: 1.3em;
+}
+
+.markdown-content h3 {
+  font-size: 1.1em;
+}
+
+.markdown-content ul,
+.markdown-content ol {
+  margin: var(--space-2, 8px) 0;
+  padding-left: var(--space-5, 20px);
+}
+
+.markdown-content li {
+  margin: var(--space-1, 4px) 0;
+}
+
+.markdown-content li > ul,
+.markdown-content li > ol {
+  margin: var(--space-1, 4px) 0;
+}
+
+.markdown-content blockquote {
+  margin: var(--space-2, 8px) 0;
+  padding-left: var(--space-3, 12px);
+  border-left: 3px solid var(--color-border-strong, #444);
+  color: var(--color-text-secondary, #888);
+}
+
+.markdown-content a {
+  color: var(--color-accent, #3b82f6);
+  text-decoration: none;
+}
+
+.markdown-content a:hover {
+  text-decoration: underline;
+}
+
+.markdown-content hr {
+  border: none;
+  border-top: 1px solid var(--color-border, #333);
+  margin: var(--space-3, 12px) 0;
+}
+
+/* Inline code */
+.markdown-content .inline-code,
+.markdown-content code:not([class*="language-"]) {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.1));
+  padding: 2px 6px;
+  border-radius: var(--radius-sm, 4px);
+  font-family: var(--font-mono, monospace);
+  font-size: 0.9em;
+}
+
+/* Tables (GFM) */
+.markdown-content table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: var(--space-2, 8px) 0;
+  font-size: 0.9em;
+}
+
+.markdown-content th,
+.markdown-content td {
+  border: 1px solid var(--color-border, #333);
+  padding: var(--space-2, 8px);
+  text-align: left;
+}
+
+.markdown-content th {
+  background: var(--color-bg-secondary, #1a1a1a);
+  font-weight: var(--font-weight-medium, 500);
+}
+
+.markdown-content tr:nth-child(even) {
+  background: var(--color-bg-hover, rgba(255, 255, 255, 0.02));
+}
+
+/* Task lists (GFM) */
+.markdown-content input[type="checkbox"] {
+  margin-right: var(--space-2, 8px);
+}
+
+.markdown-content ul:has(input[type="checkbox"]) {
+  list-style: none;
+  padding-left: var(--space-2, 8px);
+}
+
+/* Images */
+.markdown-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md, 8px);
+}
+
+/* Code Block Wrapper */
+.code-block-wrapper {
+  margin: var(--space-2, 8px) 0;
+  border-radius: var(--radius-md, 8px);
+  overflow: hidden;
+  background: #282c34; /* oneDark background */
+  border: 1px solid var(--color-border, #333);
+}
+
+.code-block-header {
+  padding: var(--space-2, 8px) var(--space-3, 12px);
+  background: rgba(0, 0, 0, 0.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.code-block-header button {
+  cursor: pointer;
+}
+
+.code-language {
+  color: rgba(255, 255, 255, 0.5);
+  font-family: var(--font-mono, monospace);
+  text-transform: uppercase;
+  font-size: 11px;
+}
+
+.code-block-content {
+  position: relative;
+  overflow: hidden;
+}
+
+.code-block-content pre {
+  margin: 0 !important;
+}
+
+.code-block-content code {
+  font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace) !important;
+}
+
+/* Gradient fade for collapsed code */
+.code-block-fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(
+    to bottom,
+    transparent,
+    #282c34
+  );
+  pointer-events: none;
+}
+
+.code-block-toggle {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: var(--space-2, 8px);
+  background: rgba(0, 0, 0, 0.2);
+  border: none;
+  border-top: 1px solid rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.6);
+  gap: var(--space-1, 4px);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.code-block-toggle:hover {
+  background: rgba(0, 0, 0, 0.3);
+  color: rgba(255, 255, 255, 0.9);
+}
+
+/* Strikethrough (GFM) */
+.markdown-content del {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+/* Strong and emphasis */
+.markdown-content strong {
+  font-weight: var(--font-weight-semibold, 600);
+}
+
+.markdown-content em {
+  font-style: italic;
+}
