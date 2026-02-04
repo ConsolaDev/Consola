@@ -87,6 +87,15 @@ export interface ClaudeAgentServiceEvents {
       input_tokens: number | null;
       output_tokens: number | null;
     };
+    modelUsage?: Record<string, {
+      inputTokens: number;
+      outputTokens: number;
+      cacheReadInputTokens: number;
+      cacheCreationInputTokens: number;
+      contextWindow: number;
+      maxOutputTokens: number;
+      costUSD: number;
+    }>;
   }) => void;
   'error': (error: Error) => void;
   'status-changed': (status: AgentStatus) => void;
@@ -371,7 +380,8 @@ export class ClaudeAgentService extends EventEmitter {
           isError: message.is_error,
           numTurns: message.num_turns,
           totalCostUsd: message.total_cost_usd,
-          usage: message.usage
+          usage: message.usage,
+          modelUsage: message.modelUsage
         });
         break;
     }
