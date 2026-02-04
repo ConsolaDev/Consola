@@ -214,3 +214,10 @@ contextBridge.exposeInMainWorld('dialogAPI', {
         return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
     },
 });
+
+// Expose File API to renderer
+contextBridge.exposeInMainWorld('fileAPI', {
+    readFile: (filePath: string): Promise<string> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath);
+    },
+});

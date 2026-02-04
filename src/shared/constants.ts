@@ -35,6 +35,9 @@ export const IPC_CHANNELS = {
 
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker
+
+    // File operations
+    FILE_READ: 'file:read',  // Read file contents
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';

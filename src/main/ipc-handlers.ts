@@ -203,6 +203,16 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             isGitRepo: fs.existsSync(path.join(folderPath, '.git'))
         }));
     });
+
+    // Handle file read
+    ipcMain.handle(IPC_CHANNELS.FILE_READ, async (_event, filePath: string) => {
+        try {
+            const content = await fs.promises.readFile(filePath, 'utf-8');
+            return content;
+        } catch (error) {
+            throw new Error(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    });
 }
 
 export function cleanupIpcHandlers(): void {
@@ -233,4 +243,7 @@ export function cleanupIpcHandlers(): void {
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
+
+    // Remove file IPC handlers
+    ipcMain.removeHandler(IPC_CHANNELS.FILE_READ);
 }
