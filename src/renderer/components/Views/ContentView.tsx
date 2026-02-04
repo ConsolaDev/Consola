@@ -1,4 +1,5 @@
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { AgentPanel } from '../Agent/AgentPanel';
 import { ContextPlaceholder } from './ContextPlaceholder';
@@ -7,6 +8,37 @@ import './styles.css';
 interface ContentViewProps {
   workspaceId: string;
   projectId?: string;
+}
+
+/**
+ * Truncate a file path to show a sensible shortened version.
+ * Shows ~ for home directory and last 2-3 path segments.
+ */
+function truncatePath(fullPath: string): string {
+  // Replace home directory with ~
+  const homeDir = '/Users/';
+  let path = fullPath;
+
+  if (path.startsWith(homeDir)) {
+    const afterHome = path.slice(homeDir.length);
+    const firstSlash = afterHome.indexOf('/');
+    if (firstSlash !== -1) {
+      path = '~' + afterHome.slice(firstSlash);
+    }
+  }
+
+  const segments = path.split('/').filter(Boolean);
+
+  // If path is short enough, return as-is
+  if (segments.length <= 3) {
+    return path.startsWith('/') ? '/' + segments.join('/') : segments.join('/');
+  }
+
+  // Show first segment (~ or root indicator) and last 2 segments
+  const firstPart = path.startsWith('~') ? '~' : '';
+  const lastSegments = segments.slice(-2).join('/');
+
+  return `${firstPart}/.../${lastSegments}`;
 }
 
 export function ContentView({ workspaceId, projectId }: ContentViewProps) {
@@ -60,7 +92,19 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
           )}
         </h1>
         {project?.path && (
-          <span className="workspace-view-path">{project.path}</span>
+          <Tooltip.Provider delayDuration={300}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <span className="workspace-view-path">{truncatePath(project.path)}</span>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                  {project.path}
+                  <Tooltip.Arrow className="tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
         )}
       </div>
       <div className="workspace-view-content">
