@@ -42,7 +42,8 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const instanceId = `${contextId}-main`;
 
   // Determine working directory for agent
-  const cwd = project?.path || process.cwd();
+  // For projects, use the project path; for workspaces, let main process use its default
+  const cwd = project?.path || '';
 
   return (
     <div className="workspace-view">
