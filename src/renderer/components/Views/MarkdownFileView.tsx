@@ -60,7 +60,7 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
 
       {/* Markdown content */}
       <ScrollArea className="file-content">
-        <Box className="markdown-content" p="4">
+        <Box p="4">
           <MarkdownRenderer content={content} />
         </Box>
       </ScrollArea>

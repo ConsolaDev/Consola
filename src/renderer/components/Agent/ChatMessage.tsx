@@ -23,7 +23,7 @@ export function ChatMessage({
     // User messages: render as markdown
     if (isUser) {
       return (
-        <Box className="message-content markdown-content">
+        <Box className="message-content">
           <MarkdownRenderer content={content} />
         </Box>
       );
@@ -32,7 +32,7 @@ export function ChatMessage({
     // Assistant messages with content blocks
     if (contentBlocks?.length) {
       return (
-        <Box className="message-content markdown-content">
+        <Box className="message-content">
           {contentBlocks.map((block, idx) => {
             if (block.type === 'thinking') {
               return (
@@ -60,7 +60,7 @@ export function ChatMessage({
 
     // Fallback: plain content as markdown
     return (
-      <Box className="message-content markdown-content">
+      <Box className="message-content">
         <MarkdownRenderer content={content} />
       </Box>
     );
