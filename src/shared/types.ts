@@ -46,6 +46,7 @@ export interface TerminalAPI {
 
 // Claude Agent SDK Types
 export interface AgentInitEvent {
+    instanceId: string;
     sessionId: string;
     model: string;
     tools: string[];
@@ -53,18 +54,21 @@ export interface AgentInitEvent {
 }
 
 export interface AgentMessageEvent {
+    instanceId: string;
     uuid: string;
     sessionId: string;
     content: unknown;
 }
 
 export interface AgentToolEvent {
+    instanceId: string;
     toolName: string;
     toolInput: unknown;
     toolResponse?: unknown;
 }
 
 export interface AgentResultEvent {
+    instanceId: string;
     subtype: string;
     sessionId: string;
     result: string | null;
@@ -85,6 +89,8 @@ export interface AgentStatus {
 }
 
 export interface AgentQueryOptions {
+    instanceId: string;
+    cwd?: string;
     prompt: string;
     allowedTools?: string[];
     maxTurns?: number;

@@ -9,16 +9,98 @@ import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
 // Map to support future multi-instance terminals
 const terminalServices: Map<string, TerminalService> = new Map();
 
-// Claude Agent service instance
-let agentService: ClaudeAgentService | null = null;
+// Map for multi-instance Claude Agent services
+const agentServices: Map<string, ClaudeAgentService> = new Map();
+
+// Reference to main window for event forwarding
+let mainWindowRef: BrowserWindow | null = null;
+
+// Helper to get or create an agent service for a given instanceId
+function getOrCreateAgentService(instanceId: string, cwd: string): ClaudeAgentService {
+    let service = agentServices.get(instanceId);
+    if (!service) {
+        service = new ClaudeAgentService(cwd);
+        agentServices.set(instanceId, service);
+        wireAgentServiceEvents(instanceId, service);
+    }
+    return service;
+}
+
+// Wire up event forwarding for an agent service instance
+function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService): void {
+    if (!mainWindowRef) return;
+    const mainWindow = mainWindowRef;
+
+    service.on('init', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INIT, { instanceId, ...data });
+        }
+    });
+
+    service.on('assistant-message', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ASSISTANT_MESSAGE, { instanceId, ...data });
+        }
+    });
+
+    service.on('stream', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STREAM, { instanceId, ...data });
+        }
+    });
+
+    service.on('tool-pending', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_PENDING, { instanceId, ...data });
+        }
+    });
+
+    service.on('tool-complete', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_COMPLETE, { instanceId, ...data });
+        }
+    });
+
+    service.on('result', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_RESULT, { instanceId, ...data });
+        }
+    });
+
+    service.on('error', (error: Error) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
+                instanceId,
+                message: error.message
+            });
+        }
+    });
+
+    service.on('status-changed', (status) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STATUS_CHANGED, { instanceId, ...status });
+        }
+    });
+
+    service.on('notification', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_NOTIFICATION, { instanceId, ...data });
+        }
+    });
+
+    service.on('message', (message) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_MESSAGE, { instanceId, message });
+        }
+    });
+}
 
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
+    mainWindowRef = mainWindow;
+
     // Create default terminal service
     const terminalService = new TerminalService();
     terminalServices.set(DEFAULT_INSTANCE_ID, terminalService);
-
-    // Create Claude Agent service
-    agentService = new ClaudeAgentService(process.cwd());
 
     // Forward terminal data to renderer
     terminalService.on('data', (data: string) => {
@@ -58,89 +140,22 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         terminalService.switchMode(mode);
     });
 
-    // === Claude Agent Service Event Forwarding ===
-
-    // Forward agent init to renderer
-    agentService.on('init', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INIT, data);
-        }
-    });
-
-    // Forward assistant messages to renderer
-    agentService.on('assistant-message', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ASSISTANT_MESSAGE, data);
-        }
-    });
-
-    // Forward stream events to renderer
-    agentService.on('stream', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STREAM, data);
-        }
-    });
-
-    // Forward tool pending events to renderer
-    agentService.on('tool-pending', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_PENDING, data);
-        }
-    });
-
-    // Forward tool complete events to renderer
-    agentService.on('tool-complete', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_COMPLETE, data);
-        }
-    });
-
-    // Forward result events to renderer
-    agentService.on('result', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_RESULT, data);
-        }
-    });
-
-    // Forward errors to renderer
-    agentService.on('error', (error: Error) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
-                message: error.message
-            });
-        }
-    });
-
-    // Forward status changes to renderer
-    agentService.on('status-changed', (status) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STATUS_CHANGED, status);
-        }
-    });
-
-    // Forward notifications to renderer
-    agentService.on('notification', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_NOTIFICATION, data);
-        }
-    });
-
-    // Forward raw messages to renderer
-    agentService.on('message', (message) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_MESSAGE, message);
-        }
-    });
-
     // === Claude Agent Service Command Handlers ===
 
     // Handle agent start from renderer
     ipcMain.on(IPC_CHANNELS.AGENT_START, async (_event, options: AgentQueryOptions) => {
+        const { instanceId, cwd, ...queryOptions } = options;
+        const workingDir = cwd || process.cwd();
+
         try {
-            await agentService?.startQuery(options);
+            const service = getOrCreateAgentService(instanceId, workingDir);
+            // Update cwd if it changed
+            service.setCwd(workingDir);
+            await service.startQuery(queryOptions);
         } catch (error) {
             if (!mainWindow.isDestroyed()) {
                 mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
+                    instanceId,
                     message: error instanceof Error ? error.message : String(error)
                 });
             }
@@ -148,18 +163,29 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     });
 
     // Handle agent interrupt from renderer
-    ipcMain.on(IPC_CHANNELS.AGENT_INTERRUPT, () => {
-        agentService?.interrupt();
+    ipcMain.on(IPC_CHANNELS.AGENT_INTERRUPT, (_event, instanceId: string) => {
+        const service = agentServices.get(instanceId);
+        service?.interrupt();
     });
 
     // Handle agent status request from renderer
-    ipcMain.handle(IPC_CHANNELS.AGENT_GET_STATUS, () => {
-        return agentService?.getStatus() ?? {
+    ipcMain.handle(IPC_CHANNELS.AGENT_GET_STATUS, (_event, instanceId: string) => {
+        const service = agentServices.get(instanceId);
+        return service?.getStatus() ?? {
             isRunning: false,
             sessionId: null,
             model: null,
             permissionMode: null
         };
+    });
+
+    // Handle agent instance destruction
+    ipcMain.on(IPC_CHANNELS.AGENT_DESTROY_INSTANCE, (_event, instanceId: string) => {
+        const service = agentServices.get(instanceId);
+        if (service) {
+            service.destroy();
+            agentServices.delete(instanceId);
+        }
     });
 
     // Handle folder picker dialog
@@ -186,11 +212,13 @@ export function cleanupIpcHandlers(): void {
         terminalServices.delete(id);
     }
 
-    // Clean up agent service
-    if (agentService) {
-        agentService.destroy();
-        agentService = null;
+    // Clean up all agent services
+    for (const [id, service] of agentServices) {
+        service.destroy();
+        agentServices.delete(id);
     }
+
+    mainWindowRef = null;
 
     // Remove terminal IPC listeners
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_INPUT);
@@ -200,6 +228,7 @@ export function cleanupIpcHandlers(): void {
     // Remove agent IPC listeners
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_START);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INTERRUPT);
+    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_DESTROY_INSTANCE);
     ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
 
     // Remove dialog IPC handlers
