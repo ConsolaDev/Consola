@@ -25,6 +25,7 @@
   gap: var(--space-1);
   height: 28px;
   padding: 0 var(--space-2);
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-secondary);
@@ -32,16 +33,18 @@
   cursor: pointer;
   white-space: nowrap;
   user-select: none;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .tab-item:hover {
   background: var(--color-bg-hover);
+  border-color: var(--color-border);
   color: var(--color-text-primary);
 }
 
 .tab-item.active {
   background: var(--color-bg-active);
+  border-color: var(--color-border);
   color: var(--color-text-primary);
 }
 
@@ -69,7 +72,7 @@
   justify-content: center;
   width: 16px;
   height: 16px;
-  margin-left: var(--space-1);
+  margin-left: auto;
   padding: 0;
   border: none;
   border-radius: var(--radius-sm);
