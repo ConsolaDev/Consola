@@ -31,23 +31,15 @@
 }
 
 .chat-message.user {
-  background: var(--accent-3);
+  background: var(--color-bg-hover);
   margin-left: auto;
 }
 
 .chat-message.assistant {
-  background: var(--color-bg-secondary);
+  background: transparent;
   margin-right: auto;
-}
-
-.message-meta {
-  color: var(--color-text-tertiary);
-  display: block;
-  margin-bottom: 2px;
-  font-size: var(--font-size-md);
-  font-weight: var(--font-weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.03em;
+  max-width: 100%;
+  padding: 0;
 }
 
 .message-content {
