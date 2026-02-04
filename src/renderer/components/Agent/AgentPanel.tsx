@@ -7,7 +7,12 @@ import { ChatInput } from './ChatInput';
 import { ToolStatus } from './ToolStatus';
 import { ProcessingIndicator } from './ProcessingIndicator';
 
-export function AgentPanel() {
+interface AgentPanelProps {
+  instanceId: string;
+  cwd: string;
+}
+
+export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
   const {
     isAvailable,
     isRunning,
@@ -18,7 +23,7 @@ export function AgentPanel() {
     sendMessage,
     interrupt,
     clearError
-  } = useAgent();
+  } = useAgent(instanceId, cwd);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 

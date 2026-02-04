@@ -35,6 +35,15 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
     ? workspace.projects.find((p) => p.id === projectId)
     : undefined;
 
+  // Compute instanceId for agent (using -main suffix for future multi-agent support)
+  const contextId = projectId
+    ? `project-${projectId}`
+    : `workspace-${workspaceId}`;
+  const instanceId = `${contextId}-main`;
+
+  // Determine working directory for agent
+  const cwd = project?.path || process.cwd();
+
   return (
     <div className="workspace-view">
       <div className="workspace-view-header">
@@ -52,11 +61,11 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
           onLayoutChanged={onLayoutChanged}
         >
           <Panel id="agent" defaultSize="60%" minSize="20%">
-            <AgentPanel />
+            <AgentPanel instanceId={instanceId} cwd={cwd} />
           </Panel>
           <Separator className="resize-handle" />
           <Panel id="context" minSize="20%">
-            <ContextPlaceholder />
+            <ContextPlaceholder contextId={contextId} />
           </Panel>
         </Group>
       </div>
