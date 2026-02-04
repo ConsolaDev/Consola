@@ -47,6 +47,7 @@ export interface Message {
 // Tool execution tracking
 export interface ToolExecution {
   id: string;
+  toolUseId?: string;  // From SDK - correlates with tool_use block
   toolName: string;
   toolInput: unknown;
   toolResponse?: unknown;
@@ -313,6 +314,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     const { instanceId, ...toolData } = data;
     const tool: ToolExecution = {
       id: generateId(),
+      toolUseId: toolData.toolUseId,
       toolName: toolData.toolName,
       toolInput: toolData.toolInput,
       status: 'pending',
@@ -329,10 +331,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const instance = state.instances[instanceId];
       if (!instance) return state;
 
-      // Find the pending tool
-      const pendingIndex = instance.activeTools.findIndex(
-        t => t.toolName === toolData.toolName && t.status === 'pending'
-      );
+      // Find the pending tool - prefer matching by toolUseId, fall back to name
+      let pendingIndex = -1;
+      if (toolData.toolUseId) {
+        pendingIndex = instance.activeTools.findIndex(
+          t => t.toolUseId === toolData.toolUseId && t.status === 'pending'
+        );
+      }
+      // Fallback to name-based matching if no toolUseId or not found
+      if (pendingIndex === -1) {
+        pendingIndex = instance.activeTools.findIndex(
+          t => t.toolName === toolData.toolName && t.status === 'pending'
+        );
+      }
 
       if (pendingIndex === -1) {
         return state;
@@ -341,6 +352,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       const pendingTool = instance.activeTools[pendingIndex];
       const completedTool: ToolExecution = {
         ...pendingTool,
+        toolUseId: toolData.toolUseId || pendingTool.toolUseId,
         toolResponse: toolData.toolResponse,
         status: 'complete'
       };

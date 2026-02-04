@@ -3,8 +3,8 @@ import { EventEmitter } from 'events';
 // Types only - actual SDK loaded dynamically
 type SDKMessage = any;
 type Options = any;
-type PreToolUseHookInput = { tool_name: string; tool_input: unknown };
-type PostToolUseHookInput = { tool_name: string; tool_input: unknown; tool_response: unknown };
+type PreToolUseHookInput = { tool_name: string; tool_input: unknown; tool_use_id?: string };
+type PostToolUseHookInput = { tool_name: string; tool_input: unknown; tool_response: unknown; tool_use_id?: string };
 type NotificationHookInput = { message: string; title?: string };
 
 export interface AgentQueryOptions {
@@ -123,7 +123,8 @@ export class ClaudeAgentService extends EventEmitter {
           hooks: [async (input: PreToolUseHookInput) => {
             this.emit('tool-pending', {
               toolName: input.tool_name,
-              toolInput: input.tool_input
+              toolInput: input.tool_input,
+              toolUseId: input.tool_use_id
             });
             return {};
           }]
@@ -133,7 +134,8 @@ export class ClaudeAgentService extends EventEmitter {
             this.emit('tool-complete', {
               toolName: input.tool_name,
               toolInput: input.tool_input,
-              toolResponse: input.tool_response
+              toolResponse: input.tool_response,
+              toolUseId: input.tool_use_id
             });
             return {};
           }]

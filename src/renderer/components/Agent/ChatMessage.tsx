@@ -1,22 +1,29 @@
 import { Box, Text } from '@radix-ui/themes';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownRenderer } from '../Markdown';
-import type { ContentBlock } from '../../stores/agentStore';
+import { ToolBlock, ToolStatus as ToolBlockStatus } from './ToolBlock';
+import type { ContentBlock, ToolExecution } from '../../stores/agentStore';
 
 interface ChatMessageProps {
   type: 'user' | 'assistant';
   content: string;
   contentBlocks?: ContentBlock[];
   timestamp: number;
+  toolHistory?: ToolExecution[];
 }
 
 export function ChatMessage({
   type,
   content,
   contentBlocks,
-  timestamp
+  toolHistory = []
 }: ChatMessageProps) {
   const isUser = type === 'user';
+
+  // Find tool result by tool_use block ID
+  const findToolResult = (toolUseId: string): ToolExecution | undefined => {
+    return toolHistory.find(t => t.toolUseId === toolUseId);
+  };
 
   // Render content blocks for assistant messages
   const renderContent = () => {
@@ -46,10 +53,19 @@ export function ChatMessage({
               return <MarkdownRenderer key={idx} content={block.text} />;
             }
             if (block.type === 'tool_use') {
+              const toolResult = findToolResult(block.id);
+              let status: ToolBlockStatus = 'pending';
+              if (toolResult) {
+                status = toolResult.status === 'error' ? 'error' : 'complete';
+              }
               return (
-                <Box key={idx} className="tool-use-inline">
-                  <Text size="1" color="gray">Used {block.name}</Text>
-                </Box>
+                <ToolBlock
+                  key={idx}
+                  name={block.name}
+                  input={block.input}
+                  status={status}
+                  output={toolResult?.toolResponse}
+                />
               );
             }
             return null;

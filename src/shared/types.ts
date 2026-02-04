@@ -65,6 +65,7 @@ export interface AgentToolEvent {
     toolName: string;
     toolInput: unknown;
     toolResponse?: unknown;
+    toolUseId?: string;  // Correlate with tool_use block
 }
 
 export interface AgentResultEvent {
