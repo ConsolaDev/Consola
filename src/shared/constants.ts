@@ -19,6 +19,7 @@ export const IPC_CHANNELS = {
     AGENT_START: 'agent:start',           // Start a new agent query
     AGENT_INTERRUPT: 'agent:interrupt',   // Interrupt running query
     AGENT_GET_STATUS: 'agent:get-status', // Get current agent status
+    AGENT_DESTROY_INSTANCE: 'agent:destroy-instance', // Destroy agent instance
 
     // Claude Agent channels (Main -> Renderer)
     AGENT_INIT: 'agent:init',                       // Session initialized
