@@ -60,75 +60,172 @@
   font-size: var(--font-size-xs);
 }
 
-/* Chat input */
-.chat-input-container {
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-bg-secondary);
-  border-top: 1px solid var(--color-border);
+/* Chat input card */
+.chat-input-card {
+  margin: var(--space-2);
+  background: var(--gray-3);
+  border: 1px solid var(--gray-5);
+  border-radius: 12px;
+  overflow: hidden;
 }
 
-.chat-input {
-  flex: 1;
-  height: 28px;
-  min-height: 28px;
+.chat-input-textarea {
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
   max-height: 160px;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-primary);
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  border: none;
+  background: transparent;
   color: var(--color-text-primary);
   font-family: inherit;
-  font-size: var(--font-size-sm);
-  line-height: var(--line-height-normal);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-relaxed);
   resize: none;
   outline: none;
+  overflow: hidden;
+  transition: height 0.1s ease-out;
+}
+
+.chat-input-textarea.has-content {
   overflow-y: auto;
-  transition: border-color var(--transition-fast), height 0.1s ease-out;
 }
 
-.chat-input:focus {
-  border-color: var(--color-accent);
+.chat-input-textarea::placeholder {
+  color: var(--gray-10);
 }
 
-.chat-input:disabled {
+.chat-input-textarea:disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.chat-input::placeholder {
-  color: var(--color-text-secondary);
+/* Input toolbar */
+.chat-input-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-2);
 }
 
-.chat-button {
-  padding: var(--space-1) var(--space-3);
+.chat-input-toolbar-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.chat-input-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+/* Icon button (+ attach) */
+.chat-input-icon-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
   border: none;
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
+  border-radius: var(--radius-full);
+  background: transparent;
+  color: var(--gray-10);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.chat-input-icon-btn:hover:not(:disabled) {
+  color: var(--gray-12);
+}
+
+.chat-input-icon-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* Dropdown button */
+.chat-input-dropdown-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  font-size: var(--font-size-sm);
+  color: var(--gray-11);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.chat-input-dropdown-btn:hover:not(:disabled) {
+  color: var(--gray-12);
+}
+
+.chat-input-dropdown-btn:disabled {
+  cursor: default;
+}
+
+/* Context status */
+.chat-input-context {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--font-size-sm);
+  color: var(--gray-11);
+  cursor: default;
+}
+
+.chat-input-context svg {
+  color: var(--gray-10);
+}
+
+.chat-input-model {
+  color: var(--gray-11);
+}
+
+.chat-input-tokens {
+  color: var(--gray-10);
+}
+
+.chat-input-context.warning .chat-input-tokens {
+  color: var(--yellow-11);
+}
+
+.chat-input-context.critical .chat-input-tokens {
+  color: var(--red-11);
+}
+
+/* Send button */
+.chat-input-send-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: var(--radius-full);
+  background: var(--color-accent);
+  color: white;
   cursor: pointer;
   transition: all var(--transition-fast);
 }
 
-.chat-button.send {
-  background: var(--color-accent);
-  color: var(--color-accent-text);
-}
-
-.chat-button.send:hover:not(:disabled) {
+.chat-input-send-btn:hover:not(:disabled) {
   background: var(--color-accent-hover);
 }
 
-.chat-button.send:disabled {
-  opacity: 0.5;
+.chat-input-send-btn:disabled {
+  background: var(--gray-5);
+  color: var(--gray-8);
   cursor: not-allowed;
 }
 
-.chat-button.stop {
+.chat-input-send-btn.stop {
   background: var(--red-9);
-  color: white;
 }
 
-.chat-button.stop:hover {
+.chat-input-send-btn.stop:hover {
   background: var(--red-10);
 }
 
@@ -730,47 +827,3 @@
   margin-top: 2px;
 }
 
-/* Context Status Bar - VS Code style */
-.context-status-bar {
-  padding: var(--space-1) var(--space-3);
-  background: var(--gray-2);
-  border-top: 1px solid var(--gray-4);
-  display: flex;
-  align-items: center;
-  min-height: 22px;
-}
-
-.context-status-text {
-  color: var(--gray-11);
-  font-family: var(--font-mono);
-  font-size: 11px;
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.context-status-model {
-  color: var(--gray-12);
-}
-
-.context-status-separator {
-  color: var(--gray-8);
-}
-
-.context-status-tokens {
-  color: var(--gray-11);
-}
-
-.context-status-percentage {
-  color: var(--gray-10);
-}
-
-/* Warning state when approaching limit (>70%) */
-.context-status-bar.warning .context-status-percentage {
-  color: var(--yellow-11);
-}
-
-/* Critical state when near limit (>85%) */
-.context-status-bar.critical .context-status-percentage {
-  color: var(--red-11);
-}
