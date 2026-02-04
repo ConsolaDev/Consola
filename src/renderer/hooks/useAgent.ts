@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useAgentStore, InstanceState } from '../stores/agentStore';
 import { agentBridge } from '../services/agentBridge';
+import { ModelUsage } from '../../shared/types';
 
 // Default empty state for when no instance is specified
 const emptyInstanceState: InstanceState = {
@@ -105,6 +106,15 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     }
   }, [instanceId, storeRespondToInput]);
 
+  // Extract usage for the current model from lastResult.modelUsage
+  const currentModelUsage = useMemo((): ModelUsage | null => {
+    if (!instanceState?.lastResult?.modelUsage || !instanceState?.model) {
+      return null;
+    }
+    // modelUsage is keyed by model ID
+    return instanceState.lastResult.modelUsage[instanceState.model] ?? null;
+  }, [instanceState?.lastResult?.modelUsage, instanceState?.model]);
+
   return useMemo(() => ({
     // Connection state
     isAvailable,
@@ -134,6 +144,9 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     lastResult: instanceState.lastResult,
     error: instanceState.error,
 
+    // Model usage (for context status bar)
+    modelUsage: currentModelUsage,
+
     // Processing
     isProcessing: instanceState.processing.isProcessing,
 
@@ -147,6 +160,7 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     isAvailable,
     instanceId,
     instanceState,
+    currentModelUsage,
     sendMessage,
     interrupt,
     clearMessages,

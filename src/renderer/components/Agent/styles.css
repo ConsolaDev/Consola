@@ -726,3 +726,48 @@
   color: var(--color-text-secondary);
   margin-top: 2px;
 }
+
+/* Context Status Bar - VS Code style */
+.context-status-bar {
+  padding: var(--space-1) var(--space-3);
+  background: var(--gray-2);
+  border-top: 1px solid var(--gray-4);
+  display: flex;
+  align-items: center;
+  min-height: 22px;
+}
+
+.context-status-text {
+  color: var(--gray-11);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.context-status-model {
+  color: var(--gray-12);
+}
+
+.context-status-separator {
+  color: var(--gray-8);
+}
+
+.context-status-tokens {
+  color: var(--gray-11);
+}
+
+.context-status-percentage {
+  color: var(--gray-10);
+}
+
+/* Warning state when approaching limit (>70%) */
+.context-status-bar.warning .context-status-percentage {
+  color: var(--yellow-11);
+}
+
+/* Critical state when near limit (>85%) */
+.context-status-bar.critical .context-status-percentage {
+  color: var(--red-11);
+}

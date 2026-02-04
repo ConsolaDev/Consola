@@ -45,6 +45,16 @@ export interface TerminalAPI {
 }
 
 // Claude Agent SDK Types
+export interface ModelUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadInputTokens: number;
+  cacheCreationInputTokens: number;
+  contextWindow: number;
+  maxOutputTokens: number;
+  costUSD: number;
+}
+
 export interface AgentInitEvent {
     instanceId: string;
     sessionId: string;
@@ -80,6 +90,7 @@ export interface AgentResultEvent {
         input_tokens: number | null;
         output_tokens: number | null;
     };
+    modelUsage?: Record<string, ModelUsage>;
 }
 
 export interface AgentStatus {
