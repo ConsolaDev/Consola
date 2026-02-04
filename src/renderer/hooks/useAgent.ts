@@ -32,7 +32,7 @@ const emptyInstanceState: InstanceState = {
  * @param instanceId - The instance ID to scope this hook to (null for home tab/no agent)
  * @param cwd - The working directory for this agent instance
  */
-export function useAgent(instanceId: string | null, cwd: string = process.cwd()) {
+export function useAgent(instanceId: string | null, cwd: string = '') {
   const isAvailable = useAgentStore(state => state.isAvailable);
   const instance = useAgentStore(state =>
     instanceId ? state.instances[instanceId] : undefined
