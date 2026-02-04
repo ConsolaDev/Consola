@@ -1,7 +1,9 @@
 import { Box, Flex, Text } from '@radix-ui/themes';
 import { parseToolInput } from './toolInputParser';
+import { parseBashOutput } from './toolOutputParser';
 import { ToolOutput } from './ToolOutput';
 import { DiffView } from './DiffView';
+import { BashOutput } from './BashOutput';
 
 export type ToolStatus = 'pending' | 'complete' | 'error';
 
@@ -35,6 +37,9 @@ export function ToolBlock({ name, input, status, output }: ToolBlockProps) {
   const isEdit = name === 'Edit' && isEditInput(input);
   const editInput = isEdit ? (input as EditInput) : null;
 
+  // Check if this is a Bash tool with structured output
+  const bashOutput = name === 'Bash' ? parseBashOutput(output) : null;
+
   // Only show output section when complete/error
   const showOutput = status !== 'pending' && (output !== undefined || isEdit);
 
@@ -61,7 +66,14 @@ export function ToolBlock({ name, input, status, output }: ToolBlockProps) {
           newString={editInput.new_string}
         />
       )}
-      {showOutput && !isEdit && output !== undefined && (
+      {showOutput && bashOutput && (
+        <BashOutput
+          stdout={bashOutput.stdout}
+          stderr={bashOutput.stderr}
+          interrupted={bashOutput.interrupted}
+        />
+      )}
+      {showOutput && !isEdit && !bashOutput && output !== undefined && (
         <ToolOutput content={output} />
       )}
     </Box>

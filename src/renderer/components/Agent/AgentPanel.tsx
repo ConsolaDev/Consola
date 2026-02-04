@@ -4,7 +4,6 @@ import { useAgent } from '../../hooks/useAgent';
 import './styles.css';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
-import { ToolStatus } from './ToolStatus';
 import { ProcessingIndicator } from './ProcessingIndicator';
 
 interface AgentPanelProps {
@@ -17,7 +16,6 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
     isAvailable,
     isRunning,
     messages,
-    activeTools,
     toolHistory,
     error,
     isProcessing,
@@ -79,9 +77,6 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
           </Flex>
         </Box>
       )}
-
-      {/* Tool status */}
-      <ToolStatus activeTools={activeTools} />
 
       {/* Input */}
       <ChatInput
