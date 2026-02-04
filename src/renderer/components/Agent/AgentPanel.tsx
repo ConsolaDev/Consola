@@ -6,7 +6,6 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ProcessingIndicator } from './ProcessingIndicator';
 import { ApprovalCard } from './ApprovalCard';
-import { ContextStatusBar } from './ContextStatusBar';
 
 interface AgentPanelProps {
   instanceId: string;
@@ -92,15 +91,14 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
         </Box>
       )}
 
-      {/* Context Status Bar */}
-      <ContextStatusBar model={model} modelUsage={modelUsage} />
-
       {/* Input */}
       <ChatInput
         onSend={sendMessage}
         onInterrupt={interrupt}
         isRunning={isRunning}
         disabled={false}
+        model={model}
+        modelUsage={modelUsage}
       />
     </Flex>
   );

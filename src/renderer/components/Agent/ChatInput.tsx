@@ -1,17 +1,33 @@
 import { useState, useCallback, useRef, useEffect, KeyboardEvent, ChangeEvent } from 'react';
-import { Box, Flex, Button } from '@radix-ui/themes';
+import { Plus, ArrowRight, Square, ChevronDown } from 'lucide-react';
+import { ModelUsage } from '../../../shared/types';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
   onInterrupt: () => void;
   isRunning: boolean;
   disabled: boolean;
+  model: string | null;
+  modelUsage: ModelUsage | null;
 }
 
-const MIN_HEIGHT = 28;
+const MIN_HEIGHT = 24;
 const MAX_HEIGHT = 160;
 
-export function ChatInput({ onSend, onInterrupt, isRunning, disabled }: ChatInputProps) {
+function formatModelName(modelId: string | null): string {
+  if (!modelId) return 'Claude';
+
+  // Extract friendly name: "claude-sonnet-4-20250514" -> "Sonnet 4"
+  const match = modelId.match(/claude-(\w+)-(\d+)/);
+  if (match) {
+    const [, variant, version] = match;
+    return `${variant.charAt(0).toUpperCase() + variant.slice(1)} ${version}`;
+  }
+
+  return modelId;
+}
+
+export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, modelUsage }: ChatInputProps) {
   const [input, setInput] = useState('');
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -55,36 +71,79 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled }: ChatInpu
     }
   }, [handleSend]);
 
+  const handleAttach = useCallback(() => {
+    // TODO: Implement file attachment
+    console.log('Attach file');
+  }, []);
+
+  // Calculate context usage for display
+  const totalTokens = modelUsage
+    ? modelUsage.inputTokens + modelUsage.outputTokens
+    : 0;
+  const contextWindow = modelUsage?.contextWindow ?? 200_000;
+  const percentage = contextWindow > 0 ? (totalTokens / contextWindow) * 100 : 0;
+  const statusClass = percentage >= 85 ? 'critical' : percentage >= 70 ? 'warning' : '';
+
+  const canSend = input.trim() && !disabled && !isRunning;
+  const hasContent = input.length > 0;
+
   return (
-    <Box className="chat-input-container">
-      <Flex gap="2" align="end">
-        <textarea
-          ref={textareaRef}
-          className="chat-input"
-          value={input}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          placeholder="Ask Claude..."
-          disabled={disabled || isRunning}
-          rows={1}
-        />
-        {isRunning ? (
-          <Button
-            className="chat-button stop"
-            onClick={onInterrupt}
+    <div className="chat-input-card">
+      <textarea
+        ref={textareaRef}
+        className={`chat-input-textarea ${hasContent ? 'has-content' : ''}`}
+        value={input}
+        onChange={handleChange}
+        onKeyDown={handleKeyDown}
+        placeholder="What would you like to know?"
+        disabled={disabled || isRunning}
+        rows={1}
+      />
+      <div className="chat-input-toolbar">
+        <div className="chat-input-toolbar-left">
+          <button
+            className="chat-input-icon-btn attach"
+            onClick={handleAttach}
+            disabled={disabled}
+            aria-label="Attach file"
           >
-            Stop
-          </Button>
-        ) : (
-          <Button
-            className="chat-button send"
-            onClick={handleSend}
-            disabled={!input.trim() || disabled}
-          >
-            Send
-          </Button>
-        )}
-      </Flex>
-    </Box>
+            <Plus size={16} strokeWidth={1.5} />
+          </button>
+          <button className="chat-input-dropdown-btn" disabled>
+            <ChevronDown size={12} strokeWidth={2} />
+            <span>Fast</span>
+          </button>
+          <div className={`chat-input-context ${statusClass}`}>
+            <ChevronDown size={12} strokeWidth={2} />
+            <span className="chat-input-model">{formatModelName(model)}</span>
+            {modelUsage && (
+              <span className="chat-input-tokens">
+                ({percentage.toFixed(0)}%)
+              </span>
+            )}
+          </div>
+        </div>
+        <div className="chat-input-toolbar-right">
+          {isRunning ? (
+            <button
+              className="chat-input-send-btn stop"
+              onClick={onInterrupt}
+              aria-label="Stop"
+            >
+              <Square size={14} />
+            </button>
+          ) : (
+            <button
+              className="chat-input-send-btn"
+              onClick={handleSend}
+              disabled={!canSend}
+              aria-label="Send message"
+            >
+              <ArrowRight size={16} strokeWidth={2} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
