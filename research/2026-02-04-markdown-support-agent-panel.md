@@ -2,7 +2,7 @@
 date: 2026-02-04T12:00:00-08:00
 git_commit: edea55ed1c58fa7cae24ac0641b5c83926e5df05
 branch: master
-repository: console-1
+repository: consola
 topic: "Adding Unified Markdown Support (Agent Panel + File Rendering)"
 tags: [research, codebase, markdown, agent-panel, file-viewer, react, syntax-highlighting]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-04
 **Git Commit**: edea55ed1c58fa7cae24ac0641b5c83926e5df05
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

@@ -19,7 +19,7 @@ export function HomeView() {
         <div className="home-view-icon">
           <Sparkles size={48} strokeWidth={1.5} />
         </div>
-        <h1 className="home-view-title">Welcome to Console</h1>
+        <h1 className="home-view-title">Welcome to Consola</h1>
         <p className="home-view-description">
           {workspaces.length === 0
             ? 'Create your first workspace to get started'

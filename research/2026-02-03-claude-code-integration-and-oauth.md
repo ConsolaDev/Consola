@@ -2,7 +2,7 @@
 date: 2026-02-03T12:00:00-08:00
 git_commit: 3654a163085ab4f93a124ec476db97c5bb03b48d
 branch: master
-repository: console-1
+repository: consola
 topic: "Claude Code Integration and OAuth Authentication for UI Wrapper"
 tags: [research, codebase, claude-code, oauth, electron, integration]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-03
 **Git Commit**: 3654a163085ab4f93a124ec476db97c5bb03b48d
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

@@ -2,7 +2,7 @@
 date: 2026-02-04T12:00:00-08:00
 git_commit: dbcbbc3408334c8a7e6378495913f3767b8b8841
 branch: feature/unified-markdown-support
-repository: console-1
+repository: consola
 topic: "Slash Command System Implementation Research"
 tags: [research, codebase, input-system, commands, ux]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-04
 **Git Commit**: dbcbbc3408334c8a7e6378495913f3767b8b8841
 **Branch**: feature/unified-markdown-support
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

@@ -2,7 +2,7 @@
 date: 2026-02-03T22:45:00+01:00
 git_commit: 91af988c53ab671aa2d7ce3f4c84eed1cc7c20ff
 branch: master
-repository: console-1
+repository: consola
 topic: "Agent View Not Rendering All Claude Outputs (Thinking, Streaming)"
 tags: [research, codebase, agent-sdk, streaming, ui]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-03 22:45:00 +01:00
 **Git Commit**: 91af988c53ab671aa2d7ce3f4c84eed1cc7c20ff
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

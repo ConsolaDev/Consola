@@ -2,7 +2,7 @@
 date: 2026-02-03T00:00:00-08:00
 git_commit: 91af988c53ab671aa2d7ce3f4c84eed1cc7c20ff
 branch: master
-repository: console-1
+repository: consola
 topic: "Workspace Feature Architecture Research"
 tags: [research, codebase, workspace, navigation, split-panes, mcp-integration]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-03
 **Git Commit**: 91af988c53ab671aa2d7ce3f4c84eed1cc7c20ff
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 
@@ -21,7 +21,7 @@ How to add workspace management, collapsible side navigation, split panes for ch
 
 ## Summary
 
-The console-1 application is an Electron-based terminal wrapper with integrated Claude Agent SDK. The current architecture provides a solid foundation for the proposed features, with established patterns for IPC communication, state management (Zustand), and event-driven SDK integration. Key architectural gaps for workspace support include: no persistence layer, no sidebar navigation, simple vertical layout without split panes, and limited skill/command rendering beyond tool status tracking.
+The consola application is an Electron-based terminal wrapper with integrated Claude Agent SDK. The current architecture provides a solid foundation for the proposed features, with established patterns for IPC communication, state management (Zustand), and event-driven SDK integration. Key architectural gaps for workspace support include: no persistence layer, no sidebar navigation, simple vertical layout without split panes, and limited skill/command rendering beyond tool status tracking.
 
 ---
 

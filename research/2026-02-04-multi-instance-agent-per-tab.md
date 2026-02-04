@@ -2,7 +2,7 @@
 date: 2026-02-04T09:45:00-08:00
 git_commit: f272f393b9a67ab7adabc91206969d5cee3c2713
 branch: master
-repository: console-1
+repository: consola
 topic: "Multi-Instance Claude Agent Architecture Per Tab"
 tags: [research, codebase, agent, tabs, multi-instance]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-04T09:45:00-08:00
 **Git Commit**: f272f393b9a67ab7adabc91206969d5cee3c2713
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

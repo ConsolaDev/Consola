@@ -2,7 +2,7 @@
 date: 2026-02-04T00:00:00-08:00
 git_commit: 6aad0cdaa432713f57f7e081f7a3ce067e26e181
 branch: feature/unified-markdown-support
-repository: console-1
+repository: consola
 topic: "TabBar Component Styling System"
 tags: [research, codebase, css, tabbar, design-tokens]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-04
 **Git Commit**: 6aad0cdaa432713f57f7e081f7a3ce067e26e181
 **Branch**: feature/unified-markdown-support
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

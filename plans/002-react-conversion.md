@@ -875,7 +875,7 @@ export function getMainWindow(): BrowserWindow | null {
 
 ```json
 {
-  "name": "console-1",
+  "name": "consola",
   "version": "1.0.0",
   "description": "A terminal wrapper with Claude Code integration",
   "main": "dist/main/main/index.js",

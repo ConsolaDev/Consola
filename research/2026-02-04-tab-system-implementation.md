@@ -2,7 +2,7 @@
 date: 2026-02-04T00:30:00+01:00
 git_commit: ae6e10f2058694ac8c408c39abfbabddea26463c
 branch: master
-repository: console-1
+repository: consola
 topic: "Tab-based Navigation System Implementation"
 tags: [research, codebase, tabs, navigation, workspaces, projects]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-04
 **Git Commit**: ae6e10f2058694ac8c408c39abfbabddea26463c
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 

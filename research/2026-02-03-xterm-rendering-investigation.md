@@ -2,7 +2,7 @@
 date: 2026-02-03T18:00:00-08:00
 git_commit: e987a18
 branch: master
-repository: console-1
+repository: consola
 topic: "xterm.js rendering investigation"
 tags: [research, codebase, xterm, electron, rendering]
 status: complete
@@ -13,7 +13,7 @@ status: complete
 **Date**: 2026-02-03T18:00:00-08:00
 **Git Commit**: e987a18
 **Branch**: master
-**Repository**: console-1
+**Repository**: consola
 
 ## Research Question
 Understand why the current xterm is not rendering in the application.
