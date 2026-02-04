@@ -107,9 +107,15 @@
 .workspace-view-content {
   flex: 1;
   display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-8);
+  overflow: hidden;
+}
+
+/* Panel content should fill available space */
+.workspace-view-content [data-panel] > div {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
 
 .workspace-placeholder {
@@ -124,6 +130,26 @@
 .workspace-placeholder-hint {
   font-size: var(--font-size-sm);
   color: var(--color-text-tertiary);
+}
+
+.context-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-4);
+}
+
+.context-placeholder p {
+  margin: 0;
+}
+
+.context-placeholder-hint {
+  font-size: var(--font-size-sm);
+  margin-top: var(--space-2);
 }
 
 /* Settings View */
@@ -246,4 +272,29 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
   color: var(--color-text-secondary);
+}
+
+/* Resize handle for split panels */
+.resize-handle {
+  width: 8px;
+  background: transparent;
+  position: relative;
+  transition: background var(--transition-fast);
+}
+
+.resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 1px;
+  background: var(--color-border);
+  transition: background var(--transition-fast);
+}
+
+.resize-handle:hover::after,
+.resize-handle[data-resize-handle-state="drag"]::after {
+  background: var(--color-accent);
 }
