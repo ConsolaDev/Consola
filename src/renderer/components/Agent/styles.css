@@ -291,7 +291,7 @@
 
 .tool-output-content.collapsed {
   position: relative;
-  max-height: calc(var(--font-size-xs) * var(--line-height-normal) * 10 + var(--space-2) * 2);
+  max-height: calc(var(--font-size-xs) * var(--line-height-normal) * 3 + var(--space-2) * 2);
 }
 
 .tool-output-content.collapsed::after {
