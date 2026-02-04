@@ -54,10 +54,8 @@ export interface ToolExecution {
   timestamp: number;
 }
 
-interface AgentState {
-  // Connection
-  isAvailable: boolean;
-
+// Per-instance state
+export interface InstanceState {
   // Status
   status: AgentStatus;
 
@@ -80,15 +78,53 @@ interface AgentState {
 
   // Processing
   processing: ProcessingState;
+}
 
-  // Actions
-  sendMessage: (prompt: string, options?: {
+// Default instance state factory
+function createDefaultInstanceState(): InstanceState {
+  return {
+    status: {
+      isRunning: false,
+      sessionId: null,
+      model: null,
+      permissionMode: null
+    },
+    sessionId: null,
+    model: null,
+    availableTools: [],
+    mcpServers: [],
+    messages: [],
+    activeTools: [],
+    toolHistory: [],
+    lastResult: null,
+    error: null,
+    processing: {
+      isProcessing: false,
+      currentMessageId: null
+    }
+  };
+}
+
+interface AgentState {
+  // Global state
+  isAvailable: boolean;
+
+  // Per-instance state
+  instances: Record<string, InstanceState>;
+
+  // Instance management
+  getInstance: (instanceId: string) => InstanceState;
+  getOrCreateInstance: (instanceId: string) => InstanceState;
+  destroyInstance: (instanceId: string) => void;
+
+  // Actions (per-instance)
+  sendMessage: (instanceId: string, cwd: string, prompt: string, options?: {
     allowedTools?: string[];
     maxTurns?: number;
   }) => void;
-  interrupt: () => void;
-  clearMessages: () => void;
-  clearError: () => void;
+  interrupt: (instanceId: string) => void;
+  clearMessages: (instanceId: string) => void;
+  clearError: (instanceId: string) => void;
 
   // Internal actions for event handling
   _handleInit: (data: AgentInitEvent) => void;
@@ -96,9 +132,9 @@ interface AgentState {
   _handleToolPending: (data: AgentToolEvent) => void;
   _handleToolComplete: (data: AgentToolEvent) => void;
   _handleResult: (data: AgentResultEvent) => void;
-  _handleError: (data: { message: string }) => void;
-  _handleStatusChanged: (status: AgentStatus) => void;
-  _handleStream: (data: { event: any; uuid: string }) => void;
+  _handleError: (data: { instanceId: string; message: string }) => void;
+  _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => void;
+  _handleStream: (data: { instanceId: string; event: any; uuid: string }) => void;
 }
 
 // Extract all content blocks from SDK message
@@ -141,32 +177,63 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
+// Helper to update instance state immutably
+function updateInstance(
+  state: AgentState,
+  instanceId: string,
+  updater: (instance: InstanceState) => Partial<InstanceState>
+): Partial<AgentState> {
+  const instance = state.instances[instanceId] || createDefaultInstanceState();
+  const updates = updater(instance);
+  return {
+    instances: {
+      ...state.instances,
+      [instanceId]: { ...instance, ...updates }
+    }
+  };
+}
+
 export const useAgentStore = create<AgentState>((set, get) => ({
   // Initial state
   isAvailable: agentBridge.isAvailable(),
-  status: {
-    isRunning: false,
-    sessionId: null,
-    model: null,
-    permissionMode: null
+  instances: {},
+
+  // === Instance Management ===
+
+  getInstance: (instanceId: string) => {
+    return get().instances[instanceId] || createDefaultInstanceState();
   },
-  sessionId: null,
-  model: null,
-  availableTools: [],
-  mcpServers: [],
-  messages: [],
-  activeTools: [],
-  toolHistory: [],
-  lastResult: null,
-  error: null,
-  processing: {
-    isProcessing: false,
-    currentMessageId: null
+
+  getOrCreateInstance: (instanceId: string) => {
+    const state = get();
+    if (!state.instances[instanceId]) {
+      set({
+        instances: {
+          ...state.instances,
+          [instanceId]: createDefaultInstanceState()
+        }
+      });
+    }
+    return get().instances[instanceId];
+  },
+
+  destroyInstance: (instanceId: string) => {
+    // Notify main process to destroy the service
+    agentBridge.destroyInstance(instanceId);
+
+    // Remove from local state
+    set(state => {
+      const { [instanceId]: _, ...remaining } = state.instances;
+      return { instances: remaining };
+    });
   },
 
   // === Public Actions ===
 
-  sendMessage: (prompt, options = {}) => {
+  sendMessage: (instanceId, cwd, prompt, options = {}) => {
+    // Ensure instance exists
+    get().getOrCreateInstance(instanceId);
+
     // Add user message to store
     const userMessage: Message = {
       id: generateId(),
@@ -175,129 +242,152 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       timestamp: Date.now()
     };
 
-    set(state => ({
-      messages: [...state.messages, userMessage],
+    set(state => updateInstance(state, instanceId, (instance) => ({
+      messages: [...instance.messages, userMessage],
       error: null
-    }));
+    })));
 
     // Start query via bridge
+    const instance = get().instances[instanceId];
     agentBridge.startQuery({
+      instanceId,
+      cwd,
       prompt,
       ...options,
-      continue: get().sessionId !== null
+      continue: instance?.sessionId !== null
     });
   },
 
-  interrupt: () => {
-    agentBridge.interrupt();
+  interrupt: (instanceId) => {
+    agentBridge.interrupt(instanceId);
   },
 
-  clearMessages: () => {
-    set({
+  clearMessages: (instanceId) => {
+    set(state => updateInstance(state, instanceId, () => ({
       messages: [],
       activeTools: [],
       toolHistory: [],
       lastResult: null,
       sessionId: null
-    });
+    })));
   },
 
-  clearError: () => {
-    set({ error: null });
+  clearError: (instanceId) => {
+    set(state => updateInstance(state, instanceId, () => ({
+      error: null
+    })));
   },
 
   // === Internal Event Handlers ===
 
   _handleInit: (data: AgentInitEvent) => {
-    set({
-      sessionId: data.sessionId,
-      model: data.model,
-      availableTools: data.tools,
-      mcpServers: data.mcpServers
-    });
+    const { instanceId, ...initData } = data;
+    set(state => updateInstance(state, instanceId, () => ({
+      sessionId: initData.sessionId,
+      model: initData.model,
+      availableTools: initData.tools,
+      mcpServers: initData.mcpServers
+    })));
   },
 
   _handleAssistantMessage: (data: AgentMessageEvent) => {
-    const contentBlocks = extractContentBlocks(data.content);
+    const { instanceId, ...messageData } = data;
+    const contentBlocks = extractContentBlocks(messageData.content);
     const plainText = getPlainText(contentBlocks);
 
     const message: Message = {
-      id: data.uuid,
+      id: messageData.uuid,
       type: 'assistant',
       content: plainText,
       contentBlocks,
       timestamp: Date.now()
     };
 
-    set(state => ({
-      messages: [...state.messages, message],
+    set(state => updateInstance(state, instanceId, (instance) => ({
+      messages: [...instance.messages, message],
       processing: { isProcessing: false, currentMessageId: null }
-    }));
+    })));
   },
 
   _handleToolPending: (data: AgentToolEvent) => {
+    const { instanceId, ...toolData } = data;
     const tool: ToolExecution = {
       id: generateId(),
-      toolName: data.toolName,
-      toolInput: data.toolInput,
+      toolName: toolData.toolName,
+      toolInput: toolData.toolInput,
       status: 'pending',
       timestamp: Date.now()
     };
-    set(state => ({
-      activeTools: [...state.activeTools, tool]
-    }));
+    set(state => updateInstance(state, instanceId, (instance) => ({
+      activeTools: [...instance.activeTools, tool]
+    })));
   },
 
   _handleToolComplete: (data: AgentToolEvent) => {
+    const { instanceId, ...toolData } = data;
     set(state => {
+      const instance = state.instances[instanceId];
+      if (!instance) return state;
+
       // Find the pending tool
-      const pendingIndex = state.activeTools.findIndex(
-        t => t.toolName === data.toolName && t.status === 'pending'
+      const pendingIndex = instance.activeTools.findIndex(
+        t => t.toolName === toolData.toolName && t.status === 'pending'
       );
 
       if (pendingIndex === -1) {
         return state;
       }
 
-      const pendingTool = state.activeTools[pendingIndex];
+      const pendingTool = instance.activeTools[pendingIndex];
       const completedTool: ToolExecution = {
         ...pendingTool,
-        toolResponse: data.toolResponse,
+        toolResponse: toolData.toolResponse,
         status: 'complete'
       };
 
       // Remove from active, add to history
-      const newActiveTools = [...state.activeTools];
+      const newActiveTools = [...instance.activeTools];
       newActiveTools.splice(pendingIndex, 1);
 
-      return {
+      return updateInstance(state, instanceId, () => ({
         activeTools: newActiveTools,
-        toolHistory: [...state.toolHistory, completedTool]
-      };
+        toolHistory: [...instance.toolHistory, completedTool]
+      }));
     });
   },
 
   _handleResult: (data: AgentResultEvent) => {
-    set({ lastResult: data });
+    const { instanceId, ...resultData } = data;
+    set(state => updateInstance(state, instanceId, () => ({
+      lastResult: { instanceId, ...resultData }
+    })));
   },
 
-  _handleError: (data: { message: string }) => {
-    set({ error: data.message });
+  _handleError: (data: { instanceId: string; message: string }) => {
+    const { instanceId, message } = data;
+    set(state => updateInstance(state, instanceId, () => ({
+      error: message
+    })));
   },
 
-  _handleStatusChanged: (status: AgentStatus) => {
-    set({ status });
+  _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => {
+    const { instanceId, ...status } = data;
+    set(state => updateInstance(state, instanceId, () => ({
+      status
+    })));
   },
 
-  _handleStream: (data: { event: any; uuid: string }) => {
+  _handleStream: (data: { instanceId: string; event: any; uuid: string }) => {
+    const { instanceId, uuid } = data;
     // Just mark that we're processing - don't accumulate text
     set(state => {
-      if (!state.processing.isProcessing) {
-        return {
-          processing: { isProcessing: true, currentMessageId: data.uuid }
-        };
+      const instance = state.instances[instanceId];
+      if (!instance || instance.processing.isProcessing) {
+        return state;
       }
-      return state;
+      return updateInstance(state, instanceId, () => ({
+        processing: { isProcessing: true, currentMessageId: uuid }
+      }));
     });
   }
 }));
