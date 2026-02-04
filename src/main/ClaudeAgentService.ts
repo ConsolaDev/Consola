@@ -7,6 +7,35 @@ type PreToolUseHookInput = { tool_name: string; tool_input: unknown; tool_use_id
 type PostToolUseHookInput = { tool_name: string; tool_input: unknown; tool_response: unknown; tool_use_id?: string };
 type NotificationHookInput = { message: string; title?: string };
 
+// Permission request types
+interface PendingPermission {
+  requestId: string;
+  toolName: string;
+  toolInput: Record<string, unknown>;
+  resolve: (result: PermissionResult) => void;
+}
+
+interface PermissionResult {
+  behavior: 'allow' | 'deny';
+  updatedInput?: Record<string, unknown>;
+  message?: string;
+}
+
+// Question request types (for AskUserQuestion tool)
+interface PendingQuestion {
+  requestId: string;
+  questions: any[];
+  resolve: (answers: Record<string, string>) => void;
+}
+
+// PreToolUse hook output type
+interface PreToolUseHookOutput {
+  permissionDecision?: 'allow' | 'deny' | 'ask';
+  permissionDecisionReason?: string;
+  updatedInput?: Record<string, unknown>;
+  additionalContext?: string;
+}
+
 export interface AgentQueryOptions {
   prompt: string;
   allowedTools?: string[];
@@ -94,9 +123,57 @@ export class ClaudeAgentService extends EventEmitter {
     model: null,
     permissionMode: null
   };
+  private pendingPermissions: Map<string, PendingPermission> = new Map();
+  private pendingQuestions: Map<string, PendingQuestion> = new Map();
 
   constructor(private cwd: string) {
     super();
+  }
+
+  // Respond to a pending permission or question request
+  respondToPermission(requestId: string, action: 'approve' | 'reject' | 'modify', options?: {
+    modifiedInput?: Record<string, unknown>;
+    feedback?: string;
+    answers?: Record<string, string>;
+  }): void {
+    // Check if this is a question request
+    const pendingQuestion = this.pendingQuestions.get(requestId);
+    if (pendingQuestion) {
+      if (action === 'approve' && options?.answers) {
+        pendingQuestion.resolve(options.answers);
+      } else {
+        // User cancelled/rejected - provide empty answers
+        pendingQuestion.resolve({});
+      }
+      this.pendingQuestions.delete(requestId);
+      return;
+    }
+
+    // Otherwise it's a permission request
+    const pending = this.pendingPermissions.get(requestId);
+    if (!pending) {
+      console.warn(`No pending request found for requestId: ${requestId}`);
+      return;
+    }
+
+    if (action === 'approve') {
+      pending.resolve({
+        behavior: 'allow',
+        updatedInput: options?.modifiedInput ?? pending.toolInput
+      });
+    } else if (action === 'modify' && options?.modifiedInput) {
+      pending.resolve({
+        behavior: 'allow',
+        updatedInput: options.modifiedInput
+      });
+    } else {
+      pending.resolve({
+        behavior: 'deny',
+        message: options?.feedback || 'User denied the action'
+      });
+    }
+
+    this.pendingPermissions.delete(requestId);
   }
 
   async startQuery(options: AgentQueryOptions): Promise<void> {
@@ -118,9 +195,96 @@ export class ClaudeAgentService extends EventEmitter {
       resume: options.resume,
       continue: options.continue,
       includePartialMessages: true,
+      // Permission callback - asks user for approval
+      canUseTool: async (
+        toolName: string,
+        input: Record<string, unknown>,
+        opts: { signal: AbortSignal; toolUseID: string; decisionReason?: string }
+      ): Promise<PermissionResult> => {
+        const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+        // Create a promise that will be resolved when user responds
+        return new Promise<PermissionResult>((resolve) => {
+          this.pendingPermissions.set(requestId, {
+            requestId,
+            toolName,
+            toolInput: input,
+            resolve
+          });
+
+          // Emit event to UI
+          this.emit('input-request', {
+            requestId,
+            type: 'permission',
+            toolName,
+            toolInput: input,
+            description: opts.decisionReason || `Allow ${toolName}?`
+          });
+
+          // Handle abort signal
+          opts.signal.addEventListener('abort', () => {
+            if (this.pendingPermissions.has(requestId)) {
+              this.pendingPermissions.delete(requestId);
+              resolve({ behavior: 'deny', message: 'Operation cancelled' });
+            }
+          });
+        });
+      },
       hooks: {
         PreToolUse: [{
-          hooks: [async (input: PreToolUseHookInput) => {
+          hooks: [async (input: PreToolUseHookInput): Promise<PreToolUseHookOutput> => {
+            // Intercept AskUserQuestion tool to show UI
+            if (input.tool_name === 'AskUserQuestion') {
+              const toolInput = input.tool_input as { questions?: any[] };
+              const questions = toolInput?.questions || [];
+
+              if (questions.length > 0) {
+                const requestId = `question-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
+
+                // Wait for user response
+                const answers = await new Promise<Record<string, string>>((resolve) => {
+                  this.pendingQuestions.set(requestId, {
+                    requestId,
+                    questions,
+                    resolve
+                  });
+
+                  // Emit event to UI with questions
+                  this.emit('input-request', {
+                    requestId,
+                    type: 'question',
+                    toolName: input.tool_name,
+                    toolInput: input.tool_input,
+                    questions: questions.map((q: any) => ({
+                      question: q.question,
+                      header: q.header,
+                      options: q.options || [],
+                      multiSelect: q.multiSelect || false
+                    }))
+                  });
+                });
+
+                // Check if user cancelled/rejected
+                if (Object.keys(answers).length === 0) {
+                  return {
+                    permissionDecision: 'deny' as const,
+                    permissionDecisionReason: 'User cancelled the question dialog.'
+                  };
+                }
+
+                // Deny the tool execution but pass answers back to Claude
+                // This prevents the tool from outputting its question text (since we already showed the UI)
+                const answersText = Object.entries(answers)
+                  .map(([q, a]) => `Q: ${q}\nA: ${a}`)
+                  .join('\n\n');
+                return {
+                  permissionDecision: 'deny' as const,
+                  permissionDecisionReason: `User answered the question(s):\n\n${answersText}`
+                };
+              }
+            }
+
+            // For all other tools, just emit pending event
             this.emit('tool-pending', {
               toolName: input.tool_name,
               toolInput: input.tool_input,

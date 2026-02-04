@@ -4,7 +4,9 @@ import type {
   AgentMessageEvent,
   AgentToolEvent,
   AgentResultEvent,
-  AgentQueryOptions
+  AgentQueryOptions,
+  AgentInputRequest,
+  AgentInputResponse
 } from '../../shared/types';
 
 /**
@@ -45,6 +47,11 @@ export const agentBridge = {
   /** Destroy an agent instance */
   destroyInstance: (instanceId: string): void => {
     getAPI()?.destroyInstance(instanceId);
+  },
+
+  /** Respond to an input/permission request */
+  respondToInput: (response: AgentInputResponse): void => {
+    getAPI()?.respondToInput(response);
   },
 
   /** Subscribe to session initialization */
@@ -90,6 +97,11 @@ export const agentBridge = {
   /** Subscribe to notifications */
   onNotification: (callback: (data: { instanceId: string; message: string; title?: string }) => void): void => {
     getAPI()?.onNotification(callback);
+  },
+
+  /** Subscribe to input/permission requests */
+  onInputRequest: (callback: (data: AgentInputRequest) => void): void => {
+    getAPI()?.onInputRequest(callback);
   },
 
   /** Remove a listener */

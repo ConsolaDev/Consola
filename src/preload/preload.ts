@@ -6,7 +6,9 @@ import {
     AgentInitEvent,
     AgentMessageEvent,
     AgentToolEvent,
-    AgentResultEvent
+    AgentResultEvent,
+    AgentInputRequest,
+    AgentInputResponse
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -31,6 +33,7 @@ const agentCallbacks = {
     error: new Set<AgentCallback<{ instanceId: string; message: string }>>(),
     statusChanged: new Set<AgentCallback<AgentStatus & { instanceId: string }>>(),
     notification: new Set<AgentCallback<{ instanceId: string; message: string; title?: string }>>(),
+    inputRequest: new Set<AgentCallback<AgentInputRequest>>(),
 };
 
 // Register agent IPC listeners
@@ -68,6 +71,10 @@ ipcRenderer.on(IPC_CHANNELS.AGENT_STATUS_CHANGED, (_event, data: AgentStatus & {
 
 ipcRenderer.on(IPC_CHANNELS.AGENT_NOTIFICATION, (_event, data: { instanceId: string; message: string; title?: string }) => {
     agentCallbacks.notification.forEach(cb => cb(data));
+});
+
+ipcRenderer.on(IPC_CHANNELS.AGENT_INPUT_REQUEST, (_event, data: AgentInputRequest) => {
+    agentCallbacks.inputRequest.forEach(cb => cb(data));
 });
 
 // Expose protected methods to the renderer process
@@ -150,6 +157,11 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
         ipcRenderer.send(IPC_CHANNELS.AGENT_DESTROY_INSTANCE, instanceId);
     },
 
+    // Respond to an input/permission request
+    respondToInput: (response: AgentInputResponse): void => {
+        ipcRenderer.send(IPC_CHANNELS.AGENT_INPUT_RESPONSE, response);
+    },
+
     // === Event Subscriptions ===
 
     // Listen for session initialization
@@ -195,6 +207,11 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
     // Listen for notifications
     onNotification: (callback: AgentCallback<{ instanceId: string; message: string; title?: string }>): void => {
         agentCallbacks.notification.add(callback);
+    },
+
+    // Listen for input/permission requests
+    onInputRequest: (callback: AgentCallback<AgentInputRequest>): void => {
+        agentCallbacks.inputRequest.add(callback);
     },
 
     // === Cleanup ===

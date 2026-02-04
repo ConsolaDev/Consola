@@ -5,6 +5,7 @@ import './styles.css';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ProcessingIndicator } from './ProcessingIndicator';
+import { ApprovalCard } from './ApprovalCard';
 
 interface AgentPanelProps {
   instanceId: string;
@@ -17,21 +18,23 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
     isRunning,
     messages,
     toolHistory,
+    pendingInputs,
     error,
     isProcessing,
     sendMessage,
     interrupt,
-    clearError
+    clearError,
+    respondToInput
   } = useAgent(instanceId, cwd);
 
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll to bottom on new messages
+  // Auto-scroll to bottom on new messages or pending inputs
   useEffect(() => {
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages]);
+  }, [messages, pendingInputs]);
 
   if (!isAvailable) {
     return (
@@ -59,6 +62,14 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
                 contentBlocks={msg.contentBlocks}
                 timestamp={msg.timestamp}
                 toolHistory={toolHistory}
+              />
+            ))}
+            {/* Pending approval requests */}
+            {pendingInputs.filter(r => r.status === 'pending').map(request => (
+              <ApprovalCard
+                key={request.requestId}
+                request={request}
+                onRespond={respondToInput}
               />
             ))}
             {isProcessing && <ProcessingIndicator />}

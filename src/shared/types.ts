@@ -89,6 +89,46 @@ export interface AgentStatus {
     permissionMode: string | null;
 }
 
+// Permission/Approval request from SDK
+export interface AgentInputRequest {
+    instanceId: string;
+    requestId: string;
+    type: 'permission' | 'question';
+    toolName?: string;
+    toolInput?: Record<string, unknown>;
+    description?: string;
+    suggestions?: PermissionSuggestion[];
+    // For question type (AskUserQuestion tool)
+    questions?: AgentQuestion[];
+}
+
+export interface AgentQuestion {
+    question: string;
+    header: string;
+    options: AgentQuestionOption[];
+    multiSelect?: boolean;
+}
+
+export interface AgentQuestionOption {
+    label: string;
+    description?: string;
+}
+
+export interface PermissionSuggestion {
+    label: string;
+    action: 'allow_once' | 'allow_always' | 'deny';
+}
+
+// Response to permission request
+export interface AgentInputResponse {
+    instanceId: string;
+    requestId: string;
+    action: 'approve' | 'reject' | 'modify';
+    modifiedInput?: Record<string, unknown>;
+    feedback?: string;
+    answers?: Record<string, string>;  // For question responses
+}
+
 export interface AgentQueryOptions {
     instanceId: string;
     cwd?: string;
@@ -104,6 +144,7 @@ export interface ClaudeAgentAPI {
     interrupt: (instanceId: string) => void;
     getStatus: (instanceId: string) => Promise<AgentStatus>;
     destroyInstance: (instanceId: string) => void;
+    respondToInput: (response: AgentInputResponse) => void;
     onInit: (callback: (data: AgentInitEvent) => void) => void;
     onAssistantMessage: (callback: (data: AgentMessageEvent) => void) => void;
     onStream: (callback: (data: unknown) => void) => void;
@@ -113,6 +154,7 @@ export interface ClaudeAgentAPI {
     onError: (callback: (data: { instanceId: string; message: string }) => void) => void;
     onStatusChanged: (callback: (data: AgentStatus & { instanceId: string }) => void) => void;
     onNotification: (callback: (data: { instanceId: string; message: string; title?: string }) => void) => void;
+    onInputRequest: (callback: (data: AgentInputRequest) => void) => void;
     removeListener: (event: string, callback: Function) => void;
 }
 
