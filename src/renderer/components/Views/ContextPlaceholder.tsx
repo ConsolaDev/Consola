@@ -1,6 +1,10 @@
 import './styles.css';
 
-export function ContextPlaceholder() {
+interface ContextPlaceholderProps {
+  contextId: string;
+}
+
+export function ContextPlaceholder({ contextId }: ContextPlaceholderProps) {
   return (
     <div className="context-placeholder">
       <p>Context panel</p>
