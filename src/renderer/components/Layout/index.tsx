@@ -5,12 +5,18 @@ import { TabContent } from './TabContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
 import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
+import { useTabStore } from '../../stores/tabStore';
 import './styles.css';
 
 export function Layout() {
   const { openDialog } = useCreateWorkspace();
   const location = useLocation();
-  useKeyboardShortcuts({ onNewWorkspace: openDialog });
+  const activeTabId = useTabStore((state) => state.activeTabId);
+  const closeTab = useTabStore((state) => state.closeTab);
+  useKeyboardShortcuts({
+    onNewWorkspace: openDialog,
+    onCloseActiveTab: () => closeTab(activeTabId),
+  });
   useTheme();
 
   // Settings uses Outlet, everything else uses tab-based navigation

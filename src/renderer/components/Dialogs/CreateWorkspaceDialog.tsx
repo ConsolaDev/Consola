@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, FolderPlus, Folder, GitBranch } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useTabStore } from '../../stores/tabStore';
 import type { FolderInfo } from '../../types/electron';
 import './styles.css';
 
@@ -12,9 +12,9 @@ interface CreateWorkspaceDialogProps {
 }
 
 export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDialogProps) {
-  const navigate = useNavigate();
   const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const addProjectToWorkspace = useWorkspaceStore((state) => state.addProjectToWorkspace);
+  const openTab = useTabStore((state) => state.openTab);
 
   const [name, setName] = useState('New Workspace');
   const [folders, setFolders] = useState<FolderInfo[]>([]);
@@ -49,9 +49,9 @@ export function CreateWorkspaceDialog({ open, onOpenChange }: CreateWorkspaceDia
     setName('New Workspace');
     setFolders([]);
 
-    // Close dialog and navigate to new workspace
+    // Close dialog and open new workspace tab
     onOpenChange(false);
-    navigate(`/workspace/${workspace.id}`);
+    openTab('workspace', workspace.id);
   };
 
   const handleCancel = () => {

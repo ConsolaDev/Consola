@@ -6,13 +6,14 @@ import type { ThemeMode } from '../stores/settingsStore';
 
 interface UseKeyboardShortcutsOptions {
   onNewWorkspace?: () => void;
+  onCloseActiveTab?: () => void;
 }
 
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const navigate = useNavigate();
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const { theme, setTheme } = useSettingsStore();
-  const { onNewWorkspace } = options;
+  const { onNewWorkspace, onCloseActiveTab } = options;
 
   const toggleTheme = useCallback(() => {
     const themeOrder: ThemeMode[] = ['light', 'dark', 'system'];
@@ -52,9 +53,16 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         toggleTheme();
         return;
       }
+
+      // Cmd/Ctrl + W : Close active tab
+      if (isMod && event.key === 'w') {
+        event.preventDefault();
+        onCloseActiveTab?.();
+        return;
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, toggleSidebar, toggleTheme, onNewWorkspace]);
+  }, [navigate, toggleSidebar, toggleTheme, onNewWorkspace, onCloseActiveTab]);
 }
