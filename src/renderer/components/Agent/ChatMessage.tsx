@@ -66,11 +66,18 @@ export function ChatMessage({
     );
   };
 
+  // User messages get a subtle bubble, assistant messages are plain
+  if (isUser) {
+    return (
+      <Box className="chat-message user">
+        {renderContent()}
+      </Box>
+    );
+  }
+
+  // Assistant messages: no bubble, just content
   return (
-    <Box className={`chat-message ${isUser ? 'user' : 'assistant'}`}>
-      <Text size="1" className="message-meta">
-        {isUser ? 'You' : 'Claude'}
-      </Text>
+    <Box className="chat-message assistant">
       {renderContent()}
     </Box>
   );
