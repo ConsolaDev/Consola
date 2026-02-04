@@ -3,6 +3,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { NavItem } from './NavItem';
 import { WorkspaceNavItem } from './WorkspaceNavItem';
 import './styles.css';
@@ -11,6 +12,7 @@ export function Sidebar() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const { openDialog } = useCreateWorkspace();
+  const { openSettings } = useSettings();
 
   if (isSidebarHidden) {
     return null;
@@ -56,12 +58,11 @@ export function Sidebar() {
       </div>
 
       <div className="sidebar-footer">
-        <NavItem
-          icon={<Settings size={16} />}
-          label="Settings"
-          to="/settings"
-          shortcut="⌘,"
-        />
+        <button className="sidebar-settings-button" onClick={openSettings}>
+          <Settings size={16} />
+          <span>Settings</span>
+          <span className="sidebar-settings-shortcut">⌘,</span>
+        </button>
       </div>
     </aside>
   );
