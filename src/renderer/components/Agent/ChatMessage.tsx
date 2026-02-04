@@ -50,7 +50,12 @@ export function ChatMessage({
               );
             }
             if (block.type === 'text') {
-              return <MarkdownRenderer key={idx} content={block.text} />;
+              return (
+                <MarkdownRenderer
+                  key={idx}
+                  content={block.text}
+                />
+              );
             }
             if (block.type === 'tool_use') {
               const toolResult = findToolResult(block.id);

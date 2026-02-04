@@ -8,7 +8,10 @@ interface MarkdownRendererProps {
   className?: string;
 }
 
-export function MarkdownRenderer({ content, className }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className
+}: MarkdownRendererProps) {
   // Handle empty content gracefully
   if (!content || content.trim() === '') {
     return null;
