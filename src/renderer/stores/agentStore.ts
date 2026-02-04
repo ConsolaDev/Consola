@@ -359,21 +359,25 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   _handleResult: (data: AgentResultEvent) => {
     const { instanceId, ...resultData } = data;
     set(state => updateInstance(state, instanceId, () => ({
-      lastResult: { instanceId, ...resultData }
+      lastResult: { instanceId, ...resultData },
+      processing: { isProcessing: false, currentMessageId: null }
     })));
   },
 
   _handleError: (data: { instanceId: string; message: string }) => {
     const { instanceId, message } = data;
     set(state => updateInstance(state, instanceId, () => ({
-      error: message
+      error: message,
+      processing: { isProcessing: false, currentMessageId: null }
     })));
   },
 
   _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => {
     const { instanceId, ...status } = data;
     set(state => updateInstance(state, instanceId, () => ({
-      status
+      status,
+      // Reset processing when agent stops running
+      ...(status.isRunning ? {} : { processing: { isProcessing: false, currentMessageId: null } })
     })));
   },
 
