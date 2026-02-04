@@ -9,7 +9,7 @@ export interface BashOutputProps {
   maxLines?: number;
 }
 
-export function BashOutput({ stdout, stderr, interrupted, maxLines = 10 }: BashOutputProps) {
+export function BashOutput({ stdout, stderr, interrupted, maxLines = 3 }: BashOutputProps) {
   const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
 
