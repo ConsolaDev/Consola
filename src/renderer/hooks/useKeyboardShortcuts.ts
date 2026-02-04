@@ -1,5 +1,4 @@
 import { useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import type { ThemeMode } from '../stores/settingsStore';
@@ -7,13 +6,13 @@ import type { ThemeMode } from '../stores/settingsStore';
 interface UseKeyboardShortcutsOptions {
   onNewWorkspace?: () => void;
   onCloseActiveTab?: () => void;
+  onOpenSettings?: () => void;
 }
 
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
-  const navigate = useNavigate();
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const { theme, setTheme } = useSettingsStore();
-  const { onNewWorkspace, onCloseActiveTab } = options;
+  const { onNewWorkspace, onCloseActiveTab, onOpenSettings } = options;
 
   const toggleTheme = useCallback(() => {
     const themeOrder: ThemeMode[] = ['light', 'dark', 'system'];
@@ -43,7 +42,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Cmd/Ctrl + , : Open settings
       if (isMod && event.key === ',') {
         event.preventDefault();
-        navigate('/settings');
+        onOpenSettings?.();
         return;
       }
 
@@ -64,5 +63,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [navigate, toggleSidebar, toggleTheme, onNewWorkspace, onCloseActiveTab]);
+  }, [toggleSidebar, toggleTheme, onNewWorkspace, onCloseActiveTab, onOpenSettings]);
 }

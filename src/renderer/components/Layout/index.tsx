@@ -1,26 +1,24 @@
-import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from '../Sidebar';
 import { AppHeader } from './AppHeader';
 import { TabContent } from './TabContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
 import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { useTabStore } from '../../stores/tabStore';
 import './styles.css';
 
 export function Layout() {
   const { openDialog } = useCreateWorkspace();
-  const location = useLocation();
+  const { openSettings } = useSettings();
   const activeTabId = useTabStore((state) => state.activeTabId);
   const closeTab = useTabStore((state) => state.closeTab);
   useKeyboardShortcuts({
     onNewWorkspace: openDialog,
     onCloseActiveTab: () => closeTab(activeTabId),
+    onOpenSettings: openSettings,
   });
   useTheme();
-
-  // Settings uses Outlet, everything else uses tab-based navigation
-  const isSettings = location.pathname === '/settings';
 
   return (
     <div className="layout">
@@ -28,7 +26,7 @@ export function Layout() {
       <div className="layout-body">
         <Sidebar />
         <main className="content-area">
-          {isSettings ? <Outlet /> : <TabContent />}
+          <TabContent />
         </main>
       </div>
     </div>
