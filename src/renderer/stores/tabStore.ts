@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { useAgentStore } from './agentStore';
 
 export type TabType = 'home' | 'workspace' | 'project';
 
@@ -24,6 +25,15 @@ interface TabState {
 function generateTabId(type: TabType, targetId: string): string {
   if (type === 'home') return 'home';
   return `${type}-${targetId}`;
+}
+
+// Destroy all agent instances matching a context prefix
+// Handles current "-main" suffix and future multi-agent instances (e.g., "-agent-2")
+function destroyInstancesForContext(contextId: string): void {
+  const agentStore = useAgentStore.getState();
+  Object.keys(agentStore.instances)
+    .filter(id => id.startsWith(contextId))
+    .forEach(id => agentStore.destroyInstance(id));
 }
 
 const HOME_TAB: Tab = {
@@ -70,6 +80,10 @@ export const useTabStore = create<TabState>()(
         const { tabs, activeTabId } = get();
         const tabIndex = tabs.findIndex((t) => t.id === tabId);
         if (tabIndex === -1) return;
+
+        // Destroy agent instances for this tab's context
+        // tabId is the contextId (e.g., "project-abc" or "workspace-xyz")
+        destroyInstancesForContext(tabId);
 
         const newTabs = tabs.filter((t) => t.id !== tabId);
 
@@ -119,6 +133,9 @@ export const useTabStore = create<TabState>()(
 
         if (tabsToClose.length === 0) return;
 
+        // Destroy agent instances for all affected tabs
+        tabsToClose.forEach((tab) => destroyInstancesForContext(tab.id));
+
         const newTabs = tabs.filter(
           (t) =>
             !((t.type === 'workspace' && t.targetId === workspaceId) ||
@@ -139,6 +156,9 @@ export const useTabStore = create<TabState>()(
         const tabExists = tabs.some((t) => t.id === tabId);
 
         if (!tabExists) return;
+
+        // Destroy agent instances for this project context
+        destroyInstancesForContext(tabId);
 
         const newTabs = tabs.filter((t) => t.id !== tabId);
         set({
