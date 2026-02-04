@@ -16,6 +16,7 @@ const emptyInstanceState: InstanceState = {
   mcpServers: [],
   messages: [],
   toolHistory: [],
+  pendingInputs: [],
   lastResult: null,
   error: null,
   processing: {
@@ -40,6 +41,7 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
   const storeInterrupt = useAgentStore(state => state.interrupt);
   const storeClearMessages = useAgentStore(state => state.clearMessages);
   const storeClearError = useAgentStore(state => state.clearError);
+  const storeRespondToInput = useAgentStore(state => state.respondToInput);
 
   // Use instance state or empty state
   const instanceState = instance || emptyInstanceState;
@@ -93,6 +95,16 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     }
   }, [instanceId, storeClearError]);
 
+  const respondToInput = useCallback((requestId: string, action: 'approve' | 'reject' | 'modify', options?: {
+    modifiedInput?: Record<string, unknown>;
+    feedback?: string;
+    answers?: Record<string, string>;
+  }) => {
+    if (instanceId) {
+      storeRespondToInput(instanceId, requestId, action, options);
+    }
+  }, [instanceId, storeRespondToInput]);
+
   return useMemo(() => ({
     // Connection state
     isAvailable,
@@ -115,6 +127,9 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     // Tool history (for inline display in messages)
     toolHistory: instanceState.toolHistory,
 
+    // Pending input requests
+    pendingInputs: instanceState.pendingInputs,
+
     // Results
     lastResult: instanceState.lastResult,
     error: instanceState.error,
@@ -126,7 +141,8 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     sendMessage,
     interrupt,
     clearMessages,
-    clearError
+    clearError,
+    respondToInput
   }), [
     isAvailable,
     instanceId,
@@ -134,6 +150,7 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     sendMessage,
     interrupt,
     clearMessages,
-    clearError
+    clearError,
+    respondToInput
   ]);
 }

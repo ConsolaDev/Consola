@@ -32,6 +32,10 @@ export const IPC_CHANNELS = {
     AGENT_ERROR: 'agent:error',                     // Error occurred
     AGENT_STATUS_CHANGED: 'agent:status-changed',   // Status update
     AGENT_NOTIFICATION: 'agent:notification',       // Notification from agent
+    AGENT_INPUT_REQUEST: 'agent:input-request',     // Agent needs user input/approval
+
+    // Claude Agent channels (Renderer -> Main) - Responses
+    AGENT_INPUT_RESPONSE: 'agent:input-response',   // User responds to input request
 
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker

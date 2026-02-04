@@ -4,7 +4,8 @@ import type {
   AgentInitEvent,
   AgentMessageEvent,
   AgentToolEvent,
-  AgentResultEvent
+  AgentResultEvent,
+  AgentInputRequest
 } from '../../shared/types';
 import { agentBridge } from '../services/agentBridge';
 
@@ -55,6 +56,31 @@ export interface ToolExecution {
   timestamp: number;
 }
 
+// Question types for AskUserQuestion
+export interface QuestionOption {
+  label: string;
+  description?: string;
+}
+
+export interface Question {
+  question: string;
+  header: string;
+  options: QuestionOption[];
+  multiSelect?: boolean;
+}
+
+// Pending input request from agent
+export interface PendingInputRequest {
+  requestId: string;
+  type: 'permission' | 'question';
+  toolName?: string;
+  toolInput?: Record<string, unknown>;
+  description?: string;
+  questions?: Question[];  // For 'question' type
+  timestamp: number;
+  status: 'pending' | 'approved' | 'rejected';
+}
+
 // Per-instance state
 export interface InstanceState {
   // Status
@@ -71,6 +97,9 @@ export interface InstanceState {
 
   // Tool history (for inline display in messages)
   toolHistory: ToolExecution[];
+
+  // Pending input requests (awaiting user response)
+  pendingInputs: PendingInputRequest[];
 
   // Results
   lastResult: AgentResultEvent | null;
@@ -95,6 +124,7 @@ function createDefaultInstanceState(): InstanceState {
     mcpServers: [],
     messages: [],
     toolHistory: [],
+    pendingInputs: [],
     lastResult: null,
     error: null,
     processing: {
@@ -124,6 +154,11 @@ interface AgentState {
   interrupt: (instanceId: string) => void;
   clearMessages: (instanceId: string) => void;
   clearError: (instanceId: string) => void;
+  respondToInput: (instanceId: string, requestId: string, action: 'approve' | 'reject' | 'modify', options?: {
+    modifiedInput?: Record<string, unknown>;
+    feedback?: string;
+    answers?: Record<string, string>;  // For question responses
+  }) => void;
 
   // Internal actions for event handling
   _handleInit: (data: AgentInitEvent) => void;
@@ -134,6 +169,7 @@ interface AgentState {
   _handleError: (data: { instanceId: string; message: string }) => void;
   _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => void;
   _handleStream: (data: { instanceId: string; event: any; uuid: string }) => void;
+  _handleInputRequest: (data: AgentInputRequest) => void;
 }
 
 // Extract all content blocks from SDK message
@@ -265,6 +301,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set(state => updateInstance(state, instanceId, () => ({
       messages: [],
       toolHistory: [],
+      pendingInputs: [],
       lastResult: null,
       sessionId: null
     })));
@@ -274,6 +311,34 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set(state => updateInstance(state, instanceId, () => ({
       error: null
     })));
+  },
+
+  respondToInput: (instanceId, requestId, action, options = {}) => {
+    // Send response to main process
+    agentBridge.respondToInput({
+      instanceId,
+      requestId,
+      action,
+      modifiedInput: options.modifiedInput,
+      feedback: options.feedback,
+      answers: options.answers
+    });
+
+    // Update local state to mark as resolved
+    set(state => {
+      const instance = state.instances[instanceId];
+      if (!instance) return state;
+
+      const newPendingInputs = instance.pendingInputs.map(input =>
+        input.requestId === requestId
+          ? { ...input, status: action === 'approve' || action === 'modify' ? 'approved' as const : 'rejected' as const }
+          : input
+      );
+
+      return updateInstance(state, instanceId, () => ({
+        pendingInputs: newPendingInputs
+      }));
+    });
   },
 
   // === Internal Event Handlers ===
@@ -398,6 +463,29 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         processing: { isProcessing: true, currentMessageId: uuid }
       }));
     });
+  },
+
+  _handleInputRequest: (data: AgentInputRequest) => {
+    const { instanceId, ...requestData } = data;
+    const pendingInput: PendingInputRequest = {
+      requestId: requestData.requestId,
+      type: requestData.type,
+      toolName: requestData.toolName,
+      toolInput: requestData.toolInput,
+      description: requestData.description,
+      questions: requestData.questions?.map(q => ({
+        question: q.question,
+        header: q.header,
+        options: q.options || [],
+        multiSelect: q.multiSelect
+      })),
+      timestamp: Date.now(),
+      status: 'pending'
+    };
+
+    set(state => updateInstance(state, instanceId, (instance) => ({
+      pendingInputs: [...instance.pendingInputs, pendingInput]
+    })));
   }
 }));
 
@@ -413,4 +501,5 @@ if (typeof window !== 'undefined') {
   agentBridge.onError(store._handleError);
   agentBridge.onStatusChanged(store._handleStatusChanged);
   agentBridge.onStream(store._handleStream);
+  agentBridge.onInputRequest(store._handleInputRequest);
 }

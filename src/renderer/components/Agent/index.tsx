@@ -4,3 +4,4 @@ export { ChatInput } from './ChatInput';
 export { ToolBlock } from './ToolBlock';
 export { ToolOutput } from './ToolOutput';
 export { DiffView } from './DiffView';
+export { ApprovalCard } from './ApprovalCard';

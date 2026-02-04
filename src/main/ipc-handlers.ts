@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TerminalService } from './TerminalService';
 import { ClaudeAgentService } from './ClaudeAgentService';
-import { TerminalMode, AgentQueryOptions } from '../shared/types';
+import { TerminalMode, AgentQueryOptions, AgentInputResponse } from '../shared/types';
 import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
 
 // Map to support future multi-instance terminals
@@ -91,6 +91,12 @@ function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService)
     service.on('message', (message) => {
         if (!mainWindow.isDestroyed()) {
             mainWindow.webContents.send(IPC_CHANNELS.AGENT_MESSAGE, { instanceId, message });
+        }
+    });
+
+    service.on('input-request', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INPUT_REQUEST, { instanceId, ...data });
         }
     });
 }
@@ -188,6 +194,18 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         }
     });
 
+    // Handle user response to input/permission request
+    ipcMain.on(IPC_CHANNELS.AGENT_INPUT_RESPONSE, (_event, response: AgentInputResponse) => {
+        const service = agentServices.get(response.instanceId);
+        if (service) {
+            service.respondToPermission(response.requestId, response.action, {
+                modifiedInput: response.modifiedInput,
+                feedback: response.feedback,
+                answers: response.answers
+            });
+        }
+    });
+
     // Handle folder picker dialog
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
         const result = await dialog.showOpenDialog({
@@ -239,6 +257,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_START);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INTERRUPT);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_DESTROY_INSTANCE);
+    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INPUT_RESPONSE);
     ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
 
     // Remove dialog IPC handlers
