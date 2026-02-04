@@ -69,8 +69,9 @@
 
 .chat-input {
   flex: 1;
+  height: 28px;
   min-height: 28px;
-  max-height: 100px;
+  max-height: 160px;
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -78,9 +79,11 @@
   color: var(--color-text-primary);
   font-family: inherit;
   font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
   resize: none;
   outline: none;
-  transition: border-color var(--transition-fast);
+  overflow-y: auto;
+  transition: border-color var(--transition-fast), height 0.1s ease-out;
 }
 
 .chat-input:focus {
