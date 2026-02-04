@@ -32,14 +32,19 @@ export const agentBridge = {
     getAPI()?.startQuery(options);
   },
 
-  /** Interrupt the current query */
-  interrupt: (): void => {
-    getAPI()?.interrupt();
+  /** Interrupt the current query for a specific instance */
+  interrupt: (instanceId: string): void => {
+    getAPI()?.interrupt(instanceId);
   },
 
-  /** Get current agent status */
-  getStatus: async (): Promise<AgentStatus | null> => {
-    return getAPI()?.getStatus() ?? null;
+  /** Get current agent status for a specific instance */
+  getStatus: async (instanceId: string): Promise<AgentStatus | null> => {
+    return getAPI()?.getStatus(instanceId) ?? null;
+  },
+
+  /** Destroy an agent instance */
+  destroyInstance: (instanceId: string): void => {
+    getAPI()?.destroyInstance(instanceId);
   },
 
   /** Subscribe to session initialization */
@@ -73,17 +78,17 @@ export const agentBridge = {
   },
 
   /** Subscribe to error events */
-  onError: (callback: (data: { message: string }) => void): void => {
+  onError: (callback: (data: { instanceId: string; message: string }) => void): void => {
     getAPI()?.onError(callback);
   },
 
   /** Subscribe to status changes */
-  onStatusChanged: (callback: (data: AgentStatus) => void): void => {
+  onStatusChanged: (callback: (data: AgentStatus & { instanceId: string }) => void): void => {
     getAPI()?.onStatusChanged(callback);
   },
 
   /** Subscribe to notifications */
-  onNotification: (callback: (data: { message: string; title?: string }) => void): void => {
+  onNotification: (callback: (data: { instanceId: string; message: string; title?: string }) => void): void => {
     getAPI()?.onNotification(callback);
   },
 

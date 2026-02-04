@@ -100,17 +100,18 @@ export interface AgentQueryOptions {
 
 export interface ClaudeAgentAPI {
     startQuery: (options: AgentQueryOptions) => void;
-    interrupt: () => void;
-    getStatus: () => Promise<AgentStatus>;
+    interrupt: (instanceId: string) => void;
+    getStatus: (instanceId: string) => Promise<AgentStatus>;
+    destroyInstance: (instanceId: string) => void;
     onInit: (callback: (data: AgentInitEvent) => void) => void;
     onAssistantMessage: (callback: (data: AgentMessageEvent) => void) => void;
     onStream: (callback: (data: unknown) => void) => void;
     onToolPending: (callback: (data: AgentToolEvent) => void) => void;
     onToolComplete: (callback: (data: AgentToolEvent) => void) => void;
     onResult: (callback: (data: AgentResultEvent) => void) => void;
-    onError: (callback: (data: { message: string }) => void) => void;
-    onStatusChanged: (callback: (data: AgentStatus) => void) => void;
-    onNotification: (callback: (data: { message: string; title?: string }) => void) => void;
+    onError: (callback: (data: { instanceId: string; message: string }) => void) => void;
+    onStatusChanged: (callback: (data: AgentStatus & { instanceId: string }) => void) => void;
+    onNotification: (callback: (data: { instanceId: string; message: string; title?: string }) => void) => void;
     removeListener: (event: string, callback: Function) => void;
 }
 
