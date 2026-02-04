@@ -28,9 +28,9 @@ const agentCallbacks = {
     toolPending: new Set<AgentCallback<AgentToolEvent>>(),
     toolComplete: new Set<AgentCallback<AgentToolEvent>>(),
     result: new Set<AgentCallback<AgentResultEvent>>(),
-    error: new Set<AgentCallback<{ message: string }>>(),
-    statusChanged: new Set<AgentCallback<AgentStatus>>(),
-    notification: new Set<AgentCallback<{ message: string; title?: string }>>(),
+    error: new Set<AgentCallback<{ instanceId: string; message: string }>>(),
+    statusChanged: new Set<AgentCallback<AgentStatus & { instanceId: string }>>(),
+    notification: new Set<AgentCallback<{ instanceId: string; message: string; title?: string }>>(),
 };
 
 // Register agent IPC listeners
@@ -58,15 +58,15 @@ ipcRenderer.on(IPC_CHANNELS.AGENT_RESULT, (_event, data: AgentResultEvent) => {
     agentCallbacks.result.forEach(cb => cb(data));
 });
 
-ipcRenderer.on(IPC_CHANNELS.AGENT_ERROR, (_event, data: { message: string }) => {
+ipcRenderer.on(IPC_CHANNELS.AGENT_ERROR, (_event, data: { instanceId: string; message: string }) => {
     agentCallbacks.error.forEach(cb => cb(data));
 });
 
-ipcRenderer.on(IPC_CHANNELS.AGENT_STATUS_CHANGED, (_event, data: AgentStatus) => {
+ipcRenderer.on(IPC_CHANNELS.AGENT_STATUS_CHANGED, (_event, data: AgentStatus & { instanceId: string }) => {
     agentCallbacks.statusChanged.forEach(cb => cb(data));
 });
 
-ipcRenderer.on(IPC_CHANNELS.AGENT_NOTIFICATION, (_event, data: { message: string; title?: string }) => {
+ipcRenderer.on(IPC_CHANNELS.AGENT_NOTIFICATION, (_event, data: { instanceId: string; message: string; title?: string }) => {
     agentCallbacks.notification.forEach(cb => cb(data));
 });
 
@@ -135,14 +135,19 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
         ipcRenderer.send(IPC_CHANNELS.AGENT_START, options);
     },
 
-    // Interrupt the current query
-    interrupt: (): void => {
-        ipcRenderer.send(IPC_CHANNELS.AGENT_INTERRUPT);
+    // Interrupt the current query for a specific instance
+    interrupt: (instanceId: string): void => {
+        ipcRenderer.send(IPC_CHANNELS.AGENT_INTERRUPT, instanceId);
     },
 
-    // Get current agent status
-    getStatus: (): Promise<AgentStatus> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.AGENT_GET_STATUS);
+    // Get current agent status for a specific instance
+    getStatus: (instanceId: string): Promise<AgentStatus> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.AGENT_GET_STATUS, instanceId);
+    },
+
+    // Destroy an agent instance
+    destroyInstance: (instanceId: string): void => {
+        ipcRenderer.send(IPC_CHANNELS.AGENT_DESTROY_INSTANCE, instanceId);
     },
 
     // === Event Subscriptions ===
@@ -178,17 +183,17 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
     },
 
     // Listen for error events
-    onError: (callback: AgentCallback<{ message: string }>): void => {
+    onError: (callback: AgentCallback<{ instanceId: string; message: string }>): void => {
         agentCallbacks.error.add(callback);
     },
 
     // Listen for status changes
-    onStatusChanged: (callback: AgentCallback<AgentStatus>): void => {
+    onStatusChanged: (callback: AgentCallback<AgentStatus & { instanceId: string }>): void => {
         agentCallbacks.statusChanged.add(callback);
     },
 
     // Listen for notifications
-    onNotification: (callback: AgentCallback<{ message: string; title?: string }>): void => {
+    onNotification: (callback: AgentCallback<{ instanceId: string; message: string; title?: string }>): void => {
         agentCallbacks.notification.add(callback);
     },
 
