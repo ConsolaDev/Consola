@@ -168,7 +168,7 @@ export const useTabStore = create<TabState>()(
       },
     }),
     {
-      name: 'console-1-tabs',
+      name: 'consola-tabs',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         tabs: state.tabs,

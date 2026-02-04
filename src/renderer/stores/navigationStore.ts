@@ -41,7 +41,7 @@ export const useNavigationStore = create<NavigationState>()(
       },
     }),
     {
-      name: 'console-1-navigation',
+      name: 'consola-navigation',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         isSidebarHidden: state.isSidebarHidden,

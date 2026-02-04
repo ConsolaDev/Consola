@@ -125,7 +125,7 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       },
     }),
     {
-      name: 'console-1-workspaces',
+      name: 'consola-workspaces',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ workspaces: state.workspaces }),
       // Migration: add projects array to existing workspaces

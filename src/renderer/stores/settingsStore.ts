@@ -19,7 +19,7 @@ export const useSettingsStore = create<SettingsState>()(
       _setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
     }),
     {
-      name: 'console-1-settings',
+      name: 'consola-settings',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ theme: state.theme }),
     }

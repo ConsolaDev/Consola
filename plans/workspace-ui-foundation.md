@@ -2,7 +2,7 @@
 
 ## Overview
 
-Transform the console-1 app from a simple terminal wrapper with Header/StatusBar layout into a Notion-inspired workspace UI with collapsible sidebar navigation and theme system support.
+Transform the consola app from a simple terminal wrapper with Header/StatusBar layout into a Notion-inspired workspace UI with collapsible sidebar navigation and theme system support.
 
 **Target Layout:**
 ```
@@ -49,7 +49,7 @@ export const useSettingsStore = create<SettingsState>()(
       _setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
     }),
     {
-      name: 'console-1-settings',
+      name: 'consola-settings',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ theme: state.theme }),
     }

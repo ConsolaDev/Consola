@@ -1,7 +1,7 @@
 {
-  "name": "console-1",
+  "name": "consola",
   "version": "1.0.0",
-  "description": "A terminal wrapper with Claude Code integration",
+  "description": "Your command center for AI-assisted development. Built on top of Claude Code, Consola brings structure to AI coding through the RPI methodology (Research, Plan, Implement) with native integration to your issue trackers for seamless project management.",
   "main": "dist/main/main/index.js",
   "scripts": {
     "start": "electron .",
@@ -14,8 +14,8 @@
     "dev:electron": "wait-on http://localhost:5173 && NODE_ENV=development electron .",
     "test:e2e": "playwright test"
   },
-  "keywords": [],
-  "author": "",
+  "keywords": ["claude-code", "ai-development", "electron", "rpi-methodology", "linear", "issue-tracker"],
+  "author": "Javier Taraza",
   "license": "ISC",
   "dependencies": {
     "@anthropic-ai/claude-agent-sdk": "^0.2.30",
