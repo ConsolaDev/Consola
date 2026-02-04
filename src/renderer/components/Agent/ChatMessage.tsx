@@ -69,7 +69,7 @@ export function ChatMessage({
   return (
     <Box className={`chat-message ${isUser ? 'user' : 'assistant'}`}>
       <Text size="1" className="message-meta">
-        {isUser ? 'You' : 'Claude'} · {new Date(timestamp).toLocaleTimeString()}
+        {isUser ? 'You' : 'Claude'}
       </Text>
       {renderContent()}
     </Box>
