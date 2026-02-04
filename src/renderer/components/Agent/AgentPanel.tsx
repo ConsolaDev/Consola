@@ -1,6 +1,7 @@
 import { useRef, useEffect } from 'react';
 import { Box, Flex, Text, Button } from '@radix-ui/themes';
 import { useAgent } from '../../hooks/useAgent';
+import './styles.css';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ToolStatus } from './ToolStatus';
