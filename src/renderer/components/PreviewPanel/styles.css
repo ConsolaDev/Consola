@@ -1,0 +1,112 @@
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+.preview-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 var(--space-2);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  min-height: 36px;
+}
+
+.preview-tab-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.preview-tab-bar::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.preview-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.preview-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.preview-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+  background: var(--color-bg-primary);
+}
+
+.preview-tab-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.preview-tab-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.preview-tab-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: var(--space-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.preview-tab:hover .preview-tab-close,
+.preview-tab.active .preview-tab-close {
+  opacity: 1;
+}
+
+.preview-tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.preview-panel-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.preview-panel-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-4);
+}
