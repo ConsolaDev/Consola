@@ -334,6 +334,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       lastResult: null,
       sessionId: null
     })));
+
+    // Persist the cleared state
+    get().saveInstanceHistory(instanceId);
   },
 
   clearError: (instanceId) => {
@@ -481,6 +484,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       lastResult: { instanceId, ...resultData },
       processing: { isProcessing: false, currentMessageId: null }
     })));
+
+    // Persist session history after each completed turn
+    get().saveInstanceHistory(instanceId);
   },
 
   _handleError: (data: { instanceId: string; message: string }) => {
@@ -489,6 +495,9 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       error: message,
       processing: { isProcessing: false, currentMessageId: null }
     })));
+
+    // Persist session history even on error to preserve conversation
+    get().saveInstanceHistory(instanceId);
   },
 
   _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => {
