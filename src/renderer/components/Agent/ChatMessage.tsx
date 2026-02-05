@@ -2,6 +2,7 @@ import { Box, Text } from '@radix-ui/themes';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownRenderer } from '../Markdown';
 import { ToolBlock, ToolStatus as ToolBlockStatus } from './ToolBlock';
+import { FileContentBlock } from './FileContentBlock';
 import type { ContentBlock, ToolExecution } from '../../stores/agentStore';
 
 interface ChatMessageProps {
@@ -50,6 +51,15 @@ export function ChatMessage({
               );
             }
             if (block.type === 'text') {
+              // Check if this text block has file content attached
+              if (block.file) {
+                return (
+                  <FileContentBlock
+                    key={idx}
+                    file={block.file}
+                  />
+                );
+              }
               return (
                 <MarkdownRenderer
                   key={idx}

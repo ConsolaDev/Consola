@@ -9,10 +9,20 @@ import type {
 } from '../../shared/types';
 import { agentBridge } from '../services/agentBridge';
 
+// File content attached to text blocks
+export interface FileAttachment {
+  filePath: string;
+  content: string;
+  numLines: number;
+  startLine: number;
+  totalLines: number;
+}
+
 // Content block types from SDK
 export interface TextBlock {
   type: 'text';
   text: string;
+  file?: FileAttachment;
 }
 
 export interface ThinkingBlock {
@@ -189,7 +199,18 @@ function extractContentBlocks(content: unknown): ContentBlock[] {
     )
     .map((block: any): ContentBlock => {
       if (block.type === 'text') {
-        return { type: 'text', text: block.text };
+        const textBlock: TextBlock = { type: 'text', text: block.text };
+        // Extract file attachment if present
+        if (block.file && typeof block.file === 'object') {
+          textBlock.file = {
+            filePath: block.file.filePath || '',
+            content: block.file.content || '',
+            numLines: block.file.numLines || 0,
+            startLine: block.file.startLine || 1,
+            totalLines: block.file.totalLines || 0,
+          };
+        }
+        return textBlock;
       }
       if (block.type === 'thinking') {
         return { type: 'thinking', thinking: block.thinking, signature: block.signature };
