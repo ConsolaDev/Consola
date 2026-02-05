@@ -125,6 +125,7 @@
 .preview-panel-content {
   flex: 1;
   overflow: hidden;
+  min-height: 0; /* Required for flex child to shrink below content size */
 }
 
 .preview-panel-placeholder {

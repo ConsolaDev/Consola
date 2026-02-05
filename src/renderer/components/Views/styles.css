@@ -220,12 +220,14 @@
   to { transform: rotate(360deg); }
 }
 
-.file-content {
-  flex: 1;
-  overflow: auto;
+/* Markdown preview - text wraps to container, code blocks can scroll horizontally */
+.markdown-preview-view {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 
-.file-content .markdown-content {
+.markdown-preview-view .markdown-content {
   max-width: 800px;
 }
 
@@ -384,4 +386,113 @@
 .code-file-content pre {
   height: 100%;
   margin: 0 !important;
+}
+
+/* ========================================
+   Markdown View Toggle
+   ======================================== */
+
+.markdown-view-toggle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.markdown-view-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 2px;
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-md);
+}
+
+.markdown-view-toggle-btn {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.markdown-view-toggle-btn:hover {
+  color: var(--color-text-secondary);
+}
+
+.markdown-view-toggle-btn.active {
+  color: var(--color-text-primary);
+}
+
+.markdown-view-toggle-btn svg {
+  flex-shrink: 0;
+}
+
+/* Sliding indicator behind active button */
+.markdown-view-toggle-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  background: var(--color-bg-tertiary);
+  border-radius: calc(var(--radius-md) - 2px);
+  box-shadow: var(--shadow-elevation-1);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.markdown-view-toggle-indicator[data-active="source"] {
+  transform: translateX(100%);
+}
+
+/* Content wrapper - using Radix ScrollArea */
+.markdown-view-content-wrapper {
+  flex: 1;
+  min-height: 0; /* Allow flex child to shrink below content size */
+}
+
+.markdown-view-panel {
+  animation: markdown-view-fade-in 0.2s ease;
+}
+
+@keyframes markdown-view-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Source view specific styles - allows horizontal scroll for long lines */
+.markdown-source-view {
+  background: var(--color-bg-secondary);
+  min-width: fit-content;
+}
+
+.markdown-source-view pre {
+  margin: 0 !important;
+}
+
+/* Override syntax highlighter for markdown source */
+.markdown-source-view code {
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
 }
