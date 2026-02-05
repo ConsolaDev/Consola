@@ -138,3 +138,17 @@
   text-align: center;
   padding: var(--space-4);
 }
+
+/* Compact context menu variant */
+.dropdown-content-compact {
+  min-width: 140px;
+}
+
+.dropdown-content-compact .dropdown-item {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.dropdown-content-compact .dropdown-separator {
+  margin: 3px var(--space-2);
+}
