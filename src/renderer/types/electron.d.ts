@@ -20,6 +20,7 @@ export interface GitStatusResult {
   files: Array<{ path: string; status: GitFileStatus }>;
   stats: { modifiedCount: number; addedLines: number; removedLines: number };
   isGitRepo: boolean;
+  branch: string | null;
 }
 
 export interface GitAPI {
