@@ -8,62 +8,61 @@
 .preview-tab-bar {
   display: flex;
   align-items: center;
-  gap: 0;
-  padding: 0 var(--space-2);
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
   background: var(--color-bg-secondary);
   border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
-  min-height: 36px;
+  min-height: 32px;
+  scrollbar-width: none;
 }
 
 .preview-tab-bar::-webkit-scrollbar {
-  height: 4px;
-}
-
-.preview-tab-bar::-webkit-scrollbar-thumb {
-  background: var(--color-border);
-  border-radius: 2px;
+  display: none;
 }
 
 .preview-tab {
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: var(--space-2) var(--space-3);
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
   background: transparent;
-  border: none;
-  border-bottom: 2px solid transparent;
   color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-xs);
   cursor: pointer;
-  transition: all var(--transition-fast);
   white-space: nowrap;
+  user-select: none;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
 }
 
 .preview-tab:hover {
   background: var(--color-bg-hover);
+  border-color: var(--color-border);
   color: var(--color-text-primary);
 }
 
 .preview-tab.active {
+  background: var(--color-bg-active);
+  border-color: var(--color-border);
   color: var(--color-text-primary);
-  border-bottom-color: var(--color-accent);
-  background: var(--color-bg-primary);
 }
 
 .preview-tab-icon {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
   flex-shrink: 0;
 }
 
 .preview-tab-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 12px;
+  height: 12px;
 }
 
 .preview-tab-name {
-  max-width: 120px;
+  max-width: 100px;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -72,8 +71,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 14px;
+  height: 14px;
   padding: 0;
   margin-left: var(--space-1);
   border: none;
@@ -93,6 +92,34 @@
 .preview-tab-close:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
+}
+
+/* Tooltip */
+.preview-tab-tooltip {
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  box-shadow: var(--shadow-elevation-2);
+  z-index: var(--z-tooltip);
+  max-width: 400px;
+  word-break: break-all;
+  animation: preview-tooltip-fade-in 0.15s ease;
+  pointer-events: none;
+}
+
+@keyframes preview-tooltip-fade-in {
+  from {
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .preview-panel-content {
