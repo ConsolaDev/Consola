@@ -51,6 +51,7 @@
 
   /* Z-index layers */
   --z-sidebar: 100;
+  --z-dropdown: 150;
   --z-tooltip: 200;
   --z-modal: 300;
 }

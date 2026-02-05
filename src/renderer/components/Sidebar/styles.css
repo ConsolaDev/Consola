@@ -474,6 +474,17 @@
   color: var(--color-error);
 }
 
+.dropdown-item[data-disabled] {
+  color: var(--color-text-disabled);
+  pointer-events: none;
+}
+
+.dropdown-separator {
+  height: 1px;
+  margin: var(--space-1) var(--space-2);
+  background: var(--color-border);
+}
+
 /* Session nav item */
 .session-nav-item {
   position: relative;

@@ -14,6 +14,8 @@ interface PreviewTabState {
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   closeAllTabs: () => void;
+  closeOtherTabs: (tabId: string) => void;
+  closeTabsToRight: (tabId: string) => void;
 }
 
 function getFilename(filePath: string): string {
@@ -81,5 +83,33 @@ export const usePreviewTabStore = create<PreviewTabState>((set, get) => ({
 
   closeAllTabs: () => {
     set({ tabs: [], activeTabId: null });
+  },
+
+  closeOtherTabs: (tabId: string) => {
+    const { tabs } = get();
+    const tabToKeep = tabs.find((t) => t.id === tabId);
+    if (!tabToKeep) return;
+
+    set({
+      tabs: [tabToKeep],
+      activeTabId: tabId,
+    });
+  },
+
+  closeTabsToRight: (tabId: string) => {
+    const { tabs, activeTabId } = get();
+    const tabIndex = tabs.findIndex((t) => t.id === tabId);
+    if (tabIndex === -1) return;
+
+    const newTabs = tabs.slice(0, tabIndex + 1);
+
+    // If active tab was to the right, set clicked tab as active
+    const activeIndex = tabs.findIndex((t) => t.id === activeTabId);
+    const newActiveTabId = activeIndex > tabIndex ? tabId : activeTabId;
+
+    set({
+      tabs: newTabs,
+      activeTabId: newActiveTabId,
+    });
   },
 }));
