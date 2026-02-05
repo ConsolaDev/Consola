@@ -8,6 +8,7 @@ import type {
   AgentInputRequest
 } from '../../shared/types';
 import { agentBridge } from '../services/agentBridge';
+import { sessionStorageBridge } from '../services/sessionStorageBridge';
 
 // File content attached to text blocks
 export interface FileAttachment {
@@ -343,8 +344,8 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   saveInstanceHistory: async (instanceId) => {
     const instance = get().instances[instanceId];
-    if (instance && window.sessionStorageAPI) {
-      await window.sessionStorageAPI.saveHistory(instanceId, {
+    if (instance) {
+      await sessionStorageBridge.saveHistory(instanceId, {
         messages: instance.messages,
         toolHistory: instance.toolHistory,
       });
@@ -352,8 +353,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   loadInstanceHistory: async (instanceId) => {
-    if (!window.sessionStorageAPI) return;
-    const data = await window.sessionStorageAPI.loadHistory(instanceId);
+    const data = await sessionStorageBridge.loadHistory(instanceId);
     if (data) {
       set((state) => updateInstance(state, instanceId, () => ({
         messages: data.messages as Message[],

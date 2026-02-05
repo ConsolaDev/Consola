@@ -1,6 +1,7 @@
 import { Plus, Sparkles } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { dialogBridge } from '../../services/dialogBridge';
 import './styles.css';
 
 export function HomeView() {
@@ -9,7 +10,7 @@ export function HomeView() {
   const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
 
   const handleCreateWorkspace = async () => {
-    const result = await window.dialogAPI.selectFolder();
+    const result = await dialogBridge.selectFolder();
     if (result) {
       const workspace = createWorkspace(result.name, result.path, result.isGitRepo);
       setActiveWorkspace(workspace.id);

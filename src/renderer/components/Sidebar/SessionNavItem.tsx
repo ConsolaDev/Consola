@@ -4,6 +4,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
+import { sessionStorageBridge } from '../../services/sessionStorageBridge';
 
 interface SessionNavItemProps {
   session: Session;
@@ -64,9 +65,7 @@ export function SessionNavItem({
     destroyInstance(session.instanceId);
 
     // Delete persisted history
-    if (window.sessionStorageAPI) {
-      await window.sessionStorageAPI.deleteHistory(session.instanceId);
-    }
+    await sessionStorageBridge.deleteHistory(session.instanceId);
 
     // Remove from store
     deleteSession(workspaceId, session.id);
