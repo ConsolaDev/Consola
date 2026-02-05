@@ -10,10 +10,11 @@ export const IPC_CHANNELS = {
     MODE_SWITCH: 'mode:switch',           // Request mode change
     MODE_CHANGED: 'mode:changed',         // Notify mode changed
 
-    // Session management (reserved for future multi-instance support)
+    // Session management
     SESSION_CREATE: 'session:create',
     SESSION_DESTROY: 'session:destroy',
     SESSION_LIST: 'session:list',
+    SESSION_GENERATE_NAME: 'session:generate-name',
 
     // Claude Agent channels (Renderer -> Main)
     AGENT_START: 'agent:start',           // Start a new agent query
@@ -38,7 +39,8 @@ export const IPC_CHANNELS = {
     AGENT_INPUT_RESPONSE: 'agent:input-response',   // User responds to input request
 
     // Dialog channels
-    DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker
+    DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker (multi-select)
+    DIALOG_SELECT_FOLDER: 'dialog:select-folder',    // Open folder picker (single select for workspace)
 
     // File operations
     FILE_READ: 'file:read',  // Read file contents

@@ -4,6 +4,8 @@ import * as path from 'path';
 import { exec } from 'child_process';
 import { TerminalService } from './TerminalService';
 import { ClaudeAgentService } from './ClaudeAgentService';
+import { saveSessionData, loadSessionData, deleteSessionData } from './SessionStorageService';
+import { generateSessionName } from './SessionNameGenerator';
 import { TerminalMode, AgentQueryOptions, AgentInputResponse } from '../shared/types';
 import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
 
@@ -151,13 +153,14 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
 
     // Handle agent start from renderer
     ipcMain.on(IPC_CHANNELS.AGENT_START, async (_event, options: AgentQueryOptions) => {
-        const { instanceId, cwd, ...queryOptions } = options;
+        const { instanceId, cwd, additionalDirectories, ...queryOptions } = options;
         const workingDir = cwd || process.cwd();
 
         try {
             const service = getOrCreateAgentService(instanceId, workingDir);
             // Update cwd if it changed
             service.setCwd(workingDir);
+            service.setAdditionalDirectories(additionalDirectories ?? []);
             await service.startQuery(queryOptions);
         } catch (error) {
             if (!mainWindow.isDestroyed()) {
@@ -207,7 +210,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         }
     });
 
-    // Handle folder picker dialog
+    // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
         const result = await dialog.showOpenDialog({
             properties: ['openDirectory', 'multiSelections'],
@@ -221,6 +224,21 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             name: path.basename(folderPath),
             isGitRepo: fs.existsSync(path.join(folderPath, '.git'))
         }));
+    });
+
+    // Handle single folder picker dialog (for workspace creation)
+    ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDER, async () => {
+        const result = await dialog.showOpenDialog({
+            properties: ['openDirectory', 'createDirectory'],
+            title: 'Select Workspace Folder'
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return null;
+        }
+        const selectedPath = result.filePaths[0];
+        const folderName = path.basename(selectedPath);
+        const isGitRepo = fs.existsSync(path.join(selectedPath, '.git'));
+        return { path: selectedPath, name: folderName, isGitRepo };
     });
 
     // Handle file read
@@ -252,6 +270,25 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         } catch (error) {
             throw new Error(`Failed to list directory: ${error instanceof Error ? error.message : String(error)}`);
         }
+    });
+
+    // === Session Storage Handlers ===
+
+    ipcMain.handle('session:save-history', async (_event, { sessionId, data }) => {
+        await saveSessionData(sessionId, data);
+    });
+
+    ipcMain.handle('session:load-history', async (_event, { sessionId }) => {
+        return await loadSessionData(sessionId);
+    });
+
+    ipcMain.handle('session:delete-history', async (_event, { sessionId }) => {
+        await deleteSessionData(sessionId);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.SESSION_GENERATE_NAME, async (_event, { query }) => {
+        const name = await generateSessionName(query);
+        return { name };
     });
 
     // Handle git status
@@ -365,6 +402,7 @@ export function cleanupIpcHandlers(): void {
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
+    ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDER);
 
     // Remove file IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.FILE_READ);
@@ -372,4 +410,10 @@ export function cleanupIpcHandlers(): void {
 
     // Remove git IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
+
+    // Remove session storage handlers
+    ipcMain.removeHandler('session:save-history');
+    ipcMain.removeHandler('session:load-history');
+    ipcMain.removeHandler('session:delete-history');
+    ipcMain.removeHandler(IPC_CHANNELS.SESSION_GENERATE_NAME);
 }
