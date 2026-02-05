@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { Terminal, Zap } from 'lucide-react';
 import { CommandSuggestion } from './useChatInput';
 import './command-suggestions.css';
@@ -22,6 +22,24 @@ export function CommandSuggestions({
 }: CommandSuggestionsProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+  const lastMousePos = useRef<{ x: number; y: number } | null>(null);
+
+  // Track if mouse has actually moved (not just scroll moving items under cursor)
+  const handleMouseMove = useCallback((e: React.MouseEvent, idx: number) => {
+    const currentPos = { x: e.clientX, y: e.clientY };
+
+    // Only update selection if mouse actually moved
+    if (
+      lastMousePos.current === null ||
+      lastMousePos.current.x !== currentPos.x ||
+      lastMousePos.current.y !== currentPos.y
+    ) {
+      lastMousePos.current = currentPos;
+      if (idx !== selectedIndex) {
+        onHover(idx);
+      }
+    }
+  }, [selectedIndex, onHover]);
 
   // Scroll selected item into view when selection changes
   useEffect(() => {
@@ -45,7 +63,7 @@ export function CommandSuggestions({
           aria-selected={idx === selectedIndex}
           className={`cmd-suggestion-item ${idx === selectedIndex ? 'selected' : ''}`}
           onClick={() => onExecute(cmd)}
-          onMouseEnter={() => onHover(idx)}
+          onMouseMove={(e) => handleMouseMove(e, idx)}
         >
           <span className="cmd-suggestion-icon">
             {cmd.type === 'skill' ? <Zap size={12} /> : <Terminal size={12} />}

@@ -46,11 +46,6 @@
   line-height: 1.2;
 }
 
-.cmd-suggestion-item:hover,
-.cmd-suggestion-item[data-highlighted] {
-  background: var(--color-bg-hover);
-}
-
 .cmd-suggestion-item.selected {
   background: var(--color-bg-active);
 }
@@ -67,7 +62,6 @@
   opacity: 0.7;
 }
 
-.cmd-suggestion-item:hover .cmd-suggestion-icon,
 .cmd-suggestion-item.selected .cmd-suggestion-icon {
   color: var(--color-accent);
   opacity: 1;
