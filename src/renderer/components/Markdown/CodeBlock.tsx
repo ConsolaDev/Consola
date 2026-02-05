@@ -1,8 +1,8 @@
 import { useState, useMemo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Box, Flex, Text, Button } from '@radix-ui/themes';
 import { Copy, Check, ChevronDown, ChevronUp } from 'lucide-react';
+import { codeTheme, codeCustomStyle } from '../../utils/codeTheme';
 
 interface CodeBlockProps {
   code: string;
@@ -53,15 +53,11 @@ export function CodeBlock({
       {/* Code content */}
       <Box className="code-block-content">
         <SyntaxHighlighter
-          style={oneDark}
+          style={codeTheme}
           language={language}
           PreTag="div"
           showLineNumbers
-          customStyle={{
-            margin: 0,
-            borderRadius: 0,
-            fontSize: '13px',
-          }}
+          customStyle={codeCustomStyle}
         >
           {displayedCode}
         </SyntaxHighlighter>

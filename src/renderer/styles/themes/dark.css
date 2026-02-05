@@ -40,4 +40,9 @@
   /* Shadows - stronger for dark theme */
   --shadow-elevation-1: 0 1px 3px rgba(0, 0, 0, 0.24);
   --shadow-elevation-2: 0 3px 6px rgba(0, 0, 0, 0.32);
+
+  /* Code block colors */
+  --color-code-header-bg: rgba(0, 0, 0, 0.2);
+  --color-code-border: rgba(255, 255, 255, 0.1);
+  --color-code-text-muted: rgba(255, 255, 255, 0.5);
 }
