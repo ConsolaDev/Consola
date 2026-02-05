@@ -1,5 +1,5 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw } from 'lucide-react';
+import { FolderTree, RotateCw, GitBranch } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 
 interface PathDisplayProps {
@@ -48,7 +48,7 @@ export function PathDisplay({
   isExplorerVisible = false,
   onToggleExplorer
 }: PathDisplayProps) {
-  const { stats, isLoading, isGitRepo, refresh } = useGitStatusStore();
+  const { stats, isLoading, isGitRepo, branch, refresh } = useGitStatusStore();
 
   const handleRefresh = () => {
     if (path && !isLoading) {
@@ -74,13 +74,24 @@ export function PathDisplay({
         </Tooltip.Root>
       </Tooltip.Provider>
 
-      {/* Git stats badge - only show if it's a git repo with changes */}
-      {isGitRepo && stats.modifiedCount > 0 && (
+      {/* Git branch and stats badge - show if it's a git repo */}
+      {isGitRepo && (
         <div className="git-stats-badge">
-          <span className="git-stats-count">{stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}</span>
-          <span className="git-stats-separator">·</span>
-          <span className="git-stats-added">+{stats.addedLines}</span>
-          <span className="git-stats-removed">-{stats.removedLines}</span>
+          {branch && (
+            <>
+              <GitBranch size={14} className="git-branch-icon" />
+              <span className="git-branch-name">{branch}</span>
+            </>
+          )}
+          {stats.modifiedCount > 0 && (
+            <>
+              <span className="git-stats-separator">·</span>
+              <span className="git-stats-count">{stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}</span>
+              <span className="git-stats-separator">·</span>
+              <span className="git-stats-added">+{stats.addedLines}</span>
+              <span className="git-stats-removed">-{stats.removedLines}</span>
+            </>
+          )}
           <Tooltip.Provider delayDuration={300}>
             <Tooltip.Root>
               <Tooltip.Trigger asChild>
@@ -102,30 +113,6 @@ export function PathDisplay({
             </Tooltip.Root>
           </Tooltip.Provider>
         </div>
-      )}
-
-      {/* Also show refresh button if git repo but no changes */}
-      {isGitRepo && stats.modifiedCount === 0 && (
-        <Tooltip.Provider delayDuration={300}>
-          <Tooltip.Root>
-            <Tooltip.Trigger asChild>
-              <button
-                className={`git-stats-refresh ${isLoading ? 'loading' : ''}`}
-                onClick={handleRefresh}
-                disabled={isLoading}
-                aria-label="Refresh git status"
-              >
-                <RotateCw size={12} />
-              </button>
-            </Tooltip.Trigger>
-            <Tooltip.Portal>
-              <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                Refresh git status
-                <Tooltip.Arrow className="tooltip-arrow" />
-              </Tooltip.Content>
-            </Tooltip.Portal>
-          </Tooltip.Root>
-        </Tooltip.Provider>
       )}
 
       {showExplorerToggle && onToggleExplorer && (

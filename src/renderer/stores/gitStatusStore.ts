@@ -19,6 +19,8 @@ interface GitStatusState {
   isGitRepo: boolean;
   // Current root path being tracked
   rootPath: string | null;
+  // Current branch name
+  branch: string | null;
   // Refresh git status for a path
   refresh: (rootPath: string) => Promise<void>;
   // Get status for a specific file path
@@ -33,6 +35,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
   isLoading: false,
   isGitRepo: false,
   rootPath: null,
+  branch: null,
 
   refresh: async (rootPath: string) => {
     set({ isLoading: true, rootPath });
@@ -49,6 +52,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         fileStatuses,
         stats: result.stats,
         isGitRepo: result.isGitRepo,
+        branch: result.branch,
         isLoading: false,
       });
     } catch (error) {
@@ -57,6 +61,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         fileStatuses: new Map(),
         stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 },
         isGitRepo: false,
+        branch: null,
         isLoading: false,
       });
     }
@@ -81,6 +86,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
       isLoading: false,
       isGitRepo: false,
       rootPath: null,
+      branch: null,
     });
   },
 }));

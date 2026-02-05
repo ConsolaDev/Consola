@@ -297,57 +297,48 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             // Check if directory is a git repo
             const gitDir = path.join(rootPath, '.git');
             if (!fs.existsSync(gitDir)) {
-                resolve({ files: [], stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 }, isGitRepo: false });
+                resolve({ files: [], stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 }, isGitRepo: false, branch: null });
                 return;
             }
 
-            // Run git status --porcelain to get file statuses
-            exec('git status --porcelain', { cwd: rootPath }, (statusErr, statusStdout) => {
-                const files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }> = [];
+            // Get current branch name
+            exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath }, (branchErr, branchStdout) => {
+                const branch = !branchErr && branchStdout ? branchStdout.trim() : null;
 
-                if (!statusErr && statusStdout) {
-                    const lines = statusStdout.trim().split('\n').filter(Boolean);
-                    for (const line of lines) {
-                        const indexStatus = line[0];
-                        const workingStatus = line[1];
-                        const filePath = line.slice(3).trim();
+                // Run git status --porcelain to get file statuses
+                exec('git status --porcelain', { cwd: rootPath }, (statusErr, statusStdout) => {
+                    const files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }> = [];
 
-                        // Determine status based on git status output
-                        // First column = index (staged), Second column = working tree
-                        if (indexStatus === '?' && workingStatus === '?') {
-                            files.push({ path: filePath, status: 'untracked' });
-                        } else if (indexStatus === 'D' || workingStatus === 'D') {
-                            files.push({ path: filePath, status: 'deleted' });
-                        } else if (indexStatus !== ' ' && indexStatus !== '?') {
-                            // Staged changes (A, M, R, C in index)
-                            files.push({ path: filePath, status: 'staged' });
-                        } else if (workingStatus === 'M') {
-                            // Unstaged modifications
-                            files.push({ path: filePath, status: 'modified' });
-                        }
-                    }
-                }
-
-                // Run git diff --numstat for line counts
-                exec('git diff --numstat', { cwd: rootPath }, (diffErr, diffStdout) => {
-                    let addedLines = 0;
-                    let removedLines = 0;
-
-                    if (!diffErr && diffStdout) {
-                        const lines = diffStdout.trim().split('\n').filter(Boolean);
+                    if (!statusErr && statusStdout) {
+                        const lines = statusStdout.trim().split('\n').filter(Boolean);
                         for (const line of lines) {
-                            const parts = line.split('\t');
-                            const added = parseInt(parts[0], 10);
-                            const removed = parseInt(parts[1], 10);
-                            if (!isNaN(added)) addedLines += added;
-                            if (!isNaN(removed)) removedLines += removed;
+                            const indexStatus = line[0];
+                            const workingStatus = line[1];
+                            const filePath = line.slice(3).trim();
+
+                            // Determine status based on git status output
+                            // First column = index (staged), Second column = working tree
+                            if (indexStatus === '?' && workingStatus === '?') {
+                                files.push({ path: filePath, status: 'untracked' });
+                            } else if (indexStatus === 'D' || workingStatus === 'D') {
+                                files.push({ path: filePath, status: 'deleted' });
+                            } else if (indexStatus !== ' ' && indexStatus !== '?') {
+                                // Staged changes (A, M, R, C in index)
+                                files.push({ path: filePath, status: 'staged' });
+                            } else if (workingStatus === 'M') {
+                                // Unstaged modifications
+                                files.push({ path: filePath, status: 'modified' });
+                            }
                         }
                     }
 
-                    // Also get staged diff stats
-                    exec('git diff --cached --numstat', { cwd: rootPath }, (stagedErr, stagedStdout) => {
-                        if (!stagedErr && stagedStdout) {
-                            const lines = stagedStdout.trim().split('\n').filter(Boolean);
+                    // Run git diff --numstat for line counts
+                    exec('git diff --numstat', { cwd: rootPath }, (diffErr, diffStdout) => {
+                        let addedLines = 0;
+                        let removedLines = 0;
+
+                        if (!diffErr && diffStdout) {
+                            const lines = diffStdout.trim().split('\n').filter(Boolean);
                             for (const line of lines) {
                                 const parts = line.split('\t');
                                 const added = parseInt(parts[0], 10);
@@ -357,14 +348,29 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
                             }
                         }
 
-                        resolve({
-                            files,
-                            stats: {
-                                modifiedCount: files.length,
-                                addedLines,
-                                removedLines
-                            },
-                            isGitRepo: true
+                        // Also get staged diff stats
+                        exec('git diff --cached --numstat', { cwd: rootPath }, (stagedErr, stagedStdout) => {
+                            if (!stagedErr && stagedStdout) {
+                                const lines = stagedStdout.trim().split('\n').filter(Boolean);
+                                for (const line of lines) {
+                                    const parts = line.split('\t');
+                                    const added = parseInt(parts[0], 10);
+                                    const removed = parseInt(parts[1], 10);
+                                    if (!isNaN(added)) addedLines += added;
+                                    if (!isNaN(removed)) removedLines += removed;
+                                }
+                            }
+
+                            resolve({
+                                files,
+                                stats: {
+                                    modifiedCount: files.length,
+                                    addedLines,
+                                    removedLines
+                                },
+                                isGitRepo: true,
+                                branch
+                            });
                         });
                     });
                 });
