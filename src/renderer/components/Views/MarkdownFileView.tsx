@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Box, Flex, Text, ScrollArea } from '@radix-ui/themes';
 import { MarkdownRenderer } from '../Markdown';
 import { fileBridge } from '../../services/fileBridge';
-import { FileText, AlertCircle, Loader2 } from 'lucide-react';
+import { AlertCircle, Loader2 } from 'lucide-react';
 import './styles.css';
 
 interface MarkdownFileViewProps {
@@ -48,17 +48,8 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
     );
   }
 
-  const fileName = filePath.split('/').pop() || 'Untitled';
-
   return (
     <Box className="markdown-file-view">
-      {/* File header */}
-      <Flex className="file-header" align="center" gap="2">
-        <FileText size={16} />
-        <Text size="2" weight="medium">{fileName}</Text>
-      </Flex>
-
-      {/* Markdown content */}
       <ScrollArea className="file-content">
         <Box p="4">
           <MarkdownRenderer content={content} />
