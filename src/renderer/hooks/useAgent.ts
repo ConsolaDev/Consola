@@ -75,20 +75,12 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
 
   // Initialize session to pre-load skills/commands (only if we have an instanceId and cwd)
   useEffect(() => {
-    console.log('[useAgent] Effect running, instanceId:', instanceId, 'cwd:', cwd);
-    if (!instanceId || !cwd) {
-      console.log('[useAgent] Skipping - no instanceId or cwd');
-      return;
-    }
+    if (!instanceId || !cwd) return;
 
     // Only initialize if we don't already have skills loaded
     const currentInstance = useAgentStore.getState().instances[instanceId];
-    console.log('[useAgent] currentInstance:', currentInstance?.skills?.length, currentInstance?.slashCommands?.length);
     if (!currentInstance || (currentInstance.skills.length === 0 && currentInstance.slashCommands.length === 0)) {
-      console.log('[useAgent] Calling storeInitializeSession');
       storeInitializeSession(instanceId, cwd);
-    } else {
-      console.log('[useAgent] Skipping - already have skills/commands');
     }
   }, [instanceId, cwd, storeInitializeSession]);
 

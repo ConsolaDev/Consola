@@ -36,7 +36,6 @@ function formatModelName(modelId: string | null): string {
 }
 
 export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, modelUsage, skills = [], slashCommands = [] }: ChatInputProps) {
-  console.log('[ChatInput] Render with skills:', skills, 'slashCommands:', slashCommands);
   const [input, setInput] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -65,29 +64,22 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, mod
       });
     }
 
-    console.log('[ChatInput] allCommands built:', commands.length);
     return commands;
   }, [skills, slashCommands]);
 
   // Filter commands based on input
   const filteredCommands = useMemo(() => {
-    if (!input.startsWith('/')) {
-      console.log('[ChatInput] filteredCommands: input does not start with /');
-      return [];
-    }
+    if (!input.startsWith('/')) return [];
 
     const query = input.slice(1).toLowerCase();
-    const filtered = allCommands
+    return allCommands
       .filter(cmd => cmd.name.toLowerCase().includes(query))
       .slice(0, 8); // Limit to 8 suggestions
-    console.log('[ChatInput] filteredCommands:', filtered.length, 'query:', query);
-    return filtered;
   }, [input, allCommands]);
 
   // Show/hide suggestions based on input
   useEffect(() => {
     const shouldShow = input.startsWith('/') && filteredCommands.length > 0 && !isRunning;
-    console.log('[ChatInput] shouldShow:', shouldShow, 'input:', input, 'filteredCommands.length:', filteredCommands.length, 'isRunning:', isRunning);
     setShowSuggestions(shouldShow);
     if (shouldShow) {
       setSelectedIndex(0);
@@ -179,8 +171,6 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, mod
 
   const canSend = input.trim() && !disabled && !isRunning;
   const hasContent = input.length > 0;
-
-  console.log('[ChatInput] Render - showSuggestions:', showSuggestions, 'filteredCommands.length:', filteredCommands.length);
 
   return (
     <div className="chat-input-wrapper">

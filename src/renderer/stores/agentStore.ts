@@ -395,24 +395,20 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   },
 
   initializeSession: async (instanceId, cwd) => {
-    console.log('[agentStore] initializeSession called:', instanceId, cwd);
     // Ensure instance exists
     get().getOrCreateInstance(instanceId);
 
     try {
-      console.log('[agentStore] Calling agentBridge.initialize');
       const result = await agentBridge.initialize(instanceId, cwd);
-      console.log('[agentStore] Got result:', result);
       if (result) {
         set(state => updateInstance(state, instanceId, () => ({
           skills: result.skills,
           slashCommands: result.slashCommands,
           plugins: result.plugins
         })));
-        console.log('[agentStore] Updated state with skills:', result.skills);
       }
     } catch (error) {
-      console.warn('[agentStore] Failed to initialize session:', error);
+      console.warn('Failed to initialize session:', error);
     }
   },
 

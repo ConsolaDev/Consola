@@ -466,7 +466,6 @@ export class ClaudeAgentService extends EventEmitter {
     slashCommands: string[];
     plugins: { name: string; path: string }[];
   }> {
-    console.log('[ClaudeAgentService] initializeSession called, cwd:', this.cwd);
     const sdk = await getSDK();
 
     // Create a minimal query with empty prompt and maxTurns=0
@@ -487,23 +486,18 @@ export class ClaudeAgentService extends EventEmitter {
 
     try {
       // Iterate through messages to get the init message
-      console.log('[ClaudeAgentService] Starting to iterate query messages...');
       for await (const message of query) {
-        console.log('[ClaudeAgentService] Got message:', message.type, (message as any).subtype);
         if (message.type === 'system' && message.subtype === 'init') {
           skills = (message as any).skills || [];
           slashCommands = (message as any).slash_commands || [];
           plugins = (message as any).plugins || [];
-          console.log('[ClaudeAgentService] Init message received:', { skills, slashCommands, plugins });
           break;
         }
       }
-      console.log('[ClaudeAgentService] Query iteration complete');
     } catch (error) {
-      console.warn('[ClaudeAgentService] Failed to initialize session:', error);
+      console.warn('Failed to initialize session:', error);
     }
 
-    console.log('[ClaudeAgentService] Returning:', { skills, slashCommands, plugins });
     return {
       skills,
       slashCommands,
