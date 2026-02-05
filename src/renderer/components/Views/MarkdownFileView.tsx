@@ -51,7 +51,7 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
   return (
     <Box className="markdown-file-view">
       <ScrollArea className="file-content">
-        <Box p="4">
+        <Box p="4" pr="6">
           <MarkdownRenderer content={content} />
         </Box>
       </ScrollArea>
