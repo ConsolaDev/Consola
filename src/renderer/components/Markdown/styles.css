@@ -174,7 +174,8 @@
 
 .code-block-content {
   position: relative;
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
 }
 
 .code-block-content pre {
