@@ -79,7 +79,7 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
 
   return (
     <Collapsible.Root open={isExpanded} onOpenChange={() => toggleExpanded(workspace.id)}>
-      <div className="workspace-nav-item-container">
+      <div className={`workspace-nav-item-container ${isActive ? 'active' : ''}`}>
         <button
           className="workspace-expand-toggle"
           onClick={handleChevronClick}
@@ -88,7 +88,7 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         <button
-          className={`nav-item workspace-nav-item ${isActive ? 'active' : ''}`}
+          className="nav-item workspace-nav-item"
           onClick={handleClick}
         >
           <span className="nav-item-icon">
@@ -101,29 +101,25 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
           workspaceName={workspace.name}
           onDelete={handleDelete}
         />
+        <button
+          className="workspace-add-session"
+          onClick={handleAddSession}
+          aria-label="New session"
+        >
+          <Plus size={14} />
+        </button>
       </div>
       <Collapsible.Content className="workspace-collapsible-content">
-        {/* Sessions Section */}
-        <div className="workspace-sessions-section">
-          <div className="section-header">
-            <span>Sessions</span>
-            <button onClick={handleAddSession} aria-label="Add session">
-              <Plus size={12} />
-            </button>
-          </div>
-          {visibleSessions.length === 0 ? (
-            <div className="session-list-empty">No sessions</div>
-          ) : (
-            visibleSessions.map((session) => (
-              <SessionNavItem
-                key={session.id}
-                session={session}
-                workspaceId={workspace.id}
-                isActive={activeWorkspaceId === workspace.id && activeSessionId === session.id}
-                onClick={() => handleSessionClick(session.id)}
-              />
-            ))
-          )}
+        <div className="workspace-sessions-list">
+          {visibleSessions.map((session) => (
+            <SessionNavItem
+              key={session.id}
+              session={session}
+              workspaceId={workspace.id}
+              isActive={activeWorkspaceId === workspace.id && activeSessionId === session.id}
+              onClick={() => handleSessionClick(session.id)}
+            />
+          ))}
         </div>
       </Collapsible.Content>
     </Collapsible.Root>
