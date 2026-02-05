@@ -264,6 +264,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 1;
 }
 
 .path-display-text {
@@ -274,6 +275,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  margin-left: auto;
   width: 24px;
   height: 24px;
   padding: 0;
