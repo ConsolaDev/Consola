@@ -32,6 +32,12 @@
   --color-error: rgb(212, 76, 71);
   --color-info: rgb(35, 131, 226);
 
+  /* Git status colors */
+  --color-git-staged: rgb(68, 131, 97);      /* Green for staged */
+  --color-git-modified: rgb(203, 145, 47);   /* Yellow for unstaged modified */
+  --color-git-untracked: rgb(50, 140, 150);  /* Teal/cyan for untracked */
+  --color-git-deleted: rgb(212, 76, 71);     /* Red for deleted */
+
   /* Scrollbar */
   --color-scrollbar-track: transparent;
   --color-scrollbar-thumb: rgba(55, 53, 47, 0.16);

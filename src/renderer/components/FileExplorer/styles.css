@@ -89,6 +89,23 @@
   white-space: nowrap;
 }
 
+/* Git status colors for file names */
+.file-tree-name.git-staged {
+  color: var(--color-git-staged);
+}
+
+.file-tree-name.git-modified {
+  color: var(--color-git-modified);
+}
+
+.file-tree-name.git-untracked {
+  color: var(--color-git-untracked);
+}
+
+.file-tree-name.git-deleted {
+  color: var(--color-git-deleted);
+}
+
 .file-tree-loading {
   color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
