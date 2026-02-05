@@ -237,4 +237,7 @@ contextBridge.exposeInMainWorld('fileAPI', {
     readFile: (filePath: string): Promise<string> => {
         return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath);
     },
+    listDirectory: (dirPath: string): Promise<Array<{ name: string; path: string; isDirectory: boolean }>> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIRECTORY, dirPath);
+    },
 });

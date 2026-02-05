@@ -42,6 +42,7 @@ export const IPC_CHANNELS = {
 
     // File operations
     FILE_READ: 'file:read',  // Read file contents
+    FILE_LIST_DIRECTORY: 'file:list-directory',  // List directory contents
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';

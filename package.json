@@ -14,7 +14,14 @@
     "dev:electron": "wait-on http://localhost:5173 && NODE_ENV=development electron .",
     "test:e2e": "playwright test"
   },
-  "keywords": ["claude-code", "ai-development", "electron", "rpi-methodology", "linear", "issue-tracker"],
+  "keywords": [
+    "claude-code",
+    "ai-development",
+    "electron",
+    "rpi-methodology",
+    "linear",
+    "issue-tracker"
+  ],
   "author": "Javier Taraza",
   "license": "ISC",
   "dependencies": {
@@ -30,6 +37,7 @@
     "@radix-ui/themes": "^3.3.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "lucide-react": "^0.563.0",
+    "material-file-icons": "^2.4.0",
     "node-pty": "^1.0.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",

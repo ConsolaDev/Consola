@@ -1,8 +1,10 @@
+import { useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { AgentPanel } from '../Agent/AgentPanel';
 import { ContextPlaceholder } from './ContextPlaceholder';
-import { TruncatedPath } from './TruncatedPath';
+import { PathDisplay } from './PathDisplay';
+import { FileExplorer } from '../FileExplorer';
 import './styles.css';
 
 interface ContentViewProps {
@@ -11,6 +13,9 @@ interface ContentViewProps {
 }
 
 export function ContentView({ workspaceId, projectId }: ContentViewProps) {
+  const [isExplorerVisible, setIsExplorerVisible] = useState(false);
+  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
+
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
@@ -36,15 +41,19 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
     ? workspace.projects.find((p) => p.id === projectId)
     : undefined;
 
-  // Compute instanceId for agent (using -main suffix for future multi-agent support)
   const contextId = projectId
     ? `project-${projectId}`
     : `workspace-${workspaceId}`;
   const instanceId = `${contextId}-main`;
-
-  // Determine working directory for agent
-  // For projects, use the project path; for workspaces, let main process use its default
   const cwd = project?.path || '';
+
+  const handleSelectFile = (path: string) => {
+    setSelectedFilePath(path);
+  };
+
+  const handleToggleExplorer = () => {
+    setIsExplorerVisible(!isExplorerVisible);
+  };
 
   return (
     <div className="workspace-view">
@@ -61,7 +70,13 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
           )}
         </h1>
         {project?.path && (
-          <TruncatedPath path={project.path} className="workspace-view-path" />
+          <PathDisplay
+            path={project.path}
+            className="workspace-view-path"
+            showExplorerToggle
+            isExplorerVisible={isExplorerVisible}
+            onToggleExplorer={handleToggleExplorer}
+          />
         )}
       </div>
       <div className="workspace-view-content">
@@ -70,12 +85,27 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          <Panel id="agent" defaultSize="60%" minSize="20%">
+          {isExplorerVisible && cwd && (
+            <>
+              <Panel id="explorer" defaultSize="20%" minSize="15%" maxSize="40%">
+                <FileExplorer
+                  rootPath={cwd}
+                  selectedPath={selectedFilePath}
+                  onSelectFile={handleSelectFile}
+                />
+              </Panel>
+              <Separator className="resize-handle" />
+            </>
+          )}
+          <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
             <AgentPanel instanceId={instanceId} cwd={cwd} />
           </Panel>
           <Separator className="resize-handle" />
           <Panel id="context" minSize="20%">
-            <ContextPlaceholder contextId={contextId} />
+            <ContextPlaceholder
+              contextId={contextId}
+              selectedFile={selectedFilePath}
+            />
           </Panel>
         </Group>
       </div>
