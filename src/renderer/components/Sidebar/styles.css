@@ -256,13 +256,8 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
   z-index: 1;
-}
-
-.workspace-nav-item-container:hover .workspace-expand-toggle {
-  opacity: 1;
 }
 
 .workspace-expand-toggle:hover {
