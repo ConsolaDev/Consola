@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
+import { useNavigationStore } from '../../stores/navigationStore';
 import { AgentPanel } from '../Agent/AgentPanel';
 import { PreviewPanel } from '../PreviewPanel';
 import { PathDisplay } from './PathDisplay';
@@ -14,7 +14,8 @@ interface ContentViewProps {
 }
 
 export function ContentView({ workspaceId, projectId }: ContentViewProps) {
-  const [isExplorerVisible, setIsExplorerVisible] = useState(false);
+  const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
+  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const openFile = usePreviewTabStore((state) => state.openFile);
@@ -54,10 +55,6 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
     openFile(path);
   };
 
-  const handleToggleExplorer = () => {
-    setIsExplorerVisible(!isExplorerVisible);
-  };
-
   return (
     <div className="workspace-view">
       <div className="workspace-view-header">
@@ -78,7 +75,7 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
             className="workspace-view-path"
             showExplorerToggle
             isExplorerVisible={isExplorerVisible}
-            onToggleExplorer={handleToggleExplorer}
+            onToggleExplorer={toggleExplorer}
           />
         )}
       </div>

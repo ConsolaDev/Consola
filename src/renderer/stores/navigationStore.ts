@@ -5,9 +5,12 @@ export type ViewType = 'home' | 'workspace' | 'settings';
 
 interface NavigationState {
   isSidebarHidden: boolean;
+  isExplorerVisible: boolean;
   expandedWorkspaces: Record<string, boolean>;
   toggleSidebar: () => void;
   setSidebarHidden: (hidden: boolean) => void;
+  toggleExplorer: () => void;
+  setExplorerVisible: (visible: boolean) => void;
   toggleWorkspaceExpanded: (workspaceId: string) => void;
   setWorkspaceExpanded: (workspaceId: string, expanded: boolean) => void;
   isWorkspaceExpanded: (workspaceId: string) => boolean;
@@ -17,9 +20,12 @@ export const useNavigationStore = create<NavigationState>()(
   persist(
     (set, get) => ({
       isSidebarHidden: false,
+      isExplorerVisible: false,
       expandedWorkspaces: {},
       toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
       setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
+      toggleExplorer: () => set((state) => ({ isExplorerVisible: !state.isExplorerVisible })),
+      setExplorerVisible: (visible) => set({ isExplorerVisible: visible }),
       toggleWorkspaceExpanded: (workspaceId) =>
         set((state) => ({
           expandedWorkspaces: {
@@ -45,6 +51,7 @@ export const useNavigationStore = create<NavigationState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         isSidebarHidden: state.isSidebarHidden,
+        isExplorerVisible: state.isExplorerVisible,
         expandedWorkspaces: state.expandedWorkspaces,
       }),
     }

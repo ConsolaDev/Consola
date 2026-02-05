@@ -9,6 +9,9 @@ interface PathDisplayProps {
   onToggleExplorer?: () => void;
 }
 
+const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
+
 /**
  * Truncate a file path to show a sensible shortened version.
  * Shows ~ for home directory and last 2-3 path segments.
@@ -76,7 +79,7 @@ export function PathDisplay({
             </Tooltip.Trigger>
             <Tooltip.Portal>
               <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'}
+                {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} ({explorerShortcut})
                 <Tooltip.Arrow className="tooltip-arrow" />
               </Tooltip.Content>
             </Tooltip.Portal>
