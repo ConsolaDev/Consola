@@ -3,6 +3,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettings } from '../../contexts/SettingsContext';
+import { dialogBridge } from '../../services/dialogBridge';
 import { NavItem } from './NavItem';
 import { WorkspaceNavItem } from './WorkspaceNavItem';
 import './styles.css';
@@ -19,7 +20,7 @@ export function Sidebar() {
   }
 
   const handleNewWorkspace = async () => {
-    const result = await window.dialogAPI.selectFolder();
+    const result = await dialogBridge.selectFolder();
     if (result) {
       const workspace = createWorkspace(result.name, result.path, result.isGitRepo);
       setActiveWorkspace(workspace.id);

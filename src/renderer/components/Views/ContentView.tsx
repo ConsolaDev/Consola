@@ -5,6 +5,7 @@ import { useAgentStore } from '../../stores/agentStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
+import { sessionStorageBridge } from '../../services/sessionStorageBridge';
 import { AgentPanel } from '../Agent/AgentPanel';
 import { PreviewPanel } from '../PreviewPanel';
 import { PathDisplay } from './PathDisplay';
@@ -74,9 +75,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     const messages = useAgentStore.getState().instances[instanceId]?.messages ?? [];
     const firstUserMessage = messages.find(m => m.type === 'user');
 
-    if (firstUserMessage && window.sessionStorageAPI) {
+    if (firstUserMessage) {
       namedSessionsRef.current.add(session.id);
-      window.sessionStorageAPI.generateName(firstUserMessage.content).then(({ name }) => {
+      sessionStorageBridge.generateName(firstUserMessage.content).then((name) => {
         if (name) {
           updateSession(workspaceId, session.id, { name });
         }

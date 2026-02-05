@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { useEffect, useRef, useCallback } from 'react';
 import { GitFileStatus } from '../types/electron';
+import { gitBridge } from '../services/gitBridge';
 
 interface GitStats {
   modifiedCount: number;
@@ -41,7 +42,11 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
     set({ isLoading: true, rootPath });
 
     try {
-      const result = await window.gitAPI.getStatus(rootPath);
+      const result = await gitBridge.getStatus(rootPath);
+
+      if (!result) {
+        throw new Error('Git API not available');
+      }
 
       const fileStatuses = new Map<string, GitFileStatus>();
       for (const file of result.files) {

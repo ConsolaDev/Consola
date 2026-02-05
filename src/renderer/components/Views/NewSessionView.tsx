@@ -4,6 +4,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useAgentStore } from '../../stores/agentStore';
+import { sessionStorageBridge } from '../../services/sessionStorageBridge';
 import './styles.css';
 
 interface NewSessionViewProps {
@@ -74,13 +75,11 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
       sendMessage(instanceId, workspace.path, trimmedPrompt, {});
 
       // Generate name from prompt asynchronously
-      if (window.sessionStorageAPI) {
-        window.sessionStorageAPI.generateName(trimmedPrompt).then(({ name }) => {
-          if (name) {
-            updateSession(workspace.id, session.id, { name });
-          }
-        });
-      }
+      sessionStorageBridge.generateName(trimmedPrompt).then((name) => {
+        if (name) {
+          updateSession(workspace.id, session.id, { name });
+        }
+      });
 
       // Clear the input
       setPrompt('');
