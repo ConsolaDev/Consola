@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { AgentPanel } from '../Agent/AgentPanel';
-import { ContextPlaceholder } from './ContextPlaceholder';
+import { PreviewPanel } from '../PreviewPanel';
 import { PathDisplay } from './PathDisplay';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
@@ -14,9 +15,11 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const [isExplorerVisible, setIsExplorerVisible] = useState(false);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
+  const openFile = usePreviewTabStore((state) => state.openFile);
+  const hasOpenTabs = usePreviewTabStore((state) => state.tabs.length > 0);
+  const activeTabId = usePreviewTabStore((state) => state.activeTabId);
 
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'content-view-split',
@@ -48,7 +51,7 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const cwd = project?.path || '';
 
   const handleSelectFile = (path: string) => {
-    setSelectedFilePath(path);
+    openFile(path);
   };
 
   const handleToggleExplorer = () => {
@@ -90,7 +93,7 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
               <Panel id="explorer" defaultSize="20%" minSize="15%" maxSize="40%">
                 <FileExplorer
                   rootPath={cwd}
-                  selectedPath={selectedFilePath}
+                  selectedPath={activeTabId}
                   onSelectFile={handleSelectFile}
                 />
               </Panel>
@@ -100,13 +103,14 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
           <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
             <AgentPanel instanceId={instanceId} cwd={cwd} />
           </Panel>
-          <Separator className="resize-handle" />
-          <Panel id="context" minSize="20%">
-            <ContextPlaceholder
-              contextId={contextId}
-              selectedFile={selectedFilePath}
-            />
-          </Panel>
+          {hasOpenTabs && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="preview" defaultSize="40%" minSize="20%">
+                <PreviewPanel />
+              </Panel>
+            </>
+          )}
         </Group>
       </div>
     </div>
