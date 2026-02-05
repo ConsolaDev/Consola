@@ -74,69 +74,72 @@ export function PathDisplay({
         </Tooltip.Root>
       </Tooltip.Provider>
 
-      {/* Git branch and stats badge - show if it's a git repo */}
-      {isGitRepo && (
-        <div className="git-stats-badge">
-          {branch && (
-            <>
-              <GitBranch size={14} className="git-branch-icon" />
-              <span className="git-branch-name">{branch}</span>
-            </>
-          )}
-          {stats.modifiedCount > 0 && (
-            <>
-              <span className="git-stats-separator">·</span>
-              <span className="git-stats-count">{stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}</span>
-              <span className="git-stats-separator">·</span>
-              <span className="git-stats-added">+{stats.addedLines}</span>
-              <span className="git-stats-removed">-{stats.removedLines}</span>
-            </>
-          )}
+      {/* Right side actions - git status and explorer toggle */}
+      <div className="path-display-actions">
+        {/* Git branch and stats badge - show if it's a git repo */}
+        {isGitRepo && (
+          <div className="git-stats-badge">
+            {branch && (
+              <>
+                <GitBranch size={14} className="git-branch-icon" />
+                <span className="git-branch-name">{branch}</span>
+              </>
+            )}
+            {stats.modifiedCount > 0 && (
+              <>
+                <span className="git-stats-separator">·</span>
+                <span className="git-stats-count">{stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}</span>
+                <span className="git-stats-separator">·</span>
+                <span className="git-stats-added">+{stats.addedLines}</span>
+                <span className="git-stats-removed">-{stats.removedLines}</span>
+              </>
+            )}
+            <Tooltip.Provider delayDuration={300}>
+              <Tooltip.Root>
+                <Tooltip.Trigger asChild>
+                  <button
+                    className={`git-stats-refresh ${isLoading ? 'loading' : ''}`}
+                    onClick={handleRefresh}
+                    disabled={isLoading}
+                    aria-label="Refresh git status"
+                  >
+                    <RotateCw size={12} />
+                  </button>
+                </Tooltip.Trigger>
+                <Tooltip.Portal>
+                  <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                    Refresh git status
+                    <Tooltip.Arrow className="tooltip-arrow" />
+                  </Tooltip.Content>
+                </Tooltip.Portal>
+              </Tooltip.Root>
+            </Tooltip.Provider>
+          </div>
+        )}
+
+        {showExplorerToggle && onToggleExplorer && (
           <Tooltip.Provider delayDuration={300}>
             <Tooltip.Root>
               <Tooltip.Trigger asChild>
                 <button
-                  className={`git-stats-refresh ${isLoading ? 'loading' : ''}`}
-                  onClick={handleRefresh}
-                  disabled={isLoading}
-                  aria-label="Refresh git status"
+                  className={`path-display-toggle ${isExplorerVisible ? 'active' : ''}`}
+                  onClick={onToggleExplorer}
+                  aria-label={isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'}
+                  aria-pressed={isExplorerVisible}
                 >
-                  <RotateCw size={12} />
+                  <FolderTree size={14} />
                 </button>
               </Tooltip.Trigger>
               <Tooltip.Portal>
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  Refresh git status
+                  {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} ({explorerShortcut})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>
             </Tooltip.Root>
           </Tooltip.Provider>
-        </div>
-      )}
-
-      {showExplorerToggle && onToggleExplorer && (
-        <Tooltip.Provider delayDuration={300}>
-          <Tooltip.Root>
-            <Tooltip.Trigger asChild>
-              <button
-                className={`path-display-toggle ${isExplorerVisible ? 'active' : ''}`}
-                onClick={onToggleExplorer}
-                aria-label={isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'}
-                aria-pressed={isExplorerVisible}
-              >
-                <FolderTree size={14} />
-              </button>
-            </Tooltip.Trigger>
-            <Tooltip.Portal>
-              <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} ({explorerShortcut})
-                <Tooltip.Arrow className="tooltip-arrow" />
-              </Tooltip.Content>
-            </Tooltip.Portal>
-          </Tooltip.Root>
-        </Tooltip.Provider>
-      )}
+        )}
+      </div>
     </div>
   );
 }
