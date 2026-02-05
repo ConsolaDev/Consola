@@ -1,11 +1,17 @@
 import { EventEmitter } from 'events';
 
-// Types only - actual SDK loaded dynamically
-type SDKMessage = any;
-type Options = any;
-type PreToolUseHookInput = { tool_name: string; tool_input: unknown; tool_use_id?: string };
-type PostToolUseHookInput = { tool_name: string; tool_input: unknown; tool_response: unknown; tool_use_id?: string };
-type NotificationHookInput = { message: string; title?: string };
+// Type-only imports - completely erased at compile time, works across ESM/CJS boundary
+import type {
+  SDKMessage,
+  Options,
+  PreToolUseHookInput,
+  PreToolUseHookSpecificOutput,
+  PostToolUseHookInput,
+  NotificationHookInput,
+  PermissionResult,
+  Query,
+  query as queryFn,
+} from '@anthropic-ai/claude-agent-sdk';
 
 // Permission request types
 interface PendingPermission {
@@ -15,25 +21,11 @@ interface PendingPermission {
   resolve: (result: PermissionResult) => void;
 }
 
-interface PermissionResult {
-  behavior: 'allow' | 'deny';
-  updatedInput?: Record<string, unknown>;
-  message?: string;
-}
-
 // Question request types (for AskUserQuestion tool)
 interface PendingQuestion {
   requestId: string;
-  questions: any[];
+  questions: unknown[];
   resolve: (answers: Record<string, string>) => void;
-}
-
-// PreToolUse hook output type
-interface PreToolUseHookOutput {
-  permissionDecision?: 'allow' | 'deny' | 'ask';
-  permissionDecisionReason?: string;
-  updatedInput?: Record<string, unknown>;
-  additionalContext?: string;
 }
 
 export interface AgentQueryOptions {
@@ -106,13 +98,14 @@ export interface ClaudeAgentServiceEvents {
   'message': (message: SDKMessage) => void;
 }
 
-// SDK type
-type SDK = { query: (opts: { prompt: string; options?: Options }) => AsyncIterable<SDKMessage> };
+// SDK module type - matches the actual exports from @anthropic-ai/claude-agent-sdk
+type SDK = { query: typeof queryFn };
 
 // Lazy-loaded SDK module
 let sdkModule: SDK | null = null;
 
 // Use Function constructor to prevent TypeScript from transforming import() to require()
+// This is necessary because the SDK is ESM-only and our main process compiles to CommonJS
 const dynamicImport = new Function('modulePath', 'return import(modulePath)') as (modulePath: string) => Promise<SDK>;
 
 async function getSDK(): Promise<SDK> {
@@ -247,10 +240,13 @@ export class ClaudeAgentService extends EventEmitter {
       },
       hooks: {
         PreToolUse: [{
-          hooks: [async (input: PreToolUseHookInput): Promise<PreToolUseHookOutput> => {
+          hooks: [async (input) => {
+            // Type guard for PreToolUse hook
+            if (input.hook_event_name !== 'PreToolUse') return { continue: true };
+
             // Intercept AskUserQuestion tool to show UI
             if (input.tool_name === 'AskUserQuestion') {
-              const toolInput = input.tool_input as { questions?: any[] };
+              const toolInput = input.tool_input as { questions?: unknown[] };
               const questions = toolInput?.questions || [];
 
               if (questions.length > 0) {
@@ -270,7 +266,7 @@ export class ClaudeAgentService extends EventEmitter {
                     type: 'question',
                     toolName: input.tool_name,
                     toolInput: input.tool_input,
-                    questions: questions.map((q: any) => ({
+                    questions: (questions as Array<{ question: string; header: string; options?: unknown[]; multiSelect?: boolean }>).map((q) => ({
                       question: q.question,
                       header: q.header,
                       options: q.options || [],
@@ -282,8 +278,11 @@ export class ClaudeAgentService extends EventEmitter {
                 // Check if user cancelled/rejected
                 if (Object.keys(answers).length === 0) {
                   return {
-                    permissionDecision: 'deny' as const,
-                    permissionDecisionReason: 'User cancelled the question dialog.'
+                    hookSpecificOutput: {
+                      hookEventName: 'PreToolUse' as const,
+                      permissionDecision: 'deny' as const,
+                      permissionDecisionReason: 'User cancelled the question dialog.'
+                    }
                   };
                 }
 
@@ -293,8 +292,11 @@ export class ClaudeAgentService extends EventEmitter {
                   .map(([q, a]) => `Q: ${q}\nA: ${a}`)
                   .join('\n\n');
                 return {
-                  permissionDecision: 'deny' as const,
-                  permissionDecisionReason: `User answered the question(s):\n\n${answersText}`
+                  hookSpecificOutput: {
+                    hookEventName: 'PreToolUse' as const,
+                    permissionDecision: 'deny' as const,
+                    permissionDecisionReason: `User answered the question(s):\n\n${answersText}`
+                  }
                 };
               }
             }
@@ -305,27 +307,33 @@ export class ClaudeAgentService extends EventEmitter {
               toolInput: input.tool_input,
               toolUseId: input.tool_use_id
             });
-            return {};
+            return { continue: true };
           }]
         }],
         PostToolUse: [{
-          hooks: [async (input: PostToolUseHookInput) => {
+          hooks: [async (input) => {
+            // Type guard for PostToolUse hook
+            if (input.hook_event_name !== 'PostToolUse') return { continue: true };
+
             this.emit('tool-complete', {
               toolName: input.tool_name,
               toolInput: input.tool_input,
               toolResponse: input.tool_response,
               toolUseId: input.tool_use_id
             });
-            return {};
+            return { continue: true };
           }]
         }],
         Notification: [{
-          hooks: [async (input: NotificationHookInput) => {
+          hooks: [async (input) => {
+            // Type guard for Notification hook
+            if (input.hook_event_name !== 'Notification') return { continue: true };
+
             this.emit('notification', {
               message: input.message,
               title: input.title
             });
-            return {};
+            return { continue: true };
           }]
         }]
       }
