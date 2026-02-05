@@ -8,6 +8,8 @@ import { ChatInput } from './ChatInput';
 import { ProcessingIndicator } from './ProcessingIndicator';
 import { ApprovalCard } from './ApprovalCard';
 import { SessionDivider } from './SessionDivider';
+import { TrustModeBanner } from './TrustModeBanner';
+import { CommandHighlightProvider } from '../HighlightedText';
 
 interface AgentPanelProps {
   instanceId: string;
@@ -28,10 +30,13 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
     modelUsage,
     skills,
     slashCommands,
+    trustMode,
+    trustModeEnabledAt,
     sendMessage,
     interrupt,
     clearError,
-    respondToInput
+    respondToInput,
+    setTrustMode
   } = useAgent(instanceId, cwd, additionalDirectories);
 
   const messagesRef = useSelectAll<HTMLDivElement>();
@@ -53,47 +58,56 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
 
   return (
     <Flex direction="column" className="agent-panel">
-      {/* Messages area */}
-      <Box ref={messagesRef} tabIndex={0} className="messages-container">
-        {messages.length === 0 && !isProcessing ? (
-          <Flex align="center" justify="center" className="empty-state">
-            <Text color="gray">Start a conversation with Claude</Text>
-          </Flex>
-        ) : (
-          <>
-            {messages.map(msg => {
-              if (msg.type === 'system') {
+      {/* Messages area - wrapped with CommandHighlightProvider for command highlighting */}
+      <CommandHighlightProvider skills={skills} slashCommands={slashCommands}>
+        <Box ref={messagesRef} tabIndex={0} className="messages-container">
+          {messages.length === 0 && !isProcessing ? (
+            <Flex align="center" justify="center" className="empty-state">
+              <Text color="gray">Start a conversation with Claude</Text>
+            </Flex>
+          ) : (
+            <>
+              {messages.map(msg => {
+                if (msg.type === 'system') {
+                  return (
+                    <SessionDivider
+                      key={msg.id}
+                      type={msg.subtype}
+                      timestamp={msg.timestamp}
+                    />
+                  );
+                }
                 return (
-                  <SessionDivider
+                  <ChatMessage
                     key={msg.id}
-                    type={msg.subtype}
+                    type={msg.type}
+                    content={msg.content}
+                    contentBlocks={msg.type === 'assistant' ? msg.contentBlocks : undefined}
                     timestamp={msg.timestamp}
+                    toolHistory={toolHistory}
                   />
                 );
-              }
-              return (
-                <ChatMessage
-                  key={msg.id}
-                  type={msg.type}
-                  content={msg.content}
-                  contentBlocks={msg.type === 'assistant' ? msg.contentBlocks : undefined}
-                  timestamp={msg.timestamp}
-                  toolHistory={toolHistory}
-                />
-              );
-            })}
-            {/* Pending approval requests */}
-            {pendingInputs.filter(r => r.status === 'pending').map(request => (
-              <ApprovalCard
-                key={request.requestId}
-                request={request}
-                onRespond={respondToInput}
+              })}
+              {/* Trust Mode Banner - show when there are pending approvals or trust mode is active */}
+              <TrustModeBanner
+                trustMode={trustMode}
+                trustModeEnabledAt={trustModeEnabledAt}
+                onSetTrustMode={setTrustMode}
+                pendingInputsCount={pendingInputs.filter(r => r.status === 'pending').length}
               />
-            ))}
-            {isProcessing && <ProcessingIndicator />}
-          </>
-        )}
-      </Box>
+              {/* Pending approval requests - only show if trust mode is off */}
+              {trustMode === 'off' && pendingInputs.filter(r => r.status === 'pending').map(request => (
+                <ApprovalCard
+                  key={request.requestId}
+                  request={request}
+                  onRespond={respondToInput}
+                />
+              ))}
+              {isProcessing && <ProcessingIndicator />}
+            </>
+          )}
+        </Box>
+      </CommandHighlightProvider>
 
       {/* Error display */}
       {error && (

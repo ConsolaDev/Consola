@@ -1,17 +1,47 @@
+import React, { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
+import { useCommandHighlightContext, HighlightedSegments } from '../HighlightedText';
 import './styles.css';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
+  /** Enable command/skill highlighting (default: true if context available) */
+  enableCommandHighlighting?: boolean;
+}
+
+/**
+ * Component to render text with command highlighting.
+ * Used internally by MarkdownRenderer for text nodes.
+ */
+function HighlightedTextNode({ children }: { children: ReactNode }) {
+  const highlightContext = useCommandHighlightContext();
+
+  // If no context or children is not a string, render as-is
+  if (!highlightContext || typeof children !== 'string') {
+    return <>{children}</>;
+  }
+
+  const segments = highlightContext.parseText(children);
+
+  // If no commands found, render as plain text
+  if (segments.length === 1 && !segments[0].isCommand) {
+    return <>{children}</>;
+  }
+
+  return <HighlightedSegments segments={segments} inline />;
 }
 
 export function MarkdownRenderer({
   content,
-  className
+  className,
+  enableCommandHighlighting = true
 }: MarkdownRendererProps) {
+  const highlightContext = useCommandHighlightContext();
+  const shouldHighlight = enableCommandHighlighting && highlightContext !== null;
+
   // Handle empty content gracefully
   if (!content || content.trim() === '') {
     return null;
@@ -56,7 +86,39 @@ export function MarkdownRenderer({
           // Ensure pre tags don't add extra wrapping
           pre({ children }) {
             return <>{children}</>;
-          }
+          },
+          // Custom text renderer for command highlighting
+          ...(shouldHighlight && {
+            text({ children }) {
+              return <HighlightedTextNode>{children}</HighlightedTextNode>;
+            },
+            // Also handle paragraph content for command highlighting
+            p({ node, children, ...props }) {
+              return (
+                <p {...props}>
+                  {React.Children.map(children, (child) => {
+                    if (typeof child === 'string') {
+                      return <HighlightedTextNode>{child}</HighlightedTextNode>;
+                    }
+                    return child;
+                  })}
+                </p>
+              );
+            },
+            // Handle list items
+            li({ node, children, ...props }) {
+              return (
+                <li {...props}>
+                  {React.Children.map(children, (child) => {
+                    if (typeof child === 'string') {
+                      return <HighlightedTextNode>{child}</HighlightedTextNode>;
+                    }
+                    return child;
+                  })}
+                </li>
+              );
+            },
+          }),
         }}
       >
         {content}

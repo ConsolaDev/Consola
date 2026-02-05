@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo } from 'react';
 import { useAgentStore, InstanceState } from '../stores/agentStore';
 import { agentBridge } from '../services/agentBridge';
-import { ModelUsage } from '../../shared/types';
+import { ModelUsage, TrustMode } from '../../shared/types';
 
 // Default empty state for when no instance is specified
 const emptyInstanceState: InstanceState = {
@@ -26,7 +26,9 @@ const emptyInstanceState: InstanceState = {
   processing: {
     isProcessing: false,
     currentMessageId: null
-  }
+  },
+  trustMode: 'off',
+  trustModeEnabledAt: undefined
 };
 
 /**
@@ -48,6 +50,7 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
   const storeClearError = useAgentStore(state => state.clearError);
   const storeRespondToInput = useAgentStore(state => state.respondToInput);
   const storeInitializeSession = useAgentStore(state => state.initializeSession);
+  const storeSetTrustMode = useAgentStore(state => state.setTrustMode);
 
   // Use instance state or empty state
   const instanceState = instance || emptyInstanceState;
@@ -125,6 +128,12 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
     }
   }, [instanceId, storeRespondToInput]);
 
+  const setTrustMode = useCallback((mode: TrustMode) => {
+    if (instanceId) {
+      storeSetTrustMode(instanceId, mode);
+    }
+  }, [instanceId, storeSetTrustMode]);
+
   // Extract usage for the current model from lastResult.modelUsage
   const currentModelUsage = useMemo((): ModelUsage | null => {
     if (!instanceState?.lastResult?.modelUsage || !instanceState?.model) {
@@ -172,12 +181,17 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
     // Processing
     isProcessing: instanceState.processing.isProcessing,
 
+    // Trust mode - auto-approve all for session
+    trustMode: instanceState.trustMode,
+    trustModeEnabledAt: instanceState.trustModeEnabledAt,
+
     // Actions
     sendMessage,
     interrupt,
     clearMessages,
     clearError,
-    respondToInput
+    respondToInput,
+    setTrustMode
   }), [
     isAvailable,
     instanceId,
@@ -187,6 +201,7 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
     interrupt,
     clearMessages,
     clearError,
-    respondToInput
+    respondToInput,
+    setTrustMode
   ]);
 }

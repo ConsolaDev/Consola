@@ -8,7 +8,9 @@ import type {
   AgentInputRequest,
   AgentInputResponse,
   SessionEndEvent,
-  SessionStartEvent
+  SessionStartEvent,
+  TrustMode,
+  TrustModeChangedEvent
 } from '../../shared/types';
 
 /**
@@ -123,6 +125,21 @@ export const agentBridge = {
   /** Subscribe to session start events */
   onSessionStart: (callback: (data: SessionStartEvent) => void): void => {
     getAPI()?.onSessionStart(callback);
+  },
+
+  /** Subscribe to trust mode changes */
+  onTrustModeChanged: (callback: (data: TrustModeChangedEvent) => void): void => {
+    (getAPI() as any)?.onTrustModeChanged(callback);
+  },
+
+  /** Set trust mode for session (auto-approve all) */
+  setTrustMode: (instanceId: string, mode: TrustMode): void => {
+    (getAPI() as any)?.setTrustMode(instanceId, mode);
+  },
+
+  /** Get current trust mode */
+  getTrustMode: async (instanceId: string): Promise<{ mode: TrustMode; enabledAt?: number } | null> => {
+    return (getAPI() as any)?.getTrustMode(instanceId) ?? null;
   },
 
   /** Remove a listener */

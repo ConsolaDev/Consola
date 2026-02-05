@@ -7,7 +7,9 @@ import type {
   AgentResultEvent,
   AgentInputRequest,
   SessionEndEvent,
-  SessionStartEvent
+  SessionStartEvent,
+  TrustMode,
+  TrustModeChangedEvent
 } from '../../shared/types';
 import { agentBridge } from '../services/agentBridge';
 import { sessionStorageBridge } from '../services/sessionStorageBridge';
@@ -139,6 +141,10 @@ export interface InstanceState {
 
   // Processing
   processing: ProcessingState;
+
+  // Trust mode - auto-approve all for session
+  trustMode: TrustMode;
+  trustModeEnabledAt?: number;
 }
 
 // Default instance state factory
@@ -165,7 +171,9 @@ function createDefaultInstanceState(): InstanceState {
     processing: {
       isProcessing: false,
       currentMessageId: null
-    }
+    },
+    trustMode: 'off',
+    trustModeEnabledAt: undefined
   };
 }
 
@@ -196,6 +204,9 @@ interface AgentState {
     answers?: Record<string, string>;  // For question responses
   }) => void;
 
+  // Trust mode - auto-approve all for session
+  setTrustMode: (instanceId: string, mode: TrustMode) => void;
+
   // Session persistence
   saveInstanceHistory: (instanceId: string) => Promise<void>;
   loadInstanceHistory: (instanceId: string) => Promise<void>;
@@ -215,6 +226,7 @@ interface AgentState {
   _handleInputRequest: (data: AgentInputRequest) => void;
   _handleSessionEnd: (data: SessionEndEvent) => void;
   _handleSessionStart: (data: SessionStartEvent) => void;
+  _handleTrustModeChanged: (data: TrustModeChangedEvent) => void;
 }
 
 // Extract all content blocks from SDK message
@@ -440,6 +452,17 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     });
   },
 
+  setTrustMode: (instanceId, mode) => {
+    // Send to main process
+    agentBridge.setTrustMode(instanceId, mode);
+
+    // Update local state optimistically
+    set(state => updateInstance(state, instanceId, () => ({
+      trustMode: mode,
+      trustModeEnabledAt: mode === 'session' ? Date.now() : undefined
+    })));
+  },
+
   // === Internal Event Handlers ===
 
   _handleInit: (data: AgentInitEvent) => {
@@ -635,6 +658,14 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         messages: [...instance.messages, systemMessage]
       })));
     }
+  },
+
+  _handleTrustModeChanged: (data: TrustModeChangedEvent) => {
+    const { instanceId, mode, enabledAt } = data;
+    set(state => updateInstance(state, instanceId, () => ({
+      trustMode: mode,
+      trustModeEnabledAt: enabledAt
+    })));
   }
 }));
 
@@ -653,4 +684,5 @@ if (typeof window !== 'undefined') {
   agentBridge.onInputRequest(store._handleInputRequest);
   agentBridge.onSessionEnd(store._handleSessionEnd);
   agentBridge.onSessionStart(store._handleSessionStart);
+  agentBridge.onTrustModeChanged(store._handleTrustModeChanged);
 }
