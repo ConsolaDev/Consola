@@ -157,6 +157,25 @@ export interface AgentInputResponse {
     answers?: Record<string, string>;  // For question responses
 }
 
+// Trust mode - session-wide permission policy (like Claude Code's accept all)
+export type TrustMode = 'off' | 'session';  // 'off' = ask per action, 'session' = auto-approve all for session
+
+export interface TrustModeSettings {
+    mode: TrustMode;
+    enabledAt?: number;  // Timestamp when enabled
+}
+
+export interface TrustModeChangeRequest {
+    instanceId: string;
+    mode: TrustMode;
+}
+
+export interface TrustModeChangedEvent {
+    instanceId: string;
+    mode: TrustMode;
+    enabledAt?: number;
+}
+
 export interface AgentQueryOptions {
     instanceId: string;
     cwd?: string;

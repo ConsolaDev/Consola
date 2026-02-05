@@ -6,7 +6,7 @@ import { TerminalService } from './TerminalService';
 import { ClaudeAgentService } from './ClaudeAgentService';
 import { saveSessionData, loadSessionData, deleteSessionData } from './SessionStorageService';
 import { generateSessionName } from './SessionNameGenerator';
-import { TerminalMode, AgentQueryOptions, AgentInputResponse } from '../shared/types';
+import { TerminalMode, AgentQueryOptions, AgentInputResponse, TrustModeChangeRequest } from '../shared/types';
 import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
 
 // Map to support future multi-instance terminals
@@ -112,6 +112,12 @@ function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService)
     service.on('session-start', (data) => {
         if (!mainWindow.isDestroyed()) {
             mainWindow.webContents.send(IPC_CHANNELS.AGENT_SESSION_START, { instanceId, ...data });
+        }
+    });
+
+    service.on('trust-mode-changed', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TRUST_MODE_CHANGED, { instanceId, ...data });
         }
     });
 }
@@ -226,6 +232,20 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     ipcMain.handle(IPC_CHANNELS.AGENT_INITIALIZE, async (_event, { instanceId, cwd }: { instanceId: string; cwd: string }) => {
         const service = getOrCreateAgentService(instanceId, cwd);
         return service.initializeSession();
+    });
+
+    // Handle trust mode change (accept all for session)
+    ipcMain.on(IPC_CHANNELS.AGENT_SET_TRUST_MODE, (_event, request: TrustModeChangeRequest) => {
+        const service = agentServices.get(request.instanceId);
+        if (service) {
+            service.setTrustMode(request.mode);
+        }
+    });
+
+    // Handle trust mode status request
+    ipcMain.handle('agent:get-trust-mode', (_event, instanceId: string) => {
+        const service = agentServices.get(instanceId);
+        return service?.getTrustMode() ?? { mode: 'off' };
     });
 
     // Handle folder picker dialog (multi-select)
@@ -422,8 +442,10 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INTERRUPT);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_DESTROY_INSTANCE);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INPUT_RESPONSE);
+    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_SET_TRUST_MODE);
     ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
     ipcMain.removeHandler(IPC_CHANNELS.AGENT_INITIALIZE);
+    ipcMain.removeHandler('agent:get-trust-mode');
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);

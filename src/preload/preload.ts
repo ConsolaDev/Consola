@@ -10,7 +10,9 @@ import {
     AgentInputRequest,
     AgentInputResponse,
     SessionEndEvent,
-    SessionStartEvent
+    SessionStartEvent,
+    TrustMode,
+    TrustModeChangedEvent
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -38,6 +40,7 @@ const agentCallbacks = {
     inputRequest: new Set<AgentCallback<AgentInputRequest>>(),
     sessionEnd: new Set<AgentCallback<SessionEndEvent>>(),
     sessionStart: new Set<AgentCallback<SessionStartEvent>>(),
+    trustModeChanged: new Set<AgentCallback<TrustModeChangedEvent>>(),
 };
 
 // Register agent IPC listeners
@@ -87,6 +90,10 @@ ipcRenderer.on(IPC_CHANNELS.AGENT_SESSION_END, (_event, data: SessionEndEvent) =
 
 ipcRenderer.on(IPC_CHANNELS.AGENT_SESSION_START, (_event, data: SessionStartEvent) => {
     agentCallbacks.sessionStart.forEach(cb => cb(data));
+});
+
+ipcRenderer.on(IPC_CHANNELS.AGENT_TRUST_MODE_CHANGED, (_event, data: TrustModeChangedEvent) => {
+    agentCallbacks.trustModeChanged.forEach(cb => cb(data));
 });
 
 // Expose protected methods to the renderer process
@@ -183,6 +190,16 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
         return ipcRenderer.invoke(IPC_CHANNELS.AGENT_INITIALIZE, { instanceId, cwd });
     },
 
+    // Set trust mode for session (auto-approve all for session)
+    setTrustMode: (instanceId: string, mode: TrustMode): void => {
+        ipcRenderer.send(IPC_CHANNELS.AGENT_SET_TRUST_MODE, { instanceId, mode });
+    },
+
+    // Get current trust mode
+    getTrustMode: (instanceId: string): Promise<{ mode: TrustMode; enabledAt?: number }> => {
+        return ipcRenderer.invoke('agent:get-trust-mode', instanceId);
+    },
+
     // === Event Subscriptions ===
 
     // Listen for session initialization
@@ -243,6 +260,11 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
     // Listen for session start events
     onSessionStart: (callback: AgentCallback<SessionStartEvent>): void => {
         agentCallbacks.sessionStart.add(callback);
+    },
+
+    // Listen for trust mode changes
+    onTrustModeChanged: (callback: AgentCallback<TrustModeChangedEvent>): void => {
+        agentCallbacks.trustModeChanged.add(callback);
     },
 
     // === Cleanup ===

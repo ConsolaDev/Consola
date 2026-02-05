@@ -995,3 +995,252 @@
   font-size: var(--font-size-xs);
 }
 
+/* ========================================
+   Trust Mode Banner - Premium, Distinctive
+   ======================================== */
+
+/* Activation Prompt - Appears when there are pending approvals */
+.trust-mode-prompt {
+  position: relative;
+  margin: var(--space-2);
+  padding: 12px 16px;
+  background: linear-gradient(135deg,
+    rgba(59, 130, 246, 0.08) 0%,
+    rgba(139, 92, 246, 0.06) 50%,
+    rgba(59, 130, 246, 0.08) 100%
+  );
+  border: 1px solid rgba(59, 130, 246, 0.2);
+  border-radius: 12px;
+  overflow: hidden;
+  animation: trust-prompt-enter 300ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes trust-prompt-enter {
+  0% {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.trust-mode-prompt-glow {
+  position: absolute;
+  top: -50%;
+  left: -50%;
+  width: 200%;
+  height: 200%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(59, 130, 246, 0.12) 0%,
+    transparent 60%
+  );
+  animation: trust-glow-pulse 3s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes trust-glow-pulse {
+  0%, 100% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.1);
+  }
+}
+
+.trust-mode-prompt-content {
+  position: relative;
+  z-index: 1;
+}
+
+.trust-mode-icon-container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  flex-shrink: 0;
+}
+
+.trust-mode-icon-container.prompt {
+  background: linear-gradient(135deg,
+    rgba(59, 130, 246, 0.15) 0%,
+    rgba(139, 92, 246, 0.15) 100%
+  );
+  color: var(--blue-11);
+  border: 1px solid rgba(59, 130, 246, 0.25);
+}
+
+.trust-mode-icon-container.active {
+  background: linear-gradient(135deg,
+    rgba(34, 197, 94, 0.2) 0%,
+    rgba(16, 185, 129, 0.15) 100%
+  );
+  color: var(--green-11);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  animation: trust-icon-glow 2s ease-in-out infinite;
+}
+
+@keyframes trust-icon-glow {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0);
+  }
+  50% {
+    box-shadow: 0 0 12px 2px rgba(34, 197, 94, 0.25);
+  }
+}
+
+.trust-mode-prompt-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.trust-mode-prompt-title {
+  color: var(--gray-12);
+  letter-spacing: -0.01em;
+}
+
+.trust-mode-prompt-subtitle {
+  color: var(--gray-10);
+  letter-spacing: 0.01em;
+}
+
+.trust-mode-enable-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 16px;
+  background: linear-gradient(135deg,
+    var(--blue-9) 0%,
+    var(--violet-9) 100%
+  );
+  border: none;
+  border-radius: 8px;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  cursor: pointer;
+  transition: all 150ms ease;
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(59, 130, 246, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.trust-mode-enable-btn:hover {
+  transform: translateY(-1px);
+  box-shadow:
+    0 2px 4px rgba(0, 0, 0, 0.15),
+    0 4px 16px rgba(59, 130, 246, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.15);
+}
+
+.trust-mode-enable-btn:active {
+  transform: translateY(0);
+  box-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.1),
+    0 2px 8px rgba(59, 130, 246, 0.2);
+}
+
+/* Active Trust Mode Banner */
+.trust-mode-banner {
+  position: relative;
+  margin: var(--space-2);
+  padding: 10px 14px;
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.trust-mode-banner.active {
+  background: linear-gradient(135deg,
+    rgba(34, 197, 94, 0.1) 0%,
+    rgba(16, 185, 129, 0.08) 50%,
+    rgba(34, 197, 94, 0.1) 100%
+  );
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  animation: trust-banner-enter 250ms cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes trust-banner-enter {
+  0% {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.trust-mode-banner-shimmer {
+  position: absolute;
+  top: 0;
+  left: -100%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(34, 197, 94, 0.08) 50%,
+    transparent 100%
+  );
+  animation: trust-shimmer 4s ease-in-out infinite;
+  pointer-events: none;
+}
+
+@keyframes trust-shimmer {
+  0% {
+    left: -50%;
+  }
+  50%, 100% {
+    left: 150%;
+  }
+}
+
+.trust-mode-banner-content {
+  position: relative;
+  z-index: 1;
+}
+
+.trust-mode-active-title {
+  color: var(--green-11);
+  letter-spacing: -0.01em;
+}
+
+.trust-mode-active-duration {
+  color: var(--gray-10);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.01em;
+}
+
+.trust-mode-disable-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  color: var(--gray-10);
+  cursor: pointer;
+  transition: all 150ms ease;
+}
+
+.trust-mode-disable-btn:hover {
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.2);
+  color: var(--red-10);
+}
+
+.trust-mode-disable-btn:active {
+  transform: scale(0.95);
+}
+

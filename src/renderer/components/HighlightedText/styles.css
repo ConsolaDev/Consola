@@ -1,0 +1,122 @@
+/**
+ * Command Highlighting Styles
+ *
+ * Styles for highlighted command/skill references in text.
+ * Uses distinct colors to differentiate between:
+ * - Known skills (purple/violet)
+ * - Known commands (blue/cyan)
+ * - Unknown/unrecognized commands (gray)
+ */
+
+/* Base container */
+.highlighted-text {
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+/* Base command highlight style */
+.command-highlight {
+  display: inline;
+  font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace);
+  font-size: 0.9em;
+  padding: 1px 5px;
+  border-radius: var(--radius-sm, 4px);
+  transition: background-color var(--transition-fast, 0.15s) ease,
+              color var(--transition-fast, 0.15s) ease;
+}
+
+/* Unknown commands - subtle gray highlight */
+.command-highlight--unknown {
+  background-color: var(--color-command-unknown-bg, rgba(128, 128, 128, 0.15));
+  color: var(--color-command-unknown-text, #a0a0a0);
+}
+
+.command-highlight--unknown:hover {
+  background-color: var(--color-command-unknown-bg-hover, rgba(128, 128, 128, 0.25));
+}
+
+/* Known commands - base style (will be overridden by type-specific) */
+.command-highlight--known {
+  font-weight: var(--font-weight-medium, 500);
+}
+
+/* Skill type - purple/violet theme */
+.command-highlight--skill {
+  background-color: var(--color-command-skill-bg, rgba(139, 92, 246, 0.2));
+  color: var(--color-command-skill-text, #a78bfa);
+}
+
+.command-highlight--skill:hover {
+  background-color: var(--color-command-skill-bg-hover, rgba(139, 92, 246, 0.35));
+  color: var(--color-command-skill-text-hover, #c4b5fd);
+}
+
+/* Command type - blue/cyan theme */
+.command-highlight--command {
+  background-color: var(--color-command-cmd-bg, rgba(34, 211, 238, 0.15));
+  color: var(--color-command-cmd-text, #67e8f9);
+}
+
+.command-highlight--command:hover {
+  background-color: var(--color-command-cmd-bg-hover, rgba(34, 211, 238, 0.25));
+  color: var(--color-command-cmd-text-hover, #a5f3fc);
+}
+
+/* Badge variant - slightly more prominent */
+.command-badge {
+  padding: 2px 6px;
+  font-weight: var(--font-weight-medium, 500);
+}
+
+/* Animation for newly highlighted commands (optional, add class via JS) */
+@keyframes command-highlight-pulse {
+  0% {
+    box-shadow: 0 0 0 0 currentColor;
+  }
+  50% {
+    box-shadow: 0 0 0 3px transparent;
+  }
+  100% {
+    box-shadow: 0 0 0 0 transparent;
+  }
+}
+
+.command-highlight--pulse {
+  animation: command-highlight-pulse 0.4s ease-out;
+}
+
+/* High contrast mode support */
+@media (prefers-contrast: high) {
+  .command-highlight--skill {
+    background-color: rgba(139, 92, 246, 0.4);
+    color: #d4bfff;
+    outline: 1px solid currentColor;
+  }
+
+  .command-highlight--command {
+    background-color: rgba(34, 211, 238, 0.3);
+    color: #b8faff;
+    outline: 1px solid currentColor;
+  }
+
+  .command-highlight--unknown {
+    background-color: rgba(128, 128, 128, 0.3);
+    color: #c0c0c0;
+    outline: 1px solid currentColor;
+  }
+}
+
+/* Ensure proper display within markdown content */
+.markdown-content .command-highlight {
+  vertical-align: baseline;
+}
+
+/* Within code blocks, don't apply command highlighting */
+.code-block-wrapper .command-highlight,
+pre .command-highlight,
+code .command-highlight {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+  font-weight: inherit;
+}

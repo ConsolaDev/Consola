@@ -41,6 +41,10 @@ export const IPC_CHANNELS = {
     // Claude Agent channels (Renderer -> Main) - Responses
     AGENT_INPUT_RESPONSE: 'agent:input-response',   // User responds to input request
 
+    // Trust mode channels (auto-approve all for session)
+    AGENT_SET_TRUST_MODE: 'agent:set-trust-mode',     // Set trust mode (renderer -> main)
+    AGENT_TRUST_MODE_CHANGED: 'agent:trust-mode-changed', // Trust mode changed (main -> renderer)
+
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker (multi-select)
     DIALOG_SELECT_FOLDER: 'dialog:select-folder',    // Open folder picker (single select for workspace)

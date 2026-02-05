@@ -13,6 +13,8 @@ import type {
   query as queryFn,
 } from '@anthropic-ai/claude-agent-sdk';
 
+import type { TrustMode } from '../shared/types';
+
 // Permission request types
 interface PendingPermission {
   requestId: string;
@@ -141,8 +143,28 @@ export class ClaudeAgentService extends EventEmitter {
   private pendingQuestions: Map<string, PendingQuestion> = new Map();
   private additionalDirectories: string[] = [];
 
+  // Trust mode - when 'session', auto-approve all tool uses without asking
+  private trustMode: TrustMode = 'off';
+  private trustModeEnabledAt?: number;
+
   constructor(private cwd: string) {
     super();
+  }
+
+  // Get current trust mode
+  getTrustMode(): { mode: TrustMode; enabledAt?: number } {
+    return { mode: this.trustMode, enabledAt: this.trustModeEnabledAt };
+  }
+
+  // Set trust mode for session
+  setTrustMode(mode: TrustMode): void {
+    this.trustMode = mode;
+    if (mode === 'session') {
+      this.trustModeEnabledAt = Date.now();
+    } else {
+      this.trustModeEnabledAt = undefined;
+    }
+    this.emit('trust-mode-changed', { mode, enabledAt: this.trustModeEnabledAt });
   }
 
   setAdditionalDirectories(dirs: string[]): void {
@@ -216,12 +238,17 @@ export class ClaudeAgentService extends EventEmitter {
       resume: options.resume,
       continue: options.continue,
       includePartialMessages: true,
-      // Permission callback - asks user for approval
+      // Permission callback - asks user for approval (or auto-approves in trust mode)
       canUseTool: async (
         toolName: string,
         input: Record<string, unknown>,
         opts: { signal: AbortSignal; toolUseID: string; decisionReason?: string }
       ): Promise<PermissionResult> => {
+        // Trust mode: auto-approve all tool uses without asking
+        if (this.trustMode === 'session') {
+          return { behavior: 'allow', updatedInput: input };
+        }
+
         const requestId = `perm-${Date.now()}-${Math.random().toString(36).slice(2, 9)}`;
 
         // Create a promise that will be resolved when user responds
