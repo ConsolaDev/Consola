@@ -46,6 +46,21 @@ export function PathDisplay({
 }: PathDisplayProps) {
   return (
     <div className="path-display-container">
+      <Tooltip.Provider delayDuration={300}>
+        <Tooltip.Root>
+          <Tooltip.Trigger asChild>
+            <span className={`path-display-text ${className || ''}`}>
+              {truncatePath(path)}
+            </span>
+          </Tooltip.Trigger>
+          <Tooltip.Portal>
+            <Tooltip.Content className="tooltip-content" sideOffset={5}>
+              {path}
+              <Tooltip.Arrow className="tooltip-arrow" />
+            </Tooltip.Content>
+          </Tooltip.Portal>
+        </Tooltip.Root>
+      </Tooltip.Provider>
       {showExplorerToggle && onToggleExplorer && (
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
@@ -68,21 +83,6 @@ export function PathDisplay({
           </Tooltip.Root>
         </Tooltip.Provider>
       )}
-      <Tooltip.Provider delayDuration={300}>
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <span className={`path-display-text ${className || ''}`}>
-              {truncatePath(path)}
-            </span>
-          </Tooltip.Trigger>
-          <Tooltip.Portal>
-            <Tooltip.Content className="tooltip-content" sideOffset={5}>
-              {path}
-              <Tooltip.Arrow className="tooltip-arrow" />
-            </Tooltip.Content>
-          </Tooltip.Portal>
-        </Tooltip.Root>
-      </Tooltip.Provider>
     </div>
   );
 }
