@@ -26,7 +26,7 @@
 .file-tree {
   flex: 1;
   overflow: auto;
-  padding: var(--space-2) 0;
+  padding: var(--space-2) var(--space-2);
 }
 
 .file-tree-item {

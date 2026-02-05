@@ -55,6 +55,7 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
             ...codeCustomStyle,
             height: '100%',
             background: 'var(--color-bg-secondary)',
+            padding: 'var(--space-4)',
           }}
         >
           {content || ''}
