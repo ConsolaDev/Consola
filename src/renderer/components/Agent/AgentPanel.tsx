@@ -1,6 +1,7 @@
-import { useRef, useEffect } from 'react';
+import { useEffect } from 'react';
 import { Box, Flex, Text, Button } from '@radix-ui/themes';
 import { useAgent } from '../../hooks/useAgent';
+import { useSelectAll } from '../../hooks/useSelectAll';
 import './styles.css';
 import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
@@ -29,12 +30,12 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
     respondToInput
   } = useAgent(instanceId, cwd);
 
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useSelectAll<HTMLDivElement>();
 
   // Auto-scroll to bottom on new messages or pending inputs
   useEffect(() => {
-    if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+    if (messagesRef.current) {
+      messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages, pendingInputs]);
 
@@ -49,7 +50,7 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
   return (
     <Flex direction="column" className="agent-panel">
       {/* Messages area */}
-      <Box ref={scrollRef} className="messages-container">
+      <Box ref={messagesRef} tabIndex={0} className="messages-container">
         {messages.length === 0 && !isProcessing ? (
           <Flex align="center" justify="center" className="empty-state">
             <Text color="gray">Start a conversation with Claude</Text>

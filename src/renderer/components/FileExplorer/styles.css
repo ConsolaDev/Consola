@@ -27,6 +27,11 @@
   flex: 1;
   overflow: auto;
   padding: var(--space-2) var(--space-2);
+  outline: none;
+}
+
+.file-tree:focus-visible {
+  outline: none;
 }
 
 .file-tree-item {

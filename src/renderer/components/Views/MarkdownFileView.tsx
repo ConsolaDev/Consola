@@ -5,6 +5,7 @@ import { MarkdownRenderer } from '../Markdown';
 import { fileBridge } from '../../services/fileBridge';
 import { AlertCircle, Loader2, Eye, Code2 } from 'lucide-react';
 import { codeTheme, codeCustomStyle } from '../../utils/codeTheme';
+import { useSelectAll } from '../../hooks/useSelectAll';
 import './styles.css';
 
 interface MarkdownFileViewProps {
@@ -18,6 +19,7 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [viewMode, setViewMode] = useState<ViewMode>('preview');
+  const contentRef = useSelectAll<HTMLDivElement>();
 
   useEffect(() => {
     async function loadFile() {
@@ -83,13 +85,14 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
 
       {/* Content area */}
       <ScrollArea className="markdown-view-content-wrapper">
-        {viewMode === 'preview' ? (
-          <Box p="4" pr="6" className="markdown-view-panel markdown-preview-view">
-            <MarkdownRenderer content={content} />
-          </Box>
-        ) : (
-          <div className="markdown-view-panel markdown-source-view">
-            <SyntaxHighlighter
+        <div ref={contentRef} tabIndex={0} className="markdown-view-content-selectable">
+          {viewMode === 'preview' ? (
+            <Box p="4" pr="6" className="markdown-view-panel markdown-preview-view">
+              <MarkdownRenderer content={content} />
+            </Box>
+          ) : (
+            <div className="markdown-view-panel markdown-source-view">
+              <SyntaxHighlighter
               style={codeTheme}
               language="markdown"
               showLineNumbers
@@ -108,8 +111,9 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
             >
               {content}
             </SyntaxHighlighter>
-          </div>
-        )}
+            </div>
+          )}
+        </div>
       </ScrollArea>
     </Box>
   );
