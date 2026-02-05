@@ -839,38 +839,112 @@
   margin-top: 2px;
 }
 
-/* File Content Block */
+/* File Content Block - Compact, refined code preview */
 .file-content-block {
-  margin: var(--space-2) 0;
-  border-radius: var(--radius-md);
+  margin: var(--space-1) 0;
+  margin-left: var(--space-4);
+  border-radius: 6px;
   overflow: hidden;
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border);
+  background: var(--gray-2);
+  border: 1px solid var(--gray-4);
+  transition: border-color 0.15s ease;
+}
+
+.file-content-block:hover {
+  border-color: var(--gray-6);
 }
 
 .file-content-header {
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-tertiary);
-  border-bottom: 1px solid var(--color-border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 10px;
+  background: var(--gray-3);
+  border-bottom: 1px solid var(--gray-4);
+  min-height: 28px;
+}
+
+.file-content-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.file-icon {
+  font-size: 10px;
+  color: var(--gray-9);
+  flex-shrink: 0;
+  width: 14px;
+  text-align: center;
 }
 
 .file-content-path {
   font-family: var(--font-mono);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--gray-12);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
 .file-content-info {
-  color: var(--color-text-tertiary);
+  font-size: 10px;
+  color: var(--gray-9);
   flex-shrink: 0;
+  white-space: nowrap;
 }
 
+.file-content-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.file-content-block:hover .file-content-actions {
+  opacity: 1;
+}
+
+.file-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--gray-10);
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+
+.file-action-btn:hover {
+  background: var(--gray-5);
+  color: var(--gray-12);
+}
+
+.file-action-btn:active {
+  transform: scale(0.95);
+}
+
+/* Code container - compact */
 .file-content-code {
   position: relative;
   overflow: hidden;
+}
+
+.file-content-block.collapsed .file-content-code {
+  max-height: 88px; /* ~4 lines at 11px font + line-height 1.4 + padding */
+}
+
+.file-content-block.expanded .file-content-code {
+  max-height: none;
 }
 
 .file-content-code pre {
@@ -882,19 +956,14 @@
   font-family: var(--font-mono) !important;
 }
 
-/* Line number styling */
+/* Compact line numbers */
 .file-content-code .linenumber {
-  min-width: 3em !important;
-  padding-right: var(--space-2) !important;
+  min-width: 2.5em !important;
+  padding-right: 8px !important;
   text-align: right !important;
-  color: var(--color-text-tertiary) !important;
+  color: var(--gray-8) !important;
   user-select: none;
-  border-right: 1px solid var(--color-border);
-  margin-right: var(--space-2) !important;
-}
-
-.file-content-line-number {
-  color: var(--color-text-tertiary);
+  font-size: 10px !important;
 }
 
 /* Fade overlay for collapsed content */
@@ -903,16 +972,35 @@
   bottom: 0;
   left: 0;
   right: 0;
-  height: 60px;
-  background: linear-gradient(transparent, var(--color-bg-secondary));
+  height: 32px;
+  background: linear-gradient(to bottom, transparent, var(--gray-2));
   pointer-events: none;
 }
 
-/* Expand button inherits from tool-expand-button */
-.file-content-block .tool-expand-button {
-  padding: var(--space-2) var(--space-3);
-  border-top: 1px solid var(--color-border);
-  background: var(--color-bg-tertiary);
-  text-align: center;
+/* Expand bar - minimal clickable area */
+.file-expand-bar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px 10px;
+  background: var(--gray-3);
+  border-top: 1px solid var(--gray-4);
+  cursor: pointer;
+  transition: background 0.12s ease;
+}
+
+.file-expand-bar:hover {
+  background: var(--gray-4);
+}
+
+.expand-text {
+  font-size: 10px;
+  font-weight: 500;
+  color: var(--gray-10);
+  letter-spacing: 0.01em;
+}
+
+.file-expand-bar:hover .expand-text {
+  color: var(--gray-12);
 }
 
