@@ -1,21 +1,28 @@
 import { Sidebar } from '../Sidebar';
 import { AppHeader } from './AppHeader';
-import { TabContent } from './TabContent';
+import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
-import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useTabStore } from '../../stores/tabStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useNavigationStore } from '../../stores/navigationStore';
 import './styles.css';
 
 export function Layout() {
-  const { openDialog } = useCreateWorkspace();
   const { openSettings } = useSettings();
-  const activeTabId = useTabStore((state) => state.activeTabId);
-  const closeTab = useTabStore((state) => state.closeTab);
+  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
+  const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
+
+  const handleNewWorkspace = async () => {
+    const result = await window.dialogAPI.selectFolder();
+    if (result) {
+      const workspace = createWorkspace(result.name, result.path, result.isGitRepo);
+      setActiveWorkspace(workspace.id);
+    }
+  };
+
   useKeyboardShortcuts({
-    onNewWorkspace: openDialog,
-    onCloseActiveTab: () => closeTab(activeTabId),
+    onNewWorkspace: handleNewWorkspace,
     onOpenSettings: openSettings,
   });
   useTheme();
@@ -26,7 +33,7 @@ export function Layout() {
       <div className="layout-body">
         <Sidebar />
         <main className="content-area">
-          <TabContent />
+          <MainContent />
         </main>
       </div>
     </div>

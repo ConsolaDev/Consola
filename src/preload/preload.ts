@@ -230,6 +230,9 @@ contextBridge.exposeInMainWorld('dialogAPI', {
     selectFolders: (): Promise<Array<{ path: string; name: string; isGitRepo: boolean }>> => {
         return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
     },
+    selectFolder: (): Promise<{ path: string; name: string; isGitRepo: boolean } | null> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDER);
+    },
 });
 
 // Expose File API to renderer
@@ -253,5 +256,27 @@ interface GitStatusResult {
 contextBridge.exposeInMainWorld('gitAPI', {
     getStatus: (rootPath: string): Promise<GitStatusResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, rootPath);
+    },
+});
+
+// Session storage types
+interface PersistedSessionData {
+    messages: unknown[];
+    toolHistory: unknown[];
+}
+
+// Expose Session Storage API to renderer
+contextBridge.exposeInMainWorld('sessionStorageAPI', {
+    saveHistory: (sessionId: string, data: PersistedSessionData): Promise<void> => {
+        return ipcRenderer.invoke('session:save-history', { sessionId, data });
+    },
+    loadHistory: (sessionId: string): Promise<PersistedSessionData | null> => {
+        return ipcRenderer.invoke('session:load-history', { sessionId });
+    },
+    deleteHistory: (sessionId: string): Promise<void> => {
+        return ipcRenderer.invoke('session:delete-history', { sessionId });
+    },
+    generateName: (query: string): Promise<{ name: string }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.SESSION_GENERATE_NAME, { query });
     },
 });

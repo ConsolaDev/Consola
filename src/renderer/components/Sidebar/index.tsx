@@ -2,7 +2,6 @@ import { Settings, Home, Plus } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
 import { useSettings } from '../../contexts/SettingsContext';
 import { NavItem } from './NavItem';
 import { WorkspaceNavItem } from './WorkspaceNavItem';
@@ -10,16 +9,29 @@ import './styles.css';
 
 export function Sidebar() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
+  const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const { openDialog } = useCreateWorkspace();
+  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const { openSettings } = useSettings();
 
   if (isSidebarHidden) {
     return null;
   }
 
+  const handleNewWorkspace = async () => {
+    const result = await window.dialogAPI.selectFolder();
+    if (result) {
+      const workspace = createWorkspace(result.name, result.path, result.isGitRepo);
+      setActiveWorkspace(workspace.id);
+    }
+  };
+
+  const handleGoHome = () => {
+    setActiveWorkspace(null);
+  };
+
   const newWorkspaceButton = (
-    <button className="sidebar-section-button" onClick={openDialog}>
+    <button className="sidebar-section-button" onClick={handleNewWorkspace}>
       <Plus size={14} />
     </button>
   );
@@ -30,7 +42,7 @@ export function Sidebar() {
         <NavItem
           icon={<Home size={16} />}
           label="Home"
-          to="/"
+          onClick={handleGoHome}
         />
       </div>
 
