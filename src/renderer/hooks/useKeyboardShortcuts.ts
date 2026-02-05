@@ -11,6 +11,7 @@ interface UseKeyboardShortcutsOptions {
 
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
+  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const { theme, setTheme } = useSettingsStore();
   const { onNewWorkspace, onCloseActiveTab, onOpenSettings } = options;
 
@@ -53,6 +54,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // Cmd/Ctrl + Shift + E : Toggle file explorer
+      if (isMod && event.shiftKey && event.key === 'e') {
+        event.preventDefault();
+        toggleExplorer();
+        return;
+      }
+
       // Cmd/Ctrl + W : Close active tab
       if (isMod && event.key === 'w') {
         event.preventDefault();
@@ -63,5 +71,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSidebar, toggleTheme, onNewWorkspace, onCloseActiveTab, onOpenSettings]);
+  }, [toggleSidebar, toggleExplorer, toggleTheme, onNewWorkspace, onCloseActiveTab, onOpenSettings]);
 }
