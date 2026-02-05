@@ -150,6 +150,7 @@ interface AgentState {
   sendMessage: (instanceId: string, cwd: string, prompt: string, options?: {
     allowedTools?: string[];
     maxTurns?: number;
+    additionalDirectories?: string[];
   }) => void;
   interrupt: (instanceId: string) => void;
   clearMessages: (instanceId: string) => void;
@@ -159,6 +160,10 @@ interface AgentState {
     feedback?: string;
     answers?: Record<string, string>;  // For question responses
   }) => void;
+
+  // Session persistence
+  saveInstanceHistory: (instanceId: string) => Promise<void>;
+  loadInstanceHistory: (instanceId: string) => Promise<void>;
 
   // Internal actions for event handling
   _handleInit: (data: AgentInitEvent) => void;
@@ -284,11 +289,13 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
     // Start query via bridge
     const instance = get().instances[instanceId];
+    const { additionalDirectories, ...restOptions } = options;
     agentBridge.startQuery({
       instanceId,
       cwd,
+      additionalDirectories,
       prompt,
-      ...options,
+      ...restOptions,
       continue: instance?.sessionId !== null
     });
   },
@@ -311,6 +318,27 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set(state => updateInstance(state, instanceId, () => ({
       error: null
     })));
+  },
+
+  saveInstanceHistory: async (instanceId) => {
+    const instance = get().instances[instanceId];
+    if (instance && window.sessionStorageAPI) {
+      await window.sessionStorageAPI.saveHistory(instanceId, {
+        messages: instance.messages,
+        toolHistory: instance.toolHistory,
+      });
+    }
+  },
+
+  loadInstanceHistory: async (instanceId) => {
+    if (!window.sessionStorageAPI) return;
+    const data = await window.sessionStorageAPI.loadHistory(instanceId);
+    if (data) {
+      set((state) => updateInstance(state, instanceId, () => ({
+        messages: data.messages as Message[],
+        toolHistory: data.toolHistory as ToolExecution[],
+      })));
+    }
   },
 
   respondToInput: (instanceId, requestId, action, options = {}) => {

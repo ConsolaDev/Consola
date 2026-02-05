@@ -143,6 +143,7 @@ export interface AgentInputResponse {
 export interface AgentQueryOptions {
     instanceId: string;
     cwd?: string;
+    additionalDirectories?: string[];
     prompt: string;
     allowedTools?: string[];
     maxTurns?: number;

@@ -32,8 +32,9 @@ const emptyInstanceState: InstanceState = {
  *
  * @param instanceId - The instance ID to scope this hook to (null for home tab/no agent)
  * @param cwd - The working directory for this agent instance
+ * @param additionalDirectories - Additional directories the agent can access
  */
-export function useAgent(instanceId: string | null, cwd: string = '') {
+export function useAgent(instanceId: string | null, cwd: string = '', additionalDirectories: string[] = []) {
   const isAvailable = useAgentStore(state => state.isAvailable);
   const instance = useAgentStore(state =>
     instanceId ? state.instances[instanceId] : undefined
@@ -74,9 +75,12 @@ export function useAgent(instanceId: string | null, cwd: string = '') {
     maxTurns?: number;
   }) => {
     if (instanceId) {
-      storeSendMessage(instanceId, cwd, prompt, options);
+      storeSendMessage(instanceId, cwd, prompt, {
+        ...options,
+        additionalDirectories,
+      });
     }
-  }, [instanceId, cwd, storeSendMessage]);
+  }, [instanceId, cwd, additionalDirectories, storeSendMessage]);
 
   const interrupt = useCallback(() => {
     if (instanceId) {
