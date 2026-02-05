@@ -37,6 +37,7 @@ export function ChatInput({
     handleKeyDown,
     handleSend,
     selectCommand,
+    executeCommand,
     setSelectedIndex,
   } = useChatInput({ onSend, isRunning, skills, slashCommands });
 
@@ -47,14 +48,14 @@ export function ChatInput({
 
   return (
     <div className="chat-input-wrapper">
-      {showSuggestions && (
-        <CommandSuggestions
-          suggestions={filteredCommands}
-          selectedIndex={selectedIndex}
-          onSelect={selectCommand}
-          onHover={setSelectedIndex}
-        />
-      )}
+      <CommandSuggestions
+        suggestions={filteredCommands}
+        selectedIndex={selectedIndex}
+        onSelect={selectCommand}
+        onExecute={executeCommand}
+        onHover={setSelectedIndex}
+        open={showSuggestions}
+      />
 
       <div className="chat-input-card">
         <textarea

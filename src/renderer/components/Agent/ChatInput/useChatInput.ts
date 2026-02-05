@@ -104,6 +104,15 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
     textareaRef.current?.focus();
   }, []);
 
+  // Execute command directly (for Enter key on suggestions)
+  const executeCommand = useCallback((command: CommandSuggestion) => {
+    const commandText = `/${command.name}`;
+    setShowSuggestions(false);
+    onSend(commandText);
+    resetInput();
+  }, [onSend, resetInput]);
+
+
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
     // Handle suggestion navigation
     if (showSuggestions && filteredCommands.length > 0) {
@@ -117,9 +126,16 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
         setSelectedIndex(prev => (prev - 1 + filteredCommands.length) % filteredCommands.length);
         return;
       }
-      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+      if (e.key === 'Tab') {
+        // Tab = autocomplete the command name
         e.preventDefault();
         selectCommand(filteredCommands[selectedIndex]);
+        return;
+      }
+      if (e.key === 'Enter' && !e.shiftKey) {
+        // Enter = execute the command directly
+        e.preventDefault();
+        executeCommand(filteredCommands[selectedIndex]);
         return;
       }
       if (e.key === 'Escape') {
@@ -133,7 +149,7 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
       e.preventDefault();
       handleSend();
     }
-  }, [handleSend, showSuggestions, filteredCommands, selectedIndex, selectCommand]);
+  }, [handleSend, showSuggestions, filteredCommands, selectedIndex, selectCommand, executeCommand]);
 
   const canSend = Boolean(input.trim()) && !isRunning;
   const hasContent = input.length > 0;
@@ -155,6 +171,7 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
     handleKeyDown,
     handleSend,
     selectCommand,
+    executeCommand,
     setSelectedIndex,
   };
 }
