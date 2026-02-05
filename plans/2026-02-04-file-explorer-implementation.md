@@ -1,11 +1,11 @@
-# Implementation Plan: File Explorer Pane with Code Viewer
+# Implementation Plan: File Explorer Pane with Preview Panel
 
 **Date**: 2026-02-04
-**Status**: Ready for Implementation
+**Status**: Ready for Implementation (Updated)
 
 ## Overview
 
-Add a toggleable file explorer pane on the left side of ContentView that displays the project directory structure. Users can show/hide the explorer via a button in the header. Clicking files opens them in the context panel with syntax highlighting. Rename `TruncatedPath` to `PathDisplay` with the toggle button integrated.
+Add a toggleable file explorer pane on the left side of ContentView that displays the project directory structure. Users can show/hide the explorer via a button in the header. Clicking files opens them in a **Preview Panel** with a tab system - multiple files can be open simultaneously. The Preview Panel automatically shows/hides based on whether any file tabs are open. Rename `TruncatedPath` to `PathDisplay` with the toggle button integrated.
 
 ## Current State Analysis
 
@@ -15,6 +15,7 @@ Add a toggleable file explorer pane on the left side of ContentView that display
 - `CodeBlock` component with `react-syntax-highlighter` + oneDark theme at `Markdown/CodeBlock.tsx`
 - File reading via IPC exists: `FILE_READ` channel in `constants.ts:44`, handler in `ipc-handlers.ts:225-233`
 - `TruncatedPath` component at `Views/TruncatedPath.tsx:36-52`
+- Existing tab system in `tabStore.ts` provides a pattern for file tabs
 - No directory listing IPC channel exists yet
 
 ### Design Decisions:
@@ -22,15 +23,25 @@ Add a toggleable file explorer pane on the left side of ContentView that display
 - **File Icons**: `material-file-icons` npm package (~475KB, 377 VSCode-style icons)
 - **Code Viewer**: Reuse existing `CodeBlock` component (read-only)
 - **Explorer Toggle**: Button in header to show/hide file explorer as leftmost pane
+- **Preview Panel**: Tabbed panel that auto-shows when files are open, auto-hides when empty
 
 ## Desired End State
 
 1. Header has a toggle button (next to PathDisplay) to show/hide file explorer
-2. When visible, file explorer appears as leftmost pane: `[FileExplorer | Agent | Context]`
+2. When visible, file explorer appears as leftmost pane
 3. File explorer shows collapsible tree of the project directory
 4. File icons match VSCode Material Icon Theme
-5. Clicking a file opens it in the Context panel (right side)
-6. `PathDisplay` component (renamed from `TruncatedPath`) integrates the toggle button
+5. Clicking a file opens it as a tab in the Preview Panel
+6. **Preview Panel with tabs**: Multiple files can be open, users can switch between them
+7. **Auto-show/hide**: Panel appears when first file is opened, hides when last tab is closed
+8. `PathDisplay` component (renamed from `TruncatedPath`) integrates the toggle button
+
+### Layout States:
+```
+No files open:     [FileExplorer | Agent Panel]
+Files open:        [FileExplorer | Agent Panel | Preview Panel]
+Explorer hidden:   [Agent Panel] or [Agent Panel | Preview Panel]
+```
 
 ## What We're NOT Doing
 
@@ -43,7 +54,7 @@ Add a toggleable file explorer pane on the left side of ContentView that display
 
 ## Implementation Approach
 
-Use Radix Collapsible for the tree (already in project), `material-file-icons` for VSCode-style icons, and the existing `CodeBlock` for syntax highlighting. The file explorer is a toggleable leftmost pane controlled by a button in the header. State management is kept simple with React state in ContentView.
+Use Radix Collapsible for the tree (already in project), `material-file-icons` for VSCode-style icons, and the existing `CodeBlock` for syntax highlighting. The file explorer is a toggleable leftmost pane controlled by a button in the header. A new `previewTabStore` (following the pattern of `tabStore.ts`) manages open file tabs. The Preview Panel renders only when there are open tabs.
 
 ---
 
@@ -500,23 +511,386 @@ export { FolderIcon } from './FolderIcon';
 
 ---
 
-## Phase 4: Toggleable File Explorer Pane
+## Phase 4: Preview Tab Store
 
 ### Overview
-Add a toggle button in the header to show/hide the file explorer as a new leftmost pane in ContentView.
+Create a Zustand store to manage open file tabs in the Preview Panel, following the pattern of the existing `tabStore.ts`.
 
 ### Changes Required:
 
-#### 1. Update ContentView with Three-Panel Layout
+#### 1. Create Preview Tab Store
+**File**: `src/renderer/stores/previewTabStore.ts` (new)
+
+```typescript
+import { create } from 'zustand';
+
+export interface PreviewTab {
+  id: string;        // File path serves as unique ID
+  filePath: string;
+  filename: string;
+}
+
+interface PreviewTabState {
+  tabs: PreviewTab[];
+  activeTabId: string | null;
+
+  openFile: (filePath: string) => void;
+  closeTab: (tabId: string) => void;
+  setActiveTab: (tabId: string) => void;
+  closeAllTabs: () => void;
+}
+
+function getFilename(filePath: string): string {
+  return filePath.split('/').pop() || filePath;
+}
+
+export const usePreviewTabStore = create<PreviewTabState>((set, get) => ({
+  tabs: [],
+  activeTabId: null,
+
+  openFile: (filePath: string) => {
+    const { tabs } = get();
+    const existingTab = tabs.find((t) => t.filePath === filePath);
+
+    if (existingTab) {
+      // File already open, just focus it
+      set({ activeTabId: existingTab.id });
+      return;
+    }
+
+    // Create new tab
+    const newTab: PreviewTab = {
+      id: filePath,
+      filePath,
+      filename: getFilename(filePath),
+    };
+
+    set({
+      tabs: [...tabs, newTab],
+      activeTabId: newTab.id,
+    });
+  },
+
+  closeTab: (tabId: string) => {
+    const { tabs, activeTabId } = get();
+    const tabIndex = tabs.findIndex((t) => t.id === tabId);
+    if (tabIndex === -1) return;
+
+    const newTabs = tabs.filter((t) => t.id !== tabId);
+
+    // Determine new active tab
+    let newActiveTabId: string | null = activeTabId;
+    if (activeTabId === tabId) {
+      if (newTabs.length === 0) {
+        newActiveTabId = null;
+      } else if (tabIndex > 0) {
+        newActiveTabId = newTabs[tabIndex - 1].id;
+      } else {
+        newActiveTabId = newTabs[0].id;
+      }
+    }
+
+    set({
+      tabs: newTabs,
+      activeTabId: newActiveTabId,
+    });
+  },
+
+  setActiveTab: (tabId: string) => {
+    const { tabs } = get();
+    if (tabs.some((t) => t.id === tabId)) {
+      set({ activeTabId: tabId });
+    }
+  },
+
+  closeAllTabs: () => {
+    set({ tabs: [], activeTabId: null });
+  },
+}));
+```
+
+### Success Criteria:
+
+#### Automated Verification:
+- [ ] Build passes: `npm run build`
+
+#### Manual Verification:
+- [ ] Store correctly manages tab state
+- [ ] Opening same file twice focuses existing tab
+- [ ] Closing tabs updates active tab correctly
+
+---
+
+## Phase 5: Preview Panel Component with Tabs
+
+### Overview
+Create the Preview Panel with a tab bar for switching between open files. This replaces the old ContextPlaceholder.
+
+### Changes Required:
+
+#### 1. Create PreviewTabBar Component
+**File**: `src/renderer/components/PreviewPanel/PreviewTabBar.tsx` (new)
+
+```typescript
+import { X } from 'lucide-react';
+import { usePreviewTabStore, type PreviewTab } from '../../stores/previewTabStore';
+import { FileIcon } from '../FileExplorer/FileIcon';
+
+export function PreviewTabBar() {
+  const tabs = usePreviewTabStore((state) => state.tabs);
+  const activeTabId = usePreviewTabStore((state) => state.activeTabId);
+  const setActiveTab = usePreviewTabStore((state) => state.setActiveTab);
+  const closeTab = usePreviewTabStore((state) => state.closeTab);
+
+  if (tabs.length === 0) return null;
+
+  return (
+    <div className="preview-tab-bar">
+      {tabs.map((tab) => (
+        <div
+          key={tab.id}
+          className={`preview-tab ${activeTabId === tab.id ? 'active' : ''}`}
+          onClick={() => setActiveTab(tab.id)}
+        >
+          <FileIcon filename={tab.filename} className="preview-tab-icon" />
+          <span className="preview-tab-name">{tab.filename}</span>
+          <button
+            className="preview-tab-close"
+            onClick={(e) => {
+              e.stopPropagation();
+              closeTab(tab.id);
+            }}
+            aria-label={`Close ${tab.filename}`}
+          >
+            <X size={12} />
+          </button>
+        </div>
+      ))}
+    </div>
+  );
+}
+```
+
+#### 2. Create PreviewPanel Component
+**File**: `src/renderer/components/PreviewPanel/index.tsx` (new)
+
+```typescript
+import { usePreviewTabStore } from '../../stores/previewTabStore';
+import { PreviewTabBar } from './PreviewTabBar';
+import { CodeFileView } from '../Views/CodeFileView';
+import { MarkdownFileView } from '../Views/MarkdownFileView';
+import { getFileCategory } from '../../utils/fileUtils';
+import { FileText } from 'lucide-react';
+import './styles.css';
+
+function FileViewer({ filePath }: { filePath: string }) {
+  const category = getFileCategory(filePath);
+
+  switch (category) {
+    case 'markdown':
+      return <MarkdownFileView filePath={filePath} />;
+    case 'code':
+      return <CodeFileView filePath={filePath} />;
+    case 'image':
+      return (
+        <div className="preview-panel-placeholder">
+          <FileText size={32} />
+          <p>Image preview coming soon</p>
+        </div>
+      );
+    default:
+      return (
+        <div className="preview-panel-placeholder">
+          <FileText size={32} />
+          <p>Preview not available for this file type</p>
+        </div>
+      );
+  }
+}
+
+export function PreviewPanel() {
+  const tabs = usePreviewTabStore((state) => state.tabs);
+  const activeTabId = usePreviewTabStore((state) => state.activeTabId);
+
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+
+  // Don't render anything if no tabs
+  if (tabs.length === 0) {
+    return null;
+  }
+
+  return (
+    <div className="preview-panel">
+      <PreviewTabBar />
+      <div className="preview-panel-content">
+        {activeTab ? (
+          <FileViewer filePath={activeTab.filePath} />
+        ) : (
+          <div className="preview-panel-placeholder">
+            <p>Select a tab to view</p>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// Export for checking if panel should be visible
+export function useHasOpenTabs(): boolean {
+  return usePreviewTabStore((state) => state.tabs.length > 0);
+}
+```
+
+#### 3. Create PreviewPanel Styles
+**File**: `src/renderer/components/PreviewPanel/styles.css` (new)
+
+```css
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+.preview-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 0 var(--space-2);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  min-height: 36px;
+}
+
+.preview-tab-bar::-webkit-scrollbar {
+  height: 4px;
+}
+
+.preview-tab-bar::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 2px;
+}
+
+.preview-tab {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+  white-space: nowrap;
+}
+
+.preview-tab:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.preview-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+  background: var(--color-bg-primary);
+}
+
+.preview-tab-icon {
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+.preview-tab-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.preview-tab-name {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.preview-tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  margin-left: var(--space-1);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: all var(--transition-fast);
+}
+
+.preview-tab:hover .preview-tab-close,
+.preview-tab.active .preview-tab-close {
+  opacity: 1;
+}
+
+.preview-tab-close:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.preview-panel-content {
+  flex: 1;
+  overflow: hidden;
+}
+
+.preview-panel-placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-4);
+}
+```
+
+### Success Criteria:
+
+#### Automated Verification:
+- [ ] Build passes: `npm run build`
+
+#### Manual Verification:
+- [ ] Tab bar shows all open files
+- [ ] Clicking tab switches to that file
+- [ ] Close button removes tab
+- [ ] Active tab is visually highlighted
+- [ ] Panel content updates when switching tabs
+
+---
+
+## Phase 6: Integrate Preview Panel into ContentView
+
+### Overview
+Update ContentView to use the PreviewPanel with dynamic show/hide behavior.
+
+### Changes Required:
+
+#### 1. Update ContentView with Dynamic Preview Panel
 **File**: `src/renderer/components/Views/ContentView.tsx`
-**Changes**: Add file explorer state and conditional third panel
+**Changes**: Replace ContextPlaceholder with PreviewPanel, add dynamic visibility
 
 ```typescript
 import { useState } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { AgentPanel } from '../Agent/AgentPanel';
-import { ContextPlaceholder } from './ContextPlaceholder';
+import { PreviewPanel } from '../PreviewPanel';
 import { PathDisplay } from './PathDisplay';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
@@ -528,9 +902,12 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const [isExplorerVisible, setIsExplorerVisible] = useState(false);
-  const [selectedFilePath, setSelectedFilePath] = useState<string | null>(null);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
+  const openFile = usePreviewTabStore((state) => state.openFile);
+  const hasOpenTabs = usePreviewTabStore((state) => state.tabs.length > 0);
+  const activeTabId = usePreviewTabStore((state) => state.activeTabId);
+
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'content-view-split',
     storage: localStorage,
@@ -561,7 +938,7 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const cwd = project?.path || '';
 
   const handleSelectFile = (path: string) => {
-    setSelectedFilePath(path);
+    openFile(path);
   };
 
   const handleToggleExplorer = () => {
@@ -603,23 +980,24 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
               <Panel id="explorer" defaultSize="20%" minSize="15%" maxSize="40%">
                 <FileExplorer
                   rootPath={cwd}
-                  selectedPath={selectedFilePath}
+                  selectedPath={activeTabId}
                   onSelectFile={handleSelectFile}
                 />
               </Panel>
               <Separator className="resize-handle" />
             </>
           )}
-          <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
+          <Panel id="agent" minSize="30%">
             <AgentPanel instanceId={instanceId} cwd={cwd} />
           </Panel>
-          <Separator className="resize-handle" />
-          <Panel id="context" minSize="20%">
-            <ContextPlaceholder
-              contextId={contextId}
-              selectedFile={selectedFilePath}
-            />
-          </Panel>
+          {hasOpenTabs && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="preview" defaultSize="40%" minSize="20%">
+                <PreviewPanel />
+              </Panel>
+            </>
+          )}
         </Group>
       </div>
     </div>
@@ -627,358 +1005,13 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
 }
 ```
 
-#### 2. No Additional Styles Needed
-The existing resize-handle and panel styles already support multiple panels.
-
-### Success Criteria:
-
-#### Automated Verification:
-- [ ] Build passes: `npm run build`
-
-#### Manual Verification:
-- [ ] Toggle button in header shows/hides file explorer pane
-- [ ] File explorer appears on the left when visible
-- [ ] Panels are resizable
-- [ ] File selection in explorer updates context panel
-- [ ] Explorer toggle is only shown when a project is selected
-
----
-
-## Phase 5: Code Viewer in Context Panel
-
-### Overview
-Display selected files with syntax highlighting in the context panel.
-
-### Changes Required:
-
-#### 1. Create File Utilities
-**File**: `src/renderer/utils/fileUtils.ts` (new)
-
-```typescript
-/**
- * File type categories for viewer selection
- */
-export type FileCategory = 'markdown' | 'code' | 'image' | 'unknown';
-
-/**
- * Map file extensions to Prism language identifiers for syntax highlighting
- */
-const EXTENSION_TO_LANGUAGE: Record<string, string> = {
-  // JavaScript/TypeScript
-  ts: 'typescript',
-  tsx: 'tsx',
-  js: 'javascript',
-  jsx: 'jsx',
-  mjs: 'javascript',
-  cjs: 'javascript',
-
-  // Web
-  html: 'html',
-  css: 'css',
-  scss: 'scss',
-  less: 'less',
-
-  // Data formats
-  json: 'json',
-  yaml: 'yaml',
-  yml: 'yaml',
-  toml: 'toml',
-  xml: 'xml',
-  svg: 'xml',
-
-  // Scripting
-  sh: 'bash',
-  bash: 'bash',
-  zsh: 'bash',
-  fish: 'bash',
-  py: 'python',
-  rb: 'ruby',
-
-  // Systems
-  rs: 'rust',
-  go: 'go',
-  c: 'c',
-  cpp: 'cpp',
-  h: 'c',
-  hpp: 'cpp',
-
-  // Other
-  md: 'markdown',
-  markdown: 'markdown',
-  sql: 'sql',
-  graphql: 'graphql',
-  gql: 'graphql',
-  dockerfile: 'docker',
-  makefile: 'makefile',
-};
-
-/**
- * Extensions that should be rendered as markdown
- */
-const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown']);
-
-/**
- * Extensions that should be rendered as images
- */
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico']);
-
-/**
- * Get the file extension from a path (lowercase)
- */
-export function getFileExtension(filePath: string): string {
-  return filePath.split('.').pop()?.toLowerCase() || '';
-}
-
-/**
- * Determine the category of a file for viewer selection
- */
-export function getFileCategory(filePath: string): FileCategory {
-  const ext = getFileExtension(filePath);
-
-  if (MARKDOWN_EXTENSIONS.has(ext)) {
-    return 'markdown';
-  }
-
-  if (IMAGE_EXTENSIONS.has(ext)) {
-    return 'image';
-  }
-
-  if (EXTENSION_TO_LANGUAGE[ext]) {
-    return 'code';
-  }
-
-  return 'unknown';
-}
-
-/**
- * Check if a file can be previewed
- */
-export function isPreviewable(filePath: string): boolean {
-  return getFileCategory(filePath) !== 'unknown';
-}
-
-/**
- * Get the Prism language identifier for syntax highlighting
- */
-export function getLanguageFromPath(filePath: string): string {
-  const ext = getFileExtension(filePath);
-  return EXTENSION_TO_LANGUAGE[ext] || 'text';
-}
-
-/**
- * Get a human-readable language name for display
- */
-export function getLanguageDisplayName(filePath: string): string {
-  const language = getLanguageFromPath(filePath);
-  return language.charAt(0).toUpperCase() + language.slice(1);
-}
-```
-
-#### 2. Create CodeFileView Component
-**File**: `src/renderer/components/Views/CodeFileView.tsx` (new)
-
-```typescript
-import { useState, useEffect, useMemo } from 'react';
-import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { Flex, Text, Button } from '@radix-ui/themes';
-import { Copy, Check, Loader2 } from 'lucide-react';
-import { fileBridge } from '../../services/fileBridge';
-import { FileIcon } from '../FileExplorer/FileIcon';
-import { getLanguageFromPath } from '../../utils/fileUtils';
-
-interface CodeFileViewProps {
-  filePath: string;
-}
-
-export function CodeFileView({ filePath }: CodeFileViewProps) {
-  const [content, setContent] = useState<string | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-
-  const filename = useMemo(() => filePath.split('/').pop() || '', [filePath]);
-  const language = useMemo(() => getLanguageFromPath(filePath), [filePath]);
-
-  useEffect(() => {
-    setIsLoading(true);
-    setError(null);
-
-    fileBridge.readFile(filePath)
-      .then(setContent)
-      .catch(err => setError(err.message))
-      .finally(() => setIsLoading(false));
-  }, [filePath]);
-
-  const handleCopy = async () => {
-    if (content) {
-      await navigator.clipboard.writeText(content);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    }
-  };
-
-  if (isLoading) {
-    return (
-      <div className="code-file-view loading">
-        <Loader2 size={24} className="spinner" />
-        <p>Loading file...</p>
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <div className="code-file-view error">
-        <p>Error loading file</p>
-        <p className="code-file-error-detail">{error}</p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="code-file-view">
-      <Flex className="code-file-header" justify="between" align="center">
-        <Flex align="center" gap="2">
-          <FileIcon filename={filename} className="code-file-icon" />
-          <Text size="2" weight="medium">{filename}</Text>
-          <Text size="1" color="gray">{language}</Text>
-        </Flex>
-        <Button size="1" variant="ghost" onClick={handleCopy}>
-          {copied ? <Check size={14} /> : <Copy size={14} />}
-          <Text size="1">{copied ? 'Copied!' : 'Copy'}</Text>
-        </Button>
-      </Flex>
-      <div className="code-file-content">
-        <SyntaxHighlighter
-          style={oneDark}
-          language={language}
-          showLineNumbers
-          customStyle={{
-            margin: 0,
-            borderRadius: 0,
-            fontSize: '13px',
-            height: '100%',
-          }}
-        >
-          {content || ''}
-        </SyntaxHighlighter>
-      </div>
-    </div>
-  );
-}
-```
-
-#### 2. Add CodeFileView Styles
-**File**: `src/renderer/components/Views/styles.css`
-**Changes**: Add styles for code file view
-
-```css
-/* Code File View */
-.code-file-view {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: var(--color-bg-primary);
-}
-
-.code-file-view.loading,
-.code-file-view.error {
-  align-items: center;
-  justify-content: center;
-  color: var(--color-text-tertiary);
-}
-
-.code-file-error-detail {
-  font-size: var(--font-size-xs);
-  margin-top: var(--space-2);
-}
-
-.code-file-header {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-}
-
-.code-file-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.code-file-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
-.code-file-content {
-  flex: 1;
-  overflow: auto;
-}
-
-.code-file-content pre {
-  height: 100%;
-  margin: 0 !important;
-}
-```
-
-#### 3. Update ContextPlaceholder
+#### 2. Delete ContextPlaceholder
 **File**: `src/renderer/components/Views/ContextPlaceholder.tsx`
-**Changes**: Use file utilities for viewer selection
+**Action**: Delete this file (no longer needed)
 
-```typescript
-import { MarkdownFileView } from './MarkdownFileView';
-import { CodeFileView } from './CodeFileView';
-import { FileText } from 'lucide-react';
-import { getFileCategory } from '../../utils/fileUtils';
-import './styles.css';
-
-interface ContextPlaceholderProps {
-  contextId: string;
-  selectedFile?: string | null;
-}
-
-function FileViewer({ filePath }: { filePath: string }) {
-  const category = getFileCategory(filePath);
-
-  switch (category) {
-    case 'markdown':
-      return <MarkdownFileView filePath={filePath} />;
-    case 'code':
-      return <CodeFileView filePath={filePath} />;
-    case 'image':
-      // Future: Add ImageFileView component
-      return (
-        <div className="context-placeholder">
-          <FileText size={32} />
-          <p>Image preview coming soon</p>
-          <p className="context-placeholder-hint">{filePath}</p>
-        </div>
-      );
-    default:
-      return (
-        <div className="context-placeholder">
-          <FileText size={32} />
-          <p>Preview not available for this file type</p>
-          <p className="context-placeholder-hint">{filePath}</p>
-        </div>
-      );
-  }
-}
-
-export function ContextPlaceholder({ contextId, selectedFile }: ContextPlaceholderProps) {
-  if (selectedFile) {
-    return <FileViewer filePath={selectedFile} />;
-  }
-
-  return (
-    <div className="context-placeholder">
-      <FileText size={32} />
-      <p>Context panel</p>
-      <p className="context-placeholder-hint">Select a file to preview</p>
-    </div>
-  );
-}
-```
+#### 3. Update Views index export
+**File**: `src/renderer/components/Views/index.ts`
+**Changes**: Remove ContextPlaceholder export, keep others
 
 ### Success Criteria:
 
@@ -986,37 +1019,33 @@ export function ContextPlaceholder({ contextId, selectedFile }: ContextPlacehold
 - [ ] Build passes: `npm run build`
 
 #### Manual Verification:
-- [ ] Clicking a file in explorer shows it in context panel
-- [ ] Code files display with syntax highlighting
-- [ ] Line numbers are visible
-- [ ] Copy button works
-- [ ] Large files scroll properly
+- [ ] Preview Panel hidden when no files open
+- [ ] Preview Panel appears when clicking file in explorer
+- [ ] Preview Panel hides when closing last tab
+- [ ] Agent Panel expands to fill space when Preview Panel is hidden
+- [ ] All panels are resizable
 
 ---
 
-## Phase 6: Rename TruncatedPath to PathDisplay with Explorer Toggle
+## Phase 7: Rename TruncatedPath to PathDisplay with Explorer Toggle
 
 ### Overview
-Rename the component and add the file explorer toggle button.
+Rename the component and add the file explorer toggle button. Move the `truncatePath` utility function to `fileUtils.ts`.
 
 ### Changes Required:
 
-#### 1. Rename and Update Component
-**File**: `src/renderer/components/Views/PathDisplay.tsx` (renamed from TruncatedPath.tsx)
+#### 1. Add truncatePath to File Utilities
+**File**: `src/renderer/utils/fileUtils.ts`
+**Changes**: Add the `truncatePath` function
 
 ```typescript
-import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree } from 'lucide-react';
+// Add to existing fileUtils.ts
 
-interface PathDisplayProps {
-  path: string;
-  className?: string;
-  showExplorerToggle?: boolean;
-  isExplorerVisible?: boolean;
-  onToggleExplorer?: () => void;
-}
-
-function truncatePath(fullPath: string): string {
+/**
+ * Truncate a file path for display, replacing home directory with ~ and
+ * abbreviating long paths with ellipsis
+ */
+export function truncatePath(fullPath: string): string {
   const homeDir = '/Users/';
   let path = fullPath;
 
@@ -1038,6 +1067,23 @@ function truncatePath(fullPath: string): string {
   const lastSegments = segments.slice(-2).join('/');
 
   return `${firstPart}/.../${lastSegments}`;
+}
+```
+
+#### 2. Rename and Update Component
+**File**: `src/renderer/components/Views/PathDisplay.tsx` (renamed from TruncatedPath.tsx)
+
+```typescript
+import * as Tooltip from '@radix-ui/react-tooltip';
+import { FolderTree } from 'lucide-react';
+import { truncatePath } from '../../utils/fileUtils';
+
+interface PathDisplayProps {
+  path: string;
+  className?: string;
+  showExplorerToggle?: boolean;
+  isExplorerVisible?: boolean;
+  onToggleExplorer?: () => void;
 }
 
 export function PathDisplay({
@@ -1166,17 +1212,34 @@ export { PathDisplay as TruncatedPath };
    - Expand/collapse folders
    - Verify correct file icons
 
-3. **File Selection**
-   - Click a file in the tree
-   - Verify it appears in context panel
-   - Verify syntax highlighting is correct
+3. **Preview Panel Auto-Show/Hide**
+   - Start with no files open
+   - Verify layout is `[Explorer | Agent]` (no Preview Panel)
+   - Click a file in explorer
+   - Verify Preview Panel appears with the file
+   - Layout becomes `[Explorer | Agent | Preview]`
 
-4. **Panel Resizing**
+4. **Preview Panel Tabs**
+   - Click multiple files in explorer
+   - Verify each opens as a new tab
+   - Click tabs to switch between files
+   - Verify file content updates
+
+5. **Tab Close Behavior**
+   - Open 3 files
+   - Close middle tab
+   - Verify adjacent tab becomes active
+   - Close all tabs
+   - Verify Preview Panel disappears
+   - Agent Panel expands to fill space
+
+6. **Panel Resizing**
    - Resize explorer panel
    - Resize agent panel
+   - Resize preview panel
    - Verify all panels resize correctly
 
-5. **PathDisplay**
+7. **PathDisplay**
    - Hover over project path
    - Verify tooltip shows full path
    - Hover over toggle button
@@ -1185,6 +1248,7 @@ export { PathDisplay as TruncatedPath };
 ## References
 
 - Existing Collapsible usage: `src/renderer/components/Sidebar/WorkspaceNavItem.tsx:1,39-78`
+- Existing tab store pattern: `src/renderer/stores/tabStore.ts`
 - IPC patterns: `src/main/ipc-handlers.ts:225-233`
 - CodeBlock component: `src/renderer/components/Markdown/CodeBlock.tsx`
 - TruncatedPath component: `src/renderer/components/Views/TruncatedPath.tsx:36-52`

@@ -26,4 +26,13 @@ export const fileBridge = {
     }
     return api.readFile(filePath);
   },
+
+  /** List directory contents */
+  listDirectory: async (dirPath: string): Promise<Array<{ name: string; path: string; isDirectory: boolean }>> => {
+    const api = getAPI();
+    if (!api) {
+      throw new Error('File API not available');
+    }
+    return api.listDirectory(dirPath);
+  },
 };

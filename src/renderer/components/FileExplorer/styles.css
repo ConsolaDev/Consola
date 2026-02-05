@@ -1,0 +1,96 @@
+.file-explorer {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+}
+
+.file-explorer-empty,
+.file-explorer-loading,
+.file-explorer-error {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-4);
+}
+
+.file-explorer-error-detail {
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-2);
+}
+
+.file-tree {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-2) 0;
+}
+
+.file-tree-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.file-tree-item:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.file-tree-item.selected {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.file-tree-folder {
+  font-weight: var(--font-weight-medium);
+}
+
+.file-tree-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.file-tree-chevron.open {
+  transform: rotate(90deg);
+}
+
+.file-tree-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.file-tree-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.file-tree-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-tree-loading {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  padding: var(--space-1) var(--space-2);
+}

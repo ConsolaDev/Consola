@@ -1,24 +1,32 @@
 import { MarkdownFileView } from './MarkdownFileView';
+import { CodeFileView } from './CodeFileView';
 import { FileText } from 'lucide-react';
+import { getFileCategory } from '../../utils/fileUtils';
 import './styles.css';
 
 interface ContextPlaceholderProps {
   contextId: string;
-  selectedFile?: string;
+  selectedFile?: string | null;
 }
 
-/**
- * Get the appropriate viewer component for a file based on its extension
- */
-function getViewerForFile(filePath: string) {
-  const extension = filePath.split('.').pop()?.toLowerCase();
+function FileViewer({ filePath }: { filePath: string }) {
+  const category = getFileCategory(filePath);
 
-  switch (extension) {
-    case 'md':
+  switch (category) {
     case 'markdown':
       return <MarkdownFileView filePath={filePath} />;
+    case 'code':
+      return <CodeFileView filePath={filePath} />;
+    case 'image':
+      // Future: Add ImageFileView component
+      return (
+        <div className="context-placeholder">
+          <FileText size={32} />
+          <p>Image preview coming soon</p>
+          <p className="context-placeholder-hint">{filePath}</p>
+        </div>
+      );
     default:
-      // For now, show a placeholder for unsupported file types
       return (
         <div className="context-placeholder">
           <FileText size={32} />
@@ -30,12 +38,10 @@ function getViewerForFile(filePath: string) {
 }
 
 export function ContextPlaceholder({ contextId, selectedFile }: ContextPlaceholderProps) {
-  // If a file is selected, show the appropriate viewer
   if (selectedFile) {
-    return getViewerForFile(selectedFile);
+    return <FileViewer filePath={selectedFile} />;
   }
 
-  // Default placeholder when no file is selected
   return (
     <div className="context-placeholder">
       <FileText size={32} />

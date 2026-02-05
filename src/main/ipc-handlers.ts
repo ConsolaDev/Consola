@@ -231,6 +231,27 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             throw new Error(`Failed to read file: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
+
+    // Handle directory listing
+    ipcMain.handle(IPC_CHANNELS.FILE_LIST_DIRECTORY, async (_event, dirPath: string) => {
+        try {
+            const entries = await fs.promises.readdir(dirPath, { withFileTypes: true });
+            return entries
+                .sort((a, b) => {
+                    // Directories first, then alphabetical
+                    if (a.isDirectory() && !b.isDirectory()) return -1;
+                    if (!a.isDirectory() && b.isDirectory()) return 1;
+                    return a.name.localeCompare(b.name);
+                })
+                .map(entry => ({
+                    name: entry.name,
+                    path: path.join(dirPath, entry.name),
+                    isDirectory: entry.isDirectory()
+                }));
+        } catch (error) {
+            throw new Error(`Failed to list directory: ${error instanceof Error ? error.message : String(error)}`);
+        }
+    });
 }
 
 export function cleanupIpcHandlers(): void {
@@ -265,4 +286,5 @@ export function cleanupIpcHandlers(): void {
 
     // Remove file IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.FILE_READ);
+    ipcMain.removeHandler(IPC_CHANNELS.FILE_LIST_DIRECTORY);
 }
