@@ -16,6 +16,11 @@
   flex: 1;
   overflow-y: auto;
   padding: var(--space-2);
+  outline: none;
+}
+
+.messages-container:focus-visible {
+  outline: none;
 }
 
 .empty-state {

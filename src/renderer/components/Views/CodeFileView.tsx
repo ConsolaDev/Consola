@@ -4,6 +4,7 @@ import { Loader2 } from 'lucide-react';
 import { fileBridge } from '../../services/fileBridge';
 import { getLanguageFromPath } from '../../utils/fileUtils';
 import { codeTheme, codeCustomStyle } from '../../utils/codeTheme';
+import { useSelectAll } from '../../hooks/useSelectAll';
 
 interface CodeFileViewProps {
   filePath: string;
@@ -13,6 +14,7 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
   const [content, setContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const contentRef = useSelectAll<HTMLDivElement>();
 
   const language = useMemo(() => getLanguageFromPath(filePath), [filePath]);
 
@@ -46,7 +48,7 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
 
   return (
     <div className="code-file-view">
-      <div className="code-file-content">
+      <div ref={contentRef} tabIndex={0} className="code-file-content">
         <SyntaxHighlighter
           style={codeTheme}
           language={language}

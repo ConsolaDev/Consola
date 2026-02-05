@@ -381,6 +381,11 @@
 .code-file-content {
   flex: 1;
   overflow: auto;
+  outline: none;
+}
+
+.code-file-content:focus-visible {
+  outline: none;
 }
 
 .code-file-content pre {
@@ -463,6 +468,15 @@
 .markdown-view-content-wrapper {
   flex: 1;
   min-height: 0; /* Allow flex child to shrink below content size */
+}
+
+/* Selectable content area for Cmd/Ctrl+A support */
+.markdown-view-content-selectable {
+  outline: none;
+}
+
+.markdown-view-content-selectable:focus-visible {
+  outline: none;
 }
 
 .markdown-view-panel {

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { FileTreeItem } from './FileTreeItem';
 import { fileBridge } from '../../services/fileBridge';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
+import { useSelectAll } from '../../hooks/useSelectAll';
 import './styles.css';
 
 interface TreeNode {
@@ -22,6 +23,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
   const [error, setError] = useState<string | null>(null);
   const refreshGitStatus = useGitStatusStore((state) => state.refresh);
   const clearGitStatus = useGitStatusStore((state) => state.clear);
+  const treeRef = useSelectAll<HTMLDivElement>();
 
   useEffect(() => {
     if (!rootPath) {
@@ -70,7 +72,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
 
   return (
     <div className="file-explorer">
-      <div className="file-tree">
+      <div ref={treeRef} tabIndex={0} className="file-tree">
         {rootChildren.map(node => (
           <FileTreeItem
             key={node.path}
