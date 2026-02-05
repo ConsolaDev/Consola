@@ -1,56 +1,64 @@
-import { RefObject } from 'react';
+import { useEffect, useRef } from 'react';
+import { Terminal, Zap } from 'lucide-react';
 import { CommandSuggestion } from './useChatInput';
+import './command-suggestions.css';
 
 interface CommandSuggestionsProps {
   suggestions: CommandSuggestion[];
   selectedIndex: number;
   onSelect: (command: CommandSuggestion) => void;
+  onExecute: (command: CommandSuggestion) => void;
   onHover: (index: number) => void;
-  containerRef?: RefObject<HTMLDivElement | null>;
+  open: boolean;
 }
 
 export function CommandSuggestions({
   suggestions,
   selectedIndex,
   onSelect,
+  onExecute,
   onHover,
-  containerRef
+  open
 }: CommandSuggestionsProps) {
-  if (suggestions.length === 0) return null;
+  const containerRef = useRef<HTMLDivElement>(null);
+  const itemRefs = useRef<(HTMLDivElement | null)[]>([]);
+
+  // Scroll selected item into view when selection changes
+  useEffect(() => {
+    if (open && itemRefs.current[selectedIndex]) {
+      itemRefs.current[selectedIndex]?.scrollIntoView({
+        block: 'nearest',
+        behavior: 'smooth'
+      });
+    }
+  }, [selectedIndex, open]);
+
+  if (!open || suggestions.length === 0) return null;
 
   return (
-    <div ref={containerRef} className="command-suggestions">
+    <div ref={containerRef} className="cmd-suggestions-content" role="listbox">
       {suggestions.map((cmd, idx) => (
-        <CommandItem
+        <div
           key={cmd.name}
-          command={cmd}
-          isSelected={idx === selectedIndex}
-          onClick={() => onSelect(cmd)}
+          ref={(el) => { itemRefs.current[idx] = el; }}
+          role="option"
+          aria-selected={idx === selectedIndex}
+          className={`cmd-suggestion-item ${idx === selectedIndex ? 'selected' : ''}`}
+          onClick={() => onExecute(cmd)}
           onMouseEnter={() => onHover(idx)}
-        />
+        >
+          <span className="cmd-suggestion-icon">
+            {cmd.type === 'skill' ? <Zap size={12} /> : <Terminal size={12} />}
+          </span>
+          <span className="cmd-suggestion-name">/{cmd.name}</span>
+          {cmd.description && (
+            <span className="cmd-suggestion-desc">{cmd.description}</span>
+          )}
+          {idx === selectedIndex && (
+            <span className="cmd-suggestion-hint">↵</span>
+          )}
+        </div>
       ))}
-    </div>
-  );
-}
-
-interface CommandItemProps {
-  command: CommandSuggestion;
-  isSelected: boolean;
-  onClick: () => void;
-  onMouseEnter: () => void;
-}
-
-function CommandItem({ command, isSelected, onClick, onMouseEnter }: CommandItemProps) {
-  return (
-    <div
-      className={`command-item ${isSelected ? 'selected' : ''}`}
-      onClick={onClick}
-      onMouseEnter={onMouseEnter}
-    >
-      <span className="command-name">/{command.name}</span>
-      {command.description && (
-        <span className="command-description">{command.description}</span>
-      )}
     </div>
   );
 }
