@@ -297,6 +297,65 @@
   color: var(--color-accent);
 }
 
+/* Git stats badge */
+.git-stats-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+}
+
+.git-stats-count {
+  color: var(--color-text-secondary);
+}
+
+.git-stats-added {
+  color: var(--color-git-staged);
+}
+
+.git-stats-removed {
+  color: var(--color-git-deleted);
+}
+
+.git-stats-separator {
+  color: var(--color-text-disabled);
+}
+
+.git-stats-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-stats-refresh:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.git-stats-refresh.loading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes git-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.git-stats-refresh.loading svg {
+  animation: git-spin 1s linear infinite;
+}
+
 /* Code File View */
 .code-file-view {
   display: flex;

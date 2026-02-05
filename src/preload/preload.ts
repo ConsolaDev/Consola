@@ -241,3 +241,17 @@ contextBridge.exposeInMainWorld('fileAPI', {
         return ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIRECTORY, dirPath);
     },
 });
+
+// Git status result types
+interface GitStatusResult {
+    files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }>;
+    stats: { modifiedCount: number; addedLines: number; removedLines: number };
+    isGitRepo: boolean;
+}
+
+// Expose Git API to renderer
+contextBridge.exposeInMainWorld('gitAPI', {
+    getStatus: (rootPath: string): Promise<GitStatusResult> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, rootPath);
+    },
+});

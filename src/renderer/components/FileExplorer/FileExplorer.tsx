@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { FileTreeItem } from './FileTreeItem';
 import { fileBridge } from '../../services/fileBridge';
+import { useGitStatusStore } from '../../stores/gitStatusStore';
 import './styles.css';
 
 interface TreeNode {
@@ -19,11 +20,14 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
   const [rootChildren, setRootChildren] = useState<TreeNode[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const refreshGitStatus = useGitStatusStore((state) => state.refresh);
+  const clearGitStatus = useGitStatusStore((state) => state.clear);
 
   useEffect(() => {
     if (!rootPath) {
       setRootChildren([]);
       setIsLoading(false);
+      clearGitStatus();
       return;
     }
 
@@ -34,7 +38,10 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
       .then(setRootChildren)
       .catch(err => setError(err.message))
       .finally(() => setIsLoading(false));
-  }, [rootPath]);
+
+    // Refresh git status when root path changes
+    refreshGitStatus(rootPath);
+  }, [rootPath, refreshGitStatus, clearGitStatus]);
 
   if (!rootPath) {
     return (

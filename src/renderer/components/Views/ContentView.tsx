@@ -2,6 +2,7 @@ import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panel
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { AgentPanel } from '../Agent/AgentPanel';
 import { PreviewPanel } from '../PreviewPanel';
 import { PathDisplay } from './PathDisplay';
@@ -44,6 +45,9 @@ export function ContentView({ workspaceId, projectId }: ContentViewProps) {
   const project = projectId
     ? workspace.projects.find((p) => p.id === projectId)
     : undefined;
+
+  // Enable auto-refresh of git status on window focus
+  useGitStatusAutoRefresh(project?.path ?? null);
 
   const contextId = projectId
     ? `project-${projectId}`
