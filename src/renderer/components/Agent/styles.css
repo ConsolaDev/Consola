@@ -684,17 +684,37 @@
 
 .approval-code {
   display: block;
-  padding: var(--space-2);
-  background: var(--color-bg-primary);
-  border-radius: var(--radius-sm);
+  padding: 10px 12px;
+  background: var(--gray-1);
+  border: 1px solid var(--gray-4);
+  border-radius: 6px;
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-  color: var(--color-text-primary);
+  font-size: 11px;
+  line-height: 1.5;
+  color: var(--gray-12);
   white-space: pre-wrap;
-  word-break: break-all;
-  max-height: 80px;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  word-break: break-word;
+  max-height: 200px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--gray-6) transparent;
+}
+
+.approval-code::-webkit-scrollbar {
+  width: 6px;
+}
+
+.approval-code::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.approval-code::-webkit-scrollbar-thumb {
+  background: var(--gray-6);
+  border-radius: 3px;
+}
+
+.approval-code::-webkit-scrollbar-thumb:hover {
+  background: var(--gray-7);
 }
 
 .approval-actions {
