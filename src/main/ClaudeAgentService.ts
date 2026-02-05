@@ -49,6 +49,9 @@ export interface ClaudeAgentServiceEvents {
     model: string;
     tools: string[];
     mcpServers: { name: string; status: string }[];
+    skills: string[];
+    slashCommands: string[];
+    plugins: { name: string; path: string }[];
   }) => void;
   'assistant-message': (data: {
     uuid: string;
@@ -96,6 +99,15 @@ export interface ClaudeAgentServiceEvents {
     title?: string;
   }) => void;
   'message': (message: SDKMessage) => void;
+  'session-end': (data: {
+    reason: 'clear' | 'logout' | 'prompt_input_exit' | 'other';
+    sessionId: string;
+  }) => void;
+  'session-start': (data: {
+    source: 'startup' | 'resume' | 'clear' | 'compact';
+    sessionId: string;
+    model?: string;
+  }) => void;
 }
 
 // SDK module type - matches the actual exports from @anthropic-ai/claude-agent-sdk
@@ -197,6 +209,7 @@ export class ClaudeAgentService extends EventEmitter {
     const sdkOptions: Options = {
       cwd: this.cwd,
       additionalDirectories: this.additionalDirectories,
+      settingSources: ['user', 'project', 'local'],
       abortController: this.abortController,
       allowedTools: options.allowedTools,
       maxTurns: options.maxTurns,
@@ -335,6 +348,31 @@ export class ClaudeAgentService extends EventEmitter {
             });
             return { continue: true };
           }]
+        }],
+        SessionEnd: [{
+          hooks: [async (input: any) => {
+            if (input.hook_event_name !== 'SessionEnd') return { continue: true };
+
+            this.emit('session-end', {
+              reason: input.reason || 'other',
+              sessionId: input.session_id
+            });
+
+            return { continue: true };
+          }]
+        }],
+        SessionStart: [{
+          hooks: [async (input: any) => {
+            if (input.hook_event_name !== 'SessionStart') return { continue: true };
+
+            this.emit('session-start', {
+              source: input.source || 'startup',
+              sessionId: input.session_id,
+              model: input.model
+            });
+
+            return { continue: true };
+          }]
         }]
       }
     };
@@ -366,7 +404,10 @@ export class ClaudeAgentService extends EventEmitter {
             sessionId: message.session_id,
             model: message.model,
             tools: message.tools,
-            mcpServers: message.mcp_servers
+            mcpServers: message.mcp_servers,
+            skills: (message as any).skills || [],
+            slashCommands: (message as any).slash_commands || [],
+            plugins: (message as any).plugins || []
           });
         }
         break;
@@ -413,6 +454,61 @@ export class ClaudeAgentService extends EventEmitter {
 
   setCwd(cwd: string): void {
     this.cwd = cwd;
+  }
+
+  /**
+   * Initialize session without sending a prompt.
+   * Returns available skills, commands, and models.
+   * Used to pre-populate the command palette before user sends their first message.
+   */
+  async initializeSession(): Promise<{
+    skills: string[];
+    slashCommands: string[];
+    plugins: { name: string; path: string }[];
+  }> {
+    console.log('[ClaudeAgentService] initializeSession called, cwd:', this.cwd);
+    const sdk = await getSDK();
+
+    // Create a minimal query with empty prompt and maxTurns=0
+    // This triggers SDK initialization without executing any turns
+    const query = sdk.query({
+      prompt: '',
+      options: {
+        cwd: this.cwd,
+        additionalDirectories: this.additionalDirectories,
+        settingSources: ['user', 'project', 'local'],
+        maxTurns: 0
+      }
+    }) as Query;
+
+    let skills: string[] = [];
+    let slashCommands: string[] = [];
+    let plugins: { name: string; path: string }[] = [];
+
+    try {
+      // Iterate through messages to get the init message
+      console.log('[ClaudeAgentService] Starting to iterate query messages...');
+      for await (const message of query) {
+        console.log('[ClaudeAgentService] Got message:', message.type, (message as any).subtype);
+        if (message.type === 'system' && message.subtype === 'init') {
+          skills = (message as any).skills || [];
+          slashCommands = (message as any).slash_commands || [];
+          plugins = (message as any).plugins || [];
+          console.log('[ClaudeAgentService] Init message received:', { skills, slashCommands, plugins });
+          break;
+        }
+      }
+      console.log('[ClaudeAgentService] Query iteration complete');
+    } catch (error) {
+      console.warn('[ClaudeAgentService] Failed to initialize session:', error);
+    }
+
+    console.log('[ClaudeAgentService] Returning:', { skills, slashCommands, plugins });
+    return {
+      skills,
+      slashCommands,
+      plugins
+    };
   }
 
   destroy(): void {

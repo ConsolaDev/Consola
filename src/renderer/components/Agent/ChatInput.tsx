@@ -1,6 +1,12 @@
-import { useState, useCallback, useRef, useEffect, KeyboardEvent, ChangeEvent } from 'react';
+import { useState, useCallback, useRef, useEffect, KeyboardEvent, ChangeEvent, useMemo } from 'react';
 import { Plus, ArrowRight, Square, ChevronDown } from 'lucide-react';
 import { ModelUsage } from '../../../shared/types';
+
+interface CommandSuggestion {
+  name: string;
+  description: string;
+  type: 'skill' | 'command';
+}
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -9,6 +15,8 @@ interface ChatInputProps {
   disabled: boolean;
   model: string | null;
   modelUsage: ModelUsage | null;
+  skills?: string[];
+  slashCommands?: string[];
 }
 
 const MIN_HEIGHT = 24;
@@ -27,9 +35,64 @@ function formatModelName(modelId: string | null): string {
   return modelId;
 }
 
-export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, modelUsage }: ChatInputProps) {
+export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, modelUsage, skills = [], slashCommands = [] }: ChatInputProps) {
+  console.log('[ChatInput] Render with skills:', skills, 'slashCommands:', slashCommands);
   const [input, setInput] = useState('');
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const suggestionsRef = useRef<HTMLDivElement>(null);
+
+  // Build list of all available commands
+  const allCommands = useMemo((): CommandSuggestion[] => {
+    const commands: CommandSuggestion[] = [];
+
+    // Add skills
+    for (const skill of skills) {
+      commands.push({
+        name: skill,
+        description: `Invoke ${skill} skill`,
+        type: 'skill'
+      });
+    }
+
+    // Add slash commands
+    for (const cmd of slashCommands) {
+      commands.push({
+        name: cmd,
+        description: '',
+        type: 'command'
+      });
+    }
+
+    console.log('[ChatInput] allCommands built:', commands.length);
+    return commands;
+  }, [skills, slashCommands]);
+
+  // Filter commands based on input
+  const filteredCommands = useMemo(() => {
+    if (!input.startsWith('/')) {
+      console.log('[ChatInput] filteredCommands: input does not start with /');
+      return [];
+    }
+
+    const query = input.slice(1).toLowerCase();
+    const filtered = allCommands
+      .filter(cmd => cmd.name.toLowerCase().includes(query))
+      .slice(0, 8); // Limit to 8 suggestions
+    console.log('[ChatInput] filteredCommands:', filtered.length, 'query:', query);
+    return filtered;
+  }, [input, allCommands]);
+
+  // Show/hide suggestions based on input
+  useEffect(() => {
+    const shouldShow = input.startsWith('/') && filteredCommands.length > 0 && !isRunning;
+    console.log('[ChatInput] shouldShow:', shouldShow, 'input:', input, 'filteredCommands.length:', filteredCommands.length, 'isRunning:', isRunning);
+    setShowSuggestions(shouldShow);
+    if (shouldShow) {
+      setSelectedIndex(0);
+    }
+  }, [input, filteredCommands.length, isRunning]);
 
   // Auto-resize textarea based on content
   const adjustHeight = useCallback(() => {
@@ -64,12 +127,42 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, mod
     setInput(e.target.value);
   }, []);
 
+  const selectCommand = useCallback((command: CommandSuggestion) => {
+    setInput(`/${command.name} `);
+    setShowSuggestions(false);
+    textareaRef.current?.focus();
+  }, []);
+
   const handleKeyDown = useCallback((e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Handle suggestion navigation
+    if (showSuggestions && filteredCommands.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev + 1) % filteredCommands.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedIndex(prev => (prev - 1 + filteredCommands.length) % filteredCommands.length);
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        selectCommand(filteredCommands[selectedIndex]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSuggestions(false);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       handleSend();
     }
-  }, [handleSend]);
+  }, [handleSend, showSuggestions, filteredCommands, selectedIndex, selectCommand]);
 
   const handleAttach = useCallback(() => {
     // TODO: Implement file attachment
@@ -87,8 +180,29 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, mod
   const canSend = input.trim() && !disabled && !isRunning;
   const hasContent = input.length > 0;
 
+  console.log('[ChatInput] Render - showSuggestions:', showSuggestions, 'filteredCommands.length:', filteredCommands.length);
+
   return (
-    <div className="chat-input-card">
+    <div className="chat-input-wrapper">
+      {/* Command suggestions dropdown - outside the card to avoid overflow:hidden clipping */}
+      {showSuggestions && (
+        <div ref={suggestionsRef} className="command-suggestions">
+          {filteredCommands.map((cmd, idx) => (
+            <div
+              key={cmd.name}
+              className={`command-item ${idx === selectedIndex ? 'selected' : ''}`}
+              onClick={() => selectCommand(cmd)}
+              onMouseEnter={() => setSelectedIndex(idx)}
+            >
+              <span className="command-name">/{cmd.name}</span>
+              {cmd.description && (
+                <span className="command-description">{cmd.description}</span>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+      <div className="chat-input-card">
       <textarea
         ref={textareaRef}
         className={`chat-input-textarea ${hasContent ? 'has-content' : ''}`}
@@ -143,6 +257,7 @@ export function ChatInput({ onSend, onInterrupt, isRunning, disabled, model, mod
             </button>
           )}
         </div>
+      </div>
       </div>
     </div>
   );

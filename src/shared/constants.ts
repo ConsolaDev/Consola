@@ -21,6 +21,7 @@ export const IPC_CHANNELS = {
     AGENT_INTERRUPT: 'agent:interrupt',   // Interrupt running query
     AGENT_GET_STATUS: 'agent:get-status', // Get current agent status
     AGENT_DESTROY_INSTANCE: 'agent:destroy-instance', // Destroy agent instance
+    AGENT_INITIALIZE: 'agent:initialize', // Initialize session (pre-load skills/commands)
 
     // Claude Agent channels (Main -> Renderer)
     AGENT_INIT: 'agent:init',                       // Session initialized
@@ -34,6 +35,8 @@ export const IPC_CHANNELS = {
     AGENT_STATUS_CHANGED: 'agent:status-changed',   // Status update
     AGENT_NOTIFICATION: 'agent:notification',       // Notification from agent
     AGENT_INPUT_REQUEST: 'agent:input-request',     // Agent needs user input/approval
+    AGENT_SESSION_END: 'agent:session-end',         // Session ended (clear, logout, etc.)
+    AGENT_SESSION_START: 'agent:session-start',     // Session started (startup, resume, clear, compact)
 
     // Claude Agent channels (Renderer -> Main) - Responses
     AGENT_INPUT_RESPONSE: 'agent:input-response',   // User responds to input request

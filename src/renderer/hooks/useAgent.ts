@@ -15,6 +15,9 @@ const emptyInstanceState: InstanceState = {
   model: null,
   availableTools: [],
   mcpServers: [],
+  skills: [],
+  slashCommands: [],
+  plugins: [],
   messages: [],
   toolHistory: [],
   pendingInputs: [],
@@ -44,6 +47,7 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
   const storeClearMessages = useAgentStore(state => state.clearMessages);
   const storeClearError = useAgentStore(state => state.clearError);
   const storeRespondToInput = useAgentStore(state => state.respondToInput);
+  const storeInitializeSession = useAgentStore(state => state.initializeSession);
 
   // Use instance state or empty state
   const instanceState = instance || emptyInstanceState;
@@ -68,6 +72,25 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
     };
     syncStatus();
   }, [instanceId]);
+
+  // Initialize session to pre-load skills/commands (only if we have an instanceId and cwd)
+  useEffect(() => {
+    console.log('[useAgent] Effect running, instanceId:', instanceId, 'cwd:', cwd);
+    if (!instanceId || !cwd) {
+      console.log('[useAgent] Skipping - no instanceId or cwd');
+      return;
+    }
+
+    // Only initialize if we don't already have skills loaded
+    const currentInstance = useAgentStore.getState().instances[instanceId];
+    console.log('[useAgent] currentInstance:', currentInstance?.skills?.length, currentInstance?.slashCommands?.length);
+    if (!currentInstance || (currentInstance.skills.length === 0 && currentInstance.slashCommands.length === 0)) {
+      console.log('[useAgent] Calling storeInitializeSession');
+      storeInitializeSession(instanceId, cwd);
+    } else {
+      console.log('[useAgent] Skipping - already have skills/commands');
+    }
+  }, [instanceId, cwd, storeInitializeSession]);
 
   // Memoized actions - all become no-ops if instanceId is null
   const sendMessage = useCallback((prompt: string, options?: {
@@ -134,6 +157,9 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
     model: instanceState.model,
     availableTools: instanceState.availableTools,
     mcpServers: instanceState.mcpServers,
+    skills: instanceState.skills,
+    slashCommands: instanceState.slashCommands,
+    plugins: instanceState.plugins,
 
     // Messages
     messages: instanceState.messages,

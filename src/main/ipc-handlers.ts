@@ -102,6 +102,18 @@ function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService)
             mainWindow.webContents.send(IPC_CHANNELS.AGENT_INPUT_REQUEST, { instanceId, ...data });
         }
     });
+
+    service.on('session-end', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_SESSION_END, { instanceId, ...data });
+        }
+    });
+
+    service.on('session-start', (data) => {
+        if (!mainWindow.isDestroyed()) {
+            mainWindow.webContents.send(IPC_CHANNELS.AGENT_SESSION_START, { instanceId, ...data });
+        }
+    });
 }
 
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
@@ -208,6 +220,12 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
                 answers: response.answers
             });
         }
+    });
+
+    // Handle session initialization (pre-load skills/commands)
+    ipcMain.handle(IPC_CHANNELS.AGENT_INITIALIZE, async (_event, { instanceId, cwd }: { instanceId: string; cwd: string }) => {
+        const service = getOrCreateAgentService(instanceId, cwd);
+        return service.initializeSession();
     });
 
     // Handle folder picker dialog (multi-select)
@@ -405,6 +423,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_DESTROY_INSTANCE);
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INPUT_RESPONSE);
     ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
+    ipcMain.removeHandler(IPC_CHANNELS.AGENT_INITIALIZE);
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);

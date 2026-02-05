@@ -6,7 +6,9 @@ import type {
   AgentResultEvent,
   AgentQueryOptions,
   AgentInputRequest,
-  AgentInputResponse
+  AgentInputResponse,
+  SessionEndEvent,
+  SessionStartEvent
 } from '../../shared/types';
 
 /**
@@ -52,6 +54,15 @@ export const agentBridge = {
   /** Respond to an input/permission request */
   respondToInput: (response: AgentInputResponse): void => {
     getAPI()?.respondToInput(response);
+  },
+
+  /** Initialize session (pre-load skills/commands) */
+  initialize: async (instanceId: string, cwd: string): Promise<{
+    skills: string[];
+    slashCommands: string[];
+    plugins: { name: string; path: string }[];
+  } | null> => {
+    return getAPI()?.initialize(instanceId, cwd) ?? null;
   },
 
   /** Subscribe to session initialization */
@@ -102,6 +113,16 @@ export const agentBridge = {
   /** Subscribe to input/permission requests */
   onInputRequest: (callback: (data: AgentInputRequest) => void): void => {
     getAPI()?.onInputRequest(callback);
+  },
+
+  /** Subscribe to session end events */
+  onSessionEnd: (callback: (data: SessionEndEvent) => void): void => {
+    getAPI()?.onSessionEnd(callback);
+  },
+
+  /** Subscribe to session start events */
+  onSessionStart: (callback: (data: SessionStartEvent) => void): void => {
+    getAPI()?.onSessionStart(callback);
   },
 
   /** Remove a listener */

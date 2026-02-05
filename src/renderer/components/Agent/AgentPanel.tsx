@@ -7,6 +7,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ProcessingIndicator } from './ProcessingIndicator';
 import { ApprovalCard } from './ApprovalCard';
+import { SessionDivider } from './SessionDivider';
 
 interface AgentPanelProps {
   instanceId: string;
@@ -25,6 +26,8 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
     isProcessing,
     model,
     modelUsage,
+    skills,
+    slashCommands,
     sendMessage,
     interrupt,
     clearError,
@@ -58,16 +61,27 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
           </Flex>
         ) : (
           <>
-            {messages.map(msg => (
-              <ChatMessage
-                key={msg.id}
-                type={msg.type}
-                content={msg.content}
-                contentBlocks={msg.contentBlocks}
-                timestamp={msg.timestamp}
-                toolHistory={toolHistory}
-              />
-            ))}
+            {messages.map(msg => {
+              if (msg.type === 'system') {
+                return (
+                  <SessionDivider
+                    key={msg.id}
+                    type={msg.subtype}
+                    timestamp={msg.timestamp}
+                  />
+                );
+              }
+              return (
+                <ChatMessage
+                  key={msg.id}
+                  type={msg.type}
+                  content={msg.content}
+                  contentBlocks={msg.type === 'assistant' ? msg.contentBlocks : undefined}
+                  timestamp={msg.timestamp}
+                  toolHistory={toolHistory}
+                />
+              );
+            })}
             {/* Pending approval requests */}
             {pendingInputs.filter(r => r.status === 'pending').map(request => (
               <ApprovalCard
@@ -101,6 +115,8 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
         disabled={false}
         model={model}
         modelUsage={modelUsage}
+        skills={skills}
+        slashCommands={slashCommands}
       />
     </Flex>
   );

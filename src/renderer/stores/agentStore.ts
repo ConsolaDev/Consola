@@ -5,7 +5,9 @@ import type {
   AgentMessageEvent,
   AgentToolEvent,
   AgentResultEvent,
-  AgentInputRequest
+  AgentInputRequest,
+  SessionEndEvent,
+  SessionStartEvent
 } from '../../shared/types';
 import { agentBridge } from '../services/agentBridge';
 import { sessionStorageBridge } from '../services/sessionStorageBridge';
@@ -48,13 +50,29 @@ export interface ProcessingState {
 }
 
 // Message type for chat display
-export interface Message {
+export interface UserMessage {
   id: string;
-  type: 'user' | 'assistant';
+  type: 'user';
+  content: string;
+  timestamp: number;
+}
+
+export interface AssistantMessage {
+  id: string;
+  type: 'assistant';
   content: string;
   contentBlocks?: ContentBlock[];
   timestamp: number;
 }
+
+export interface SystemMessage {
+  id: string;
+  type: 'system';
+  subtype: 'session-cleared' | 'session-compacted';
+  timestamp: number;
+}
+
+export type Message = UserMessage | AssistantMessage | SystemMessage;
 
 // Tool execution tracking
 export interface ToolExecution {
@@ -102,6 +120,9 @@ export interface InstanceState {
   model: string | null;
   availableTools: string[];
   mcpServers: { name: string; status: string }[];
+  skills: string[];
+  slashCommands: string[];
+  plugins: { name: string; path: string }[];
 
   // Messages
   messages: Message[];
@@ -133,6 +154,9 @@ function createDefaultInstanceState(): InstanceState {
     model: null,
     availableTools: [],
     mcpServers: [],
+    skills: [],
+    slashCommands: [],
+    plugins: [],
     messages: [],
     toolHistory: [],
     pendingInputs: [],
@@ -176,6 +200,9 @@ interface AgentState {
   saveInstanceHistory: (instanceId: string) => Promise<void>;
   loadInstanceHistory: (instanceId: string) => Promise<void>;
 
+  // Session initialization (pre-load skills/commands)
+  initializeSession: (instanceId: string, cwd: string) => Promise<void>;
+
   // Internal actions for event handling
   _handleInit: (data: AgentInitEvent) => void;
   _handleAssistantMessage: (data: AgentMessageEvent) => void;
@@ -186,6 +213,8 @@ interface AgentState {
   _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => void;
   _handleStream: (data: { instanceId: string; event: any; uuid: string }) => void;
   _handleInputRequest: (data: AgentInputRequest) => void;
+  _handleSessionEnd: (data: SessionEndEvent) => void;
+  _handleSessionStart: (data: SessionStartEvent) => void;
 }
 
 // Extract all content blocks from SDK message
@@ -365,6 +394,28 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     }
   },
 
+  initializeSession: async (instanceId, cwd) => {
+    console.log('[agentStore] initializeSession called:', instanceId, cwd);
+    // Ensure instance exists
+    get().getOrCreateInstance(instanceId);
+
+    try {
+      console.log('[agentStore] Calling agentBridge.initialize');
+      const result = await agentBridge.initialize(instanceId, cwd);
+      console.log('[agentStore] Got result:', result);
+      if (result) {
+        set(state => updateInstance(state, instanceId, () => ({
+          skills: result.skills,
+          slashCommands: result.slashCommands,
+          plugins: result.plugins
+        })));
+        console.log('[agentStore] Updated state with skills:', result.skills);
+      }
+    } catch (error) {
+      console.warn('[agentStore] Failed to initialize session:', error);
+    }
+  },
+
   respondToInput: (instanceId, requestId, action, options = {}) => {
     // Send response to main process
     agentBridge.respondToInput({
@@ -401,7 +452,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       sessionId: initData.sessionId,
       model: initData.model,
       availableTools: initData.tools,
-      mcpServers: initData.mcpServers
+      mcpServers: initData.mcpServers,
+      skills: initData.skills || [],
+      slashCommands: initData.slashCommands || [],
+      plugins: initData.plugins || []
     })));
   },
 
@@ -544,6 +598,47 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     set(state => updateInstance(state, instanceId, (instance) => ({
       pendingInputs: [...instance.pendingInputs, pendingInput]
     })));
+  },
+
+  _handleSessionEnd: (data: SessionEndEvent) => {
+    const { instanceId, reason } = data;
+
+    if (reason === 'clear') {
+      // Insert a visual divider - DON'T clear messages
+      const systemMessage: SystemMessage = {
+        id: generateId(),
+        type: 'system',
+        subtype: 'session-cleared',
+        timestamp: Date.now()
+      };
+
+      set(state => updateInstance(state, instanceId, (instance) => ({
+        messages: [...instance.messages, systemMessage]
+      })));
+    }
+  },
+
+  _handleSessionStart: (data: SessionStartEvent) => {
+    const { instanceId, sessionId, source } = data;
+
+    // Update session ID for the new session
+    set(state => updateInstance(state, instanceId, () => ({
+      sessionId
+    })));
+
+    // Add compact divider if this is from /compact
+    if (source === 'compact') {
+      const systemMessage: SystemMessage = {
+        id: generateId(),
+        type: 'system',
+        subtype: 'session-compacted',
+        timestamp: Date.now()
+      };
+
+      set(state => updateInstance(state, instanceId, (instance) => ({
+        messages: [...instance.messages, systemMessage]
+      })));
+    }
   }
 }));
 
@@ -560,4 +655,6 @@ if (typeof window !== 'undefined') {
   agentBridge.onStatusChanged(store._handleStatusChanged);
   agentBridge.onStream(store._handleStream);
   agentBridge.onInputRequest(store._handleInputRequest);
+  agentBridge.onSessionEnd(store._handleSessionEnd);
+  agentBridge.onSessionStart(store._handleSessionStart);
 }
