@@ -8,7 +8,9 @@ import {
     AgentToolEvent,
     AgentResultEvent,
     AgentInputRequest,
-    AgentInputResponse
+    AgentInputResponse,
+    SessionEndEvent,
+    SessionStartEvent
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -34,6 +36,8 @@ const agentCallbacks = {
     statusChanged: new Set<AgentCallback<AgentStatus & { instanceId: string }>>(),
     notification: new Set<AgentCallback<{ instanceId: string; message: string; title?: string }>>(),
     inputRequest: new Set<AgentCallback<AgentInputRequest>>(),
+    sessionEnd: new Set<AgentCallback<SessionEndEvent>>(),
+    sessionStart: new Set<AgentCallback<SessionStartEvent>>(),
 };
 
 // Register agent IPC listeners
@@ -75,6 +79,14 @@ ipcRenderer.on(IPC_CHANNELS.AGENT_NOTIFICATION, (_event, data: { instanceId: str
 
 ipcRenderer.on(IPC_CHANNELS.AGENT_INPUT_REQUEST, (_event, data: AgentInputRequest) => {
     agentCallbacks.inputRequest.forEach(cb => cb(data));
+});
+
+ipcRenderer.on(IPC_CHANNELS.AGENT_SESSION_END, (_event, data: SessionEndEvent) => {
+    agentCallbacks.sessionEnd.forEach(cb => cb(data));
+});
+
+ipcRenderer.on(IPC_CHANNELS.AGENT_SESSION_START, (_event, data: SessionStartEvent) => {
+    agentCallbacks.sessionStart.forEach(cb => cb(data));
 });
 
 // Expose protected methods to the renderer process
@@ -162,6 +174,15 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
         ipcRenderer.send(IPC_CHANNELS.AGENT_INPUT_RESPONSE, response);
     },
 
+    // Initialize session (pre-load skills/commands)
+    initialize: (instanceId: string, cwd: string): Promise<{
+        skills: string[];
+        slashCommands: string[];
+        plugins: { name: string; path: string }[];
+    }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.AGENT_INITIALIZE, { instanceId, cwd });
+    },
+
     // === Event Subscriptions ===
 
     // Listen for session initialization
@@ -212,6 +233,16 @@ contextBridge.exposeInMainWorld('claudeAgentAPI', {
     // Listen for input/permission requests
     onInputRequest: (callback: AgentCallback<AgentInputRequest>): void => {
         agentCallbacks.inputRequest.add(callback);
+    },
+
+    // Listen for session end events
+    onSessionEnd: (callback: AgentCallback<SessionEndEvent>): void => {
+        agentCallbacks.sessionEnd.add(callback);
+    },
+
+    // Listen for session start events
+    onSessionStart: (callback: AgentCallback<SessionStartEvent>): void => {
+        agentCallbacks.sessionStart.add(callback);
     },
 
     // === Cleanup ===

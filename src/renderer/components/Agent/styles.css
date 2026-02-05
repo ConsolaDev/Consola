@@ -65,9 +65,14 @@
   font-size: var(--font-size-xs);
 }
 
+/* Chat input wrapper - contains both dropdown and card */
+.chat-input-wrapper {
+  position: relative;
+  margin: var(--space-2);
+}
+
 /* Chat input card */
 .chat-input-card {
-  margin: var(--space-2);
   background: var(--gray-3);
   border: 1px solid var(--gray-5);
   border-radius: 12px;
@@ -1022,5 +1027,26 @@
 
 .file-expand-bar:hover .expand-text {
   color: var(--gray-12);
+}
+
+/* Session Divider */
+.session-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  margin: var(--space-4) 0;
+  padding: 0 var(--space-2);
+}
+
+.session-divider-line {
+  flex: 1;
+  height: 1px;
+  background: var(--color-border);
+}
+
+.session-divider-label {
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  font-size: var(--font-size-xs);
 }
 

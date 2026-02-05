@@ -61,6 +61,9 @@ export interface AgentInitEvent {
     model: string;
     tools: string[];
     mcpServers: { name: string; status: string }[];
+    skills: string[];
+    slashCommands: string[];
+    plugins: { name: string; path: string }[];
 }
 
 export interface AgentMessageEvent {
@@ -130,6 +133,20 @@ export interface PermissionSuggestion {
     action: 'allow_once' | 'allow_always' | 'deny';
 }
 
+// Session lifecycle events
+export interface SessionEndEvent {
+    instanceId: string;
+    reason: 'clear' | 'logout' | 'prompt_input_exit' | 'other';
+    sessionId: string;
+}
+
+export interface SessionStartEvent {
+    instanceId: string;
+    source: 'startup' | 'resume' | 'clear' | 'compact';
+    sessionId: string;
+    model?: string;
+}
+
 // Response to permission request
 export interface AgentInputResponse {
     instanceId: string;
@@ -157,6 +174,11 @@ export interface ClaudeAgentAPI {
     getStatus: (instanceId: string) => Promise<AgentStatus>;
     destroyInstance: (instanceId: string) => void;
     respondToInput: (response: AgentInputResponse) => void;
+    initialize: (instanceId: string, cwd: string) => Promise<{
+        skills: string[];
+        slashCommands: string[];
+        plugins: { name: string; path: string }[];
+    }>;
     onInit: (callback: (data: AgentInitEvent) => void) => void;
     onAssistantMessage: (callback: (data: AgentMessageEvent) => void) => void;
     onStream: (callback: (data: unknown) => void) => void;
@@ -167,6 +189,8 @@ export interface ClaudeAgentAPI {
     onStatusChanged: (callback: (data: AgentStatus & { instanceId: string }) => void) => void;
     onNotification: (callback: (data: { instanceId: string; message: string; title?: string }) => void) => void;
     onInputRequest: (callback: (data: AgentInputRequest) => void) => void;
+    onSessionEnd: (callback: (data: SessionEndEvent) => void) => void;
+    onSessionStart: (callback: (data: SessionStartEvent) => void) => void;
     removeListener: (event: string, callback: Function) => void;
 }
 
