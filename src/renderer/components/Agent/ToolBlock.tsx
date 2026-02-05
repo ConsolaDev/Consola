@@ -4,6 +4,7 @@ import { parseBashOutput } from './toolOutputParser';
 import { ToolOutput } from './ToolOutput';
 import { DiffView } from './DiffView';
 import { BashOutput } from './BashOutput';
+import { FileContentBlock, type FileContent } from './FileContentBlock';
 
 export type ToolStatus = 'pending' | 'complete' | 'error';
 
@@ -20,6 +21,12 @@ interface EditInput {
   new_string: string;
 }
 
+// Tool output with file content (from Read tool)
+interface FileToolOutput {
+  type: 'text';
+  file: FileContent;
+}
+
 function isEditInput(input: unknown): input is EditInput {
   if (!input || typeof input !== 'object') return false;
   const obj = input as Record<string, unknown>;
@@ -27,6 +34,17 @@ function isEditInput(input: unknown): input is EditInput {
     typeof obj.file_path === 'string' &&
     typeof obj.old_string === 'string' &&
     typeof obj.new_string === 'string'
+  );
+}
+
+function isFileToolOutput(output: unknown): output is FileToolOutput {
+  if (!output || typeof output !== 'object') return false;
+  const obj = output as Record<string, unknown>;
+  if (obj.type !== 'text' || !obj.file || typeof obj.file !== 'object') return false;
+  const file = obj.file as Record<string, unknown>;
+  return (
+    typeof file.filePath === 'string' &&
+    typeof file.content === 'string'
   );
 }
 
@@ -39,6 +57,9 @@ export function ToolBlock({ name, input, status, output }: ToolBlockProps) {
 
   // Check if this is a Bash tool with structured output
   const bashOutput = name === 'Bash' ? parseBashOutput(output) : null;
+
+  // Check if output contains file content (from Read tool)
+  const fileOutput = isFileToolOutput(output) ? output : null;
 
   // Only show output section when complete/error
   const showOutput = status !== 'pending' && (output !== undefined || isEdit);
@@ -73,7 +94,10 @@ export function ToolBlock({ name, input, status, output }: ToolBlockProps) {
           interrupted={bashOutput.interrupted}
         />
       )}
-      {showOutput && !isEdit && !bashOutput && output !== undefined && (
+      {showOutput && fileOutput && (
+        <FileContentBlock file={fileOutput.file} />
+      )}
+      {showOutput && !isEdit && !bashOutput && !fileOutput && output !== undefined && (
         <ToolOutput content={output} />
       )}
     </Box>

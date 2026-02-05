@@ -839,3 +839,80 @@
   margin-top: 2px;
 }
 
+/* File Content Block */
+.file-content-block {
+  margin: var(--space-2) 0;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+}
+
+.file-content-header {
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-tertiary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.file-content-path {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-content-info {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.file-content-code {
+  position: relative;
+  overflow: hidden;
+}
+
+.file-content-code pre {
+  margin: 0 !important;
+  background: transparent !important;
+}
+
+.file-content-code code {
+  font-family: var(--font-mono) !important;
+}
+
+/* Line number styling */
+.file-content-code .linenumber {
+  min-width: 3em !important;
+  padding-right: var(--space-2) !important;
+  text-align: right !important;
+  color: var(--color-text-tertiary) !important;
+  user-select: none;
+  border-right: 1px solid var(--color-border);
+  margin-right: var(--space-2) !important;
+}
+
+.file-content-line-number {
+  color: var(--color-text-tertiary);
+}
+
+/* Fade overlay for collapsed content */
+.file-content-fade {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: linear-gradient(transparent, var(--color-bg-secondary));
+  pointer-events: none;
+}
+
+/* Expand button inherits from tool-expand-button */
+.file-content-block .tool-expand-button {
+  padding: var(--space-2) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-tertiary);
+  text-align: center;
+}
+
