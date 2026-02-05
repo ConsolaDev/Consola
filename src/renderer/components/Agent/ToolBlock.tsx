@@ -44,6 +44,7 @@ function isFileToolOutput(output: unknown): output is FileToolOutput {
   const file = obj.file as Record<string, unknown>;
   return (
     typeof file.filePath === 'string' &&
+    file.filePath.length > 0 &&  // Must have a non-empty file path
     typeof file.content === 'string'
   );
 }
