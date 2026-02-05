@@ -134,9 +134,14 @@ export class ClaudeAgentService extends EventEmitter {
   };
   private pendingPermissions: Map<string, PendingPermission> = new Map();
   private pendingQuestions: Map<string, PendingQuestion> = new Map();
+  private additionalDirectories: string[] = [];
 
   constructor(private cwd: string) {
     super();
+  }
+
+  setAdditionalDirectories(dirs: string[]): void {
+    this.additionalDirectories = dirs;
   }
 
   // Respond to a pending permission or question request
@@ -198,6 +203,7 @@ export class ClaudeAgentService extends EventEmitter {
 
     const sdkOptions: Options = {
       cwd: this.cwd,
+      additionalDirectories: this.additionalDirectories,
       abortController: this.abortController,
       allowedTools: options.allowedTools,
       maxTurns: options.maxTurns,

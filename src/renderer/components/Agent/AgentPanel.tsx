@@ -11,9 +11,10 @@ import { ApprovalCard } from './ApprovalCard';
 interface AgentPanelProps {
   instanceId: string;
   cwd: string;
+  additionalDirectories?: string[];
 }
 
-export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
+export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPanelProps) {
   const {
     isAvailable,
     isRunning,
@@ -28,7 +29,7 @@ export function AgentPanel({ instanceId, cwd }: AgentPanelProps) {
     interrupt,
     clearError,
     respondToInput
-  } = useAgent(instanceId, cwd);
+  } = useAgent(instanceId, cwd, additionalDirectories);
 
   const messagesRef = useSelectAll<HTMLDivElement>();
 
