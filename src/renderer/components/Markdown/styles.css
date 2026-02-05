@@ -151,14 +151,14 @@
   margin: 0.35em 0;
   border-radius: var(--radius-sm, 6px);
   overflow: hidden;
-  background: #282c34; /* oneDark background */
+  background: var(--color-bg-secondary);
   border: 1px solid var(--color-border, #333);
 }
 
 .code-block-header {
   padding: 0.35em 0.75em;
-  background: rgba(0, 0, 0, 0.2);
-  border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+  background: var(--color-code-header-bg, rgba(0, 0, 0, 0.2));
+  border-bottom: 1px solid var(--color-code-border, rgba(255, 255, 255, 0.1));
 }
 
 .code-block-header button {
@@ -166,7 +166,7 @@
 }
 
 .code-language {
-  color: rgba(255, 255, 255, 0.5);
+  color: var(--color-code-text-muted, rgba(255, 255, 255, 0.5));
   font-family: var(--font-mono, monospace);
   text-transform: uppercase;
   font-size: 11px;
@@ -195,7 +195,7 @@
   background: linear-gradient(
     to bottom,
     transparent,
-    #282c34
+    var(--color-bg-secondary)
   );
   pointer-events: none;
 }
@@ -206,10 +206,10 @@
   justify-content: center;
   align-items: center;
   padding: var(--space-2, 8px);
-  background: rgba(0, 0, 0, 0.2);
+  background: var(--color-code-header-bg, rgba(0, 0, 0, 0.2));
   border: none;
-  border-top: 1px solid rgba(255, 255, 255, 0.1);
-  color: rgba(255, 255, 255, 0.6);
+  border-top: 1px solid var(--color-code-border, rgba(255, 255, 255, 0.1));
+  color: var(--color-code-text-muted, rgba(255, 255, 255, 0.6));
   gap: var(--space-1, 4px);
   cursor: pointer;
   transition: background 0.15s, color 0.15s;

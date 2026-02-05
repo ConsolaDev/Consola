@@ -1,23 +1,9 @@
 import { useState, useEffect, useMemo } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
-import { oneDark } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import { Loader2 } from 'lucide-react';
 import { fileBridge } from '../../services/fileBridge';
 import { getLanguageFromPath } from '../../utils/fileUtils';
-
-// Create a custom theme based on oneDark with transparent backgrounds
-// This allows our CSS variable --color-bg-secondary to show through
-const customTheme = {
-  ...oneDark,
-  'pre[class*="language-"]': {
-    ...(oneDark['pre[class*="language-"]'] as object),
-    background: 'transparent',
-  },
-  'code[class*="language-"]': {
-    ...(oneDark['code[class*="language-"]'] as object),
-    background: 'transparent',
-  },
-};
+import { codeTheme, codeCustomStyle } from '../../utils/codeTheme';
 
 interface CodeFileViewProps {
   filePath: string;
@@ -62,13 +48,11 @@ export function CodeFileView({ filePath }: CodeFileViewProps) {
     <div className="code-file-view">
       <div className="code-file-content">
         <SyntaxHighlighter
-          style={customTheme}
+          style={codeTheme}
           language={language}
           showLineNumbers
           customStyle={{
-            margin: 0,
-            borderRadius: 0,
-            fontSize: '13px',
+            ...codeCustomStyle,
             height: '100%',
             background: 'var(--color-bg-secondary)',
           }}
