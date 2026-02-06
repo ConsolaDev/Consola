@@ -57,7 +57,7 @@ button {
   background: var(--color-scrollbar-thumb-hover);
 }
 
-/* Selection */
+/* Selection - use Radix's focus color for consistency within .radix-themes */
 ::selection {
-  background: var(--color-bg-selected);
+  background: var(--focus-a5);
 }

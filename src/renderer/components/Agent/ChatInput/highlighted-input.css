@@ -116,9 +116,17 @@
 }
 
 /* Selection styling - ensure selections are visible */
-.highlighted-input-textarea::selection {
-  background: var(--color-accent-alpha, rgba(59, 130, 246, 0.3));
+/* Use Radix's focus color (--focus-a5) for consistency with rest of app */
+/* When there are highlights, text is transparent so selection should be too */
+.highlighted-input-textarea.has-highlights::selection {
+  background: var(--focus-a5);
   color: transparent;
+}
+
+/* When there are no highlights, use normal selection colors so text is readable */
+.highlighted-input-textarea:not(.has-highlights)::selection {
+  background: var(--focus-a5);
+  color: inherit;
 }
 
 /* ═══════════════════════════════════════════════════════════
