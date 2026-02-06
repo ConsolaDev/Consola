@@ -23,27 +23,31 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
   const [selectedIndex, setSelectedIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Build list of all available commands
+  // Build list of all available commands (deduplicated - skills take priority)
   const allCommands = useMemo((): CommandSuggestion[] => {
-    const commands: CommandSuggestion[] = [];
+    const commandMap = new Map<string, CommandSuggestion>();
 
+    // Add skills first (they have richer metadata)
     for (const skill of skills) {
-      commands.push({
+      commandMap.set(skill, {
         name: skill,
         description: `Invoke ${skill} skill`,
         type: 'skill'
       });
     }
 
+    // Add slash commands only if not already present as a skill
     for (const cmd of slashCommands) {
-      commands.push({
-        name: cmd,
-        description: '',
-        type: 'command'
-      });
+      if (!commandMap.has(cmd)) {
+        commandMap.set(cmd, {
+          name: cmd,
+          description: '',
+          type: 'command'
+        });
+      }
     }
 
-    return commands;
+    return Array.from(commandMap.values());
   }, [skills, slashCommands]);
 
   // Filter commands based on input
