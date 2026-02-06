@@ -61,6 +61,7 @@ export function CommandSuggestions({
           ref={(el) => { itemRefs.current[idx] = el; }}
           role="option"
           aria-selected={idx === selectedIndex}
+          data-type={cmd.type}
           className={`cmd-suggestion-item ${idx === selectedIndex ? 'selected' : ''}`}
           onClick={() => onExecute(cmd)}
           onMouseMove={(e) => handleMouseMove(e, idx)}

@@ -1,0 +1,206 @@
+/**
+ * Highlighted Input Styles
+ *
+ * Creates an overlay effect where the textarea is transparent
+ * and sits on top of the highlighted content backdrop.
+ * Perfectly syncs text positioning between layers.
+ */
+
+.highlighted-input-container {
+  position: relative;
+  width: 100%;
+}
+
+/* Backdrop layer with highlighted text */
+.highlighted-input-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-relaxed);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--color-text-primary);
+  /* Ensure text rendering matches textarea exactly */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Placeholder text when empty */
+.highlighted-input-placeholder {
+  color: var(--gray-10, rgba(255, 255, 255, 0.4));
+}
+
+/* Transparent textarea on top */
+.highlighted-input-textarea {
+  position: relative;
+  width: 100%;
+  height: 24px;
+  min-height: 24px;
+  max-height: 160px;
+  padding: var(--space-3) var(--space-3) var(--space-1);
+  border: none;
+  background: transparent;
+  font-family: inherit;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-relaxed);
+  resize: none;
+  outline: none;
+  overflow: hidden;
+  transition: height 0.1s ease-out;
+  /* Make text transparent when we have highlights - let backdrop show through */
+  color: transparent;
+  caret-color: var(--color-text-primary);
+  /* Match rendering with backdrop */
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* When there's no highlights, use normal text color */
+.highlighted-input-textarea:not(.has-highlights) {
+  color: var(--color-text-primary);
+}
+
+/* Hide backdrop when no highlights and show textarea text */
+.highlighted-input-container:has(.highlighted-input-textarea:not(.has-highlights)) .highlighted-input-backdrop {
+  visibility: hidden;
+}
+
+/* But always show placeholder in backdrop */
+.highlighted-input-container:has(.highlighted-input-textarea:not(.has-content)) .highlighted-input-backdrop {
+  visibility: visible;
+}
+
+/* Show overflow when content grows */
+.highlighted-input-textarea.has-content {
+  overflow-y: auto;
+}
+
+/* Sync backdrop scroll with textarea */
+.highlighted-input-container:has(.highlighted-input-textarea.has-content) .highlighted-input-backdrop {
+  overflow-y: auto;
+}
+
+/* Hide scrollbar on backdrop since it's just for display */
+.highlighted-input-backdrop::-webkit-scrollbar {
+  display: none;
+}
+
+.highlighted-input-backdrop {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* Disabled state */
+.highlighted-input-textarea:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.highlighted-input-container:has(.highlighted-input-textarea:disabled) .highlighted-input-backdrop {
+  opacity: 0.6;
+}
+
+/* Focus state - no visual change since textarea is transparent */
+.highlighted-input-textarea:focus,
+.highlighted-input-textarea:focus-visible {
+  outline: none;
+  border: none;
+  box-shadow: none;
+}
+
+/* Selection styling - ensure selections are visible */
+.highlighted-input-textarea::selection {
+  background: var(--color-accent-alpha, rgba(59, 130, 246, 0.3));
+  color: transparent;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COMMAND HIGHLIGHTS WITHIN INPUT
+
+   CRITICAL: Override styles that affect text width to ensure
+   the backdrop text matches the textarea exactly for cursor sync.
+   ═══════════════════════════════════════════════════════════ */
+
+.highlighted-input-backdrop .command-highlight {
+  /* Reset properties that cause width mismatch with textarea */
+  font-family: inherit;
+  font-size: inherit;
+  font-weight: inherit;
+  letter-spacing: inherit;
+  padding: 0;
+  margin: 0;
+
+  /* Visual styling that doesn't affect text flow */
+  border-radius: 3px;
+  /* Use box-shadow for visual "padding" effect without affecting layout */
+  box-shadow: -4px 0 0 0 var(--highlight-bg, transparent),
+              4px 0 0 0 var(--highlight-bg, transparent);
+}
+
+/* Skill commands in input - warm amber */
+.highlighted-input-backdrop .command-highlight--skill {
+  --highlight-bg: rgba(251, 191, 36, 0.22);
+  background: var(--highlight-bg);
+  color: #facc15;
+  box-shadow:
+    -4px 0 0 0 var(--highlight-bg),
+    4px 0 0 0 var(--highlight-bg);
+}
+
+/* Command type in input - cool teal */
+.highlighted-input-backdrop .command-highlight--command {
+  --highlight-bg: rgba(34, 211, 238, 0.18);
+  background: var(--highlight-bg);
+  color: #38bdf8;
+  box-shadow:
+    -4px 0 0 0 var(--highlight-bg),
+    4px 0 0 0 var(--highlight-bg);
+}
+
+/* Unknown commands in input */
+.highlighted-input-backdrop .command-highlight--unknown {
+  --highlight-bg: rgba(148, 163, 184, 0.15);
+  background: var(--highlight-bg);
+  color: rgba(148, 163, 184, 0.9);
+  box-shadow:
+    -4px 0 0 0 var(--highlight-bg),
+    4px 0 0 0 var(--highlight-bg);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT THEME ADJUSTMENTS FOR INPUT
+   ═══════════════════════════════════════════════════════════ */
+
+[data-theme='light'] .highlighted-input-backdrop .command-highlight--skill {
+  --highlight-bg: rgba(245, 158, 11, 0.2);
+  background: var(--highlight-bg);
+  color: #a16207;
+  box-shadow:
+    -4px 0 0 0 var(--highlight-bg),
+    4px 0 0 0 var(--highlight-bg);
+}
+
+[data-theme='light'] .highlighted-input-backdrop .command-highlight--command {
+  --highlight-bg: rgba(6, 182, 212, 0.18);
+  background: var(--highlight-bg);
+  color: #0284c7;
+  box-shadow:
+    -4px 0 0 0 var(--highlight-bg),
+    4px 0 0 0 var(--highlight-bg);
+}
+
+[data-theme='light'] .highlighted-input-backdrop .command-highlight--unknown {
+  --highlight-bg: rgba(100, 116, 139, 0.12);
+  background: var(--highlight-bg);
+  color: rgba(71, 85, 105, 0.85);
+  box-shadow:
+    -4px 0 0 0 var(--highlight-bg),
+    4px 0 0 0 var(--highlight-bg);
+}

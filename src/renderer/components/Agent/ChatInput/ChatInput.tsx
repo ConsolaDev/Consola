@@ -3,6 +3,7 @@ import { ModelUsage } from '../../../../shared/types';
 import { useChatInput } from './useChatInput';
 import { CommandSuggestions } from './CommandSuggestions';
 import { InputToolbar } from './InputToolbar';
+import { HighlightedInput } from './HighlightedInput';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -31,7 +32,6 @@ export function ChatInput({
     selectedIndex,
     filteredCommands,
     canSend,
-    hasContent,
     textareaRef,
     handleChange,
     handleKeyDown,
@@ -58,15 +58,16 @@ export function ChatInput({
       />
 
       <div className="chat-input-card">
-        <textarea
+        <HighlightedInput
           ref={textareaRef}
-          className={`chat-input-textarea ${hasContent ? 'has-content' : ''}`}
           value={input}
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder="What would you like to do?"
           disabled={disabled || isRunning}
           rows={1}
+          skills={skills}
+          slashCommands={slashCommands}
         />
 
         <InputToolbar
