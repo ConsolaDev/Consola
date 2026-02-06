@@ -1,11 +1,10 @@
 /**
  * Command Highlighting Styles
  *
- * Styles for highlighted command/skill references in text.
- * Uses distinct colors to differentiate between:
- * - Known skills (purple/violet)
- * - Known commands (blue/cyan)
- * - Unknown/unrecognized commands (gray)
+ * A refined, distinctive visual language for command/skill references.
+ * Skills use a warm amber/gold palette evoking action and creativity.
+ * Commands use a cool teal palette evoking precision and system operations.
+ * Unknown commands use a muted neutral to indicate uncertainty.
  */
 
 /* Base container */
@@ -14,109 +13,289 @@
   word-break: break-word;
 }
 
-/* Base command highlight style */
+/* Base command highlight style - the foundation */
 .command-highlight {
   display: inline;
-  font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace);
-  font-size: 0.9em;
-  padding: 1px 5px;
-  border-radius: var(--radius-sm, 4px);
-  transition: background-color var(--transition-fast, 0.15s) ease,
-              color var(--transition-fast, 0.15s) ease;
+  position: relative;
+  font-family: var(--font-mono, 'SF Mono', 'Fira Code', 'Consolas', monospace);
+  font-size: 0.92em;
+  font-weight: var(--font-weight-medium, 500);
+  letter-spacing: -0.01em;
+  padding: 2px 7px;
+  margin: 0 1px;
+  border-radius: 5px;
+  transition:
+    background-color 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    color 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    box-shadow 0.18s cubic-bezier(0.25, 0.46, 0.45, 0.94),
+    transform 0.12s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+  cursor: default;
+  user-select: all;
 }
 
-/* Unknown commands - subtle gray highlight */
+/* ═══════════════════════════════════════════════════════════
+   SKILL TYPE - Warm amber/gold palette
+   Evokes: creativity, action, capability
+   ═══════════════════════════════════════════════════════════ */
+
+.command-highlight--skill {
+  background: linear-gradient(
+    135deg,
+    rgba(251, 191, 36, 0.18) 0%,
+    rgba(245, 158, 11, 0.22) 100%
+  );
+  color: #fbbf24;
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 191, 36, 0.25),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.command-highlight--skill:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(251, 191, 36, 0.28) 0%,
+    rgba(245, 158, 11, 0.32) 100%
+  );
+  color: #fcd34d;
+  box-shadow:
+    inset 0 0 0 1px rgba(251, 191, 36, 0.4),
+    0 2px 8px rgba(251, 191, 36, 0.2);
+  transform: translateY(-0.5px);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   COMMAND TYPE - Cool teal/cyan palette
+   Evokes: precision, system, reliability
+   ═══════════════════════════════════════════════════════════ */
+
+.command-highlight--command {
+  background: linear-gradient(
+    135deg,
+    rgba(34, 211, 238, 0.14) 0%,
+    rgba(6, 182, 212, 0.18) 100%
+  );
+  color: #22d3ee;
+  box-shadow:
+    inset 0 0 0 1px rgba(34, 211, 238, 0.22),
+    0 1px 2px rgba(0, 0, 0, 0.12);
+}
+
+.command-highlight--command:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(34, 211, 238, 0.24) 0%,
+    rgba(6, 182, 212, 0.28) 100%
+  );
+  color: #67e8f9;
+  box-shadow:
+    inset 0 0 0 1px rgba(34, 211, 238, 0.38),
+    0 2px 8px rgba(34, 211, 238, 0.18);
+  transform: translateY(-0.5px);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   UNKNOWN COMMANDS - Muted neutral palette
+   Evokes: uncertainty, unrecognized
+   ═══════════════════════════════════════════════════════════ */
+
 .command-highlight--unknown {
-  background-color: var(--color-command-unknown-bg, rgba(128, 128, 128, 0.15));
-  color: var(--color-command-unknown-text, #a0a0a0);
+  background: rgba(148, 163, 184, 0.12);
+  color: rgba(148, 163, 184, 0.8);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.15);
+  font-weight: var(--font-weight-normal, 400);
 }
 
 .command-highlight--unknown:hover {
-  background-color: var(--color-command-unknown-bg-hover, rgba(128, 128, 128, 0.25));
+  background: rgba(148, 163, 184, 0.18);
+  color: rgba(148, 163, 184, 0.95);
+  box-shadow: inset 0 0 0 1px rgba(148, 163, 184, 0.25);
 }
 
-/* Known commands - base style (will be overridden by type-specific) */
+/* Known commands base - applies common styling */
 .command-highlight--known {
   font-weight: var(--font-weight-medium, 500);
 }
 
-/* Skill type - purple/violet theme */
-.command-highlight--skill {
-  background-color: var(--color-command-skill-bg, rgba(139, 92, 246, 0.2));
-  color: var(--color-command-skill-text, #a78bfa);
-}
+/* ═══════════════════════════════════════════════════════════
+   BADGE VARIANT - More prominent standalone display
+   ═══════════════════════════════════════════════════════════ */
 
-.command-highlight--skill:hover {
-  background-color: var(--color-command-skill-bg-hover, rgba(139, 92, 246, 0.35));
-  color: var(--color-command-skill-text-hover, #c4b5fd);
-}
-
-/* Command type - blue/cyan theme */
-.command-highlight--command {
-  background-color: var(--color-command-cmd-bg, rgba(34, 211, 238, 0.15));
-  color: var(--color-command-cmd-text, #67e8f9);
-}
-
-.command-highlight--command:hover {
-  background-color: var(--color-command-cmd-bg-hover, rgba(34, 211, 238, 0.25));
-  color: var(--color-command-cmd-text-hover, #a5f3fc);
-}
-
-/* Badge variant - slightly more prominent */
 .command-badge {
-  padding: 2px 6px;
-  font-weight: var(--font-weight-medium, 500);
+  padding: 3px 9px;
+  font-weight: var(--font-weight-semibold, 600);
 }
 
-/* Animation for newly highlighted commands (optional, add class via JS) */
+/* ═══════════════════════════════════════════════════════════
+   ANIMATIONS
+   ═══════════════════════════════════════════════════════════ */
+
+/* Pulse animation for newly detected commands */
 @keyframes command-highlight-pulse {
   0% {
-    box-shadow: 0 0 0 0 currentColor;
+    box-shadow:
+      inset 0 0 0 1px currentColor,
+      0 0 0 0 currentColor;
   }
-  50% {
-    box-shadow: 0 0 0 3px transparent;
+  40% {
+    box-shadow:
+      inset 0 0 0 1px currentColor,
+      0 0 0 4px transparent;
   }
   100% {
-    box-shadow: 0 0 0 0 transparent;
+    box-shadow:
+      inset 0 0 0 1px transparent,
+      0 0 0 0 transparent;
   }
 }
 
 .command-highlight--pulse {
-  animation: command-highlight-pulse 0.4s ease-out;
+  animation: command-highlight-pulse 0.5s cubic-bezier(0.25, 0.46, 0.45, 0.94);
 }
 
-/* High contrast mode support */
+/* Subtle shimmer for active/focused state */
+@keyframes command-shimmer {
+  0% {
+    background-position: -100% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   ACCESSIBILITY - High contrast mode
+   ═══════════════════════════════════════════════════════════ */
+
 @media (prefers-contrast: high) {
   .command-highlight--skill {
-    background-color: rgba(139, 92, 246, 0.4);
-    color: #d4bfff;
-    outline: 1px solid currentColor;
+    background: rgba(251, 191, 36, 0.35);
+    color: #fde68a;
+    outline: 2px solid #fbbf24;
+    outline-offset: -1px;
   }
 
   .command-highlight--command {
-    background-color: rgba(34, 211, 238, 0.3);
-    color: #b8faff;
-    outline: 1px solid currentColor;
+    background: rgba(34, 211, 238, 0.3);
+    color: #a5f3fc;
+    outline: 2px solid #22d3ee;
+    outline-offset: -1px;
   }
 
   .command-highlight--unknown {
-    background-color: rgba(128, 128, 128, 0.3);
-    color: #c0c0c0;
-    outline: 1px solid currentColor;
+    background: rgba(148, 163, 184, 0.25);
+    color: #cbd5e1;
+    outline: 2px solid rgba(148, 163, 184, 0.6);
+    outline-offset: -1px;
   }
 }
 
-/* Ensure proper display within markdown content */
+/* ═══════════════════════════════════════════════════════════
+   REDUCED MOTION - Respect user preferences
+   ═══════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  .command-highlight {
+    transition: none;
+  }
+
+  .command-highlight--pulse {
+    animation: none;
+  }
+
+  .command-highlight:hover {
+    transform: none;
+  }
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CONTEXTUAL OVERRIDES
+   ═══════════════════════════════════════════════════════════ */
+
+/* Within markdown content - ensure baseline alignment */
 .markdown-content .command-highlight {
   vertical-align: baseline;
 }
 
-/* Within code blocks, don't apply command highlighting */
+/* Inside code blocks - neutralize highlighting */
 .code-block-wrapper .command-highlight,
 pre .command-highlight,
 code .command-highlight {
   background: transparent;
   color: inherit;
   padding: 0;
+  margin: 0;
   font-weight: inherit;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+/* Inside headings - slightly smaller */
+.markdown-content h1 .command-highlight,
+.markdown-content h2 .command-highlight,
+.markdown-content h3 .command-highlight {
+  font-size: 0.85em;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT THEME ADJUSTMENTS
+   ═══════════════════════════════════════════════════════════ */
+
+[data-theme='light'] .command-highlight--skill {
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.15) 0%,
+    rgba(217, 119, 6, 0.18) 100%
+  );
+  color: #b45309;
+  box-shadow:
+    inset 0 0 0 1px rgba(245, 158, 11, 0.3),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='light'] .command-highlight--skill:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(245, 158, 11, 0.22) 0%,
+    rgba(217, 119, 6, 0.26) 100%
+  );
+  color: #92400e;
+  box-shadow:
+    inset 0 0 0 1px rgba(245, 158, 11, 0.45),
+    0 2px 6px rgba(245, 158, 11, 0.15);
+}
+
+[data-theme='light'] .command-highlight--command {
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.12) 0%,
+    rgba(8, 145, 178, 0.16) 100%
+  );
+  color: #0891b2;
+  box-shadow:
+    inset 0 0 0 1px rgba(6, 182, 212, 0.28),
+    0 1px 2px rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='light'] .command-highlight--command:hover {
+  background: linear-gradient(
+    135deg,
+    rgba(6, 182, 212, 0.2) 0%,
+    rgba(8, 145, 178, 0.24) 100%
+  );
+  color: #0e7490;
+  box-shadow:
+    inset 0 0 0 1px rgba(6, 182, 212, 0.42),
+    0 2px 6px rgba(6, 182, 212, 0.15);
+}
+
+[data-theme='light'] .command-highlight--unknown {
+  background: rgba(100, 116, 139, 0.1);
+  color: rgba(71, 85, 105, 0.75);
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.18);
+}
+
+[data-theme='light'] .command-highlight--unknown:hover {
+  background: rgba(100, 116, 139, 0.16);
+  color: rgba(71, 85, 105, 0.9);
+  box-shadow: inset 0 0 0 1px rgba(100, 116, 139, 0.28);
 }
