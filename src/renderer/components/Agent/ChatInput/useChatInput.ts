@@ -1,5 +1,4 @@
 import { useState, useCallback, useRef, useEffect, useMemo, KeyboardEvent, ChangeEvent } from 'react';
-import { ModelUsage } from '../../../../shared/types';
 
 export interface CommandSuggestion {
   name: string;
@@ -17,13 +16,20 @@ export interface UseChatInputOptions {
 const MIN_HEIGHT = 24;
 const MAX_HEIGHT = 160;
 
+// Built-in slash commands with descriptions (always available)
+const BUILTIN_COMMANDS: CommandSuggestion[] = [
+  { name: 'clear', description: 'Reset conversation context', type: 'command' },
+  { name: 'compact', description: 'Optimize context window', type: 'command' },
+  { name: 'help', description: 'Show available commands', type: 'command' },
+];
+
 export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [] }: UseChatInputOptions) {
   const [input, setInput] = useState('');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
-  // Build list of all available commands (deduplicated - skills take priority)
+  // Build list of all available commands (deduplicated - skills take priority, then SDK commands, then builtins)
   const allCommands = useMemo((): CommandSuggestion[] => {
     const commandMap = new Map<string, CommandSuggestion>();
 
@@ -36,14 +42,23 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
       });
     }
 
-    // Add slash commands only if not already present as a skill
+    // Add slash commands from SDK (only if not already present as a skill)
     for (const cmd of slashCommands) {
       if (!commandMap.has(cmd)) {
+        // Check if it's a builtin with a description
+        const builtin = BUILTIN_COMMANDS.find(b => b.name === cmd);
         commandMap.set(cmd, {
           name: cmd,
-          description: '',
+          description: builtin?.description || '',
           type: 'command'
         });
+      }
+    }
+
+    // Add builtin commands if not already present (ensures /clear, /compact, /help always appear)
+    for (const builtin of BUILTIN_COMMANDS) {
+      if (!commandMap.has(builtin.name)) {
+        commandMap.set(builtin.name, builtin);
       }
     }
 
@@ -178,28 +193,4 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
     executeCommand,
     setSelectedIndex,
   };
-}
-
-// Utility functions for context usage display
-export function formatModelName(modelId: string | null): string {
-  if (!modelId) return 'Claude';
-
-  const match = modelId.match(/claude-(\w+)-(\d+)/);
-  if (match) {
-    const [, variant, version] = match;
-    return `${variant.charAt(0).toUpperCase() + variant.slice(1)} ${version}`;
-  }
-
-  return modelId;
-}
-
-export function getContextUsage(modelUsage: ModelUsage | null) {
-  const totalTokens = modelUsage
-    ? modelUsage.inputTokens + modelUsage.outputTokens
-    : 0;
-  const contextWindow = modelUsage?.contextWindow ?? 200_000;
-  const percentage = contextWindow > 0 ? (totalTokens / contextWindow) * 100 : 0;
-  const statusClass = percentage >= 85 ? 'critical' : percentage >= 70 ? 'warning' : '';
-
-  return { percentage, statusClass };
 }

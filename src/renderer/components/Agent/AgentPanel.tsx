@@ -127,8 +127,6 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
         onInterrupt={interrupt}
         isRunning={isRunning}
         disabled={false}
-        model={model}
-        modelUsage={modelUsage}
         skills={skills}
         slashCommands={slashCommands}
       />
