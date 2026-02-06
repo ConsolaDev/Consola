@@ -1,4 +1,6 @@
 import { Plus, ArrowRight, Square } from 'lucide-react';
+import { ModelUsage } from '../../../../shared/types';
+import { TokenUsageIndicator } from './TokenUsageIndicator';
 
 interface InputToolbarProps {
   isRunning: boolean;
@@ -7,6 +9,7 @@ interface InputToolbarProps {
   onSend: () => void;
   onInterrupt: () => void;
   onAttach: () => void;
+  modelUsage: ModelUsage | null;
 }
 
 export function InputToolbar({
@@ -15,13 +18,15 @@ export function InputToolbar({
   disabled,
   onSend,
   onInterrupt,
-  onAttach
+  onAttach,
+  modelUsage
 }: InputToolbarProps) {
   return (
     <div className="chat-input-toolbar">
       <ToolbarLeft
         disabled={disabled}
         onAttach={onAttach}
+        modelUsage={modelUsage}
       />
       <ToolbarRight
         isRunning={isRunning}
@@ -36,15 +41,18 @@ export function InputToolbar({
 interface ToolbarLeftProps {
   disabled: boolean;
   onAttach: () => void;
+  modelUsage: ModelUsage | null;
 }
 
 function ToolbarLeft({
   disabled,
-  onAttach
+  onAttach,
+  modelUsage
 }: ToolbarLeftProps) {
   return (
     <div className="chat-input-toolbar-left">
       <AttachButton disabled={disabled} onClick={onAttach} />
+      <TokenUsageIndicator modelUsage={modelUsage} />
     </div>
   );
 }
