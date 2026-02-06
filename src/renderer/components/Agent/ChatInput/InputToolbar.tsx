@@ -1,10 +1,6 @@
-import { Plus, ArrowRight, Square, ChevronDown } from 'lucide-react';
-import { ModelUsage } from '../../../../shared/types';
-import { formatModelName, getContextUsage } from './useChatInput';
+import { Plus, ArrowRight, Square } from 'lucide-react';
 
 interface InputToolbarProps {
-  model: string | null;
-  modelUsage: ModelUsage | null;
   isRunning: boolean;
   canSend: boolean;
   disabled: boolean;
@@ -14,8 +10,6 @@ interface InputToolbarProps {
 }
 
 export function InputToolbar({
-  model,
-  modelUsage,
   isRunning,
   canSend,
   disabled,
@@ -23,15 +17,9 @@ export function InputToolbar({
   onInterrupt,
   onAttach
 }: InputToolbarProps) {
-  const { percentage, statusClass } = getContextUsage(modelUsage);
-
   return (
     <div className="chat-input-toolbar">
       <ToolbarLeft
-        model={model}
-        modelUsage={modelUsage}
-        percentage={percentage}
-        statusClass={statusClass}
         disabled={disabled}
         onAttach={onAttach}
       />
@@ -46,32 +34,17 @@ export function InputToolbar({
 }
 
 interface ToolbarLeftProps {
-  model: string | null;
-  modelUsage: ModelUsage | null;
-  percentage: number;
-  statusClass: string;
   disabled: boolean;
   onAttach: () => void;
 }
 
 function ToolbarLeft({
-  model,
-  modelUsage,
-  percentage,
-  statusClass,
   disabled,
   onAttach
 }: ToolbarLeftProps) {
   return (
     <div className="chat-input-toolbar-left">
       <AttachButton disabled={disabled} onClick={onAttach} />
-      <ModeDropdown />
-      <ContextStatus
-        model={model}
-        modelUsage={modelUsage}
-        percentage={percentage}
-        statusClass={statusClass}
-      />
     </div>
   );
 }
@@ -112,36 +85,6 @@ function AttachButton({ disabled, onClick }: AttachButtonProps) {
     >
       <Plus size={16} strokeWidth={1.5} />
     </button>
-  );
-}
-
-function ModeDropdown() {
-  return (
-    <button className="chat-input-dropdown-btn" disabled>
-      <ChevronDown size={12} strokeWidth={2} />
-      <span>Fast</span>
-    </button>
-  );
-}
-
-interface ContextStatusProps {
-  model: string | null;
-  modelUsage: ModelUsage | null;
-  percentage: number;
-  statusClass: string;
-}
-
-function ContextStatus({ model, modelUsage, percentage, statusClass }: ContextStatusProps) {
-  return (
-    <div className={`chat-input-context ${statusClass}`}>
-      <ChevronDown size={12} strokeWidth={2} />
-      <span className="chat-input-model">{formatModelName(model)}</span>
-      {modelUsage && (
-        <span className="chat-input-tokens">
-          ({percentage.toFixed(0)}%)
-        </span>
-      )}
-    </div>
   );
 }
 

@@ -161,58 +161,6 @@
   cursor: not-allowed;
 }
 
-/* Dropdown button */
-.chat-input-dropdown-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 0;
-  border: none;
-  background: transparent;
-  font-size: var(--font-size-sm);
-  color: var(--gray-11);
-  cursor: pointer;
-  transition: color var(--transition-fast);
-}
-
-.chat-input-dropdown-btn:hover:not(:disabled) {
-  color: var(--gray-12);
-}
-
-.chat-input-dropdown-btn:disabled {
-  cursor: default;
-}
-
-/* Context status */
-.chat-input-context {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: var(--font-size-sm);
-  color: var(--gray-11);
-  cursor: default;
-}
-
-.chat-input-context svg {
-  color: var(--gray-10);
-}
-
-.chat-input-model {
-  color: var(--gray-11);
-}
-
-.chat-input-tokens {
-  color: var(--gray-10);
-}
-
-.chat-input-context.warning .chat-input-tokens {
-  color: var(--yellow-11);
-}
-
-.chat-input-context.critical .chat-input-tokens {
-  color: var(--red-11);
-}
-
 /* Send button */
 .chat-input-send-btn {
   display: flex;
@@ -974,26 +922,7 @@
   color: var(--gray-12);
 }
 
-/* Session Divider */
-.session-divider {
-  display: flex;
-  align-items: center;
-  gap: var(--space-3);
-  margin: var(--space-4) 0;
-  padding: 0 var(--space-2);
-}
-
-.session-divider-line {
-  flex: 1;
-  height: 1px;
-  background: var(--color-border);
-}
-
-.session-divider-label {
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-  font-size: var(--font-size-xs);
-}
+/* Session Divider - styles moved to session-divider.css */
 
 /* ========================================
    Trust Mode Banner - Premium, Distinctive

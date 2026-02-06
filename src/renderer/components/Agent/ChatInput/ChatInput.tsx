@@ -1,5 +1,4 @@
 import { useCallback } from 'react';
-import { ModelUsage } from '../../../../shared/types';
 import { useChatInput } from './useChatInput';
 import { CommandSuggestions } from './CommandSuggestions';
 import { InputToolbar } from './InputToolbar';
@@ -10,8 +9,6 @@ interface ChatInputProps {
   onInterrupt: () => void;
   isRunning: boolean;
   disabled: boolean;
-  model: string | null;
-  modelUsage: ModelUsage | null;
   skills?: string[];
   slashCommands?: string[];
 }
@@ -21,8 +18,6 @@ export function ChatInput({
   onInterrupt,
   isRunning,
   disabled,
-  model,
-  modelUsage,
   skills = [],
   slashCommands = []
 }: ChatInputProps) {
@@ -71,8 +66,6 @@ export function ChatInput({
         />
 
         <InputToolbar
-          model={model}
-          modelUsage={modelUsage}
           isRunning={isRunning}
           canSend={canSend}
           disabled={disabled}
