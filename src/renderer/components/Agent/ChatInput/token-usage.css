@@ -1,0 +1,44 @@
+/* Token Usage Indicator - Compact inline display */
+.token-usage-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+  height: 24px;
+  cursor: default;
+  user-select: none;
+}
+
+/* Labels */
+.token-usage-label {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.token-usage-separator {
+  opacity: 0.4;
+  margin: 0 1px;
+}
+
+.token-usage-pct {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  line-height: 1;
+}
+
+.token-usage-pct.warning {
+  color: var(--color-warning);
+}
+
+.token-usage-pct.critical {
+  color: var(--color-error);
+}

@@ -3,6 +3,7 @@ import { useChatInput } from './useChatInput';
 import { CommandSuggestions } from './CommandSuggestions';
 import { InputToolbar } from './InputToolbar';
 import { HighlightedInput } from './HighlightedInput';
+import { ModelUsage } from '../../../../shared/types';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -11,6 +12,7 @@ interface ChatInputProps {
   disabled: boolean;
   skills?: string[];
   slashCommands?: string[];
+  modelUsage?: ModelUsage | null;
 }
 
 export function ChatInput({
@@ -19,7 +21,8 @@ export function ChatInput({
   isRunning,
   disabled,
   skills = [],
-  slashCommands = []
+  slashCommands = [],
+  modelUsage = null
 }: ChatInputProps) {
   const {
     input,
@@ -72,6 +75,7 @@ export function ChatInput({
           onSend={handleSend}
           onInterrupt={onInterrupt}
           onAttach={handleAttach}
+          modelUsage={modelUsage}
         />
       </div>
     </div>

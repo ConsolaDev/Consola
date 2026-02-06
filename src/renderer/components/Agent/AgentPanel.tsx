@@ -129,6 +129,7 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
         disabled={false}
         skills={skills}
         slashCommands={slashCommands}
+        modelUsage={modelUsage}
       />
     </Flex>
   );
