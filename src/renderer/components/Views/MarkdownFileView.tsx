@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {Box, Flex, ScrollArea, Text} from '@radix-ui/themes';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { MarkdownRenderer } from '../Markdown';
@@ -36,6 +36,31 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
     }
     loadFile();
   }, [filePath]);
+
+  // Memoize both views so switching modes doesn't re-parse content.
+  // Must be above early returns to satisfy React's rules of hooks.
+  const previewView = useMemo(() => <MarkdownRenderer content={content} />, [content]);
+  const sourceView = useMemo(() => (
+    <SyntaxHighlighter
+      style={codeTheme}
+      language="markdown"
+      showLineNumbers
+      customStyle={{
+        ...codeCustomStyle,
+        background: 'transparent',
+        padding: 'var(--space-4)',
+        margin: 0,
+      }}
+      lineNumberStyle={{
+        minWidth: '3em',
+        paddingRight: '1em',
+        color: 'var(--color-text-disabled)',
+        userSelect: 'none',
+      }}
+    >
+      {content}
+    </SyntaxHighlighter>
+  ), [content]);
 
   if (loading) {
     return (
@@ -83,36 +108,15 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
         </div>
       </div>
 
-      {/* Content area */}
+      {/* Content area - both views stay mounted, toggled via display */}
       <ScrollArea className="markdown-view-content-wrapper">
         <div ref={contentRef} tabIndex={0} className="markdown-view-content-selectable">
-          {viewMode === 'preview' ? (
-            <Box p="4" pr="6" className="markdown-view-panel markdown-preview-view">
-              <MarkdownRenderer content={content} />
-            </Box>
-          ) : (
-            <div className="markdown-view-panel markdown-source-view">
-              <SyntaxHighlighter
-              style={codeTheme}
-              language="markdown"
-              showLineNumbers
-              customStyle={{
-                ...codeCustomStyle,
-                background: 'transparent',
-                padding: 'var(--space-4)',
-                margin: 0,
-              }}
-              lineNumberStyle={{
-                minWidth: '3em',
-                paddingRight: '1em',
-                color: 'var(--color-text-disabled)',
-                userSelect: 'none',
-              }}
-            >
-              {content}
-            </SyntaxHighlighter>
-            </div>
-          )}
+          <Box p="4" pr="6" className="markdown-view-panel markdown-preview-view" style={{ display: viewMode === 'preview' ? undefined : 'none' }}>
+            {previewView}
+          </Box>
+          <div className="markdown-view-panel markdown-source-view" style={{ display: viewMode === 'source' ? undefined : 'none' }}>
+            {sourceView}
+          </div>
         </div>
       </ScrollArea>
     </Box>

@@ -513,18 +513,7 @@
 }
 
 .markdown-view-panel {
-  animation: markdown-view-fade-in 0.2s ease;
-}
-
-@keyframes markdown-view-fade-in {
-  from {
-    opacity: 0;
-    transform: translateY(4px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+  /* No transition - instant switch between preview/source */
 }
 
 /* Source view specific styles - allows horizontal scroll for long lines */
