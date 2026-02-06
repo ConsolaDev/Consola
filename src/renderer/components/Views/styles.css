@@ -202,6 +202,11 @@
   background: var(--color-accent);
 }
 
+/* Prevent text selection in panels while dragging a resize handle */
+.workspace-view-content:has(.resize-handle[data-resize-handle-state="drag"]) {
+  user-select: none;
+}
+
 /* Markdown File View */
 .markdown-file-view {
   display: flex;
