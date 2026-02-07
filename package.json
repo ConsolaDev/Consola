@@ -12,7 +12,8 @@
     "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",
     "dev:vite": "vite --config vite.config.ts",
     "dev:electron": "wait-on http://localhost:5173 && NODE_ENV=development electron .",
-    "test:e2e": "playwright test"
+    "test:e2e": "playwright test",
+    "postinstall": "npx @electron/rebuild -f -w better-sqlite3"
   },
   "keywords": [
     "claude-code",
@@ -37,6 +38,8 @@
     "@radix-ui/react-tooltip": "^1.2.8",
     "@radix-ui/themes": "^3.3.0",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "better-sqlite3": "^12.6.2",
+    "lodash-es": "^4.17.23",
     "lucide-react": "^0.563.0",
     "material-file-icons": "^2.4.0",
     "node-pty": "^1.0.0",
@@ -50,7 +53,10 @@
     "zustand": "^5.0.11"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.0.3",
     "@playwright/test": "^1.58.1",
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/lodash-es": "^4.17.12",
     "@types/node": "^20.11.19",
     "@types/react": "^19.2.10",
     "@types/react-dom": "^19.2.3",

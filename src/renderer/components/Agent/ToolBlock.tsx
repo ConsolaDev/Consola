@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Box, Flex, Text } from '@radix-ui/themes';
 import { parseToolInput } from './toolInputParser';
 import { parseBashOutput } from './toolOutputParser';
@@ -49,7 +50,7 @@ function isFileToolOutput(output: unknown): output is FileToolOutput {
   );
 }
 
-export function ToolBlock({ name, input, status, output }: ToolBlockProps) {
+export const ToolBlock = memo(function ToolBlock({ name, input, status, output }: ToolBlockProps) {
   const parsed = parseToolInput(name, input);
 
   // Check if this is an Edit tool with valid input
@@ -103,4 +104,4 @@ export function ToolBlock({ name, input, status, output }: ToolBlockProps) {
       )}
     </Box>
   );
-}
+});

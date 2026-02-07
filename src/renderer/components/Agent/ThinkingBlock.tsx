@@ -1,11 +1,11 @@
-import { useState } from 'react';
+import { useState, memo } from 'react';
 import { Box, Text, Flex } from '@radix-ui/themes';
 
 interface ThinkingBlockProps {
   content: string;
 }
 
-export function ThinkingBlock({ content }: ThinkingBlockProps) {
+export const ThinkingBlock = memo(function ThinkingBlock({ content }: ThinkingBlockProps) {
   const [expanded, setExpanded] = useState(false);
 
   return (
@@ -29,4 +29,4 @@ export function ThinkingBlock({ content }: ThinkingBlockProps) {
       )}
     </Box>
   );
-}
+});

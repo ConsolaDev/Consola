@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import { debounce } from 'lodash-es';
 import type {
   AgentStatus,
   AgentInitEvent,
@@ -280,6 +281,23 @@ function generateId(): string {
   return `${Date.now()}-${Math.random().toString(36).substring(2, 11)}`;
 }
 
+// Tool response truncation to prevent unbounded storage growth
+const MAX_TOOL_RESPONSE_SIZE = 50_000;  // 50KB limit
+const TRUNCATION_MARKER = '\n\n... [truncated for storage] ...';
+
+function truncateToolResponse(response: unknown): unknown {
+  if (typeof response === 'string' && response.length > MAX_TOOL_RESPONSE_SIZE) {
+    return response.slice(0, MAX_TOOL_RESPONSE_SIZE) + TRUNCATION_MARKER;
+  }
+  if (typeof response === 'object' && response !== null) {
+    const str = JSON.stringify(response);
+    if (str.length > MAX_TOOL_RESPONSE_SIZE) {
+      return { _truncated: true, preview: str.slice(0, 1000) };
+    }
+  }
+  return response;
+}
+
 // Helper to update instance state immutably
 function updateInstance(
   state: AgentState,
@@ -294,6 +312,25 @@ function updateInstance(
       [instanceId]: { ...instance, ...updates }
     }
   };
+}
+
+// Debounced save to batch rapid successive saves (tool-heavy turns can trigger 50+ saves)
+// Per-instance debounce functions to avoid cross-instance interference
+const debouncedSaveMap = new Map<string, ReturnType<typeof debounce>>();
+
+function getDebouncedSave(instanceId: string): ReturnType<typeof debounce> {
+  let debouncedFn = debouncedSaveMap.get(instanceId);
+  if (!debouncedFn) {
+    debouncedFn = debounce(
+      async (messages: Message[], toolHistory: ToolExecution[]) => {
+        await sessionStorageBridge.saveHistory(instanceId, { messages, toolHistory });
+      },
+      2000,  // 2 second delay
+      { maxWait: 10000 }  // Force save after 10 seconds max
+    );
+    debouncedSaveMap.set(instanceId, debouncedFn);
+  }
+  return debouncedFn;
 }
 
 export const useAgentStore = create<AgentState>((set, get) => ({
@@ -389,8 +426,18 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   saveInstanceHistory: async (instanceId) => {
     const instance = get().instances[instanceId];
     if (instance) {
+      // Strip redundant content field for assistant messages before saving
+      // (content can be derived from contentBlocks via getPlainText())
+      const optimizedMessages = instance.messages.map(msg => {
+        if (msg.type === 'assistant' && msg.contentBlocks) {
+          const { content, ...rest } = msg;
+          return rest;  // content can be derived from contentBlocks
+        }
+        return msg;
+      });
+
       await sessionStorageBridge.saveHistory(instanceId, {
-        messages: instance.messages,
+        messages: optimizedMessages,
         toolHistory: instance.toolHistory,
       });
     }
@@ -399,8 +446,16 @@ export const useAgentStore = create<AgentState>((set, get) => ({
   loadInstanceHistory: async (instanceId) => {
     const data = await sessionStorageBridge.loadHistory(instanceId);
     if (data) {
+      // Reconstruct content field for assistant messages that have contentBlocks
+      const messages = (data.messages as Message[]).map(msg => {
+        if (msg.type === 'assistant' && msg.contentBlocks && !msg.content) {
+          return { ...msg, content: getPlainText(msg.contentBlocks) };
+        }
+        return msg;
+      });
+
       set((state) => updateInstance(state, instanceId, () => ({
-        messages: data.messages as Message[],
+        messages,
         toolHistory: data.toolHistory as ToolExecution[],
       })));
     }
@@ -536,12 +591,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
         return state;
       }
 
-      // Update the tool in place
+      // Update the tool in place (truncate large responses to prevent storage bloat)
       const newToolHistory = [...instance.toolHistory];
       newToolHistory[pendingIndex] = {
         ...newToolHistory[pendingIndex],
         toolUseId: toolData.toolUseId || newToolHistory[pendingIndex].toolUseId,
-        toolResponse: toolData.toolResponse,
+        toolResponse: truncateToolResponse(toolData.toolResponse),
         status: 'complete'
       };
 
@@ -558,8 +613,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       processing: { isProcessing: false, currentMessageId: null }
     })));
 
-    // Persist session history after each completed turn
-    get().saveInstanceHistory(instanceId);
+    // Persist session history after each completed turn (debounced to batch rapid saves)
+    const instance = get().instances[instanceId];
+    if (instance) {
+      getDebouncedSave(instanceId)(instance.messages, instance.toolHistory);
+    }
   },
 
   _handleError: (data: { instanceId: string; message: string }) => {
@@ -569,8 +627,11 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       processing: { isProcessing: false, currentMessageId: null }
     })));
 
-    // Persist session history even on error to preserve conversation
-    get().saveInstanceHistory(instanceId);
+    // Persist session history even on error to preserve conversation (debounced)
+    const instance = get().instances[instanceId];
+    if (instance) {
+      getDebouncedSave(instanceId)(instance.messages, instance.toolHistory);
+    }
   },
 
   _handleStatusChanged: (data: AgentStatus & { instanceId: string }) => {
