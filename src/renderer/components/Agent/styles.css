@@ -15,7 +15,7 @@
 .messages-container {
   flex: 1;
   overflow-y: auto;
-  padding: var(--space-2);
+  padding: var(--space-2) var(--space-4);
   outline: none;
 }
 
@@ -68,7 +68,7 @@
 /* Chat input wrapper - contains both dropdown and card */
 .chat-input-wrapper {
   position: relative;
-  margin: var(--space-2);
+  margin: var(--space-2) var(--space-4);
 }
 
 /* Chat input card */
