@@ -1,39 +1,51 @@
-import { app } from 'electron';
-import * as path from 'path';
-import * as fs from 'fs/promises';
+import { getSessionDatabase, StoredMessage, StoredToolExecution } from './database/SessionDatabase';
 
-const SESSIONS_DIR = path.join(app.getPath('userData'), 'sessions');
-
-interface PersistedSessionData {
+export interface PersistedSessionData {
   messages: unknown[];
   toolHistory: unknown[];
 }
 
-export async function ensureSessionsDir(): Promise<void> {
-  await fs.mkdir(SESSIONS_DIR, { recursive: true });
-}
-
+// Save session data to SQLite
 export async function saveSessionData(sessionId: string, data: PersistedSessionData): Promise<void> {
-  await ensureSessionsDir();
-  const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
-  await fs.writeFile(filePath, JSON.stringify(data, null, 2));
+  const db = getSessionDatabase();
+
+  const messages = (data.messages || []).map((msg: any) => ({
+    id: msg.id,
+    type: msg.type,
+    subtype: msg.subtype,
+    content: msg.content,
+    contentBlocks: msg.contentBlocks,
+    timestamp: msg.timestamp
+  } as StoredMessage));
+
+  const toolHistory = (data.toolHistory || []).map((tool: any) => ({
+    id: tool.id,
+    toolUseId: tool.toolUseId,
+    toolName: tool.toolName,
+    toolInput: tool.toolInput,
+    toolResponse: tool.toolResponse,
+    status: tool.status,
+    timestamp: tool.timestamp
+  } as StoredToolExecution));
+
+  db.saveSession(sessionId, messages, toolHistory);
 }
 
+// Load session data from SQLite
 export async function loadSessionData(sessionId: string): Promise<PersistedSessionData | null> {
-  const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
-  try {
-    const content = await fs.readFile(filePath, 'utf-8');
-    return JSON.parse(content);
-  } catch {
+  const db = getSessionDatabase();
+
+  if (!db.sessionExists(sessionId)) {
     return null;
   }
+
+  const messages = db.getMessages(sessionId);
+  const toolHistory = db.getToolExecutions(sessionId);
+  return { messages, toolHistory };
 }
 
+// Delete session data from SQLite
 export async function deleteSessionData(sessionId: string): Promise<void> {
-  const filePath = path.join(SESSIONS_DIR, `${sessionId}.json`);
-  try {
-    await fs.unlink(filePath);
-  } catch {
-    // File may not exist, that's fine
-  }
+  const db = getSessionDatabase();
+  db.deleteSession(sessionId);
 }

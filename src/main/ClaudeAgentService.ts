@@ -238,6 +238,7 @@ export class ClaudeAgentService extends EventEmitter {
       resume: options.resume,
       continue: options.continue,
       includePartialMessages: true,
+      model: 'claude-opus-4-6',
       // Permission callback - asks user for approval (or auto-approves in trust mode)
       canUseTool: async (
         toolName: string,

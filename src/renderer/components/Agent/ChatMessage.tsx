@@ -1,3 +1,4 @@
+import { memo } from 'react';
 import { Box, Text } from '@radix-ui/themes';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownRenderer } from '../Markdown';
@@ -13,7 +14,7 @@ interface ChatMessageProps {
   toolHistory?: ToolExecution[];
 }
 
-export function ChatMessage({
+export const ChatMessage = memo(function ChatMessage({
   type,
   content,
   contentBlocks,
@@ -112,4 +113,21 @@ export function ChatMessage({
       {renderContent()}
     </Box>
   );
-}
+}, (prev, next) => {
+  // Only re-render if message content changed or tool results updated
+  if (prev.type !== next.type) return false;
+  if (prev.content !== next.content) return false;
+  if (prev.timestamp !== next.timestamp) return false;
+  if (prev.contentBlocks !== next.contentBlocks) return false;
+
+  // Check if any tool_use blocks have new results
+  const prevToolIds = prev.contentBlocks?.filter(b => b.type === 'tool_use').map(b => b.id) || [];
+  for (const id of prevToolIds) {
+    const prevResult = prev.toolHistory?.find(t => t.toolUseId === id);
+    const nextResult = next.toolHistory?.find(t => t.toolUseId === id);
+    if (prevResult?.status !== nextResult?.status) return false;
+    if (prevResult?.toolResponse !== nextResult?.toolResponse) return false;
+  }
+
+  return true;
+});

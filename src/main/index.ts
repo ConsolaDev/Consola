@@ -1,6 +1,7 @@
 import { app } from 'electron';
 import { createMainWindow } from './window-manager';
 import { setupIpcHandlers, cleanupIpcHandlers } from './ipc-handlers';
+import { closeSessionDatabase } from './database/SessionDatabase';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
@@ -34,4 +35,5 @@ app.on('window-all-closed', () => {
 
 app.on('before-quit', () => {
     cleanupIpcHandlers();
+    closeSessionDatabase();
 });

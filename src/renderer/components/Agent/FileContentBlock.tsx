@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import { Box, Flex, Text } from '@radix-ui/themes';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { codeTheme } from '../../utils/codeTheme';
@@ -84,7 +84,7 @@ function getFileIcon(filePath: string): string {
   return iconMap[ext] || '◦';
 }
 
-export function FileContentBlock({ file, maxLines = 4 }: FileContentBlockProps) {
+export const FileContentBlock = memo(function FileContentBlock({ file, maxLines = 4 }: FileContentBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const openFile = usePreviewTabStore((s) => s.openFile);
 
@@ -180,4 +180,4 @@ export function FileContentBlock({ file, maxLines = 4 }: FileContentBlockProps) 
       )}
     </Box>
   );
-}
+});
