@@ -415,6 +415,226 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             });
         });
     });
+
+    // Handle git diff
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_DIFF, async (_event, { rootPath, filePath, staged }: { rootPath: string; filePath: string; staged: boolean }) => {
+        return new Promise((resolve) => {
+            const absolutePath = path.join(rootPath, filePath);
+
+            // Check if file exists for new/untracked files
+            const fileExists = fs.existsSync(absolutePath);
+
+            // For untracked files, return full content as new
+            if (!staged) {
+                exec(`git ls-files --error-unmatch "${filePath}" 2>/dev/null`, { cwd: rootPath }, (err) => {
+                    if (err) {
+                        // File is untracked - read full content
+                        if (fileExists) {
+                            fs.promises.readFile(absolutePath, 'utf-8').then((content) => {
+                                resolve({
+                                    filePath,
+                                    staged: false,
+                                    oldContent: '',
+                                    newContent: content,
+                                    hunks: [],
+                                    isBinary: false,
+                                    isNew: true,
+                                    isDeleted: false
+                                });
+                            }).catch(() => {
+                                resolve({
+                                    filePath,
+                                    staged: false,
+                                    oldContent: '',
+                                    newContent: '',
+                                    hunks: [],
+                                    isBinary: true,
+                                    isNew: true,
+                                    isDeleted: false
+                                });
+                            });
+                        } else {
+                            resolve({
+                                filePath,
+                                staged: false,
+                                oldContent: '',
+                                newContent: '',
+                                hunks: [],
+                                isBinary: false,
+                                isNew: true,
+                                isDeleted: true
+                            });
+                        }
+                        return;
+                    }
+
+                    // File is tracked, get the diff
+                    getDiffContent(rootPath, filePath, staged, fileExists, resolve);
+                });
+            } else {
+                // Staged file - get the diff directly
+                getDiffContent(rootPath, filePath, staged, fileExists, resolve);
+            }
+        });
+    });
+
+    function getDiffContent(
+        rootPath: string,
+        filePath: string,
+        staged: boolean,
+        fileExists: boolean,
+        resolve: (value: unknown) => void
+    ) {
+        const diffCmd = staged ? `git diff --cached -- "${filePath}"` : `git diff -- "${filePath}"`;
+        const absolutePath = path.join(rootPath, filePath);
+
+        exec(diffCmd, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffStdout) => {
+            if (diffErr || !diffStdout) {
+                // No diff available
+                resolve({
+                    filePath,
+                    staged,
+                    oldContent: '',
+                    newContent: '',
+                    hunks: [],
+                    isBinary: false,
+                    isNew: false,
+                    isDeleted: !fileExists
+                });
+                return;
+            }
+
+            // Check for binary
+            if (diffStdout.includes('Binary files')) {
+                resolve({
+                    filePath,
+                    staged,
+                    oldContent: '',
+                    newContent: '',
+                    hunks: [],
+                    isBinary: true,
+                    isNew: false,
+                    isDeleted: false
+                });
+                return;
+            }
+
+            // Get old content (from HEAD or index)
+            const showCmd = staged ? `git show HEAD:"${filePath}"` : `git show :"${filePath}"`;
+            exec(showCmd, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (showErr, oldContent) => {
+                // Get new content
+                const getNewContent = (): Promise<string> => {
+                    if (staged) {
+                        // For staged, get from index
+                        return new Promise((res) => {
+                            exec(`git show :"${filePath}"`, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (err, content) => {
+                                res(err ? '' : content);
+                            });
+                        });
+                    } else {
+                        // For unstaged, read from filesystem
+                        if (fileExists) {
+                            return fs.promises.readFile(absolutePath, 'utf-8').catch(() => '');
+                        }
+                        return Promise.resolve('');
+                    }
+                };
+
+                getNewContent().then((newContent) => {
+                    resolve({
+                        filePath,
+                        staged,
+                        oldContent: showErr ? '' : oldContent,
+                        newContent,
+                        hunks: parseDiffHunks(diffStdout),
+                        isBinary: false,
+                        isNew: showErr !== null,
+                        isDeleted: !fileExists
+                    });
+                });
+            });
+        });
+    }
+
+    function parseDiffHunks(diffOutput: string): Array<{
+        oldStart: number;
+        oldLines: number;
+        newStart: number;
+        newLines: number;
+        lines: Array<{
+            type: 'context' | 'add' | 'remove';
+            content: string;
+            oldLineNumber?: number;
+            newLineNumber?: number;
+        }>;
+    }> {
+        const hunks: Array<{
+            oldStart: number;
+            oldLines: number;
+            newStart: number;
+            newLines: number;
+            lines: Array<{
+                type: 'context' | 'add' | 'remove';
+                content: string;
+                oldLineNumber?: number;
+                newLineNumber?: number;
+            }>;
+        }> = [];
+
+        const lines = diffOutput.split('\n');
+        let currentHunk: typeof hunks[0] | null = null;
+        let oldLine = 0;
+        let newLine = 0;
+
+        for (const line of lines) {
+            // Parse hunk header: @@ -oldStart,oldLines +newStart,newLines @@
+            const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+            if (hunkMatch) {
+                if (currentHunk) {
+                    hunks.push(currentHunk);
+                }
+                currentHunk = {
+                    oldStart: parseInt(hunkMatch[1], 10),
+                    oldLines: parseInt(hunkMatch[2] || '1', 10),
+                    newStart: parseInt(hunkMatch[3], 10),
+                    newLines: parseInt(hunkMatch[4] || '1', 10),
+                    lines: []
+                };
+                oldLine = currentHunk.oldStart;
+                newLine = currentHunk.newStart;
+                continue;
+            }
+
+            if (!currentHunk) continue;
+
+            if (line.startsWith('+') && !line.startsWith('+++')) {
+                currentHunk.lines.push({
+                    type: 'add',
+                    content: line.slice(1),
+                    newLineNumber: newLine++
+                });
+            } else if (line.startsWith('-') && !line.startsWith('---')) {
+                currentHunk.lines.push({
+                    type: 'remove',
+                    content: line.slice(1),
+                    oldLineNumber: oldLine++
+                });
+            } else if (line.startsWith(' ')) {
+                currentHunk.lines.push({
+                    type: 'context',
+                    content: line.slice(1),
+                    oldLineNumber: oldLine++,
+                    newLineNumber: newLine++
+                });
+            }
+        }
+
+        if (currentHunk) {
+            hunks.push(currentHunk);
+        }
+
+        return hunks;
+    }
 }
 
 export function cleanupIpcHandlers(): void {
@@ -457,6 +677,7 @@ export function cleanupIpcHandlers(): void {
 
     // Remove git IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_DIFF);
 
     // Remove session storage handlers
     ipcMain.removeHandler('session:save-history');

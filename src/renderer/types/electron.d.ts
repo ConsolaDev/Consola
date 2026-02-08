@@ -23,8 +23,33 @@ export interface GitStatusResult {
   branch: string | null;
 }
 
+export interface GitDiffHunk {
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: Array<{
+    type: 'context' | 'add' | 'remove';
+    content: string;
+    oldLineNumber?: number;
+    newLineNumber?: number;
+  }>;
+}
+
+export interface GitDiffResult {
+  filePath: string;
+  staged: boolean;
+  oldContent: string;
+  newContent: string;
+  hunks: GitDiffHunk[];
+  isBinary: boolean;
+  isNew: boolean;
+  isDeleted: boolean;
+}
+
 export interface GitAPI {
   getStatus: (rootPath: string) => Promise<GitStatusResult>;
+  getDiff: (rootPath: string, filePath: string, staged: boolean) => Promise<GitDiffResult>;
 }
 
 export interface PersistedSessionData {
