@@ -1,9 +1,16 @@
 import { create } from 'zustand';
 
+export interface DiffMode {
+  staged: boolean;
+  rootPath: string;
+  relativePath: string;
+}
+
 export interface PreviewTab {
   id: string;        // File path serves as unique ID
   filePath: string;
   filename: string;
+  diffMode?: DiffMode;
 }
 
 interface PreviewTabState {
@@ -11,6 +18,7 @@ interface PreviewTabState {
   activeTabId: string | null;
 
   openFile: (filePath: string) => void;
+  openDiff: (rootPath: string, relativePath: string, staged: boolean) => void;
   closeTab: (tabId: string) => void;
   setActiveTab: (tabId: string) => void;
   closeAllTabs: () => void;
@@ -28,7 +36,7 @@ export const usePreviewTabStore = create<PreviewTabState>((set, get) => ({
 
   openFile: (filePath: string) => {
     const { tabs } = get();
-    const existingTab = tabs.find((t) => t.filePath === filePath);
+    const existingTab = tabs.find((t) => t.filePath === filePath && !t.diffMode);
 
     if (existingTab) {
       // File already open, just focus it
@@ -41,6 +49,37 @@ export const usePreviewTabStore = create<PreviewTabState>((set, get) => ({
       id: filePath,
       filePath,
       filename: getFilename(filePath),
+    };
+
+    set({
+      tabs: [...tabs, newTab],
+      activeTabId: newTab.id,
+    });
+  },
+
+  openDiff: (rootPath: string, relativePath: string, staged: boolean) => {
+    const { tabs } = get();
+    const absolutePath = `${rootPath}/${relativePath}`;
+    const diffId = `diff:${staged ? 'staged' : 'unstaged'}:${absolutePath}`;
+
+    const existingTab = tabs.find((t) => t.id === diffId);
+
+    if (existingTab) {
+      // Diff already open, just focus it
+      set({ activeTabId: existingTab.id });
+      return;
+    }
+
+    // Create new diff tab
+    const newTab: PreviewTab = {
+      id: diffId,
+      filePath: absolutePath,
+      filename: getFilename(relativePath),
+      diffMode: {
+        staged,
+        rootPath,
+        relativePath,
+      },
     };
 
     set({

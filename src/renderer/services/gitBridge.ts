@@ -1,4 +1,4 @@
-import type { GitStatusResult } from '../types/electron';
+import type { GitStatusResult, GitDiffResult } from '../types/electron';
 
 /**
  * Git Bridge - Isolates all window.gitAPI access to this single file.
@@ -27,5 +27,14 @@ export const gitBridge = {
       return null;
     }
     return api.getStatus(rootPath);
+  },
+
+  /** Get diff for a specific file */
+  getDiff: async (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.getDiff(rootPath, filePath, staged);
   },
 };

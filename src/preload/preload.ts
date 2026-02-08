@@ -305,10 +305,38 @@ interface GitStatusResult {
     isGitRepo: boolean;
 }
 
+// Git diff result types
+interface GitDiffHunk {
+    oldStart: number;
+    oldLines: number;
+    newStart: number;
+    newLines: number;
+    lines: Array<{
+        type: 'context' | 'add' | 'remove';
+        content: string;
+        oldLineNumber?: number;
+        newLineNumber?: number;
+    }>;
+}
+
+interface GitDiffResult {
+    filePath: string;
+    staged: boolean;
+    oldContent: string;
+    newContent: string;
+    hunks: GitDiffHunk[];
+    isBinary: boolean;
+    isNew: boolean;
+    isDeleted: boolean;
+}
+
 // Expose Git API to renderer
 contextBridge.exposeInMainWorld('gitAPI', {
     getStatus: (rootPath: string): Promise<GitStatusResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, rootPath);
+    },
+    getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });
     },
 });
 

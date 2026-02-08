@@ -55,6 +55,7 @@ export const IPC_CHANNELS = {
 
     // Git operations
     GIT_GET_STATUS: 'git:get-status',  // Get git status and stats
+    GIT_GET_DIFF: 'git:get-diff',      // Get file diff
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';

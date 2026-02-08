@@ -60,22 +60,6 @@
   background: var(--color-accent-hover);
 }
 
-.home-view-shortcut {
-  margin-top: var(--space-6);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-}
-
-.home-view-shortcut kbd {
-  display: inline-block;
-  padding: var(--space-1) var(--space-2);
-  margin: 0 2px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-hover);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
 /* Workspace View */
 .workspace-view {
   display: flex;
@@ -675,4 +659,164 @@
   background: var(--color-bg-hover);
   font-family: var(--font-mono);
   font-size: var(--font-size-xs);
+}
+
+/* ========================================
+   Diff View
+   ======================================== */
+
+.diff-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+  outline: none;
+}
+
+.diff-view:focus-visible {
+  outline: none;
+}
+
+.diff-view.loading,
+.diff-view.error,
+.diff-view.binary {
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.diff-view .spinner {
+  animation: spin 1s linear infinite;
+}
+
+.diff-view-error-detail {
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-2);
+}
+
+.diff-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.diff-header-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-git-modified);
+  color: var(--color-bg-primary);
+}
+
+.diff-header-label.diff-header-new {
+  background: var(--color-git-staged);
+}
+
+.diff-header-label.diff-header-deleted {
+  background: var(--color-git-deleted);
+}
+
+.diff-header-path {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+/* Unified Diff View (VS Code style) */
+.diff-unified-content {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diff-unified-line {
+  display: flex;
+  white-space: pre;
+  min-height: 20px;
+  min-width: 100%; /* Fill viewport width */
+  width: max-content; /* Extend beyond viewport for long lines */
+}
+
+.diff-unified-gutter {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  color: var(--color-text-disabled);
+  background: var(--color-bg-secondary);
+  user-select: none;
+  border-right: 1px solid var(--color-border);
+}
+
+.diff-unified-gutter-add {
+  color: var(--color-git-staged);
+  background: rgba(77, 171, 117, 0.25);
+}
+
+.diff-unified-gutter-remove {
+  color: var(--color-git-deleted);
+  background: rgba(235, 87, 87, 0.25);
+}
+
+.diff-unified-line-number {
+  flex-shrink: 0;
+  width: 48px;
+  padding: 0 var(--space-2);
+  text-align: right;
+  color: var(--color-text-disabled);
+  background: var(--color-bg-secondary);
+  user-select: none;
+  font-size: var(--font-size-xs);
+}
+
+.diff-unified-line-number:last-of-type {
+  border-right: 1px solid var(--color-border);
+}
+
+.diff-unified-line-number-empty {
+  color: transparent;
+}
+
+.diff-unified-line-content {
+  flex: 1;
+  padding: 0 var(--space-2);
+  min-width: 0;
+}
+
+/* Ensure syntax highlighter spans don't break layout */
+.diff-unified-line-content > span {
+  display: inline;
+}
+
+.diff-unified-line-content pre,
+.diff-unified-line-content code {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Added lines - green background */
+.diff-unified-line-add {
+  background: rgba(77, 171, 117, 0.15);
+}
+
+.diff-unified-line-add .diff-unified-line-number {
+  background: rgba(77, 171, 117, 0.2);
+}
+
+/* Removed lines - red background */
+.diff-unified-line-remove {
+  background: rgba(235, 87, 87, 0.15);
+}
+
+.diff-unified-line-remove .diff-unified-line-number {
+  background: rgba(235, 87, 87, 0.2);
 }
