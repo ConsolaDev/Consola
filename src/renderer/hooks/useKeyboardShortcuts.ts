@@ -4,7 +4,7 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { ThemeMode } from '../stores/settingsStore';
 
 interface UseKeyboardShortcutsOptions {
-  onNewWorkspace?: () => void;
+  onNewSession?: () => void;
   onOpenSettings?: () => void;
 }
 
@@ -12,7 +12,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const { theme, setTheme } = useSettingsStore();
-  const { onNewWorkspace, onOpenSettings } = options;
+  const { onNewSession, onOpenSettings } = options;
 
   const toggleTheme = useCallback(() => {
     const themeOrder: ThemeMode[] = ['light', 'dark', 'system'];
@@ -32,10 +32,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Cmd/Ctrl + N : New workspace (opens folder dialog)
+      // Cmd/Ctrl + N : New session (enters new session view for current workspace)
       if (isMod && event.key === 'n') {
         event.preventDefault();
-        onNewWorkspace?.();
+        onNewSession?.();
         return;
       }
 
@@ -63,5 +63,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSidebar, toggleExplorer, toggleTheme, onNewWorkspace, onOpenSettings]);
+  }, [toggleSidebar, toggleExplorer, toggleTheme, onNewSession, onOpenSettings]);
 }
