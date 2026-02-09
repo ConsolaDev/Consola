@@ -55,10 +55,10 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
     setIsSubmitting(true);
 
     try {
-      // Create session with empty name (won't show in sidebar until name is generated)
+      // Create session with placeholder name (will be renamed once name generation succeeds)
       const instanceId = generateSessionInstanceId(workspace.id);
       const session = createSession(workspace.id, {
-        name: '',
+        name: 'New Session',
         workspaceId: workspace.id,
         instanceId,
       });
@@ -79,6 +79,7 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
         if (name) {
           updateSession(workspace.id, session.id, { name });
         }
+        // If generation fails, 'New Session' placeholder remains and ContentView will retry
       });
 
       // Clear the input
