@@ -63,9 +63,30 @@ export const IPC_CHANNELS = {
 
     // Commit message generation
     AGENT_GENERATE_COMMIT_MESSAGE: 'agent:generate-commit-message',
+
+    // Media attachment channels
+    MEDIA_ADD_FROM_PATH: 'media:add-from-path',       // Save image from file path
+    MEDIA_REMOVE: 'media:remove',                      // Remove a specific attachment
+    MEDIA_GET_BASE64: 'media:get-base64',              // Read image as base64 for SDK
+    MEDIA_CLEANUP_INSTANCE: 'media:cleanup-instance',  // Clean up all media for an instance
+
+    // Dialog channels - images
+    DIALOG_SELECT_IMAGES: 'dialog:select-images',      // Open image file picker
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';
+
+// Supported image types for media attachments
+export const SUPPORTED_IMAGE_TYPES: Record<string, string> = {
+    '.jpg': 'image/jpeg',
+    '.jpeg': 'image/jpeg',
+    '.png': 'image/png',
+    '.gif': 'image/gif',
+    '.webp': 'image/webp',
+};
+
+export const MAX_IMAGE_SIZE = 10 * 1024 * 1024; // 10MB per image
+export const MAX_ATTACHMENTS_PER_MESSAGE = 5;
 
 export const DEFAULT_DIMENSIONS = {
     cols: 80,

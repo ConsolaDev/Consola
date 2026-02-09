@@ -1,9 +1,11 @@
-import { memo } from 'react';
+import { memo, useMemo } from 'react';
 import { Box, Text } from '@radix-ui/themes';
 import { ThinkingBlock } from './ThinkingBlock';
 import { MarkdownRenderer } from '../Markdown';
 import { ToolBlock, ToolStatus as ToolBlockStatus } from './ToolBlock';
+import { ToolCluster } from './ToolCluster';
 import { FileContentBlock } from './FileContentBlock';
+import { groupContentBlocks } from './groupContentBlocks';
 import type { ContentBlock, ToolExecution } from '../../stores/agentStore';
 
 interface ChatMessageProps {
@@ -27,6 +29,12 @@ export const ChatMessage = memo(function ChatMessage({
     return toolHistory.find(t => t.toolUseId === toolUseId);
   };
 
+  // Group consecutive tool_use blocks into clusters
+  const grouped = useMemo(
+    () => contentBlocks ? groupContentBlocks(contentBlocks) : [],
+    [contentBlocks]
+  );
+
   // Render content blocks for assistant messages
   const renderContent = () => {
     // User messages: render as markdown
@@ -42,7 +50,21 @@ export const ChatMessage = memo(function ChatMessage({
     if (contentBlocks?.length) {
       return (
         <Box className="message-content">
-          {contentBlocks.map((block, idx) => {
+          {grouped.map((group, gIdx) => {
+            if (group.kind === 'cluster') {
+              return (
+                <ToolCluster
+                  key={`cluster-${group.indices[0]}`}
+                  blocks={group.blocks}
+                  toolHistory={toolHistory}
+                />
+              );
+            }
+
+            // Single block — render as before
+            const block = group.block;
+            const idx = group.index;
+
             if (block.type === 'thinking') {
               return (
                 <ThinkingBlock

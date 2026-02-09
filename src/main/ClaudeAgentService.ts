@@ -217,8 +217,20 @@ export class ClaudeAgentService extends EventEmitter {
   }
 
   async startQuery(options: AgentQueryOptions): Promise<void> {
-    if (this.status.isRunning) {
-      throw new Error('Query already in progress');
+    // If a previous query is still winding down after interrupt, wait briefly for it
+    if (this.currentQuery) {
+      // Ensure abort is signalled
+      this.abortController?.abort();
+      // Wait up to 2 seconds for the previous query to finish
+      const waitStart = Date.now();
+      while (this.currentQuery && Date.now() - waitStart < 2000) {
+        await new Promise(resolve => setTimeout(resolve, 50));
+      }
+      if (this.currentQuery) {
+        // Force cleanup if still stuck
+        this.currentQuery = null;
+        this.abortController = null;
+      }
     }
 
     const sdk = await getSDK();
@@ -475,7 +487,24 @@ export class ClaudeAgentService extends EventEmitter {
   }
 
   async interrupt(): Promise<void> {
-    this.abortController?.abort();
+    // Immediately update status so UI reflects the stop right away
+    // (don't wait for the async generator to fully terminate)
+    if (this.abortController) {
+      this.status.isRunning = false;
+      this.emit('status-changed', { ...this.status });
+
+      // Resolve any pending permission/question promises so the SDK loop unblocks
+      for (const [requestId, pending] of this.pendingPermissions) {
+        pending.resolve({ behavior: 'deny', message: 'Operation cancelled' });
+        this.pendingPermissions.delete(requestId);
+      }
+      for (const [requestId, pending] of this.pendingQuestions) {
+        pending.resolve({});
+        this.pendingQuestions.delete(requestId);
+      }
+
+      this.abortController.abort();
+    }
   }
 
   getStatus(): AgentStatus {

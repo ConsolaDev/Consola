@@ -6,6 +6,7 @@ import { TerminalService } from './TerminalService';
 import { ClaudeAgentService } from './ClaudeAgentService';
 import { saveSessionData, loadSessionData, deleteSessionData } from './SessionStorageService';
 import { generateSessionName } from './SessionNameGenerator';
+import * as MediaStorageService from './MediaStorageService';
 import { TerminalMode, AgentQueryOptions, AgentInputResponse, TrustModeChangeRequest } from '../shared/types';
 import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
 
@@ -348,7 +349,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
                     const files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }> = [];
 
                     if (!statusErr && statusStdout) {
-                        const lines = statusStdout.trim().split('\n').filter(Boolean);
+                        const lines = statusStdout.trimEnd().split('\n').filter(Boolean);
                         for (const line of lines) {
                             const indexStatus = line[0];
                             const workingStatus = line[1];

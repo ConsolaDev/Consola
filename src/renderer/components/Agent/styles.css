@@ -1177,3 +1177,86 @@
   transform: scale(0.95);
 }
 
+/* ========================================
+   Tool Cluster - Collapsible tool groups
+   ======================================== */
+
+.tool-cluster {
+  margin: var(--space-2) 0;
+  padding: var(--space-2);
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-sm);
+  border-left: 2px solid var(--color-border-strong);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.tool-cluster.error {
+  border-left-color: var(--red-9);
+}
+
+.tool-cluster.complete {
+  border-left-color: var(--green-9);
+}
+
+.tool-cluster.in-progress {
+  border-left-color: var(--yellow-9);
+}
+
+.tool-cluster-header {
+  user-select: none;
+  cursor: pointer;
+  min-height: 24px;
+}
+
+.tool-cluster-header:hover {
+  color: var(--color-text-primary);
+}
+
+.tool-cluster-chevron {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+  width: 12px;
+}
+
+.tool-cluster-count {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.tool-cluster-separator {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.tool-cluster-summary {
+  color: var(--color-text-secondary);
+  min-width: 0;
+}
+
+.tool-cluster-type {
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+}
+
+.tool-cluster-type.complete {
+  color: var(--green-9);
+}
+
+.tool-cluster-type.error {
+  color: var(--red-9);
+}
+
+.tool-cluster-type.pending {
+  color: var(--color-text-tertiary);
+}
+
+.tool-cluster-items {
+  margin-top: var(--space-2);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border);
+}
+
