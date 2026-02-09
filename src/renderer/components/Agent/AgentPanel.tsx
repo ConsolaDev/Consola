@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Box, Flex, Text, Button } from '@radix-ui/themes';
 import { useAgent } from '../../hooks/useAgent';
 import { useSelectAll } from '../../hooks/useSelectAll';
@@ -9,6 +9,8 @@ import { ProcessingIndicator } from './ProcessingIndicator';
 import { ApprovalCard } from './ApprovalCard';
 import { SessionDivider } from './SessionDivider';
 import { TrustModeBanner } from './TrustModeBanner';
+import { ToolCluster } from './ToolCluster';
+import { groupMessages } from './groupContentBlocks';
 import { CommandHighlightProvider } from '../HighlightedText';
 import { CodeSelectionProvider } from '../../contexts/CodeSelectionContext';
 
@@ -42,6 +44,9 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
 
   const messagesRef = useSelectAll<HTMLDivElement>();
 
+  // Group consecutive tool-only messages into clusters
+  const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
+
   // Auto-scroll to bottom on new messages or pending inputs
   useEffect(() => {
     if (messagesRef.current) {
@@ -69,7 +74,20 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
             </Flex>
           ) : (
             <>
-              {messages.map(msg => {
+              {groupedMessages.map((group, idx) => {
+                if (group.kind === 'tool-cluster') {
+                  // Render clustered tool messages
+                  return (
+                    <ToolCluster
+                      key={`cluster-${group.messages[0].id}`}
+                      blocks={group.toolBlocks}
+                      toolHistory={toolHistory}
+                    />
+                  );
+                }
+
+                // Single message
+                const msg = group.message;
                 if (msg.type === 'system') {
                   return (
                     <SessionDivider

@@ -1,11 +1,74 @@
-import type { ContentBlock, ToolUseBlock } from '../../stores/agentStore';
+import type { ContentBlock, ToolUseBlock, Message, AssistantMessage } from '../../stores/agentStore';
+
+// ============================================
+// Message-level grouping (for AgentPanel)
+// ============================================
+
+export type GroupedMessage =
+  | { kind: 'single'; message: Message }
+  | { kind: 'tool-cluster'; messages: AssistantMessage[]; toolBlocks: ToolUseBlock[] };
+
+/**
+ * Check if a message contains only tool_use blocks (no text, no thinking)
+ */
+function isToolOnlyMessage(msg: Message): msg is AssistantMessage {
+  if (msg.type !== 'assistant') return false;
+  const blocks = msg.contentBlocks;
+  if (!blocks || blocks.length === 0) return false;
+  return blocks.every(b => b.type === 'tool_use');
+}
+
+/**
+ * Groups consecutive assistant messages that only contain tool_use blocks.
+ * This handles the SDK behavior where each tool call comes as a separate message.
+ */
+export function groupMessages(messages: Message[]): GroupedMessage[] {
+  const result: GroupedMessage[] = [];
+  let toolRun: AssistantMessage[] = [];
+
+  const flushToolRun = () => {
+    if (toolRun.length === 0) return;
+
+    if (toolRun.length >= 2) {
+      // Cluster: 2+ consecutive tool-only messages
+      const toolBlocks = toolRun.flatMap(m =>
+        (m.contentBlocks || []).filter((b): b is ToolUseBlock => b.type === 'tool_use')
+      );
+      result.push({ kind: 'tool-cluster', messages: [...toolRun], toolBlocks });
+    } else {
+      // Single tool-only message — no clustering
+      result.push({ kind: 'single', message: toolRun[0] });
+    }
+
+    toolRun = [];
+  };
+
+  for (const msg of messages) {
+    if (isToolOnlyMessage(msg)) {
+      toolRun.push(msg);
+    } else {
+      // Non-tool message: flush any accumulated tool run, then add as single
+      flushToolRun();
+      result.push({ kind: 'single', message: msg });
+    }
+  }
+
+  // Flush any trailing tool run
+  flushToolRun();
+
+  return result;
+}
+
+// ============================================
+// Block-level grouping (for ChatMessage - kept for mixed messages)
+// ============================================
 
 export type GroupedBlock =
   | { kind: 'single'; block: ContentBlock; index: number }
   | { kind: 'cluster'; blocks: ToolUseBlock[]; indices: number[] };
 
 /**
- * Groups consecutive tool_use content blocks into clusters.
+ * Groups consecutive tool_use content blocks into clusters within a single message.
  * A cluster is 2+ consecutive tool_use blocks not interrupted by text or thinking blocks.
  * Single tool_use blocks (or non-tool blocks) remain as singles.
  */
