@@ -671,11 +671,10 @@ ${stagedResult.stagedFiles.map(f => `- ${f}`).join('\n')}
 Diff:
 ${truncatedDiff}`;
 
-        // Use the agent service to generate the message
-        const service = agentServices.get(instanceId);
-        if (!service) {
-            return { message: '', error: 'Agent service not available' };
-        }
+        // Use the agent service to generate the message (getOrCreateAgentService
+        // lazily creates the service if it doesn't exist yet, e.g. when the user
+        // generates a commit message before sending any chat messages).
+        const service = getOrCreateAgentService(instanceId, rootPath);
 
         try {
             const message = await service.generateCommitMessage(prompt);
