@@ -26,6 +26,25 @@ export function parseBashOutput(response: unknown): BashOutput | null {
   return isBashOutput(response) ? response : null;
 }
 
+// Skill tool output format: { success: boolean, commandName: string }
+export interface SkillOutput {
+  success: boolean;
+  commandName: string;
+}
+
+function isSkillOutput(response: unknown): response is SkillOutput {
+  if (!response || typeof response !== 'object') return false;
+  const obj = response as Record<string, unknown>;
+  return (
+    typeof obj.success === 'boolean' &&
+    typeof obj.commandName === 'string'
+  );
+}
+
+export function parseSkillOutput(response: unknown): SkillOutput | null {
+  return isSkillOutput(response) ? response : null;
+}
+
 export function parseToolOutput(response: unknown): ParsedToolOutput {
   // Handle null/undefined
   if (response === null || response === undefined) {

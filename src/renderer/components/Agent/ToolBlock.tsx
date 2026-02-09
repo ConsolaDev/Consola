@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { Box, Flex, Text } from '@radix-ui/themes';
 import { parseToolInput } from './toolInputParser';
-import { parseBashOutput } from './toolOutputParser';
+import { parseBashOutput, parseSkillOutput } from './toolOutputParser';
 import { ToolOutput } from './ToolOutput';
 import { DiffView } from './DiffView';
 import { BashOutput } from './BashOutput';
@@ -60,6 +60,9 @@ export const ToolBlock = memo(function ToolBlock({ name, input, status, output }
   // Check if this is a Bash tool with structured output
   const bashOutput = name === 'Bash' ? parseBashOutput(output) : null;
 
+  // Check if this is a Skill tool with structured output
+  const skillOutput = name === 'Skill' ? parseSkillOutput(output) : null;
+
   // Check if output contains file content (from Read tool)
   const fileOutput = isFileToolOutput(output) ? output : null;
 
@@ -96,10 +99,23 @@ export const ToolBlock = memo(function ToolBlock({ name, input, status, output }
           interrupted={bashOutput.interrupted}
         />
       )}
+      {showOutput && skillOutput && (
+        <Box className="skill-output-container">
+          <Flex align="center" gap="2" className="skill-output-badge">
+            <span className={`skill-output-dot ${skillOutput.success ? 'success' : 'error'}`} />
+            <Text size="1" className="skill-output-text">
+              {skillOutput.success
+                ? `Loaded skill: ${skillOutput.commandName}`
+                : `Failed to load skill: ${skillOutput.commandName}`
+              }
+            </Text>
+          </Flex>
+        </Box>
+      )}
       {showOutput && fileOutput && (
         <FileContentBlock file={fileOutput.file} />
       )}
-      {showOutput && !isEdit && !bashOutput && !fileOutput && output !== undefined && (
+      {showOutput && !isEdit && !bashOutput && !skillOutput && !fileOutput && output !== undefined && (
         <ToolOutput content={output} />
       )}
     </Box>
