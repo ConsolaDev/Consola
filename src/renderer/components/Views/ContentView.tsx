@@ -69,10 +69,11 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     }
   }, [session, loadInstanceHistory]);
 
-  // Generate session name after first user message if session has empty name
+  // Generate session name after first user message if session has no real name
   useEffect(() => {
     if (!session || !workspace || messageCount === 0) return;
-    if (session.name !== '') return; // Session already has a name
+    // Skip if session already has a generated name (not empty and not the default placeholder)
+    if (session.name !== '' && session.name !== 'New Session') return;
     if (namedSessionsRef.current.has(session.id)) return;
 
     const messages = useAgentStore.getState().instances[instanceId]?.messages ?? [];
@@ -81,9 +82,15 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     if (firstUserMessage) {
       namedSessionsRef.current.add(session.id);
       sessionStorageBridge.generateName(firstUserMessage.content).then((name) => {
-        if (name) {
+        if (name && name !== 'New Session') {
           updateSession(workspaceId, session.id, { name });
+        } else {
+          // Generation failed or returned placeholder — allow retry on next render
+          namedSessionsRef.current.delete(session.id);
         }
+      }).catch(() => {
+        // Allow retry on failure
+        namedSessionsRef.current.delete(session.id);
       });
     }
   }, [session, workspace, messageCount, workspaceId, instanceId, updateSession]);
