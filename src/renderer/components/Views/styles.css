@@ -222,6 +222,7 @@
   overflow-x: hidden;
   word-wrap: break-word;
   overflow-wrap: break-word;
+  padding-bottom: var(--space-9) !important;
 }
 
 .markdown-preview-view .markdown-content {
