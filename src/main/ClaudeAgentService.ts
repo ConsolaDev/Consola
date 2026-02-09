@@ -533,6 +533,52 @@ export class ClaudeAgentService extends EventEmitter {
     };
   }
 
+  /**
+   * Generate a commit message using Claude.
+   * This is a simple one-shot query that doesn't use the full conversation context.
+   */
+  async generateCommitMessage(prompt: string): Promise<string> {
+    const sdk = await getSDK();
+
+    const abortController = new AbortController();
+
+    const query = sdk.query({
+      prompt,
+      options: {
+        cwd: this.cwd,
+        settingSources: ['user', 'project', 'local'],
+        abortController,
+        maxTurns: 1,
+        allowedTools: [],  // No tools needed for commit message generation
+      }
+    });
+
+    // Extract plain text from SDK response content blocks.
+    // The renderer has richer extraction utilities (extractContentBlocks + getPlainText
+    // in agentStore.ts), but those live in the renderer process (ESM) and can't be
+    // imported here (main process, CJS). This inline version is intentionally minimal
+    // — we only need raw text since this is a toolless, single-turn query.
+    // If we add more utility queries in main, consider moving shared extraction to src/shared/.
+    let result = '';
+
+    for await (const message of query) {
+      if (message.type === 'assistant') {
+        const content = message.message.content;
+        if (Array.isArray(content)) {
+          for (const block of content) {
+            if (typeof block === 'object' && block !== null && 'text' in block) {
+              result += (block as { text: string }).text;
+            }
+          }
+        } else if (typeof content === 'string') {
+          result = content;
+        }
+      }
+    }
+
+    return result.trim();
+  }
+
   destroy(): void {
     this.interrupt();
     this.removeAllListeners();

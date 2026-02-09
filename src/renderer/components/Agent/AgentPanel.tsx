@@ -10,6 +10,7 @@ import { ApprovalCard } from './ApprovalCard';
 import { SessionDivider } from './SessionDivider';
 import { TrustModeBanner } from './TrustModeBanner';
 import { CommandHighlightProvider } from '../HighlightedText';
+import { CodeSelectionProvider } from '../../contexts/CodeSelectionContext';
 
 interface AgentPanelProps {
   instanceId: string;
@@ -58,9 +59,10 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
 
   return (
     <Flex direction="column" className="agent-panel">
-      {/* Messages area - wrapped with CommandHighlightProvider for command highlighting */}
-      <CommandHighlightProvider skills={skills} slashCommands={slashCommands}>
-        <Box ref={messagesRef} tabIndex={0} className="messages-container">
+      {/* Messages area - wrapped with providers for command highlighting and code selection */}
+      <CodeSelectionProvider instanceId={instanceId} basePath={cwd}>
+        <CommandHighlightProvider skills={skills} slashCommands={slashCommands}>
+          <Box ref={messagesRef} tabIndex={0} className="messages-container">
           {messages.length === 0 && !isProcessing ? (
             <Flex align="center" justify="center" className="empty-state">
               <Text color="gray">Start a conversation with Claude</Text>
@@ -106,8 +108,9 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
               {isProcessing && <ProcessingIndicator />}
             </>
           )}
-        </Box>
-      </CommandHighlightProvider>
+          </Box>
+        </CommandHighlightProvider>
+      </CodeSelectionProvider>
 
       {/* Error display */}
       {error && (
@@ -130,6 +133,7 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
         skills={skills}
         slashCommands={slashCommands}
         modelUsage={modelUsage}
+        instanceId={instanceId}
       />
     </Flex>
   );

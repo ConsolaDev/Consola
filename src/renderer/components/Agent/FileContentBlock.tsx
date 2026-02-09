@@ -3,6 +3,8 @@ import { Box, Flex, Text } from '@radix-ui/themes';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { codeTheme } from '../../utils/codeTheme';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
+import { SelectableCode } from '../CodeSelection';
+import { useCodeSelectionContext } from '../../contexts/CodeSelectionContext';
 
 export interface FileContent {
   filePath: string;
@@ -87,6 +89,7 @@ function getFileIcon(filePath: string): string {
 export const FileContentBlock = memo(function FileContentBlock({ file, maxLines = 4 }: FileContentBlockProps) {
   const [expanded, setExpanded] = useState(false);
   const openFile = usePreviewTabStore((s) => s.openFile);
+  const selectionContext = useCodeSelectionContext();
 
   const lines = useMemo(() => file.content.split('\n'), [file.content]);
   const language = useMemo(() => getLanguageFromPath(file.filePath), [file.filePath]);
@@ -107,6 +110,39 @@ export const FileContentBlock = memo(function FileContentBlock({ file, maxLines 
     e.stopPropagation();
     openFile(file.filePath);
   };
+
+  const codeContent = (
+    <Box className="file-content-code">
+      <SyntaxHighlighter
+        style={codeTheme}
+        language={language}
+        PreTag="div"
+        showLineNumbers
+        startingLineNumber={file.startLine}
+        lineNumberContainerProps={{
+          className: 'file-content-line-numbers'
+        }}
+        customStyle={{
+          margin: 0,
+          padding: 'var(--space-2)',
+          background: 'transparent',
+          fontSize: '11px',
+          lineHeight: '1.4',
+        }}
+        codeTagProps={{
+          style: {
+            fontFamily: 'var(--font-mono)',
+          }
+        }}
+      >
+        {displayedLines.join('\n')}
+      </SyntaxHighlighter>
+
+      {shouldCollapse && !expanded && (
+        <Box className="file-content-fade" />
+      )}
+    </Box>
+  );
 
   return (
     <Box className={`file-content-block ${expanded ? 'expanded' : 'collapsed'}`}>
@@ -135,36 +171,17 @@ export const FileContentBlock = memo(function FileContentBlock({ file, maxLines 
         </Flex>
       </Flex>
 
-      <Box className="file-content-code">
-        <SyntaxHighlighter
-          style={codeTheme}
-          language={language}
-          PreTag="div"
-          showLineNumbers
-          startingLineNumber={file.startLine}
-          lineNumberContainerProps={{
-            className: 'file-content-line-numbers'
-          }}
-          customStyle={{
-            margin: 0,
-            padding: 'var(--space-2)',
-            background: 'transparent',
-            fontSize: '11px',
-            lineHeight: '1.4',
-          }}
-          codeTagProps={{
-            style: {
-              fontFamily: 'var(--font-mono)',
-            }
-          }}
+      {/* Wrap with SelectableCode if context is available */}
+      {selectionContext ? (
+        <SelectableCode
+          filePath={file.filePath}
+          instanceId={selectionContext.instanceId}
         >
-          {displayedLines.join('\n')}
-        </SyntaxHighlighter>
-
-        {shouldCollapse && !expanded && (
-          <Box className="file-content-fade" />
-        )}
-      </Box>
+          {codeContent}
+        </SelectableCode>
+      ) : (
+        codeContent
+      )}
 
       {shouldCollapse && (
         <Box

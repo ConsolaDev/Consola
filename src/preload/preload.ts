@@ -338,6 +338,21 @@ contextBridge.exposeInMainWorld('gitAPI', {
     getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });
     },
+    stageFile: (rootPath: string, filePath: string): Promise<{ success: boolean }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE_FILE, { rootPath, filePath });
+    },
+    unstageFile: (rootPath: string, filePath: string): Promise<{ success: boolean }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE_FILE, { rootPath, filePath });
+    },
+    commit: (rootPath: string, message: string): Promise<{ success: boolean; error?: string }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, { rootPath, message });
+    },
+    getStagedDiff: (rootPath: string): Promise<{ stagedFiles: string[]; diff: string }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STAGED_DIFF, { rootPath });
+    },
+    generateCommitMessage: (rootPath: string, instanceId: string): Promise<{ message: string; error?: string }> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE, { rootPath, instanceId });
+    },
 });
 
 // Session storage types

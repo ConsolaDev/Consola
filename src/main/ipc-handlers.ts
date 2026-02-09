@@ -344,7 +344,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
                 const branch = !branchErr && branchStdout ? branchStdout.trim() : null;
 
                 // Run git status --porcelain to get file statuses
-                exec('git status --porcelain', { cwd: rootPath }, (statusErr, statusStdout) => {
+                exec('git status --porcelain -uall', { cwd: rootPath }, (statusErr, statusStdout) => {
                     const files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }> = [];
 
                     if (!statusErr && statusStdout) {
@@ -556,6 +556,135 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         });
     }
 
+    // Handle git stage file
+    ipcMain.handle(IPC_CHANNELS.GIT_STAGE_FILE, async (_event, { rootPath, filePath }: { rootPath: string; filePath: string }) => {
+        return new Promise((resolve, reject) => {
+            exec(`git add "${filePath}"`, { cwd: rootPath }, (err, stdout, stderr) => {
+                if (err) {
+                    reject(new Error(stderr || err.message));
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
+    });
+
+    // Handle git unstage file
+    ipcMain.handle(IPC_CHANNELS.GIT_UNSTAGE_FILE, async (_event, { rootPath, filePath }: { rootPath: string; filePath: string }) => {
+        return new Promise((resolve, reject) => {
+            exec(`git reset HEAD "${filePath}"`, { cwd: rootPath }, (err, stdout, stderr) => {
+                if (err) {
+                    // If the file was never committed, git reset will fail
+                    // Try removing from index instead
+                    exec(`git rm --cached "${filePath}"`, { cwd: rootPath }, (err2, stdout2, stderr2) => {
+                        if (err2) {
+                            reject(new Error(stderr2 || stderr || err.message));
+                        } else {
+                            resolve({ success: true });
+                        }
+                    });
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
+    });
+
+    // Handle git commit
+    ipcMain.handle(IPC_CHANNELS.GIT_COMMIT, async (_event, { rootPath, message }: { rootPath: string; message: string }) => {
+        return new Promise((resolve) => {
+            // Escape double quotes in the message
+            const escapedMessage = message.replace(/"/g, '\\"');
+            exec(`git commit -m "${escapedMessage}"`, { cwd: rootPath }, (err, stdout, stderr) => {
+                if (err) {
+                    resolve({ success: false, error: stderr || err.message });
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
+    });
+
+    // Handle get staged diff (for AI commit message generation)
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_STAGED_DIFF, async (_event, { rootPath }: { rootPath: string }) => {
+        return new Promise((resolve) => {
+            // Get list of staged files
+            exec('git diff --cached --name-only', { cwd: rootPath }, (err, stagedFilesOutput) => {
+                if (err || !stagedFilesOutput.trim()) {
+                    resolve({ stagedFiles: [], diff: '' });
+                    return;
+                }
+
+                const stagedFiles = stagedFilesOutput.trim().split('\n').filter(Boolean);
+
+                // Get the full diff
+                exec('git diff --cached', { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffOutput) => {
+                    resolve({
+                        stagedFiles,
+                        diff: diffErr ? '' : diffOutput
+                    });
+                });
+            });
+        });
+    });
+
+    // Handle commit message generation using Claude
+    ipcMain.handle(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE, async (_event, { rootPath, instanceId }: { rootPath: string; instanceId: string }) => {
+        // Get staged diff first
+        const stagedResult = await new Promise<{ stagedFiles: string[]; diff: string }>((resolve) => {
+            exec('git diff --cached --name-only', { cwd: rootPath }, (err, stagedFilesOutput) => {
+                if (err || !stagedFilesOutput.trim()) {
+                    resolve({ stagedFiles: [], diff: '' });
+                    return;
+                }
+
+                const stagedFiles = stagedFilesOutput.trim().split('\n').filter(Boolean);
+
+                exec('git diff --cached', { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffOutput) => {
+                    resolve({
+                        stagedFiles,
+                        diff: diffErr ? '' : diffOutput
+                    });
+                });
+            });
+        });
+
+        if (stagedResult.stagedFiles.length === 0) {
+            return { message: '', error: 'No staged files' };
+        }
+
+        // Truncate diff if too long (to avoid token limits)
+        const maxDiffLength = 8000;
+        const truncatedDiff = stagedResult.diff.length > maxDiffLength
+            ? stagedResult.diff.slice(0, maxDiffLength) + '\n\n... (diff truncated)'
+            : stagedResult.diff;
+
+        // Build prompt for Claude
+        const prompt = `Generate a concise git commit message for the following changes.
+Follow conventional commits format (feat:, fix:, refactor:, docs:, style:, test:, chore:).
+Keep the first line under 72 characters.
+Only output the commit message, nothing else.
+
+Staged files:
+${stagedResult.stagedFiles.map(f => `- ${f}`).join('\n')}
+
+Diff:
+${truncatedDiff}`;
+
+        // Use the agent service to generate the message
+        const service = agentServices.get(instanceId);
+        if (!service) {
+            return { message: '', error: 'Agent service not available' };
+        }
+
+        try {
+            const message = await service.generateCommitMessage(prompt);
+            return { message };
+        } catch (error) {
+            return { message: '', error: error instanceof Error ? error.message : String(error) };
+        }
+    });
+
     function parseDiffHunks(diffOutput: string): Array<{
         oldStart: number;
         oldLines: number;
@@ -678,6 +807,11 @@ export function cleanupIpcHandlers(): void {
     // Remove git IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_DIFF);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_STAGE_FILE);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_UNSTAGE_FILE);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_COMMIT);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STAGED_DIFF);
+    ipcMain.removeHandler(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE);
 
     // Remove session storage handlers
     ipcMain.removeHandler('session:save-history');

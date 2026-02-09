@@ -5,9 +5,11 @@ import { useAgentStore } from '../../stores/agentStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
+import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { sessionStorageBridge } from '../../services/sessionStorageBridge';
 import { AgentPanel } from '../Agent/AgentPanel';
 import { PreviewPanel } from '../PreviewPanel';
+import { GitReviewPanel } from '../GitReviewPanel';
 import { PathDisplay } from './PathDisplay';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
@@ -20,6 +22,7 @@ interface ContentViewProps {
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
+  const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -149,6 +152,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <Separator className="resize-handle" />
               <Panel id="preview" defaultSize="40%" minSize="20%">
                 <PreviewPanel />
+              </Panel>
+            </>
+          )}
+          {isGitReviewOpen && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="git-review" defaultSize="40%" minSize="20%">
+                <GitReviewPanel instanceId={instanceId} />
               </Panel>
             </>
           )}
