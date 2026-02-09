@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, memo, useCallback } from 'react';
-import { ChevronRight, Loader2, Code, FileText } from 'lucide-react';
+import { ChevronRight, Loader2, Code, FileText, Copy, Check } from 'lucide-react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
@@ -75,6 +75,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
   const [fileContent, setFileContent] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [stats, setStats] = useState({ added: 0, removed: 0 });
+  const [copied, setCopied] = useState(false);
   const headerRef = useRef<HTMLDivElement>(null);
   const sentinelRef = useRef<HTMLDivElement>(null);
 
@@ -172,6 +173,13 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
   const handleViewModeChange = (e: React.MouseEvent, mode: 'diff' | 'file') => {
     e.stopPropagation();
     setViewMode(filePath, mode);
+  };
+
+  const handleCopyPath = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    navigator.clipboard.writeText(filePath);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 1500);
   };
 
   const unifiedLines = useMemo(() => {
@@ -320,7 +328,16 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
         <span className="git-review-file-header-icon">
           <FileIcon filename={getFilename(filePath)} />
         </span>
-        <span className="git-review-file-header-name">{filePath}</span>
+        <span className="git-review-file-header-name-group">
+          <span className="git-review-file-header-name">{filePath}</span>
+          <button
+            className="git-review-file-copy-btn"
+            onClick={handleCopyPath}
+            title="Copy file path"
+          >
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        </span>
 
         {(stats.added > 0 || stats.removed > 0) && (
           <div className="git-review-file-header-stats">
