@@ -45,6 +45,11 @@ interface TaskInput {
   description?: string;
 }
 
+interface SkillInput {
+  skill: string;
+  args?: string;
+}
+
 function truncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   return str.slice(0, maxLen - 1) + '…';
@@ -140,6 +145,16 @@ export function parseToolInput(toolName: string, input: unknown): ParsedToolInpu
       const query = (inp as { query?: string }).query;
       if (query) {
         parsed.primaryArg = truncate(query, 50);
+      }
+      break;
+    }
+
+    case 'Skill': {
+      const skillInput = inp as SkillInput;
+      parsed.displayName = 'Skill';
+      parsed.primaryArg = skillInput.skill || '';
+      if (skillInput.args) {
+        parsed.secondaryInfo = truncate(skillInput.args, 40);
       }
       break;
     }

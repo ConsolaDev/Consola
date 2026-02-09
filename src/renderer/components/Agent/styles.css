@@ -391,6 +391,44 @@
   color: var(--color-text-secondary);
 }
 
+/* Skill Output - Compact inline badge */
+.skill-output-container {
+  margin-left: var(--space-4);
+  margin-top: var(--space-1);
+  padding-left: var(--space-3);
+  border-left: 1px solid var(--color-border);
+}
+
+.skill-output-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 3px var(--space-2);
+  background: var(--color-bg-secondary);
+  border-radius: var(--radius-sm);
+}
+
+.skill-output-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.skill-output-dot.success {
+  background: var(--green-9);
+}
+
+.skill-output-dot.error {
+  background: var(--red-9);
+}
+
+.skill-output-text {
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
 /* Diff View */
 .diff-view {
   margin-left: var(--space-4);
