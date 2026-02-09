@@ -1,6 +1,5 @@
 import { useCallback, useState, useEffect } from 'react';
-import { Flex, Text } from '@radix-ui/themes';
-import { Shield, ShieldCheck, X, Zap } from 'lucide-react';
+import { ShieldCheck, X, Zap } from 'lucide-react';
 import type { TrustMode } from '../../../shared/types';
 
 interface TrustModeBannerProps {
@@ -31,7 +30,6 @@ export function TrustModeBanner({
   pendingInputsCount
 }: TrustModeBannerProps) {
   const [duration, setDuration] = useState<string>('');
-  const [isExpanding, setIsExpanding] = useState(false);
 
   // Update duration counter when trust mode is active
   useEffect(() => {
@@ -50,7 +48,6 @@ export function TrustModeBanner({
   }, [trustMode, trustModeEnabledAt]);
 
   const handleEnableTrustMode = useCallback(() => {
-    setIsExpanding(false);
     onSetTrustMode('session');
   }, [onSetTrustMode]);
 
@@ -58,62 +55,48 @@ export function TrustModeBanner({
     onSetTrustMode('off');
   }, [onSetTrustMode]);
 
-  // Show activation prompt when there are pending inputs and trust mode is off
+  // Show compact activation prompt when there are pending inputs and trust mode is off
   if (trustMode === 'off' && pendingInputsCount > 0) {
     return (
-      <div className="trust-mode-prompt">
-        <div className="trust-mode-prompt-glow" />
-        <Flex align="center" gap="3" className="trust-mode-prompt-content">
-          <div className="trust-mode-icon-container prompt">
-            <Shield size={16} />
-          </div>
-          <Flex direction="column" gap="0" className="trust-mode-prompt-text">
-            <Text size="2" weight="medium" className="trust-mode-prompt-title">
-              Auto-approve for session?
-            </Text>
-            <Text size="1" className="trust-mode-prompt-subtitle">
-              Skip approval dialogs for all actions
-            </Text>
-          </Flex>
+      <div className="trust-mode-topbar prompt">
+        <div className="trust-mode-topbar-inner">
+          <div className="trust-mode-topbar-dot prompt" />
+          <span className="trust-mode-topbar-label">
+            {pendingInputsCount} pending {pendingInputsCount === 1 ? 'approval' : 'approvals'}
+          </span>
+          <span className="trust-mode-topbar-separator">·</span>
           <button
-            className="trust-mode-enable-btn"
+            className="trust-mode-topbar-action"
             onClick={handleEnableTrustMode}
           >
-            <Zap size={14} />
-            Enable
+            <Zap size={11} />
+            Auto-approve
           </button>
-        </Flex>
+        </div>
       </div>
     );
   }
 
-  // Show active trust mode banner
+  // Show compact active trust mode strip
   if (trustMode === 'session') {
     return (
-      <div className="trust-mode-banner active">
-        <div className="trust-mode-banner-shimmer" />
-        <Flex align="center" justify="between" className="trust-mode-banner-content">
-          <Flex align="center" gap="3">
-            <div className="trust-mode-icon-container active">
-              <ShieldCheck size={16} />
-            </div>
-            <Flex direction="column" gap="0">
-              <Text size="2" weight="medium" className="trust-mode-active-title">
-                Trust Mode Active
-              </Text>
-              <Text size="1" className="trust-mode-active-duration">
-                Auto-approving all actions · {duration}
-              </Text>
-            </Flex>
-          </Flex>
+      <div className="trust-mode-topbar active">
+        <div className="trust-mode-topbar-shimmer" />
+        <div className="trust-mode-topbar-inner">
+          <div className="trust-mode-topbar-dot active">
+            <ShieldCheck size={10} />
+          </div>
+          <span className="trust-mode-topbar-label active">Trust Mode</span>
+          <span className="trust-mode-topbar-separator">·</span>
+          <span className="trust-mode-topbar-duration">{duration}</span>
           <button
-            className="trust-mode-disable-btn"
+            className="trust-mode-topbar-dismiss"
             onClick={handleDisableTrustMode}
             title="Disable trust mode"
           >
-            <X size={14} />
+            <X size={11} />
           </button>
-        </Flex>
+        </div>
       </div>
     );
   }
