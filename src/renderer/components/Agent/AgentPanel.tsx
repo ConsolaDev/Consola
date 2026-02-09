@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useRef, useMemo, useCallback } from 'react';
 import { Box, Flex, Text, Button } from '@radix-ui/themes';
 import { useAgent } from '../../hooks/useAgent';
 import { useSelectAll } from '../../hooks/useSelectAll';
@@ -43,13 +43,30 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
   } = useAgent(instanceId, cwd, additionalDirectories);
 
   const messagesRef = useSelectAll<HTMLDivElement>();
+  const isNearBottomRef = useRef(true);
+
+  // Track whether user is near the bottom of the scroll container
+  const handleScroll = useCallback(() => {
+    if (!messagesRef.current) return;
+    const { scrollTop, scrollHeight, clientHeight } = messagesRef.current;
+    const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
+    isNearBottomRef.current = distanceFromBottom < 50;
+  }, [messagesRef]);
+
+  // Attach scroll listener to the messages container
+  useEffect(() => {
+    const container = messagesRef.current;
+    if (!container) return;
+    container.addEventListener('scroll', handleScroll);
+    return () => container.removeEventListener('scroll', handleScroll);
+  }, [messagesRef, handleScroll]);
 
   // Group consecutive tool-only messages into clusters
   const groupedMessages = useMemo(() => groupMessages(messages), [messages]);
 
-  // Auto-scroll to bottom on new messages or pending inputs
+  // Auto-scroll to bottom on new messages or pending inputs, only if user is near the bottom
   useEffect(() => {
-    if (messagesRef.current) {
+    if (messagesRef.current && isNearBottomRef.current) {
       messagesRef.current.scrollTop = messagesRef.current.scrollHeight;
     }
   }, [messages, pendingInputs]);
