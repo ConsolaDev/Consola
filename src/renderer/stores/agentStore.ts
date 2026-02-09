@@ -374,6 +374,12 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     // Ensure instance exists
     get().getOrCreateInstance(instanceId);
 
+    // If agent is currently running, interrupt it first before sending new message
+    const currentInstance = get().instances[instanceId];
+    if (currentInstance?.status.isRunning) {
+      agentBridge.interrupt(instanceId);
+    }
+
     // Add user message to store
     const userMessage: Message = {
       id: generateId(),

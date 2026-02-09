@@ -176,6 +176,39 @@ export interface TrustModeChangedEvent {
     enabledAt?: number;
 }
 
+// Media attachment types
+export type MediaType = 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp';
+
+export interface MediaAttachment {
+    /** Unique identifier for this attachment */
+    id: string;
+    /** Display name (e.g., "Image 1", "Image 2") */
+    displayName: string;
+    /** Original filename from the user's filesystem */
+    originalFilename: string;
+    /** MIME type */
+    mediaType: MediaType;
+    /** File size in bytes */
+    size: number;
+    /** Width in pixels (if available) */
+    width?: number;
+    /** Height in pixels (if available) */
+    height?: number;
+}
+
+export interface MediaAttachmentResult {
+    attachment: MediaAttachment;
+    /** Base64-encoded thumbnail for preview (max 200x200) */
+    thumbnailBase64: string;
+}
+
+export interface MediaAPI {
+    addFromPath: (instanceId: string, filePath: string) => Promise<MediaAttachmentResult>;
+    remove: (instanceId: string, attachmentId: string) => Promise<void>;
+    getBase64: (instanceId: string, attachmentId: string) => Promise<{ data: string; mediaType: MediaType }>;
+    cleanupInstance: (instanceId: string) => Promise<void>;
+}
+
 export interface AgentQueryOptions {
     instanceId: string;
     cwd?: string;
@@ -184,6 +217,8 @@ export interface AgentQueryOptions {
     allowedTools?: string[];
     maxTurns?: number;
     resume?: string;
+    /** Image attachments to include with the message */
+    images?: Array<{ attachmentId: string; displayName: string }>;
 }
 
 export interface ClaudeAgentAPI {

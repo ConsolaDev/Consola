@@ -81,7 +81,7 @@ export function ChatInput({
           onChange={handleChange}
           onKeyDown={handleKeyDown}
           placeholder="What would you like to do?"
-          disabled={disabled || isRunning}
+          disabled={disabled}
           rows={1}
           skills={skills}
           slashCommands={slashCommands}

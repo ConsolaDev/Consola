@@ -107,11 +107,11 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
   }, []);
 
   const handleSend = useCallback(() => {
-    if (input.trim() && !isRunning) {
+    if (input.trim()) {
       onSend(input.trim());
       resetInput();
     }
-  }, [input, isRunning, onSend, resetInput]);
+  }, [input, onSend, resetInput]);
 
   const handleChange = useCallback((e: ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value);
@@ -170,7 +170,7 @@ export function useChatInput({ onSend, isRunning, skills = [], slashCommands = [
     }
   }, [handleSend, showSuggestions, filteredCommands, selectedIndex, selectCommand, executeCommand]);
 
-  const canSend = Boolean(input.trim()) && !isRunning;
+  const canSend = Boolean(input.trim());
   const hasContent = input.length > 0;
 
   return {

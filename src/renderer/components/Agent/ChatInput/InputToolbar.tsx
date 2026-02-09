@@ -67,11 +67,8 @@ interface ToolbarRightProps {
 function ToolbarRight({ isRunning, canSend, onSend, onInterrupt }: ToolbarRightProps) {
   return (
     <div className="chat-input-toolbar-right">
-      {isRunning ? (
-        <StopButton onClick={onInterrupt} />
-      ) : (
-        <SendButton disabled={!canSend} onClick={onSend} />
-      )}
+      {isRunning && <StopButton onClick={onInterrupt} />}
+      <SendButton disabled={!canSend} onClick={onSend} />
     </div>
   );
 }
