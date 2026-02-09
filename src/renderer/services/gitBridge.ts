@@ -37,4 +37,49 @@ export const gitBridge = {
     }
     return api.getDiff(rootPath, filePath, staged);
   },
+
+  /** Stage a file (git add) */
+  stageFile: async (rootPath: string, filePath: string): Promise<{ success: boolean } | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.stageFile(rootPath, filePath);
+  },
+
+  /** Unstage a file (git reset HEAD) */
+  unstageFile: async (rootPath: string, filePath: string): Promise<{ success: boolean } | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.unstageFile(rootPath, filePath);
+  },
+
+  /** Create a commit */
+  commit: async (rootPath: string, message: string): Promise<{ success: boolean; error?: string } | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.commit(rootPath, message);
+  },
+
+  /** Get staged diff for commit message generation */
+  getStagedDiff: async (rootPath: string): Promise<{ stagedFiles: string[]; diff: string } | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.getStagedDiff(rootPath);
+  },
+
+  /** Generate a commit message using Claude */
+  generateCommitMessage: async (rootPath: string, instanceId: string): Promise<{ message: string; error?: string } | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.generateCommitMessage(rootPath, instanceId);
+  },
 };

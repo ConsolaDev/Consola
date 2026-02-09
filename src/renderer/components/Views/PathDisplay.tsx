@@ -1,6 +1,7 @@
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw, GitBranch } from 'lucide-react';
+import { FolderTree, RotateCw, GitBranch, GitPullRequestDraft } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
+import { useGitReviewStore } from '../../stores/gitReviewStore';
 
 interface PathDisplayProps {
   path: string;
@@ -48,7 +49,14 @@ export function PathDisplay({
   isExplorerVisible = false,
   onToggleExplorer
 }: PathDisplayProps) {
-  const { stats, isLoading, isGitRepo, branch, refresh } = useGitStatusStore();
+  // Use granular selectors to prevent unnecessary re-renders
+  const stats = useGitStatusStore((state) => state.stats);
+  const isLoading = useGitStatusStore((state) => state.isLoading);
+  const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
+  const branch = useGitStatusStore((state) => state.branch);
+  const refresh = useGitStatusStore((state) => state.refresh);
+  const isReviewOpen = useGitReviewStore((state) => state.isOpen);
+  const toggleReview = useGitReviewStore((state) => state.toggle);
 
   const handleRefresh = () => {
     if (path && !isLoading) {
@@ -115,6 +123,30 @@ export function PathDisplay({
               </Tooltip.Root>
             </Tooltip.Provider>
           </div>
+        )}
+
+        {/* Git Review Panel toggle */}
+        {isGitRepo && (
+          <Tooltip.Provider delayDuration={300}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  className={`path-display-toggle ${isReviewOpen ? 'active' : ''}`}
+                  onClick={toggleReview}
+                  aria-label={isReviewOpen ? 'Close review panel' : 'Open review panel'}
+                  aria-pressed={isReviewOpen}
+                >
+                  <GitPullRequestDraft size={14} />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                  {isReviewOpen ? 'Close review panel' : 'Review changes'}
+                  <Tooltip.Arrow className="tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
         )}
 
         {showExplorerToggle && onToggleExplorer && (

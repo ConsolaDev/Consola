@@ -3,6 +3,8 @@ import { useChatInput } from './useChatInput';
 import { CommandSuggestions } from './CommandSuggestions';
 import { InputToolbar } from './InputToolbar';
 import { HighlightedInput } from './HighlightedInput';
+import { CodeReferencesContainer } from '../../CodeSelection';
+import { useCodeReferencesStore, formatReferencesForMessage } from '../../../stores/codeReferencesStore';
 import { ModelUsage } from '../../../../shared/types';
 
 interface ChatInputProps {
@@ -13,6 +15,7 @@ interface ChatInputProps {
   skills?: string[];
   slashCommands?: string[];
   modelUsage?: ModelUsage | null;
+  instanceId: string;
 }
 
 export function ChatInput({
@@ -22,8 +25,21 @@ export function ChatInput({
   disabled,
   skills = [],
   slashCommands = [],
-  modelUsage = null
+  modelUsage = null,
+  instanceId
 }: ChatInputProps) {
+  const consumeReferences = useCodeReferencesStore((state) => state.consumeReferences);
+  const hasReferences = useCodeReferencesStore(
+    (state) => (state.referencesByInstance.get(instanceId)?.length ?? 0) > 0
+  );
+
+  // Wrap onSend to include code references
+  const handleSendWithReferences = useCallback((message: string) => {
+    const references = consumeReferences(instanceId);
+    const referencesText = formatReferencesForMessage(references);
+    onSend(referencesText + message);
+  }, [onSend, consumeReferences, instanceId]);
+
   const {
     input,
     showSuggestions,
@@ -37,7 +53,7 @@ export function ChatInput({
     selectCommand,
     executeCommand,
     setSelectedIndex,
-  } = useChatInput({ onSend, isRunning, skills, slashCommands });
+  } = useChatInput({ onSend: handleSendWithReferences, isRunning, skills, slashCommands });
 
   const handleAttach = useCallback(() => {
     // TODO: Implement file attachment
@@ -56,6 +72,9 @@ export function ChatInput({
       />
 
       <div className="chat-input-card">
+        {/* Code references above input */}
+        {hasReferences && <CodeReferencesContainer instanceId={instanceId} />}
+
         <HighlightedInput
           ref={textareaRef}
           value={input}
@@ -70,7 +89,7 @@ export function ChatInput({
 
         <InputToolbar
           isRunning={isRunning}
-          canSend={canSend}
+          canSend={canSend || hasReferences}
           disabled={disabled}
           onSend={handleSend}
           onInterrupt={onInterrupt}

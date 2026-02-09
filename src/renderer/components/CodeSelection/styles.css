@@ -1,0 +1,303 @@
+/**
+ * Code Selection Components
+ *
+ * Industrial/Utilitarian design - precise, fast, unobtrusive.
+ * These components enable quick code reference selection for chat.
+ */
+
+/* ═══════════════════════════════════════════════════════════
+   SELECTION POPUP - Floating action pill
+   ═══════════════════════════════════════════════════════════ */
+
+.code-selection-popup {
+  position: fixed;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.4),
+    0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+  z-index: var(--z-tooltip);
+  pointer-events: auto;
+
+  /* Snap-in animation - fast and precise */
+  animation: selection-popup-enter 100ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes selection-popup-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px) scale(0.96);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.code-selection-popup-btn {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  font-family: inherit;
+  cursor: pointer;
+  transition:
+    background 80ms ease,
+    color 80ms ease;
+  white-space: nowrap;
+}
+
+.code-selection-popup-btn:hover {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.code-selection-popup-btn:active {
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.code-selection-popup-btn svg {
+  flex-shrink: 0;
+  opacity: 0.7;
+}
+
+.code-selection-popup-btn:hover svg {
+  opacity: 1;
+}
+
+/* Keyboard shortcut badge */
+.code-selection-shortcut {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 5px;
+  margin-left: 2px;
+  font-size: 10px;
+  font-family: var(--font-mono);
+  color: var(--color-text-disabled);
+  background: var(--color-bg-hover);
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+}
+
+.code-selection-popup-btn:hover .code-selection-shortcut {
+  color: var(--color-text-tertiary);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+/* Divider between buttons */
+.code-selection-popup-divider {
+  width: 1px;
+  height: 16px;
+  background: var(--color-border);
+  margin: 0 2px;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CODE REFERENCE PILL - Compact file reference tag
+   ═══════════════════════════════════════════════════════════ */
+
+.code-reference-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--color-bg-tertiary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  max-width: 280px;
+  transition:
+    background 100ms ease,
+    border-color 100ms ease;
+
+  /* Subtle entrance */
+  animation: pill-enter 150ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes pill-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.92);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+.code-reference-pill:hover {
+  background: var(--color-bg-active);
+  border-color: var(--color-border-strong);
+}
+
+/* Info/File icon */
+.code-reference-pill-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--color-info);
+  opacity: 0.8;
+}
+
+.code-reference-pill:hover .code-reference-pill-icon {
+  opacity: 1;
+}
+
+/* File name and line range */
+.code-reference-pill-label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  letter-spacing: -0.01em;
+}
+
+.code-reference-pill-filename {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.code-reference-pill-lines {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+/* Remove button - appears on hover */
+.code-reference-pill-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  margin-left: 2px;
+  margin-right: -4px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-disabled);
+  cursor: pointer;
+  opacity: 0;
+  transition:
+    opacity 80ms ease,
+    color 80ms ease,
+    background 80ms ease;
+}
+
+.code-reference-pill:hover .code-reference-pill-remove {
+  opacity: 1;
+}
+
+.code-reference-pill-remove:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+
+.code-reference-pill-remove:active {
+  background: var(--color-error);
+  color: white;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   CODE REFERENCES CONTAINER - Holds multiple pills
+   ═══════════════════════════════════════════════════════════ */
+
+.code-references-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+
+  /* Slide down animation */
+  animation: refs-container-enter 120ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes refs-container-enter {
+  from {
+    opacity: 0;
+    max-height: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+  to {
+    opacity: 1;
+    max-height: 200px;
+    padding-top: 8px;
+    padding-bottom: 8px;
+  }
+}
+
+/* Empty state */
+.code-references-container:empty {
+  display: none;
+}
+
+/* ═══════════════════════════════════════════════════════════
+   LIGHT THEME ADJUSTMENTS
+   ═══════════════════════════════════════════════════════════ */
+
+[data-theme='light'] .code-selection-popup {
+  box-shadow:
+    0 4px 12px rgba(0, 0, 0, 0.15),
+    0 0 0 1px rgba(0, 0, 0, 0.06) inset;
+}
+
+[data-theme='light'] .code-selection-shortcut {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+[data-theme='light'] .code-selection-popup-btn:hover .code-selection-shortcut {
+  background: rgba(0, 0, 0, 0.08);
+}
+
+[data-theme='light'] .code-reference-pill {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme='light'] .code-reference-pill:hover {
+  background: rgba(0, 0, 0, 0.06);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   REDUCED MOTION
+   ═══════════════════════════════════════════════════════════ */
+
+@media (prefers-reduced-motion: reduce) {
+  .code-selection-popup,
+  .code-reference-pill,
+  .code-references-container {
+    animation: none;
+  }
+
+  .code-selection-popup-btn,
+  .code-reference-pill,
+  .code-reference-pill-remove,
+  .code-reference-pill-icon {
+    transition: none;
+  }
+}

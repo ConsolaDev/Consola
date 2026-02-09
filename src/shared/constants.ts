@@ -56,6 +56,13 @@ export const IPC_CHANNELS = {
     // Git operations
     GIT_GET_STATUS: 'git:get-status',  // Get git status and stats
     GIT_GET_DIFF: 'git:get-diff',      // Get file diff
+    GIT_STAGE_FILE: 'git:stage-file',  // Stage a file (git add)
+    GIT_UNSTAGE_FILE: 'git:unstage-file',  // Unstage a file (git reset HEAD)
+    GIT_COMMIT: 'git:commit',          // Create a commit
+    GIT_GET_STAGED_DIFF: 'git:get-staged-diff',  // Get unified diff of all staged files
+
+    // Commit message generation
+    AGENT_GENERATE_COMMIT_MESSAGE: 'agent:generate-commit-message',
 } as const;
 
 export const DEFAULT_INSTANCE_ID = 'default';

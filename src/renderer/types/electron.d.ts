@@ -50,6 +50,11 @@ export interface GitDiffResult {
 export interface GitAPI {
   getStatus: (rootPath: string) => Promise<GitStatusResult>;
   getDiff: (rootPath: string, filePath: string, staged: boolean) => Promise<GitDiffResult>;
+  stageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;
+  unstageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;
+  commit: (rootPath: string, message: string) => Promise<{ success: boolean; error?: string }>;
+  getStagedDiff: (rootPath: string) => Promise<{ stagedFiles: string[]; diff: string }>;
+  generateCommitMessage: (rootPath: string, instanceId: string) => Promise<{ message: string; error?: string }>;
 }
 
 export interface PersistedSessionData {
