@@ -10,6 +10,7 @@ import { ApprovalCard } from './ApprovalCard';
 import { SessionDivider } from './SessionDivider';
 import { TrustModeBanner } from './TrustModeBanner';
 import { ToolCluster } from './ToolCluster';
+import { TodoListPanel } from './TodoListPanel';
 import { groupMessages } from './groupContentBlocks';
 import { CommandHighlightProvider } from '../HighlightedText';
 import { CodeSelectionProvider } from '../../contexts/CodeSelectionContext';
@@ -27,6 +28,7 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
     messages,
     toolHistory,
     pendingInputs,
+    todos,
     error,
     isProcessing,
     model,
@@ -81,6 +83,13 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
 
   return (
     <Flex direction="column" className="agent-panel">
+      {/* Trust Mode Banner — compact sticky bar at top of conversation area */}
+      <TrustModeBanner
+        trustMode={trustMode}
+        trustModeEnabledAt={trustModeEnabledAt}
+        onSetTrustMode={setTrustMode}
+        pendingInputsCount={pendingInputs.filter(r => r.status === 'pending').length}
+      />
       {/* Messages area - wrapped with providers for command highlighting and code selection */}
       <CodeSelectionProvider instanceId={instanceId} basePath={cwd}>
         <CommandHighlightProvider skills={skills} slashCommands={slashCommands}>
@@ -125,13 +134,6 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
                   />
                 );
               })}
-              {/* Trust Mode Banner - show when there are pending approvals or trust mode is active */}
-              <TrustModeBanner
-                trustMode={trustMode}
-                trustModeEnabledAt={trustModeEnabledAt}
-                onSetTrustMode={setTrustMode}
-                pendingInputsCount={pendingInputs.filter(r => r.status === 'pending').length}
-              />
               {/* Pending approval requests - only show if trust mode is off */}
               {trustMode === 'off' && pendingInputs.filter(r => r.status === 'pending').map(request => (
                 <ApprovalCard
@@ -158,6 +160,9 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
           </Flex>
         </Box>
       )}
+
+      {/* Todo list — visible above input when active */}
+      <TodoListPanel todos={todos} isRunning={isRunning} />
 
       {/* Input */}
       <ChatInput
