@@ -35,7 +35,6 @@ export interface AgentQueryOptions {
   allowedTools?: string[];
   maxTurns?: number;
   resume?: string;
-  continue?: boolean;
 }
 
 export interface AgentStatus {
@@ -235,8 +234,11 @@ export class ClaudeAgentService extends EventEmitter {
       abortController: this.abortController,
       allowedTools: options.allowedTools,
       maxTurns: options.maxTurns,
+      // Use `resume` with a specific session ID instead of `continue` to ensure
+      // each agent instance resumes its own SDK session. `continue: true` picks
+      // the most recent session in the cwd, which causes cross-session mixing
+      // when multiple sessions share the same workspace directory.
       resume: options.resume,
-      continue: options.continue,
       includePartialMessages: true,
       model: 'claude-opus-4-6',
       // Permission callback - asks user for approval (or auto-approves in trust mode)
