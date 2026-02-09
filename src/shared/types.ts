@@ -184,7 +184,6 @@ export interface AgentQueryOptions {
     allowedTools?: string[];
     maxTurns?: number;
     resume?: string;
-    continue?: boolean;
 }
 
 export interface ClaudeAgentAPI {

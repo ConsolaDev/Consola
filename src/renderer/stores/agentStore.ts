@@ -388,6 +388,10 @@ export const useAgentStore = create<AgentState>((set, get) => ({
     })));
 
     // Start query via bridge
+    // Use `resume` with the specific SDK session ID to avoid cross-session
+    // interference when multiple sessions share the same workspace (cwd).
+    // Previously used `continue: true` which resumes the most recent session
+    // in the cwd — causing conversations to mix when sessions run concurrently.
     const instance = get().instances[instanceId];
     const { additionalDirectories, ...restOptions } = options;
     agentBridge.startQuery({
@@ -396,7 +400,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       additionalDirectories,
       prompt,
       ...restOptions,
-      continue: instance?.sessionId !== null
+      resume: instance?.sessionId ?? undefined
     });
   },
 
