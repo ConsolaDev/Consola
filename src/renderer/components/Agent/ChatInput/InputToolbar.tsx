@@ -1,6 +1,7 @@
 import { Plus, ArrowRight, Square } from 'lucide-react';
-import { ModelUsage } from '../../../../shared/types';
+import { ModelUsage, TrustMode } from '../../../../shared/types';
 import { TokenUsageIndicator } from './TokenUsageIndicator';
+import { TrustModeIndicator } from './TrustModeIndicator';
 
 interface InputToolbarProps {
   isRunning: boolean;
@@ -10,6 +11,9 @@ interface InputToolbarProps {
   onInterrupt: () => void;
   onAttach: () => void;
   modelUsage: ModelUsage | null;
+  trustMode: TrustMode;
+  onSetTrustMode: (mode: TrustMode) => void;
+  pendingInputsCount: number;
 }
 
 export function InputToolbar({
@@ -19,7 +23,10 @@ export function InputToolbar({
   onSend,
   onInterrupt,
   onAttach,
-  modelUsage
+  modelUsage,
+  trustMode,
+  onSetTrustMode,
+  pendingInputsCount
 }: InputToolbarProps) {
   return (
     <div className="chat-input-toolbar">
@@ -27,6 +34,9 @@ export function InputToolbar({
         disabled={disabled}
         onAttach={onAttach}
         modelUsage={modelUsage}
+        trustMode={trustMode}
+        onSetTrustMode={onSetTrustMode}
+        pendingInputsCount={pendingInputsCount}
       />
       <ToolbarRight
         isRunning={isRunning}
@@ -42,17 +52,28 @@ interface ToolbarLeftProps {
   disabled: boolean;
   onAttach: () => void;
   modelUsage: ModelUsage | null;
+  trustMode: TrustMode;
+  onSetTrustMode: (mode: TrustMode) => void;
+  pendingInputsCount: number;
 }
 
 function ToolbarLeft({
   disabled,
   onAttach,
-  modelUsage
+  modelUsage,
+  trustMode,
+  onSetTrustMode,
+  pendingInputsCount
 }: ToolbarLeftProps) {
   return (
     <div className="chat-input-toolbar-left">
       <AttachButton disabled={disabled} onClick={onAttach} />
       <TokenUsageIndicator modelUsage={modelUsage} />
+      <TrustModeIndicator
+        trustMode={trustMode}
+        onSetTrustMode={onSetTrustMode}
+        pendingInputsCount={pendingInputsCount}
+      />
     </div>
   );
 }

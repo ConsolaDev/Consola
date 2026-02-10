@@ -23,9 +23,16 @@ export function SessionNavItem({
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const instanceStatus = useAgentStore(
-    (state) => state.instances[session.instanceId]?.status?.isRunning ?? false
-  );
+  const sessionStatus = useAgentStore((state) => {
+    const instance = state.instances[session.instanceId];
+    if (!instance) return null;
+
+    // Priority: Error > Attention (pending inputs) > Running > None
+    if (instance.error) return 'error';
+    if (instance.pendingInputs.some(input => input.status === 'pending')) return 'attention';
+    if (instance.status.isRunning) return 'running';
+    return null;
+  });
   const destroyInstance = useAgentStore((state) => state.destroyInstance);
 
   const updateSession = useWorkspaceStore((state) => state.updateSession);
@@ -103,8 +110,8 @@ export function SessionNavItem({
       ) : (
         <span className="session-nav-item-name">{session.name}</span>
       )}
-      {instanceStatus && (
-        <span className="session-status-indicator session-status-indicator--running" />
+      {sessionStatus && (
+        <span className={`session-status-indicator session-status-indicator--${sessionStatus}`} />
       )}
       {!isRenaming && (
         <SessionActionsMenu

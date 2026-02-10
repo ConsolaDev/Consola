@@ -5,7 +5,7 @@ import { InputToolbar } from './InputToolbar';
 import { HighlightedInput } from './HighlightedInput';
 import { CodeReferencesContainer } from '../../CodeSelection';
 import { useCodeReferencesStore, formatReferencesForMessage } from '../../../stores/codeReferencesStore';
-import { ModelUsage } from '../../../../shared/types';
+import { ModelUsage, TrustMode } from '../../../../shared/types';
 
 interface ChatInputProps {
   onSend: (message: string) => void;
@@ -16,6 +16,9 @@ interface ChatInputProps {
   slashCommands?: string[];
   modelUsage?: ModelUsage | null;
   instanceId: string;
+  trustMode: TrustMode;
+  onSetTrustMode: (mode: TrustMode) => void;
+  pendingInputsCount: number;
 }
 
 export function ChatInput({
@@ -26,7 +29,10 @@ export function ChatInput({
   skills = [],
   slashCommands = [],
   modelUsage = null,
-  instanceId
+  instanceId,
+  trustMode,
+  onSetTrustMode,
+  pendingInputsCount
 }: ChatInputProps) {
   const consumeReferences = useCodeReferencesStore((state) => state.consumeReferences);
   const hasReferences = useCodeReferencesStore(
@@ -95,6 +101,9 @@ export function ChatInput({
           onInterrupt={onInterrupt}
           onAttach={handleAttach}
           modelUsage={modelUsage}
+          trustMode={trustMode}
+          onSetTrustMode={onSetTrustMode}
+          pendingInputsCount={pendingInputsCount}
         />
       </div>
     </div>

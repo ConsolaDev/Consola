@@ -45,6 +45,14 @@ interface TaskInput {
   description?: string;
 }
 
+interface TodoWriteInput {
+  todos: Array<{
+    content: string;
+    status: 'pending' | 'in_progress' | 'completed';
+    activeForm: string;
+  }>;
+}
+
 interface SkillInput {
   skill: string;
   args?: string;
@@ -129,6 +137,22 @@ export function parseToolInput(toolName: string, input: unknown): ParsedToolInpu
       parsed.primaryArg = taskInput.subagent_type || 'agent';
       if (taskInput.description) {
         parsed.secondaryInfo = truncate(taskInput.description, 40);
+      }
+      break;
+    }
+
+    case 'TodoWrite': {
+      const todoInput = inp as TodoWriteInput;
+      const todos = todoInput.todos || [];
+      const completed = todos.filter(t => t.status === 'completed').length;
+      const inProgress = todos.filter(t => t.status === 'in_progress').length;
+      parsed.displayName = 'Todos';
+      parsed.primaryArg = `${completed}/${todos.length} done`;
+      if (inProgress > 0) {
+        const active = todos.find(t => t.status === 'in_progress');
+        if (active) {
+          parsed.secondaryInfo = active.activeForm;
+        }
       }
       break;
     }

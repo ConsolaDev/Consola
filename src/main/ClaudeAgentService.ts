@@ -160,6 +160,11 @@ export class ClaudeAgentService extends EventEmitter {
     this.trustMode = mode;
     if (mode === 'session') {
       this.trustModeEnabledAt = Date.now();
+      // Auto-approve all existing pending permissions
+      for (const [requestId, pending] of this.pendingPermissions) {
+        pending.resolve({ behavior: 'allow', updatedInput: pending.toolInput });
+        this.pendingPermissions.delete(requestId);
+      }
     } else {
       this.trustModeEnabledAt = undefined;
     }

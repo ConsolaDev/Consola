@@ -21,6 +21,7 @@ const emptyInstanceState: InstanceState = {
   messages: [],
   toolHistory: [],
   pendingInputs: [],
+  todos: [],
   lastResult: null,
   error: null,
   processing: {
@@ -170,6 +171,9 @@ export function useAgent(instanceId: string | null, cwd: string = '', additional
 
     // Pending input requests
     pendingInputs: instanceState.pendingInputs,
+
+    // Todo list (from TodoWrite tool)
+    todos: instanceState.todos,
 
     // Results
     lastResult: instanceState.lastResult,
