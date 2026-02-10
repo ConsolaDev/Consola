@@ -598,6 +598,10 @@
   background: var(--color-error);
 }
 
+.session-status-indicator--attention {
+  background: var(--color-warning);
+}
+
 @keyframes session-pulse {
   0%, 100% {
     opacity: 1;

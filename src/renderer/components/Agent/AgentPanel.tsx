@@ -8,7 +8,6 @@ import { ChatInput } from './ChatInput';
 import { ProcessingIndicator } from './ProcessingIndicator';
 import { ApprovalCard } from './ApprovalCard';
 import { SessionDivider } from './SessionDivider';
-import { TrustModeBanner } from './TrustModeBanner';
 import { ToolCluster } from './ToolCluster';
 import { TodoListPanel } from './TodoListPanel';
 import { groupMessages } from './groupContentBlocks';
@@ -36,7 +35,6 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
     skills,
     slashCommands,
     trustMode,
-    trustModeEnabledAt,
     sendMessage,
     interrupt,
     clearError,
@@ -83,13 +81,6 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
 
   return (
     <Flex direction="column" className="agent-panel">
-      {/* Trust Mode Banner — compact sticky bar at top of conversation area */}
-      <TrustModeBanner
-        trustMode={trustMode}
-        trustModeEnabledAt={trustModeEnabledAt}
-        onSetTrustMode={setTrustMode}
-        pendingInputsCount={pendingInputs.filter(r => r.status === 'pending').length}
-      />
       {/* Messages area - wrapped with providers for command highlighting and code selection */}
       <CodeSelectionProvider instanceId={instanceId} basePath={cwd}>
         <CommandHighlightProvider skills={skills} slashCommands={slashCommands}>
@@ -174,6 +165,9 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
         slashCommands={slashCommands}
         modelUsage={modelUsage}
         instanceId={instanceId}
+        trustMode={trustMode}
+        onSetTrustMode={setTrustMode}
+        pendingInputsCount={pendingInputs.filter(r => r.status === 'pending').length}
       />
     </Flex>
   );

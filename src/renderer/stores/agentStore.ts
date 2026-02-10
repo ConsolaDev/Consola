@@ -113,6 +113,13 @@ export interface PendingInputRequest {
   status: 'pending' | 'approved' | 'rejected';
 }
 
+// Todo item from TodoWrite tool
+export interface TodoItem {
+  content: string;
+  status: 'pending' | 'in_progress' | 'completed';
+  activeForm: string;
+}
+
 // Per-instance state
 export interface InstanceState {
   // Status
@@ -135,6 +142,9 @@ export interface InstanceState {
 
   // Pending input requests (awaiting user response)
   pendingInputs: PendingInputRequest[];
+
+  // Current todo list (from last TodoWrite call)
+  todos: TodoItem[];
 
   // Results
   lastResult: AgentResultEvent | null;
@@ -167,6 +177,7 @@ function createDefaultInstanceState(): InstanceState {
     messages: [],
     toolHistory: [],
     pendingInputs: [],
+    todos: [],
     lastResult: null,
     error: null,
     processing: {
@@ -419,6 +430,7 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       messages: [],
       toolHistory: [],
       pendingInputs: [],
+      todos: [],
       lastResult: null,
       sessionId: null
     })));
@@ -572,8 +584,19 @@ export const useAgentStore = create<AgentState>((set, get) => ({
       status: 'pending',
       timestamp: Date.now()
     };
+
+    // Extract todos from TodoWrite tool calls (input contains the full todo list)
+    let todosUpdate: Partial<InstanceState> = {};
+    if (toolData.toolName === 'TodoWrite' && toolData.toolInput) {
+      const input = toolData.toolInput as { todos?: TodoItem[] };
+      if (Array.isArray(input.todos)) {
+        todosUpdate = { todos: input.todos };
+      }
+    }
+
     set(state => updateInstance(state, instanceId, (instance) => ({
-      toolHistory: [...instance.toolHistory, tool]
+      toolHistory: [...instance.toolHistory, tool],
+      ...todosUpdate
     })));
   },
 
@@ -733,10 +756,26 @@ export const useAgentStore = create<AgentState>((set, get) => ({
 
   _handleTrustModeChanged: (data: TrustModeChangedEvent) => {
     const { instanceId, mode, enabledAt } = data;
-    set(state => updateInstance(state, instanceId, () => ({
-      trustMode: mode,
-      trustModeEnabledAt: enabledAt
-    })));
+    set(state => {
+      const instance = state.instances[instanceId];
+      if (!instance) return state;
+
+      // When trust mode is enabled, mark all pending permission requests as approved
+      let updatedPendingInputs = instance.pendingInputs;
+      if (mode === 'session') {
+        updatedPendingInputs = instance.pendingInputs.map(input =>
+          input.type === 'permission' && input.status === 'pending'
+            ? { ...input, status: 'approved' as const }
+            : input
+        );
+      }
+
+      return updateInstance(state, instanceId, () => ({
+        trustMode: mode,
+        trustModeEnabledAt: enabledAt,
+        pendingInputs: updatedPendingInputs
+      }));
+    });
   }
 }));
 
