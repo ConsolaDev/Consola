@@ -71,22 +71,37 @@ export const HighlightedInput = forwardRef<HTMLTextAreaElement, HighlightedInput
     // Check if we have any commands to highlight
     const hasHighlights = segments.some((s) => s.isCommand);
 
-    // Sync scroll between textarea and backdrop
-    const handleScroll = useCallback(() => {
+    // Sync scroll and height between textarea and backdrop
+    const syncBackdrop = useCallback(() => {
       if (internalRef.current && backdropRef.current) {
         backdropRef.current.scrollTop = internalRef.current.scrollTop;
         backdropRef.current.scrollLeft = internalRef.current.scrollLeft;
+        // Sync height to match textarea
+        backdropRef.current.style.height = `${internalRef.current.offsetHeight}px`;
       }
     }, []);
 
-    // Attach scroll listener
+    // Attach scroll listener and observe size changes
     useEffect(() => {
       const textarea = internalRef.current;
-      if (textarea) {
-        textarea.addEventListener('scroll', handleScroll);
-        return () => textarea.removeEventListener('scroll', handleScroll);
-      }
-    }, [handleScroll]);
+      if (!textarea) return;
+
+      textarea.addEventListener('scroll', syncBackdrop);
+
+      // Use ResizeObserver to sync height when textarea resizes
+      const resizeObserver = new ResizeObserver(() => {
+        syncBackdrop();
+      });
+      resizeObserver.observe(textarea);
+
+      // Initial sync
+      syncBackdrop();
+
+      return () => {
+        textarea.removeEventListener('scroll', syncBackdrop);
+        resizeObserver.disconnect();
+      };
+    }, [syncBackdrop]);
 
     return (
       <div className={`highlighted-input-container ${className}`.trim()}>

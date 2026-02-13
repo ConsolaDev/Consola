@@ -17,7 +17,8 @@
   top: 0;
   left: 0;
   right: 0;
-  bottom: 0;
+  /* Height is synced via JS - don't use bottom: 0 which causes cursor desync */
+  min-height: 24px;
   padding: var(--space-3) var(--space-3) var(--space-1);
   font-family: inherit;
   font-size: var(--font-size-md);
@@ -30,6 +31,7 @@
   /* Ensure text rendering matches textarea exactly */
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  box-sizing: border-box;
 }
 
 /* Placeholder text when empty */
