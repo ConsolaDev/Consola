@@ -1,5 +1,5 @@
-import { Terminal as TerminalIcon, SquareTerminal, RotateCw } from 'lucide-react';
-import { TerminalMode, type HarnessLaunchFields } from '../../../shared/types';
+import { RotateCw } from 'lucide-react';
+import type { HarnessLaunchFields } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useTerminal } from './useTerminal';
@@ -38,14 +38,7 @@ export function TerminalPanel({
         harness,
     });
 
-    const mode = useTerminalStore((state) => state.terminals[instanceId]?.mode ?? TerminalMode.CLAUDE);
     const hasExited = useTerminalStore((state) => state.terminals[instanceId]?.hasExited ?? false);
-
-    const handleToggleMode = () => {
-        const nextMode = mode === TerminalMode.CLAUDE ? TerminalMode.SHELL : TerminalMode.CLAUDE;
-        terminalBridge.switchMode(instanceId, nextMode);
-        focus();
-    };
 
     const handleRestart = () => {
         terminalBridge.restart(instanceId);
@@ -55,31 +48,13 @@ export function TerminalPanel({
 
     return (
         <div className="terminal-panel">
-            <div className="terminal-panel-toolbar">
-                <button
-                    type="button"
-                    className="terminal-mode-toggle"
-                    onClick={handleToggleMode}
-                    title={
-                        mode === TerminalMode.CLAUDE
-                            ? 'Switch to shell'
-                            : 'Switch back to Claude'
-                    }
-                >
-                    {mode === TerminalMode.CLAUDE ? (
-                        <>
-                            <TerminalIcon size={13} />
-                            <span>Claude</span>
-                        </>
-                    ) : (
-                        <>
-                            <SquareTerminal size={13} />
-                            <span>Shell</span>
-                        </>
-                    )}
-                </button>
-
-                {hasExited && (
+            {/*
+              * Only ever holds the restart action, so it appears with it. A bar
+              * that is empty whenever the session is healthy would spend nearly
+              * all of its life taking height from the terminal for nothing.
+              */}
+            {hasExited && (
+                <div className="terminal-panel-toolbar">
                     <button
                         type="button"
                         className="terminal-restart-button"
@@ -89,8 +64,8 @@ export function TerminalPanel({
                         <RotateCw size={13} />
                         <span>Restart</span>
                     </button>
-                )}
-            </div>
+                </div>
+            )}
 
             <div className="terminal-surface-frame">
                 <div ref={containerRef} className="terminal-surface" onClick={focus} />

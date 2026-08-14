@@ -16,33 +16,25 @@
   border-bottom: 1px solid var(--color-border);
 }
 
-.terminal-mode-toggle,
 .terminal-restart-button {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
   height: 24px;
   padding: 0 var(--space-2);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--color-warning);
   border-radius: var(--radius-md);
   background-color: transparent;
-  color: var(--color-text-secondary);
   font-family: var(--font-sans);
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-medium);
+  color: var(--color-warning);
   cursor: pointer;
   transition: background-color var(--transition-fast), color var(--transition-fast);
 }
 
-.terminal-mode-toggle:hover,
 .terminal-restart-button:hover {
   background-color: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.terminal-restart-button {
-  color: var(--color-warning);
-  border-color: var(--color-warning);
 }
 
 /*

@@ -2,11 +2,9 @@ import type {
     TerminalCreateOptions,
     TerminalSnapshot,
     TerminalDataMessage,
-    TerminalModeChangedMessage,
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
-    TerminalMode,
 } from '../../shared/types';
 
 /**
@@ -34,10 +32,6 @@ export const terminalBridge = {
         window.terminalAPI.resize(instanceId, cols, rows);
     },
 
-    switchMode(instanceId: string, mode: TerminalMode): void {
-        window.terminalAPI.switchMode(instanceId, mode);
-    },
-
     restart(instanceId: string): void {
         window.terminalAPI.restart(instanceId);
     },
@@ -49,10 +43,6 @@ export const terminalBridge = {
 
     onData(callback: (message: TerminalDataMessage) => void): () => void {
         return window.terminalAPI.onData(callback);
-    },
-
-    onModeChanged(callback: (message: TerminalModeChangedMessage) => void): () => void {
-        return window.terminalAPI.onModeChanged(callback);
     },
 
     onActivity(callback: (message: TerminalActivityMessage) => void): () => void {

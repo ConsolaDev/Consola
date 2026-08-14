@@ -8,13 +8,11 @@ export const IPC_CHANNELS = {
     TERMINAL_INPUT: 'terminal:input',         // User input -> PTY
     TERMINAL_PASTE: 'terminal:paste',         // Bracketed-paste a block of text
     TERMINAL_RESIZE: 'terminal:resize',       // Terminal dimension changes
-    TERMINAL_MODE_SWITCH: 'terminal:mode-switch', // Request claude/shell change
     TERMINAL_RESTART: 'terminal:restart',     // Relaunch claude after it exited
     TERMINAL_DESTROY: 'terminal:destroy',     // Tear down a session terminal
 
     // Terminal events (main -> renderer)
     TERMINAL_DATA: 'terminal:data',           // PTY output -> renderer
-    TERMINAL_MODE_CHANGED: 'terminal:mode-changed', // Active PTY changed
     TERMINAL_ACTIVITY: 'terminal:activity',   // Busy/idle inferred from output
     TERMINAL_AWAITING_CONFIRMATION: 'terminal:awaiting-confirmation', // Menu on screen
     TERMINAL_EXIT: 'terminal:exit',           // A PTY exited

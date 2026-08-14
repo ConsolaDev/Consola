@@ -1,10 +1,8 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
-    TerminalMode,
     TerminalCreateOptions,
     TerminalSnapshot,
     TerminalDataMessage,
-    TerminalModeChangedMessage,
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
@@ -43,11 +41,6 @@ contextBridge.exposeInMainWorld('terminalAPI', {
         ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, instanceId, cols, rows);
     },
 
-    // Switch between the claude and shell PTYs
-    switchMode: (instanceId: string, mode: TerminalMode): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_MODE_SWITCH, instanceId, mode);
-    },
-
     // Relaunch claude after it exited
     restart: (instanceId: string): void => {
         ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
@@ -60,9 +53,6 @@ contextBridge.exposeInMainWorld('terminalAPI', {
 
     onData: (callback: (message: TerminalDataMessage) => void) =>
         subscribe(IPC_CHANNELS.TERMINAL_DATA, callback),
-
-    onModeChanged: (callback: (message: TerminalModeChangedMessage) => void) =>
-        subscribe(IPC_CHANNELS.TERMINAL_MODE_CHANGED, callback),
 
     onActivity: (callback: (message: TerminalActivityMessage) => void) =>
         subscribe(IPC_CHANNELS.TERMINAL_ACTIVITY, callback),

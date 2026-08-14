@@ -43,7 +43,7 @@ src/shared/         → Shared types and IPC channel constants
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
 - `ipc-handlers.ts` - All IPC message routing
-- `TerminalService.ts` - One session's PTYs (claude + shell), prompt delivery
+- `TerminalService.ts` - One session's PTY, prompt delivery
 - `TerminalManager.ts` - Owns a TerminalService per session, forwards events
 - `ScreenModel.ts` - Headless xterm mirroring what a PTY displays
 - `LoginEnvironment.ts` - The ambient login-shell environment, shared by every driver
