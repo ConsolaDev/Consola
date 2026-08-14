@@ -1,13 +1,12 @@
 import { create } from 'zustand';
-import { TerminalMode } from '../../shared/types';
 import { terminalBridge } from '../services/terminalBridge';
 
 /**
  * Per-session terminal state.
  *
  * Only what the UI outside the terminal pane needs: the sidebar's activity
- * dot, the claude/shell toggle, and whether Claude has exited. The conversation
- * itself lives in the PTY and in Claude's own session files.
+ * dot and whether Claude has exited. The conversation itself lives in the PTY
+ * and in Claude's own session files.
  */
 
 export interface TerminalState {
@@ -15,7 +14,6 @@ export interface TerminalState {
     isBusy: boolean;
     /** A menu is on screen waiting for a keypress (trust gate, permissions). */
     isAwaitingConfirmation: boolean;
-    mode: TerminalMode;
     /** The claude process exited; the pane offers a restart. */
     hasExited: boolean;
 }
@@ -23,7 +21,6 @@ export interface TerminalState {
 const INITIAL_STATE: TerminalState = {
     isBusy: false,
     isAwaitingConfirmation: false,
-    mode: TerminalMode.CLAUDE,
     hasExited: false,
 };
 
@@ -92,13 +89,8 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
             terminalBridge.onAwaitingConfirmation(({ instanceId, awaiting }) => {
                 setState(instanceId, { isAwaitingConfirmation: awaiting });
             }),
-            terminalBridge.onModeChanged(({ instanceId, mode }) => {
-                setState(instanceId, { mode });
-            }),
-            terminalBridge.onExit(({ instanceId, mode }) => {
-                if (mode === TerminalMode.CLAUDE) {
-                    setState(instanceId, { hasExited: true, isBusy: false });
-                }
+            terminalBridge.onExit(({ instanceId }) => {
+                setState(instanceId, { hasExited: true, isBusy: false });
             }),
         ];
 

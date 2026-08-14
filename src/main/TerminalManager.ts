@@ -1,6 +1,5 @@
 import { BrowserWindow } from 'electron';
 import { TerminalService, TerminalExitInfo, TerminalServiceOptions } from './TerminalService';
-import { TerminalMode } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
 /**
@@ -23,7 +22,7 @@ export class TerminalManager {
     public ensure(
         instanceId: string,
         options: TerminalServiceOptions
-    ): { replay: string; mode: TerminalMode; exited: boolean } {
+    ): { replay: string; exited: boolean } {
         let terminal = this.terminals.get(instanceId);
 
         if (!terminal) {
@@ -38,7 +37,6 @@ export class TerminalManager {
 
         return {
             replay: terminal.getReplayBuffer(),
-            mode: terminal.getCurrentMode(),
             exited: terminal.hasClaudeExited(),
         };
     }
@@ -69,10 +67,6 @@ export class TerminalManager {
     private wireEvents(instanceId: string, terminal: TerminalService): void {
         terminal.on('data', (data: string) => {
             this.send(IPC_CHANNELS.TERMINAL_DATA, { instanceId, data });
-        });
-
-        terminal.on('mode-changed', (mode: TerminalMode) => {
-            this.send(IPC_CHANNELS.TERMINAL_MODE_CHANGED, { instanceId, mode });
         });
 
         terminal.on('activity', (busy: boolean) => {

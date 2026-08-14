@@ -119,10 +119,7 @@ export function useTerminal({
                 if (snapshot.replay) {
                     terminal.write(snapshot.replay);
                 }
-                setTerminalState(instanceId, {
-                    mode: snapshot.mode,
-                    hasExited: snapshot.exited,
-                });
+                setTerminalState(instanceId, { hasExited: snapshot.exited });
                 terminal.focus();
             })
             .catch((error) => {

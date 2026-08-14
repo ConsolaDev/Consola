@@ -5,7 +5,7 @@ import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
-import { TerminalMode, TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
+import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
 // One terminal per session tab, kept alive while the session is open
@@ -60,10 +60,6 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
 
     ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, instanceId: string, cols: number, rows: number) => {
         manager.get(instanceId)?.resize(cols, rows);
-    });
-
-    ipcMain.on(IPC_CHANNELS.TERMINAL_MODE_SWITCH, (_event, instanceId: string, mode: TerminalMode) => {
-        manager.get(instanceId)?.switchMode(mode);
     });
 
     ipcMain.on(IPC_CHANNELS.TERMINAL_RESTART, (_event, instanceId: string) => {
@@ -596,7 +592,6 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_INPUT);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
-    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_MODE_SWITCH);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
     ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_CREATE);

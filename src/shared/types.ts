@@ -1,8 +1,3 @@
-export enum TerminalMode {
-    SHELL = 'SHELL',
-    CLAUDE = 'CLAUDE'
-}
-
 /** Agent CLI a harness drives. One driver per supported CLI. */
 export type HarnessDriverId = 'claude';
 
@@ -46,18 +41,12 @@ export interface TerminalCreateOptions extends HarnessLaunchFields {
 /** State needed to repaint a terminal view on mount. */
 export interface TerminalSnapshot {
     replay: string;
-    mode: TerminalMode;
     exited: boolean;
 }
 
 export interface TerminalDataMessage {
     instanceId: string;
     data: string;
-}
-
-export interface TerminalModeChangedMessage {
-    instanceId: string;
-    mode: TerminalMode;
 }
 
 export interface TerminalActivityMessage {
@@ -72,7 +61,6 @@ export interface TerminalAwaitingConfirmationMessage {
 
 export interface TerminalExitMessage {
     instanceId: string;
-    mode: TerminalMode;
     exitCode: number;
 }
 
@@ -81,11 +69,9 @@ export interface TerminalAPI {
     sendInput: (instanceId: string, data: string) => void;
     paste: (instanceId: string, text: string) => void;
     resize: (instanceId: string, cols: number, rows: number) => void;
-    switchMode: (instanceId: string, mode: TerminalMode) => void;
     restart: (instanceId: string) => void;
     destroy: (instanceId: string) => void;
     onData: (callback: (message: TerminalDataMessage) => void) => () => void;
-    onModeChanged: (callback: (message: TerminalModeChangedMessage) => void) => () => void;
     onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
     onAwaitingConfirmation: (
         callback: (message: TerminalAwaitingConfirmationMessage) => void

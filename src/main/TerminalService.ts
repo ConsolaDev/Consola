@@ -1,8 +1,7 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import * as os from 'os';
-import { TerminalMode, TerminalDimensions, HarnessLaunchFields } from '../shared/types';
+import { TerminalDimensions, HarnessLaunchFields } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
@@ -11,9 +10,8 @@ import { ScreenModel } from './ScreenModel';
 /**
  * One session tab's terminal.
  *
- * Owns a `claude` process — the main panel — and, lazily, a plain shell the
- * user can switch to in the same pane. The process outlives the React
- * component that renders it: output is buffered here so remounting a tab
+ * Owns the `claude` process behind a single pane. The process outlives the
+ * React component that renders it: output is mirrored here so remounting a tab
  * repaints instead of restarting the conversation.
  */
 
@@ -70,20 +68,17 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
 }
 
 export interface TerminalExitInfo {
-    mode: TerminalMode;
     exitCode: number;
 }
 
 export class TerminalService extends EventEmitter {
-    private shellPty: pty.IPty | null = null;
     private claudePty: pty.IPty | null = null;
-    private currentMode: TerminalMode = TerminalMode.CLAUDE;
     private dimensions: TerminalDimensions;
     private readonly options: TerminalServiceOptions;
     private readonly driver: HarnessDriver;
     private readonly harness: HarnessConfig;
 
-    private readonly screens = new Map<TerminalMode, ScreenModel>();
+    private screen: ScreenModel | null = null;
     private idleTimer: NodeJS.Timeout | null = null;
     private isBusy = false;
     private claudeExited = false;
@@ -131,13 +126,9 @@ export class TerminalService extends EventEmitter {
         return this.isAwaitingConfirmation;
     }
 
-    public getCurrentMode(): TerminalMode {
-        return this.currentMode;
-    }
-
-    /** Escape sequences that repaint the active PTY's current screen. */
+    /** Escape sequences that repaint the PTY's current screen. */
     public getReplayBuffer(): string {
-        return this.screens.get(this.currentMode)?.snapshot() ?? '';
+        return this.screen?.snapshot() ?? '';
     }
 
     public hasClaudeExited(): boolean {
@@ -145,7 +136,7 @@ export class TerminalService extends EventEmitter {
     }
 
     public write(data: string): void {
-        this.getActivePty()?.write(data);
+        this.claudePty?.write(data);
     }
 
     /**
@@ -156,47 +147,21 @@ export class TerminalService extends EventEmitter {
      * submitting at the first newline.
      */
     public paste(text: string): void {
-        const activePty = this.getActivePty();
-        if (!activePty) return;
-        activePty.write(`\x1b[200~${text}\x1b[201~`);
+        if (!this.claudePty) return;
+        this.claudePty.write(`\x1b[200~${text}\x1b[201~`);
     }
 
     public resize(cols: number, rows: number): void {
         this.dimensions = { cols, rows };
-        this.shellPty?.resize(cols, rows);
         this.claudePty?.resize(cols, rows);
-        for (const screen of this.screens.values()) {
-            screen.resize(cols, rows);
-        }
-    }
-
-    public switchMode(mode: TerminalMode): void {
-        if (this.currentMode === mode) return;
-
-        this.currentMode = mode;
-
-        if (mode === TerminalMode.SHELL && !this.shellPty) {
-            this.initShell();
-        }
-        if (mode === TerminalMode.CLAUDE && !this.claudePty) {
-            // Claude exited earlier; bring it back on the existing conversation.
-            this.initClaude(true);
-        }
-
-        this.emit('mode-changed', mode);
-
-        // Nudge the newly active PTY into repainting the pane.
-        this.getActivePty()?.resize(this.dimensions.cols, this.dimensions.rows);
+        this.screen?.resize(cols, rows);
     }
 
     /** Restart Claude after it exited, resuming the same conversation. */
     public restartClaude(): void {
         if (this.claudePty) return;
-        this.disposeScreen(TerminalMode.CLAUDE);
+        this.disposeScreen();
         this.initClaude(true);
-        if (this.currentMode !== TerminalMode.CLAUDE) {
-            this.switchMode(TerminalMode.CLAUDE);
-        }
     }
 
     public destroy(): void {
@@ -205,14 +170,9 @@ export class TerminalService extends EventEmitter {
             clearTimeout(this.idleTimer);
             this.idleTimer = null;
         }
-        this.shellPty?.kill();
-        this.shellPty = null;
         this.claudePty?.kill();
         this.claudePty = null;
-        for (const screen of this.screens.values()) {
-            screen.dispose();
-        }
-        this.screens.clear();
+        this.disposeScreen();
         this.removeAllListeners();
     }
 
@@ -226,8 +186,8 @@ export class TerminalService extends EventEmitter {
         const cwdProblem = this.describeCwdProblem();
         if (cwdProblem) {
             this.claudeExited = true;
-            this.writeNotice(TerminalMode.CLAUDE, cwdProblem);
-            this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode: 1 } as TerminalExitInfo);
+            this.writeNotice(cwdProblem);
+            this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
             return;
         }
 
@@ -251,7 +211,7 @@ export class TerminalService extends EventEmitter {
             });
             this.claudeExited = false;
 
-            this.claudePty.onData((data) => this.handleData(TerminalMode.CLAUDE, data));
+            this.claudePty.onData((data) => this.handleData(data));
 
             this.claudePty.onExit(({ exitCode }) => {
                 this.claudePty = null;
@@ -263,10 +223,8 @@ export class TerminalService extends EventEmitter {
                 // stays usable. Wipe the failed attempt's output first so its
                 // error message does not sit above the fresh session.
                 if (resume && exitCode !== 0) {
-                    this.disposeScreen(TerminalMode.CLAUDE);
-                    if (this.currentMode === TerminalMode.CLAUDE) {
-                        this.emit('data', CLEAR_SCREEN);
-                    }
+                    this.disposeScreen();
+                    this.emit('data', CLEAR_SCREEN);
                     this.initClaude(false);
                     return;
                 }
@@ -276,61 +234,17 @@ export class TerminalService extends EventEmitter {
                 // read. Name what was run instead of leaving an empty pane.
                 if (exitCode !== 0 && !this.claudeProducedOutput) {
                     this.writeNotice(
-                        TerminalMode.CLAUDE,
                         `\`${binary}\` exited immediately without starting. ` +
                             'Check this session\'s harness in Settings — is that binary installed and executable?'
                     );
                 }
 
-                this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode } as TerminalExitInfo);
+                this.emit('exit', { exitCode } as TerminalExitInfo);
             });
         } catch (error) {
             console.error(`Error spawning ${this.driver.id}:`, error);
             this.claudeExited = true;
-            this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode: 1 } as TerminalExitInfo);
-        }
-    }
-
-    private initShell(): void {
-        if (this.shellPty) return;
-
-        // Same silent failure as Claude's launch. The notice stays on the shell
-        // screen rather than bouncing back to Claude, which cannot start here
-        // either — the user should get to read why before switching away.
-        const cwdProblem = this.describeCwdProblem();
-        if (cwdProblem) {
-            this.writeNotice(TerminalMode.SHELL, cwdProblem);
-            return;
-        }
-
-        // The shell shares the session's harness environment, so invoking the
-        // CLI by hand from here talks to the same profile the tab does.
-        const env = this.driver.composeEnv(this.harness, getLoginEnv());
-        const shell = env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/bash');
-
-        try {
-            this.shellPty = pty.spawn(shell, [], {
-                name: 'xterm-256color',
-                cols: this.dimensions.cols,
-                rows: this.dimensions.rows,
-                cwd: this.options.cwd,
-                env: env as { [key: string]: string },
-            });
-
-            this.shellPty.onData((data) => this.handleData(TerminalMode.SHELL, data));
-
-            this.shellPty.onExit(({ exitCode }) => {
-                this.shellPty = null;
-                this.disposeScreen(TerminalMode.SHELL);
-                if (this.currentMode === TerminalMode.SHELL) {
-                    // Exiting the shell returns the pane to Claude.
-                    this.switchMode(TerminalMode.CLAUDE);
-                }
-                this.emit('exit', { mode: TerminalMode.SHELL, exitCode } as TerminalExitInfo);
-            });
-        } catch (error) {
-            console.error('Error spawning shell:', error);
-            this.switchMode(TerminalMode.CLAUDE);
+            this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
         }
     }
 
@@ -361,43 +275,33 @@ export class TerminalService extends EventEmitter {
     }
 
     /**
-     * Write Consola's own message into a pane, as if the PTY had printed it.
+     * Write Consola's own message into the pane, as if the PTY had printed it.
      *
      * Deferred by a tick because a real PTY never produces output synchronously
      * from `start()`. Emitting inline would reach the renderer twice: once live,
      * and again in the replay buffer `TerminalManager.ensure` captures after
      * starting the terminal.
      */
-    private writeNotice(mode: TerminalMode, message: string): void {
+    private writeNotice(message: string): void {
         const text = formatNotice(message);
         setImmediate(() => {
             // The session may have been closed in the meantime; recreating its
             // screen here would leak an emulator nothing will ever dispose.
             if (this.isDestroyed) return;
-            this.getScreen(mode).write(text);
-            if (mode === this.currentMode) {
-                this.emit('data', text);
-            }
+            this.getScreen().write(text);
+            this.emit('data', text);
         });
     }
 
-    private handleData(mode: TerminalMode, data: string): void {
-        if (mode === TerminalMode.CLAUDE) {
-            this.claudeProducedOutput = true;
-        }
-
-        this.getScreen(mode).write(data);
-
-        if (mode === this.currentMode) {
-            this.emit('data', data);
-        }
+    private handleData(data: string): void {
+        this.claudeProducedOutput = true;
+        this.getScreen().write(data);
+        this.emit('data', data);
 
         this.setBusy(true);
         if (this.idleTimer) clearTimeout(this.idleTimer);
         this.idleTimer = setTimeout(() => {
-            if (mode === TerminalMode.CLAUDE) {
-                this.classifyScreen();
-            }
+            this.classifyScreen();
             this.setBusy(false);
             this.deliverPendingPrompt();
         }, IDLE_DEBOUNCE_MS);
@@ -405,10 +309,9 @@ export class TerminalService extends EventEmitter {
 
     /** Note whether the settled screen is waiting on a keyboard confirmation. */
     private classifyScreen(): void {
-        const screen = this.screens.get(TerminalMode.CLAUDE);
-        if (!screen) return;
+        if (!this.screen) return;
 
-        const visible = normalizeScreen(screen.visibleText());
+        const visible = normalizeScreen(this.screen.visibleText());
         const awaiting = CONFIRMATION_MARKERS.some((marker) => marker.test(visible));
 
         if (awaiting !== this.isAwaitingConfirmation) {
@@ -419,27 +322,24 @@ export class TerminalService extends EventEmitter {
 
     /** Whether the CLI is showing an empty composer, ready for input. */
     private isComposerReady(): boolean {
-        const screen = this.screens.get(TerminalMode.CLAUDE);
-        if (!screen) return false;
+        if (!this.screen) return false;
 
-        return screen
+        return this.screen
             .visibleText()
             .split('\n')
             .some((line) => COMPOSER_READY_PATTERN.test(line));
     }
 
-    private disposeScreen(mode: TerminalMode): void {
-        this.screens.get(mode)?.dispose();
-        this.screens.delete(mode);
+    private disposeScreen(): void {
+        this.screen?.dispose();
+        this.screen = null;
     }
 
-    private getScreen(mode: TerminalMode): ScreenModel {
-        let screen = this.screens.get(mode);
-        if (!screen) {
-            screen = new ScreenModel(this.dimensions.cols, this.dimensions.rows);
-            this.screens.set(mode, screen);
+    private getScreen(): ScreenModel {
+        if (!this.screen) {
+            this.screen = new ScreenModel(this.dimensions.cols, this.dimensions.rows);
         }
-        return screen;
+        return this.screen;
     }
 
     /**
@@ -451,7 +351,7 @@ export class TerminalService extends EventEmitter {
      */
     private deliverPendingPrompt(): void {
         if (!this.pendingPrompt) return;
-        if (this.currentMode !== TerminalMode.CLAUDE || !this.claudePty) return;
+        if (!this.claudePty) return;
         if (this.isAwaitingConfirmation) return;
         if (!this.isComposerReady()) return;
 
@@ -470,9 +370,5 @@ export class TerminalService extends EventEmitter {
         if (this.isBusy === busy) return;
         this.isBusy = busy;
         this.emit('activity', busy);
-    }
-
-    private getActivePty(): pty.IPty | null {
-        return this.currentMode === TerminalMode.SHELL ? this.shellPty : this.claudePty;
     }
 }
