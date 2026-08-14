@@ -92,7 +92,9 @@ export function TerminalPanel({
                 )}
             </div>
 
-            <div ref={containerRef} className="terminal-surface" onClick={focus} />
+            <div className="terminal-surface-frame">
+                <div ref={containerRef} className="terminal-surface" onClick={focus} />
+            </div>
         </div>
     );
 }
