@@ -8,6 +8,8 @@ import {
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
+    HarnessLaunchFields,
+    HarnessProbeResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -72,14 +74,17 @@ contextBridge.exposeInMainWorld('terminalAPI', {
         subscribe(IPC_CHANNELS.TERMINAL_EXIT, callback),
 });
 
-// Expose Claude CLI queries to the renderer
-contextBridge.exposeInMainWorld('claudeCliAPI', {
-    isAvailable: (): Promise<boolean> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_AVAILABLE);
+// Expose harness queries to the renderer
+contextBridge.exposeInMainWorld('harnessAPI', {
+    probe: (fields: HarnessLaunchFields): Promise<HarnessProbeResult> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_PROBE, fields);
     },
 
-    getSessionName: (claudeSessionId: string): Promise<string | null> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SESSION_NAME, claudeSessionId);
+    getSessionName: (
+        sessionId: string,
+        fields: HarnessLaunchFields
+    ): Promise<string | null> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
     },
 });
 

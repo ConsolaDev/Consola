@@ -821,3 +821,11 @@
 .diff-unified-line-remove .diff-unified-line-number {
   background: rgba(235, 87, 87, 0.2);
 }
+
+/* Accent marker for the harness picker beside the workspace dropdown. */
+.new-session-harness-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+}

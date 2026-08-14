@@ -69,14 +69,3 @@ export const terminalBridge = {
         return window.terminalAPI.onExit(callback);
     },
 };
-
-export const claudeCliBridge = {
-    isAvailable(): Promise<boolean> {
-        return window.claudeCliAPI.isAvailable();
-    },
-
-    /** Session name from Claude's own index, or null if not written yet. */
-    getSessionName(claudeSessionId: string): Promise<string | null> {
-        return window.claudeCliAPI.getSessionName(claudeSessionId);
-    },
-};

@@ -41,7 +41,8 @@ src/shared/         → Shared types and IPC channel constants
 - `TerminalService.ts` - One session's PTYs (claude + shell), prompt delivery
 - `TerminalManager.ts` - Owns a TerminalService per session, forwards events
 - `ScreenModel.ts` - Headless xterm mirroring what a PTY displays
-- `ClaudeCli.ts` - Binary resolution, login environment, headless `claude -p`
+- `LoginEnvironment.ts` - The ambient login-shell environment, shared by every driver
+- `drivers/` - One driver per agent CLI: binary resolution, argv, env, health probe
 - `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
 
 ### Renderer Organization
@@ -66,7 +67,8 @@ const result = await window.dialogAPI.selectFolder();
 ```
 
 Bridge services are in `src/renderer/services/`:
-- `terminalBridge.ts` - Session terminals and Claude CLI queries
+- `terminalBridge.ts` - Session terminals
+- `harnessBridge.ts` - Harness health probes and session names
 - `dialogBridge.ts` - Native dialogs
 - `fileBridge.ts` - File system reads
 - `gitBridge.ts` - Git status
@@ -98,6 +100,28 @@ composer and no confirmation markers (`CONFIRMATION_MARKERS`). Claude shows a
 workspace trust gate on first launch in an unfamiliar folder, and typing into
 it would answer it. Any future automated input must respect the same guard.
 
+### Harnesses Are Launch Descriptions
+
+A harness is one configured agent CLI: a binary path, a config directory, and
+extra arguments. Consola coordinates CLIs rather than embedding them, so a
+harness never holds a credential — pointing one at its own
+`CLAUDE_CONFIG_DIR` is what gives it a separate login, history and transcripts.
+
+Everything CLI-specific lives behind `HarnessDriver` (`src/main/drivers/`).
+Supporting another CLI means adding a driver and registering it; nothing in
+`TerminalService`, `ipc-handlers`, or the renderer should branch on a driver id.
+
+Two invariants are load-bearing:
+
+- **A session's harness is fixed for its lifetime.** The transcript is written
+  inside that harness's config directory, and `--resume` only finds it there.
+- **Deleting a harness archives it.** The record has to outlive removal, or
+  every conversation started under it would resume against the wrong profile.
+
+A harness that pins nothing resolves exactly as Consola did before harnesses
+existed, ambient `CLAUDE_CONFIG_DIR` included. Keep that true: it is what the
+built-in harness and every migrated session rely on.
+
 ### Claude's Own Storage
 
 `ClaudeSessionIndex` reads transcripts under `$CLAUDE_CONFIG_DIR/projects`
@@ -110,7 +134,7 @@ transcript is authoritative and `sessions-index.json` is a cache that lags.
 
 All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `terminal:*` - Session terminal lifecycle and events
-- `claude:*` - Claude CLI queries (availability, session names)
+- `harness:*` - Harness health probes and session names, dispatched by driver
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs

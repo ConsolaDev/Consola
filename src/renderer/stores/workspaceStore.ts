@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import { BUILT_IN_HARNESS_ID } from '../../shared/constants';
 
 export interface Session {
   id: string;
@@ -8,6 +9,10 @@ export interface Session {
   instanceId: string;              // Terminal instance ID
   claudeSessionId: string;         // UUID passed to `claude --session-id`
   hasStarted: boolean;             // Launched before, so resume instead of create
+  // Harness this conversation runs on. Fixed for the session's lifetime: the
+  // transcript lives in that harness's config directory, so resuming under a
+  // different one would lose the conversation.
+  harnessId: string;
   createdAt: number;
   lastActiveAt: number;
 }
@@ -17,6 +22,7 @@ export interface Workspace {
   name: string;                    // From folder name
   path: string;                    // Absolute folder path (1:1 relationship)
   isGitRepo: boolean;              // Whether .git folder exists
+  defaultHarnessId: string;        // Preselected when starting a conversation here
   sessions: Session[];
   createdAt: number;
   updatedAt: number;
@@ -24,9 +30,17 @@ export interface Workspace {
 
 interface WorkspaceState {
   workspaces: Workspace[];
-  createWorkspace: (name: string, path: string, isGitRepo: boolean) => Workspace;
+  createWorkspace: (
+    name: string,
+    path: string,
+    isGitRepo: boolean,
+    defaultHarnessId?: string
+  ) => Workspace;
   deleteWorkspace: (id: string) => void;
-  updateWorkspace: (id: string, updates: Partial<Pick<Workspace, 'name'>>) => void;
+  updateWorkspace: (
+    id: string,
+    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+  ) => void;
   getWorkspace: (id: string) => Workspace | undefined;
   // Session management
   createSession: (workspaceId: string, session: Omit<Session, 'id' | 'createdAt' | 'lastActiveAt' | 'claudeSessionId' | 'hasStarted'>) => Session | undefined;
@@ -59,17 +73,99 @@ function generateUuid(): string {
   });
 }
 
+/**
+ * Bring persisted state forward to the current shape.
+ *
+ * v2 -> v3 removes projects and adds path to workspace;
+ * v3 -> v4 gives every session a Claude session UUID;
+ * v4 -> v5 binds every workspace and session to a harness.
+ *
+ * Exported so the migration can be exercised on its own — it is the one piece
+ * of this store whose failure would cost people conversations.
+ */
+export function migrateWorkspaceState(persistedState: unknown, version: number): unknown {
+  const state = persistedState as { workspaces: unknown[] };
+
+  if (state.workspaces && version < 4) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    state.workspaces = state.workspaces.map((ws: any) => {
+      // If workspace has no path, try to get it from first project
+      if (!ws.path && ws.projects && ws.projects.length > 0) {
+        const firstProject = ws.projects[0];
+        return {
+          id: ws.id,
+          name: ws.name,
+          path: firstProject.path,
+          isGitRepo: firstProject.isGitRepo ?? false,
+          sessions: (ws.sessions ?? []).map((s: Record<string, unknown>) => ({
+            id: s.id,
+            name: s.name,
+            workspaceId: s.workspaceId,
+            instanceId: s.instanceId,
+            createdAt: s.createdAt,
+            lastActiveAt: s.lastActiveAt,
+          })),
+          createdAt: ws.createdAt,
+          updatedAt: ws.updatedAt,
+        };
+      }
+      // Workspace already has path or no projects - ensure correct shape
+      return {
+        id: ws.id,
+        name: ws.name,
+        path: ws.path ?? '',
+        isGitRepo: ws.isGitRepo ?? false,
+        sessions: (ws.sessions ?? []).map((s: Record<string, unknown>) => ({
+          id: s.id,
+          name: s.name,
+          workspaceId: s.workspaceId,
+          instanceId: s.instanceId,
+          // Pre-v4 sessions have no Claude conversation of their own:
+          // their history lived in Consola's database. They get a fresh
+          // session ID and start a new conversation.
+          claudeSessionId: (s.claudeSessionId as string) ?? generateUuid(),
+          hasStarted: (s.hasStarted as boolean) ?? false,
+          createdAt: s.createdAt,
+          lastActiveAt: s.lastActiveAt,
+        })),
+        createdAt: ws.createdAt,
+        updatedAt: ws.updatedAt,
+      };
+    });
+  }
+
+  if (state.workspaces && version < 5) {
+    // Everything that existed before harnesses ran against the single ambient
+    // environment, which is exactly what the built-in harness describes — so
+    // backfilling it preserves current behavior and leaves every transcript
+    // resolvable where it already lives.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    state.workspaces = state.workspaces.map((ws: any) => ({
+      ...ws,
+      defaultHarnessId: ws.defaultHarnessId ?? BUILT_IN_HARNESS_ID,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      sessions: (ws.sessions ?? []).map((s: any) => ({
+        ...s,
+        harnessId: s.harnessId ?? BUILT_IN_HARNESS_ID,
+      })),
+    }));
+  }
+
+  return state;
+}
+
 export const useWorkspaceStore = create<WorkspaceState>()(
   persist(
     (set, get) => ({
       workspaces: [],
-      createWorkspace: (name, path, isGitRepo) => {
+      createWorkspace: (name, path, isGitRepo, defaultHarnessId = BUILT_IN_HARNESS_ID) => {
         const now = Date.now();
         const workspace: Workspace = {
           id: generateId(),
           name,
           path,
           isGitRepo,
+          defaultHarnessId,
           sessions: [],
           createdAt: now,
           updatedAt: now,
@@ -190,60 +286,8 @@ export const useWorkspaceStore = create<WorkspaceState>()(
       name: 'consola-workspaces',
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({ workspaces: state.workspaces }),
-      // Migration: v2 -> v3 removes projects and adds path to workspace;
-      // v3 -> v4 gives every session a Claude session UUID.
-      migrate: (persistedState: unknown, version: number) => {
-        const state = persistedState as { workspaces: unknown[] };
-        if (state.workspaces && version < 4) {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          state.workspaces = state.workspaces.map((ws: any) => {
-            // If workspace has no path, try to get it from first project
-            if (!ws.path && ws.projects && ws.projects.length > 0) {
-              const firstProject = ws.projects[0];
-              return {
-                id: ws.id,
-                name: ws.name,
-                path: firstProject.path,
-                isGitRepo: firstProject.isGitRepo ?? false,
-                sessions: (ws.sessions ?? []).map((s: Record<string, unknown>) => ({
-                  id: s.id,
-                  name: s.name,
-                  workspaceId: s.workspaceId,
-                  instanceId: s.instanceId,
-                  createdAt: s.createdAt,
-                  lastActiveAt: s.lastActiveAt,
-                })),
-                createdAt: ws.createdAt,
-                updatedAt: ws.updatedAt,
-              };
-            }
-            // Workspace already has path or no projects - ensure correct shape
-            return {
-              id: ws.id,
-              name: ws.name,
-              path: ws.path ?? '',
-              isGitRepo: ws.isGitRepo ?? false,
-              sessions: (ws.sessions ?? []).map((s: Record<string, unknown>) => ({
-                id: s.id,
-                name: s.name,
-                workspaceId: s.workspaceId,
-                instanceId: s.instanceId,
-                // Pre-v4 sessions have no Claude conversation of their own:
-                // their history lived in Consola's database. They get a fresh
-                // session ID and start a new conversation.
-                claudeSessionId: (s.claudeSessionId as string) ?? generateUuid(),
-                hasStarted: (s.hasStarted as boolean) ?? false,
-                createdAt: s.createdAt,
-                lastActiveAt: s.lastActiveAt,
-              })),
-              createdAt: ws.createdAt,
-              updatedAt: ws.updatedAt,
-            };
-          });
-        }
-        return state;
-      },
-      version: 4,
+      migrate: migrateWorkspaceState,
+      version: 5,
     }
   )
 );

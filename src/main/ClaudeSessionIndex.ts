@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getLoginEnv } from './ClaudeCli';
+import { getLoginEnv } from './LoginEnvironment';
 
 /**
  * Read-only access to Claude Code's own session storage.
@@ -38,29 +38,33 @@ const indexCache = new Map<string, { mtimeMs: number; entries: ClaudeSessionEntr
 /**
  * Where Claude keeps its projects.
  *
- * Read from the same environment the spawned CLI gets, so a user who sets
- * CLAUDE_CONFIG_DIR is looked up in the directory their sessions actually live
- * in rather than the default.
+ * Each harness can point at its own config directory, so lookups are scoped to
+ * the one the session was actually launched under. With none given this falls
+ * back to the ambient environment the spawned CLI would see, so a user who
+ * sets CLAUDE_CONFIG_DIR in their shell keeps being looked up in the directory
+ * their sessions really live in.
  */
-function getProjectsDir(): string {
-    const configDir = getLoginEnv().CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
-    return path.join(configDir, 'projects');
+function getProjectsDir(configDir?: string): string {
+    const resolved =
+        configDir || getLoginEnv().CLAUDE_CONFIG_DIR || path.join(os.homedir(), '.claude');
+    return path.join(resolved, 'projects');
 }
 
-function listProjectDirs(): string[] {
+function listProjectDirs(configDir?: string): string[] {
+    const projectsDir = getProjectsDir(configDir);
     try {
         return fs
-            .readdirSync(getProjectsDir(), { withFileTypes: true })
+            .readdirSync(projectsDir, { withFileTypes: true })
             .filter((entry) => entry.isDirectory())
-            .map((entry) => path.join(getProjectsDir(), entry.name));
+            .map((entry) => path.join(projectsDir, entry.name));
     } catch {
         // No projects directory yet — Claude has never run.
         return [];
     }
 }
 
-function listIndexFiles(): string[] {
-    return listProjectDirs()
+function listIndexFiles(configDir?: string): string[] {
+    return listProjectDirs(configDir)
         .map((dir) => path.join(dir, 'sessions-index.json'))
         .filter((file) => fs.existsSync(file));
 }
@@ -72,8 +76,8 @@ function listIndexFiles(): string[] {
  * deriving the directory name from the working directory: that encoding is
  * lossy, whereas the file name is exactly the session ID.
  */
-export function findSessionFile(sessionId: string): string | null {
-    for (const dir of listProjectDirs()) {
+export function findSessionFile(sessionId: string, configDir?: string): string | null {
+    for (const dir of listProjectDirs(configDir)) {
         const candidate = path.join(dir, `${sessionId}.jsonl`);
         if (fs.existsSync(candidate)) {
             return candidate;
@@ -108,8 +112,8 @@ function readIndex(file: string): ClaudeSessionEntry[] {
  * hold sessions whose `projectPath` is a subdirectory), whereas session IDs are
  * unique. The whole index set is a few tens of kilobytes.
  */
-export function findEntry(sessionId: string): ClaudeSessionEntry | null {
-    for (const file of listIndexFiles()) {
+export function findEntry(sessionId: string, configDir?: string): ClaudeSessionEntry | null {
+    for (const file of listIndexFiles(configDir)) {
         const match = readIndex(file).find((entry) => entry.sessionId === sessionId);
         if (match) return match;
     }
@@ -117,8 +121,8 @@ export function findEntry(sessionId: string): ClaudeSessionEntry | null {
 }
 
 /** Whether Claude still holds a conversation for this session. */
-export function sessionExists(sessionId: string): boolean {
-    return findSessionFile(sessionId) !== null;
+export function sessionExists(sessionId: string, configDir?: string): boolean {
+    return findSessionFile(sessionId, configDir) !== null;
 }
 
 /**
@@ -127,8 +131,8 @@ export function sessionExists(sessionId: string): boolean {
  * The transcript exists as soon as the conversation has a turn, well before the
  * index cache catches up, so this is what names a session in practice.
  */
-function readFirstPrompt(sessionId: string): string | null {
-    const file = findSessionFile(sessionId);
+function readFirstPrompt(sessionId: string, configDir?: string): string | null {
+    const file = findSessionFile(sessionId, configDir);
     if (!file) return null;
 
     try {
@@ -178,9 +182,18 @@ function readFirstPrompt(sessionId: string): string | null {
  * index, then the opening prompt read from the transcript — the last of which
  * is available immediately, while the index can lag by a long time.
  */
-export function getDisplayName(sessionId: string, maxLength = 60): string | null {
-    const entry = findEntry(sessionId);
-    const raw = (entry?.summary || entry?.firstPrompt || readFirstPrompt(sessionId) || '').trim();
+export function getDisplayName(
+    sessionId: string,
+    configDir?: string,
+    maxLength = 60
+): string | null {
+    const entry = findEntry(sessionId, configDir);
+    const raw = (
+        entry?.summary ||
+        entry?.firstPrompt ||
+        readFirstPrompt(sessionId, configDir) ||
+        ''
+    ).trim();
     if (!raw) return null;
 
     const collapsed = raw.replace(/\s+/g, ' ');

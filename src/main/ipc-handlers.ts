@@ -3,9 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
-import { isClaudeAvailable, runHeadless } from './ClaudeCli';
-import { getDisplayName } from './ClaudeSessionIndex';
-import { TerminalMode, TerminalCreateOptions } from '../shared/types';
+import { runHeadless } from './drivers/ClaudeDriver';
+import { getDriver, toHarnessConfig } from './drivers';
+import { TerminalMode, TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 
 // One terminal per session tab, kept alive while the session is open
@@ -18,7 +18,19 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     // Start or attach to a session's terminal. Returns buffered output so a
     // remounted view repaints without restarting the conversation.
     ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (_event, options: TerminalCreateOptions) => {
-        const { instanceId, cwd, claudeSessionId, resume, cols, rows, initialPrompt } = options;
+        const {
+            instanceId,
+            cwd,
+            claudeSessionId,
+            resume,
+            cols,
+            rows,
+            initialPrompt,
+            driverId,
+            binaryOverride,
+            configDirOverride,
+            extraArgs,
+        } = options;
         return manager.ensure(instanceId, {
             cwd,
             claudeSessionId,
@@ -29,6 +41,12 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             cols,
             rows,
             initialPrompt,
+            // Absent for the built-in harness, which launches exactly as
+            // Consola did before harnesses existed.
+            driverId,
+            binaryOverride,
+            configDirOverride,
+            extraArgs,
         });
     });
 
@@ -56,13 +74,22 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         manager.destroy(instanceId);
     });
 
-    // === Claude CLI queries ===
+    // === Harness queries ===
 
-    ipcMain.handle(IPC_CHANNELS.CLAUDE_AVAILABLE, () => isClaudeAvailable());
-
-    ipcMain.handle(IPC_CHANNELS.CLAUDE_SESSION_NAME, (_event, claudeSessionId: string) => {
-        return getDisplayName(claudeSessionId);
+    // Is this harness's binary present, and who is it signed in as?
+    ipcMain.handle(IPC_CHANNELS.HARNESS_PROBE, (_event, fields: HarnessLaunchFields) => {
+        return getDriver(fields?.driverId).probeHealth(toHarnessConfig(fields));
     });
+
+    // A session's name, read from its own harness's transcripts. Drivers whose
+    // transcript format Consola cannot read simply have no answer.
+    ipcMain.handle(
+        IPC_CHANNELS.HARNESS_SESSION_NAME,
+        (_event, sessionId: string, fields: HarnessLaunchFields) => {
+            const driver = getDriver(fields?.driverId);
+            return driver.getSessionDisplayName?.(toHarnessConfig(fields), sessionId) ?? null;
+        }
+    );
 
     // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
@@ -575,8 +602,8 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_CREATE);
 
     // Remove Claude CLI query handlers
-    ipcMain.removeHandler(IPC_CHANNELS.CLAUDE_AVAILABLE);
-    ipcMain.removeHandler(IPC_CHANNELS.CLAUDE_SESSION_NAME);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);

@@ -720,3 +720,11 @@
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
+
+/* Accent marker beside each harness in the default-harness submenu. */
+.workspace-harness-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
+}

@@ -1,11 +1,13 @@
-import { useEffect } from 'react';
+import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
+import { driverSupportsSessionNaming } from '../../../shared/constants';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useHarnessStore } from '../../stores/harnessStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
-import { claudeCliBridge } from '../../services/terminalBridge';
+import { harnessBridge } from '../../services/harnessBridge';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
@@ -18,7 +20,7 @@ interface ContentViewProps {
   sessionId: string;
 }
 
-/** How often to check whether Claude has written a summary for the session. */
+/** How often to check whether the CLI has written a summary for the session. */
 const SESSION_NAME_POLL_MS = 5000;
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
@@ -50,6 +52,19 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const sessionName = session?.name;
   const claudeSessionId = session?.claudeSessionId;
   const hasStarted = session?.hasStarted;
+  const harnessId = session?.harnessId;
+
+  // Launch settings are resolved from the registry on every render rather than
+  // copied onto the session, so editing a harness in Settings reaches its
+  // sessions the next time they start. `harnesses` is a dependency because
+  // getLaunchFields reads it, even though it is not referenced directly.
+  const harnesses = useHarnessStore((state) => state.harnesses);
+  const getLaunchFields = useHarnessStore((state) => state.getLaunchFields);
+  const launchFields = useMemo(
+    () => getLaunchFields(harnessId),
+    [getLaunchFields, harnessId, harnesses]
+  );
+  const supportsSessionNaming = driverSupportsSessionNaming(launchFields.driverId);
 
   // Enable auto-refresh of git status on window focus
   useGitStatusAutoRefresh(workspace?.isGitRepo ? workspace.path : null);
@@ -62,17 +77,20 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     }
   }, [hasStarted, sessionId, workspaceId, updateSession]);
 
-  // Claude writes a summary for a conversation once it has content. Adopt it as
-  // the tab name, polling until it appears, and stop once the session is named.
+  // The CLI writes a summary for a conversation once it has content. Adopt it
+  // as the tab name, polling until it appears, and stop once the session is
+  // named. Drivers whose transcripts Consola cannot read never produce one, so
+  // they are skipped outright rather than polled forever.
   useEffect(() => {
     if (!claudeSessionId) return;
+    if (!supportsSessionNaming) return;
     if (sessionName !== '' && sessionName !== 'New Session') return;
 
     let cancelled = false;
 
     const adoptName = () => {
-      claudeCliBridge
-        .getSessionName(claudeSessionId)
+      harnessBridge
+        .getSessionName(claudeSessionId, launchFields)
         .then((name) => {
           if (cancelled || !name) return;
           updateSession(workspaceId, sessionId, { name });
@@ -89,7 +107,15 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
       cancelled = true;
       clearInterval(timer);
     };
-  }, [claudeSessionId, sessionName, sessionId, workspaceId, updateSession]);
+  }, [
+    claudeSessionId,
+    sessionName,
+    sessionId,
+    workspaceId,
+    updateSession,
+    launchFields,
+    supportsSessionNaming,
+  ]);
 
   if (!workspace || !session) {
     return (
@@ -153,6 +179,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               cwd={cwd}
               claudeSessionId={session.claudeSessionId}
               resume={session.hasStarted}
+              harness={launchFields}
             />
           </Panel>
           {hasOpenTabs && (

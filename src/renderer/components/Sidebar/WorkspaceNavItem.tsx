@@ -58,6 +58,9 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
       name: 'New Session',
       workspaceId: workspace.id,
       instanceId,
+      // Quick-add takes the workspace's default; the picker on the new-session
+      // screen is where another harness gets chosen.
+      harnessId: workspace.defaultHarnessId,
     });
 
     if (session) {

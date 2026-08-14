@@ -4,6 +4,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import './styles.css';
 
 interface NewSessionViewProps {
@@ -28,10 +29,21 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
 
   const setPendingPrompt = useTerminalStore((state) => state.setPendingPrompt);
 
-  // Focus the textarea when the view mounts
+  const harnesses = useHarnessStore((state) => state.harnesses);
+  // Archived and disabled harnesses stay out of the picker, but a workspace
+  // may still name one as its default, so fall back to something selectable.
+  const selectableHarnesses = harnesses.filter(isSelectableHarness);
+  const [selectedHarnessId, setSelectedHarnessId] = useState(workspace.defaultHarnessId);
+  const selectedHarness =
+    selectableHarnesses.find((harness) => harness.id === selectedHarnessId) ??
+    selectableHarnesses[0];
+
+  // Focus the textarea when the view mounts, and follow the workspace's own
+  // default whenever the workspace changes.
   useEffect(() => {
     textareaRef.current?.focus();
-  }, [workspace.id]);
+    setSelectedHarnessId(workspace.defaultHarnessId);
+  }, [workspace.id, workspace.defaultHarnessId]);
 
   // Auto-resize textarea
   useEffect(() => {
@@ -60,6 +72,9 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
         name: 'New Session',
         workspaceId: workspace.id,
         instanceId,
+        // Fixed now and never changed: the conversation's transcript will live
+        // in this harness's config directory, and resuming reads it back.
+        harnessId: selectedHarness?.id ?? workspace.defaultHarnessId,
       });
 
       if (!session) {
@@ -114,6 +129,46 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+
+          {selectableHarnesses.length > 1 && selectedHarness && (
+            <>
+              <span>using</span>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button className="workspace-dropdown-trigger">
+                    <span
+                      className="new-session-harness-dot"
+                      style={{ background: selectedHarness.accentColor }}
+                    />
+                    <span>{selectedHarness.name}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="dropdown-content workspace-dropdown-content"
+                    sideOffset={4}
+                  >
+                    {selectableHarnesses.map((harness) => (
+                      <DropdownMenu.Item
+                        key={harness.id}
+                        className={`dropdown-item ${
+                          harness.id === selectedHarness.id ? 'active' : ''
+                        }`}
+                        onSelect={() => setSelectedHarnessId(harness.id)}
+                      >
+                        <span
+                          className="new-session-harness-dot"
+                          style={{ background: harness.accentColor }}
+                        />
+                        {harness.name}
+                      </DropdownMenu.Item>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </>
+          )}
         </div>
 
         <div className="new-session-input-container">
