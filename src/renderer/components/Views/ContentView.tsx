@@ -1,13 +1,12 @@
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { useAgentStore } from '../../stores/agentStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
-import { sessionStorageBridge } from '../../services/sessionStorageBridge';
-import { AgentPanel } from '../Agent/AgentPanel';
+import { claudeCliBridge } from '../../services/terminalBridge';
+import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
 import { PathDisplay } from './PathDisplay';
@@ -18,6 +17,9 @@ interface ContentViewProps {
   workspaceId: string;
   sessionId: string;
 }
+
+/** How often to check whether Claude has written a summary for the session. */
+const SESSION_NAME_POLL_MS = 5000;
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
@@ -31,20 +33,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const hasOpenTabs = usePreviewTabStore((state) => state.tabs.length > 0);
   const activePreviewTabId = usePreviewTabStore((state) => state.activeTabId);
 
-  const loadInstanceHistory = useAgentStore((state) => state.loadInstanceHistory);
-
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'content-view-split',
     storage: localStorage,
   });
 
   const workspace = getWorkspace(workspaceId);
-
-  // Track which sessions we've loaded history for
-  const loadedSessionsRef = useRef<Set<string>>(new Set());
-
-  // Track which sessions we've generated names for
-  const namedSessionsRef = useRef<Set<string>>(new Set());
 
   // Get active session
   const session = workspace ? getSession(workspaceId, sessionId) : undefined;
@@ -53,47 +47,49 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const instanceId = session?.instanceId ?? '';
   const cwd = workspace?.path ?? '';
 
+  const sessionName = session?.name;
+  const claudeSessionId = session?.claudeSessionId;
+  const hasStarted = session?.hasStarted;
+
   // Enable auto-refresh of git status on window focus
   useGitStatusAutoRefresh(workspace?.isGitRepo ? workspace.path : null);
 
-  // Get message count to detect first message
-  const messageCount = useAgentStore(
-    (state) => state.instances[instanceId]?.messages?.length ?? 0
-  );
-
-  // Load session history when session becomes active
+  // Record that this tab has launched, so reopening it resumes the
+  // conversation instead of trying to create a session ID Claude already has.
   useEffect(() => {
-    if (session && !loadedSessionsRef.current.has(session.id)) {
-      loadedSessionsRef.current.add(session.id);
-      loadInstanceHistory(session.instanceId);
+    if (!hasStarted && sessionId) {
+      updateSession(workspaceId, sessionId, { hasStarted: true });
     }
-  }, [session, loadInstanceHistory]);
+  }, [hasStarted, sessionId, workspaceId, updateSession]);
 
-  // Generate session name after first user message if session has no real name
+  // Claude writes a summary for a conversation once it has content. Adopt it as
+  // the tab name, polling until it appears, and stop once the session is named.
   useEffect(() => {
-    if (!session || !workspace || messageCount === 0) return;
-    // Skip if session already has a generated name (not empty and not the default placeholder)
-    if (session.name !== '' && session.name !== 'New Session') return;
-    if (namedSessionsRef.current.has(session.id)) return;
+    if (!claudeSessionId) return;
+    if (sessionName !== '' && sessionName !== 'New Session') return;
 
-    const messages = useAgentStore.getState().instances[instanceId]?.messages ?? [];
-    const firstUserMessage = messages.find(m => m.type === 'user');
+    let cancelled = false;
 
-    if (firstUserMessage) {
-      namedSessionsRef.current.add(session.id);
-      sessionStorageBridge.generateName(firstUserMessage.content).then((name) => {
-        if (name && name !== 'New Session') {
-          updateSession(workspaceId, session.id, { name });
-        } else {
-          // Generation failed or returned placeholder — allow retry on next render
-          namedSessionsRef.current.delete(session.id);
-        }
-      }).catch(() => {
-        // Allow retry on failure
-        namedSessionsRef.current.delete(session.id);
-      });
-    }
-  }, [session, workspace, messageCount, workspaceId, instanceId, updateSession]);
+    const adoptName = () => {
+      claudeCliBridge
+        .getSessionName(claudeSessionId)
+        .then((name) => {
+          if (cancelled || !name) return;
+          updateSession(workspaceId, sessionId, { name });
+        })
+        .catch(() => {
+          // Index not written yet; the next poll will pick it up.
+        });
+    };
+
+    adoptName();
+    const timer = setInterval(adoptName, SESSION_NAME_POLL_MS);
+
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [claudeSessionId, sessionName, sessionId, workspaceId, updateSession]);
 
   if (!workspace || !session) {
     return (
@@ -152,7 +148,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </>
           )}
           <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
-            <AgentPanel instanceId={instanceId} cwd={cwd} />
+            <TerminalPanel
+              instanceId={instanceId}
+              cwd={cwd}
+              claudeSessionId={session.claudeSessionId}
+              resume={session.hasStarted}
+            />
           </Panel>
           {hasOpenTabs && (
             <>

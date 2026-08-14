@@ -35,7 +35,8 @@
  */
 
 import { useState, useRef, useCallback, useEffect } from 'react';
-import { useCodeReferencesStore } from '../../stores/codeReferencesStore';
+import { terminalBridge } from '../../services/terminalBridge';
+import { useCodeSelectionContext } from '../../contexts/CodeSelectionContext';
 
 export interface SelectionData {
   /** Selected text content */
@@ -267,26 +268,38 @@ export function useCodeSelection({
 }: UseCodeSelectionOptions) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [selection, setSelection] = useState<SelectionData | null>(null);
-  const addReference = useCodeReferencesStore((state) => state.addReference);
+  const basePath = useCodeSelectionContext()?.basePath;
 
   const clearSelection = useCallback(() => {
     setSelection(null);
   }, []);
 
+  /**
+   * Type a reference to the selection into the running CLI.
+   *
+   * `@path` is Claude Code's own file-reference syntax, so the CLI reads the
+   * file itself; the line range rides along as plain text. Pasting rather than
+   * submitting leaves the user free to finish the sentence.
+   */
   const addToChat = useCallback(() => {
     if (!selection) return;
 
-    addReference(instanceId, {
-      filePath,
-      startLine: selection.startLine,
-      endLine: selection.endLine,
-      content: selection.text,
-    });
+    const relativePath =
+      basePath && filePath.startsWith(basePath)
+        ? filePath.slice(basePath.length).replace(/^\//, '')
+        : filePath;
+
+    const range =
+      selection.startLine === selection.endLine
+        ? `line ${selection.startLine}`
+        : `lines ${selection.startLine}-${selection.endLine}`;
+
+    terminalBridge.paste(instanceId, `@${relativePath} (${range}) `);
 
     clearSelection();
     // Clear the browser selection
     window.getSelection()?.removeAllRanges();
-  }, [selection, instanceId, filePath, addReference, clearSelection]);
+  }, [selection, instanceId, filePath, basePath, clearSelection]);
 
   // Handle selection changes
   const handleSelectionChange = useCallback(() => {

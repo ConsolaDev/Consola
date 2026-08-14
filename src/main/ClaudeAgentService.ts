@@ -142,6 +142,9 @@ export class ClaudeAgentService extends EventEmitter {
   private pendingQuestions: Map<string, PendingQuestion> = new Map();
   private additionalDirectories: string[] = [];
 
+  // Lock to prevent concurrent SDK queries (initializeSession vs startQuery race)
+  private queryLock: Promise<void> = Promise.resolve();
+
   // Trust mode - when 'session', auto-approve all tool uses without asking
   private trustMode: TrustMode = 'off';
   private trustModeEnabledAt?: number;
@@ -222,6 +225,21 @@ export class ClaudeAgentService extends EventEmitter {
   }
 
   async startQuery(options: AgentQueryOptions): Promise<void> {
+    // Acquire the query lock to prevent concurrent SDK queries
+    // (e.g., initializeSession running at the same time would cause silent failures)
+    await this.queryLock;
+
+    let releaseLock: () => void;
+    this.queryLock = new Promise<void>(resolve => { releaseLock = resolve; });
+
+    try {
+      await this._startQueryInner(options);
+    } finally {
+      releaseLock!();
+    }
+  }
+
+  private async _startQueryInner(options: AgentQueryOptions): Promise<void> {
     // If a previous query is still winding down after interrupt, wait briefly for it
     if (this.currentQuery) {
       // Ensure abort is signalled
@@ -424,11 +442,22 @@ export class ClaudeAgentService extends EventEmitter {
       }
     };
 
+    let receivedAnyMessage = false;
+
     try {
       this.currentQuery = sdk.query({ prompt: options.prompt, options: sdkOptions });
 
       for await (const message of this.currentQuery) {
+        receivedAnyMessage = true;
         this.handleMessage(message);
+      }
+
+      // If the query completed without producing any messages, something went wrong
+      // (e.g., SDK session conflict). Surface this to the user instead of failing silently.
+      if (!receivedAnyMessage) {
+        this.emit('error', new Error(
+          'Agent session ended without producing any response. Please try again.'
+        ));
       }
     } catch (error) {
       this.emit('error', error instanceof Error ? error : new Error(String(error)));
@@ -524,8 +553,29 @@ export class ClaudeAgentService extends EventEmitter {
    * Initialize session without sending a prompt.
    * Returns available skills, commands, and models.
    * Used to pre-populate the command palette before user sends their first message.
+   *
+   * Acquires the query lock to prevent concurrent SDK queries with startQuery,
+   * which can cause silent session termination.
    */
   async initializeSession(): Promise<{
+    skills: string[];
+    slashCommands: string[];
+    plugins: { name: string; path: string }[];
+  }> {
+    // Acquire the query lock to prevent concurrent SDK queries
+    await this.queryLock;
+
+    let releaseLock: () => void;
+    this.queryLock = new Promise<void>(resolve => { releaseLock = resolve; });
+
+    try {
+      return await this._initializeSessionInner();
+    } finally {
+      releaseLock!();
+    }
+  }
+
+  private async _initializeSessionInner(): Promise<{
     skills: string[];
     slashCommands: string[];
     plugins: { name: string; path: string }[];

@@ -8,40 +8,73 @@ export interface TerminalDimensions {
     rows: number;
 }
 
+export interface TerminalCreateOptions {
+    instanceId: string;
+    cwd: string;
+    /** Session ID Consola assigned to this tab. */
+    claudeSessionId: string;
+    /** Resume the existing conversation instead of starting one. */
+    resume: boolean;
+    /** Initial size, so the TUI paints at the right dimensions immediately. */
+    cols?: number;
+    rows?: number;
+    /** Prompt to submit once the CLI is ready for input. */
+    initialPrompt?: string;
+}
+
+/** State needed to repaint a terminal view on mount. */
+export interface TerminalSnapshot {
+    replay: string;
+    mode: TerminalMode;
+    exited: boolean;
+}
+
 export interface TerminalDataMessage {
     instanceId: string;
     data: string;
 }
 
-export interface TerminalInputMessage {
-    instanceId: string;
-    data: string;
-}
-
-export interface TerminalResizeMessage {
-    instanceId: string;
-    cols: number;
-    rows: number;
-}
-
-export interface ModeSwitchMessage {
+export interface TerminalModeChangedMessage {
     instanceId: string;
     mode: TerminalMode;
 }
 
-export interface ModeChangedMessage {
+export interface TerminalActivityMessage {
+    instanceId: string;
+    busy: boolean;
+}
+
+export interface TerminalAwaitingConfirmationMessage {
+    instanceId: string;
+    awaiting: boolean;
+}
+
+export interface TerminalExitMessage {
     instanceId: string;
     mode: TerminalMode;
+    exitCode: number;
 }
 
 export interface TerminalAPI {
-    sendInput: (data: string) => void;
-    resize: (cols: number, rows: number) => void;
-    switchMode: (mode: TerminalMode) => void;
-    onData: (callback: (data: string) => void) => void;
-    onModeChanged: (callback: (mode: TerminalMode) => void) => void;
-    removeDataListener: (callback: (data: string) => void) => void;
-    removeModeChangedListener: (callback: (mode: TerminalMode) => void) => void;
+    create: (options: TerminalCreateOptions) => Promise<TerminalSnapshot>;
+    sendInput: (instanceId: string, data: string) => void;
+    paste: (instanceId: string, text: string) => void;
+    resize: (instanceId: string, cols: number, rows: number) => void;
+    switchMode: (instanceId: string, mode: TerminalMode) => void;
+    restart: (instanceId: string) => void;
+    destroy: (instanceId: string) => void;
+    onData: (callback: (message: TerminalDataMessage) => void) => () => void;
+    onModeChanged: (callback: (message: TerminalModeChangedMessage) => void) => () => void;
+    onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
+    onAwaitingConfirmation: (
+        callback: (message: TerminalAwaitingConfirmationMessage) => void
+    ) => () => void;
+    onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
+}
+
+export interface ClaudeCliAPI {
+    isAvailable: () => Promise<boolean>;
+    getSessionName: (claudeSessionId: string) => Promise<string | null>;
 }
 
 // Claude Agent SDK Types
@@ -250,6 +283,7 @@ export interface ClaudeAgentAPI {
 declare global {
     interface Window {
         terminalAPI: TerminalAPI;
+        claudeCliAPI: ClaudeCliAPI;
         claudeAgentAPI: ClaudeAgentAPI;
     }
 }

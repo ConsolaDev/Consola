@@ -115,7 +115,7 @@ export const ToolBlock = memo(function ToolBlock({ name, input, status, output }
       {showOutput && fileOutput && (
         <FileContentBlock file={fileOutput.file} />
       )}
-      {showOutput && !isEdit && !bashOutput && !skillOutput && !fileOutput && output !== undefined && (
+      {showOutput && !isEdit && !bashOutput && !skillOutput && !fileOutput && name !== 'TodoWrite' && output !== undefined && (
         <ToolOutput content={output} />
       )}
     </Box>

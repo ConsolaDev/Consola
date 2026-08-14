@@ -7,6 +7,7 @@ import { ChatMessage } from './ChatMessage';
 import { ChatInput } from './ChatInput';
 import { ProcessingIndicator } from './ProcessingIndicator';
 import { ApprovalCard } from './ApprovalCard';
+import { TrustModeBanner } from './TrustModeBanner';
 import { SessionDivider } from './SessionDivider';
 import { ToolCluster } from './ToolCluster';
 import { TodoListPanel } from './TodoListPanel';
@@ -133,6 +134,12 @@ export function AgentPanel({ instanceId, cwd, additionalDirectories }: AgentPane
                   onRespond={respondToInput}
                 />
               ))}
+              {/* Trust mode banner — visible when there are pending approvals */}
+              <TrustModeBanner
+                trustMode={trustMode}
+                onSetTrustMode={setTrustMode}
+                pendingCount={pendingInputs.filter(r => r.status === 'pending').length}
+              />
               {isProcessing && <ProcessingIndicator />}
             </>
           )}
