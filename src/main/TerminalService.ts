@@ -1,5 +1,6 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
+import * as fs from 'fs';
 import * as os from 'os';
 import { TerminalMode, TerminalDimensions, HarnessLaunchFields } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
@@ -46,6 +47,11 @@ const COMPOSER_READY_PATTERN = /^\s*[❯>]\s*$/;
 /** Erase the display and scrollback, then home the cursor. */
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
 
+/** Wrap Consola's own words in red, on their own line, so they read as ours. */
+function formatNotice(message: string): string {
+    return `\r\n\x1b[31m${message}\x1b[0m\r\n`;
+}
+
 function normalizeScreen(visibleText: string): string {
     return visibleText.replace(/\s+/g, ' ');
 }
@@ -81,8 +87,11 @@ export class TerminalService extends EventEmitter {
     private idleTimer: NodeJS.Timeout | null = null;
     private isBusy = false;
     private claudeExited = false;
+    /** Whether the current Claude launch has painted anything at all. */
+    private claudeProducedOutput = false;
     private pendingPrompt: string | null = null;
     private isAwaitingConfirmation = false;
+    private isDestroyed = false;
 
     constructor(options: TerminalServiceOptions) {
         super();
@@ -191,6 +200,7 @@ export class TerminalService extends EventEmitter {
     }
 
     public destroy(): void {
+        this.isDestroyed = true;
         if (this.idleTimer) {
             clearTimeout(this.idleTimer);
             this.idleTimer = null;
@@ -209,6 +219,18 @@ export class TerminalService extends EventEmitter {
     private initClaude(resume: boolean): void {
         if (this.claudePty) return;
 
+        // Checked before the spawn, not after: a directory Consola cannot enter
+        // fails inside the PTY child, where the failure is silent (see
+        // `describeCwdProblem`). Retrying a resume as a fresh session would not
+        // help either — the working directory is the same both times.
+        const cwdProblem = this.describeCwdProblem();
+        if (cwdProblem) {
+            this.claudeExited = true;
+            this.writeNotice(TerminalMode.CLAUDE, cwdProblem);
+            this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode: 1 } as TerminalExitInfo);
+            return;
+        }
+
         const binary = this.driver.resolveBinary(this.harness);
         const args = this.driver.buildSessionArgs(
             this.harness,
@@ -217,6 +239,7 @@ export class TerminalService extends EventEmitter {
         );
 
         try {
+            this.claudeProducedOutput = false;
             this.claudePty = pty.spawn(binary, args, {
                 name: 'xterm-256color',
                 cols: this.dimensions.cols,
@@ -248,6 +271,17 @@ export class TerminalService extends EventEmitter {
                     return;
                 }
 
+                // A failure with nothing on screen means the CLI never got far
+                // enough to say anything, so there is no error for the user to
+                // read. Name what was run instead of leaving an empty pane.
+                if (exitCode !== 0 && !this.claudeProducedOutput) {
+                    this.writeNotice(
+                        TerminalMode.CLAUDE,
+                        `\`${binary}\` exited immediately without starting. ` +
+                            'Check this session\'s harness in Settings — is that binary installed and executable?'
+                    );
+                }
+
                 this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode } as TerminalExitInfo);
             });
         } catch (error) {
@@ -259,6 +293,15 @@ export class TerminalService extends EventEmitter {
 
     private initShell(): void {
         if (this.shellPty) return;
+
+        // Same silent failure as Claude's launch. The notice stays on the shell
+        // screen rather than bouncing back to Claude, which cannot start here
+        // either — the user should get to read why before switching away.
+        const cwdProblem = this.describeCwdProblem();
+        if (cwdProblem) {
+            this.writeNotice(TerminalMode.SHELL, cwdProblem);
+            return;
+        }
 
         // The shell shares the session's harness environment, so invoking the
         // CLI by hand from here talks to the same profile the tab does.
@@ -291,7 +334,58 @@ export class TerminalService extends EventEmitter {
         }
     }
 
+    /**
+     * Why this session's working directory cannot be entered, or null if it can.
+     *
+     * Worth answering before every spawn because the failure it prevents is
+     * invisible: node-pty enters the directory inside the PTY child, and on
+     * macOS the helper that does it exits without writing a word when the
+     * `chdir` fails. The pane would go blank with a code 1 and nothing to read
+     * — which is exactly what a workspace whose folder has been moved or
+     * renamed produces.
+     */
+    private describeCwdProblem(): string | null {
+        const { cwd } = this.options;
+
+        let stats: fs.Stats;
+        try {
+            stats = fs.statSync(cwd);
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            return code === 'ENOENT'
+                ? `Working folder not found: ${cwd} — this workspace points at a folder that has been moved, renamed, or deleted. Update its path to start sessions here again.`
+                : `Working folder unreadable: ${cwd} (${code ?? 'unknown error'}).`;
+        }
+
+        return stats.isDirectory() ? null : `Working folder is not a directory: ${cwd}.`;
+    }
+
+    /**
+     * Write Consola's own message into a pane, as if the PTY had printed it.
+     *
+     * Deferred by a tick because a real PTY never produces output synchronously
+     * from `start()`. Emitting inline would reach the renderer twice: once live,
+     * and again in the replay buffer `TerminalManager.ensure` captures after
+     * starting the terminal.
+     */
+    private writeNotice(mode: TerminalMode, message: string): void {
+        const text = formatNotice(message);
+        setImmediate(() => {
+            // The session may have been closed in the meantime; recreating its
+            // screen here would leak an emulator nothing will ever dispose.
+            if (this.isDestroyed) return;
+            this.getScreen(mode).write(text);
+            if (mode === this.currentMode) {
+                this.emit('data', text);
+            }
+        });
+    }
+
     private handleData(mode: TerminalMode, data: string): void {
+        if (mode === TerminalMode.CLAUDE) {
+            this.claudeProducedOutput = true;
+        }
+
         this.getScreen(mode).write(data);
 
         if (mode === this.currentMode) {
