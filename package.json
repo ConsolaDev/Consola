@@ -10,9 +10,11 @@
     "build:main": "tsc -p tsconfig.main.json",
     "build:preload": "tsc -p tsconfig.preload.json",
     "build:renderer": "vite build --config vite.config.ts",
-    "dev": "concurrently -k \"npm run dev:vite\" \"npm run dev:electron\"",
+    "dev": "concurrently -k -n vite,main,preload,electron \"npm run dev:vite\" \"npm run dev:main\" \"npm run dev:preload\" \"npm run dev:electron\"",
     "dev:vite": "vite --config vite.config.ts",
-    "dev:electron": "wait-on http://localhost:5173 && NODE_ENV=development electron .",
+    "dev:main": "tsc -p tsconfig.main.json --watch --preserveWatchOutput",
+    "dev:preload": "tsc -p tsconfig.preload.json --watch --preserveWatchOutput",
+    "dev:electron": "wait-on http://localhost:5173 && node scripts/dev-electron.cjs",
     "test:e2e": "playwright test",
     "postinstall": "npx @electron/rebuild -f -w node-pty"
   },

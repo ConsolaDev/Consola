@@ -11,7 +11,7 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ## Build & Development Commands
 
 ```bash
-npm run dev              # Full dev environment (Vite + Electron with HMR)
+npm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
 npm run build            # Production build (all processes)
 npm start                # Run production build
 npm run test:e2e         # Run Playwright E2E tests
@@ -23,6 +23,11 @@ npm run build:main       # Main process only
 npm run build:preload    # Preload script only
 npm run build:renderer   # Renderer (Vite) only
 ```
+
+Only the renderer hot-reloads. `src/main` and `src/preload` are compiled and
+loaded once per launch, so `scripts/dev-electron.cjs` restarts Electron when
+their output changes — otherwise a new UI ends up talking to a main process
+built hours earlier, and the mismatch reads as a renderer bug.
 
 ## Architecture Overview
 
