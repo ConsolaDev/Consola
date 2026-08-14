@@ -54,19 +54,7 @@ export interface GitAPI {
   unstageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;
   commit: (rootPath: string, message: string) => Promise<{ success: boolean; error?: string }>;
   getStagedDiff: (rootPath: string) => Promise<{ stagedFiles: string[]; diff: string }>;
-  generateCommitMessage: (rootPath: string, instanceId: string) => Promise<{ message: string; error?: string }>;
-}
-
-export interface PersistedSessionData {
-  messages: unknown[];
-  toolHistory: unknown[];
-}
-
-export interface SessionStorageAPI {
-  saveHistory: (sessionId: string, data: PersistedSessionData) => Promise<void>;
-  loadHistory: (sessionId: string) => Promise<PersistedSessionData | null>;
-  deleteHistory: (sessionId: string) => Promise<void>;
-  generateName: (query: string) => Promise<{ name: string }>;
+  generateCommitMessage: (rootPath: string) => Promise<{ message: string; error?: string }>;
 }
 
 declare global {
@@ -74,6 +62,5 @@ declare global {
     dialogAPI: DialogAPI;
     fileAPI: FileAPI;
     gitAPI: GitAPI;
-    sessionStorageAPI: SessionStorageAPI;
   }
 }

@@ -42,6 +42,9 @@ const CONFIRMATION_MARKERS = [
  */
 const COMPOSER_READY_PATTERN = /^\s*[❯>]\s*$/;
 
+/** Erase the display and scrollback, then home the cursor. */
+const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
+
 function normalizeScreen(visibleText: string): string {
     return visibleText.replace(/\s+/g, ' ');
 }
@@ -222,8 +225,13 @@ export class TerminalService extends EventEmitter {
 
                 // A resume against a session Claude no longer has fails
                 // immediately; retry once as a new conversation so the tab
-                // stays usable.
+                // stays usable. Wipe the failed attempt's output first so its
+                // error message does not sit above the fresh session.
                 if (resume && exitCode !== 0) {
+                    this.disposeScreen(TerminalMode.CLAUDE);
+                    if (this.currentMode === TerminalMode.CLAUDE) {
+                        this.emit('data', CLEAR_SCREEN);
+                    }
                     this.initClaude(false);
                     return;
                 }

@@ -5,129 +5,13 @@ import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
 import { isClaudeAvailable, runHeadless } from './ClaudeCli';
 import { getDisplayName } from './ClaudeSessionIndex';
-import { ClaudeAgentService } from './ClaudeAgentService';
-import { saveSessionData, loadSessionData, deleteSessionData } from './SessionStorageService';
-import { generateSessionName } from './SessionNameGenerator';
-import * as MediaStorageService from './MediaStorageService';
-import { TerminalMode, TerminalCreateOptions, AgentQueryOptions, AgentInputResponse, TrustModeChangeRequest } from '../shared/types';
-import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
+import { TerminalMode, TerminalCreateOptions } from '../shared/types';
+import { IPC_CHANNELS } from '../shared/constants';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
 
-// Map for multi-instance Claude Agent services
-const agentServices: Map<string, ClaudeAgentService> = new Map();
-
-// Reference to main window for event forwarding
-let mainWindowRef: BrowserWindow | null = null;
-
-// Helper to get or create an agent service for a given instanceId
-function getOrCreateAgentService(instanceId: string, cwd: string): ClaudeAgentService {
-    let service = agentServices.get(instanceId);
-    if (!service) {
-        service = new ClaudeAgentService(cwd);
-        agentServices.set(instanceId, service);
-        wireAgentServiceEvents(instanceId, service);
-    }
-    return service;
-}
-
-// Wire up event forwarding for an agent service instance
-function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService): void {
-    if (!mainWindowRef) return;
-    const mainWindow = mainWindowRef;
-
-    service.on('init', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INIT, { instanceId, ...data });
-        }
-    });
-
-    service.on('assistant-message', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ASSISTANT_MESSAGE, { instanceId, ...data });
-        }
-    });
-
-    service.on('stream', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STREAM, { instanceId, ...data });
-        }
-    });
-
-    service.on('tool-pending', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_PENDING, { instanceId, ...data });
-        }
-    });
-
-    service.on('tool-complete', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_COMPLETE, { instanceId, ...data });
-        }
-    });
-
-    service.on('result', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_RESULT, { instanceId, ...data });
-        }
-    });
-
-    service.on('error', (error: Error) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
-                instanceId,
-                message: error.message
-            });
-        }
-    });
-
-    service.on('status-changed', (status) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STATUS_CHANGED, { instanceId, ...status });
-        }
-    });
-
-    service.on('notification', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_NOTIFICATION, { instanceId, ...data });
-        }
-    });
-
-    service.on('message', (message) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_MESSAGE, { instanceId, message });
-        }
-    });
-
-    service.on('input-request', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INPUT_REQUEST, { instanceId, ...data });
-        }
-    });
-
-    service.on('session-end', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_SESSION_END, { instanceId, ...data });
-        }
-    });
-
-    service.on('session-start', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_SESSION_START, { instanceId, ...data });
-        }
-    });
-
-    service.on('trust-mode-changed', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TRUST_MODE_CHANGED, { instanceId, ...data });
-        }
-    });
-}
-
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
-    mainWindowRef = mainWindow;
-
     terminalManager = new TerminalManager(mainWindow);
     const manager = terminalManager;
 
@@ -178,87 +62,6 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
 
     ipcMain.handle(IPC_CHANNELS.CLAUDE_SESSION_NAME, (_event, claudeSessionId: string) => {
         return getDisplayName(claudeSessionId);
-    });
-
-    // === Claude Agent Service Command Handlers ===
-
-    // Handle agent start from renderer
-    ipcMain.on(IPC_CHANNELS.AGENT_START, async (_event, options: AgentQueryOptions) => {
-        const { instanceId, cwd, additionalDirectories, ...queryOptions } = options;
-        const workingDir = cwd || process.cwd();
-
-        try {
-            const service = getOrCreateAgentService(instanceId, workingDir);
-            // Update cwd if it changed
-            service.setCwd(workingDir);
-            service.setAdditionalDirectories(additionalDirectories ?? []);
-            await service.startQuery(queryOptions);
-        } catch (error) {
-            if (!mainWindow.isDestroyed()) {
-                mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
-                    instanceId,
-                    message: error instanceof Error ? error.message : String(error)
-                });
-            }
-        }
-    });
-
-    // Handle agent interrupt from renderer
-    ipcMain.on(IPC_CHANNELS.AGENT_INTERRUPT, (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        service?.interrupt();
-    });
-
-    // Handle agent status request from renderer
-    ipcMain.handle(IPC_CHANNELS.AGENT_GET_STATUS, (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        return service?.getStatus() ?? {
-            isRunning: false,
-            sessionId: null,
-            model: null,
-            permissionMode: null
-        };
-    });
-
-    // Handle agent instance destruction
-    ipcMain.on(IPC_CHANNELS.AGENT_DESTROY_INSTANCE, (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        if (service) {
-            service.destroy();
-            agentServices.delete(instanceId);
-        }
-    });
-
-    // Handle user response to input/permission request
-    ipcMain.on(IPC_CHANNELS.AGENT_INPUT_RESPONSE, (_event, response: AgentInputResponse) => {
-        const service = agentServices.get(response.instanceId);
-        if (service) {
-            service.respondToPermission(response.requestId, response.action, {
-                modifiedInput: response.modifiedInput,
-                feedback: response.feedback,
-                answers: response.answers
-            });
-        }
-    });
-
-    // Handle session initialization (pre-load skills/commands)
-    ipcMain.handle(IPC_CHANNELS.AGENT_INITIALIZE, async (_event, { instanceId, cwd }: { instanceId: string; cwd: string }) => {
-        const service = getOrCreateAgentService(instanceId, cwd);
-        return service.initializeSession();
-    });
-
-    // Handle trust mode change (accept all for session)
-    ipcMain.on(IPC_CHANNELS.AGENT_SET_TRUST_MODE, (_event, request: TrustModeChangeRequest) => {
-        const service = agentServices.get(request.instanceId);
-        if (service) {
-            service.setTrustMode(request.mode);
-        }
-    });
-
-    // Handle trust mode status request
-    ipcMain.handle('agent:get-trust-mode', (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        return service?.getTrustMode() ?? { mode: 'off' };
     });
 
     // Handle folder picker dialog (multi-select)
@@ -323,24 +126,6 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         }
     });
 
-    // === Session Storage Handlers ===
-
-    ipcMain.handle('session:save-history', async (_event, { sessionId, data }) => {
-        await saveSessionData(sessionId, data);
-    });
-
-    ipcMain.handle('session:load-history', async (_event, { sessionId }) => {
-        return await loadSessionData(sessionId);
-    });
-
-    ipcMain.handle('session:delete-history', async (_event, { sessionId }) => {
-        await deleteSessionData(sessionId);
-    });
-
-    ipcMain.handle(IPC_CHANNELS.SESSION_GENERATE_NAME, async (_event, { query }) => {
-        const name = await generateSessionName(query);
-        return { name };
-    });
 
     // Handle git status
     ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, async (_event, rootPath: string) => {
@@ -642,7 +427,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     });
 
     // Handle commit message generation using Claude
-    ipcMain.handle(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE, async (_event, { rootPath }: { rootPath: string }) => {
+    ipcMain.handle(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE, async (_event, { rootPath }: { rootPath: string }) => {
         // Get staged diff first
         const stagedResult = await new Promise<{ stagedFiles: string[]; diff: string }>((resolve) => {
             exec('git diff --cached --name-only', { cwd: rootPath }, (err, stagedFilesOutput) => {
@@ -780,14 +565,6 @@ export function cleanupIpcHandlers(): void {
     terminalManager?.destroyAll();
     terminalManager = null;
 
-    // Clean up all agent services
-    for (const [id, service] of agentServices) {
-        service.destroy();
-        agentServices.delete(id);
-    }
-
-    mainWindowRef = null;
-
     // Remove terminal IPC listeners
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_INPUT);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
@@ -800,16 +577,6 @@ export function cleanupIpcHandlers(): void {
     // Remove Claude CLI query handlers
     ipcMain.removeHandler(IPC_CHANNELS.CLAUDE_AVAILABLE);
     ipcMain.removeHandler(IPC_CHANNELS.CLAUDE_SESSION_NAME);
-
-    // Remove agent IPC listeners
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_START);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INTERRUPT);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_DESTROY_INSTANCE);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INPUT_RESPONSE);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_SET_TRUST_MODE);
-    ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
-    ipcMain.removeHandler(IPC_CHANNELS.AGENT_INITIALIZE);
-    ipcMain.removeHandler('agent:get-trust-mode');
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
@@ -826,11 +593,5 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.GIT_UNSTAGE_FILE);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_COMMIT);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STAGED_DIFF);
-    ipcMain.removeHandler(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE);
-
-    // Remove session storage handlers
-    ipcMain.removeHandler('session:save-history');
-    ipcMain.removeHandler('session:load-history');
-    ipcMain.removeHandler('session:delete-history');
-    ipcMain.removeHandler(IPC_CHANNELS.SESSION_GENERATE_NAME);
+    ipcMain.removeHandler(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE);
 }

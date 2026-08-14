@@ -75,11 +75,11 @@ export const gitBridge = {
   },
 
   /** Generate a commit message using Claude */
-  generateCommitMessage: async (rootPath: string, instanceId: string): Promise<{ message: string; error?: string } | null> => {
+  generateCommitMessage: async (rootPath: string): Promise<{ message: string; error?: string } | null> => {
     const api = getAPI();
     if (!api) {
       return null;
     }
-    return api.generateCommitMessage(rootPath, instanceId);
+    return api.generateCommitMessage(rootPath);
   },
 };

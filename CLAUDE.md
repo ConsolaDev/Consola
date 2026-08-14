@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is Consola?
 
-Consola is an Electron desktop application that provides a structured AI-assisted development workflow using the Claude Agent SDK. It features a multi-workspace tabbed interface with real-time streaming responses, file exploration with git status integration, and rich markdown rendering.
+Consola is an Electron desktop application that provides a structured AI-assisted development workflow around the Claude Code CLI. It features a multi-workspace tabbed interface where each session runs `claude` in an embedded terminal, alongside file exploration with git status integration and a git review panel.
+
+**The CLI owns the conversation.** Consola does not reimplement chat, tool rendering, permissions, or history — it spawns `claude` in a PTY and renders it with xterm.js, so improvements to Claude Code arrive without any work here. Consola's job is the surrounding workspace: sessions, files, git, and layout.
 
 ## Build & Development Commands
 
@@ -36,8 +38,11 @@ src/shared/         → Shared types and IPC channel constants
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
 - `ipc-handlers.ts` - All IPC message routing
-- `ClaudeAgentService.ts` - Claude SDK wrapper with streaming
-- `SessionStorageService.ts` - Session persistence
+- `TerminalService.ts` - One session's PTYs (claude + shell), prompt delivery
+- `TerminalManager.ts` - Owns a TerminalService per session, forwards events
+- `ScreenModel.ts` - Headless xterm mirroring what a PTY displays
+- `ClaudeCli.ts` - Binary resolution, login environment, headless `claude -p`
+- `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -61,44 +66,65 @@ const result = await window.dialogAPI.selectFolder();
 ```
 
 Bridge services are in `src/renderer/services/`:
-- `agentBridge.ts` - Claude agent operations
+- `terminalBridge.ts` - Session terminals and Claude CLI queries
 - `dialogBridge.ts` - Native dialogs
 - `fileBridge.ts` - File system reads
 - `gitBridge.ts` - Git status
-- `sessionStorageBridge.ts` - Session persistence
 
-### ESM/CJS Interop for claude-agent-sdk
+### Terminals Outlive Their Views
 
-The SDK is ESM-only but main process outputs CommonJS. Use this pattern:
+A PTY belongs to the main process and is keyed by `instanceId`. Unmounting a
+session pane (switching tabs) tears down only the xterm view — the terminal
+keeps running so background work continues. Only closing a session destroys it.
 
-```typescript
-// Type-only imports (erased at compile time)
-import type { SDKMessage } from '@anthropic-ai/claude-agent-sdk';
+Remounting repaints from `ScreenModel.snapshot()`, escape sequences that
+reconstruct the current screen exactly. Do not try to reason about a TUI from
+the raw byte stream: Claude paints with cursor movement and overwrites in
+place, so recent bytes are not the current screen. Ask the `ScreenModel`.
 
-// Runtime dynamic import (bypasses TS import() -> require() transform)
-const dynamicImport = new Function('modulePath', 'return import(modulePath)');
-const sdk = await dynamicImport('@anthropic-ai/claude-agent-sdk');
-```
+### Session Identity
+
+Consola assigns each tab a UUID and launches `claude --session-id <uuid>` the
+first time, then `--resume <uuid>` afterwards (`Session.hasStarted`). Reusing
+`--session-id` for an existing session is an error, hence the two paths. If a
+resume fails because the conversation is gone, `TerminalService` falls back to
+a fresh session automatically — so never gate resuming on a local existence
+check, Claude is the authority.
+
+### Never Type Into a Confirmation Menu
+
+Queued prompts are delivered only when the emulated screen shows an *empty*
+composer and no confirmation markers (`CONFIRMATION_MARKERS`). Claude shows a
+workspace trust gate on first launch in an unfamiliar folder, and typing into
+it would answer it. Any future automated input must respect the same guard.
+
+### Claude's Own Storage
+
+`ClaudeSessionIndex` reads transcripts under `$CLAUDE_CONFIG_DIR/projects`
+(falling back to `~/.claude`) — always honour that variable. Locate files by
+probing each project directory for `<sessionId>.jsonl`; the directory-name
+encoding is lossy and cannot be derived from a working directory. The
+transcript is authoritative and `sessions-index.json` is a cache that lags.
 
 ### IPC Channels
 
 All channel names are defined in `src/shared/constants.ts`. Key patterns:
-- `agent:*` - Claude agent communication
+- `terminal:*` - Session terminal lifecycle and events
+- `claude:*` - Claude CLI queries (availability, session names)
 - `file:*` - File operations
-- `git:*` - Git status
+- `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
-- `session:*` - Session management
 
-### Multi-Instance Support
-
-The architecture supports multiple agent instances via `instanceId` in all IPC messages. Currently uses `DEFAULT_INSTANCE_ID` for single-instance mode.
+Every terminal message carries `instanceId`; there is one terminal per session.
 
 ## Tech Stack
 
 - **Electron 28** - Desktop framework
 - **React 19** - UI (with react-router-dom hash routing)
 - **Zustand** - State management
-- **@anthropic-ai/claude-agent-sdk** - AI integration
+- **claude CLI** - AI integration, driven as a subprocess (not a library)
+- **node-pty** - Pseudo-terminals (native; rebuilt for Electron on install)
+- **@xterm/xterm** - Terminal rendering, plus `@xterm/headless` in the main process
 - **@radix-ui/themes** - Component library
 - **Vite** - Build tool (dev server at localhost:5173)
 - **Playwright** - E2E testing
