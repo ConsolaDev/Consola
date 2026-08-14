@@ -1,12 +1,11 @@
 /**
  * Code Selection Components
  *
- * Provides reusable components for selecting code and adding references to chat.
+ * Provides reusable components for selecting code and sending a reference to
+ * the running CLI.
  */
 
 export { SelectionPopup } from './SelectionPopup';
-export { CodeReferencePill } from './CodeReferencePill';
-export { CodeReferencesContainer } from './CodeReferencesContainer';
 export { SelectableCode } from './SelectableCode';
 export { useCodeSelection } from './useCodeSelection';
 export type { SelectionData, UseCodeSelectionOptions } from './useCodeSelection';

@@ -3,7 +3,6 @@ import { Loader2, Sparkles, GitCommit } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { gitBridge } from '../../services/gitBridge';
-import { DEFAULT_INSTANCE_ID } from '../../../shared/constants';
 
 interface GitReviewCommitBarProps {
   rootPath: string;
@@ -36,7 +35,7 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }:
     setGeneratingMessage(true);
 
     try {
-      const result = await gitBridge.generateCommitMessage(rootPath, DEFAULT_INSTANCE_ID);
+      const result = await gitBridge.generateCommitMessage(rootPath);
       if (result?.message) {
         setCommitMessage(result.message);
       } else if (result?.error) {
