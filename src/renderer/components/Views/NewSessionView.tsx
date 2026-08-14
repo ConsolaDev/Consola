@@ -3,8 +3,7 @@ import { Send, ChevronDown } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useAgentStore } from '../../stores/agentStore';
-import { sessionStorageBridge } from '../../services/sessionStorageBridge';
+import { useTerminalStore } from '../../stores/terminalStore';
 import './styles.css';
 
 interface NewSessionViewProps {
@@ -23,12 +22,11 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const createSession = useWorkspaceStore((state) => state.createSession);
-  const updateSession = useWorkspaceStore((state) => state.updateSession);
 
   const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
   const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
-  const sendMessage = useAgentStore((state) => state.sendMessage);
+  const setPendingPrompt = useTerminalStore((state) => state.setPendingPrompt);
 
   // Focus the textarea when the view mounts
   useEffect(() => {
@@ -55,7 +53,8 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
     setIsSubmitting(true);
 
     try {
-      // Create session with placeholder name (will be renamed once name generation succeeds)
+      // Placeholder name until Claude writes a summary for the conversation,
+      // which ContentView then adopts.
       const instanceId = generateSessionInstanceId(workspace.id);
       const session = createSession(workspace.id, {
         name: 'New Session',
@@ -68,19 +67,12 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
         return;
       }
 
+      // Hand the prompt to the terminal, which delivers it once the CLI has
+      // finished starting up.
+      setPendingPrompt(instanceId, trimmedPrompt);
+
       // Set as active immediately
       setActiveSession(session.id);
-
-      // Start agent query
-      sendMessage(instanceId, workspace.path, trimmedPrompt, {});
-
-      // Generate name from prompt asynchronously
-      sessionStorageBridge.generateName(trimmedPrompt).then((name) => {
-        if (name) {
-          updateSession(workspace.id, session.id, { name });
-        }
-        // If generation fails, 'New Session' placeholder remains and ContentView will retry
-      });
 
       // Clear the input
       setPrompt('');

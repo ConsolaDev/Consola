@@ -1,10 +1,10 @@
 import { useState, useRef, useEffect } from 'react';
 import { MessageSquare } from 'lucide-react';
-import { useAgentStore } from '../../stores/agentStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
-import { sessionStorageBridge } from '../../services/sessionStorageBridge';
+import { terminalBridge } from '../../services/terminalBridge';
 
 interface SessionNavItemProps {
   session: Session;
@@ -23,17 +23,19 @@ export function SessionNavItem({
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  const sessionStatus = useAgentStore((state) => {
-    const instance = state.instances[session.instanceId];
-    if (!instance) return null;
+  // Activity is inferred from terminal output, so the only states Consola can
+  // distinguish are "Claude is producing output" and "Claude has exited".
+  const sessionStatus = useTerminalStore((state) => {
+    const terminal = state.terminals[session.instanceId];
+    if (!terminal) return null;
 
-    // Priority: Error > Attention (pending inputs) > Running > None
-    if (instance.error) return 'error';
-    if (instance.pendingInputs.some(input => input.status === 'pending')) return 'attention';
-    if (instance.status.isRunning) return 'running';
+    // Priority: Exited > Awaiting a keypress > Working > None
+    if (terminal.hasExited) return 'error';
+    if (terminal.isAwaitingConfirmation) return 'attention';
+    if (terminal.isBusy) return 'running';
     return null;
   });
-  const destroyInstance = useAgentStore((state) => state.destroyInstance);
+  const removeTerminalInstance = useTerminalStore((state) => state.removeInstance);
 
   const updateSession = useWorkspaceStore((state) => state.updateSession);
   const deleteSession = useWorkspaceStore((state) => state.deleteSession);
@@ -67,14 +69,13 @@ export function SessionNavItem({
     }
   };
 
-  const handleDelete = async () => {
-    // Clean up agent instance
-    destroyInstance(session.instanceId);
+  const handleDelete = () => {
+    // Closing a session is what kills its terminal; unmounting does not.
+    terminalBridge.destroy(session.instanceId);
+    removeTerminalInstance(session.instanceId);
 
-    // Delete persisted history
-    await sessionStorageBridge.deleteHistory(session.instanceId);
-
-    // Remove from store
+    // Remove from store. The conversation itself stays in Claude's own session
+    // files and remains reachable through `claude --resume`.
     deleteSession(workspaceId, session.id);
 
     // Clear active session if this was it

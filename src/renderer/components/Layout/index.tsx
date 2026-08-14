@@ -1,3 +1,4 @@
+import { useEffect } from 'react';
 import { Sidebar } from '../Sidebar';
 import { AppHeader } from './AppHeader';
 import { MainContent } from './MainContent';
@@ -5,6 +6,7 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 import './styles.css';
 
 export function Layout() {
@@ -24,6 +26,10 @@ export function Layout() {
     onOpenSettings: openSettings,
   });
   useTheme();
+
+  // Terminals report activity for every session, including ones whose pane is
+  // not mounted, so the subscription lives here rather than in the pane.
+  useEffect(() => useTerminalStore.getState().subscribeToEvents(), []);
 
   return (
     <div className="layout">

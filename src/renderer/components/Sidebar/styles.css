@@ -590,7 +590,7 @@
 }
 
 .session-status-indicator--running {
-  background: var(--color-primary);
+  background: var(--color-accent);
   animation: session-pulse 1.5s ease-in-out infinite;
 }
 

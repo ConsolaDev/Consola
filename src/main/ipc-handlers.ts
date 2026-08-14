@@ -2,16 +2,18 @@ import { ipcMain, BrowserWindow, dialog } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
-import { TerminalService } from './TerminalService';
+import { TerminalManager } from './TerminalManager';
+import { isClaudeAvailable, runHeadless } from './ClaudeCli';
+import { getDisplayName } from './ClaudeSessionIndex';
 import { ClaudeAgentService } from './ClaudeAgentService';
 import { saveSessionData, loadSessionData, deleteSessionData } from './SessionStorageService';
 import { generateSessionName } from './SessionNameGenerator';
 import * as MediaStorageService from './MediaStorageService';
-import { TerminalMode, AgentQueryOptions, AgentInputResponse, TrustModeChangeRequest } from '../shared/types';
+import { TerminalMode, TerminalCreateOptions, AgentQueryOptions, AgentInputResponse, TrustModeChangeRequest } from '../shared/types';
 import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
 
-// Map to support future multi-instance terminals
-const terminalServices: Map<string, TerminalService> = new Map();
+// One terminal per session tab, kept alive while the session is open
+let terminalManager: TerminalManager | null = null;
 
 // Map for multi-instance Claude Agent services
 const agentServices: Map<string, ClaudeAgentService> = new Map();
@@ -126,46 +128,56 @@ function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService)
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     mainWindowRef = mainWindow;
 
-    // Create default terminal service
-    const terminalService = new TerminalService();
-    terminalServices.set(DEFAULT_INSTANCE_ID, terminalService);
+    terminalManager = new TerminalManager(mainWindow);
+    const manager = terminalManager;
 
-    // Forward terminal data to renderer
-    terminalService.on('data', (data: string) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
-        }
+    // Start or attach to a session's terminal. Returns buffered output so a
+    // remounted view repaints without restarting the conversation.
+    ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (_event, options: TerminalCreateOptions) => {
+        const { instanceId, cwd, claudeSessionId, resume, cols, rows, initialPrompt } = options;
+        return manager.ensure(instanceId, {
+            cwd,
+            claudeSessionId,
+            // Resume whenever this tab has run before. Claude is the authority
+            // on whether the conversation still exists, and TerminalService
+            // falls back to a fresh session if it does not.
+            resume,
+            cols,
+            rows,
+            initialPrompt,
+        });
     });
 
-    // Forward mode changes to renderer
-    terminalService.on('mode-changed', (mode: TerminalMode) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.MODE_CHANGED, mode);
-        }
+    ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, instanceId: string, data: string) => {
+        manager.get(instanceId)?.write(data);
     });
 
-    // Handle terminal exit
-    terminalService.on('exit', () => {
-        // When shell exits, close the app
-        mainWindow.close();
+    ipcMain.on(IPC_CHANNELS.TERMINAL_PASTE, (_event, instanceId: string, text: string) => {
+        manager.get(instanceId)?.paste(text);
     });
 
-    // Start the terminal
-    terminalService.start();
-
-    // Handle input from renderer
-    ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, data: string) => {
-        terminalService.write(data);
+    ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, instanceId: string, cols: number, rows: number) => {
+        manager.get(instanceId)?.resize(cols, rows);
     });
 
-    // Handle resize from renderer
-    ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, cols: number, rows: number) => {
-        terminalService.resize(cols, rows);
+    ipcMain.on(IPC_CHANNELS.TERMINAL_MODE_SWITCH, (_event, instanceId: string, mode: TerminalMode) => {
+        manager.get(instanceId)?.switchMode(mode);
     });
 
-    // Handle mode switch from renderer
-    ipcMain.on(IPC_CHANNELS.MODE_SWITCH, (_event, mode: TerminalMode) => {
-        terminalService.switchMode(mode);
+    ipcMain.on(IPC_CHANNELS.TERMINAL_RESTART, (_event, instanceId: string) => {
+        manager.get(instanceId)?.restartClaude();
+    });
+
+    ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
+        manager.destroy(instanceId);
+    });
+
+    // === Claude CLI queries ===
+
+    ipcMain.handle(IPC_CHANNELS.CLAUDE_AVAILABLE, () => isClaudeAvailable());
+
+    ipcMain.handle(IPC_CHANNELS.CLAUDE_SESSION_NAME, (_event, claudeSessionId: string) => {
+        return getDisplayName(claudeSessionId);
     });
 
     // === Claude Agent Service Command Handlers ===
@@ -630,7 +642,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     });
 
     // Handle commit message generation using Claude
-    ipcMain.handle(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE, async (_event, { rootPath, instanceId }: { rootPath: string; instanceId: string }) => {
+    ipcMain.handle(IPC_CHANNELS.AGENT_GENERATE_COMMIT_MESSAGE, async (_event, { rootPath }: { rootPath: string }) => {
         // Get staged diff first
         const stagedResult = await new Promise<{ stagedFiles: string[]; diff: string }>((resolve) => {
             exec('git diff --cached --name-only', { cwd: rootPath }, (err, stagedFilesOutput) => {
@@ -672,17 +684,14 @@ ${stagedResult.stagedFiles.map(f => `- ${f}`).join('\n')}
 Diff:
 ${truncatedDiff}`;
 
-        // Use the agent service to generate the message (getOrCreateAgentService
-        // lazily creates the service if it doesn't exist yet, e.g. when the user
-        // generates a commit message before sending any chat messages).
-        const service = getOrCreateAgentService(instanceId, rootPath);
+        // A one-shot headless CLI call: this only transforms the diff into text
+        // and runs with tools disabled, so it never touches the repository.
+        const result = await runHeadless(prompt, { cwd: rootPath });
 
-        try {
-            const message = await service.generateCommitMessage(prompt);
-            return { message };
-        } catch (error) {
-            return { message: '', error: error instanceof Error ? error.message : String(error) };
+        if (result.isError || !result.text) {
+            return { message: '', error: 'Could not generate a commit message' };
         }
+        return { message: result.text };
     });
 
     function parseDiffHunks(diffOutput: string): Array<{
@@ -768,10 +777,8 @@ ${truncatedDiff}`;
 
 export function cleanupIpcHandlers(): void {
     // Clean up all terminal services
-    for (const [id, service] of terminalServices) {
-        service.destroy();
-        terminalServices.delete(id);
-    }
+    terminalManager?.destroyAll();
+    terminalManager = null;
 
     // Clean up all agent services
     for (const [id, service] of agentServices) {
@@ -783,8 +790,16 @@ export function cleanupIpcHandlers(): void {
 
     // Remove terminal IPC listeners
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_INPUT);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
-    ipcMain.removeAllListeners(IPC_CHANNELS.MODE_SWITCH);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_MODE_SWITCH);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
+    ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_CREATE);
+
+    // Remove Claude CLI query handlers
+    ipcMain.removeHandler(IPC_CHANNELS.CLAUDE_AVAILABLE);
+    ipcMain.removeHandler(IPC_CHANNELS.CLAUDE_SESSION_NAME);
 
     // Remove agent IPC listeners
     ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_START);

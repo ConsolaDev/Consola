@@ -55,6 +55,17 @@
   color: var(--green-10);
 }
 
+/* Idle state — no pending approvals, subtle appearance */
+.trust-mode-indicator.idle {
+  opacity: 0.5;
+  padding: 0 4px;
+}
+
+.trust-mode-indicator.idle:hover {
+  opacity: 1;
+  background: var(--gray-a3);
+}
+
 /* Prompt state — pending approvals */
 .trust-mode-indicator.prompt {
   background: rgba(59, 130, 246, 0.08);

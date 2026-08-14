@@ -1,6 +1,13 @@
 import { contextBridge, ipcRenderer } from 'electron';
 import {
     TerminalMode,
+    TerminalCreateOptions,
+    TerminalSnapshot,
+    TerminalDataMessage,
+    TerminalModeChangedMessage,
+    TerminalActivityMessage,
+    TerminalAwaitingConfirmationMessage,
+    TerminalExitMessage,
     AgentQueryOptions,
     AgentStatus,
     AgentInitEvent,
@@ -15,14 +22,6 @@ import {
     TrustModeChangedEvent
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
-
-// Type for callback functions
-type DataCallback = (data: string) => void;
-type ModeCallback = (mode: TerminalMode) => void;
-
-// Store callbacks for removal
-const dataCallbacks: Set<DataCallback> = new Set();
-const modeCallbacks: Set<ModeCallback> = new Set();
 
 // Claude Agent callback storage
 type AgentCallback<T> = (data: T) => void;
@@ -96,59 +95,75 @@ ipcRenderer.on(IPC_CHANNELS.AGENT_TRUST_MODE_CHANGED, (_event, data: TrustModeCh
     agentCallbacks.trustModeChanged.forEach(cb => cb(data));
 });
 
+// Subscribe to a main->renderer channel, returning an unsubscribe function so
+// callers never have to re-register their peers to remove one listener.
+function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
+    const listener = (_event: Electron.IpcRendererEvent, payload: T) => callback(payload);
+    ipcRenderer.on(channel, listener);
+    return () => ipcRenderer.removeListener(channel, listener);
+}
+
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('terminalAPI', {
+    // Start or attach to a session's terminal
+    create: (options: TerminalCreateOptions): Promise<TerminalSnapshot> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_CREATE, options);
+    },
+
     // Send user input to the PTY
-    sendInput: (data: string): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_INPUT, data);
+    sendInput: (instanceId: string, data: string): void => {
+        ipcRenderer.send(IPC_CHANNELS.TERMINAL_INPUT, instanceId, data);
+    },
+
+    // Paste a block of text as a single unit
+    paste: (instanceId: string, text: string): void => {
+        ipcRenderer.send(IPC_CHANNELS.TERMINAL_PASTE, instanceId, text);
     },
 
     // Resize the terminal
-    resize: (cols: number, rows: number): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, cols, rows);
+    resize: (instanceId: string, cols: number, rows: number): void => {
+        ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, instanceId, cols, rows);
     },
 
-    // Switch terminal mode
-    switchMode: (mode: TerminalMode): void => {
-        ipcRenderer.send(IPC_CHANNELS.MODE_SWITCH, mode);
+    // Switch between the claude and shell PTYs
+    switchMode: (instanceId: string, mode: TerminalMode): void => {
+        ipcRenderer.send(IPC_CHANNELS.TERMINAL_MODE_SWITCH, instanceId, mode);
     },
 
-    // Listen for terminal data from PTY
-    onData: (callback: DataCallback): void => {
-        const wrappedCallback = (_event: Electron.IpcRendererEvent, data: string) => {
-            callback(data);
-        };
-        dataCallbacks.add(callback);
-        ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, wrappedCallback);
+    // Relaunch claude after it exited
+    restart: (instanceId: string): void => {
+        ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
     },
 
-    // Listen for mode changes
-    onModeChanged: (callback: ModeCallback): void => {
-        const wrappedCallback = (_event: Electron.IpcRendererEvent, mode: TerminalMode) => {
-            callback(mode);
-        };
-        modeCallbacks.add(callback);
-        ipcRenderer.on(IPC_CHANNELS.MODE_CHANGED, wrappedCallback);
+    // Tear down a session's terminal
+    destroy: (instanceId: string): void => {
+        ipcRenderer.send(IPC_CHANNELS.TERMINAL_DESTROY, instanceId);
     },
 
-    // Remove data listener
-    removeDataListener: (callback: DataCallback): void => {
-        dataCallbacks.delete(callback);
-        ipcRenderer.removeAllListeners(IPC_CHANNELS.TERMINAL_DATA);
-        // Re-add remaining callbacks
-        for (const cb of dataCallbacks) {
-            ipcRenderer.on(IPC_CHANNELS.TERMINAL_DATA, (_event, data) => cb(data));
-        }
+    onData: (callback: (message: TerminalDataMessage) => void) =>
+        subscribe(IPC_CHANNELS.TERMINAL_DATA, callback),
+
+    onModeChanged: (callback: (message: TerminalModeChangedMessage) => void) =>
+        subscribe(IPC_CHANNELS.TERMINAL_MODE_CHANGED, callback),
+
+    onActivity: (callback: (message: TerminalActivityMessage) => void) =>
+        subscribe(IPC_CHANNELS.TERMINAL_ACTIVITY, callback),
+
+    onAwaitingConfirmation: (callback: (message: TerminalAwaitingConfirmationMessage) => void) =>
+        subscribe(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, callback),
+
+    onExit: (callback: (message: TerminalExitMessage) => void) =>
+        subscribe(IPC_CHANNELS.TERMINAL_EXIT, callback),
+});
+
+// Expose Claude CLI queries to the renderer
+contextBridge.exposeInMainWorld('claudeCliAPI', {
+    isAvailable: (): Promise<boolean> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_AVAILABLE);
     },
 
-    // Remove mode changed listener
-    removeModeChangedListener: (callback: ModeCallback): void => {
-        modeCallbacks.delete(callback);
-        ipcRenderer.removeAllListeners(IPC_CHANNELS.MODE_CHANGED);
-        // Re-add remaining callbacks
-        for (const cb of modeCallbacks) {
-            ipcRenderer.on(IPC_CHANNELS.MODE_CHANGED, (_event, mode) => cb(mode));
-        }
+    getSessionName: (claudeSessionId: string): Promise<string | null> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.CLAUDE_SESSION_NAME, claudeSessionId);
     },
 });
 

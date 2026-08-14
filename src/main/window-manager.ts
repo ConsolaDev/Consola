@@ -7,6 +7,7 @@ export function createMainWindow(): BrowserWindow {
     const isDev = process.env.NODE_ENV === 'development';
 
     mainWindow = new BrowserWindow({
+        title: 'Consola',
         width: 1000,
         height: 700,
         minWidth: 600,
