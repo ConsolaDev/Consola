@@ -46,14 +46,30 @@
 }
 
 /*
- * The xterm canvas sizes itself from this box, so it must have a definite
- * height and never scroll the page — the terminal handles its own scrollback.
+ * Breathing room around the terminal lives here rather than on the box xterm
+ * is opened into. FitAddon measures that box with `getComputedStyle().height`,
+ * which under `box-sizing: border-box` reports the padding box — so padding
+ * applied there would be counted as usable space, and the terminal would ask
+ * for more rows and columns than the pane can show.
  */
-.terminal-surface {
+.terminal-surface-frame {
+  display: flex;
   flex: 1;
   min-height: 0;
   overflow: hidden;
   padding: var(--space-2) var(--space-3);
+}
+
+/*
+ * The xterm canvas sizes itself from this box, so it must have a definite
+ * height and never scroll the page — the terminal handles its own scrollback.
+ * Keep it free of padding and borders: see the frame above.
+ */
+.terminal-surface {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .terminal-surface .xterm {
