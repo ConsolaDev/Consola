@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes } from 'lucide-react';
 import { useSettingsStore, type ThemeMode } from '../../stores/settingsStore';
 import { useTheme } from '../../hooks/useTheme';
+import { HarnessesSection } from '../Harnesses';
 import './styles.css';
 
-type SettingsSection = 'appearance' | 'shortcuts';
+type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -15,6 +16,7 @@ interface SettingsSectionConfig {
 
 const sections: SettingsSectionConfig[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'harnesses', label: 'Harnesses', icon: Boxes },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
 ];
 
@@ -59,6 +61,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             {activeSection === 'appearance' && (
               <AppearanceSection theme={theme} setTheme={setTheme} />
             )}
+            {activeSection === 'harnesses' && <HarnessesSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
           </div>
 

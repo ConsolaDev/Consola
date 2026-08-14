@@ -1,9 +1,10 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import * as os from 'os';
-import { TerminalMode, TerminalDimensions } from '../shared/types';
+import { TerminalMode, TerminalDimensions, HarnessLaunchFields } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
-import { buildSessionArgs, getLoginEnv, resolveClaudeBinary } from './ClaudeCli';
+import { getLoginEnv } from './LoginEnvironment';
+import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
 import { ScreenModel } from './ScreenModel';
 
 /**
@@ -49,14 +50,12 @@ function normalizeScreen(visibleText: string): string {
     return visibleText.replace(/\s+/g, ' ');
 }
 
-export interface TerminalServiceOptions {
+export interface TerminalServiceOptions extends HarnessLaunchFields {
     cwd: string;
     /** Session ID Consola assigned to this tab. */
     claudeSessionId: string;
     /** Resume the existing conversation instead of starting one. */
     resume: boolean;
-    /** Explicit `claude` binary path from settings. */
-    binaryOverride?: string;
     /** Initial size, so the TUI paints at the right dimensions immediately. */
     cols?: number;
     rows?: number;
@@ -75,6 +74,8 @@ export class TerminalService extends EventEmitter {
     private currentMode: TerminalMode = TerminalMode.CLAUDE;
     private dimensions: TerminalDimensions;
     private readonly options: TerminalServiceOptions;
+    private readonly driver: HarnessDriver;
+    private readonly harness: HarnessConfig;
 
     private readonly screens = new Map<TerminalMode, ScreenModel>();
     private idleTimer: NodeJS.Timeout | null = null;
@@ -90,6 +91,11 @@ export class TerminalService extends EventEmitter {
             rows: options.rows ?? DEFAULT_DIMENSIONS.rows,
         };
         this.options = options;
+        // Resolved once, up front: an unrecognised driver has to surface here
+        // rather than part-way through the resume-retry path below, where a
+        // failure would be indistinguishable from a missing conversation.
+        this.driver = getDriver(options.driverId);
+        this.harness = toHarnessConfig(options);
         this.pendingPrompt = options.initialPrompt ?? null;
     }
 
@@ -203,8 +209,12 @@ export class TerminalService extends EventEmitter {
     private initClaude(resume: boolean): void {
         if (this.claudePty) return;
 
-        const binary = resolveClaudeBinary(this.options.binaryOverride);
-        const args = buildSessionArgs(this.options.claudeSessionId, resume);
+        const binary = this.driver.resolveBinary(this.harness);
+        const args = this.driver.buildSessionArgs(
+            this.harness,
+            this.options.claudeSessionId,
+            resume
+        );
 
         try {
             this.claudePty = pty.spawn(binary, args, {
@@ -212,7 +222,9 @@ export class TerminalService extends EventEmitter {
                 cols: this.dimensions.cols,
                 rows: this.dimensions.rows,
                 cwd: this.options.cwd,
-                env: getLoginEnv() as { [key: string]: string },
+                env: this.driver.composeEnv(this.harness, getLoginEnv()) as {
+                    [key: string]: string;
+                },
             });
             this.claudeExited = false;
 
@@ -239,7 +251,7 @@ export class TerminalService extends EventEmitter {
                 this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode } as TerminalExitInfo);
             });
         } catch (error) {
-            console.error('Error spawning claude:', error);
+            console.error(`Error spawning ${this.driver.id}:`, error);
             this.claudeExited = true;
             this.emit('exit', { mode: TerminalMode.CLAUDE, exitCode: 1 } as TerminalExitInfo);
         }
@@ -248,7 +260,9 @@ export class TerminalService extends EventEmitter {
     private initShell(): void {
         if (this.shellPty) return;
 
-        const env = getLoginEnv();
+        // The shell shares the session's harness environment, so invoking the
+        // CLI by hand from here talks to the same profile the tab does.
+        const env = this.driver.composeEnv(this.harness, getLoginEnv());
         const shell = env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : '/bin/bash');
 
         try {

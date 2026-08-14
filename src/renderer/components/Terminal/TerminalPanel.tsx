@@ -1,5 +1,5 @@
 import { Terminal as TerminalIcon, SquareTerminal, RotateCw } from 'lucide-react';
-import { TerminalMode } from '../../../shared/types';
+import { TerminalMode, type HarnessLaunchFields } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useTerminal } from './useTerminal';
@@ -13,6 +13,8 @@ interface TerminalPanelProps {
     claudeSessionId: string;
     /** Whether this tab has run before and should resume its conversation. */
     resume: boolean;
+    /** Binary, config directory and arguments from this session's harness. */
+    harness: HarnessLaunchFields;
 }
 
 /**
@@ -21,8 +23,20 @@ interface TerminalPanelProps {
  * Consola renders the surrounding chrome and lets the CLI own the conversation,
  * so every feature Claude ships is available here without being reimplemented.
  */
-export function TerminalPanel({ instanceId, cwd, claudeSessionId, resume }: TerminalPanelProps) {
-    const { containerRef, focus } = useTerminal({ instanceId, cwd, claudeSessionId, resume });
+export function TerminalPanel({
+    instanceId,
+    cwd,
+    claudeSessionId,
+    resume,
+    harness,
+}: TerminalPanelProps) {
+    const { containerRef, focus } = useTerminal({
+        instanceId,
+        cwd,
+        claudeSessionId,
+        resume,
+        harness,
+    });
 
     const mode = useTerminalStore((state) => state.terminals[instanceId]?.mode ?? TerminalMode.CLAUDE);
     const hasExited = useTerminalStore((state) => state.terminals[instanceId]?.hasExited ?? false);

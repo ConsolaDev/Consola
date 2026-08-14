@@ -4,6 +4,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
+import type { HarnessLaunchFields } from '../../../shared/types';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
@@ -15,6 +16,8 @@ interface UseTerminalOptions {
     claudeSessionId: string;
     /** Whether this tab has run before and should resume its conversation. */
     resume: boolean;
+    /** Binary, config directory and arguments from this session's harness. */
+    harness: HarnessLaunchFields;
 }
 
 /**
@@ -24,7 +27,13 @@ interface UseTerminalOptions {
  * switch) tears down only the view, and remounting repaints from the buffered
  * output the main process kept. Closing a session is what destroys the PTY.
  */
-export function useTerminal({ instanceId, cwd, claudeSessionId, resume }: UseTerminalOptions) {
+export function useTerminal({
+    instanceId,
+    cwd,
+    claudeSessionId,
+    resume,
+    harness,
+}: UseTerminalOptions) {
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
     const fitAddonRef = useRef<FitAddon | null>(null);
@@ -99,6 +108,10 @@ export function useTerminal({ instanceId, cwd, claudeSessionId, resume }: UseTer
                 cols: terminal.cols,
                 rows: terminal.rows,
                 initialPrompt,
+                // Read at creation time on purpose: the PTY is already running
+                // for an existing session, and a harness edit only applies to
+                // the next launch.
+                ...harness,
             })
             .then((snapshot) => {
                 if (disposed) return;
@@ -114,7 +127,9 @@ export function useTerminal({ instanceId, cwd, claudeSessionId, resume }: UseTer
             })
             .catch((error) => {
                 console.error('Failed to start terminal:', error);
-                terminal.write('\r\n\x1b[31mFailed to start claude. Is it installed and on your PATH?\x1b[0m\r\n');
+                terminal.write(
+                    "\r\n\x1b[31mFailed to start this session's CLI. Check the harness in Settings — is the binary installed and on your PATH?\x1b[0m\r\n"
+                );
             });
 
         // Keep the PTY's dimensions in step with the pane.

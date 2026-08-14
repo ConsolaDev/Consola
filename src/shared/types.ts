@@ -3,12 +3,33 @@ export enum TerminalMode {
     CLAUDE = 'CLAUDE'
 }
 
+/** Agent CLI a harness drives. One driver per supported CLI. */
+export type HarnessDriverId = 'claude';
+
+/**
+ * How a session's harness is described across the IPC boundary.
+ *
+ * Kept as flat optional fields rather than a nested object: every one of them
+ * is absent for the built-in harness, and absent must mean "behave exactly as
+ * Consola did before harnesses existed".
+ */
+export interface HarnessLaunchFields {
+    /** Driver backing this session. Defaults to `claude`. */
+    driverId?: HarnessDriverId;
+    /** Explicit binary path, when the harness pins one. */
+    binaryOverride?: string;
+    /** Config directory for the driver's own env var, when the harness sets one. */
+    configDirOverride?: string;
+    /** Extra CLI arguments appended to the session's argv. */
+    extraArgs?: string[];
+}
+
 export interface TerminalDimensions {
     cols: number;
     rows: number;
 }
 
-export interface TerminalCreateOptions {
+export interface TerminalCreateOptions extends HarnessLaunchFields {
     instanceId: string;
     cwd: string;
     /** Session ID Consola assigned to this tab. */
@@ -72,14 +93,43 @@ export interface TerminalAPI {
     onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
 }
 
-export interface ClaudeCliAPI {
-    isAvailable: () => Promise<boolean>;
-    getSessionName: (claudeSessionId: string) => Promise<string | null>;
+/**
+ * Who a harness is signed in as, read from the driver's own config directory.
+ *
+ * Consola stores no credentials of its own: a harness points at a config
+ * directory and the CLI that owns it decides what is in there.
+ */
+export interface HarnessAccount {
+    emailAddress?: string;
+    displayName?: string;
+    organizationName?: string;
+    /** Raw plan identifier, e.g. `claude_max`. */
+    organizationType?: string;
+}
+
+export interface HarnessProbeResult {
+    /** The binary was found and is executable. */
+    available: boolean;
+    /** Path actually resolved, useful when the harness relies on PATH. */
+    resolvedBinary: string;
+    /** Version string as reported by the CLI. */
+    version?: string;
+    /** Absent when the config directory holds no signed-in account. */
+    account?: HarnessAccount;
+    error?: string;
+}
+
+export interface HarnessAPI {
+    probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
+    getSessionName: (
+        sessionId: string,
+        fields: HarnessLaunchFields
+    ) => Promise<string | null>;
 }
 
 declare global {
     interface Window {
         terminalAPI: TerminalAPI;
-        claudeCliAPI: ClaudeCliAPI;
+        harnessAPI: HarnessAPI;
     }
 }
