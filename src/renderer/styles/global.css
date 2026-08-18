@@ -79,7 +79,21 @@ button {
   background: var(--color-scrollbar-thumb-hover);
 }
 
-/* Selection - use Radix's focus color for consistency within .radix-themes */
-::selection {
-  background: var(--focus-a5);
+/*
+ * Selection.
+ *
+ * Radix defines `--focus-a5` -- and its own `::selection` rule -- on
+ * `.radix-themes`, but every dialog renders through a portal into
+ * `document.body`, outside that element. There the variable resolves to
+ * nothing, the declaration is invalid at computed-value time, and the
+ * highlight falls back to transparent: selecting text in the command
+ * palette's input looked like nothing happened at all.
+ *
+ * `--color-accent` sits on `<html>` next to `data-theme`, so it reaches
+ * portalled content as well, and naming `.radix-themes` here outranks Radix's
+ * own rule -- one selection colour across the whole UI rather than two.
+ */
+::selection,
+.radix-themes ::selection {
+  background: color-mix(in srgb, var(--color-accent) 40%, transparent);
 }
