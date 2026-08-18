@@ -16,6 +16,28 @@ html, body, #root {
   line-height: var(--line-height-normal);
 }
 
+/*
+ * Hand antialiasing back to the platform on low-density displays.
+ *
+ * Radix Themes sets `-webkit-font-smoothing: antialiased` on `.radix-themes`,
+ * and that property inherits, so it forces grayscale antialiasing over the whole
+ * UI. On a Retina panel that reads as clean and a touch lighter. At 1x it costs
+ * real legibility: measured on this app's own chrome, the share of glyph pixels
+ * reaching full foreground intensity falls from 44% to 20% -- stems stop being
+ * solid and the type looks washed out beside the terminal, which is a canvas and
+ * so never inherited the rule in the first place.
+ *
+ * The query re-evaluates when the window is dragged between displays, so a
+ * Retina panel keeps the thinner rendering it suits.
+ */
+@media (max-resolution: 1.5dppx) {
+  html,
+  html .radix-themes {
+    -webkit-font-smoothing: auto;
+    -moz-osx-font-smoothing: auto;
+  }
+}
+
 /* Links */
 a {
   color: var(--color-accent);
