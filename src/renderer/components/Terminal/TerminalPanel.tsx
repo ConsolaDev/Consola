@@ -1,9 +1,9 @@
 import { RotateCw, FilePlus, FileX } from 'lucide-react';
 import type { HarnessLaunchFields } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { terminalBridge } from '../../services/terminalBridge';
 import { useTerminal } from './useTerminal';
 import { useTerminalFileDrop } from './useTerminalFileDrop';
+import { restartSession } from '../../utils/sessionActions';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
@@ -48,8 +48,7 @@ export function TerminalPanel({
     const hasExited = useTerminalStore((state) => state.terminals[instanceId]?.hasExited ?? false);
 
     const handleRestart = () => {
-        terminalBridge.restart(instanceId);
-        useTerminalStore.getState().setState(instanceId, { hasExited: false });
+        restartSession(instanceId);
         focus();
     };
 

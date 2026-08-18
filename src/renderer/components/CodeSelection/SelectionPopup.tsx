@@ -7,6 +7,7 @@
 
 import { memo } from 'react';
 import { MessageSquarePlus } from 'lucide-react';
+import { isMac } from '../../utils/platform';
 
 interface SelectionPopupProps {
   /** Position relative to the viewport */
@@ -15,7 +16,6 @@ interface SelectionPopupProps {
   onAddToChat: () => void;
 }
 
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 const shortcutKey = isMac ? '⌘' : 'Ctrl+';
 
 export const SelectionPopup = memo(function SelectionPopup({

@@ -2,9 +2,8 @@ import { useState, useRef, useEffect } from 'react';
 import { MessageSquare } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
-import { useNavigationStore } from '../../stores/navigationStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
-import { terminalBridge } from '../../services/terminalBridge';
+import { deleteSessionCompletely } from '../../utils/sessionActions';
 
 interface SessionNavItemProps {
   session: Session;
@@ -35,13 +34,7 @@ export function SessionNavItem({
     if (terminal.isBusy) return 'running';
     return null;
   });
-  const removeTerminalInstance = useTerminalStore((state) => state.removeInstance);
-
   const updateSession = useWorkspaceStore((state) => state.updateSession);
-  const deleteSession = useWorkspaceStore((state) => state.deleteSession);
-
-  const activeSessionId = useNavigationStore((state) => state.activeSessionId);
-  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -70,18 +63,7 @@ export function SessionNavItem({
   };
 
   const handleDelete = () => {
-    // Closing a session is what kills its terminal; unmounting does not.
-    terminalBridge.destroy(session.instanceId);
-    removeTerminalInstance(session.instanceId);
-
-    // Remove from store. The conversation itself stays in Claude's own session
-    // files and remains reachable through `claude --resume`.
-    deleteSession(workspaceId, session.id);
-
-    // Clear active session if this was it
-    if (activeSessionId === session.id) {
-      setActiveSession(null);
-    }
+    deleteSessionCompletely(workspaceId, session);
   };
 
   const handleStartRename = () => {

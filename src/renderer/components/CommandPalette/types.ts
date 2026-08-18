@@ -1,0 +1,99 @@
+import type { LucideIcon } from 'lucide-react';
+import type { GitFileStatus } from '../../types/electron';
+
+/** Result groups, in the order they are rendered. */
+export type PaletteSection = 'actions' | 'sessions' | 'workspaces' | 'files';
+
+export const SECTION_ORDER: PaletteSection[] = ['actions', 'sessions', 'workspaces', 'files'];
+
+export const SECTION_LABELS: Record<PaletteSection, string> = {
+  actions: 'ACTIONS',
+  sessions: 'SESSIONS',
+  workspaces: 'WORKSPACES',
+  files: 'CHANGED FILES',
+};
+
+/**
+ * What the palette is currently asking for.
+ *
+ * An action that needs a target pushes the mode that collects it rather than
+ * flattening every possible target into the root list — otherwise a dozen
+ * workspaces would mean a dozen "New session in…" rows crowding out
+ * everything else.
+ */
+export type PaletteMode =
+  | { kind: 'root' }
+  | { kind: 'pick-workspace' }
+  | { kind: 'pick-session'; purpose: 'rename' | 'delete' | 'restart' }
+  | { kind: 'pick-harness'; workspaceId: string }
+  | { kind: 'rename-session'; workspaceId: string; sessionId: string };
+
+interface PaletteItemBase {
+  /** Unique across the whole result set. */
+  id: string;
+  label: string;
+  /** Right-aligned dim context. Searchable, at a discount. */
+  context?: string;
+}
+
+export interface ActionPaletteItem extends PaletteItemBase {
+  kind: 'action';
+  section: 'actions';
+  icon: LucideIcon;
+  /** Shown right-aligned when the action already has a global shortcut. */
+  shortcutHint?: string;
+  /** Pushes a mode to collect a target. Mutually exclusive with `run`. */
+  pushMode?: Exclude<PaletteMode, { kind: 'root' }>;
+  run?: () => void | Promise<void>;
+}
+
+export interface SessionPaletteItem extends PaletteItemBase {
+  kind: 'session';
+  section: 'sessions';
+  workspaceId: string;
+  sessionId: string;
+}
+
+export interface WorkspacePaletteItem extends PaletteItemBase {
+  kind: 'workspace';
+  section: 'workspaces';
+  workspaceId: string;
+  isGitRepo: boolean;
+}
+
+export interface FilePaletteItem extends PaletteItemBase {
+  kind: 'file';
+  section: 'files';
+  rootPath: string;
+  relativePath: string;
+  status: GitFileStatus;
+}
+
+export interface HarnessPaletteItem extends PaletteItemBase {
+  kind: 'harness';
+  section: 'actions';
+  harnessId: string;
+  accentColor: string;
+}
+
+export type PaletteItem =
+  | ActionPaletteItem
+  | SessionPaletteItem
+  | WorkspacePaletteItem
+  | FilePaletteItem
+  | HarnessPaletteItem;
+
+/** One rendered group: a header plus the rows under it. */
+export interface PaletteGroup {
+  section: PaletteSection;
+  items: PaletteItem[];
+}
+
+/**
+ * Rows in render order, alongside the flat list keyboard selection indexes
+ * into. Headers are never part of `flat`, so arrow keys cannot land on one.
+ */
+export interface PaletteResults {
+  groups: PaletteGroup[];
+  flat: PaletteItem[];
+}

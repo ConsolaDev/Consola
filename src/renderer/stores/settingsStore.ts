@@ -18,11 +18,16 @@ export function clampTerminalFontSize(size: number): number {
   return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)));
 }
 
+/** Order the theme setting steps through when cycled. */
+const THEME_CYCLE: ThemeMode[] = ['light', 'dark', 'system'];
+
 interface SettingsState {
   theme: ThemeMode;
   resolvedTheme: 'light' | 'dark';
   terminalFontSize: number;
   setTheme: (theme: ThemeMode) => void;
+  /** Step to the next theme: light -> dark -> system -> light. */
+  cycleTheme: () => void;
   setTerminalFontSize: (size: number) => void;
   _setResolvedTheme: (theme: 'light' | 'dark') => void;
 }
@@ -34,6 +39,12 @@ export const useSettingsStore = create<SettingsState>()(
       resolvedTheme: 'dark',
       terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
       setTheme: (theme) => set({ theme }),
+      // Lives in the store so the keyboard shortcut and the command palette
+      // can never disagree about what "next theme" means.
+      cycleTheme: () =>
+        set((state) => ({
+          theme: THEME_CYCLE[(THEME_CYCLE.indexOf(state.theme) + 1) % THEME_CYCLE.length],
+        })),
       setTerminalFontSize: (size) => set({ terminalFontSize: clampTerminalFontSize(size) }),
       _setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
     }),

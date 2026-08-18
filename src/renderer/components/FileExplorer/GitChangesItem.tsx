@@ -8,7 +8,8 @@ interface GitChangesItemProps {
   onSelect: () => void;
 }
 
-const STATUS_LABELS: Record<GitFileStatus, string> = {
+/** Single-letter badge per git status, shared with the command palette. */
+export const STATUS_LABELS: Record<GitFileStatus, string> = {
   staged: 'A',
   modified: 'M',
   untracked: 'U',

@@ -1,25 +1,22 @@
-import { useState, useMemo, memo } from 'react';
+import { useMemo, memo } from 'react';
 import { Loader2, Sparkles, GitCommit } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
-import { gitBridge } from '../../services/gitBridge';
 
 interface GitReviewCommitBarProps {
   rootPath: string;
 }
 
 export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }: GitReviewCommitBarProps) {
-  const [error, setError] = useState<string | null>(null);
-
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
   const setCommitMessage = useGitReviewStore((state) => state.setCommitMessage);
   const isGeneratingMessage = useGitReviewStore((state) => state.isGeneratingMessage);
-  const setGeneratingMessage = useGitReviewStore((state) => state.setGeneratingMessage);
   const isCommitting = useGitReviewStore((state) => state.isCommitting);
-  const setCommitting = useGitReviewStore((state) => state.setCommitting);
+  const error = useGitReviewStore((state) => state.error);
+  const generateCommitMessage = useGitReviewStore((state) => state.generateCommitMessage);
+  const commitStaged = useGitReviewStore((state) => state.commitStaged);
 
   const fileStatuses = useGitStatusStore((state) => state.fileStatuses);
-  const refresh = useGitStatusStore((state) => state.refresh);
 
   // Memoize staged count to prevent recalculation on every render
   const stagedCount = useMemo(() => {
@@ -30,43 +27,13 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }:
     return count;
   }, [fileStatuses]);
 
-  const handleGenerate = async () => {
-    setError(null);
-    setGeneratingMessage(true);
-
-    try {
-      const result = await gitBridge.generateCommitMessage(rootPath);
-      if (result?.message) {
-        setCommitMessage(result.message);
-      } else if (result?.error) {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to generate message');
-    } finally {
-      setGeneratingMessage(false);
-    }
+  const handleGenerate = () => {
+    void generateCommitMessage(rootPath);
   };
 
-  const handleCommit = async () => {
+  const handleCommit = () => {
     if (!commitMessage.trim() || stagedCount === 0) return;
-
-    setError(null);
-    setCommitting(true);
-
-    try {
-      const result = await gitBridge.commit(rootPath, commitMessage);
-      if (result?.success) {
-        setCommitMessage('');
-        await refresh(rootPath);
-      } else if (result?.error) {
-        setError(result.error);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to commit');
-    } finally {
-      setCommitting(false);
-    }
+    void commitStaged(rootPath);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

@@ -8,6 +8,7 @@ import {
   type ThemeMode,
 } from '../../stores/settingsStore';
 import { useTheme } from '../../hooks/useTheme';
+import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import './styles.css';
 
@@ -153,12 +154,16 @@ function AppearanceSection({
 }
 
 function ShortcutsSection() {
+  // Mirrors what useKeyboardShortcuts actually binds -- nothing aspirational.
+  const mod = isMac ? '⌘' : 'Ctrl+';
+  const shift = isMac ? '⇧' : 'Shift+';
   const shortcuts = [
-    { label: 'Toggle sidebar', key: '⌘\\' },
-    { label: 'New workspace', key: '⌘N' },
-    { label: 'Open settings', key: '⌘,' },
-    { label: 'Toggle theme', key: '⌘⇧T' },
-    { label: 'Close tab', key: '⌘W' },
+    { label: 'Command palette', key: COMMAND_PALETTE_SHORTCUT_LABEL },
+    { label: 'New session', key: `${mod}N` },
+    { label: 'Toggle sidebar', key: `${mod}\\` },
+    { label: 'Toggle file explorer', key: `${mod}${shift}E` },
+    { label: 'Open settings', key: `${mod},` },
+    { label: 'Cycle theme', key: `${mod}${shift}T` },
   ];
 
   return (

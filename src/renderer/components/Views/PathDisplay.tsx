@@ -2,6 +2,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { FolderTree, RotateCw, GitBranch, GitPullRequestDraft } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
+import { isMac } from '../../utils/platform';
 
 interface PathDisplayProps {
   path: string;
@@ -11,7 +12,6 @@ interface PathDisplayProps {
   onToggleExplorer?: () => void;
 }
 
-const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
 
 /**
