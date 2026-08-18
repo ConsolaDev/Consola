@@ -1,0 +1,36 @@
+# Packaging for the locally installed build. `npm run release` turns the
+# compiled output in dist/ into release/mac-arm64/Consola.app and swaps it
+# into /Applications; there is no publish step and no auto-updater yet.
+appId: dev.consola.app
+
+# Must stay in step with app.setName('Consola') in src/main/index.ts. Electron
+# derives the userData path from the app name, so renaming either one strands
+# the installed app's workspaces and session list in the old directory.
+productName: Consola
+
+directories:
+  output: release
+  buildResources: build
+
+# tsc and vite have already produced everything the app runs. Shipping src/
+# as well would only bloat the bundle. electron-builder resolves production
+# node_modules on its own, so devDependencies (Electron included) stay out.
+files:
+  - dist/**/*
+  - package.json
+
+# node-pty loads pty.node and execs spawn-helper by path. Neither works from
+# inside an asar archive, so every session terminal would fail to spawn.
+asarUnpack:
+  - '**/node_modules/node-pty/**'
+
+mac:
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  # A local install, not a download: no Developer ID, so ad-hoc signing. This
+  # is not optional on arm64 -- repackaging invalidates Electron's own
+  # signature, and macOS refuses to run an arm64 binary with a broken one.
+  identity: null
+  target:
+    - target: dir
+      arch: arm64
