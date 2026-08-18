@@ -1,5 +1,25 @@
 :root {
-  /* Spacing scale */
+  /*
+   * Spacing scale.
+   *
+   * WARNING: --space-5 and up are NOT the values you get. Radix Themes
+   * declares its own --space-* scale on .radix-themes, which is a descendant
+   * of :root, so inside the theme Radix wins and these lose:
+   *
+   *        this file   .radix-themes   what actually renders
+   *   1-4    4/8/12/16   same            same -- safe to use
+   *   5      20px        24px            24px in-tree, 20px portaled
+   *   6      24px        32px            32px in-tree, 24px portaled
+   *   7      28px        40px            40px in-tree, 28px portaled
+   *   8      32px        48px            48px in-tree, 32px portaled
+   *   9      --          64px            64px in-tree, 0px portaled
+   *
+   * "Portaled" means rendered into document.body, outside .radix-themes --
+   * the settings modal and command palette both do this, so they are the only
+   * places running on the scale below. Reconciling the two is a visual change
+   * that needs its own review; until then, prefer 1-4 or a literal, and see
+   * --sidebar-indent-* in components/Sidebar/styles.css for the pattern.
+   */
   --space-1: 4px;
   --space-2: 8px;
   --space-3: 12px;
@@ -8,6 +28,8 @@
   --space-6: 24px;
   --space-7: 28px;
   --space-8: 32px;
+  /* Matches Radix so portaled content does not fall through to 0px. */
+  --space-9: 64px;
 
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
