@@ -1,28 +1,38 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import type { ThemeMode } from '../stores/settingsStore';
+import { isCommandPaletteShortcut } from '../utils/platform';
 
 interface UseKeyboardShortcutsOptions {
   onNewSession?: () => void;
   onOpenSettings?: () => void;
+  onTogglePalette?: () => void;
 }
 
+/**
+ * The app's global shortcuts.
+ *
+ * One listener owns them all, mounted once from the layout. It sits on
+ * `window` in the bubble phase, which reaches it even while the terminal has
+ * focus: xterm handles keys on its own textarea and, with `cancelEvents` off,
+ * never stops them propagating.
+ */
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
-  const { theme, setTheme } = useSettingsStore();
-  const { onNewSession, onOpenSettings } = options;
-
-  const toggleTheme = useCallback(() => {
-    const themeOrder: ThemeMode[] = ['light', 'dark', 'system'];
-    const currentIndex = themeOrder.indexOf(theme);
-    const nextTheme = themeOrder[(currentIndex + 1) % themeOrder.length];
-    setTheme(nextTheme);
-  }, [theme, setTheme]);
+  const cycleTheme = useSettingsStore((state) => state.cycleTheme);
+  const { onNewSession, onOpenSettings, onTogglePalette } = options;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      // Checked first, and via its own predicate: the palette chord differs
+      // per platform because a bare Ctrl+letter would reach the PTY instead.
+      if (isCommandPaletteShortcut(event)) {
+        event.preventDefault();
+        onTogglePalette?.();
+        return;
+      }
+
       const isMod = event.metaKey || event.ctrlKey;
 
       // Cmd/Ctrl + \ : Toggle sidebar
@@ -49,7 +59,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       // Cmd/Ctrl + Shift + T : Toggle theme
       if (isMod && event.shiftKey && event.key === 't') {
         event.preventDefault();
-        toggleTheme();
+        cycleTheme();
         return;
       }
 
@@ -63,5 +73,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSidebar, toggleExplorer, toggleTheme, onNewSession, onOpenSettings]);
+  }, [toggleSidebar, toggleExplorer, cycleTheme, onNewSession, onOpenSettings, onTogglePalette]);
 }

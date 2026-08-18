@@ -5,15 +5,11 @@ import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
+import { generateSessionInstanceId } from '../../utils/sessionActions';
 import './styles.css';
 
 interface NewSessionViewProps {
   workspace: Workspace;
-}
-
-function generateSessionInstanceId(workspaceId: string): string {
-  const sessionId = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-  return `workspace-${workspaceId}-session-${sessionId}`;
 }
 
 export function NewSessionView({ workspace }: NewSessionViewProps) {

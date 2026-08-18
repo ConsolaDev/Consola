@@ -1,4 +1,5 @@
 import { useRef, useEffect, useCallback, RefObject } from 'react';
+import { hasPlatformModifier } from '../utils/platform';
 
 /**
  * Custom hook that enables Cmd+A (Mac) / Ctrl+A (Windows/Linux) to select
@@ -22,8 +23,7 @@ export function useSelectAll<T extends HTMLElement>(): RefObject<T | null> {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const isSelectAll = (isMac ? e.metaKey : e.ctrlKey) && e.key === 'a';
+      const isSelectAll = hasPlatformModifier(e) && e.key === 'a';
 
       if (isSelectAll && contentRef.current?.contains(document.activeElement as Node)) {
         e.preventDefault();

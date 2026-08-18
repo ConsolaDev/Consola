@@ -6,12 +6,14 @@ import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
 import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
+import { useCommandPalette } from '../../contexts/CommandPaletteContext';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import './styles.css';
 
 export function Layout() {
   const { openSettings } = useSettings();
+  const { togglePalette } = useCommandPalette();
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
@@ -25,6 +27,7 @@ export function Layout() {
   useKeyboardShortcuts({
     onNewSession: handleNewSession,
     onOpenSettings: openSettings,
+    onTogglePalette: togglePalette,
   });
   useTheme();
   useWindowDropGuard();

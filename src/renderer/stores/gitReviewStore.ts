@@ -1,4 +1,6 @@
 import { create } from 'zustand';
+import { gitBridge } from '../services/gitBridge';
+import { useGitStatusStore } from './gitStatusStore';
 
 type ViewMode = 'diff' | 'file';
 
@@ -22,6 +24,9 @@ interface GitReviewState {
   isGeneratingMessage: boolean;
   isCommitting: boolean;
 
+  // Why the last generate or commit failed, if it did
+  error: string | null;
+
   // File to scroll to (set by sidebar click, cleared after scroll)
   scrollToFile: string | null;
 
@@ -41,6 +46,11 @@ interface GitReviewState {
   setCommitMessage: (message: string) => void;
   setGeneratingMessage: (loading: boolean) => void;
   setCommitting: (loading: boolean) => void;
+  setError: (error: string | null) => void;
+  /** Draft a message for the staged changes with the headless CLI. */
+  generateCommitMessage: (rootPath: string) => Promise<void>;
+  /** Commit the staged changes using the current message. */
+  commitStaged: (rootPath: string) => Promise<void>;
   setScrollToFile: (filePath: string | null) => void;
   reset: () => void;
 }
@@ -53,6 +63,7 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
   commitMessage: '',
   isGeneratingMessage: false,
   isCommitting: false,
+  error: null,
   scrollToFile: null,
 
   open: () => set({ isOpen: true }),
@@ -125,6 +136,47 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
 
   setCommitting: (loading) => set({ isCommitting: loading }),
 
+  setError: (error) => set({ error }),
+
+  // Generating and committing live in the store rather than in the commit bar
+  // so the command palette can trigger them too, and so both entry points
+  // share one in-flight flag and one error message.
+  generateCommitMessage: async (rootPath) => {
+    set({ isGeneratingMessage: true, error: null });
+    try {
+      const result = await gitBridge.generateCommitMessage(rootPath);
+      if (result?.message) {
+        set({ commitMessage: result.message });
+      } else if (result?.error) {
+        set({ error: result.error });
+      }
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Failed to generate message' });
+    } finally {
+      set({ isGeneratingMessage: false });
+    }
+  },
+
+  commitStaged: async (rootPath) => {
+    const message = get().commitMessage.trim();
+    if (!message) return;
+
+    set({ isCommitting: true, error: null });
+    try {
+      const result = await gitBridge.commit(rootPath, message);
+      if (result?.success) {
+        set({ commitMessage: '' });
+        await useGitStatusStore.getState().refresh(rootPath);
+      } else if (result?.error) {
+        set({ error: result.error });
+      }
+    } catch (err) {
+      set({ error: err instanceof Error ? err.message : 'Failed to commit' });
+    } finally {
+      set({ isCommitting: false });
+    }
+  },
+
   setScrollToFile: (filePath) => set({ scrollToFile: filePath }),
 
   reset: () => set({
@@ -135,6 +187,7 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
     commitMessage: '',
     isGeneratingMessage: false,
     isCommitting: false,
+    error: null,
     scrollToFile: null,
   }),
 }));

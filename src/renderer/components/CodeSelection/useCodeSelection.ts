@@ -37,6 +37,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useCodeSelectionContext } from '../../contexts/CodeSelectionContext';
+import { hasPlatformModifier } from '../../utils/platform';
 
 export interface SelectionData {
   /** Selected text content */
@@ -397,8 +398,7 @@ export function useCodeSelection({
 
     // Handle Cmd+L keyboard shortcut
     const handleKeyDown = (e: KeyboardEvent) => {
-      const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
-      const modifier = isMac ? e.metaKey : e.ctrlKey;
+      const modifier = hasPlatformModifier(e);
 
       if (modifier && e.key.toLowerCase() === 'l' && selection) {
         e.preventDefault();

@@ -4,14 +4,10 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { WorkspaceActionsMenu } from './WorkspaceActionsMenu';
 import { SessionNavItem } from './SessionNavItem';
+import { activateSession, createQuickSession } from '../../utils/sessionActions';
 
 interface WorkspaceNavItemProps {
   workspace: Workspace;
-}
-
-function generateSessionInstanceId(workspaceId: string): string {
-  const sessionId = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-  return `workspace-${workspaceId}-session-${sessionId}`;
 }
 
 export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
@@ -20,10 +16,8 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
-  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
-  const createSession = useWorkspaceStore((state) => state.createSession);
 
   const isActive = activeWorkspaceId === workspace.id && activeSessionId === null;
 
@@ -52,32 +46,15 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
     e.preventDefault();
     e.stopPropagation();
 
-    const instanceId = generateSessionInstanceId(workspace.id);
-
-    const session = createSession(workspace.id, {
-      name: 'New Session',
-      workspaceId: workspace.id,
-      instanceId,
-      // Quick-add takes the workspace's default; the picker on the new-session
-      // screen is where another harness gets chosen.
-      harnessId: workspace.defaultHarnessId,
-    });
-
-    if (session) {
-      setActiveSession(session.id);
-      if (activeWorkspaceId !== workspace.id) {
-        setActiveWorkspace(workspace.id);
-      }
-    }
+    // Quick-add takes the workspace's default harness; the picker on the
+    // new-session screen is where another one gets chosen. Selecting the new
+    // session sets workspace and session together -- doing it in two steps
+    // would clear the session again, since setActiveWorkspace resets it.
+    createQuickSession(workspace.id);
   };
 
   const handleSessionClick = (sessionId: string) => {
-    if (activeWorkspaceId !== workspace.id) {
-      // Don't clear session when switching to this workspace
-      useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: sessionId });
-    } else {
-      setActiveSession(sessionId);
-    }
+    activateSession(workspace.id, sessionId);
   };
 
   return (

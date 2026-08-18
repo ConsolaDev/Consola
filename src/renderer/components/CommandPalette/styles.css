@@ -1,0 +1,284 @@
+/*
+ * Command palette.
+ *
+ * Anchored near the top rather than centred: the list grows downward, and a
+ * vertically centred dialog would shift under the cursor every keystroke.
+ */
+.command-palette-content {
+  position: fixed;
+  top: 12vh;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  width: 90vw;
+  max-width: 640px;
+  max-height: 70vh;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-elevation-2);
+  z-index: var(--z-modal);
+  overflow: hidden;
+  animation: command-palette-show 150ms ease-out;
+}
+
+@keyframes command-palette-show {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-6px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0) scale(1);
+  }
+}
+
+/* Search row */
+.command-palette-input-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.command-palette-search-icon {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.command-palette-back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: color var(--transition-fast), background var(--transition-fast);
+}
+
+.command-palette-back:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Breadcrumb for a sub-picker, so the target of the action stays visible */
+.command-palette-mode-title {
+  flex-shrink: 0;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-selected);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.command-palette-input {
+  flex: 1;
+  min-width: 0;
+  border: none;
+  background: transparent;
+  outline: none;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+}
+
+/* The dialog border already frames this field, and it is focused the whole
+   time the palette is open, so the global focus ring is pure noise here. */
+.command-palette-input:focus-visible {
+  outline: none;
+}
+
+.command-palette-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* Results */
+.command-palette-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+}
+
+.command-palette-section-header {
+  padding: var(--space-3) var(--space-4) var(--space-1);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  user-select: none;
+}
+
+.command-palette-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  /* The 3px inset leaves room for the selected row's accent bar. */
+  padding: var(--space-2) var(--space-4) var(--space-2) calc(var(--space-4) - 3px);
+  border-left: 3px solid transparent;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.command-palette-row.selected {
+  /* Mixed here rather than reusing the shared --color-bg-selected token: at
+     0.3 alpha (0.14 in light) the band was fainter than the matched
+     characters on the rows around it, so the selected row read as the least
+     emphasised one in the list. The token itself is left alone -- the sidebar
+     and file lists depend on it. */
+  background: color-mix(in srgb, var(--color-accent) 28%, var(--color-bg-secondary));
+  border-left-color: var(--color-accent);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.command-palette-row-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.command-palette-row.selected .command-palette-row-icon {
+  color: var(--color-text-primary);
+}
+
+/* material-file-icons injects a raw <svg>, so size the wrapper's child */
+.command-palette-row-file-icon {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.command-palette-row-file-icon svg {
+  width: 15px;
+  height: 15px;
+}
+
+.command-palette-row-dot {
+  width: 8px;
+  height: 8px;
+  margin: 0 3px;
+  border-radius: var(--radius-full);
+  flex-shrink: 0;
+}
+
+.command-palette-row-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * Matched characters are emphasised by weight and brightness, not by hue.
+ * Colouring them with the accent put the most saturated pixels in the list on
+ * every row except the selected one, which inverted the hierarchy: selection
+ * is the only thing that gets to be blue.
+ */
+.command-palette-match {
+  background: transparent;
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+/* Right-aligned dim context: the parent workspace, a path, a count */
+.command-palette-row-context {
+  flex-shrink: 1;
+  min-width: 0;
+  max-width: 45%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Truncate a long path from the left, so the folder at the end survives.
+     `plaintext` keeps the string's own reading order, otherwise RTL moves a
+     leading "/" to the far end and "/Users/dev" renders as "Users/dev/". */
+  direction: rtl;
+  unicode-bidi: plaintext;
+  text-align: right;
+  color: var(--color-text-disabled);
+  font-size: var(--font-size-xs);
+}
+
+.command-palette-row-status {
+  flex-shrink: 0;
+  width: 12px;
+  text-align: center;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+}
+
+.command-palette-row-shortcut {
+  flex-shrink: 0;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.command-palette-row-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-disabled);
+}
+
+/* Empty and hint states */
+.command-palette-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-4);
+  color: var(--color-text-disabled);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+}
+
+.command-palette-hint {
+  padding: var(--space-4);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.command-palette-hint kbd {
+  padding: 1px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  font-family: var(--font-mono);
+}
+
+/* Status letters reuse the git palette used by the explorer and review panel */
+.command-palette-row-status.git-staged {
+  color: var(--color-git-staged);
+}
+.command-palette-row-status.git-modified {
+  color: var(--color-git-modified);
+}
+.command-palette-row-status.git-untracked {
+  color: var(--color-git-untracked);
+}
+.command-palette-row-status.git-deleted {
+  color: var(--color-git-deleted);
+}

@@ -1,12 +1,16 @@
 import { createHashRouter } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { SettingsProvider } from './contexts/SettingsContext';
+import { CommandPaletteProvider } from './contexts/CommandPaletteContext';
 
 // Wrap Layout with providers that need router context
 function LayoutWithProviders() {
   return (
     <SettingsProvider>
-      <Layout />
+      {/* Inside SettingsProvider: the palette offers "Open settings". */}
+      <CommandPaletteProvider>
+        <Layout />
+      </CommandPaletteProvider>
     </SettingsProvider>
   );
 }

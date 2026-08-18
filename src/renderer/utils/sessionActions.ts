@@ -1,0 +1,103 @@
+import { useNavigationStore } from '../stores/navigationStore';
+import { useTerminalStore } from '../stores/terminalStore';
+import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
+import { terminalBridge } from '../services/terminalBridge';
+
+/**
+ * Session operations that span more than one store.
+ *
+ * These sequences have to happen in a particular order, and every caller has
+ * to perform all of them — a partial teardown leaks a PTY, and a partial
+ * creation lands on the wrong screen. Keeping them here means the sidebar and
+ * the command palette cannot drift on what "delete a session" involves.
+ */
+
+/** Terminal instance id for a new session in a workspace. */
+export function generateSessionInstanceId(workspaceId: string): string {
+  const sessionId = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  return `workspace-${workspaceId}-session-${sessionId}`;
+}
+
+/**
+ * Select a session, whichever workspace it belongs to.
+ *
+ * Written as a single `setState` rather than `setActiveWorkspace` followed by
+ * `setActiveSession`, because `setActiveWorkspace` clears `activeSessionId` as
+ * a side effect — doing it in two calls selects the session and then
+ * immediately deselects it.
+ */
+export function activateSession(workspaceId: string, sessionId: string): void {
+  useNavigationStore.setState({
+    activeWorkspaceId: workspaceId,
+    activeSessionId: sessionId,
+  });
+}
+
+/**
+ * Create a session with the workspace's default harness and open it.
+ *
+ * The quick path used by the sidebar's `+`. Choosing a different harness, or
+ * starting with a prompt, happens on the new-session screen instead.
+ */
+export function createQuickSession(workspaceId: string): Session | undefined {
+  const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
+  if (!workspace) return undefined;
+
+  const session = useWorkspaceStore.getState().createSession(workspaceId, {
+    name: 'New Session',
+    workspaceId,
+    instanceId: generateSessionInstanceId(workspaceId),
+    harnessId: workspace.defaultHarnessId,
+  });
+
+  if (session) {
+    activateSession(workspaceId, session.id);
+  }
+  return session;
+}
+
+/**
+ * Open the new-session composer for a workspace.
+ *
+ * No session exists until a prompt is submitted, so backing out of the
+ * composer leaves nothing behind — which is why the palette starts sessions
+ * this way rather than by creating one up front.
+ */
+export function openNewSessionComposer(workspaceId: string): void {
+  useNavigationStore.getState().setActiveWorkspace(workspaceId);
+}
+
+/**
+ * Close a session: kill its terminal, forget its state, drop the record.
+ *
+ * Closing is what kills the PTY; unmounting a pane does not. The conversation
+ * itself stays in the harness's own session files and is still reachable with
+ * `claude --resume`.
+ */
+export function deleteSessionCompletely(workspaceId: string, session: Session): void {
+  terminalBridge.destroy(session.instanceId);
+  useTerminalStore.getState().removeInstance(session.instanceId);
+  useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
+
+  if (useNavigationStore.getState().activeSessionId === session.id) {
+    useNavigationStore.getState().setActiveSession(null);
+  }
+}
+
+/**
+ * Relaunch a session's CLI after it exited.
+ *
+ * Keyed by instance rather than session so the terminal pane, which only holds
+ * an instance id, shares this instead of repeating the pair of calls.
+ */
+export function restartSession(instanceId: string): void {
+  terminalBridge.restart(instanceId);
+  useTerminalStore.getState().setState(instanceId, { hasExited: false });
+}
+
+/** Rename a session, ignoring a blank or unchanged name. */
+export function renameSession(workspaceId: string, session: Session, name: string): void {
+  const trimmed = name.trim();
+  if (!trimmed || trimmed === session.name) return;
+  useWorkspaceStore.getState().updateSession(workspaceId, session.id, { name: trimmed });
+}
