@@ -1,8 +1,9 @@
-import { RotateCw } from 'lucide-react';
+import { RotateCw, FilePlus, FileX } from 'lucide-react';
 import type { HarnessLaunchFields } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
 import { useTerminal } from './useTerminal';
+import { useTerminalFileDrop } from './useTerminalFileDrop';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
@@ -38,6 +39,12 @@ export function TerminalPanel({
         harness,
     });
 
+    const { isDragging, notice, dropProps } = useTerminalFileDrop({
+        instanceId,
+        cwd,
+        onDropped: focus,
+    });
+
     const hasExited = useTerminalStore((state) => state.terminals[instanceId]?.hasExited ?? false);
 
     const handleRestart = () => {
@@ -67,8 +74,32 @@ export function TerminalPanel({
                 </div>
             )}
 
-            <div className="terminal-surface-frame">
+            {/*
+              * The drop zone is the frame rather than the xterm box: xterm sizes
+              * itself from that box, and an overlay inside it would be measured
+              * as content. `data-file-drop-zone` is what tells the window-level
+              * guard to leave this subtree's drops alone.
+              */}
+            <div className="terminal-surface-frame" data-file-drop-zone {...dropProps}>
                 <div ref={containerRef} className="terminal-surface" onClick={focus} />
+
+                {isDragging && (
+                    <div className="terminal-drop-overlay">
+                        <FilePlus size={20} />
+                        <span>Drop files to add to the conversation</span>
+                    </div>
+                )}
+
+                {/*
+                  * A drag with nothing on disk behind it — an image dragged out
+                  * of a browser — would otherwise look like the drop was lost.
+                  */}
+                {!isDragging && notice && (
+                    <div className="terminal-drop-notice">
+                        <FileX size={14} />
+                        <span>{notice}</span>
+                    </div>
+                )}
             </div>
         </div>
     );

@@ -4,6 +4,7 @@ import { AppHeader } from './AppHeader';
 import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
+import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
@@ -26,6 +27,7 @@ export function Layout() {
     onOpenSettings: openSettings,
   });
   useTheme();
+  useWindowDropGuard();
 
   // Terminals report activity for every session, including ones whose pane is
   // not mounted, so the subscription lives here rather than in the pane.
