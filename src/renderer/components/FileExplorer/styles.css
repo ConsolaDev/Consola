@@ -26,7 +26,12 @@
 .file-tree {
   flex: 1;
   overflow: auto;
-  padding: var(--space-2) 0;
+  padding: var(--space-2) var(--space-2);
+  outline: none;
+}
+
+.file-tree:focus-visible {
+  outline: none;
 }
 
 .file-tree-item {
@@ -89,8 +94,224 @@
   white-space: nowrap;
 }
 
+/* Git status colors for file names */
+.file-tree-name.git-staged {
+  color: var(--color-git-staged);
+}
+
+.file-tree-name.git-modified {
+  color: var(--color-git-modified);
+}
+
+.file-tree-name.git-untracked {
+  color: var(--color-git-untracked);
+}
+
+.file-tree-name.git-deleted {
+  color: var(--color-git-deleted);
+}
+
 .file-tree-loading {
   color: var(--color-text-tertiary);
   font-size: var(--font-size-xs);
   padding: var(--space-1) var(--space-2);
+}
+
+/* ========================================
+   File Explorer Header (View Toggle)
+   ======================================== */
+
+.file-explorer-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.file-explorer-view-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.file-explorer-view-btn:hover:not(.disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.file-explorer-view-btn.active {
+  background: var(--color-bg-active);
+  color: var(--color-accent);
+}
+
+.file-explorer-view-btn.disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ========================================
+   Git Changes Panel
+   ======================================== */
+
+.git-changes-panel {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-1) 0;
+}
+
+.git-changes-empty,
+.git-changes-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-sm);
+  padding: var(--space-4);
+}
+
+.git-changes-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.git-changes-section-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.git-changes-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.git-changes-chevron.open {
+  transform: rotate(90deg);
+}
+
+.git-changes-section-title {
+  flex: 1;
+}
+
+.git-changes-section-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-full);
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+}
+
+.git-changes-section-content {
+  padding: var(--space-1) 0;
+}
+
+/* ========================================
+   Git Changes Item
+   ======================================== */
+
+.git-changes-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  padding: var(--space-1) var(--space-3);
+  padding-left: var(--space-6);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.git-changes-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.git-changes-item.selected {
+  background: var(--color-bg-active);
+}
+
+.git-changes-item-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.git-changes-item-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.git-changes-item-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-changes-item-path {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-changes-item-status {
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
+}
+
+/* Git status colors for items */
+.git-changes-item-name.git-staged,
+.git-changes-item-status.git-staged {
+  color: var(--color-git-staged);
+}
+
+.git-changes-item-name.git-modified,
+.git-changes-item-status.git-modified {
+  color: var(--color-git-modified);
+}
+
+.git-changes-item-name.git-untracked,
+.git-changes-item-status.git-untracked {
+  color: var(--color-git-untracked);
+}
+
+.git-changes-item-name.git-deleted,
+.git-changes-item-status.git-deleted {
+  color: var(--color-git-deleted);
 }

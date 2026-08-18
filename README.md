@@ -14,10 +14,10 @@ Consola is an Electron desktop application that enhances Claude Code with a stru
 
 - **Multi-workspace Support** - Organize projects into workspaces for better context management
 - **Tab-based Interface** - Work on multiple projects simultaneously
-- **Claude Code Integration** - Powered by the Claude Agent SDK for intelligent code assistance
+- **Claude Code Integration** - Runs the `claude` CLI itself, so every feature it ships is available as-is
+- **Resumable Sessions** - Each tab keeps its conversation across restarts
 - **Issue Tracker Integration** - Native sync with Linear and other project management tools
-- **Rich Output Rendering** - Markdown, code blocks, and diff views in agent responses
-- **Streaming Responses** - Real-time output from AI agents
+- **File Explorer & Git Review** - Browse files, review diffs, and stage and commit alongside the session
 - **Dark/Light Themes** - Automatic system theme detection with manual override
 
 ## Getting Started

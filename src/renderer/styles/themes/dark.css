@@ -12,9 +12,9 @@
   --color-bg-selected: rgba(35, 131, 226, 0.3);
 
   /* Text colors */
-  --color-text-primary: rgba(255, 255, 255, 0.9);
-  --color-text-secondary: rgba(255, 255, 255, 0.6);
-  --color-text-tertiary: rgba(255, 255, 255, 0.44);
+  --color-text-primary: rgba(255, 255, 255, 0.95);
+  --color-text-secondary: rgba(255, 255, 255, 0.85);
+  --color-text-tertiary: rgba(255, 255, 255, 0.75);
   --color-text-disabled: rgba(255, 255, 255, 0.28);
 
   /* Border colors */
@@ -32,6 +32,12 @@
   --color-error: rgb(235, 87, 87);
   --color-info: rgb(67, 152, 232);
 
+  /* Git status colors */
+  --color-git-staged: rgb(77, 171, 117);     /* Green for staged */
+  --color-git-modified: rgb(223, 171, 77);   /* Yellow for unstaged modified */
+  --color-git-untracked: rgb(86, 182, 194);  /* Teal/cyan for untracked */
+  --color-git-deleted: rgb(235, 87, 87);     /* Red for deleted */
+
   /* Scrollbar */
   --color-scrollbar-track: transparent;
   --color-scrollbar-thumb: rgba(255, 255, 255, 0.16);
@@ -40,4 +46,9 @@
   /* Shadows - stronger for dark theme */
   --shadow-elevation-1: 0 1px 3px rgba(0, 0, 0, 0.24);
   --shadow-elevation-2: 0 3px 6px rgba(0, 0, 0, 0.32);
+
+  /* Code block colors */
+  --color-code-header-bg: rgba(0, 0, 0, 0.2);
+  --color-code-border: rgba(255, 255, 255, 0.1);
+  --color-code-text-muted: rgba(255, 255, 255, 0.5);
 }

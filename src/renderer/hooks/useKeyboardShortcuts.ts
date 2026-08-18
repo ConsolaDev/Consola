@@ -4,15 +4,15 @@ import { useSettingsStore } from '../stores/settingsStore';
 import type { ThemeMode } from '../stores/settingsStore';
 
 interface UseKeyboardShortcutsOptions {
-  onNewWorkspace?: () => void;
-  onCloseActiveTab?: () => void;
+  onNewSession?: () => void;
   onOpenSettings?: () => void;
 }
 
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
+  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const { theme, setTheme } = useSettingsStore();
-  const { onNewWorkspace, onCloseActiveTab, onOpenSettings } = options;
+  const { onNewSession, onOpenSettings } = options;
 
   const toggleTheme = useCallback(() => {
     const themeOrder: ThemeMode[] = ['light', 'dark', 'system'];
@@ -32,10 +32,10 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Cmd/Ctrl + N : New workspace (opens dialog)
+      // Cmd/Ctrl + N : New session (enters new session view for current workspace)
       if (isMod && event.key === 'n') {
         event.preventDefault();
-        onNewWorkspace?.();
+        onNewSession?.();
         return;
       }
 
@@ -53,15 +53,15 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Cmd/Ctrl + W : Close active tab
-      if (isMod && event.key === 'w') {
+      // Cmd/Ctrl + Shift + E : Toggle file explorer
+      if (isMod && event.shiftKey && event.key === 'e') {
         event.preventDefault();
-        onCloseActiveTab?.();
+        toggleExplorer();
         return;
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSidebar, toggleTheme, onNewWorkspace, onCloseActiveTab, onOpenSettings]);
+  }, [toggleSidebar, toggleExplorer, toggleTheme, onNewSession, onOpenSettings]);
 }

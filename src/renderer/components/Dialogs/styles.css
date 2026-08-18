@@ -360,6 +360,47 @@
   border-color: var(--color-accent);
 }
 
+.settings-modal-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.settings-modal-stepper-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast), border-color var(--transition-fast);
+}
+
+.settings-modal-stepper-button:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  border-color: var(--color-border-hover);
+}
+
+.settings-modal-stepper-button:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+/* Tabular figures so the box does not jog as the value steps between widths. */
+.settings-modal-stepper-value {
+  min-width: 44px;
+  text-align: center;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+}
+
 .settings-modal-shortcuts {
   display: flex;
   flex-direction: column;

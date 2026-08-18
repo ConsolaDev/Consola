@@ -1,0 +1,138 @@
+.terminal-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--color-bg-primary);
+}
+
+.terminal-panel-toolbar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+  height: var(--header-height);
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.terminal-restart-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-warning);
+  border-radius: var(--radius-md);
+  background-color: transparent;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-warning);
+  cursor: pointer;
+  transition: background-color var(--transition-fast), color var(--transition-fast);
+}
+
+.terminal-restart-button:hover {
+  background-color: var(--color-bg-hover);
+}
+
+/*
+ * Breathing room around the terminal lives here rather than on the box xterm
+ * is opened into. FitAddon measures that box with `getComputedStyle().height`,
+ * which under `box-sizing: border-box` reports the padding box — so padding
+ * applied there would be counted as usable space, and the terminal would ask
+ * for more rows and columns than the pane can show.
+ */
+.terminal-surface-frame {
+  position: relative;
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  padding: var(--space-2) var(--space-3);
+}
+
+/*
+ * Shown only while files are dragged over the terminal. `pointer-events: none`
+ * keeps it out of the drag: an element appearing under the cursor mid-drag
+ * would fire a leave on the frame and hide the overlay it just showed.
+ */
+.terminal-drop-overlay {
+  position: absolute;
+  inset: var(--space-2);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  pointer-events: none;
+  border: 1px dashed var(--color-accent);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-bg-selected);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+/*
+ * Sits over the terminal for a few seconds after a drop that had no file
+ * behind it. Anchored to the bottom so it never covers what Claude is saying.
+ */
+.terminal-drop-notice {
+  position: absolute;
+  right: var(--space-3);
+  bottom: var(--space-3);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  pointer-events: none;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-tertiary);
+  box-shadow: var(--shadow-elevation-2);
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+/*
+ * The xterm canvas sizes itself from this box, so it must have a definite
+ * height and never scroll the page — the terminal handles its own scrollback.
+ * Keep it free of padding and borders: see the frame above.
+ */
+.terminal-surface {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.terminal-surface .xterm {
+  height: 100%;
+}
+
+.terminal-surface .xterm-viewport {
+  background-color: transparent !important;
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-scrollbar-thumb) var(--color-scrollbar-track);
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar {
+  width: 8px;
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar-track {
+  background: var(--color-scrollbar-track);
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb {
+  background-color: var(--color-scrollbar-thumb);
+  border-radius: var(--radius-full);
+}
+
+.terminal-surface .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-scrollbar-thumb-hover);
+}

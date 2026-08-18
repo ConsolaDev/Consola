@@ -11,6 +11,8 @@ try {
     // electron-squirrel-startup not installed, skip
 }
 
+app.setName('Consola');
+
 app.whenReady().then(() => {
     const mainWindow = createMainWindow();
     setupIpcHandlers(mainWindow);

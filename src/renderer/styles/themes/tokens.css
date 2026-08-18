@@ -11,7 +11,14 @@
 
   /* Typography */
   --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, 'DejaVu Sans Mono', Menlo, Consolas, monospace;
+  /*
+   * Bundled on purpose. 'SF Mono' and SFMono-Regular are not installed families
+   * on macOS -- Apple ships SF Mono inside Terminal.app and Xcode, not as a system
+   * font -- so a stack starting with them silently resolved to whatever came next.
+   * JetBrains Mono is hinted for small sizes, which is what carries the terminal on
+   * a 1x display where each cell is only ~8x17 physical pixels.
+   */
+  --font-mono: 'JetBrains Mono Variable', ui-monospace, Menlo, Consolas, monospace;
 
   --font-size-xs: 11px;
   --font-size-sm: 12px;
@@ -51,6 +58,7 @@
 
   /* Z-index layers */
   --z-sidebar: 100;
+  --z-dropdown: 150;
   --z-tooltip: 200;
   --z-modal: 300;
 }

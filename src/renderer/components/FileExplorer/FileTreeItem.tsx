@@ -4,6 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { FileIcon } from './FileIcon';
 import { FolderIcon } from './FolderIcon';
 import { fileBridge } from '../../services/fileBridge';
+import { useGitStatusStore } from '../../stores/gitStatusStore';
 
 interface TreeNode {
   name: string;
@@ -22,9 +23,14 @@ export function FileTreeItem({ node, depth, selectedPath, onSelectFile }: FileTr
   const [isOpen, setIsOpen] = useState(false);
   const [children, setChildren] = useState<TreeNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const getFileStatus = useGitStatusStore((state) => state.getFileStatus);
 
   const isSelected = selectedPath === node.path;
   const indent = depth * 12;
+
+  // Get git status class for files (not directories)
+  const gitStatus = !node.isDirectory ? getFileStatus(node.path) : null;
+  const gitStatusClass = gitStatus ? `git-${gitStatus}` : '';
 
   // Load children when folder is opened
   useEffect(() => {
@@ -79,7 +85,7 @@ export function FileTreeItem({ node, depth, selectedPath, onSelectFile }: FileTr
       onClick={() => onSelectFile(node.path)}
     >
       <FileIcon filename={node.name} className="file-tree-icon" />
-      <span className="file-tree-name">{node.name}</span>
+      <span className={`file-tree-name ${gitStatusClass}`}>{node.name}</span>
     </button>
   );
 }

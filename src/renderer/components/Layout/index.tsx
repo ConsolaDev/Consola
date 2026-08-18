@@ -1,24 +1,37 @@
+import { useEffect } from 'react';
 import { Sidebar } from '../Sidebar';
 import { AppHeader } from './AppHeader';
-import { TabContent } from './TabContent';
+import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
-import { useCreateWorkspace } from '../../contexts/CreateWorkspaceContext';
+import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useTabStore } from '../../stores/tabStore';
+import { useNavigationStore } from '../../stores/navigationStore';
+import { useTerminalStore } from '../../stores/terminalStore';
 import './styles.css';
 
 export function Layout() {
-  const { openDialog } = useCreateWorkspace();
   const { openSettings } = useSettings();
-  const activeTabId = useTabStore((state) => state.activeTabId);
-  const closeTab = useTabStore((state) => state.closeTab);
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
+  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
+
+  const handleNewSession = () => {
+    // Only enter new session view if a workspace is selected
+    if (activeWorkspaceId) {
+      setActiveSession(null);
+    }
+  };
+
   useKeyboardShortcuts({
-    onNewWorkspace: openDialog,
-    onCloseActiveTab: () => closeTab(activeTabId),
+    onNewSession: handleNewSession,
     onOpenSettings: openSettings,
   });
   useTheme();
+  useWindowDropGuard();
+
+  // Terminals report activity for every session, including ones whose pane is
+  // not mounted, so the subscription lives here rather than in the pane.
+  useEffect(() => useTerminalStore.getState().subscribeToEvents(), []);
 
   return (
     <div className="layout">
@@ -26,7 +39,7 @@ export function Layout() {
       <div className="layout-body">
         <Sidebar />
         <main className="content-area">
-          <TabContent />
+          <MainContent />
         </main>
       </div>
     </div>

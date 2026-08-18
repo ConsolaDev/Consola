@@ -1,0 +1,706 @@
+/* ========================================
+   Git Review Panel
+   ======================================== */
+
+.git-review-panel {
+  display: flex;
+  flex: 1;
+  height: 100%;
+  background: var(--color-bg-primary);
+  overflow: hidden;
+}
+
+/* ========================================
+   Sidebar
+   ======================================== */
+
+.git-review-sidebar {
+  display: flex;
+  flex-direction: column;
+  width: 240px;
+  min-width: 240px;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+  transition: width 0.2s ease, min-width 0.2s ease;
+  overflow: hidden;
+}
+
+.git-review-sidebar.collapsed {
+  width: 0;
+  min-width: 0;
+  border-right: none;
+}
+
+.git-review-sidebar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+
+.git-review-sidebar-title {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.git-review-sidebar-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-review-sidebar-toggle:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.git-review-sidebar-content {
+  flex: 1;
+  overflow: auto;
+  padding: var(--space-1) 0;
+}
+
+/* ========================================
+   File List Section
+   ======================================== */
+
+.git-review-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.git-review-section-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.git-review-section-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.git-review-section-chevron.open {
+  transform: rotate(90deg);
+}
+
+.git-review-section-title {
+  flex: 1;
+}
+
+.git-review-section-count {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: var(--radius-full);
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+}
+
+.git-review-section-content {
+  padding: 2px 0;
+}
+
+/* ========================================
+   File List Item (compact)
+   ======================================== */
+
+.git-review-file-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  width: 100%;
+  padding: 3px var(--space-2);
+  padding-left: var(--space-4);
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.git-review-file-item:hover {
+  background: var(--color-bg-hover);
+}
+
+.git-review-file-item.selected {
+  background: var(--color-bg-active);
+}
+
+.git-review-file-item-icon {
+  flex-shrink: 0;
+  width: 14px;
+  height: 14px;
+}
+
+.git-review-file-item-icon svg {
+  width: 14px;
+  height: 14px;
+}
+
+.git-review-file-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-review-file-item-status {
+  flex-shrink: 0;
+  font-size: 10px;
+  font-weight: var(--font-weight-medium);
+  font-family: var(--font-mono);
+}
+
+/* Status colors */
+.git-review-file-item-name.status-added,
+.git-review-file-item-status.status-added {
+  color: var(--color-git-staged);
+}
+
+.git-review-file-item-name.status-modified,
+.git-review-file-item-status.status-modified {
+  color: #4d9de0; /* Blue for modified */
+}
+
+.git-review-file-item-name.status-deleted,
+.git-review-file-item-status.status-deleted {
+  color: var(--color-git-deleted);
+}
+
+.git-review-file-item-name.status-untracked,
+.git-review-file-item-status.status-untracked {
+  color: var(--color-git-staged);
+}
+
+/* ========================================
+   Main Content Area
+   ======================================== */
+
+.git-review-main {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.git-review-main-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 40px;
+  flex-shrink: 0;
+  padding: 0 var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+
+.git-review-main-header-left {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.git-review-main-header-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.git-review-main-header-subtitle {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.git-review-close-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-review-close-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* ========================================
+   Diff List (scrollable area)
+   ======================================== */
+
+.git-review-diff-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.git-review-diff-list-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.git-review-diff-list-empty p {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.git-review-diff-list-empty p:last-child {
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-2);
+}
+
+/* ========================================
+   File Section (expandable)
+   ======================================== */
+
+.git-review-file-section {
+  border-bottom: 1px solid var(--color-border);
+}
+
+.git-review-file-section:last-child {
+  border-bottom: none;
+}
+
+.git-review-file-section.highlight {
+  animation: highlight-flash 1s ease-out;
+}
+
+@keyframes highlight-flash {
+  0% {
+    background: rgba(77, 157, 224, 0.2);
+  }
+  100% {
+    background: transparent;
+  }
+}
+
+.git-review-file-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.git-review-file-header:hover {
+  background: var(--color-bg-tertiary);
+}
+
+.git-review-file-header.stuck {
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.git-review-file-header-chevron {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+  transition: transform var(--transition-fast);
+}
+
+.git-review-file-header-chevron.open {
+  transform: rotate(90deg);
+}
+
+.git-review-file-header-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+}
+
+.git-review-file-header-name-group {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  min-width: 0;
+}
+
+.git-review-file-header-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-review-file-header-stats {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: 11px;
+  font-family: var(--font-mono);
+}
+
+.git-review-file-header-stats-add {
+  color: var(--color-git-staged);
+}
+
+.git-review-file-header-stats-remove {
+  color: var(--color-git-deleted);
+}
+
+.git-review-file-header-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.git-review-file-copy-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-review-file-copy-btn:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.git-review-file-action-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 22px;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-review-file-action-btn:hover {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.git-review-file-action-btn.active {
+  background: var(--color-accent);
+  color: white;
+}
+
+.git-review-file-action-btn.staged {
+  background: var(--color-git-staged);
+  color: white;
+}
+
+.git-review-file-toggle-group {
+  display: flex;
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.git-review-file-toggle-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 22px;
+  padding: 0;
+  border: none;
+  background: var(--color-bg-hover);
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-review-file-toggle-btn:first-child {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+}
+
+.git-review-file-toggle-btn:last-child {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.git-review-file-toggle-btn:hover {
+  background: var(--color-bg-active);
+  color: var(--color-text-secondary);
+}
+
+.git-review-file-toggle-btn.active {
+  background: var(--color-accent);
+  color: white;
+}
+
+/* File Content */
+.git-review-file-content {
+  background: var(--color-bg-primary);
+}
+
+.git-review-file-content-collapsed {
+  display: none;
+}
+
+/* ========================================
+   Commit Bar
+   ======================================== */
+
+.git-review-commit-bar {
+  display: flex;
+  align-items: flex-end;
+  gap: var(--space-2);
+  padding: var(--space-3);
+  border-top: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.git-review-commit-input-wrapper {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.git-review-commit-label {
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.git-review-commit-input {
+  width: 100%;
+  min-height: 36px;
+  max-height: 100px;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-sm);
+  font-family: inherit;
+  resize: vertical;
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.git-review-commit-input:focus {
+  border-color: var(--color-accent);
+}
+
+.git-review-commit-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+.git-review-commit-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.git-review-commit-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-1);
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: none;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+.git-review-commit-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.git-review-commit-btn.generate {
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+}
+
+.git-review-commit-btn.generate:hover:not(:disabled) {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.git-review-commit-btn.commit {
+  background: var(--color-accent);
+  color: white;
+}
+
+.git-review-commit-btn.commit:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.git-review-commit-btn .spinner {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ========================================
+   Empty State
+   ======================================== */
+
+.git-review-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  padding: var(--space-8);
+}
+
+.git-review-empty-icon {
+  margin-bottom: var(--space-4);
+  opacity: 0.5;
+}
+
+.git-review-empty-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+  margin-bottom: var(--space-2);
+}
+
+.git-review-empty-description {
+  font-size: var(--font-size-sm);
+  max-width: 300px;
+}
+
+/* ========================================
+   Inline Diff (simplified for sections)
+   ======================================== */
+
+.git-review-inline-diff {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.git-review-inline-diff-line {
+  display: flex;
+  white-space: pre;
+  min-height: 18px;
+}
+
+.git-review-inline-diff-gutter {
+  flex-shrink: 0;
+  width: 16px;
+  text-align: center;
+  color: var(--color-text-disabled);
+  background: var(--color-bg-secondary);
+  user-select: none;
+}
+
+.git-review-inline-diff-gutter-add {
+  color: var(--color-git-staged);
+  background: rgba(77, 171, 117, 0.2);
+}
+
+.git-review-inline-diff-gutter-remove {
+  color: var(--color-git-deleted);
+  background: rgba(235, 87, 87, 0.2);
+}
+
+.git-review-inline-diff-line-number {
+  flex-shrink: 0;
+  width: 40px;
+  padding: 0 var(--space-1);
+  text-align: right;
+  color: var(--color-text-disabled);
+  background: var(--color-bg-secondary);
+  user-select: none;
+  font-size: 10px;
+}
+
+.git-review-inline-diff-content {
+  flex: 1;
+  padding: 0 var(--space-2);
+}
+
+.git-review-inline-diff-line-add {
+  background: rgba(77, 171, 117, 0.12);
+}
+
+.git-review-inline-diff-line-add .git-review-inline-diff-line-number {
+  background: rgba(77, 171, 117, 0.15);
+}
+
+.git-review-inline-diff-line-remove {
+  background: rgba(235, 87, 87, 0.12);
+}
+
+.git-review-inline-diff-line-remove .git-review-inline-diff-line-number {
+  background: rgba(235, 87, 87, 0.15);
+}

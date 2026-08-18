@@ -1,140 +1,374 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
-import * as os from 'os';
-import { TerminalMode, TerminalDimensions } from '../shared/types';
+import * as fs from 'fs';
+import { TerminalDimensions, HarnessLaunchFields } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
+import { getLoginEnv } from './LoginEnvironment';
+import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
+import { ScreenModel } from './ScreenModel';
 
-export interface TerminalServiceEvents {
-    'data': (data: string) => void;
-    'mode-changed': (mode: TerminalMode) => void;
-    'exit': () => void;
+/**
+ * One session tab's terminal.
+ *
+ * Owns the `claude` process behind a single pane. The process outlives the
+ * React component that renders it: output is mirrored here so remounting a tab
+ * repaints instead of restarting the conversation.
+ */
+
+/** Silence after which a terminal is considered idle. */
+const IDLE_DEBOUNCE_MS = 500;
+
+/**
+ * Markers for a TUI screen that is waiting on a keyboard confirmation — the
+ * workspace trust gate, tool permission prompts, and similar menus.
+ *
+ * Matched against the emulated screen with whitespace collapsed, so wrapping
+ * and column padding do not defeat them.
+ */
+const CONFIRMATION_MARKERS = [
+    /do you trust/i,
+    /trust this folder/i,
+    /do you want to proceed/i,
+    /enter to confirm/i,
+];
+
+/**
+ * An empty prompt composer: the CLI is booted, idle, and waiting for typing.
+ *
+ * Waiting for this positive signal — rather than merely for output to stop —
+ * keeps a queued prompt out of the startup repaint and out of any menu, and
+ * requiring the composer to be *empty* means it can never clobber text the user
+ * has already begun typing.
+ */
+const COMPOSER_READY_PATTERN = /^\s*[❯>]\s*$/;
+
+/** Erase the display and scrollback, then home the cursor. */
+const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
+
+/** Wrap Consola's own words in red, on their own line, so they read as ours. */
+function formatNotice(message: string): string {
+    return `\r\n\x1b[31m${message}\x1b[0m\r\n`;
+}
+
+function normalizeScreen(visibleText: string): string {
+    return visibleText.replace(/\s+/g, ' ');
+}
+
+export interface TerminalServiceOptions extends HarnessLaunchFields {
+    cwd: string;
+    /** Session ID Consola assigned to this tab. */
+    claudeSessionId: string;
+    /** Resume the existing conversation instead of starting one. */
+    resume: boolean;
+    /** Initial size, so the TUI paints at the right dimensions immediately. */
+    cols?: number;
+    rows?: number;
+    /** Prompt to submit once the CLI is ready for input. */
+    initialPrompt?: string;
+}
+
+export interface TerminalExitInfo {
+    exitCode: number;
 }
 
 export class TerminalService extends EventEmitter {
-    private shellPty: pty.IPty | null = null;
     private claudePty: pty.IPty | null = null;
-    private currentMode: TerminalMode = TerminalMode.SHELL;
     private dimensions: TerminalDimensions;
-    private workingDirectory: string;
+    private readonly options: TerminalServiceOptions;
+    private readonly driver: HarnessDriver;
+    private readonly harness: HarnessConfig;
 
-    constructor(cwd?: string) {
+    private screen: ScreenModel | null = null;
+    private idleTimer: NodeJS.Timeout | null = null;
+    private isBusy = false;
+    private claudeExited = false;
+    /** Whether the current Claude launch has painted anything at all. */
+    private claudeProducedOutput = false;
+    private pendingPrompt: string | null = null;
+    private isAwaitingConfirmation = false;
+    private isDestroyed = false;
+
+    constructor(options: TerminalServiceOptions) {
         super();
-        this.dimensions = { ...DEFAULT_DIMENSIONS };
-        this.workingDirectory = cwd || process.cwd();
+        this.dimensions = {
+            cols: options.cols ?? DEFAULT_DIMENSIONS.cols,
+            rows: options.rows ?? DEFAULT_DIMENSIONS.rows,
+        };
+        this.options = options;
+        // Resolved once, up front: an unrecognised driver has to surface here
+        // rather than part-way through the resume-retry path below, where a
+        // failure would be indistinguishable from a missing conversation.
+        this.driver = getDriver(options.driverId);
+        this.harness = toHarnessConfig(options);
+        this.pendingPrompt = options.initialPrompt ?? null;
     }
 
     public start(): void {
-        this.initShell();
+        this.initClaude(this.options.resume);
     }
 
-    public getCurrentMode(): TerminalMode {
-        return this.currentMode;
+    /**
+     * Queue a prompt to submit once the CLI is ready.
+     *
+     * Delivery waits for the terminal to go quiet and refuses to type into a
+     * confirmation menu, so a prompt can never be mistaken for an answer to the
+     * workspace trust gate or a permission request.
+     */
+    public queuePrompt(prompt: string): void {
+        this.pendingPrompt = prompt;
+        if (!this.isBusy) {
+            this.deliverPendingPrompt();
+        }
+    }
+
+    /** Whether the visible screen is a menu waiting on a keypress. */
+    public awaitingConfirmation(): boolean {
+        return this.isAwaitingConfirmation;
+    }
+
+    /** Escape sequences that repaint the PTY's current screen. */
+    public getReplayBuffer(): string {
+        return this.screen?.snapshot() ?? '';
+    }
+
+    public hasClaudeExited(): boolean {
+        return this.claudeExited;
     }
 
     public write(data: string): void {
-        const activePty = this.getActivePty();
-        if (activePty) {
-            activePty.write(data);
-        }
+        this.claudePty?.write(data);
+    }
+
+    /**
+     * Paste text as a single block.
+     *
+     * Bracketed paste tells the TUI to treat the payload as pasted input rather
+     * than keystrokes, so multi-line content lands in the composer instead of
+     * submitting at the first newline.
+     */
+    public paste(text: string): void {
+        if (!this.claudePty) return;
+        this.claudePty.write(`\x1b[200~${text}\x1b[201~`);
     }
 
     public resize(cols: number, rows: number): void {
         this.dimensions = { cols, rows };
-        if (this.shellPty) {
-            this.shellPty.resize(cols, rows);
-        }
-        if (this.claudePty) {
-            this.claudePty.resize(cols, rows);
-        }
+        this.claudePty?.resize(cols, rows);
+        this.screen?.resize(cols, rows);
     }
 
-    public switchMode(mode: TerminalMode): void {
-        if (this.currentMode === mode) return;
-
-        this.currentMode = mode;
-
-        if (mode === TerminalMode.CLAUDE && !this.claudePty) {
-            this.initClaude();
-        }
-
-        this.emit('mode-changed', mode);
-
-        // Trigger redraw by resizing the active PTY
-        const activePty = this.getActivePty();
-        if (activePty) {
-            activePty.resize(this.dimensions.cols, this.dimensions.rows);
-        }
+    /** Restart Claude after it exited, resuming the same conversation. */
+    public restartClaude(): void {
+        if (this.claudePty) return;
+        this.disposeScreen();
+        this.initClaude(true);
     }
 
     public destroy(): void {
-        if (this.shellPty) {
-            this.shellPty.kill();
-            this.shellPty = null;
+        this.isDestroyed = true;
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer);
+            this.idleTimer = null;
         }
-        if (this.claudePty) {
-            this.claudePty.kill();
-            this.claudePty = null;
-        }
+        this.claudePty?.kill();
+        this.claudePty = null;
+        this.disposeScreen();
+        this.removeAllListeners();
     }
 
-    private initShell(): void {
-        const shell = process.env.SHELL || (os.platform() === 'win32' ? 'powershell.exe' : 'bash');
-
-        try {
-            this.shellPty = pty.spawn(shell, [], {
-                name: 'xterm-256color',
-                cols: this.dimensions.cols,
-                rows: this.dimensions.rows,
-                cwd: this.workingDirectory,
-                env: process.env as { [key: string]: string }
-            });
-
-            this.shellPty.onData((data) => {
-                if (this.currentMode === TerminalMode.SHELL) {
-                    this.emit('data', data);
-                }
-            });
-
-            this.shellPty.onExit(() => {
-                this.emit('exit');
-            });
-        } catch (error) {
-            console.error('Error spawning shell:', error);
-            throw error;
-        }
-    }
-
-    private initClaude(): void {
+    private initClaude(resume: boolean): void {
         if (this.claudePty) return;
 
+        // Checked before the spawn, not after: a directory Consola cannot enter
+        // fails inside the PTY child, where the failure is silent (see
+        // `describeCwdProblem`). Retrying a resume as a fresh session would not
+        // help either — the working directory is the same both times.
+        const cwdProblem = this.describeCwdProblem();
+        if (cwdProblem) {
+            this.claudeExited = true;
+            this.writeNotice(cwdProblem);
+            this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
+            return;
+        }
+
+        const binary = this.driver.resolveBinary(this.harness);
+        const args = this.driver.buildSessionArgs(
+            this.harness,
+            this.options.claudeSessionId,
+            resume
+        );
+
         try {
-            this.claudePty = pty.spawn('claude', [], {
+            this.claudeProducedOutput = false;
+            this.claudePty = pty.spawn(binary, args, {
                 name: 'xterm-256color',
                 cols: this.dimensions.cols,
                 rows: this.dimensions.rows,
-                cwd: this.workingDirectory,
-                env: process.env as { [key: string]: string }
+                cwd: this.options.cwd,
+                env: this.driver.composeEnv(this.harness, getLoginEnv()) as {
+                    [key: string]: string;
+                },
             });
+            this.claudeExited = false;
 
-            this.claudePty.onData((data) => {
-                if (this.currentMode === TerminalMode.CLAUDE) {
-                    this.emit('data', data);
-                }
-            });
+            this.claudePty.onData((data) => this.handleData(data));
 
-            this.claudePty.onExit(() => {
+            this.claudePty.onExit(({ exitCode }) => {
                 this.claudePty = null;
-                // Switch back to shell when Claude exits
-                this.switchMode(TerminalMode.SHELL);
+                this.claudeExited = true;
+                this.setBusy(false);
+
+                // A resume against a session Claude no longer has fails
+                // immediately; retry once as a new conversation so the tab
+                // stays usable. Wipe the failed attempt's output first so its
+                // error message does not sit above the fresh session.
+                if (resume && exitCode !== 0) {
+                    this.disposeScreen();
+                    this.emit('data', CLEAR_SCREEN);
+                    this.initClaude(false);
+                    return;
+                }
+
+                // A failure with nothing on screen means the CLI never got far
+                // enough to say anything, so there is no error for the user to
+                // read. Name what was run instead of leaving an empty pane.
+                if (exitCode !== 0 && !this.claudeProducedOutput) {
+                    this.writeNotice(
+                        `\`${binary}\` exited immediately without starting. ` +
+                            'Check this session\'s harness in Settings — is that binary installed and executable?'
+                    );
+                }
+
+                this.emit('exit', { exitCode } as TerminalExitInfo);
             });
         } catch (error) {
-            console.error('Error spawning Claude:', error);
-            // Switch back to shell if Claude fails to spawn
-            this.switchMode(TerminalMode.SHELL);
+            console.error(`Error spawning ${this.driver.id}:`, error);
+            this.claudeExited = true;
+            this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
         }
     }
 
-    private getActivePty(): pty.IPty | null {
-        return this.currentMode === TerminalMode.SHELL ? this.shellPty : this.claudePty;
+    /**
+     * Why this session's working directory cannot be entered, or null if it can.
+     *
+     * Worth answering before every spawn because the failure it prevents is
+     * invisible: node-pty enters the directory inside the PTY child, and on
+     * macOS the helper that does it exits without writing a word when the
+     * `chdir` fails. The pane would go blank with a code 1 and nothing to read
+     * — which is exactly what a workspace whose folder has been moved or
+     * renamed produces.
+     */
+    private describeCwdProblem(): string | null {
+        const { cwd } = this.options;
+
+        let stats: fs.Stats;
+        try {
+            stats = fs.statSync(cwd);
+        } catch (error) {
+            const code = (error as NodeJS.ErrnoException).code;
+            return code === 'ENOENT'
+                ? `Working folder not found: ${cwd} — this workspace points at a folder that has been moved, renamed, or deleted. Update its path to start sessions here again.`
+                : `Working folder unreadable: ${cwd} (${code ?? 'unknown error'}).`;
+        }
+
+        return stats.isDirectory() ? null : `Working folder is not a directory: ${cwd}.`;
+    }
+
+    /**
+     * Write Consola's own message into the pane, as if the PTY had printed it.
+     *
+     * Deferred by a tick because a real PTY never produces output synchronously
+     * from `start()`. Emitting inline would reach the renderer twice: once live,
+     * and again in the replay buffer `TerminalManager.ensure` captures after
+     * starting the terminal.
+     */
+    private writeNotice(message: string): void {
+        const text = formatNotice(message);
+        setImmediate(() => {
+            // The session may have been closed in the meantime; recreating its
+            // screen here would leak an emulator nothing will ever dispose.
+            if (this.isDestroyed) return;
+            this.getScreen().write(text);
+            this.emit('data', text);
+        });
+    }
+
+    private handleData(data: string): void {
+        this.claudeProducedOutput = true;
+        this.getScreen().write(data);
+        this.emit('data', data);
+
+        this.setBusy(true);
+        if (this.idleTimer) clearTimeout(this.idleTimer);
+        this.idleTimer = setTimeout(() => {
+            this.classifyScreen();
+            this.setBusy(false);
+            this.deliverPendingPrompt();
+        }, IDLE_DEBOUNCE_MS);
+    }
+
+    /** Note whether the settled screen is waiting on a keyboard confirmation. */
+    private classifyScreen(): void {
+        if (!this.screen) return;
+
+        const visible = normalizeScreen(this.screen.visibleText());
+        const awaiting = CONFIRMATION_MARKERS.some((marker) => marker.test(visible));
+
+        if (awaiting !== this.isAwaitingConfirmation) {
+            this.isAwaitingConfirmation = awaiting;
+            this.emit('awaiting-confirmation', awaiting);
+        }
+    }
+
+    /** Whether the CLI is showing an empty composer, ready for input. */
+    private isComposerReady(): boolean {
+        if (!this.screen) return false;
+
+        return this.screen
+            .visibleText()
+            .split('\n')
+            .some((line) => COMPOSER_READY_PATTERN.test(line));
+    }
+
+    private disposeScreen(): void {
+        this.screen?.dispose();
+        this.screen = null;
+    }
+
+    private getScreen(): ScreenModel {
+        if (!this.screen) {
+            this.screen = new ScreenModel(this.dimensions.cols, this.dimensions.rows);
+        }
+        return this.screen;
+    }
+
+    /**
+     * Submit a queued prompt, but never into a confirmation menu.
+     *
+     * Typing a prompt at the workspace trust gate or a permission request would
+     * answer it — the keystrokes become menu selections — so delivery holds
+     * until the user has dealt with the menu themselves.
+     */
+    private deliverPendingPrompt(): void {
+        if (!this.pendingPrompt) return;
+        if (!this.claudePty) return;
+        if (this.isAwaitingConfirmation) return;
+        if (!this.isComposerReady()) return;
+
+        const prompt = this.pendingPrompt;
+        this.pendingPrompt = null;
+        this.paste(prompt);
+        this.claudePty.write('\r');
+    }
+
+    /**
+     * Activity is inferred from output flow: Claude animates while it works and
+     * goes quiet when it wants input. This is a heuristic — it reads as busy
+     * for a moment while the user's own keystrokes echo.
+     */
+    private setBusy(busy: boolean): void {
+        if (this.isBusy === busy) return;
+        this.isBusy = busy;
+        this.emit('activity', busy);
     }
 }

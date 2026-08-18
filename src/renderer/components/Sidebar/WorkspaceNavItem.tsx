@@ -1,24 +1,34 @@
 import * as Collapsible from '@radix-ui/react-collapsible';
-import { FileText, ChevronRight, ChevronDown } from 'lucide-react';
+import { Folder, GitBranch, ChevronRight, ChevronDown, Plus } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
-import { useTabStore } from '../../stores/tabStore';
 import { WorkspaceActionsMenu } from './WorkspaceActionsMenu';
-import { ProjectNavItem } from './ProjectNavItem';
+import { SessionNavItem } from './SessionNavItem';
 
 interface WorkspaceNavItemProps {
   workspace: Workspace;
 }
 
+function generateSessionInstanceId(workspaceId: string): string {
+  const sessionId = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
+  return `workspace-${workspaceId}-session-${sessionId}`;
+}
+
 export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
   const isExpanded = useNavigationStore((state) => state.isWorkspaceExpanded(workspace.id));
   const toggleExpanded = useNavigationStore((state) => state.toggleWorkspaceExpanded);
-  const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
-  const openTab = useTabStore((state) => state.openTab);
-  const closeTabsForWorkspace = useTabStore((state) => state.closeTabsForWorkspace);
-  const activeTabId = useTabStore((state) => state.activeTabId);
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
+  const activeSessionId = useNavigationStore((state) => state.activeSessionId);
+  const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
+  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
-  const isActive = activeTabId === `workspace-${workspace.id}`;
+  const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
+  const createSession = useWorkspaceStore((state) => state.createSession);
+
+  const isActive = activeWorkspaceId === workspace.id && activeSessionId === null;
+
+  // Only show sessions with non-empty names (sessions appear after name is generated)
+  const visibleSessions = workspace.sessions?.filter(s => s.name.length > 0) ?? [];
 
   const handleChevronClick = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -27,17 +37,52 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
   };
 
   const handleClick = () => {
-    openTab('workspace', workspace.id);
+    setActiveWorkspace(workspace.id);
   };
 
   const handleDelete = () => {
-    closeTabsForWorkspace(workspace.id);
+    // If this workspace is active, clear selection
+    if (activeWorkspaceId === workspace.id) {
+      setActiveWorkspace(null);
+    }
     deleteWorkspace(workspace.id);
+  };
+
+  const handleAddSession = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+
+    const instanceId = generateSessionInstanceId(workspace.id);
+
+    const session = createSession(workspace.id, {
+      name: 'New Session',
+      workspaceId: workspace.id,
+      instanceId,
+      // Quick-add takes the workspace's default; the picker on the new-session
+      // screen is where another harness gets chosen.
+      harnessId: workspace.defaultHarnessId,
+    });
+
+    if (session) {
+      setActiveSession(session.id);
+      if (activeWorkspaceId !== workspace.id) {
+        setActiveWorkspace(workspace.id);
+      }
+    }
+  };
+
+  const handleSessionClick = (sessionId: string) => {
+    if (activeWorkspaceId !== workspace.id) {
+      // Don't clear session when switching to this workspace
+      useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: sessionId });
+    } else {
+      setActiveSession(sessionId);
+    }
   };
 
   return (
     <Collapsible.Root open={isExpanded} onOpenChange={() => toggleExpanded(workspace.id)}>
-      <div className="workspace-nav-item-container">
+      <div className={`workspace-nav-item-container ${isActive ? 'active' : ''}`}>
         <button
           className="workspace-expand-toggle"
           onClick={handleChevronClick}
@@ -46,11 +91,11 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
           {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
         </button>
         <button
-          className={`nav-item workspace-nav-item ${isActive ? 'active' : ''}`}
+          className="nav-item workspace-nav-item"
           onClick={handleClick}
         >
           <span className="nav-item-icon">
-            <FileText size={16} />
+            {workspace.isGitRepo ? <GitBranch size={16} /> : <Folder size={16} />}
           </span>
           <span className="nav-item-label">{workspace.name}</span>
         </button>
@@ -59,20 +104,25 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
           workspaceName={workspace.name}
           onDelete={handleDelete}
         />
+        <button
+          className="workspace-add-session"
+          onClick={handleAddSession}
+          aria-label="New session"
+        >
+          <Plus size={14} />
+        </button>
       </div>
       <Collapsible.Content className="workspace-collapsible-content">
-        <div className="project-list">
-          {workspace.projects.length === 0 ? (
-            <div className="project-list-empty">No projects</div>
-          ) : (
-            workspace.projects.map((project) => (
-              <ProjectNavItem
-                key={project.id}
-                project={project}
-                workspaceId={workspace.id}
-              />
-            ))
-          )}
+        <div className="workspace-sessions-list">
+          {visibleSessions.map((session) => (
+            <SessionNavItem
+              key={session.id}
+              session={session}
+              workspaceId={workspace.id}
+              isActive={activeWorkspaceId === workspace.id && activeSessionId === session.id}
+              onClick={() => handleSessionClick(session.id)}
+            />
+          ))}
         </div>
       </Collapsible.Content>
     </Collapsible.Root>

@@ -1,11 +1,17 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard } from 'lucide-react';
-import { useSettingsStore, type ThemeMode } from '../../stores/settingsStore';
+import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Minus, Plus } from 'lucide-react';
+import {
+  useSettingsStore,
+  TERMINAL_FONT_SIZE_MIN,
+  TERMINAL_FONT_SIZE_MAX,
+  type ThemeMode,
+} from '../../stores/settingsStore';
 import { useTheme } from '../../hooks/useTheme';
+import { HarnessesSection } from '../Harnesses';
 import './styles.css';
 
-type SettingsSection = 'appearance' | 'shortcuts';
+type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -15,6 +21,7 @@ interface SettingsSectionConfig {
 
 const sections: SettingsSectionConfig[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'harnesses', label: 'Harnesses', icon: Boxes },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
 ];
 
@@ -31,7 +38,7 @@ interface SettingsModalProps {
 
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
-  const { theme, setTheme } = useSettingsStore();
+  const { theme, setTheme, terminalFontSize, setTerminalFontSize } = useSettingsStore();
   useTheme();
 
   return (
@@ -57,8 +64,14 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
           <div className="settings-modal-body">
             {activeSection === 'appearance' && (
-              <AppearanceSection theme={theme} setTheme={setTheme} />
+              <AppearanceSection
+                theme={theme}
+                setTheme={setTheme}
+                terminalFontSize={terminalFontSize}
+                setTerminalFontSize={setTerminalFontSize}
+              />
             )}
+            {activeSection === 'harnesses' && <HarnessesSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
           </div>
 
@@ -76,9 +89,13 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 function AppearanceSection({
   theme,
   setTheme,
+  terminalFontSize,
+  setTerminalFontSize,
 }: {
   theme: ThemeMode;
   setTheme: (theme: ThemeMode) => void;
+  terminalFontSize: number;
+  setTerminalFontSize: (size: number) => void;
 }) {
   return (
     <div className="settings-modal-section">
@@ -101,6 +118,34 @@ function AppearanceSection({
               <span>{label}</span>
             </button>
           ))}
+        </div>
+      </div>
+
+      <div className="settings-modal-option">
+        <div className="settings-modal-option-info">
+          <span className="settings-modal-option-label">Terminal font size</span>
+          <span className="settings-modal-option-description">
+            Larger text is markedly easier to read on a non-Retina display
+          </span>
+        </div>
+        <div className="settings-modal-stepper">
+          <button
+            className="settings-modal-stepper-button"
+            onClick={() => setTerminalFontSize(terminalFontSize - 1)}
+            disabled={terminalFontSize <= TERMINAL_FONT_SIZE_MIN}
+            aria-label="Decrease terminal font size"
+          >
+            <Minus size={14} />
+          </button>
+          <span className="settings-modal-stepper-value">{terminalFontSize}px</span>
+          <button
+            className="settings-modal-stepper-button"
+            onClick={() => setTerminalFontSize(terminalFontSize + 1)}
+            disabled={terminalFontSize >= TERMINAL_FONT_SIZE_MAX}
+            aria-label="Increase terminal font size"
+          >
+            <Plus size={14} />
+          </button>
         </div>
       </div>
     </div>

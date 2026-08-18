@@ -60,22 +60,6 @@
   background: var(--color-accent-hover);
 }
 
-.home-view-shortcut {
-  margin-top: var(--space-6);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-}
-
-.home-view-shortcut kbd {
-  display: inline-block;
-  padding: var(--space-1) var(--space-2);
-  margin: 0 2px;
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-hover);
-  font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
-}
-
 /* Workspace View */
 .workspace-view {
   display: flex;
@@ -112,6 +96,11 @@
   color: var(--color-text-tertiary);
   margin: 0 var(--space-2);
   font-weight: var(--font-weight-normal);
+}
+
+.workspace-view-session {
+  color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
 }
 
 .workspace-view-path {
@@ -197,6 +186,11 @@
   background: var(--color-accent);
 }
 
+/* Prevent text selection in panels while dragging a resize handle */
+.workspace-view-content:has(.resize-handle[data-resize-handle-state="drag"]) {
+  user-select: none;
+}
+
 /* Markdown File View */
 .markdown-file-view {
   display: flex;
@@ -220,24 +214,20 @@
   to { transform: rotate(360deg); }
 }
 
-.file-header {
-  padding: var(--space-3) var(--space-4);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
+/* Markdown preview - text wraps to container, code blocks can scroll horizontally */
+.markdown-preview-view {
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+  overflow-x: hidden;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  padding-bottom: var(--space-9) !important;
 }
 
-.file-header svg {
-  color: var(--color-text-tertiary);
-}
-
-.file-content {
-  flex: 1;
-  overflow: auto;
-}
-
-.file-content .markdown-content {
+.markdown-preview-view .markdown-content {
   max-width: 800px;
+  width: 100%;
 }
 
 /* Tooltips for path display */
@@ -275,10 +265,18 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
+  flex: 1;
 }
 
 .path-display-text {
   /* Inherits styling from className prop */
+}
+
+.path-display-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-left: auto;
 }
 
 .path-display-toggle {
@@ -306,12 +304,86 @@
   color: var(--color-accent);
 }
 
+/* Git stats badge */
+.git-stats-badge {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
+  font-family: var(--font-mono);
+  color: var(--color-text-tertiary);
+}
+
+.git-branch-icon {
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+.git-branch-name {
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.git-stats-count {
+  color: var(--color-text-secondary);
+}
+
+.git-stats-added {
+  color: var(--color-git-staged);
+}
+
+.git-stats-removed {
+  color: var(--color-git-deleted);
+}
+
+.git-stats-separator {
+  color: var(--color-text-disabled);
+}
+
+.git-stats-refresh {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.git-stats-refresh:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.git-stats-refresh.loading {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes git-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.git-stats-refresh.loading svg {
+  animation: git-spin 1s linear infinite;
+}
+
 /* Code File View */
 .code-file-view {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--color-bg-primary);
+  background: var(--color-bg-secondary);
 }
 
 .code-file-view.loading,
@@ -326,28 +398,434 @@
   margin-top: var(--space-2);
 }
 
-.code-file-header {
-  padding: var(--space-2) var(--space-3);
-  border-bottom: 1px solid var(--color-border);
-  background: var(--color-bg-secondary);
-}
-
-.code-file-icon {
-  width: 16px;
-  height: 16px;
-}
-
-.code-file-icon svg {
-  width: 16px;
-  height: 16px;
-}
-
 .code-file-content {
   flex: 1;
   overflow: auto;
+  outline: none;
+}
+
+.code-file-content:focus-visible {
+  outline: none;
 }
 
 .code-file-content pre {
   height: 100%;
   margin: 0 !important;
+}
+
+/* ========================================
+   Markdown View Toggle
+   ======================================== */
+
+.markdown-view-toggle-bar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-bg-primary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.markdown-view-toggle {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0;
+  padding: 2px;
+  background: var(--color-bg-hover);
+  border-radius: var(--radius-md);
+}
+
+.markdown-view-toggle-btn {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-3);
+  border: none;
+  border-radius: calc(var(--radius-md) - 2px);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: color 0.2s ease;
+  white-space: nowrap;
+}
+
+.markdown-view-toggle-btn:hover {
+  color: var(--color-text-secondary);
+}
+
+.markdown-view-toggle-btn.active {
+  color: var(--color-text-primary);
+}
+
+.markdown-view-toggle-btn svg {
+  flex-shrink: 0;
+}
+
+/* Sliding indicator behind active button */
+.markdown-view-toggle-indicator {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  left: 2px;
+  width: calc(50% - 2px);
+  background: var(--color-bg-tertiary);
+  border-radius: calc(var(--radius-md) - 2px);
+  box-shadow: var(--shadow-elevation-1);
+  transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+  pointer-events: none;
+}
+
+.markdown-view-toggle-indicator[data-active="source"] {
+  transform: translateX(100%);
+}
+
+/* Content wrapper - using Radix ScrollArea */
+.markdown-view-content-wrapper {
+  flex: 1;
+  min-height: 0; /* Allow flex child to shrink below content size */
+}
+
+/* Selectable content area for Cmd/Ctrl+A support */
+.markdown-view-content-selectable {
+  outline: none;
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.markdown-view-content-selectable:focus-visible {
+  outline: none;
+}
+
+.markdown-view-panel {
+  /* No transition - instant switch between preview/source */
+}
+
+/* Source view specific styles - allows horizontal scroll for long lines */
+.markdown-source-view {
+  background: var(--color-bg-secondary);
+  min-width: fit-content;
+}
+
+.markdown-source-view pre {
+  margin: 0 !important;
+}
+
+/* Override syntax highlighter for markdown source */
+.markdown-source-view code {
+  font-family: var(--font-mono) !important;
+  font-size: 13px !important;
+  line-height: 1.6 !important;
+}
+
+/* ========================================
+   New Session View (Centered Input)
+   ======================================== */
+
+.new-session-view {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: var(--space-8);
+}
+
+.new-session-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+  max-width: 600px;
+}
+
+.new-session-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin-bottom: var(--space-6);
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.workspace-dropdown-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.workspace-dropdown-trigger:hover {
+  background: var(--color-bg-active);
+}
+
+.workspace-dropdown-content {
+  min-width: 200px;
+}
+
+.workspace-dropdown-content .dropdown-item.active {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+.new-session-input-container {
+  position: relative;
+  display: flex;
+  align-items: flex-end;
+  width: 100%;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-secondary);
+  transition: border-color var(--transition-fast), box-shadow var(--transition-fast);
+}
+
+.new-session-input-container:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 2px var(--color-accent-muted);
+}
+
+.new-session-input {
+  flex: 1;
+  min-height: 24px;
+  max-height: 200px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-md);
+  font-family: inherit;
+  line-height: var(--line-height-normal);
+  resize: none;
+  outline: none;
+}
+
+.new-session-input:focus,
+.new-session-input:focus-visible {
+  outline: none;
+  box-shadow: none;
+}
+
+.new-session-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+.new-session-submit {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  margin-left: var(--space-2);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  cursor: pointer;
+  transition: background var(--transition-fast), opacity var(--transition-fast);
+}
+
+.new-session-submit:hover:not(:disabled) {
+  background: var(--color-accent-hover);
+}
+
+.new-session-submit:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.new-session-hint {
+  margin-top: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.new-session-hint kbd {
+  display: inline-block;
+  padding: var(--space-1) var(--space-2);
+  margin: 0 2px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* ========================================
+   Diff View
+   ======================================== */
+
+.diff-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--color-bg-primary);
+  outline: none;
+}
+
+.diff-view:focus-visible {
+  outline: none;
+}
+
+.diff-view.loading,
+.diff-view.error,
+.diff-view.binary {
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-tertiary);
+}
+
+.diff-view .spinner {
+  animation: spin 1s linear infinite;
+}
+
+.diff-view-error-detail {
+  font-size: var(--font-size-xs);
+  margin-top: var(--space-2);
+}
+
+.diff-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-secondary);
+}
+
+.diff-header-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  background: var(--color-git-modified);
+  color: var(--color-bg-primary);
+}
+
+.diff-header-label.diff-header-new {
+  background: var(--color-git-staged);
+}
+
+.diff-header-label.diff-header-deleted {
+  background: var(--color-git-deleted);
+}
+
+.diff-header-path {
+  font-size: var(--font-size-sm);
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+}
+
+/* Unified Diff View (VS Code style) */
+.diff-unified-content {
+  flex: 1;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.diff-unified-line {
+  display: flex;
+  white-space: pre;
+  min-height: 20px;
+  min-width: 100%; /* Fill viewport width */
+  width: max-content; /* Extend beyond viewport for long lines */
+}
+
+.diff-unified-gutter {
+  flex-shrink: 0;
+  width: 20px;
+  text-align: center;
+  color: var(--color-text-disabled);
+  background: var(--color-bg-secondary);
+  user-select: none;
+  border-right: 1px solid var(--color-border);
+}
+
+.diff-unified-gutter-add {
+  color: var(--color-git-staged);
+  background: rgba(77, 171, 117, 0.25);
+}
+
+.diff-unified-gutter-remove {
+  color: var(--color-git-deleted);
+  background: rgba(235, 87, 87, 0.25);
+}
+
+.diff-unified-line-number {
+  flex-shrink: 0;
+  width: 48px;
+  padding: 0 var(--space-2);
+  text-align: right;
+  color: var(--color-text-disabled);
+  background: var(--color-bg-secondary);
+  user-select: none;
+  font-size: var(--font-size-xs);
+}
+
+.diff-unified-line-number:last-of-type {
+  border-right: 1px solid var(--color-border);
+}
+
+.diff-unified-line-number-empty {
+  color: transparent;
+}
+
+.diff-unified-line-content {
+  flex: 1;
+  padding: 0 var(--space-2);
+  min-width: 0;
+}
+
+/* Ensure syntax highlighter spans don't break layout */
+.diff-unified-line-content > span {
+  display: inline;
+}
+
+.diff-unified-line-content pre,
+.diff-unified-line-content code {
+  margin: 0;
+  padding: 0;
+  background: transparent !important;
+  font-family: inherit;
+  font-size: inherit;
+  line-height: inherit;
+}
+
+/* Added lines - green background */
+.diff-unified-line-add {
+  background: rgba(77, 171, 117, 0.15);
+}
+
+.diff-unified-line-add .diff-unified-line-number {
+  background: rgba(77, 171, 117, 0.2);
+}
+
+/* Removed lines - red background */
+.diff-unified-line-remove {
+  background: rgba(235, 87, 87, 0.15);
+}
+
+.diff-unified-line-remove .diff-unified-line-number {
+  background: rgba(235, 87, 87, 0.2);
+}
+
+/* Accent marker for the harness picker beside the workspace dropdown. */
+.new-session-harness-dot {
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-radius: var(--radius-full);
 }

@@ -1,212 +1,93 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
-import { TerminalService } from './TerminalService';
-import { ClaudeAgentService } from './ClaudeAgentService';
-import { TerminalMode, AgentQueryOptions, AgentInputResponse } from '../shared/types';
-import { IPC_CHANNELS, DEFAULT_INSTANCE_ID } from '../shared/constants';
+import { exec } from 'child_process';
+import { TerminalManager } from './TerminalManager';
+import { runHeadless } from './drivers/ClaudeDriver';
+import { getDriver, toHarnessConfig } from './drivers';
+import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
+import { IPC_CHANNELS } from '../shared/constants';
 
-// Map to support future multi-instance terminals
-const terminalServices: Map<string, TerminalService> = new Map();
-
-// Map for multi-instance Claude Agent services
-const agentServices: Map<string, ClaudeAgentService> = new Map();
-
-// Reference to main window for event forwarding
-let mainWindowRef: BrowserWindow | null = null;
-
-// Helper to get or create an agent service for a given instanceId
-function getOrCreateAgentService(instanceId: string, cwd: string): ClaudeAgentService {
-    let service = agentServices.get(instanceId);
-    if (!service) {
-        service = new ClaudeAgentService(cwd);
-        agentServices.set(instanceId, service);
-        wireAgentServiceEvents(instanceId, service);
-    }
-    return service;
-}
-
-// Wire up event forwarding for an agent service instance
-function wireAgentServiceEvents(instanceId: string, service: ClaudeAgentService): void {
-    if (!mainWindowRef) return;
-    const mainWindow = mainWindowRef;
-
-    service.on('init', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INIT, { instanceId, ...data });
-        }
-    });
-
-    service.on('assistant-message', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ASSISTANT_MESSAGE, { instanceId, ...data });
-        }
-    });
-
-    service.on('stream', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STREAM, { instanceId, ...data });
-        }
-    });
-
-    service.on('tool-pending', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_PENDING, { instanceId, ...data });
-        }
-    });
-
-    service.on('tool-complete', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_TOOL_COMPLETE, { instanceId, ...data });
-        }
-    });
-
-    service.on('result', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_RESULT, { instanceId, ...data });
-        }
-    });
-
-    service.on('error', (error: Error) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
-                instanceId,
-                message: error.message
-            });
-        }
-    });
-
-    service.on('status-changed', (status) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_STATUS_CHANGED, { instanceId, ...status });
-        }
-    });
-
-    service.on('notification', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_NOTIFICATION, { instanceId, ...data });
-        }
-    });
-
-    service.on('message', (message) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_MESSAGE, { instanceId, message });
-        }
-    });
-
-    service.on('input-request', (data) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.AGENT_INPUT_REQUEST, { instanceId, ...data });
-        }
-    });
-}
+// One terminal per session tab, kept alive while the session is open
+let terminalManager: TerminalManager | null = null;
 
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
-    mainWindowRef = mainWindow;
+    terminalManager = new TerminalManager(mainWindow);
+    const manager = terminalManager;
 
-    // Create default terminal service
-    const terminalService = new TerminalService();
-    terminalServices.set(DEFAULT_INSTANCE_ID, terminalService);
+    // Start or attach to a session's terminal. Returns buffered output so a
+    // remounted view repaints without restarting the conversation.
+    ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (_event, options: TerminalCreateOptions) => {
+        const {
+            instanceId,
+            cwd,
+            claudeSessionId,
+            resume,
+            cols,
+            rows,
+            initialPrompt,
+            driverId,
+            binaryOverride,
+            configDirOverride,
+            extraArgs,
+        } = options;
+        return manager.ensure(instanceId, {
+            cwd,
+            claudeSessionId,
+            // Resume whenever this tab has run before. Claude is the authority
+            // on whether the conversation still exists, and TerminalService
+            // falls back to a fresh session if it does not.
+            resume,
+            cols,
+            rows,
+            initialPrompt,
+            // Absent for the built-in harness, which launches exactly as
+            // Consola did before harnesses existed.
+            driverId,
+            binaryOverride,
+            configDirOverride,
+            extraArgs,
+        });
+    });
 
-    // Forward terminal data to renderer
-    terminalService.on('data', (data: string) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.TERMINAL_DATA, data);
+    ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, instanceId: string, data: string) => {
+        manager.get(instanceId)?.write(data);
+    });
+
+    ipcMain.on(IPC_CHANNELS.TERMINAL_PASTE, (_event, instanceId: string, text: string) => {
+        manager.get(instanceId)?.paste(text);
+    });
+
+    ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, instanceId: string, cols: number, rows: number) => {
+        manager.get(instanceId)?.resize(cols, rows);
+    });
+
+    ipcMain.on(IPC_CHANNELS.TERMINAL_RESTART, (_event, instanceId: string) => {
+        manager.get(instanceId)?.restartClaude();
+    });
+
+    ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
+        manager.destroy(instanceId);
+    });
+
+    // === Harness queries ===
+
+    // Is this harness's binary present, and who is it signed in as?
+    ipcMain.handle(IPC_CHANNELS.HARNESS_PROBE, (_event, fields: HarnessLaunchFields) => {
+        return getDriver(fields?.driverId).probeHealth(toHarnessConfig(fields));
+    });
+
+    // A session's name, read from its own harness's transcripts. Drivers whose
+    // transcript format Consola cannot read simply have no answer.
+    ipcMain.handle(
+        IPC_CHANNELS.HARNESS_SESSION_NAME,
+        (_event, sessionId: string, fields: HarnessLaunchFields) => {
+            const driver = getDriver(fields?.driverId);
+            return driver.getSessionDisplayName?.(toHarnessConfig(fields), sessionId) ?? null;
         }
-    });
+    );
 
-    // Forward mode changes to renderer
-    terminalService.on('mode-changed', (mode: TerminalMode) => {
-        if (!mainWindow.isDestroyed()) {
-            mainWindow.webContents.send(IPC_CHANNELS.MODE_CHANGED, mode);
-        }
-    });
-
-    // Handle terminal exit
-    terminalService.on('exit', () => {
-        // When shell exits, close the app
-        mainWindow.close();
-    });
-
-    // Start the terminal
-    terminalService.start();
-
-    // Handle input from renderer
-    ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, data: string) => {
-        terminalService.write(data);
-    });
-
-    // Handle resize from renderer
-    ipcMain.on(IPC_CHANNELS.TERMINAL_RESIZE, (_event, cols: number, rows: number) => {
-        terminalService.resize(cols, rows);
-    });
-
-    // Handle mode switch from renderer
-    ipcMain.on(IPC_CHANNELS.MODE_SWITCH, (_event, mode: TerminalMode) => {
-        terminalService.switchMode(mode);
-    });
-
-    // === Claude Agent Service Command Handlers ===
-
-    // Handle agent start from renderer
-    ipcMain.on(IPC_CHANNELS.AGENT_START, async (_event, options: AgentQueryOptions) => {
-        const { instanceId, cwd, ...queryOptions } = options;
-        const workingDir = cwd || process.cwd();
-
-        try {
-            const service = getOrCreateAgentService(instanceId, workingDir);
-            // Update cwd if it changed
-            service.setCwd(workingDir);
-            await service.startQuery(queryOptions);
-        } catch (error) {
-            if (!mainWindow.isDestroyed()) {
-                mainWindow.webContents.send(IPC_CHANNELS.AGENT_ERROR, {
-                    instanceId,
-                    message: error instanceof Error ? error.message : String(error)
-                });
-            }
-        }
-    });
-
-    // Handle agent interrupt from renderer
-    ipcMain.on(IPC_CHANNELS.AGENT_INTERRUPT, (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        service?.interrupt();
-    });
-
-    // Handle agent status request from renderer
-    ipcMain.handle(IPC_CHANNELS.AGENT_GET_STATUS, (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        return service?.getStatus() ?? {
-            isRunning: false,
-            sessionId: null,
-            model: null,
-            permissionMode: null
-        };
-    });
-
-    // Handle agent instance destruction
-    ipcMain.on(IPC_CHANNELS.AGENT_DESTROY_INSTANCE, (_event, instanceId: string) => {
-        const service = agentServices.get(instanceId);
-        if (service) {
-            service.destroy();
-            agentServices.delete(instanceId);
-        }
-    });
-
-    // Handle user response to input/permission request
-    ipcMain.on(IPC_CHANNELS.AGENT_INPUT_RESPONSE, (_event, response: AgentInputResponse) => {
-        const service = agentServices.get(response.instanceId);
-        if (service) {
-            service.respondToPermission(response.requestId, response.action, {
-                modifiedInput: response.modifiedInput,
-                feedback: response.feedback,
-                answers: response.answers
-            });
-        }
-    });
-
-    // Handle folder picker dialog
+    // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
         const result = await dialog.showOpenDialog({
             properties: ['openDirectory', 'multiSelections'],
@@ -220,6 +101,21 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             name: path.basename(folderPath),
             isGitRepo: fs.existsSync(path.join(folderPath, '.git'))
         }));
+    });
+
+    // Handle single folder picker dialog (for workspace creation)
+    ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDER, async () => {
+        const result = await dialog.showOpenDialog({
+            properties: ['openDirectory', 'createDirectory'],
+            title: 'Select Workspace Folder'
+        });
+        if (result.canceled || result.filePaths.length === 0) {
+            return null;
+        }
+        const selectedPath = result.filePaths[0];
+        const folderName = path.basename(selectedPath);
+        const isGitRepo = fs.existsSync(path.join(selectedPath, '.git'));
+        return { path: selectedPath, name: folderName, isGitRepo };
     });
 
     // Handle file read
@@ -252,39 +148,472 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             throw new Error(`Failed to list directory: ${error instanceof Error ? error.message : String(error)}`);
         }
     });
+
+
+    // Handle git status
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, async (_event, rootPath: string) => {
+        return new Promise((resolve) => {
+            // Check if directory is a git repo
+            const gitDir = path.join(rootPath, '.git');
+            if (!fs.existsSync(gitDir)) {
+                resolve({ files: [], stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 }, isGitRepo: false, branch: null });
+                return;
+            }
+
+            // Get current branch name
+            exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath }, (branchErr, branchStdout) => {
+                const branch = !branchErr && branchStdout ? branchStdout.trim() : null;
+
+                // Run git status --porcelain to get file statuses
+                exec('git status --porcelain -uall', { cwd: rootPath }, (statusErr, statusStdout) => {
+                    const files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }> = [];
+
+                    if (!statusErr && statusStdout) {
+                        const lines = statusStdout.trimEnd().split('\n').filter(Boolean);
+                        for (const line of lines) {
+                            const indexStatus = line[0];
+                            const workingStatus = line[1];
+                            const filePath = line.slice(3).trim();
+
+                            // Determine status based on git status output
+                            // First column = index (staged), Second column = working tree
+                            if (indexStatus === '?' && workingStatus === '?') {
+                                files.push({ path: filePath, status: 'untracked' });
+                            } else if (indexStatus === 'D' || workingStatus === 'D') {
+                                files.push({ path: filePath, status: 'deleted' });
+                            } else if (indexStatus !== ' ' && indexStatus !== '?') {
+                                // Staged changes (A, M, R, C in index)
+                                files.push({ path: filePath, status: 'staged' });
+                            } else if (workingStatus === 'M') {
+                                // Unstaged modifications
+                                files.push({ path: filePath, status: 'modified' });
+                            }
+                        }
+                    }
+
+                    // Run git diff --numstat for line counts
+                    exec('git diff --numstat', { cwd: rootPath }, (diffErr, diffStdout) => {
+                        let addedLines = 0;
+                        let removedLines = 0;
+
+                        if (!diffErr && diffStdout) {
+                            const lines = diffStdout.trim().split('\n').filter(Boolean);
+                            for (const line of lines) {
+                                const parts = line.split('\t');
+                                const added = parseInt(parts[0], 10);
+                                const removed = parseInt(parts[1], 10);
+                                if (!isNaN(added)) addedLines += added;
+                                if (!isNaN(removed)) removedLines += removed;
+                            }
+                        }
+
+                        // Also get staged diff stats
+                        exec('git diff --cached --numstat', { cwd: rootPath }, (stagedErr, stagedStdout) => {
+                            if (!stagedErr && stagedStdout) {
+                                const lines = stagedStdout.trim().split('\n').filter(Boolean);
+                                for (const line of lines) {
+                                    const parts = line.split('\t');
+                                    const added = parseInt(parts[0], 10);
+                                    const removed = parseInt(parts[1], 10);
+                                    if (!isNaN(added)) addedLines += added;
+                                    if (!isNaN(removed)) removedLines += removed;
+                                }
+                            }
+
+                            resolve({
+                                files,
+                                stats: {
+                                    modifiedCount: files.length,
+                                    addedLines,
+                                    removedLines
+                                },
+                                isGitRepo: true,
+                                branch
+                            });
+                        });
+                    });
+                });
+            });
+        });
+    });
+
+    // Handle git diff
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_DIFF, async (_event, { rootPath, filePath, staged }: { rootPath: string; filePath: string; staged: boolean }) => {
+        return new Promise((resolve) => {
+            const absolutePath = path.join(rootPath, filePath);
+
+            // Check if file exists for new/untracked files
+            const fileExists = fs.existsSync(absolutePath);
+
+            // For untracked files, return full content as new
+            if (!staged) {
+                exec(`git ls-files --error-unmatch "${filePath}" 2>/dev/null`, { cwd: rootPath }, (err) => {
+                    if (err) {
+                        // File is untracked - read full content
+                        if (fileExists) {
+                            fs.promises.readFile(absolutePath, 'utf-8').then((content) => {
+                                resolve({
+                                    filePath,
+                                    staged: false,
+                                    oldContent: '',
+                                    newContent: content,
+                                    hunks: [],
+                                    isBinary: false,
+                                    isNew: true,
+                                    isDeleted: false
+                                });
+                            }).catch(() => {
+                                resolve({
+                                    filePath,
+                                    staged: false,
+                                    oldContent: '',
+                                    newContent: '',
+                                    hunks: [],
+                                    isBinary: true,
+                                    isNew: true,
+                                    isDeleted: false
+                                });
+                            });
+                        } else {
+                            resolve({
+                                filePath,
+                                staged: false,
+                                oldContent: '',
+                                newContent: '',
+                                hunks: [],
+                                isBinary: false,
+                                isNew: true,
+                                isDeleted: true
+                            });
+                        }
+                        return;
+                    }
+
+                    // File is tracked, get the diff
+                    getDiffContent(rootPath, filePath, staged, fileExists, resolve);
+                });
+            } else {
+                // Staged file - get the diff directly
+                getDiffContent(rootPath, filePath, staged, fileExists, resolve);
+            }
+        });
+    });
+
+    function getDiffContent(
+        rootPath: string,
+        filePath: string,
+        staged: boolean,
+        fileExists: boolean,
+        resolve: (value: unknown) => void
+    ) {
+        const diffCmd = staged ? `git diff --cached -- "${filePath}"` : `git diff -- "${filePath}"`;
+        const absolutePath = path.join(rootPath, filePath);
+
+        exec(diffCmd, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffStdout) => {
+            if (diffErr || !diffStdout) {
+                // No diff available
+                resolve({
+                    filePath,
+                    staged,
+                    oldContent: '',
+                    newContent: '',
+                    hunks: [],
+                    isBinary: false,
+                    isNew: false,
+                    isDeleted: !fileExists
+                });
+                return;
+            }
+
+            // Check for binary
+            if (diffStdout.includes('Binary files')) {
+                resolve({
+                    filePath,
+                    staged,
+                    oldContent: '',
+                    newContent: '',
+                    hunks: [],
+                    isBinary: true,
+                    isNew: false,
+                    isDeleted: false
+                });
+                return;
+            }
+
+            // Get old content (from HEAD or index)
+            const showCmd = staged ? `git show HEAD:"${filePath}"` : `git show :"${filePath}"`;
+            exec(showCmd, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (showErr, oldContent) => {
+                // Get new content
+                const getNewContent = (): Promise<string> => {
+                    if (staged) {
+                        // For staged, get from index
+                        return new Promise((res) => {
+                            exec(`git show :"${filePath}"`, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (err, content) => {
+                                res(err ? '' : content);
+                            });
+                        });
+                    } else {
+                        // For unstaged, read from filesystem
+                        if (fileExists) {
+                            return fs.promises.readFile(absolutePath, 'utf-8').catch(() => '');
+                        }
+                        return Promise.resolve('');
+                    }
+                };
+
+                getNewContent().then((newContent) => {
+                    resolve({
+                        filePath,
+                        staged,
+                        oldContent: showErr ? '' : oldContent,
+                        newContent,
+                        hunks: parseDiffHunks(diffStdout),
+                        isBinary: false,
+                        isNew: showErr !== null,
+                        isDeleted: !fileExists
+                    });
+                });
+            });
+        });
+    }
+
+    // Handle git stage file
+    ipcMain.handle(IPC_CHANNELS.GIT_STAGE_FILE, async (_event, { rootPath, filePath }: { rootPath: string; filePath: string }) => {
+        return new Promise((resolve, reject) => {
+            exec(`git add "${filePath}"`, { cwd: rootPath }, (err, stdout, stderr) => {
+                if (err) {
+                    reject(new Error(stderr || err.message));
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
+    });
+
+    // Handle git unstage file
+    ipcMain.handle(IPC_CHANNELS.GIT_UNSTAGE_FILE, async (_event, { rootPath, filePath }: { rootPath: string; filePath: string }) => {
+        return new Promise((resolve, reject) => {
+            exec(`git reset HEAD "${filePath}"`, { cwd: rootPath }, (err, stdout, stderr) => {
+                if (err) {
+                    // If the file was never committed, git reset will fail
+                    // Try removing from index instead
+                    exec(`git rm --cached "${filePath}"`, { cwd: rootPath }, (err2, stdout2, stderr2) => {
+                        if (err2) {
+                            reject(new Error(stderr2 || stderr || err.message));
+                        } else {
+                            resolve({ success: true });
+                        }
+                    });
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
+    });
+
+    // Handle git commit
+    ipcMain.handle(IPC_CHANNELS.GIT_COMMIT, async (_event, { rootPath, message }: { rootPath: string; message: string }) => {
+        return new Promise((resolve) => {
+            // Escape double quotes in the message
+            const escapedMessage = message.replace(/"/g, '\\"');
+            exec(`git commit -m "${escapedMessage}"`, { cwd: rootPath }, (err, stdout, stderr) => {
+                if (err) {
+                    resolve({ success: false, error: stderr || err.message });
+                } else {
+                    resolve({ success: true });
+                }
+            });
+        });
+    });
+
+    // Handle get staged diff (for AI commit message generation)
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_STAGED_DIFF, async (_event, { rootPath }: { rootPath: string }) => {
+        return new Promise((resolve) => {
+            // Get list of staged files
+            exec('git diff --cached --name-only', { cwd: rootPath }, (err, stagedFilesOutput) => {
+                if (err || !stagedFilesOutput.trim()) {
+                    resolve({ stagedFiles: [], diff: '' });
+                    return;
+                }
+
+                const stagedFiles = stagedFilesOutput.trim().split('\n').filter(Boolean);
+
+                // Get the full diff
+                exec('git diff --cached', { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffOutput) => {
+                    resolve({
+                        stagedFiles,
+                        diff: diffErr ? '' : diffOutput
+                    });
+                });
+            });
+        });
+    });
+
+    // Handle commit message generation using Claude
+    ipcMain.handle(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE, async (_event, { rootPath }: { rootPath: string }) => {
+        // Get staged diff first
+        const stagedResult = await new Promise<{ stagedFiles: string[]; diff: string }>((resolve) => {
+            exec('git diff --cached --name-only', { cwd: rootPath }, (err, stagedFilesOutput) => {
+                if (err || !stagedFilesOutput.trim()) {
+                    resolve({ stagedFiles: [], diff: '' });
+                    return;
+                }
+
+                const stagedFiles = stagedFilesOutput.trim().split('\n').filter(Boolean);
+
+                exec('git diff --cached', { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffOutput) => {
+                    resolve({
+                        stagedFiles,
+                        diff: diffErr ? '' : diffOutput
+                    });
+                });
+            });
+        });
+
+        if (stagedResult.stagedFiles.length === 0) {
+            return { message: '', error: 'No staged files' };
+        }
+
+        // Truncate diff if too long (to avoid token limits)
+        const maxDiffLength = 8000;
+        const truncatedDiff = stagedResult.diff.length > maxDiffLength
+            ? stagedResult.diff.slice(0, maxDiffLength) + '\n\n... (diff truncated)'
+            : stagedResult.diff;
+
+        // Build prompt for Claude
+        const prompt = `Generate a concise git commit message for the following changes.
+Follow conventional commits format (feat:, fix:, refactor:, docs:, style:, test:, chore:).
+Keep the first line under 72 characters.
+Only output the commit message, nothing else.
+
+Staged files:
+${stagedResult.stagedFiles.map(f => `- ${f}`).join('\n')}
+
+Diff:
+${truncatedDiff}`;
+
+        // A one-shot headless CLI call: this only transforms the diff into text
+        // and runs with tools disabled, so it never touches the repository.
+        const result = await runHeadless(prompt, { cwd: rootPath });
+
+        if (result.isError || !result.text) {
+            return { message: '', error: 'Could not generate a commit message' };
+        }
+        return { message: result.text };
+    });
+
+    function parseDiffHunks(diffOutput: string): Array<{
+        oldStart: number;
+        oldLines: number;
+        newStart: number;
+        newLines: number;
+        lines: Array<{
+            type: 'context' | 'add' | 'remove';
+            content: string;
+            oldLineNumber?: number;
+            newLineNumber?: number;
+        }>;
+    }> {
+        const hunks: Array<{
+            oldStart: number;
+            oldLines: number;
+            newStart: number;
+            newLines: number;
+            lines: Array<{
+                type: 'context' | 'add' | 'remove';
+                content: string;
+                oldLineNumber?: number;
+                newLineNumber?: number;
+            }>;
+        }> = [];
+
+        const lines = diffOutput.split('\n');
+        let currentHunk: typeof hunks[0] | null = null;
+        let oldLine = 0;
+        let newLine = 0;
+
+        for (const line of lines) {
+            // Parse hunk header: @@ -oldStart,oldLines +newStart,newLines @@
+            const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
+            if (hunkMatch) {
+                if (currentHunk) {
+                    hunks.push(currentHunk);
+                }
+                currentHunk = {
+                    oldStart: parseInt(hunkMatch[1], 10),
+                    oldLines: parseInt(hunkMatch[2] || '1', 10),
+                    newStart: parseInt(hunkMatch[3], 10),
+                    newLines: parseInt(hunkMatch[4] || '1', 10),
+                    lines: []
+                };
+                oldLine = currentHunk.oldStart;
+                newLine = currentHunk.newStart;
+                continue;
+            }
+
+            if (!currentHunk) continue;
+
+            if (line.startsWith('+') && !line.startsWith('+++')) {
+                currentHunk.lines.push({
+                    type: 'add',
+                    content: line.slice(1),
+                    newLineNumber: newLine++
+                });
+            } else if (line.startsWith('-') && !line.startsWith('---')) {
+                currentHunk.lines.push({
+                    type: 'remove',
+                    content: line.slice(1),
+                    oldLineNumber: oldLine++
+                });
+            } else if (line.startsWith(' ')) {
+                currentHunk.lines.push({
+                    type: 'context',
+                    content: line.slice(1),
+                    oldLineNumber: oldLine++,
+                    newLineNumber: newLine++
+                });
+            }
+        }
+
+        if (currentHunk) {
+            hunks.push(currentHunk);
+        }
+
+        return hunks;
+    }
 }
 
 export function cleanupIpcHandlers(): void {
     // Clean up all terminal services
-    for (const [id, service] of terminalServices) {
-        service.destroy();
-        terminalServices.delete(id);
-    }
-
-    // Clean up all agent services
-    for (const [id, service] of agentServices) {
-        service.destroy();
-        agentServices.delete(id);
-    }
-
-    mainWindowRef = null;
+    terminalManager?.destroyAll();
+    terminalManager = null;
 
     // Remove terminal IPC listeners
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_INPUT);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
-    ipcMain.removeAllListeners(IPC_CHANNELS.MODE_SWITCH);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
+    ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
+    ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_CREATE);
 
-    // Remove agent IPC listeners
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_START);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INTERRUPT);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_DESTROY_INSTANCE);
-    ipcMain.removeAllListeners(IPC_CHANNELS.AGENT_INPUT_RESPONSE);
-    ipcMain.removeHandler(IPC_CHANNELS.AGENT_GET_STATUS);
+    // Remove Claude CLI query handlers
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
+    ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDER);
 
     // Remove file IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.FILE_READ);
     ipcMain.removeHandler(IPC_CHANNELS.FILE_LIST_DIRECTORY);
+
+    // Remove git IPC handlers
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_DIFF);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_STAGE_FILE);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_UNSTAGE_FILE);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_COMMIT);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STAGED_DIFF);
+    ipcMain.removeHandler(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE);
 }

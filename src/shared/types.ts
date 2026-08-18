@@ -1,6 +1,22 @@
-export enum TerminalMode {
-    SHELL = 'SHELL',
-    CLAUDE = 'CLAUDE'
+/** Agent CLI a harness drives. One driver per supported CLI. */
+export type HarnessDriverId = 'claude';
+
+/**
+ * How a session's harness is described across the IPC boundary.
+ *
+ * Kept as flat optional fields rather than a nested object: every one of them
+ * is absent for the built-in harness, and absent must mean "behave exactly as
+ * Consola did before harnesses existed".
+ */
+export interface HarnessLaunchFields {
+    /** Driver backing this session. Defaults to `claude`. */
+    driverId?: HarnessDriverId;
+    /** Explicit binary path, when the harness pins one. */
+    binaryOverride?: string;
+    /** Config directory for the driver's own env var, when the harness sets one. */
+    configDirOverride?: string;
+    /** Extra CLI arguments appended to the session's argv. */
+    extraArgs?: string[];
 }
 
 export interface TerminalDimensions {
@@ -8,170 +24,98 @@ export interface TerminalDimensions {
     rows: number;
 }
 
+export interface TerminalCreateOptions extends HarnessLaunchFields {
+    instanceId: string;
+    cwd: string;
+    /** Session ID Consola assigned to this tab. */
+    claudeSessionId: string;
+    /** Resume the existing conversation instead of starting one. */
+    resume: boolean;
+    /** Initial size, so the TUI paints at the right dimensions immediately. */
+    cols?: number;
+    rows?: number;
+    /** Prompt to submit once the CLI is ready for input. */
+    initialPrompt?: string;
+}
+
+/** State needed to repaint a terminal view on mount. */
+export interface TerminalSnapshot {
+    replay: string;
+    exited: boolean;
+}
+
 export interface TerminalDataMessage {
     instanceId: string;
     data: string;
 }
 
-export interface TerminalInputMessage {
+export interface TerminalActivityMessage {
     instanceId: string;
-    data: string;
+    busy: boolean;
 }
 
-export interface TerminalResizeMessage {
+export interface TerminalAwaitingConfirmationMessage {
     instanceId: string;
-    cols: number;
-    rows: number;
+    awaiting: boolean;
 }
 
-export interface ModeSwitchMessage {
+export interface TerminalExitMessage {
     instanceId: string;
-    mode: TerminalMode;
-}
-
-export interface ModeChangedMessage {
-    instanceId: string;
-    mode: TerminalMode;
+    exitCode: number;
 }
 
 export interface TerminalAPI {
-    sendInput: (data: string) => void;
-    resize: (cols: number, rows: number) => void;
-    switchMode: (mode: TerminalMode) => void;
-    onData: (callback: (data: string) => void) => void;
-    onModeChanged: (callback: (mode: TerminalMode) => void) => void;
-    removeDataListener: (callback: (data: string) => void) => void;
-    removeModeChangedListener: (callback: (mode: TerminalMode) => void) => void;
+    create: (options: TerminalCreateOptions) => Promise<TerminalSnapshot>;
+    sendInput: (instanceId: string, data: string) => void;
+    paste: (instanceId: string, text: string) => void;
+    resize: (instanceId: string, cols: number, rows: number) => void;
+    restart: (instanceId: string) => void;
+    destroy: (instanceId: string) => void;
+    onData: (callback: (message: TerminalDataMessage) => void) => () => void;
+    onActivity: (callback: (message: TerminalActivityMessage) => void) => () => void;
+    onAwaitingConfirmation: (
+        callback: (message: TerminalAwaitingConfirmationMessage) => void
+    ) => () => void;
+    onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
 }
 
-// Claude Agent SDK Types
-export interface ModelUsage {
-  inputTokens: number;
-  outputTokens: number;
-  cacheReadInputTokens: number;
-  cacheCreationInputTokens: number;
-  contextWindow: number;
-  maxOutputTokens: number;
-  costUSD: number;
+/**
+ * Who a harness is signed in as, read from the driver's own config directory.
+ *
+ * Consola stores no credentials of its own: a harness points at a config
+ * directory and the CLI that owns it decides what is in there.
+ */
+export interface HarnessAccount {
+    emailAddress?: string;
+    displayName?: string;
+    organizationName?: string;
+    /** Raw plan identifier, e.g. `claude_max`. */
+    organizationType?: string;
 }
 
-export interface AgentInitEvent {
-    instanceId: string;
-    sessionId: string;
-    model: string;
-    tools: string[];
-    mcpServers: { name: string; status: string }[];
+export interface HarnessProbeResult {
+    /** The binary was found and is executable. */
+    available: boolean;
+    /** Path actually resolved, useful when the harness relies on PATH. */
+    resolvedBinary: string;
+    /** Version string as reported by the CLI. */
+    version?: string;
+    /** Absent when the config directory holds no signed-in account. */
+    account?: HarnessAccount;
+    error?: string;
 }
 
-export interface AgentMessageEvent {
-    instanceId: string;
-    uuid: string;
-    sessionId: string;
-    content: unknown;
-}
-
-export interface AgentToolEvent {
-    instanceId: string;
-    toolName: string;
-    toolInput: unknown;
-    toolResponse?: unknown;
-    toolUseId?: string;  // Correlate with tool_use block
-}
-
-export interface AgentResultEvent {
-    instanceId: string;
-    subtype: string;
-    sessionId: string;
-    result: string | null;
-    isError: boolean;
-    numTurns: number;
-    totalCostUsd: number;
-    usage: {
-        input_tokens: number | null;
-        output_tokens: number | null;
-    };
-    modelUsage?: Record<string, ModelUsage>;
-}
-
-export interface AgentStatus {
-    isRunning: boolean;
-    sessionId: string | null;
-    model: string | null;
-    permissionMode: string | null;
-}
-
-// Permission/Approval request from SDK
-export interface AgentInputRequest {
-    instanceId: string;
-    requestId: string;
-    type: 'permission' | 'question';
-    toolName?: string;
-    toolInput?: Record<string, unknown>;
-    description?: string;
-    suggestions?: PermissionSuggestion[];
-    // For question type (AskUserQuestion tool)
-    questions?: AgentQuestion[];
-}
-
-export interface AgentQuestion {
-    question: string;
-    header: string;
-    options: AgentQuestionOption[];
-    multiSelect?: boolean;
-}
-
-export interface AgentQuestionOption {
-    label: string;
-    description?: string;
-}
-
-export interface PermissionSuggestion {
-    label: string;
-    action: 'allow_once' | 'allow_always' | 'deny';
-}
-
-// Response to permission request
-export interface AgentInputResponse {
-    instanceId: string;
-    requestId: string;
-    action: 'approve' | 'reject' | 'modify';
-    modifiedInput?: Record<string, unknown>;
-    feedback?: string;
-    answers?: Record<string, string>;  // For question responses
-}
-
-export interface AgentQueryOptions {
-    instanceId: string;
-    cwd?: string;
-    prompt: string;
-    allowedTools?: string[];
-    maxTurns?: number;
-    resume?: string;
-    continue?: boolean;
-}
-
-export interface ClaudeAgentAPI {
-    startQuery: (options: AgentQueryOptions) => void;
-    interrupt: (instanceId: string) => void;
-    getStatus: (instanceId: string) => Promise<AgentStatus>;
-    destroyInstance: (instanceId: string) => void;
-    respondToInput: (response: AgentInputResponse) => void;
-    onInit: (callback: (data: AgentInitEvent) => void) => void;
-    onAssistantMessage: (callback: (data: AgentMessageEvent) => void) => void;
-    onStream: (callback: (data: unknown) => void) => void;
-    onToolPending: (callback: (data: AgentToolEvent) => void) => void;
-    onToolComplete: (callback: (data: AgentToolEvent) => void) => void;
-    onResult: (callback: (data: AgentResultEvent) => void) => void;
-    onError: (callback: (data: { instanceId: string; message: string }) => void) => void;
-    onStatusChanged: (callback: (data: AgentStatus & { instanceId: string }) => void) => void;
-    onNotification: (callback: (data: { instanceId: string; message: string; title?: string }) => void) => void;
-    onInputRequest: (callback: (data: AgentInputRequest) => void) => void;
-    removeListener: (event: string, callback: Function) => void;
+export interface HarnessAPI {
+    probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
+    getSessionName: (
+        sessionId: string,
+        fields: HarnessLaunchFields
+    ) => Promise<string | null>;
 }
 
 declare global {
     interface Window {
         terminalAPI: TerminalAPI;
-        claudeAgentAPI: ClaudeAgentAPI;
+        harnessAPI: HarnessAPI;
     }
 }
