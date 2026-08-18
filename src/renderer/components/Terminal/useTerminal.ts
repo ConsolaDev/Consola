@@ -8,7 +8,7 @@ import type { HarnessLaunchFields } from '../../../shared/types';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
-import { buildXtermTheme, readTerminalFont } from './xtermTheme';
+import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
 
 interface UseTerminalOptions {
     instanceId: string;
@@ -39,16 +39,18 @@ export function useTerminal({
     const fitAddonRef = useRef<FitAddon | null>(null);
 
     const resolvedTheme = useSettingsStore((state) => state.resolvedTheme);
+    const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
     const setTerminalState = useTerminalStore((state) => state.setState);
 
     useEffect(() => {
         const container = containerRef.current;
         if (!container) return;
 
-        const { fontFamily, fontSize } = readTerminalFont();
+        // Read once at creation; a later change is applied by the effect below
+        // rather than by rebuilding the view and re-attaching to the PTY.
+        const font = readTerminalFont(useSettingsStore.getState().terminalFontSize);
         const terminal = new Terminal({
-            fontFamily,
-            fontSize,
+            ...font,
             theme: buildXtermTheme(resolvedTheme === 'dark'),
             cursorBlink: true,
             allowProposedApi: true,
@@ -70,7 +72,16 @@ export function useTerminal({
         // WebGL rendering is a big win for a repainting TUI, but it fails on
         // some GPUs — fall back to the DOM renderer rather than a blank pane.
         try {
-            terminal.loadAddon(new WebglAddon());
+            const webglAddon = new WebglAddon();
+            // A lost GL context is not the same as one that never worked: it can
+            // happen mid-session on a GPU switch or driver reset. Disposing the
+            // addon is what hands rendering back to the DOM renderer; without
+            // this the pane simply stops painting.
+            webglAddon.onContextLoss(() => {
+                console.warn('WebGL context lost, falling back to DOM renderer');
+                webglAddon.dispose();
+            });
+            terminal.loadAddon(webglAddon);
         } catch (error) {
             console.warn('WebGL renderer unavailable, using DOM renderer:', error);
         }
@@ -93,6 +104,22 @@ export function useTerminal({
                 terminal.write(message.data);
             }
         });
+
+        // xterm measures the character cell the moment it opens. If the bundled
+        // font has not finished loading by then it measures a fallback, and every
+        // glyph afterwards is drawn on a grid sized for the wrong font. Re-measure
+        // once the real font is in — normally a no-op, since main.tsx starts the
+        // load at app startup.
+        document.fonts
+            .load(`${font.fontWeight} ${font.fontSize}px "${TERMINAL_FONT_FAMILY}"`)
+            .then(() => {
+                if (disposed) return;
+                terminal.clearTextureAtlas();
+                refit(terminal, fitAddon, instanceId);
+            })
+            .catch(() => {
+                // Fallback metrics are still usable; nothing to recover here.
+            });
 
         // A prompt typed on the new-session screen travels with the create call;
         // the main process submits it once the CLI is ready and is not sitting
@@ -132,12 +159,7 @@ export function useTerminal({
         // Keep the PTY's dimensions in step with the pane.
         const resizeObserver = new ResizeObserver(() => {
             if (disposed) return;
-            try {
-                fitAddon.fit();
-                terminalBridge.resize(instanceId, terminal.cols, terminal.rows);
-            } catch {
-                // Pane is hidden or zero-sized; the next observation will fit.
-            }
+            refit(terminal, fitAddon, instanceId);
         });
         resizeObserver.observe(container);
 
@@ -150,7 +172,7 @@ export function useTerminal({
             terminalRef.current = null;
             fitAddonRef.current = null;
         };
-        // The PTY identity is what matters here; theme changes are applied below.
+        // The PTY identity is what matters here; theme and font are applied below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [instanceId, cwd, claudeSessionId, resume, setTerminalState]);
 
@@ -160,7 +182,31 @@ export function useTerminal({
         terminalRef.current.options.theme = buildXtermTheme(resolvedTheme === 'dark');
     }, [resolvedTheme]);
 
+    // A size change resizes the character cell, so the pane holds a different
+    // number of rows and columns — the PTY has to be told.
+    useEffect(() => {
+        const terminal = terminalRef.current;
+        const fitAddon = fitAddonRef.current;
+        if (!terminal || !fitAddon) return;
+
+        const font = readTerminalFont(terminalFontSize);
+        if (terminal.options.fontSize === font.fontSize) return;
+
+        terminal.options.fontSize = font.fontSize;
+        refit(terminal, fitAddon, instanceId);
+    }, [terminalFontSize, instanceId]);
+
     const focus = () => terminalRef.current?.focus();
 
     return { containerRef, focus };
+}
+
+/** Re-measure the pane and push the new dimensions to the PTY. */
+function refit(terminal: Terminal, fitAddon: FitAddon, instanceId: string) {
+    try {
+        fitAddon.fit();
+        terminalBridge.resize(instanceId, terminal.cols, terminal.rows);
+    } catch {
+        // Pane is hidden or zero-sized; the next observation will fit.
+    }
 }
