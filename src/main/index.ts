@@ -13,6 +13,15 @@ try {
 
 app.setName('Consola');
 
+// A dev instance gets its own profile. Sharing userData with a stable instance
+// would share the persisted workspaces and session list, so a dev launch would
+// resume Claude sessions that are already live in the daily driver — and two
+// Chromium processes on one profile directory corrupt localStorage.
+// `scripts/dev-electron.cjs` is what sets NODE_ENV.
+if (process.env.NODE_ENV === 'development') {
+    app.setPath('userData', `${app.getPath('userData')} Dev`);
+}
+
 app.whenReady().then(() => {
     const mainWindow = createMainWindow();
     setupIpcHandlers(mainWindow);
