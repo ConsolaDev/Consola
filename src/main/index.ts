@@ -42,6 +42,12 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 app.whenReady().then(() => {
+    // The hidden test window still registers an app that bounces in the Dock and
+    // takes focus on launch. Tests need neither.
+    if (process.env.NODE_ENV === 'test') {
+        app.dock?.hide();
+    }
+
     const mainWindow = createMainWindow();
     setupIpcHandlers(mainWindow);
 
