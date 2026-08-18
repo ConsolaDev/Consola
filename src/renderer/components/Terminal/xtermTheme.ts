@@ -70,9 +70,30 @@ export function buildXtermTheme(isDark: boolean): ITheme {
     };
 }
 
-export function readTerminalFont(): { fontFamily: string; fontSize: number } {
+/** The bundled family, as named by its @font-face rule. */
+export const TERMINAL_FONT_FAMILY = 'JetBrains Mono Variable';
+
+export interface TerminalFont {
+    fontFamily: string;
+    fontSize: number;
+    fontWeight: 400 | 500;
+    fontWeightBold: 700;
+}
+
+/**
+ * Resolve the terminal's font from the app's tokens and the user's size setting.
+ *
+ * The regular weight is 500 rather than 400 on purpose. xterm's WebGL renderer
+ * rasterises glyphs through Canvas2D, which gets Skia's grayscale antialiasing
+ * without the stem darkening CoreText applies -- so light-on-dark text comes out
+ * thinner here than the same font does in a native terminal. Half a weight step
+ * puts the stems back without making the type look bold.
+ */
+export function readTerminalFont(fontSize: number): TerminalFont {
     return {
-        fontFamily: readToken('--font-mono', 'Menlo, monospace'),
-        fontSize: 13,
+        fontFamily: readToken('--font-mono', `'${TERMINAL_FONT_FAMILY}', Menlo, monospace`),
+        fontSize,
+        fontWeight: 500,
+        fontWeightBold: 700,
     };
 }

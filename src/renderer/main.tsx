@@ -3,6 +3,7 @@ import ReactDOM from 'react-dom/client';
 import { Theme } from '@radix-ui/themes';
 import App from './App';
 import { useSettingsStore } from './stores/settingsStore';
+import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
 import './styles/global.css';
