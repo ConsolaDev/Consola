@@ -58,17 +58,23 @@ export function WorkspaceSwitcher() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="workspace-switcher" aria-label="Switch workspace">
+        <button
+          className="workspace-switcher"
+          aria-label={
+            elsewhere
+              ? 'Switch workspace — another workspace needs attention'
+              : 'Switch workspace'
+          }
+        >
           <span className="workspace-switcher-icon">
             {active?.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
           </span>
           <span className="workspace-switcher-name">{active?.name ?? 'Select workspace'}</span>
-          {elsewhere && (
-            <span
-              className="workspace-switcher-elsewhere"
-              aria-label="Another workspace needs attention"
-            />
-          )}
+          {/* Decorative: the button's own aria-label already carries this state.
+              An ancestor's aria-label short-circuits the accessible-name
+              computation before it descends into subtree content, so a label
+              on this span would never reach assistive technology. */}
+          {elsewhere && <span className="workspace-switcher-elsewhere" aria-hidden="true" />}
           <ChevronDown size={14} className="workspace-switcher-chevron" />
         </button>
       </DropdownMenu.Trigger>

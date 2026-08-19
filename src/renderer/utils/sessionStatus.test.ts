@@ -57,6 +57,15 @@ describe('workspaceStatusFor', () => {
   it('is null when nothing is happening', () => {
     expect(workspaceStatusFor(workspace('w1', ['a']), { a: IDLE })).toBeNull();
   });
+
+  it('ranks a dead process above a waiting menu across a workspace, matching a single session', () => {
+    const terminals = {
+      a: { ...IDLE, isAwaitingConfirmation: true },
+      b: { ...IDLE, hasExited: true },
+    };
+
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('error');
+  });
 });
 
 describe('anyOtherWorkspaceNeedsAttention', () => {
@@ -73,5 +82,16 @@ describe('anyOtherWorkspaceNeedsAttention', () => {
     const terminals = { a: { ...IDLE, isBusy: true } };
 
     expect(anyOtherWorkspaceNeedsAttention(workspaces, null, terminals)).toBe(false);
+  });
+
+  it('is true when any other workspace needs attention, not only when all of them do', () => {
+    const workspaces = [workspace('active', ['a']), workspace('waiting', ['b']), workspace('idle', ['c'])];
+    const terminals = {
+      a: IDLE,
+      b: { ...IDLE, isAwaitingConfirmation: true },
+      c: IDLE,
+    };
+
+    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'active', terminals)).toBe(true);
   });
 });
