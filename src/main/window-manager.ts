@@ -1,4 +1,4 @@
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, app, screen } from 'electron';
 import * as path from 'path';
 import type { WindowContext } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -174,6 +174,30 @@ export function dedupeByWorkspace<T extends { workspaceId: string | null }>(entr
 }
 
 /**
+ * Whether a saved rectangle still lands on a display that exists.
+ *
+ * Bounds are saved per window and restored on the next launch, but the
+ * monitor they were saved on may be gone — a laptop that was docked is the
+ * ordinary case. Restoring those coordinates makes a window that is running,
+ * badging, and completely invisible, recoverable only through the OS. Taking
+ * the default placement instead loses the position and keeps the window.
+ *
+ * Pure and exported so it can be exercised without a display attached.
+ */
+export function boundsAreVisible(
+    bounds: Electron.Rectangle,
+    displays: Array<{ workArea: Electron.Rectangle }>
+): boolean {
+    return displays.some(({ workArea }) => {
+        const overlapsHorizontally =
+            bounds.x < workArea.x + workArea.width && bounds.x + bounds.width > workArea.x;
+        const overlapsVertically =
+            bounds.y < workArea.y + workArea.height && bounds.y + bounds.height > workArea.y;
+        return overlapsHorizontally && overlapsVertically;
+    });
+}
+
+/**
  * Reopen the windows from last launch, or one empty window on a first run.
  *
  * A saved workspace that has since been deleted opens on Home rather than
@@ -194,6 +218,10 @@ export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
         return;
     }
 
+    // Read once per restore, not once per window: displays don't change
+    // between one createWindow call and the next in this loop.
+    const displays = screen.getAllDisplays();
+
     // Resolve dead workspace ids to Home first, then dedupe: two entries that
     // both point at a since-deleted workspace are two ordinary Home windows,
     // not a duplicate worth collapsing.
@@ -203,7 +231,12 @@ export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
         return {
             workspaceId,
             activeSessionId: workspaceId ? entry.activeSessionId : null,
-            bounds: entry.bounds,
+            // A rectangle that lands on no attached display is worth nothing:
+            // restoring it would create a window that runs, badges, and can
+            // never be seen. Dropping it here — not clamping — falls back to
+            // createWindow's own default placement instead of guessing at a
+            // position the window was never actually at.
+            bounds: boundsAreVisible(entry.bounds, displays) ? entry.bounds : undefined,
         };
     });
 
