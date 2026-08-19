@@ -1,6 +1,6 @@
 import { BrowserWindow, app } from 'electron';
-import { createWindow, getAnyWindow } from './window-manager';
-import { setupIpcHandlers, cleanupIpcHandlers } from './ipc-handlers';
+import { createWindow, getAnyWindow, restoreWindowLayout, saveWindowLayout } from './window-manager';
+import { setupIpcHandlers, cleanupIpcHandlers, getKnownWorkspaceIds } from './ipc-handlers';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
@@ -56,7 +56,10 @@ app.whenReady().then(() => {
     // rest of this synchronous tick, so without this guard a window would still
     // open on top of an app that's already tearing itself down.
     if (!setupIpcHandlers()) return;
-    createWindow();
+    // getKnownWorkspaceIds() has to run after setupIpcHandlers() returned true:
+    // that's the call that loads workspaceService, and before it every saved
+    // workspace id would look dead and every window would fall back to Home.
+    restoreWindowLayout(getKnownWorkspaceIds());
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -74,5 +77,8 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
+    // Read the layout while the windows still exist — by the time cleanup runs
+    // they are gone and there is nothing left to record.
+    saveWindowLayout();
     cleanupIpcHandlers();
 });
