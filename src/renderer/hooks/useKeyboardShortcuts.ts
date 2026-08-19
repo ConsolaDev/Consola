@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { isCommandPaletteShortcut, matchScopeShortcut } from '../utils/platform';
+import { windowBridge } from '../services/windowBridge';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
 interface UseKeyboardShortcutsOptions {
@@ -50,6 +51,15 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (isMod && event.key === '\\') {
         event.preventDefault();
         toggleSidebar();
+        return;
+      }
+
+      // Cmd/Ctrl + Shift + N : Open another window
+      // Checked before the ⌘N branch below: ⌘⇧N also satisfies `event.key === 'n'`,
+      // so this would never fire if it came second.
+      if (isMod && event.shiftKey && event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        void windowBridge.openWindow(null);
         return;
       }
 

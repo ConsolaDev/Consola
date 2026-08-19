@@ -176,6 +176,7 @@ declare global {
         harnessAPI: HarnessAPI;
         workspaceAPI: WorkspaceAPI;
         harnessStateAPI: HarnessStateAPI;
+        windowAPI: WindowAPI;
     }
 }
 
@@ -193,3 +194,16 @@ export interface WindowContext {
 
 /** Verdict from asking main to point this window at a workspace. */
 export type ActivateWorkspaceResult = 'took' | 'focused-elsewhere';
+
+/**
+ * This window's identity, exposed by preload. Main arbitrates every change:
+ * a workspace lives in at most one window, so `activateWorkspace` reports a
+ * verdict rather than just applying the request.
+ */
+export interface WindowAPI {
+    context: WindowContext;
+    activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
+    openWindow: (workspaceId: string | null) => Promise<void>;
+    setActiveSession: (sessionId: string | null) => void;
+    onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
+}

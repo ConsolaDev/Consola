@@ -13,6 +13,15 @@ import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import { allowedHarnessUpdates, allowedWorkspaceUpdates } from './state/updateFilters';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
+import {
+    assignWorkspace,
+    createWindow,
+    findWindowForWorkspace,
+    focusOrCreate,
+    getContextFor,
+    setActiveSession,
+} from './window-manager';
+import type { ActivateWorkspaceResult } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
@@ -58,11 +67,20 @@ export function setupIpcHandlers(): boolean {
     workspaceService = workspaces;
 
     // Every window renders the same records, so a change goes to all of them
-    // rather than to whoever asked for it.
+    // rather than to whoever asked for it. A deleted workspace also has to be
+    // dropped from any window still holding it, or that window would keep
+    // pointing at an id nothing can resume.
     workspaces.onChange((all) => {
+        const liveIds = new Set(all.map((workspace) => workspace.id));
+
         for (const window of BrowserWindow.getAllWindows()) {
-            if (!window.isDestroyed()) {
-                window.webContents.send(IPC_CHANNELS.WORKSPACE_CHANGED, all);
+            if (window.isDestroyed()) continue;
+            window.webContents.send(IPC_CHANNELS.WORKSPACE_CHANGED, all);
+
+            const held = getContextFor(window)?.workspaceId;
+            if (held && !liveIds.has(held)) {
+                assignWorkspace(window, null);
+                window.webContents.send(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, null);
             }
         }
     });
@@ -741,6 +759,51 @@ ${truncatedDiff}`;
         return hunks;
     }
 
+    // A workspace lives in at most one window, and main is the only thing that
+    // can say so without two renderers racing to claim it in the same tick.
+    //
+    // `assignWorkspace` reports whether it actually recorded the assignment —
+    // it silently no-ops on a window that's mid-close. Reporting 'took' when
+    // it returned false would tell a renderer it holds a workspace main has no
+    // record of, which is exactly the two-windows-one-workspace failure this
+    // handler exists to prevent. 'focused-elsewhere' is the honest verdict for
+    // that case too: from the renderer's point of view it did not get the
+    // workspace, and the safe reaction to "did not get it" is to leave its
+    // current workspace alone.
+    ipcMain.handle(
+        IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE,
+        (event, workspaceId: string | null): ActivateWorkspaceResult => {
+            const requesting = BrowserWindow.fromWebContents(event.sender);
+            if (!requesting) return 'focused-elsewhere';
+
+            if (workspaceId === null) {
+                return assignWorkspace(requesting, null) ? 'took' : 'focused-elsewhere';
+            }
+
+            const holder = findWindowForWorkspace(workspaceId);
+            if (holder && holder !== requesting) {
+                if (holder.isMinimized()) holder.restore();
+                holder.focus();
+                return 'focused-elsewhere';
+            }
+
+            return assignWorkspace(requesting, workspaceId) ? 'took' : 'focused-elsewhere';
+        }
+    );
+
+    ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN, (_event, workspaceId: string | null) => {
+        if (workspaceId) {
+            focusOrCreate(workspaceId);
+        } else {
+            createWindow();
+        }
+    });
+
+    ipcMain.on(IPC_CHANNELS.WINDOW_SET_ACTIVE_SESSION, (event, sessionId: string | null) => {
+        const window = BrowserWindow.fromWebContents(event.sender);
+        if (window) setActiveSession(window, sessionId);
+    });
+
     return true;
 }
 
@@ -795,4 +858,9 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.GIT_COMMIT);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STAGED_DIFF);
     ipcMain.removeHandler(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE);
+
+    // Remove window identity IPC handlers
+    ipcMain.removeHandler(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE);
+    ipcMain.removeHandler(IPC_CHANNELS.WINDOW_OPEN);
+    ipcMain.removeAllListeners(IPC_CHANNELS.WINDOW_SET_ACTIVE_SESSION);
 }

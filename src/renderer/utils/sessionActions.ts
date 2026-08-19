@@ -2,6 +2,7 @@ import { useNavigationStore } from '../stores/navigationStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { terminalBridge } from '../services/terminalBridge';
+import { windowBridge } from '../services/windowBridge';
 
 /**
  * Session operations that span more than one store.
@@ -31,6 +32,7 @@ export function activateSession(workspaceId: string, sessionId: string): void {
     activeWorkspaceId: workspaceId,
     activeSessionId: sessionId,
   });
+  windowBridge.setActiveSession(sessionId);
 }
 
 /**
@@ -63,8 +65,8 @@ export async function createQuickSession(workspaceId: string): Promise<Session |
  * composer leaves nothing behind — which is why the palette starts sessions
  * this way rather than by creating one up front.
  */
-export function openNewSessionComposer(workspaceId: string): void {
-  useNavigationStore.getState().setActiveWorkspace(workspaceId);
+export function openNewSessionComposer(workspaceId: string): Promise<void> {
+  return useNavigationStore.getState().setActiveWorkspace(workspaceId);
 }
 
 /**

@@ -212,7 +212,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       switch (mode.kind) {
         case 'pick-workspace':
           if (item.kind === 'workspace') {
-            openNewSessionComposer(item.workspaceId);
+            void openNewSessionComposer(item.workspaceId);
             close();
           }
           return;
@@ -251,7 +251,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
 
       if (item.kind === 'workspace') {
-        useNavigationStore.getState().setActiveWorkspace(item.workspaceId);
+        void useNavigationStore.getState().setActiveWorkspace(item.workspaceId);
         close();
         return;
       }

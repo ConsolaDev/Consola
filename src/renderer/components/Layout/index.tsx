@@ -7,7 +7,7 @@ import { useTheme } from '../../hooks/useTheme';
 import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useCommandPalette } from '../../contexts/CommandPaletteContext';
-import { useNavigationStore } from '../../stores/navigationStore';
+import { useNavigationStore, subscribeToWindowWorkspace } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import './styles.css';
 
@@ -36,6 +36,10 @@ export function Layout() {
   // Terminals report activity for every session, including ones whose pane is
   // not mounted, so the subscription lives here rather than in the pane.
   useEffect(() => useTerminalStore.getState().subscribeToEvents(), []);
+
+  // Main can drop this window's workspace out from under it, e.g. when it was
+  // deleted from another window.
+  useEffect(() => subscribeToWindowWorkspace(), []);
 
   return (
     <div className="layout">
