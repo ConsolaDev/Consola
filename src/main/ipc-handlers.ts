@@ -49,7 +49,7 @@ function loadOrExit(load: () => void, what: string): boolean {
     }
 }
 
-export function setupIpcHandlers(mainWindow: BrowserWindow): void {
+export function setupIpcHandlers(): void {
     const workspaceFile = new JsonStateFile<WorkspaceStateFile>(
         path.join(app.getPath('userData'), 'workspaces.json')
     );
@@ -171,7 +171,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
 
     ipcMain.handle(IPC_CHANNELS.HARNESS_RESTORE, (_event, id: string) => harnesses.restoreHarness(id));
 
-    terminalManager = new TerminalManager(mainWindow);
+    terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
     const manager = terminalManager;
 
     // Start or attach to a session's terminal. Returns buffered output so a

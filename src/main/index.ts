@@ -1,5 +1,5 @@
-import { app } from 'electron';
-import { createMainWindow, getMainWindow } from './window-manager';
+import { BrowserWindow, app } from 'electron';
+import { createWindow, getAnyWindow } from './window-manager';
 import { setupIpcHandlers, cleanupIpcHandlers } from './ipc-handlers';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -34,7 +34,7 @@ if (!app.requestSingleInstanceLock()) {
     app.quit();
 } else {
     app.on('second-instance', () => {
-        const existingWindow = getMainWindow();
+        const existingWindow = getAnyWindow();
         if (!existingWindow) return;
         if (existingWindow.isMinimized()) existingWindow.restore();
         existingWindow.focus();
@@ -48,21 +48,21 @@ app.whenReady().then(() => {
         app.dock?.hide();
     }
 
-    const mainWindow = createMainWindow();
-    setupIpcHandlers(mainWindow);
+    // Handlers are registered once for the process, not once per window: they
+    // are ipcMain-global, and a second registration throws.
+    setupIpcHandlers();
+    createWindow();
 
     app.on('activate', () => {
-        // On macOS, re-create a window when dock icon is clicked
-        if (require('electron').BrowserWindow.getAllWindows().length === 0) {
-            const newWindow = createMainWindow();
-            setupIpcHandlers(newWindow);
+        if (BrowserWindow.getAllWindows().length === 0) {
+            createWindow();
         }
     });
 });
 
 app.on('window-all-closed', () => {
-    cleanupIpcHandlers();
-    // On macOS, apps typically stay active until Cmd+Q
+    // Deliberately does not tear anything down on macOS. Closing a window is
+    // closing a view; the PTYs keep running and the dock icon reopens one.
     if (process.platform !== 'darwin') {
         app.quit();
     }

@@ -178,3 +178,18 @@ declare global {
         harnessStateAPI: HarnessStateAPI;
     }
 }
+
+/**
+ * What a window is looking at.
+ *
+ * Injected at construction through `additionalArguments`, so the first paint
+ * already knows its workspace and no frame is spent on an empty shell. Changes
+ * afterwards arrive on WINDOW_WORKSPACE_CHANGED.
+ */
+export interface WindowContext {
+    workspaceId: string | null;
+    activeSessionId: string | null;
+}
+
+/** Verdict from asking main to point this window at a workspace. */
+export type ActivateWorkspaceResult = 'took' | 'focused-elsewhere';
