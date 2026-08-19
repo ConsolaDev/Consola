@@ -9,7 +9,7 @@ import {
 } from '../../shared/workspace';
 import type { Session, Workspace } from '../../shared/workspace';
 
-// Fifteen files import these from here. Re-exported rather than relocated so
+// Fourteen files import these from here. Re-exported rather than relocated so
 // this task stays a move, not a rename sweep.
 export type { Session, Workspace } from '../../shared/workspace';
 export { migrateWorkspaceState } from '../../shared/workspace';
