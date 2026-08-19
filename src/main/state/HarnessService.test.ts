@@ -85,4 +85,41 @@ describe('HarnessService', () => {
     expect(service.importState([])).toBe(false);
     expect(service.getAll().map((harness) => harness.id)).toContain('imported');
   });
+
+  it('treats an imported empty list as state, so a second import cannot replace it', () => {
+    expect(service.importState([])).toBe(true);
+
+    const second = service.importState([
+      {
+        id: 'late',
+        driverId: 'claude',
+        name: 'Late',
+        accentColor: '#22c55e',
+        enabled: true,
+        archived: false,
+        isBuiltIn: false,
+        extraArgs: [],
+        createdAt: 2,
+        updatedAt: 2,
+      },
+    ]);
+
+    expect(second).toBe(false);
+    expect(service.getAll().map((harness) => harness.id)).not.toContain('late');
+  });
+
+  it('clears a pinned binary path when asked to, so a harness can go back to PATH', () => {
+    service.addHarness({
+      id: 'work',
+      driverId: 'claude',
+      name: 'Work',
+      accentColor: '#3b82f6',
+      binaryPath: '/opt/custom/claude',
+    });
+
+    service.updateHarness('work', { binaryPath: undefined });
+
+    const harness = service.getAll().find((entry) => entry.id === 'work');
+    expect(harness?.binaryPath).toBeUndefined();
+  });
 });
