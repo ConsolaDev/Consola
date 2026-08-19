@@ -12,7 +12,7 @@ import { IPC_CHANNELS } from '../shared/constants';
 export class TerminalManager {
     private readonly terminals = new Map<string, TerminalService>();
 
-    constructor(private readonly window: BrowserWindow) {}
+    constructor(private readonly getWindows: () => BrowserWindow[]) {}
 
     /**
      * Get the terminal for a session, starting it if needed.
@@ -59,8 +59,10 @@ export class TerminalManager {
     }
 
     private send(channel: string, payload: unknown): void {
-        if (!this.window.isDestroyed()) {
-            this.window.webContents.send(channel, payload);
+        for (const window of this.getWindows()) {
+            if (!window.isDestroyed()) {
+                window.webContents.send(channel, payload);
+            }
         }
     }
 
