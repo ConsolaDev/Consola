@@ -43,10 +43,10 @@ export function SessionNavItem({
     }
   }, [isRenaming]);
 
-  const handleRename = () => {
+  const handleRename = async () => {
     const trimmedName = newName.trim();
     if (trimmedName && trimmedName !== session.name) {
-      updateSession(workspaceId, session.id, { name: trimmedName });
+      await updateSession(workspaceId, session.id, { name: trimmedName });
     } else {
       setNewName(session.name);
     }
@@ -55,7 +55,7 @@ export function SessionNavItem({
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
-      handleRename();
+      void handleRename();
     } else if (e.key === 'Escape') {
       setNewName(session.name);
       setIsRenaming(false);
@@ -63,7 +63,7 @@ export function SessionNavItem({
   };
 
   const handleDelete = () => {
-    deleteSessionCompletely(workspaceId, session);
+    void deleteSessionCompletely(workspaceId, session);
   };
 
   const handleStartRename = () => {

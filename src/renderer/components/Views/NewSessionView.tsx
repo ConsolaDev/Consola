@@ -64,7 +64,7 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
       // Placeholder name until Claude writes a summary for the conversation,
       // which ContentView then adopts.
       const instanceId = generateSessionInstanceId(workspace.id);
-      const session = createSession(workspace.id, {
+      const session = await createSession(workspace.id, {
         name: 'New Session',
         workspaceId: workspace.id,
         instanceId,

@@ -59,8 +59,8 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             // untrusted renderer would be absorbed by the service's `{ ...ws,
             // ...updates }` spread with no runtime check.
             const allowed: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>> = {};
-            if ('name' in updates) allowed.name = updates.name;
-            if ('defaultHarnessId' in updates) allowed.defaultHarnessId = updates.defaultHarnessId;
+            if (updates.name !== undefined) allowed.name = updates.name;
+            if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
             workspaces.updateWorkspace(id, allowed);
         }
     );
@@ -91,9 +91,9 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             // conversation. `Partial<Pick<...>>` only enforces this at compile
             // time; a stale or untrusted caller could still send the key.
             const allowed: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>> = {};
-            if ('name' in updates) allowed.name = updates.name;
-            if ('lastActiveAt' in updates) allowed.lastActiveAt = updates.lastActiveAt;
-            if ('hasStarted' in updates) allowed.hasStarted = updates.hasStarted;
+            if (updates.name !== undefined) allowed.name = updates.name;
+            if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
+            if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
             workspaces.updateSession(workspaceId, sessionId, allowed);
         }
     );
