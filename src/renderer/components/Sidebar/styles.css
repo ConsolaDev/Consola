@@ -10,18 +10,6 @@
   --sidebar-font-size-small: 12px;
   --sidebar-row-padding-y: 6px;
 
-  /*
-   * The tree indents are literals, not --space-N, on purpose. Radix Themes
-   * declares its own --space-* scale on .radix-themes, and from --space-5 up
-   * it disagrees with tokens.css (5 is 24px there, not 20; 6 is 32px, not 24).
-   * Every element here is inside .radix-themes, so those tokens silently
-   * resolve to Radix's larger values -- which is how the workspace row ended
-   * up with a chevron stranded 12px from its folder icon. Measured values:
-   *   12px chevron rail | 32px workspace icon | 40px session icon
-   */
-  --sidebar-indent-workspace: 20px;
-  --sidebar-indent-session: 32px;
-
   display: flex;
   flex-direction: column;
   width: var(--sidebar-width);
@@ -76,13 +64,6 @@
 .sidebar-section-button:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-}
-
-/* Workspace list */
-.workspace-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
 }
 
 /* Nav items */
@@ -232,95 +213,6 @@
   fill: var(--color-bg-tertiary);
 }
 
-/*
- * Asymmetric on purpose. The left inset keeps the chevron on the same rail as
- * the section title; the right inset matches .sidebar-section-header so this
- * row's + lands in the same column as the header's +, directly above it.
- */
-.workspace-nav-item-container {
-  position: relative;
-  display: flex;
-  align-items: center;
-  padding: 0 var(--space-2) 0 var(--space-1);
-  border-radius: var(--radius-md);
-  transition: background var(--transition-fast);
-}
-
-.workspace-nav-item-container:hover {
-  background: var(--color-bg-hover);
-}
-
-.workspace-nav-item-container.active {
-  background: var(--color-bg-active);
-}
-
-/*
- * The indent is measured from the chevron, not from the row edge: it has to
- * leave the same ~9px between chevron and folder that every other row leaves
- * between its icon and its label. Any tighter and the two glyphs read as one
- * mark, which is worse than the row being a few pixels wider.
- */
-.workspace-nav-item-container .workspace-nav-item {
-  flex: 1;
-  padding-left: var(--sidebar-indent-workspace);
-  background: transparent;
-}
-
-.workspace-nav-item-container .workspace-nav-item:hover {
-  background: transparent;
-}
-
-.workspace-nav-item-container .workspace-nav-item.active {
-  background: transparent;
-}
-
-/*
- * Expand/collapse toggle. Sized to the chevron rather than to a comfortable
- * hit target: the slack in a 20px box read as a hole between the chevron and
- * the workspace icon. Selecting a workspace still has the whole row.
- */
-.workspace-expand-toggle {
-  position: absolute;
-  left: var(--space-1);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 16px;
-  height: 16px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-  z-index: 1;
-}
-
-/* Pointer target grown past the drawn box, stopping short of the folder icon. */
-.workspace-expand-toggle::before {
-  content: '';
-  position: absolute;
-  inset: -4px;
-}
-
-.workspace-expand-toggle:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-/* Collapsible content animation */
-.workspace-collapsible-content {
-  overflow: hidden;
-}
-
-.workspace-collapsible-content[data-state='open'] {
-  animation: collapsible-slide-down 150ms ease-out;
-}
-
-.workspace-collapsible-content[data-state='closed'] {
-  animation: collapsible-slide-up 150ms ease-out;
-}
-
 @keyframes collapsible-slide-down {
   from {
     height: 0;
@@ -434,37 +326,6 @@
   color: var(--color-text-primary);
 }
 
-/* Workspace actions trigger */
-.workspace-actions-trigger {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
-}
-
-.workspace-nav-item-container:hover .workspace-actions-trigger {
-  opacity: 1;
-}
-
-.workspace-actions-trigger:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.workspace-actions-trigger[data-state='open'] {
-  opacity: 1;
-  background: var(--color-bg-active);
-  color: var(--color-text-primary);
-}
-
 /* Dropdown menu */
 .dropdown-content {
   min-width: 160px;
@@ -554,11 +415,6 @@
 .session-nav-item.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
-}
-
-.session-nav-item--indent-1,
-.session-nav-item--indent-2 {
-  padding-left: var(--sidebar-indent-session);
 }
 
 .session-nav-item-icon {
@@ -651,31 +507,11 @@
   }
 }
 
-/* Sessions list in workspace (directly under workspace name) */
-.workspace-sessions-list {
+/* Flat list of the sessions in the workspace this window holds. */
+.session-list {
   display: flex;
   flex-direction: column;
   padding: var(--space-1) 0;
-}
-
-/* Add session button on workspace row - always visible */
-.workspace-add-session {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: none;
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-tertiary);
-  cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
-}
-
-.workspace-add-session:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 /* Project collapsible styles */
@@ -778,8 +614,6 @@
     animation: none;
   }
 
-  .workspace-collapsible-content[data-state='open'],
-  .workspace-collapsible-content[data-state='closed'],
   .project-collapsible-content[data-state='open'],
   .project-collapsible-content[data-state='closed'],
   .dropdown-content,
