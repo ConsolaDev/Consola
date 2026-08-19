@@ -41,13 +41,17 @@ test('a workspace created in one window appears in the other', async () => {
 
   await seedWorkspace(page, 'alpha', '/tmp/alpha');
 
+  // Radix does not mount the dropdown's content into the DOM until it opens,
+  // so the workspace name is not in the tree until the switcher is open.
+  // Asserting through the real path -- main's broadcast, the renderer's
+  // store, the rendered list -- is the point of this test; querying main
+  // directly (workspaceAPI.getSnapshot()) would pass even if the broadcast
+  // never reached the renderer.
+  await second.getByRole('button', { name: /^Switch workspace/ }).click();
+
   await expect
-    .poll(() =>
-      second.evaluate(() =>
-        document.body.textContent?.includes('alpha') ? 'present' : 'absent'
-      )
-    )
-    .toBe('present');
+    .poll(() => second.getByRole('menuitem', { name: /alpha/ }).count())
+    .toBeGreaterThan(0);
 });
 
 test('a workspace open in one window is focused, not duplicated, from another', async () => {
