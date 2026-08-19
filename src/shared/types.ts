@@ -1,4 +1,5 @@
 import type { NewSessionFields, Session, Workspace } from './workspace';
+import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
 export type HarnessDriverId = 'claude';
@@ -154,10 +155,26 @@ export interface WorkspaceAPI {
     onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
 }
 
+/**
+ * Harness state exposed to the renderer. Main owns the records; the renderer
+ * sends intents and listens for the result. Separate from `HarnessAPI`, which
+ * probes health: a probe result is a live fact and is never persisted.
+ */
+export interface HarnessStateAPI {
+    getSnapshot: () => Promise<{ harnesses: Harness[]; needsImport: boolean }>;
+    importState: (harnesses: Harness[]) => Promise<boolean>;
+    addHarness: (input: NewHarnessFields) => Promise<Harness>;
+    updateHarness: (id: string, updates: HarnessUpdates) => Promise<void>;
+    archiveHarness: (id: string) => Promise<void>;
+    restoreHarness: (id: string) => Promise<void>;
+    onChanged: (callback: (harnesses: Harness[]) => void) => () => void;
+}
+
 declare global {
     interface Window {
         terminalAPI: TerminalAPI;
         harnessAPI: HarnessAPI;
         workspaceAPI: WorkspaceAPI;
+        harnessStateAPI: HarnessStateAPI;
     }
 }
