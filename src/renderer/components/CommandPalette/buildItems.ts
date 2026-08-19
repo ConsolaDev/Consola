@@ -119,7 +119,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     run: async () => {
       const folder = await dialogBridge.selectFolder();
       if (!folder) return;
-      const workspace = useWorkspaceStore
+      const workspace = await useWorkspaceStore
         .getState()
         .createWorkspace(folder.name, folder.path, folder.isGitRepo);
       useNavigationStore.getState().setActiveWorkspace(workspace.id);

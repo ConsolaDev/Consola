@@ -195,7 +195,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
         );
         // Staying in the picker on cancel means a misfire costs one keystroke.
         if (!confirmed) return;
-        deleteSessionCompletely(workspace.id, session);
+        void deleteSessionCompletely(workspace.id, session);
         close();
         return;
       }
@@ -223,7 +223,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
 
         case 'pick-harness':
           if (item.kind === 'harness') {
-            useWorkspaceStore
+            void useWorkspaceStore
               .getState()
               .updateWorkspace(mode.workspaceId, { defaultHarnessId: item.harnessId });
             close();
@@ -274,7 +274,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
     if (mode.kind !== 'rename-session') return;
     const workspace = useWorkspaceStore.getState().getWorkspace(mode.workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === mode.sessionId);
-    if (workspace && session) renameSession(workspace.id, session, query);
+    if (workspace && session) void renameSession(workspace.id, session, query);
     close();
   }, [mode, query, close]);
 

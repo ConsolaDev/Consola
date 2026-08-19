@@ -12,7 +12,7 @@ export function HomeView() {
   const handleCreateWorkspace = async () => {
     const result = await dialogBridge.selectFolder();
     if (result) {
-      const workspace = createWorkspace(result.name, result.path, result.isGitRepo);
+      const workspace = await createWorkspace(result.name, result.path, result.isGitRepo);
       setActiveWorkspace(workspace.id);
     }
   };
