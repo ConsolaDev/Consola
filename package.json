@@ -20,6 +20,7 @@
     "test:e2e": "playwright test",
     "test": "vitest run",
     "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.main.json --noEmit && tsc -p tsconfig.preload.json --noEmit && tsc -p tsconfig.renderer.json --noEmit",
     "postinstall": "npx @electron/rebuild -f -w node-pty"
   },
   "keywords": [
