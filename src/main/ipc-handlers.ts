@@ -22,27 +22,38 @@ let workspaceService: WorkspaceService | null = null;
 // The single writer for harness records, shared by every window
 let harnessService: HarnessService | null = null;
 
+/**
+ * Load a state service, or refuse to start.
+ *
+ * Booting with empty state looks identical to total data loss and would orphan
+ * every transcript, so a state file that cannot be recovered is fatal. Refusing
+ * silently is not acceptable either — name the file, and say where the
+ * conversations actually live, so this is recoverable by hand.
+ *
+ * @returns false when the app is exiting; callers must return immediately.
+ */
+function loadOrExit(load: () => void, what: string): boolean {
+    try {
+        load();
+        return true;
+    } catch (error) {
+        dialog.showErrorBox(
+            `Consola cannot read its ${what}`,
+            `${String(error)}\n\n` +
+                "Your conversations are safe: they live in the CLI's own configuration " +
+                'directory, not in this file. Repair or move the file above, then reopen Consola.'
+        );
+        app.exit(1);
+        return false;
+    }
+}
+
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     const workspaceFile = new JsonStateFile<WorkspaceStateFile>(
         path.join(app.getPath('userData'), 'workspaces.json')
     );
     const workspaces = new WorkspaceService(workspaceFile);
-    try {
-        workspaces.load();
-    } catch (error) {
-        // Refusing to start is right: booting with an empty list looks exactly
-        // like total data loss and would orphan every transcript. Refusing
-        // silently is not — name the file, and say where the conversations
-        // actually live, so this is recoverable by hand.
-        dialog.showErrorBox(
-            'Consola cannot read its workspaces',
-            `${String(error)}\n\n` +
-                'Your conversations are safe: they live in the CLI\'s own configuration ' +
-                'directory, not in this file. Repair or move the file above, then reopen Consola.'
-        );
-        app.exit(1);
-        return;
-    }
+    if (!loadOrExit(() => workspaces.load(), 'workspaces')) return;
     workspaceService = workspaces;
 
     // Every window renders the same records, so a change goes to all of them
@@ -128,7 +139,7 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         path.join(app.getPath('userData'), 'harnesses.json')
     );
     const harnesses = new HarnessService(harnessFile);
-    harnesses.load();
+    if (!loadOrExit(() => harnesses.load(), 'harnesses')) return;
     harnessService = harnesses;
 
     harnesses.onChange((all) => {
