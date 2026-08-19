@@ -963,7 +963,13 @@ export interface WorkspaceStateFile {
  */
 export class WorkspaceService {
   private workspaces: Workspace[] = [];
-  private hadFileAtLoad = false;
+  /**
+   * Whether state has ever been established — loaded from disk, or written.
+   *
+   * Not "is the collection empty": an empty list that has been committed is
+   * still state, and a one-time import that replaced it would be data loss.
+   */
+  private established = false;
   private readonly listeners = new Set<(workspaces: Workspace[]) => void>();
 
   constructor(private readonly file: JsonStateFile<WorkspaceStateFile>) {}
@@ -971,13 +977,13 @@ export class WorkspaceService {
   /** Read from disk. Throws if the file exists but cannot be recovered. */
   public load(): void {
     const stored = this.file.read();
-    this.hadFileAtLoad = stored !== null;
+    this.established = stored !== null;
     this.workspaces = stored ? this.migrate(stored.workspaces, stored.version) : [];
   }
 
   /** Whether state already exists, which is what gates the one-time import. */
   public hasState(): boolean {
-    return this.hadFileAtLoad || this.workspaces.length > 0;
+    return this.established;
   }
 
   public getAll(): Workspace[] {
@@ -1087,6 +1093,7 @@ export class WorkspaceService {
   /** Persist first, then notify: no listener should see state a crash would lose. */
   private commit(): void {
     this.file.write({ version: CURRENT_WORKSPACE_STATE_VERSION, workspaces: this.workspaces });
+    this.established = true;
     for (const listener of this.listeners) listener(this.workspaces);
   }
 }
@@ -1901,6 +1908,15 @@ describe('HarnessService', () => {
     expect(service.getAll().find((harness) => harness.id === 'default')?.archived).toBe(false);
   });
 
+  it('refuses an import once a harness has been written, even on a fresh install', () => {
+    // The built-in is seeded in memory on a fresh install but nothing is on disk
+    // yet — this is the window where a stale import could replace real config.
+    service.addHarness({ id: 'work', driverId: 'claude', name: 'Work', accentColor: '#3b82f6' });
+
+    expect(service.importState([])).toBe(false);
+    expect(service.getAll().map((harness) => harness.id)).toContain('work');
+  });
+
   it('accepts an import once and ignores every later one', () => {
     const first = service.importState([
       {
@@ -1983,19 +1999,25 @@ const HARNESS_STATE_VERSION = 1;
  */
 export class HarnessService {
     private harnesses: Harness[] = [];
-    private hadFileAtLoad = false;
+    /**
+     * Whether state has ever been established — loaded from disk, or written.
+     *
+     * Not "is the collection empty": an empty list that has been committed is
+     * still state, and a one-time import that replaced it would be data loss.
+     */
+    private established = false;
     private readonly listeners = new Set<(harnesses: Harness[]) => void>();
 
     constructor(private readonly file: JsonStateFile<HarnessStateFile>) {}
 
     public load(): void {
         const stored = this.file.read();
-        this.hadFileAtLoad = stored !== null;
+        this.established = stored !== null;
         this.harnesses = stored ? this.withBuiltIn(stored.harnesses) : [createBuiltInHarness()];
     }
 
     public hasState(): boolean {
-        return this.hadFileAtLoad;
+        return this.established;
     }
 
     public getAll(): Harness[] {
@@ -2005,7 +2027,6 @@ export class HarnessService {
     public importState(harnesses: Harness[]): boolean {
         if (this.hasState()) return false;
         this.harnesses = this.withBuiltIn(harnesses);
-        this.hadFileAtLoad = true;
         this.commit();
         return true;
     }
@@ -2069,6 +2090,7 @@ export class HarnessService {
 
     private commit(): void {
         this.file.write({ version: HARNESS_STATE_VERSION, harnesses: this.harnesses });
+        this.established = true;
         for (const listener of this.listeners) listener(this.harnesses);
     }
 }
