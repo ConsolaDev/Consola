@@ -1,3 +1,5 @@
+import type { NewSessionFields, Session, Workspace } from './workspace';
+
 /** Agent CLI a harness drives. One driver per supported CLI. */
 export type HarnessDriverId = 'claude';
 
@@ -42,6 +44,17 @@ export interface TerminalCreateOptions extends HarnessLaunchFields {
 export interface TerminalSnapshot {
     replay: string;
     exited: boolean;
+}
+
+/**
+ * What a renderer gets when it asks main for the workspace list.
+ *
+ * `needsImport` is true only on the first launch after workspaces moved into
+ * the main process, when the records still live in the renderer's localStorage.
+ */
+export interface WorkspaceSnapshot {
+    workspaces: Workspace[];
+    needsImport: boolean;
 }
 
 export interface TerminalDataMessage {
@@ -113,9 +126,38 @@ export interface HarnessAPI {
     ) => Promise<string | null>;
 }
 
+/**
+ * Workspace state exposed to the renderer. Main owns the records; the
+ * renderer sends intents and listens for the result.
+ */
+export interface WorkspaceAPI {
+    getSnapshot: () => Promise<WorkspaceSnapshot>;
+    importState: (workspaces: Workspace[], version: number) => Promise<boolean>;
+    createWorkspace: (
+        name: string,
+        path: string,
+        isGitRepo: boolean,
+        defaultHarnessId?: string
+    ) => Promise<Workspace>;
+    updateWorkspace: (
+        id: string,
+        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+    ) => Promise<void>;
+    deleteWorkspace: (id: string) => Promise<void>;
+    createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
+    updateSession: (
+        workspaceId: string,
+        sessionId: string,
+        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+    ) => Promise<void>;
+    deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+    onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
+}
+
 declare global {
     interface Window {
         terminalAPI: TerminalAPI;
         harnessAPI: HarnessAPI;
+        workspaceAPI: WorkspaceAPI;
     }
 }

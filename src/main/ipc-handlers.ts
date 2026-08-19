@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog } from 'electron';
+import { ipcMain, BrowserWindow, dialog, app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
@@ -7,11 +7,103 @@ import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import { JsonStateFile } from './state/JsonStateFile';
+import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
+import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
 
+// The single writer for workspaces and sessions, shared by every window
+let workspaceService: WorkspaceService | null = null;
+
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
+    const workspaceFile = new JsonStateFile<WorkspaceStateFile>(
+        path.join(app.getPath('userData'), 'workspaces.json')
+    );
+    const workspaces = new WorkspaceService(workspaceFile);
+    workspaces.load();
+    workspaceService = workspaces;
+
+    // Every window renders the same records, so a change goes to all of them
+    // rather than to whoever asked for it.
+    workspaces.onChange((all) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) {
+                window.webContents.send(IPC_CHANNELS.WORKSPACE_CHANGED, all);
+            }
+        }
+    });
+
+    ipcMain.handle(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT, () => ({
+        workspaces: workspaces.getAll(),
+        needsImport: !workspaces.hasState(),
+    }));
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_IMPORT,
+        (_event, incoming: Workspace[], version: number) => workspaces.importState(incoming, version)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_CREATE,
+        (_event, name: string, workspacePath: string, isGitRepo: boolean, defaultHarnessId?: string) =>
+            workspaces.createWorkspace(name, workspacePath, isGitRepo, defaultHarnessId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_UPDATE,
+        (_event, id: string, updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>) => {
+            // Whitelisted rather than passed through: `Partial<Pick<...>>` is a
+            // compile-time contract only, and an extra key from a stale or
+            // untrusted renderer would be absorbed by the service's `{ ...ws,
+            // ...updates }` spread with no runtime check.
+            const allowed: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>> = {};
+            if ('name' in updates) allowed.name = updates.name;
+            if ('defaultHarnessId' in updates) allowed.defaultHarnessId = updates.defaultHarnessId;
+            workspaces.updateWorkspace(id, allowed);
+        }
+    );
+
+    ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) =>
+        workspaces.deleteWorkspace(id)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
+        (_event, workspaceId: string, fields: NewSessionFields) =>
+            workspaces.createSession(workspaceId, fields)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_UPDATE,
+        (
+            _event,
+            workspaceId: string,
+            sessionId: string,
+            updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+        ) => {
+            // Whitelisted rather than passed through: `harnessId` is deliberately
+            // excluded. A session's harness is fixed for its lifetime — the
+            // transcript lives inside that harness's config directory, and
+            // `--resume` only finds it there, so accepting a rewritten
+            // `harnessId` from the IPC payload would silently orphan the
+            // conversation. `Partial<Pick<...>>` only enforces this at compile
+            // time; a stale or untrusted caller could still send the key.
+            const allowed: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>> = {};
+            if ('name' in updates) allowed.name = updates.name;
+            if ('lastActiveAt' in updates) allowed.lastActiveAt = updates.lastActiveAt;
+            if ('hasStarted' in updates) allowed.hasStarted = updates.hasStarted;
+            workspaces.updateSession(workspaceId, sessionId, allowed);
+        }
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
+        (_event, workspaceId: string, sessionId: string) =>
+            workspaces.deleteSession(workspaceId, sessionId)
+    );
+
     terminalManager = new TerminalManager(mainWindow);
     const manager = terminalManager;
 
@@ -584,6 +676,16 @@ ${truncatedDiff}`;
 }
 
 export function cleanupIpcHandlers(): void {
+    workspaceService = null;
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_IMPORT);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
+
     // Clean up all terminal services
     terminalManager?.destroyAll();
     terminalManager = null;

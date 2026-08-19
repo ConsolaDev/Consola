@@ -21,6 +21,19 @@ export const IPC_CHANNELS = {
     HARNESS_PROBE: 'harness:probe',               // Binary, version and signed-in account
     HARNESS_SESSION_NAME: 'harness:session-name', // Name from the driver's own transcripts
 
+    // Workspace state (renderer -> main; main owns the records)
+    WORKSPACE_GET_SNAPSHOT: 'workspace:get-snapshot',   // Current list + whether an import is due
+    WORKSPACE_IMPORT: 'workspace:import',               // One-time handoff from localStorage
+    WORKSPACE_CREATE: 'workspace:create',
+    WORKSPACE_UPDATE: 'workspace:update',
+    WORKSPACE_DELETE: 'workspace:delete',
+    WORKSPACE_SESSION_CREATE: 'workspace:session-create',
+    WORKSPACE_SESSION_UPDATE: 'workspace:session-update',
+    WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
+
+    // Workspace state (main -> every renderer)
+    WORKSPACE_CHANGED: 'workspace:changed',
+
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker (multi-select)
     DIALOG_SELECT_FOLDER: 'dialog:select-folder',    // Open folder picker (single select for workspace)
