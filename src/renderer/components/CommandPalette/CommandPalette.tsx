@@ -6,7 +6,7 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import {
-  activateSession,
+  activateSessionAnywhere,
   deleteSessionCompletely,
   openNewSessionComposer,
   renameSession,
@@ -201,7 +201,9 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
 
       restartSession(session.instanceId);
-      activateSession(workspace.id, session.id);
+      // This picker's results span every workspace, not just this window's,
+      // so the switch has to go through main rather than assuming it is safe.
+      void activateSessionAnywhere(workspace.id, session.id);
       close();
     },
     [close]
@@ -245,7 +247,9 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
 
       if (item.kind === 'session') {
-        activateSession(item.workspaceId, item.sessionId);
+        // The default root results list sessions from every workspace, so
+        // this may name one that belongs to another window entirely.
+        void activateSessionAnywhere(item.workspaceId, item.sessionId);
         close();
         return;
       }

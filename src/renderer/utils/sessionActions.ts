@@ -20,12 +20,19 @@ export function generateSessionInstanceId(workspaceId: string): string {
 }
 
 /**
- * Select a session, whichever workspace it belongs to.
+ * Select a session within the workspace this window already holds.
  *
  * Written as a single `setState` rather than `setActiveWorkspace` followed by
  * `setActiveSession`, because `setActiveWorkspace` clears `activeSessionId` as
  * a side effect — doing it in two calls selects the session and then
  * immediately deselects it.
+ *
+ * Deliberately does not go through main: callers here are the sidebar and
+ * other places that only ever name a session in the workspace already on
+ * screen. A caller that cannot make that guarantee — a session picker showing
+ * results from every workspace, for instance — needs `activateSessionAnywhere`
+ * instead, or it can silently attach this window to a workspace another
+ * window already holds.
  */
 export function activateSession(workspaceId: string, sessionId: string): void {
   useNavigationStore.setState({
@@ -33,6 +40,29 @@ export function activateSession(workspaceId: string, sessionId: string): void {
     activeSessionId: sessionId,
   });
   windowBridge.setActiveSession(sessionId);
+}
+
+/**
+ * Select a session that may belong to another workspace.
+ *
+ * Goes through main whenever the workspace is not this window's, because that
+ * workspace may already be open somewhere else — in which case the right
+ * outcome is bringing that window forward, not opening a second view of a PTY
+ * that only expects one.
+ */
+export async function activateSessionAnywhere(
+  workspaceId: string,
+  sessionId: string
+): Promise<void> {
+  if (useNavigationStore.getState().activeWorkspaceId === workspaceId) {
+    activateSession(workspaceId, sessionId);
+    return;
+  }
+
+  const verdict = await windowBridge.activateWorkspace(workspaceId);
+  if (verdict === 'took') {
+    activateSession(workspaceId, sessionId);
+  }
 }
 
 /**

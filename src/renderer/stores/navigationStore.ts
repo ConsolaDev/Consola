@@ -12,7 +12,7 @@ import { windowBridge } from '../services/windowBridge';
  * remembered by main, because localStorage is shared and two windows writing
  * their own identity into one key would each read the other's.
  */
-interface NavigationState {
+export interface NavigationState {
   isSidebarHidden: boolean;
   isExplorerVisible: boolean;
   activeWorkspaceId: string | null;
@@ -29,6 +29,34 @@ interface NavigationState {
   toggleWorkspaceExpanded: (workspaceId: string) => void;
   setWorkspaceExpanded: (workspaceId: string, expanded: boolean) => void;
   isWorkspaceExpanded: (workspaceId: string) => boolean;
+}
+
+/**
+ * Fold a persisted blob into fresh state, taking preferences only.
+ *
+ * Identity — which workspace and session a window holds — belongs to the
+ * window and arrives from main at construction. localStorage is shared by
+ * every window, and blobs written by builds before that was true still carry
+ * those keys, so merging them back would hand every window the same workspace
+ * and leave main's registry disagreeing with what is on screen.
+ *
+ * Exported so this can be exercised on its own: it is the one place a stale
+ * profile can defeat per-window identity.
+ */
+export function mergeNavigationState(
+  persisted: unknown,
+  current: NavigationState
+): NavigationState {
+  const saved = (persisted ?? {}) as Partial<NavigationState>;
+  return {
+    ...current,
+    ...(typeof saved.isSidebarHidden === 'boolean'
+      ? { isSidebarHidden: saved.isSidebarHidden }
+      : {}),
+    ...(typeof saved.isExplorerVisible === 'boolean'
+      ? { isExplorerVisible: saved.isExplorerVisible }
+      : {}),
+  };
 }
 
 export const useNavigationStore = create<NavigationState>()(
@@ -82,6 +110,12 @@ export const useNavigationStore = create<NavigationState>()(
         isSidebarHidden: state.isSidebarHidden,
         isExplorerVisible: state.isExplorerVisible,
       }),
+      // partialize only governs writes. zustand's default merge spreads the
+      // *raw* persisted blob over fresh state on every hydrate, so a profile
+      // written before this task would still overwrite the window-context-seeded
+      // identity with whatever workspace that blob last held. mergeNavigationState
+      // takes only the two preference keys, and only when they're the right type.
+      merge: (persisted, current) => mergeNavigationState(persisted, current as NavigationState),
     }
   )
 );
