@@ -122,7 +122,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       const workspace = await useWorkspaceStore
         .getState()
         .createWorkspace(folder.name, folder.path, folder.isGitRepo);
-      useNavigationStore.getState().setActiveWorkspace(workspace.id);
+      await useNavigationStore.getState().setActiveWorkspace(workspace.id);
     },
   });
 
