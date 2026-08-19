@@ -63,6 +63,14 @@ export const IPC_CHANNELS = {
 
     // Commit message generation (headless `claude -p`)
     GENERATE_COMMIT_MESSAGE: 'git:generate-commit-message',
+
+    // Window identity (renderer -> main)
+    WINDOW_ACTIVATE_WORKSPACE: 'window:activate-workspace', // Claim a workspace, or be told who holds it
+    WINDOW_OPEN: 'window:open',                             // Open another window
+    WINDOW_SET_ACTIVE_SESSION: 'window:set-active-session',  // Remember it for relaunch
+
+    // Window identity (main -> one renderer)
+    WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
 } as const;
 
 export const DEFAULT_DIMENSIONS = {

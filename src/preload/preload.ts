@@ -9,6 +9,8 @@ import {
     HarnessLaunchFields,
     HarnessProbeResult,
     WorkspaceSnapshot,
+    WindowContext,
+    ActivateWorkspaceResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
@@ -224,6 +226,40 @@ contextBridge.exposeInMainWorld('gitAPI', {
     generateCommitMessage: (rootPath: string): Promise<{ message: string; error?: string }> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE, { rootPath });
     },
+});
+
+/**
+ * The workspace this window opened on.
+ *
+ * Passed as a launch argument rather than fetched, so the renderer's very first
+ * render already knows what it is looking at.
+ */
+function readWindowContext(): WindowContext {
+    const prefix = '--consola-window=';
+    const arg = process.argv.find((value) => value.startsWith(prefix));
+    if (!arg) return { workspaceId: null, activeSessionId: null };
+    try {
+        return JSON.parse(arg.slice(prefix.length)) as WindowContext;
+    } catch {
+        return { workspaceId: null, activeSessionId: null };
+    }
+}
+
+contextBridge.exposeInMainWorld('windowAPI', {
+    context: readWindowContext(),
+
+    activateWorkspace: (workspaceId: string | null): Promise<ActivateWorkspaceResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE, workspaceId),
+
+    openWindow: (workspaceId: string | null): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN, workspaceId),
+
+    setActiveSession: (sessionId: string | null): void => {
+        ipcRenderer.send(IPC_CHANNELS.WINDOW_SET_ACTIVE_SESSION, sessionId);
+    },
+
+    onWorkspaceChanged: (callback: (workspaceId: string | null) => void) =>
+        subscribe<string | null>(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, callback),
 });
 
 // Session storage types

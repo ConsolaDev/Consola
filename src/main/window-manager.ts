@@ -83,13 +83,23 @@ export function findWindowForWorkspace(workspaceId: string): BrowserWindow | nul
     return null;
 }
 
-export function assignWorkspace(window: BrowserWindow, workspaceId: string | null): void {
+/**
+ * Point a window at a workspace, or back it out to none.
+ *
+ * Returns whether the assignment actually happened. A caller that ignored
+ * this — treating a silent no-op the same as success — would tell a renderer
+ * it holds a workspace that main has no record of: exactly the two windows,
+ * one workspace failure this registry exists to prevent. So `false` has to
+ * propagate all the way back to the renderer as "you did not get it".
+ */
+export function assignWorkspace(window: BrowserWindow, workspaceId: string | null): boolean {
     // Guard against a caller racing a window's own close: webContents.id
     // throws once it's destroyed, and there is nothing useful left to assign.
-    if (window.isDestroyed()) return;
+    if (window.isDestroyed()) return false;
     // Switching workspaces drops the session with it: an id from the old
     // workspace would name a session this window is no longer showing.
     contexts.set(window.webContents.id, { workspaceId, activeSessionId: null });
+    return true;
 }
 
 export function setActiveSession(window: BrowserWindow, sessionId: string | null): void {
