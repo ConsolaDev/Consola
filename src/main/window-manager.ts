@@ -45,7 +45,11 @@ export function createWindow(context: WindowContext = EMPTY_CONTEXT): BrowserWin
         },
     });
 
-    contexts.set(window.webContents.id, { ...context });
+    // Captured now, not in the handler: by the time 'closed' fires Electron has
+    // destroyed webContents, and reading .id off it throws — silently, because
+    // native event dispatch swallows it. The entry would leak forever.
+    const windowId = window.webContents.id;
+    contexts.set(windowId, { ...context });
 
     if (isDev) {
         window.loadURL('http://localhost:5173');
@@ -57,13 +61,16 @@ export function createWindow(context: WindowContext = EMPTY_CONTEXT): BrowserWin
     window.on('closed', () => {
         // Only the view is forgotten. The PTYs this window was rendering keep
         // running, and reattach to whichever window opens the workspace next.
-        contexts.delete(window.webContents.id);
+        contexts.delete(windowId);
     });
 
     return window;
 }
 
 export function getContextFor(window: BrowserWindow): WindowContext | undefined {
+    // A caller can be holding a reference past the point the window closed;
+    // webContents.id throws on a destroyed window, so check before reading it.
+    if (window.isDestroyed()) return undefined;
     return contexts.get(window.webContents.id);
 }
 
@@ -77,12 +84,16 @@ export function findWindowForWorkspace(workspaceId: string): BrowserWindow | nul
 }
 
 export function assignWorkspace(window: BrowserWindow, workspaceId: string | null): void {
+    // Guard against a caller racing a window's own close: webContents.id
+    // throws once it's destroyed, and there is nothing useful left to assign.
+    if (window.isDestroyed()) return;
     // Switching workspaces drops the session with it: an id from the old
     // workspace would name a session this window is no longer showing.
     contexts.set(window.webContents.id, { workspaceId, activeSessionId: null });
 }
 
 export function setActiveSession(window: BrowserWindow, sessionId: string | null): void {
+    if (window.isDestroyed()) return;
     const existing = contexts.get(window.webContents.id);
     if (!existing) return;
     contexts.set(window.webContents.id, { ...existing, activeSessionId: sessionId });

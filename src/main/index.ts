@@ -50,7 +50,12 @@ app.whenReady().then(() => {
 
     // Handlers are registered once for the process, not once per window: they
     // are ipcMain-global, and a second registration throws.
-    setupIpcHandlers();
+    //
+    // A false return means a state file was unreadable and loadOrExit already
+    // showed the error dialog and called app.exit(1) — exit() doesn't halt the
+    // rest of this synchronous tick, so without this guard a window would still
+    // open on top of an app that's already tearing itself down.
+    if (!setupIpcHandlers()) return;
     createWindow();
 
     app.on('activate', () => {
