@@ -238,8 +238,10 @@ it is near-zero config.
 
 **Unit — the things whose failure costs conversations:**
 
-- The full `migrateWorkspaceState` ladder, v2 through v6, including the pre-v4
-  path that mints a fresh `claudeSessionId` and the v5 harness backfill.
+- The full `migrateWorkspaceState` ladder, v2 through v5, including the pre-v4
+  path that mints a fresh `claudeSessionId` and the v5 harness backfill. The
+  move to main does not bump the shape version — nothing about the records
+  changes, only who writes them.
 - `WorkspaceService` intent application, atomic write, `.bak` recovery from a
   corrupt file, and refusal to boot empty.
 - Import idempotency: a second `workspace:import` against an existing file is a
