@@ -90,6 +90,10 @@ export const CommandPaletteRow = memo(function CommandPaletteRow({
         <HighlightedLabel label={item.label} query={query} />
       </span>
 
+      {item.kind === 'workspace' && item.status && (
+        <span className={`session-status-indicator session-status-indicator--${item.status}`} />
+      )}
+
       {item.kind === 'file' && (
         <span className={`command-palette-row-status git-${item.status}`}>
           {STATUS_LABELS[item.status]}

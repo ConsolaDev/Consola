@@ -1,5 +1,6 @@
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatus } from '../../types/electron';
+import type { SessionStatus } from '../../utils/sessionStatus';
 
 /** Result groups, in the order they are rendered. */
 export type PaletteSection = 'actions' | 'sessions' | 'workspaces' | 'files';
@@ -103,6 +104,7 @@ export interface WorkspacePaletteItem extends PaletteItemBase {
   section: 'workspaces';
   workspaceId: string;
   isGitRepo: boolean;
+  status: SessionStatus;
 }
 
 export interface FilePaletteItem extends PaletteItemBase {

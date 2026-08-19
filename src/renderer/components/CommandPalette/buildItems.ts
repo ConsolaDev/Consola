@@ -18,6 +18,7 @@ import {
 import type { GitFileStatus } from '../../types/electron';
 import type { Harness } from '../../stores/harnessStore';
 import type { Session, Workspace } from '../../stores/workspaceStore';
+import type { TerminalState } from '../../stores/terminalStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -26,6 +27,7 @@ import { useSettingsStore, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
 import { openNewSessionComposer } from '../../utils/sessionActions';
+import { workspaceStatusFor } from '../../utils/sessionStatus';
 import { isMac } from '../../utils/platform';
 import type {
   PaletteMode,
@@ -53,6 +55,8 @@ export interface PaletteContext {
   allSessions: Array<{ session: Session; workspace: Workspace }>;
   /** Sessions whose CLI has exited and can be restarted. */
   exitedSessions: Array<{ session: Session; workspace: Workspace }>;
+  /** Keyed by instance id, for the same status dot the sidebar and switcher show. */
+  terminals: Record<string, TerminalState>;
   fileStatuses: Map<string, GitFileStatus>;
   /** Which repository `fileStatuses` actually describes. */
   gitStatusRootPath: string | null;
@@ -322,7 +326,10 @@ export function buildSessionItems(
   }));
 }
 
-export function buildWorkspaceItems(workspaces: Workspace[]): WorkspacePaletteItem[] {
+export function buildWorkspaceItems(
+  workspaces: Workspace[],
+  terminals: Record<string, TerminalState>
+): WorkspacePaletteItem[] {
   return workspaces.map((workspace) => ({
     kind: 'workspace',
     section: 'workspaces',
@@ -331,6 +338,7 @@ export function buildWorkspaceItems(workspaces: Workspace[]): WorkspacePaletteIt
     context: workspace.path,
     workspaceId: workspace.id,
     isGitRepo: workspace.isGitRepo,
+    status: workspaceStatusFor(workspace, terminals),
   }));
 }
 
@@ -383,7 +391,7 @@ export function buildPickerItems(
 ): PaletteItem[] {
   switch (mode.kind) {
     case 'pick-workspace':
-      return buildWorkspaceItems(ctx.workspaces);
+      return buildWorkspaceItems(ctx.workspaces, ctx.terminals);
     case 'pick-session':
       return buildSessionItems(mode.purpose === 'restart' ? ctx.exitedSessions : ctx.allSessions);
     case 'pick-harness': {
