@@ -4,6 +4,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
 import { deleteSessionCompletely } from '../../utils/sessionActions';
+import { sessionStatusFor } from '../../utils/sessionStatus';
 
 interface SessionNavItemProps {
   session: Session;
@@ -22,18 +23,9 @@ export function SessionNavItem({
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
-  // Activity is inferred from terminal output, so the only states Consola can
-  // distinguish are "Claude is producing output" and "Claude has exited".
-  const sessionStatus = useTerminalStore((state) => {
-    const terminal = state.terminals[session.instanceId];
-    if (!terminal) return null;
-
-    // Priority: Exited > Awaiting a keypress > Working > None
-    if (terminal.hasExited) return 'error';
-    if (terminal.isAwaitingConfirmation) return 'attention';
-    if (terminal.isBusy) return 'running';
-    return null;
-  });
+  const sessionStatus = useTerminalStore((state) =>
+    sessionStatusFor(state.terminals[session.instanceId])
+  );
   const updateSession = useWorkspaceStore((state) => state.updateSession);
 
   useEffect(() => {
