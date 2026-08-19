@@ -12,6 +12,7 @@ import {
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
+import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 
 // Subscribe to a main->renderer channel, returning an unsubscribe function so
 // callers never have to re-register their peers to remove one listener.
@@ -120,6 +121,32 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
     onChanged: (callback: (workspaces: Workspace[]) => void) =>
         subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
+});
+
+// Expose harness state to the renderer. Main owns the records; the renderer
+// sends intents and listens for the result. Separate from `harnessAPI`, which
+// probes health: a probe result is a live fact and is never persisted.
+contextBridge.exposeInMainWorld('harnessStateAPI', {
+    getSnapshot: (): Promise<{ harnesses: Harness[]; needsImport: boolean }> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_GET_SNAPSHOT),
+
+    importState: (harnesses: Harness[]): Promise<boolean> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_IMPORT, harnesses),
+
+    addHarness: (input: NewHarnessFields): Promise<Harness> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_ADD, input),
+
+    updateHarness: (id: string, updates: HarnessUpdates): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_UPDATE, id, updates),
+
+    archiveHarness: (id: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_ARCHIVE, id),
+
+    restoreHarness: (id: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_RESTORE, id),
+
+    onChanged: (callback: (harnesses: Harness[]) => void) =>
+        subscribe<Harness[]>(IPC_CHANNELS.HARNESS_CHANGED, callback),
 });
 
 // Expose Dialog API to renderer

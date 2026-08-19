@@ -82,9 +82,9 @@ export function AddHarnessWizard({
 
   const canAdvance = step === 0 ? true : step === 1 ? !idError && !!draft.name.trim() : true;
 
-  const submit = () => {
+  const submit = async () => {
     if (idError || !draft.name.trim()) return;
-    const harness = addHarness({
+    const harness = await addHarness({
       id: draft.id,
       driverId: draft.driverId,
       name: draft.name.trim(),

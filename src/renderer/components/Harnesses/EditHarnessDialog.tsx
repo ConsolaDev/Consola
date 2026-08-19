@@ -47,9 +47,11 @@ export function EditHarnessDialog({
     setDraft({ ...activeDraft, ...updates });
   };
 
-  const save = () => {
+  const save = async () => {
     if (!harness || !activeDraft || !activeDraft.name.trim()) return;
-    updateHarness(harness.id, {
+    // Awaited so the probe that follows reads the harness main just wrote,
+    // not the pre-edit binary path or config directory.
+    await updateHarness(harness.id, {
       name: activeDraft.name.trim(),
       accentColor: activeDraft.accentColor,
       binaryPath: activeDraft.binaryPath.trim() || undefined,

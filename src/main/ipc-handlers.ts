@@ -9,13 +9,18 @@ import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import { JsonStateFile } from './state/JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
+import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
+import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
+
+// The single writer for harness records, shared by every window
+let harnessService: HarnessService | null = null;
 
 export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     const workspaceFile = new JsonStateFile<WorkspaceStateFile>(
@@ -118,6 +123,56 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         (_event, workspaceId: string, sessionId: string) =>
             workspaces.deleteSession(workspaceId, sessionId)
     );
+
+    const harnessFile = new JsonStateFile<HarnessStateFile>(
+        path.join(app.getPath('userData'), 'harnesses.json')
+    );
+    const harnesses = new HarnessService(harnessFile);
+    harnesses.load();
+    harnessService = harnesses;
+
+    harnesses.onChange((all) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) {
+                window.webContents.send(IPC_CHANNELS.HARNESS_CHANGED, all);
+            }
+        }
+    });
+
+    ipcMain.handle(IPC_CHANNELS.HARNESS_GET_SNAPSHOT, () => ({
+        harnesses: harnesses.getAll(),
+        needsImport: !harnesses.hasState(),
+    }));
+
+    ipcMain.handle(IPC_CHANNELS.HARNESS_IMPORT, (_event, incoming: Harness[]) =>
+        harnesses.importState(incoming)
+    );
+
+    ipcMain.handle(IPC_CHANNELS.HARNESS_ADD, (_event, input: NewHarnessFields) =>
+        harnesses.addHarness(input)
+    );
+
+    ipcMain.handle(IPC_CHANNELS.HARNESS_UPDATE, (_event, id: string, updates: HarnessUpdates) => {
+        // Whitelisted rather than passed through: `HarnessUpdates` is a
+        // compile-time contract only, and a stale or untrusted renderer could
+        // send `id`, `driverId`, `isBuiltIn`, or `archived` in the same payload.
+        // The service applies updates with a `{ ...harness, ...updates }`
+        // spread, so an absorbed `archived: false` could un-archive a harness
+        // and an absorbed `id`/`driverId` could rewrite the routing key
+        // sessions resolve against.
+        const allowed: HarnessUpdates = {};
+        if (updates.name !== undefined) allowed.name = updates.name;
+        if (updates.accentColor !== undefined) allowed.accentColor = updates.accentColor;
+        if (updates.enabled !== undefined) allowed.enabled = updates.enabled;
+        if (updates.binaryPath !== undefined) allowed.binaryPath = updates.binaryPath;
+        if (updates.configDir !== undefined) allowed.configDir = updates.configDir;
+        if (updates.extraArgs !== undefined) allowed.extraArgs = updates.extraArgs;
+        harnesses.updateHarness(id, allowed);
+    });
+
+    ipcMain.handle(IPC_CHANNELS.HARNESS_ARCHIVE, (_event, id: string) => harnesses.archiveHarness(id));
+
+    ipcMain.handle(IPC_CHANNELS.HARNESS_RESTORE, (_event, id: string) => harnesses.restoreHarness(id));
 
     terminalManager = new TerminalManager(mainWindow);
     const manager = terminalManager;
@@ -700,6 +755,14 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
+
+    harnessService = null;
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_IMPORT);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ADD);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_UPDATE);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ARCHIVE);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_RESTORE);
 
     // Clean up all terminal services
     terminalManager?.destroyAll();
