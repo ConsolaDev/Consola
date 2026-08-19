@@ -51,7 +51,7 @@ export function WorkspaceActionsMenu({ workspaceId, workspaceName, onDelete }: W
                       key={harness.id}
                       className="dropdown-item"
                       onSelect={() =>
-                        updateWorkspace(workspaceId, { defaultHarnessId: harness.id })
+                        void updateWorkspace(workspaceId, { defaultHarnessId: harness.id })
                       }
                     >
                       <span

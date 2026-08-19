@@ -39,11 +39,11 @@ export function activateSession(workspaceId: string, sessionId: string): void {
  * The quick path used by the sidebar's `+`. Choosing a different harness, or
  * starting with a prompt, happens on the new-session screen instead.
  */
-export function createQuickSession(workspaceId: string): Session | undefined {
+export async function createQuickSession(workspaceId: string): Promise<Session | undefined> {
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
   if (!workspace) return undefined;
 
-  const session = useWorkspaceStore.getState().createSession(workspaceId, {
+  const session = await useWorkspaceStore.getState().createSession(workspaceId, {
     name: 'New Session',
     workspaceId,
     instanceId: generateSessionInstanceId(workspaceId),
@@ -74,10 +74,15 @@ export function openNewSessionComposer(workspaceId: string): void {
  * itself stays in the harness's own session files and is still reachable with
  * `claude --resume`.
  */
-export function deleteSessionCompletely(workspaceId: string, session: Session): void {
+export async function deleteSessionCompletely(
+  workspaceId: string,
+  session: Session
+): Promise<void> {
+  // The PTY dies first: if the record went away and this threw, the terminal
+  // would keep running with nothing left to reattach it to.
   terminalBridge.destroy(session.instanceId);
   useTerminalStore.getState().removeInstance(session.instanceId);
-  useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
+  await useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
 
   if (useNavigationStore.getState().activeSessionId === session.id) {
     useNavigationStore.getState().setActiveSession(null);
@@ -96,8 +101,12 @@ export function restartSession(instanceId: string): void {
 }
 
 /** Rename a session, ignoring a blank or unchanged name. */
-export function renameSession(workspaceId: string, session: Session, name: string): void {
+export async function renameSession(
+  workspaceId: string,
+  session: Session,
+  name: string
+): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed || trimmed === session.name) return;
-  useWorkspaceStore.getState().updateSession(workspaceId, session.id, { name: trimmed });
+  await useWorkspaceStore.getState().updateSession(workspaceId, session.id, { name: trimmed });
 }

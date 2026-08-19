@@ -34,12 +34,13 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
     setActiveWorkspace(workspace.id);
   };
 
-  const handleDelete = () => {
-    // If this workspace is active, clear selection
+  const handleDelete = async () => {
+    // Clear the selection first: deleting the active workspace would otherwise
+    // leave the content area pointed at a record that no longer exists.
     if (activeWorkspaceId === workspace.id) {
       setActiveWorkspace(null);
     }
-    deleteWorkspace(workspace.id);
+    await deleteWorkspace(workspace.id);
   };
 
   const handleAddSession = (e: React.MouseEvent) => {
@@ -50,7 +51,7 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
     // new-session screen is where another one gets chosen. Selecting the new
     // session sets workspace and session together -- doing it in two steps
     // would clear the session again, since setActiveWorkspace resets it.
-    createQuickSession(workspace.id);
+    void createQuickSession(workspace.id);
   };
 
   const handleSessionClick = (sessionId: string) => {

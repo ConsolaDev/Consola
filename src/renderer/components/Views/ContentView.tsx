@@ -73,7 +73,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // conversation instead of trying to create a session ID Claude already has.
   useEffect(() => {
     if (!hasStarted && sessionId) {
-      updateSession(workspaceId, sessionId, { hasStarted: true });
+      void updateSession(workspaceId, sessionId, { hasStarted: true });
     }
   }, [hasStarted, sessionId, workspaceId, updateSession]);
 
@@ -93,7 +93,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
         .getSessionName(claudeSessionId, launchFields)
         .then((name) => {
           if (cancelled || !name) return;
-          updateSession(workspaceId, sessionId, { name });
+          void updateSession(workspaceId, sessionId, { name });
         })
         .catch(() => {
           // Index not written yet; the next poll will pick it up.

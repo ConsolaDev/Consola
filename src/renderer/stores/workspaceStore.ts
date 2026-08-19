@@ -1,16 +1,12 @@
 import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import { BUILT_IN_HARNESS_ID } from '../../shared/constants';
+import { workspaceBridge } from '../services/workspaceBridge';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
-  createSessionRecord,
-  createWorkspaceRecord,
-  migrateWorkspaceState,
+  type NewSessionFields,
+  type Session,
+  type Workspace,
 } from '../../shared/workspace';
-import type { Session, Workspace } from '../../shared/workspace';
 
-// Fourteen files import these from here. Re-exported rather than relocated so
-// this task stays a move, not a rename sweep.
 export type { Session, Workspace } from '../../shared/workspace';
 export { migrateWorkspaceState } from '../../shared/workspace';
 
@@ -21,133 +17,112 @@ interface WorkspaceState {
     path: string,
     isGitRepo: boolean,
     defaultHarnessId?: string
-  ) => Workspace;
-  deleteWorkspace: (id: string) => void;
+  ) => Promise<Workspace>;
+  deleteWorkspace: (id: string) => Promise<void>;
   updateWorkspace: (
     id: string,
     updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
-  ) => void;
+  ) => Promise<void>;
   getWorkspace: (id: string) => Workspace | undefined;
-  // Session management
-  createSession: (workspaceId: string, session: Omit<Session, 'id' | 'createdAt' | 'lastActiveAt' | 'claudeSessionId' | 'hasStarted'>) => Session | undefined;
-  updateSession: (workspaceId: string, sessionId: string, updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>) => void;
-  deleteSession: (workspaceId: string, sessionId: string) => void;
+  createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
+  updateSession: (
+    workspaceId: string,
+    sessionId: string,
+    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+  ) => Promise<void>;
+  deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;
   getWorkspaceSessions: (workspaceId: string) => Session[];
-  updateSessionActivity: (workspaceId: string, sessionId: string) => void;
 }
 
-export const useWorkspaceStore = create<WorkspaceState>()(
-  persist(
-    (set, get) => ({
-      workspaces: [],
-      createWorkspace: (name, path, isGitRepo, defaultHarnessId = BUILT_IN_HARNESS_ID) => {
-        const workspace = createWorkspaceRecord(name, path, isGitRepo, defaultHarnessId);
-        set((state) => ({ workspaces: [...state.workspaces, workspace] }));
-        return workspace;
-      },
-      deleteWorkspace: (id) => {
-        set((state) => ({
-          workspaces: state.workspaces.filter((ws) => ws.id !== id),
-        }));
-      },
-      updateWorkspace: (id, updates) => {
-        set((state) => ({
-          workspaces: state.workspaces.map((ws) =>
-            ws.id === id
-              ? { ...ws, ...updates, updatedAt: Date.now() }
-              : ws
-          ),
-        }));
-      },
-      getWorkspace: (id) => {
-        return get().workspaces.find((ws) => ws.id === id);
-      },
+/**
+ * A read-through cache over the records the main process owns.
+ *
+ * Reads are synchronous against the last snapshot main pushed, so every
+ * component that selects `workspaces` is unchanged. Writes are intents: main
+ * applies them and broadcasts, and this store replaces its snapshot wholesale.
+ * No renderer ever sends a snapshot back, which is what makes two windows safe.
+ */
+export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
+  workspaces: [],
 
-      // Session management
-      createSession: (workspaceId, sessionData) => {
-        const session = createSessionRecord(sessionData);
-        const now = session.createdAt;
-        let createdSession: Session | undefined;
-        set((state) => ({
-          workspaces: state.workspaces.map((ws) => {
-            if (ws.id === workspaceId) {
-              createdSession = session;
-              return { ...ws, sessions: [...ws.sessions, session], updatedAt: now };
-            }
-            return ws;
-          }),
-        }));
-        return createdSession;
-      },
+  createWorkspace: (name, path, isGitRepo, defaultHarnessId) =>
+    workspaceBridge.createWorkspace(name, path, isGitRepo, defaultHarnessId),
 
-      updateSession: (workspaceId, sessionId, updates) => {
-        const now = Date.now();
-        set((state) => ({
-          workspaces: state.workspaces.map((ws) => {
-            if (ws.id === workspaceId) {
-              return {
-                ...ws,
-                sessions: ws.sessions.map((s) =>
-                  s.id === sessionId ? { ...s, ...updates } : s
-                ),
-                updatedAt: now,
-              };
-            }
-            return ws;
-          }),
-        }));
-      },
+  deleteWorkspace: (id) => workspaceBridge.deleteWorkspace(id),
 
-      deleteSession: (workspaceId, sessionId) => {
-        const now = Date.now();
-        set((state) => ({
-          workspaces: state.workspaces.map((ws) => {
-            if (ws.id === workspaceId) {
-              return {
-                ...ws,
-                sessions: ws.sessions.filter((s) => s.id !== sessionId),
-                updatedAt: now,
-              };
-            }
-            return ws;
-          }),
-        }));
-      },
+  updateWorkspace: (id, updates) => workspaceBridge.updateWorkspace(id, updates),
 
-      getSession: (workspaceId, sessionId) => {
-        const workspace = get().workspaces.find((ws) => ws.id === workspaceId);
-        return workspace?.sessions.find((s) => s.id === sessionId);
-      },
+  getWorkspace: (id) => get().workspaces.find((workspace) => workspace.id === id),
 
-      getWorkspaceSessions: (workspaceId) => {
-        const workspace = get().workspaces.find((ws) => ws.id === workspaceId);
-        return workspace?.sessions ?? [];
-      },
+  createSession: (workspaceId, fields) => workspaceBridge.createSession(workspaceId, fields),
 
-      updateSessionActivity: (workspaceId, sessionId) => {
-        const now = Date.now();
-        set((state) => ({
-          workspaces: state.workspaces.map((ws) => {
-            if (ws.id === workspaceId) {
-              return {
-                ...ws,
-                sessions: ws.sessions.map((s) =>
-                  s.id === sessionId ? { ...s, lastActiveAt: now } : s
-                ),
-              };
-            }
-            return ws;
-          }),
-        }));
-      },
-    }),
-    {
-      name: 'consola-workspaces',
-      storage: createJSONStorage(() => localStorage),
-      partialize: (state) => ({ workspaces: state.workspaces }),
-      migrate: migrateWorkspaceState,
-      version: CURRENT_WORKSPACE_STATE_VERSION,
+  updateSession: (workspaceId, sessionId, updates) =>
+    workspaceBridge.updateSession(workspaceId, sessionId, updates),
+
+  deleteSession: (workspaceId, sessionId) =>
+    workspaceBridge.deleteSession(workspaceId, sessionId),
+
+  getSession: (workspaceId, sessionId) =>
+    get()
+      .workspaces.find((workspace) => workspace.id === workspaceId)
+      ?.sessions.find((session) => session.id === sessionId),
+
+  getWorkspaceSessions: (workspaceId) =>
+    get().workspaces.find((workspace) => workspace.id === workspaceId)?.sessions ?? [],
+}));
+
+const LEGACY_STORAGE_KEY = 'consola-workspaces';
+
+/**
+ * The records as zustand's persist middleware left them.
+ *
+ * Read raw rather than through the middleware because the middleware is gone:
+ * this is an archaeology function, and it runs once.
+ */
+function readLegacyState(): { workspaces: Workspace[]; version: number } | null {
+  const raw = localStorage.getItem(LEGACY_STORAGE_KEY);
+  if (!raw) return null;
+
+  try {
+    const envelope = JSON.parse(raw) as {
+      state?: { workspaces?: Workspace[] };
+      version?: number;
+    };
+    const workspaces = envelope.state?.workspaces;
+    if (!Array.isArray(workspaces)) return null;
+    return { workspaces, version: envelope.version ?? 0 };
+  } catch {
+    // A localStorage blob we cannot parse is not worth failing launch over:
+    // main starts empty, and the raw value stays on disk to look at.
+    return null;
+  }
+}
+
+/**
+ * Load the records from main, importing localStorage the first time.
+ *
+ * Called before the first render so no component ever sees an empty list it
+ * would mistake for "no workspaces yet". The localStorage copy is deliberately
+ * left in place after a successful import — it is the fallback for one release.
+ */
+export async function hydrateWorkspaceStore(): Promise<void> {
+  let snapshot = await workspaceBridge.getSnapshot();
+
+  if (snapshot.needsImport) {
+    const legacy = readLegacyState();
+    if (legacy) {
+      await workspaceBridge.importState(
+        legacy.workspaces,
+        legacy.version || CURRENT_WORKSPACE_STATE_VERSION
+      );
+      snapshot = await workspaceBridge.getSnapshot();
     }
-  )
-);
+  }
+
+  useWorkspaceStore.setState({ workspaces: snapshot.workspaces });
+
+  workspaceBridge.onChanged((workspaces) => {
+    useWorkspaceStore.setState({ workspaces });
+  });
+}
