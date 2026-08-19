@@ -8,8 +8,10 @@ import {
     TerminalExitMessage,
     HarnessLaunchFields,
     HarnessProbeResult,
+    WorkspaceSnapshot,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
 
 // Subscribe to a main->renderer channel, returning an unsubscribe function so
 // callers never have to re-register their peers to remove one listener.
@@ -76,6 +78,48 @@ contextBridge.exposeInMainWorld('harnessAPI', {
     ): Promise<string | null> => {
         return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
     },
+});
+
+// Expose workspace state to the renderer. Main owns the records; the renderer
+// sends intents and listens for the result.
+contextBridge.exposeInMainWorld('workspaceAPI', {
+    getSnapshot: (): Promise<WorkspaceSnapshot> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT),
+
+    importState: (workspaces: Workspace[], version: number): Promise<boolean> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_IMPORT, workspaces, version),
+
+    createWorkspace: (
+        name: string,
+        path: string,
+        isGitRepo: boolean,
+        defaultHarnessId?: string
+    ): Promise<Workspace> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CREATE, name, path, isGitRepo, defaultHarnessId),
+
+    updateWorkspace: (
+        id: string,
+        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+    ): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE, id, updates),
+
+    deleteWorkspace: (id: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_DELETE, id),
+
+    createSession: (workspaceId: string, fields: NewSessionFields): Promise<Session | undefined> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_CREATE, workspaceId, fields),
+
+    updateSession: (
+        workspaceId: string,
+        sessionId: string,
+        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+    ): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
+
+    deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
+
+    onChanged: (callback: (workspaces: Workspace[]) => void) =>
+        subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
 });
 
 // Expose Dialog API to renderer
