@@ -1,6 +1,7 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, app } from 'electron';
 import * as path from 'path';
 import type { WindowContext } from '../shared/types';
+import { JsonStateFile } from './state/JsonStateFile';
 
 /**
  * The open windows, and which workspace each one holds.
@@ -14,14 +15,18 @@ const contexts = new Map<number, WindowContext>();
 
 const EMPTY_CONTEXT: WindowContext = { workspaceId: null, activeSessionId: null };
 
-export function createWindow(context: WindowContext = EMPTY_CONTEXT): BrowserWindow {
+export function createWindow(
+    context: WindowContext = EMPTY_CONTEXT,
+    bounds?: Electron.Rectangle
+): BrowserWindow {
     const isDev = process.env.NODE_ENV === 'development';
     const isTest = process.env.NODE_ENV === 'test';
 
     const window = new BrowserWindow({
         title: 'Consola',
-        width: 1000,
-        height: 700,
+        width: bounds?.width ?? 1000,
+        height: bounds?.height ?? 700,
+        ...(bounds ? { x: bounds.x, y: bounds.y } : {}),
         minWidth: 600,
         minHeight: 400,
         backgroundColor: '#0a0a0a',
@@ -132,4 +137,77 @@ export function listContexts(): Array<WindowContext & { bounds: Electron.Rectang
             return context ? { ...context, bounds: window.getBounds() } : null;
         })
         .filter((entry): entry is WindowContext & { bounds: Electron.Rectangle } => entry !== null);
+}
+
+interface WindowLayoutFile {
+    windows: Array<WindowContext & { bounds: Electron.Rectangle }>;
+}
+
+function layoutFile(): JsonStateFile<WindowLayoutFile> {
+    return new JsonStateFile<WindowLayoutFile>(path.join(app.getPath('userData'), 'windows.json'));
+}
+
+export function saveWindowLayout(): void {
+    const windows = listContexts();
+    if (windows.length === 0) return;
+    layoutFile().write({ windows });
+}
+
+/**
+ * Keep only the first entry for each non-null workspace id.
+ *
+ * A hand-edited or otherwise corrupted layout file could name the same
+ * workspace twice. Restoring both entries as-is would open two windows on one
+ * workspace before either had a chance to call assignWorkspace — the very
+ * failure `contexts` exists to prevent, just reached at startup instead of
+ * through a race. Entries with no workspace are left alone: several windows
+ * sitting on Home is normal, not corruption.
+ */
+export function dedupeByWorkspace<T extends { workspaceId: string | null }>(entries: T[]): T[] {
+    const seen = new Set<string>();
+    return entries.filter((entry) => {
+        if (entry.workspaceId === null) return true;
+        if (seen.has(entry.workspaceId)) return false;
+        seen.add(entry.workspaceId);
+        return true;
+    });
+}
+
+/**
+ * Reopen the windows from last launch, or one empty window on a first run.
+ *
+ * A saved workspace that has since been deleted opens on Home rather than
+ * failing: a window must never hold an id that names nothing.
+ */
+export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
+    let stored: WindowLayoutFile | null = null;
+    try {
+        stored = layoutFile().read();
+    } catch {
+        // A layout we cannot read is worth nothing; a fresh window costs a click.
+        stored = null;
+    }
+
+    const windows = stored?.windows ?? [];
+    if (windows.length === 0) {
+        createWindow();
+        return;
+    }
+
+    // Resolve dead workspace ids to Home first, then dedupe: two entries that
+    // both point at a since-deleted workspace are two ordinary Home windows,
+    // not a duplicate worth collapsing.
+    const resolved = windows.map((entry) => {
+        const workspaceId =
+            entry.workspaceId && knownWorkspaceIds.has(entry.workspaceId) ? entry.workspaceId : null;
+        return {
+            workspaceId,
+            activeSessionId: workspaceId ? entry.activeSessionId : null,
+            bounds: entry.bounds,
+        };
+    });
+
+    for (const entry of dedupeByWorkspace(resolved)) {
+        createWindow({ workspaceId: entry.workspaceId, activeSessionId: entry.activeSessionId }, entry.bounds);
+    }
 }
