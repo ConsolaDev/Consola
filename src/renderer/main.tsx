@@ -4,6 +4,7 @@ import { Theme } from '@radix-ui/themes';
 import App from './App';
 import { useSettingsStore } from './stores/settingsStore';
 import { hydrateWorkspaceStore } from './stores/workspaceStore';
+import { hydrateHarnessStore } from './stores/harnessStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
@@ -38,7 +39,7 @@ async function bootstrap() {
     // Records live in the main process now, so they have to arrive before the
     // first render — an empty list on screen is indistinguishable from having
     // no workspaces at all.
-    await hydrateWorkspaceStore();
+    await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore()]);
   } catch (error) {
     // A blank window is the one outcome worse than an error message: it looks
     // like the app started and the data is gone.

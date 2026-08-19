@@ -70,7 +70,7 @@ export function HarnessCard({
           <button
             type="button"
             className="dialog-button-secondary harness-restore-button"
-            onClick={() => restoreHarness(harness.id)}
+            onClick={() => void restoreHarness(harness.id)}
           >
             <RotateCcw size={13} />
             Restore
@@ -82,7 +82,7 @@ export function HarnessCard({
                 type="checkbox"
                 checked={harness.enabled}
                 onChange={(event) =>
-                  updateHarness(harness.id, { enabled: event.target.checked })
+                  void updateHarness(harness.id, { enabled: event.target.checked })
                 }
                 aria-label={`Enable ${harness.name}`}
               />
@@ -101,7 +101,7 @@ export function HarnessCard({
               <button
                 type="button"
                 className="harness-icon-button harness-icon-button-danger"
-                onClick={() => archiveHarness(harness.id)}
+                onClick={() => void archiveHarness(harness.id)}
                 aria-label={`Archive ${harness.name}`}
                 title={
                   sessionCount > 0

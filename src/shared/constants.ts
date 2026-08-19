@@ -34,6 +34,17 @@ export const IPC_CHANNELS = {
     // Workspace state (main -> every renderer)
     WORKSPACE_CHANGED: 'workspace:changed',
 
+    // Harness records (renderer -> main). Health probes stay on harness:probe.
+    HARNESS_GET_SNAPSHOT: 'harness:get-snapshot',
+    HARNESS_IMPORT: 'harness:import',
+    HARNESS_ADD: 'harness:add',
+    HARNESS_UPDATE: 'harness:update',
+    HARNESS_ARCHIVE: 'harness:archive',
+    HARNESS_RESTORE: 'harness:restore',
+
+    // Harness records (main -> every renderer)
+    HARNESS_CHANGED: 'harness:changed',
+
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker (multi-select)
     DIALOG_SELECT_FOLDER: 'dialog:select-folder',    // Open folder picker (single select for workspace)
