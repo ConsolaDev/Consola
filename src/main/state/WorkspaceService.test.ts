@@ -156,12 +156,42 @@ describe('WorkspaceService', () => {
   });
 
   it('refuses an import once anything has been written, even on a fresh install', () => {
-    const workspace = service.createWorkspace('consola', '/code/consola', true);
-    service.deleteWorkspace(workspace.id);
+    const kept = service.createWorkspace('consola', '/code/consola', true);
 
-    // The list is empty again, but this service has written to disk — a stale
-    // import arriving now would silently replace real state.
-    expect(service.importState([], 5)).toBe(false);
+    const accepted = service.importState(
+      [
+        {
+          id: 'stale',
+          name: 'stale',
+          path: '/code/stale',
+          isGitRepo: false,
+          defaultHarnessId: 'default',
+          sessions: [],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      5
+    );
+
+    expect(accepted).toBe(false);
+    expect(service.getAll().map((entry) => entry.id)).toEqual([kept.id]);
+  });
+
+  it('does not adopt state that failed to reach disk', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+
+    const file = new JsonStateFile<WorkspaceStateFile>(path.join(dir, 'workspaces.json'));
+    const failing = new WorkspaceService(file);
+    failing.load();
+    vi.spyOn(file, 'write').mockImplementation(() => {
+      throw new Error('ENOSPC');
+    });
+
+    expect(() => failing.createWorkspace('other', '/code/other', false)).toThrow('ENOSPC');
+
+    // The caller saw the failure; nothing else may see the phantom record.
+    expect(failing.getAll().map((entry) => entry.id)).toEqual([workspace.id]);
   });
 
   it('runs the migration ladder on imported state', () => {
