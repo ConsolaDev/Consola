@@ -59,8 +59,7 @@ export class WorkspaceService {
    */
   public importState(workspaces: Workspace[], version: number): boolean {
     if (this.hasState()) return false;
-    this.workspaces = this.migrate(workspaces, version);
-    this.commit();
+    this.commit(this.migrate(workspaces, version));
     return true;
   }
 
@@ -71,40 +70,40 @@ export class WorkspaceService {
     defaultHarnessId?: string
   ): Workspace {
     const workspace = createWorkspaceRecord(name, path, isGitRepo, defaultHarnessId);
-    this.workspaces = [...this.workspaces, workspace];
-    this.commit();
+    this.commit([...this.workspaces, workspace]);
     return workspace;
   }
 
   public deleteWorkspace(id: string): void {
-    this.workspaces = this.workspaces.filter((workspace) => workspace.id !== id);
-    this.commit();
+    this.commit(this.workspaces.filter((workspace) => workspace.id !== id));
   }
 
   public updateWorkspace(
     id: string,
     updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
   ): void {
-    this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === id ? { ...workspace, ...updates, updatedAt: Date.now() } : workspace
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.id === id ? { ...workspace, ...updates, updatedAt: Date.now() } : workspace
+      )
     );
-    this.commit();
   }
 
   public createSession(workspaceId: string, fields: NewSessionFields): Session | undefined {
     if (!this.workspaces.some((workspace) => workspace.id === workspaceId)) return undefined;
 
     const session = createSessionRecord(fields);
-    this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === workspaceId
-        ? {
-            ...workspace,
-            sessions: [...workspace.sessions, session],
-            updatedAt: session.createdAt,
-          }
-        : workspace
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.id === workspaceId
+          ? {
+              ...workspace,
+              sessions: [...workspace.sessions, session],
+              updatedAt: session.createdAt,
+            }
+          : workspace
+      )
     );
-    this.commit();
     return session;
   }
 
@@ -113,31 +112,33 @@ export class WorkspaceService {
     sessionId: string,
     updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
   ): void {
-    this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === workspaceId
-        ? {
-            ...workspace,
-            sessions: workspace.sessions.map((session) =>
-              session.id === sessionId ? { ...session, ...updates } : session
-            ),
-            updatedAt: Date.now(),
-          }
-        : workspace
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.id === workspaceId
+          ? {
+              ...workspace,
+              sessions: workspace.sessions.map((session) =>
+                session.id === sessionId ? { ...session, ...updates } : session
+              ),
+              updatedAt: Date.now(),
+            }
+          : workspace
+      )
     );
-    this.commit();
   }
 
   public deleteSession(workspaceId: string, sessionId: string): void {
-    this.workspaces = this.workspaces.map((workspace) =>
-      workspace.id === workspaceId
-        ? {
-            ...workspace,
-            sessions: workspace.sessions.filter((session) => session.id !== sessionId),
-            updatedAt: Date.now(),
-          }
-        : workspace
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.id === workspaceId
+          ? {
+              ...workspace,
+              sessions: workspace.sessions.filter((session) => session.id !== sessionId),
+              updatedAt: Date.now(),
+            }
+          : workspace
+      )
     );
-    this.commit();
   }
 
   public onChange(listener: (workspaces: Workspace[]) => void): () => void {
@@ -150,10 +151,18 @@ export class WorkspaceService {
     return migrated.workspaces;
   }
 
-  /** Persist first, then notify: no listener should see state a crash would lose. */
-  private commit(): void {
-    this.file.write({ version: CURRENT_WORKSPACE_STATE_VERSION, workspaces: this.workspaces });
+  /**
+   * Persist, then adopt, then notify.
+   *
+   * The order is the point. If the write throws, `this.workspaces` still holds
+   * the last state that reached disk, so a failed mutation cannot leave a
+   * reader seeing a record that does not exist — and the caller still gets the
+   * exception.
+   */
+  private commit(next: Workspace[]): void {
+    this.file.write({ version: CURRENT_WORKSPACE_STATE_VERSION, workspaces: next });
+    this.workspaces = next;
     this.established = true;
-    for (const listener of this.listeners) listener(this.workspaces);
+    for (const listener of this.listeners) listener(next);
   }
 }
