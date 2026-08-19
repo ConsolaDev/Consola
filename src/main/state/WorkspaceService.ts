@@ -23,7 +23,13 @@ export interface WorkspaceStateFile {
  */
 export class WorkspaceService {
   private workspaces: Workspace[] = [];
-  private hadFileAtLoad = false;
+  /**
+   * Whether state has ever been established — loaded from disk, or written.
+   *
+   * Not "are there workspaces": an empty list that has been committed is
+   * still state, and a one-time import that overwrote it would be data loss.
+   */
+  private established = false;
   private readonly listeners = new Set<(workspaces: Workspace[]) => void>();
 
   constructor(private readonly file: JsonStateFile<WorkspaceStateFile>) {}
@@ -31,13 +37,13 @@ export class WorkspaceService {
   /** Read from disk. Throws if the file exists but cannot be recovered. */
   public load(): void {
     const stored = this.file.read();
-    this.hadFileAtLoad = stored !== null;
+    this.established = stored !== null;
     this.workspaces = stored ? this.migrate(stored.workspaces, stored.version) : [];
   }
 
-  /** Whether state already exists, which is what gates the one-time import. */
+  /** Whether state has ever been established, which is what gates the one-time import. */
   public hasState(): boolean {
-    return this.hadFileAtLoad || this.workspaces.length > 0;
+    return this.established;
   }
 
   public getAll(): Workspace[] {
@@ -147,6 +153,7 @@ export class WorkspaceService {
   /** Persist first, then notify: no listener should see state a crash would lose. */
   private commit(): void {
     this.file.write({ version: CURRENT_WORKSPACE_STATE_VERSION, workspaces: this.workspaces });
+    this.established = true;
     for (const listener of this.listeners) listener(this.workspaces);
   }
 }

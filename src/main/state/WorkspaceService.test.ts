@@ -132,6 +132,38 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].id).toBe('w1');
   });
 
+  it('treats an imported empty list as state, so a second import cannot replace it', () => {
+    expect(service.importState([], 5)).toBe(true);
+
+    const second = service.importState(
+      [
+        {
+          id: 'w1',
+          name: 'late',
+          path: '/code/late',
+          isGitRepo: false,
+          defaultHarnessId: 'default',
+          sessions: [],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+      5
+    );
+
+    expect(second).toBe(false);
+    expect(service.getAll()).toEqual([]);
+  });
+
+  it('refuses an import once anything has been written, even on a fresh install', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    service.deleteWorkspace(workspace.id);
+
+    // The list is empty again, but this service has written to disk — a stale
+    // import arriving now would silently replace real state.
+    expect(service.importState([], 5)).toBe(false);
+  });
+
   it('runs the migration ladder on imported state', () => {
     service.importState(
       [
