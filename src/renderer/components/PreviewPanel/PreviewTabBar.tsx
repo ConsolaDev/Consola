@@ -113,7 +113,7 @@ function PreviewTabItem({
         </ContextMenu.Trigger>
 
         <ContextMenu.Portal>
-          <ContextMenu.Content className="dropdown-content dropdown-content-compact" sideOffset={4}>
+          <ContextMenu.Content className="dropdown-content dropdown-content-compact">
             <ContextMenu.Item className="dropdown-item" onSelect={onClose}>
               Close
             </ContextMenu.Item>
