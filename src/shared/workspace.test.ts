@@ -36,6 +36,12 @@ describe('migrateWorkspaceState', () => {
     expect(workspace.path).toBe('/code/consola');
     expect(workspace.isGitRepo).toBe(true);
     expect(workspace.projects).toBeUndefined();
+
+    // The deliberate fix: the v2 branch fills these too, not just the v3 branch,
+    // so a session migrated straight from v2 still gets a usable session ID.
+    const session = workspace.sessions[0];
+    expect(session.claudeSessionId).toMatch(UUID_V4);
+    expect(session.hasStarted).toBe(false);
   });
 
   it('mints a session UUID for pre-v4 sessions, which had no conversation of their own', () => {
