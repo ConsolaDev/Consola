@@ -1,16 +1,20 @@
-import { BrowserWindow } from 'electron';
+import { BrowserWindow, WebContents } from 'electron';
 import { TerminalService, TerminalExitInfo, TerminalServiceOptions } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
 
 /**
- * Owns one TerminalService per session tab and forwards its events to the
- * renderer.
+ * Owns one TerminalService per session tab and forwards its events.
  *
  * Terminals are kept alive for every open session, not just the visible one, so
- * background work keeps running and switching tabs is instant.
+ * background work keeps running and switching tabs is instant. A window is a
+ * view over that: closing one orphans its terminals without stopping them, and
+ * the next window to open the workspace reattaches and repaints from the
+ * replay buffer.
  */
 export class TerminalManager {
     private readonly terminals = new Map<string, TerminalService>();
+    /** Where this instance's output goes. Reassigned on every reattach. */
+    private readonly owners = new Map<string, WebContents>();
 
     constructor(private readonly getWindows: () => BrowserWindow[]) {}
 
@@ -21,8 +25,13 @@ export class TerminalManager {
      */
     public ensure(
         instanceId: string,
-        options: TerminalServiceOptions
+        options: TerminalServiceOptions,
+        owner: WebContents
     ): { replay: string; exited: boolean } {
+        // Set before starting: a terminal that emits during start() would
+        // otherwise have nowhere to send its first bytes.
+        this.owners.set(instanceId, owner);
+
         let terminal = this.terminals.get(instanceId);
 
         if (!terminal) {
@@ -50,6 +59,7 @@ export class TerminalManager {
         if (!terminal) return;
         terminal.destroy();
         this.terminals.delete(instanceId);
+        this.owners.delete(instanceId);
     }
 
     public destroyAll(): void {
@@ -58,7 +68,22 @@ export class TerminalManager {
         }
     }
 
-    private send(channel: string, payload: unknown): void {
+    /** Output goes only to the window rendering this pane. */
+    private sendToOwner(instanceId: string, channel: string, payload: unknown): void {
+        const owner = this.owners.get(instanceId);
+        if (owner && !owner.isDestroyed()) {
+            owner.send(channel, payload);
+        }
+    }
+
+    /**
+     * Status goes to every window.
+     *
+     * A window scoped to one workspace still has to show that a session in
+     * another one is waiting on a keypress, and these three flags are the only
+     * way it can know. They are small enough that broadcasting costs nothing.
+     */
+    private broadcast(channel: string, payload: unknown): void {
         for (const window of this.getWindows()) {
             if (!window.isDestroyed()) {
                 window.webContents.send(channel, payload);
@@ -68,19 +93,19 @@ export class TerminalManager {
 
     private wireEvents(instanceId: string, terminal: TerminalService): void {
         terminal.on('data', (data: string) => {
-            this.send(IPC_CHANNELS.TERMINAL_DATA, { instanceId, data });
+            this.sendToOwner(instanceId, IPC_CHANNELS.TERMINAL_DATA, { instanceId, data });
         });
 
         terminal.on('activity', (busy: boolean) => {
-            this.send(IPC_CHANNELS.TERMINAL_ACTIVITY, { instanceId, busy });
+            this.broadcast(IPC_CHANNELS.TERMINAL_ACTIVITY, { instanceId, busy });
         });
 
         terminal.on('awaiting-confirmation', (awaiting: boolean) => {
-            this.send(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, { instanceId, awaiting });
+            this.broadcast(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, { instanceId, awaiting });
         });
 
         terminal.on('exit', (info: TerminalExitInfo) => {
-            this.send(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
+            this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
         });
     }
 }
