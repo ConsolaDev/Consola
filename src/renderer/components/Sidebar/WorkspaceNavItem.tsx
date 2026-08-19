@@ -35,12 +35,12 @@ export function WorkspaceNavItem({ workspace }: WorkspaceNavItemProps) {
   };
 
   const handleDelete = async () => {
-    // Clear the selection first: deleting the active workspace would otherwise
-    // leave the content area pointed at a record that no longer exists.
+    await deleteWorkspace(workspace.id);
+    // Only after the record is actually gone: a failed delete should leave the
+    // workspace both on screen and selected.
     if (activeWorkspaceId === workspace.id) {
       setActiveWorkspace(null);
     }
-    await deleteWorkspace(workspace.id);
   };
 
   const handleAddSession = (e: React.MouseEvent) => {

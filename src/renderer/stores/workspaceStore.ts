@@ -1,11 +1,6 @@
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
-import {
-  CURRENT_WORKSPACE_STATE_VERSION,
-  type NewSessionFields,
-  type Session,
-  type Workspace,
-} from '../../shared/workspace';
+import { type NewSessionFields, type Session, type Workspace } from '../../shared/workspace';
 
 export type { Session, Workspace } from '../../shared/workspace';
 export { migrateWorkspaceState } from '../../shared/workspace';
@@ -112,10 +107,7 @@ export async function hydrateWorkspaceStore(): Promise<void> {
   if (snapshot.needsImport) {
     const legacy = readLegacyState();
     if (legacy) {
-      await workspaceBridge.importState(
-        legacy.workspaces,
-        legacy.version || CURRENT_WORKSPACE_STATE_VERSION
-      );
+      await workspaceBridge.importState(legacy.workspaces, legacy.version);
       snapshot = await workspaceBridge.getSnapshot();
     }
   }
