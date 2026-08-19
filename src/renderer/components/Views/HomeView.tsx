@@ -27,7 +27,7 @@ export function HomeView() {
         <p className="home-view-description">
           {workspaces.length === 0
             ? 'Create your first workspace to get started'
-            : 'Select a workspace from the sidebar or create a new one'}
+            : 'Pick a workspace from the top bar, or create a new one'}
         </p>
         <button className="home-view-button" onClick={handleCreateWorkspace}>
           <Plus size={18} />

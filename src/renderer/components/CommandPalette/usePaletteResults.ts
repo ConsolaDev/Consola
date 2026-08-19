@@ -102,6 +102,7 @@ export function usePaletteContext(): PaletteContext {
       selectableHarnesses,
       allSessions,
       exitedSessions,
+      terminals,
       fileStatuses,
       gitStatusRootPath,
       stagedCount,
@@ -117,6 +118,7 @@ export function usePaletteContext(): PaletteContext {
       selectableHarnesses,
       allSessions,
       exitedSessions,
+      terminals,
       fileStatuses,
       gitStatusRootPath,
       stagedCount,
@@ -148,14 +150,14 @@ function collectCandidates(
       case 'sessions':
         return buildSessionItems(ctx.allSessions);
       case 'workspaces':
-        return buildWorkspaceItems(ctx.workspaces);
+        return buildWorkspaceItems(ctx.workspaces, ctx.terminals);
       case 'files':
         return buildFileItems(ctx);
       default:
         return [
           ...buildActionItems(ctx),
           ...buildSessionItems(ctx.allSessions),
-          ...buildWorkspaceItems(ctx.workspaces),
+          ...buildWorkspaceItems(ctx.workspaces, ctx.terminals),
           ...buildFileItems(ctx),
         ];
     }
