@@ -192,6 +192,15 @@ export function setupIpcHandlers(): boolean {
     terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
     const manager = terminalManager;
 
+    // With no windows open on macOS the app is still alive and sessions are
+    // still running. The badge is the only thing that says so.
+    manager.onAttentionChanged = () => {
+        if (typeof app.setBadgeCount === 'function') {
+            const count = manager.getAttentionCount();
+            app.setBadgeCount(count > 0 ? count : 0);
+        }
+    };
+
     // Start or attach to a session's terminal. Returns buffered output so a
     // remounted view repaints without restarting the conversation.
     ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (event, options: TerminalCreateOptions) => {
@@ -805,6 +814,17 @@ ${truncatedDiff}`;
     });
 
     return true;
+}
+
+/**
+ * The ids restoreWindowLayout may point a window at.
+ *
+ * Only valid once setupIpcHandlers() has returned true — before that,
+ * workspaceService is null and every saved window falls back to Home, which
+ * is the same as an empty workspace list here.
+ */
+export function getKnownWorkspaceIds(): Set<string> {
+    return new Set((workspaceService?.getAll() ?? []).map((workspace) => workspace.id));
 }
 
 export function cleanupIpcHandlers(): void {
