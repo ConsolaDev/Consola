@@ -115,6 +115,10 @@
 }
 
 .command-palette-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
   padding: var(--space-3) var(--space-4) var(--space-1);
   color: var(--color-text-tertiary);
   font-family: var(--font-mono);
@@ -123,6 +127,19 @@
   letter-spacing: 0.12em;
   text-transform: uppercase;
   user-select: none;
+}
+
+/* The chord that jumps straight to this section, taught where it is useful.
+   Unboxed and dimmer than a row's shortcut: it belongs to the heading, and
+   four bordered keycaps down the list would read as another column. */
+.command-palette-section-shortcut {
+  flex-shrink: 0;
+  color: var(--color-text-disabled);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  letter-spacing: 0;
+  text-transform: none;
 }
 
 .command-palette-row {
@@ -267,6 +284,55 @@
   border-radius: var(--radius-sm);
   background: var(--color-bg-primary);
   font-family: var(--font-mono);
+}
+
+/*
+ * The sigil legend, under an untouched palette.
+ *
+ * A footer rather than a row in the list: it is a key to the input, not
+ * something the arrow keys should ever land on.
+ */
+.command-palette-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-top: 1px solid var(--color-border);
+  flex-shrink: 0;
+}
+
+.command-palette-legend-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: var(--color-text-disabled);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  transition: color var(--transition-fast);
+}
+
+.command-palette-legend-item:hover {
+  color: var(--color-text-secondary);
+}
+
+.command-palette-legend-item kbd {
+  min-width: 16px;
+  padding: 1px var(--space-1);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-tertiary);
+  font-family: var(--font-mono);
+  text-align: center;
+}
+
+.command-palette-legend-item:hover kbd {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
 }
 
 /* Status letters reuse the git palette used by the explorer and review panel */

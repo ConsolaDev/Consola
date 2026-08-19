@@ -12,23 +12,47 @@ import {
   renameSession,
   restartSession,
 } from '../../utils/sessionActions';
+import { SCOPE_SHORTCUT_LABELS } from '../../utils/platform';
 import { CommandPaletteRow, rowElementId } from './CommandPaletteRow';
 import { usePaletteContext, usePaletteResults } from './usePaletteResults';
-import { SECTION_LABELS, type PaletteItem, type PaletteMode } from './types';
+import {
+  SCOPE_LABELS,
+  SCOPE_PLACEHOLDERS,
+  SCOPE_SIGILS,
+  SECTION_LABELS,
+  scopeForSigil,
+  sigilForScope,
+  type PaletteItem,
+  type PaletteMode,
+  type PaletteScope,
+} from './types';
 import '../Dialogs/styles.css';
 import './styles.css';
 
 interface CommandPaletteProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /** Section to open narrowed to, when a scope chord did the opening. */
+  initialScope: PaletteScope | null;
 }
 
 const ROOT_MODE: PaletteMode = { kind: 'root' };
 
 /** Placeholder and heading text per mode. */
-function describeMode(mode: PaletteMode): { title: string | null; placeholder: string } {
+function describeMode(
+  mode: PaletteMode,
+  scope: PaletteScope | null
+): { title: string | null; placeholder: string } {
   switch (mode.kind) {
     case 'root':
+      // The scope pill replaces the sigil the user typed, so it carries the
+      // sigil with it — otherwise the mapping is only ever taught once.
+      if (scope) {
+        return {
+          title: `${sigilForScope(scope)} ${SCOPE_LABELS[scope]}`,
+          placeholder: SCOPE_PLACEHOLDERS[scope],
+        };
+      }
       return { title: null, placeholder: 'Search sessions, workspaces, files and actions…' };
     case 'pick-workspace':
       return { title: 'New session in', placeholder: 'Pick a workspace…' };
@@ -49,8 +73,9 @@ function describeMode(mode: PaletteMode): { title: string | null; placeholder: s
   }
 }
 
-export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
+export function CommandPalette({ open, onOpenChange, initialScope }: CommandPaletteProps) {
   const [query, setQuery] = useState('');
+  const [scope, setScope] = useState<PaletteScope | null>(null);
   const [modeStack, setModeStack] = useState<PaletteMode[]>([ROOT_MODE]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
@@ -59,8 +84,8 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const mode = modeStack[modeStack.length - 1];
   const context = usePaletteContext();
-  const { groups, flat } = usePaletteResults(open, mode, query, context);
-  const { title, placeholder } = useMemo(() => describeMode(mode), [mode]);
+  const { groups, flat } = usePaletteResults(open, mode, scope, query, context);
+  const { title, placeholder } = useMemo(() => describeMode(mode, scope), [mode, scope]);
 
   // Row position comes from the flat list rather than being recounted while
   // rendering groups, so keyboard indexes cannot drift from what is drawn.
@@ -70,17 +95,20 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
   );
 
   // The palette is a fire-and-forget tool: every open starts from scratch.
+  // Keyed on the scope too, so a scope chord pressed while the palette is
+  // already up re-aims it instead of being swallowed.
   useEffect(() => {
     if (!open) return;
     setQuery('');
+    setScope(initialScope);
     setModeStack([ROOT_MODE]);
     setSelectedIndex(0);
-  }, [open]);
+  }, [open, initialScope]);
 
-  // A new mode or query means the old selection no longer refers to anything.
+  // A new mode, scope or query means the old selection refers to nothing.
   useEffect(() => {
     setSelectedIndex(0);
-  }, [mode, query]);
+  }, [mode, scope, query]);
 
   // Results can shrink under a selection that was valid a keystroke ago.
   useEffect(() => {
@@ -107,6 +135,39 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
     setModeStack((stack) => (stack.length > 1 ? stack.slice(0, -1) : stack));
     setQuery('');
   }, []);
+
+  /**
+   * Take the query, lifting a leading sigil out of it into the scope.
+   *
+   * The sigil never survives as text: it is swallowed and rendered as the
+   * pill instead, so what is left in the field is only ever the search. Only
+   * the head of an unscoped root query counts, which leaves `~` and `#`
+   * usable inside a filename or a branch further along.
+   */
+  const handleQueryChange = useCallback(
+    (value: string) => {
+      if (scope === null && mode.kind === 'root' && value.length > 0) {
+        const sigilScope = scopeForSigil(value[0]);
+        if (sigilScope) {
+          setScope(sigilScope);
+          // Pasting "@notes" scopes and searches in one go.
+          setQuery(value.slice(1));
+          return;
+        }
+      }
+      setQuery(value);
+    },
+    [scope, mode]
+  );
+
+  /** Widen back to everything, keeping the query — it still means something. */
+  const clearScope = useCallback(() => setScope(null), []);
+
+  /** One step back: out of a picker if we are in one, otherwise out of the scope. */
+  const goBack = useCallback(() => {
+    if (modeStack.length > 1) popMode();
+    else clearScope();
+  }, [modeStack.length, popMode, clearScope]);
 
   /** Act on a session chosen in a picker. */
   const handlePickedSession = useCallback(
@@ -253,9 +314,11 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
         break;
       }
       case 'Backspace':
-        if (query.length === 0 && modeStack.length > 1) {
+        // Deleting past the start of an empty field peels off one layer, the
+        // picker first and then the scope, mirroring the back button.
+        if (query.length === 0 && (modeStack.length > 1 || scope !== null)) {
           event.preventDefault();
-          popMode();
+          goBack();
         }
         break;
       default:
@@ -265,6 +328,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
 
   const isRenaming = mode.kind === 'rename-session';
   const selectedItem = flat[selectedIndex];
+  const showLegend = mode.kind === 'root' && scope === null && query.trim() === '';
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
@@ -282,20 +346,20 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
           // palette. Radix dismisses on Escape from a document listener, so
           // this is the only place that can intercept it.
           onEscapeKeyDown={(event) => {
-            if (modeStack.length > 1) {
+            if (modeStack.length > 1 || scope !== null) {
               event.preventDefault();
-              popMode();
+              goBack();
             }
           }}
         >
           <Dialog.Title className="sr-only">Command palette</Dialog.Title>
 
           <div className="command-palette-input-row">
-            {modeStack.length > 1 ? (
+            {modeStack.length > 1 || scope !== null ? (
               <button
                 type="button"
                 className="command-palette-back"
-                onClick={popMode}
+                onClick={goBack}
                 aria-label="Back"
                 tabIndex={-1}
               >
@@ -311,7 +375,7 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               ref={inputRef}
               className="command-palette-input"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => handleQueryChange(event.target.value)}
               placeholder={placeholder}
               // Renaming turns this into an ordinary text field: there is no
               // listbox rendered then, so the combobox roles would point at
@@ -342,14 +406,19 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
                 className="command-palette-list"
               >
                 {groups.map((group) => (
-                  <div key={group.section} role="group" aria-labelledby={`cp-header-${group.section}`}>
-                    <div
-                      id={`cp-header-${group.section}`}
-                      role="presentation"
-                      className="command-palette-section-header"
-                    >
-                      {SECTION_LABELS[group.section]}
-                    </div>
+                  <div key={group.section} role="group" aria-label={SECTION_LABELS[group.section]}>
+                    {/* Scoped, the pill already says which section this is, and
+                        the chord it teaches has just been used. */}
+                    {scope === null && (
+                      <div role="presentation" className="command-palette-section-header">
+                        <span>{SECTION_LABELS[group.section]}</span>
+                        {SCOPE_SHORTCUT_LABELS[group.section] && (
+                          <kbd className="command-palette-section-shortcut">
+                            {SCOPE_SHORTCUT_LABELS[group.section]}
+                          </kbd>
+                        )}
+                      </div>
+                    )}
                     {group.items.map((item) => {
                       const rowIndex = rowIndexById.get(item.id) ?? -1;
                       return (
@@ -372,7 +441,31 @@ export function CommandPalette({ open, onOpenChange }: CommandPaletteProps) {
               {flat.length === 0 && (
                 <div className="command-palette-empty" role="status" aria-live="polite">
                   <SearchX size={16} />
-                  <span>No results{query.trim() ? ` for "${query.trim()}"` : ''}</span>
+                  <span>
+                    No {scope ? SCOPE_LABELS[scope].toLowerCase() : 'results'}
+                    {query.trim() ? ` for "${query.trim()}"` : ''}
+                  </span>
+                </div>
+              )}
+
+              {/* The sigils are only worth anything if they are visible before
+                  you know them, so they sit under an untouched palette and
+                  step aside the moment there is a query to read instead. */}
+              {showLegend && (
+                <div className="command-palette-legend">
+                  {SCOPE_SIGILS.map((entry) => (
+                    <button
+                      type="button"
+                      key={entry.sigil}
+                      className="command-palette-legend-item"
+                      // The input must keep focus, or the next keystroke is lost.
+                      onMouseDown={(event) => event.preventDefault()}
+                      onClick={() => setScope(entry.scope)}
+                    >
+                      <kbd>{entry.sigil}</kbd>
+                      <span>{SCOPE_LABELS[entry.scope]}</span>
+                    </button>
+                  ))}
                 </div>
               )}
             </>

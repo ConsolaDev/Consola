@@ -1,12 +1,14 @@
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { isCommandPaletteShortcut } from '../utils/platform';
+import { isCommandPaletteShortcut, matchScopeShortcut } from '../utils/platform';
+import type { PaletteScope } from '../components/CommandPalette/types';
 
 interface UseKeyboardShortcutsOptions {
   onNewSession?: () => void;
   onOpenSettings?: () => void;
   onTogglePalette?: () => void;
+  onOpenScopedPalette?: (scope: PaletteScope) => void;
 }
 
 /**
@@ -21,7 +23,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
-  const { onNewSession, onOpenSettings, onTogglePalette } = options;
+  const { onNewSession, onOpenSettings, onTogglePalette, onOpenScopedPalette } = options;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -30,6 +32,15 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (isCommandPaletteShortcut(event)) {
         event.preventDefault();
         onTogglePalette?.();
+        return;
+      }
+
+      // The scoped chords open rather than toggle: pressing one while the
+      // palette is up should re-aim it, not dismiss it.
+      const scope = matchScopeShortcut(event);
+      if (scope) {
+        event.preventDefault();
+        onOpenScopedPalette?.(scope);
         return;
       }
 
@@ -73,5 +84,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [toggleSidebar, toggleExplorer, cycleTheme, onNewSession, onOpenSettings, onTogglePalette]);
+  }, [
+    toggleSidebar,
+    toggleExplorer,
+    cycleTheme,
+    onNewSession,
+    onOpenSettings,
+    onTogglePalette,
+    onOpenScopedPalette,
+  ]);
 }
