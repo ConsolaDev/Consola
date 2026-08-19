@@ -70,3 +70,72 @@
   overflow: hidden;
   background: var(--color-bg-primary);
 }
+
+/* Workspace switcher */
+.workspace-switcher {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-2);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--font-size-1);
+  font-weight: 500;
+  cursor: pointer;
+  /* The header is a drag region; the button has to opt back out of it. */
+  -webkit-app-region: no-drag;
+}
+
+.workspace-switcher:hover {
+  background: var(--color-bg-hover);
+}
+
+.workspace-switcher-icon {
+  display: flex;
+  color: var(--color-text-secondary);
+}
+
+.workspace-switcher-name {
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/*
+ * The one signal the sidebar tree used to carry: something elsewhere wants
+ * you. Reuses the same variable as .session-status-indicator--attention
+ * (there is no --color-status-attention token) so the two dots cannot drift
+ * apart.
+ */
+.workspace-switcher-elsewhere {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--color-warning);
+}
+
+.workspace-switcher-chevron {
+  color: var(--color-text-tertiary);
+}
+
+.workspace-switcher-item-icon {
+  display: flex;
+  color: var(--color-text-secondary);
+}
+
+.workspace-switcher-item-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-switcher-item-count {
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-1);
+  font-variant-numeric: tabular-nums;
+}
