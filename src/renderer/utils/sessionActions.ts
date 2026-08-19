@@ -78,11 +78,21 @@ export async function deleteSessionCompletely(
   workspaceId: string,
   session: Session
 ): Promise<void> {
-  // The PTY dies first: if the record went away and this threw, the terminal
-  // would keep running with nothing left to reattach it to.
+  // The record goes first because it is the only step that can fail. Killing
+  // the PTY is a one-way send that cannot report an error, so doing it first
+  // would destroy a live terminal and leave the record behind on a failure.
+  try {
+    await useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
+  } catch (error) {
+    // The session stays in the list. That is the signal — there is no error
+    // surface in this app yet, and a session that visibly did not disappear is
+    // better than one that vanished from the UI but not from disk.
+    console.error('Failed to delete session record; leaving it in place', error);
+    return;
+  }
+
   terminalBridge.destroy(session.instanceId);
   useTerminalStore.getState().removeInstance(session.instanceId);
-  await useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
 
   if (useNavigationStore.getState().activeSessionId === session.id) {
     useNavigationStore.getState().setActiveSession(null);

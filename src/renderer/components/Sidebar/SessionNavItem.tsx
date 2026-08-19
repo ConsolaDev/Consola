@@ -45,12 +45,17 @@ export function SessionNavItem({
 
   const handleRename = async () => {
     const trimmedName = newName.trim();
-    if (trimmedName && trimmedName !== session.name) {
-      await updateSession(workspaceId, session.id, { name: trimmedName });
-    } else {
-      setNewName(session.name);
+    try {
+      if (trimmedName && trimmedName !== session.name) {
+        await updateSession(workspaceId, session.id, { name: trimmedName });
+      } else {
+        setNewName(session.name);
+      }
+    } finally {
+      // The field closes either way. A rename that failed leaves the old name
+      // on screen, which is the truth.
+      setIsRenaming(false);
     }
-    setIsRenaming(false);
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
