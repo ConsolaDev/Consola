@@ -49,12 +49,12 @@ function loadOrExit(load: () => void, what: string): boolean {
     }
 }
 
-export function setupIpcHandlers(): void {
+export function setupIpcHandlers(): boolean {
     const workspaceFile = new JsonStateFile<WorkspaceStateFile>(
         path.join(app.getPath('userData'), 'workspaces.json')
     );
     const workspaces = new WorkspaceService(workspaceFile);
-    if (!loadOrExit(() => workspaces.load(), 'workspaces')) return;
+    if (!loadOrExit(() => workspaces.load(), 'workspaces')) return false;
     workspaceService = workspaces;
 
     // Every window renders the same records, so a change goes to all of them
@@ -135,7 +135,7 @@ export function setupIpcHandlers(): void {
         path.join(app.getPath('userData'), 'harnesses.json')
     );
     const harnesses = new HarnessService(harnessFile);
-    if (!loadOrExit(() => harnesses.load(), 'harnesses')) return;
+    if (!loadOrExit(() => harnesses.load(), 'harnesses')) return false;
     harnessService = harnesses;
 
     harnesses.onChange((all) => {
@@ -740,6 +740,8 @@ ${truncatedDiff}`;
 
         return hunks;
     }
+
+    return true;
 }
 
 export function cleanupIpcHandlers(): void {
