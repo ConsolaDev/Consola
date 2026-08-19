@@ -22,7 +22,22 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
         path.join(app.getPath('userData'), 'workspaces.json')
     );
     const workspaces = new WorkspaceService(workspaceFile);
-    workspaces.load();
+    try {
+        workspaces.load();
+    } catch (error) {
+        // Refusing to start is right: booting with an empty list looks exactly
+        // like total data loss and would orphan every transcript. Refusing
+        // silently is not — name the file, and say where the conversations
+        // actually live, so this is recoverable by hand.
+        dialog.showErrorBox(
+            'Consola cannot read its workspaces',
+            `${String(error)}\n\n` +
+                'Your conversations are safe: they live in the CLI\'s own configuration ' +
+                'directory, not in this file. Repair or move the file above, then reopen Consola.'
+        );
+        app.exit(1);
+        return;
+    }
     workspaceService = workspaces;
 
     // Every window renders the same records, so a change goes to all of them
