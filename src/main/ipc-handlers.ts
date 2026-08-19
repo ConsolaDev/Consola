@@ -89,6 +89,11 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
             // compile-time contract only, and an extra key from a stale or
             // untrusted renderer would be absorbed by the service's `{ ...ws,
             // ...updates }` spread with no runtime check.
+            //
+            // Both allowed keys use `!== undefined` (not the harness update
+            // handler's presence check): `name` and `defaultHarnessId` are
+            // required fields on `Workspace` and are never legitimately cleared,
+            // so an explicit `undefined` here can only be a bug, not a value.
             const allowed: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>> = {};
             if (updates.name !== undefined) allowed.name = updates.name;
             if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
@@ -164,20 +169,24 @@ export function setupIpcHandlers(mainWindow: BrowserWindow): void {
     );
 
     ipcMain.handle(IPC_CHANNELS.HARNESS_UPDATE, (_event, id: string, updates: HarnessUpdates) => {
-        // Whitelisted rather than passed through: `HarnessUpdates` is a
-        // compile-time contract only, and a stale or untrusted renderer could
-        // send `id`, `driverId`, `isBuiltIn`, or `archived` in the same payload.
-        // The service applies updates with a `{ ...harness, ...updates }`
-        // spread, so an absorbed `archived: false` could un-archive a harness
-        // and an absorbed `id`/`driverId` could rewrite the routing key
-        // sessions resolve against.
+        // Rebuilt from an allow-list rather than forwarded: TypeScript's Pick<>
+        // is gone by the time a payload crosses IPC, and `archived`, `isBuiltIn`,
+        // `id` and `driverId` must never be settable this way — un-archiving a
+        // harness or rewriting its id would strand every session that resolves
+        // against it.
+        //
+        // The two groups are tested differently on purpose. For the optional
+        // launch fields, `undefined` IS the value: it means "pin nothing", which
+        // is how a harness resolves the way Consola did before harnesses existed.
+        // Structured clone preserves an explicitly-undefined key, so presence is
+        // what distinguishes "clear this" from "leave it alone".
         const allowed: HarnessUpdates = {};
         if (updates.name !== undefined) allowed.name = updates.name;
         if (updates.accentColor !== undefined) allowed.accentColor = updates.accentColor;
         if (updates.enabled !== undefined) allowed.enabled = updates.enabled;
-        if (updates.binaryPath !== undefined) allowed.binaryPath = updates.binaryPath;
-        if (updates.configDir !== undefined) allowed.configDir = updates.configDir;
         if (updates.extraArgs !== undefined) allowed.extraArgs = updates.extraArgs;
+        if ('binaryPath' in updates) allowed.binaryPath = updates.binaryPath;
+        if ('configDir' in updates) allowed.configDir = updates.configDir;
         harnesses.updateHarness(id, allowed);
     });
 
