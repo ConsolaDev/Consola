@@ -22,18 +22,23 @@ import {
   type PaletteItem,
   type PaletteMode,
   type PaletteResults,
+  type PaletteScope,
 } from './types';
 
 /**
  * Cap per group, so one long list cannot push the others off screen.
  *
  * Actions are exempt: the set is bounded by construction, and capping it meant
- * a browsing user with two workspaces never saw "Open settings" at all.
+ * a browsing user with two workspaces never saw "Open settings" at all. The
+ * scoped section is exempt too — nothing is competing for the space, and
+ * hiding the ninth session from someone who asked for sessions is the exact
+ * problem the scope was reached for.
  */
 const MAX_PER_SECTION = 8;
 
-function sectionLimit(section: PaletteItem['section']): number {
-  return section === 'actions' ? Number.POSITIVE_INFINITY : MAX_PER_SECTION;
+function sectionLimit(section: PaletteItem['section'], scope: PaletteScope | null): number {
+  if (section === 'actions' || section === scope) return Number.POSITIVE_INFINITY;
+  return MAX_PER_SECTION;
 }
 
 /** Live snapshot of everything the palette can act on. */
@@ -125,15 +130,35 @@ export function usePaletteContext(): PaletteContext {
 
 const EMPTY_RESULTS: PaletteResults = { groups: [], flat: [] };
 
-/** Candidates for a mode, before the query narrows them. */
-function collectCandidates(mode: PaletteMode, ctx: PaletteContext): PaletteItem[] {
+/**
+ * Candidates for a mode, before the query narrows them.
+ *
+ * A scope skips the other builders rather than filtering their output: the
+ * expensive part is building and scoring candidates nobody will see.
+ */
+function collectCandidates(
+  mode: PaletteMode,
+  ctx: PaletteContext,
+  scope: PaletteScope | null
+): PaletteItem[] {
   if (mode.kind === 'root') {
-    return [
-      ...buildActionItems(ctx),
-      ...buildSessionItems(ctx.allSessions),
-      ...buildWorkspaceItems(ctx.workspaces),
-      ...buildFileItems(ctx),
-    ];
+    switch (scope) {
+      case 'actions':
+        return buildActionItems(ctx);
+      case 'sessions':
+        return buildSessionItems(ctx.allSessions);
+      case 'workspaces':
+        return buildWorkspaceItems(ctx.workspaces);
+      case 'files':
+        return buildFileItems(ctx);
+      default:
+        return [
+          ...buildActionItems(ctx),
+          ...buildSessionItems(ctx.allSessions),
+          ...buildWorkspaceItems(ctx.workspaces),
+          ...buildFileItems(ctx),
+        ];
+    }
   }
   if (mode.kind === 'rename-session') return [];
   return buildPickerItems(mode, ctx);
@@ -149,6 +174,7 @@ function collectCandidates(mode: PaletteMode, ctx: PaletteContext): PaletteItem[
 export function usePaletteResults(
   open: boolean,
   mode: PaletteMode,
+  scope: PaletteScope | null,
   query: string,
   ctx: PaletteContext
 ): PaletteResults {
@@ -158,7 +184,7 @@ export function usePaletteResults(
     // candidate for a palette nobody can see is the part worth skipping.
     if (!open) return EMPTY_RESULTS;
 
-    const candidates = collectCandidates(mode, ctx);
+    const candidates = collectCandidates(mode, ctx, scope);
     const trimmed = query.trim();
 
     const scored: Array<{ item: PaletteItem; score: number }> = [];
@@ -176,7 +202,7 @@ export function usePaletteResults(
     const bySection = new Map<PaletteItem['section'], PaletteItem[]>();
     for (const { item } of scored) {
       const bucket = bySection.get(item.section) ?? [];
-      if (bucket.length < sectionLimit(item.section)) bucket.push(item);
+      if (bucket.length < sectionLimit(item.section, scope)) bucket.push(item);
       bySection.set(item.section, bucket);
     }
 
@@ -190,5 +216,5 @@ export function usePaletteResults(
     }
 
     return { groups, flat };
-  }, [open, mode, query, ctx]);
+  }, [open, mode, scope, query, ctx]);
 }

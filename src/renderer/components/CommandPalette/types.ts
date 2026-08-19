@@ -14,6 +14,50 @@ export const SECTION_LABELS: Record<PaletteSection, string> = {
 };
 
 /**
+ * A section the palette has been narrowed to.
+ *
+ * Scope is not a mode: it changes which candidates exist, not what the palette
+ * is asking for, so a query still means the same thing inside one.
+ */
+export type PaletteScope = PaletteSection;
+
+/**
+ * The leading characters that narrow the palette, in legend order.
+ *
+ * Held as one list rather than two maps so a sigil and its section cannot
+ * drift apart; the lookups below are over four entries.
+ */
+export const SCOPE_SIGILS: ReadonlyArray<{ sigil: string; scope: PaletteScope }> = [
+  { sigil: '>', scope: 'actions' },
+  { sigil: '@', scope: 'sessions' },
+  { sigil: '#', scope: 'workspaces' },
+  { sigil: '~', scope: 'files' },
+];
+
+export function scopeForSigil(character: string): PaletteScope | null {
+  return SCOPE_SIGILS.find((entry) => entry.sigil === character)?.scope ?? null;
+}
+
+export function sigilForScope(scope: PaletteScope): string {
+  return SCOPE_SIGILS.find((entry) => entry.scope === scope)?.sigil ?? '';
+}
+
+/** Title case, unlike SECTION_LABELS: these read as a phrase, not a heading. */
+export const SCOPE_LABELS: Record<PaletteScope, string> = {
+  actions: 'Actions',
+  sessions: 'Sessions',
+  workspaces: 'Workspaces',
+  files: 'Changed files',
+};
+
+export const SCOPE_PLACEHOLDERS: Record<PaletteScope, string> = {
+  actions: 'Search actions…',
+  sessions: 'Search sessions…',
+  workspaces: 'Search workspaces…',
+  files: 'Search changed files…',
+};
+
+/**
  * What the palette is currently asking for.
  *
  * An action that needs a target pushes the mode that collects it rather than

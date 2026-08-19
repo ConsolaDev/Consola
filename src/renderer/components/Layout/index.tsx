@@ -13,7 +13,7 @@ import './styles.css';
 
 export function Layout() {
   const { openSettings } = useSettings();
-  const { togglePalette } = useCommandPalette();
+  const { togglePalette, openPalette } = useCommandPalette();
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
@@ -28,6 +28,7 @@ export function Layout() {
     onNewSession: handleNewSession,
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,
+    onOpenScopedPalette: openPalette,
   });
   useTheme();
   useWindowDropGuard();

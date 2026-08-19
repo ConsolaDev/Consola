@@ -1,8 +1,10 @@
 import { createContext, useCallback, useContext, useRef, useState, type ReactNode } from 'react';
 import { CommandPalette } from '../components/CommandPalette';
+import type { PaletteScope } from '../components/CommandPalette/types';
 
 interface CommandPaletteContextType {
-  openPalette: () => void;
+  /** Opens narrowed to one section when given a scope, otherwise wide. */
+  openPalette: (scope?: PaletteScope) => void;
   closePalette: () => void;
   togglePalette: () => void;
 }
@@ -11,6 +13,7 @@ const CommandPaletteContext = createContext<CommandPaletteContextType | null>(nu
 
 export function CommandPaletteProvider({ children }: { children: ReactNode }) {
   const [isOpen, setIsOpen] = useState(false);
+  const [initialScope, setInitialScope] = useState<PaletteScope | null>(null);
   const returnFocusTo = useRef<HTMLElement | null>(null);
 
   /**
@@ -22,9 +25,12 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
    * would mean the next keystroke goes nowhere instead of to the CLI, so the
    * element is captured before opening and focused again afterwards.
    */
-  const setOpen = useCallback((next: boolean) => {
+  const setOpen = useCallback((next: boolean, scope: PaletteScope | null = null) => {
     if (next) {
       returnFocusTo.current = document.activeElement as HTMLElement | null;
+      // Held here rather than passed through open(): the palette resets itself
+      // on every open, and this is what it resets the scope to.
+      setInitialScope(scope);
     }
     setIsOpen(next);
     if (!next) {
@@ -37,7 +43,10 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  const openPalette = useCallback(() => setOpen(true), [setOpen]);
+  const openPalette = useCallback(
+    (scope?: PaletteScope) => setOpen(true, scope ?? null),
+    [setOpen]
+  );
   const closePalette = useCallback(() => setOpen(false), [setOpen]);
   // Toggles, so the same chord dismisses a palette that is already up.
   const togglePalette = useCallback(() => setOpen(!isOpen), [setOpen, isOpen]);
@@ -48,7 +57,7 @@ export function CommandPaletteProvider({ children }: { children: ReactNode }) {
       {/* Kept mounted while closed: the palette skips its own work in that
           state, and tearing the dialog down entirely loses the focus handling
           above. */}
-      <CommandPalette open={isOpen} onOpenChange={setOpen} />
+      <CommandPalette open={isOpen} onOpenChange={setOpen} initialScope={initialScope} />
     </CommandPaletteContext.Provider>
   );
 }
