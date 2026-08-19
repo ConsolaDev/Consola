@@ -1,61 +1,55 @@
-import { Settings, Home, Plus } from 'lucide-react';
+import { Plus, Settings } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettings } from '../../contexts/SettingsContext';
-import { dialogBridge } from '../../services/dialogBridge';
-import { NavItem } from './NavItem';
-import { WorkspaceNavItem } from './WorkspaceNavItem';
+import { SessionNavItem } from './SessionNavItem';
+import { activateSession, createQuickSession } from '../../utils/sessionActions';
 import './styles.css';
 
+/**
+ * The sessions of the workspace this window holds.
+ *
+ * Flat on purpose: a window shows one workspace, so there is nothing left to
+ * nest under. Which workspace that is lives in the top bar.
+ */
 export function Sidebar() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
-  const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
+  const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const createWorkspace = useWorkspaceStore((state) => state.createWorkspace);
   const { openSettings } = useSettings();
 
   if (isSidebarHidden) {
     return null;
   }
 
-  const handleNewWorkspace = async () => {
-    const result = await dialogBridge.selectFolder();
-    if (result) {
-      const workspace = await createWorkspace(result.name, result.path, result.isGitRepo);
-      setActiveWorkspace(workspace.id);
-    }
-  };
+  const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId) ?? null;
+  // Sessions appear once Claude has named them, so an unnamed one is a session
+  // whose first turn has not landed yet.
+  const sessions = workspace?.sessions.filter((session) => session.name.length > 0) ?? [];
 
-  const handleGoHome = () => {
-    setActiveWorkspace(null);
-  };
-
-  const newWorkspaceButton = (
-    <button className="sidebar-section-button" onClick={handleNewWorkspace}>
+  const newSessionButton = (
+    <button
+      className="sidebar-section-button"
+      onClick={() => workspace && void createQuickSession(workspace.id)}
+      disabled={!workspace}
+    >
       <Plus size={14} />
     </button>
   );
 
   return (
     <aside className="sidebar">
-      <div className="sidebar-nav">
-        <NavItem
-          icon={<Home size={16} />}
-          label="Home"
-          onClick={handleGoHome}
-        />
-      </div>
-
       <div className="sidebar-section">
         <div className="sidebar-section-header">
-          <span className="sidebar-section-title">Workspaces</span>
+          <span className="sidebar-section-title">Sessions</span>
           <Tooltip.Provider delayDuration={200}>
             <Tooltip.Root>
-              <Tooltip.Trigger asChild>{newWorkspaceButton}</Tooltip.Trigger>
+              <Tooltip.Trigger asChild>{newSessionButton}</Tooltip.Trigger>
               <Tooltip.Portal>
                 <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
-                  New Workspace
+                  New Session
                   <span className="tooltip-shortcut">⌘N</span>
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
@@ -63,10 +57,17 @@ export function Sidebar() {
             </Tooltip.Root>
           </Tooltip.Provider>
         </div>
-        <nav className="workspace-list">
-          {workspaces.map((workspace) => (
-            <WorkspaceNavItem key={workspace.id} workspace={workspace} />
-          ))}
+        <nav className="session-list">
+          {workspace &&
+            sessions.map((session) => (
+              <SessionNavItem
+                key={session.id}
+                session={session}
+                workspaceId={workspace.id}
+                isActive={activeSessionId === session.id}
+                onClick={() => activateSession(workspace.id, session.id)}
+              />
+            ))}
         </nav>
       </div>
 

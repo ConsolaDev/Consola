@@ -70,7 +70,7 @@ export function SessionNavItem({
 
   return (
     <button
-      className={`session-nav-item session-nav-item--indent-1 ${isActive ? 'active' : ''}`}
+      className={`session-nav-item ${isActive ? 'active' : ''}`}
       onClick={isRenaming ? undefined : onClick}
     >
       <span className="session-nav-item-icon">

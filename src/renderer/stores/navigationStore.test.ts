@@ -28,16 +28,12 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     isExplorerVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
-    expandedWorkspaces: {},
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
     toggleExplorer: vi.fn(),
     setExplorerVisible: vi.fn(),
     setActiveWorkspace: vi.fn(),
     setActiveSession: vi.fn(),
-    toggleWorkspaceExpanded: vi.fn(),
-    setWorkspaceExpanded: vi.fn(),
-    isWorkspaceExpanded: vi.fn(),
     ...overrides,
   };
 }
@@ -60,7 +56,9 @@ describe('mergeNavigationState', () => {
     // Identity comes from `current` (window-context-seeded), never the blob.
     expect(result.activeWorkspaceId).toBe(current.activeWorkspaceId);
     expect(result.activeSessionId).toBe(current.activeSessionId);
-    expect(result.expandedWorkspaces).toBe(current.expandedWorkspaces);
+    // expandedWorkspaces no longer exists on NavigationState at all, so a v0
+    // blob carrying it must not resurrect it on the merged result.
+    expect(result).not.toHaveProperty('expandedWorkspaces');
     // The two real preferences do come from the blob.
     expect(result.isSidebarHidden).toBe(true);
     expect(result.isExplorerVisible).toBe(true);

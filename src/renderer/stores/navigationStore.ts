@@ -24,11 +24,6 @@ export interface NavigationState {
   /** Ask main for the workspace. Resolves once the verdict is known. */
   setActiveWorkspace: (id: string | null) => Promise<void>;
   setActiveSession: (id: string | null) => void;
-  // Read only by WorkspaceNavItem, which Task 12 deletes along with these.
-  expandedWorkspaces: Record<string, boolean>;
-  toggleWorkspaceExpanded: (workspaceId: string) => void;
-  setWorkspaceExpanded: (workspaceId: string, expanded: boolean) => void;
-  isWorkspaceExpanded: (workspaceId: string) => boolean;
 }
 
 /**
@@ -61,12 +56,11 @@ export function mergeNavigationState(
 
 export const useNavigationStore = create<NavigationState>()(
   persist(
-    (set, get) => ({
+    (set) => ({
       isSidebarHidden: false,
       isExplorerVisible: false,
       activeWorkspaceId: windowBridge.context.workspaceId,
       activeSessionId: windowBridge.context.activeSessionId,
-      expandedWorkspaces: {},
 
       toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
       setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
@@ -87,25 +81,11 @@ export const useNavigationStore = create<NavigationState>()(
         set({ activeSessionId: id });
         windowBridge.setActiveSession(id);
       },
-
-      toggleWorkspaceExpanded: (workspaceId) =>
-        set((state) => ({
-          expandedWorkspaces: {
-            ...state.expandedWorkspaces,
-            [workspaceId]: !get().isWorkspaceExpanded(workspaceId),
-          },
-        })),
-      setWorkspaceExpanded: (workspaceId, expanded) =>
-        set((state) => ({
-          expandedWorkspaces: { ...state.expandedWorkspaces, [workspaceId]: expanded },
-        })),
-      isWorkspaceExpanded: (workspaceId) => get().expandedWorkspaces[workspaceId] ?? true,
     }),
     {
       name: 'consola-navigation',
       storage: createJSONStorage(() => localStorage),
       // Identity is deliberately absent: it belongs to the window, not the app.
-      // expandedWorkspaces is absent too — it is about to stop existing.
       partialize: (state) => ({
         isSidebarHidden: state.isSidebarHidden,
         isExplorerVisible: state.isExplorerVisible,
