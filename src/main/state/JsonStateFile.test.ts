@@ -67,4 +67,31 @@ describe('JsonStateFile', () => {
 
     expect(() => file.read()).toThrow(StateFileCorruptError);
   });
+
+  it('keeps the last good backup when the primary is already corrupt', () => {
+    const file = new JsonStateFile<Shape>(filePath);
+    file.write({ version: 5, items: ['first'] });
+    file.write({ version: 5, items: ['second'] });
+
+    // Corruption from outside this class — a disk fault, a stray editor, a
+    // half-flushed write from an older build.
+    fs.writeFileSync(filePath, '{ corrupted externally');
+    file.write({ version: 5, items: ['third'] });
+
+    fs.writeFileSync(filePath, '{ corrupted again');
+
+    // 'first' is the newest value that was ever known to parse. Promoting the
+    // corrupt primary into .bak would have lost it.
+    expect(file.read()).toEqual({ version: 5, items: ['first'] });
+  });
+
+  it('reads the backup when the primary is missing entirely', () => {
+    const file = new JsonStateFile<Shape>(filePath);
+    file.write({ version: 5, items: ['first'] });
+    file.write({ version: 5, items: ['second'] });
+
+    fs.rmSync(filePath);
+
+    expect(file.read()).toEqual({ version: 5, items: ['first'] });
+  });
 });

@@ -16,12 +16,16 @@ export class StateFileCorruptError extends Error {
 }
 
 /**
- * A JSON file that survives a crash mid-write.
+ * A JSON file that survives an application-level crash mid-write.
  *
  * Writes go to a temp file, are flushed, and are renamed into place, so the
  * primary is either the old value or the new one and never a truncated mix.
  * The previous value is kept alongside as `.bak`, which is what makes a bad
  * primary recoverable instead of fatal.
+ *
+ * Does not protect against a hard power loss at the rename boundary, where the
+ * filesystem may revert to the pre-write state. The trade-off is appropriate for
+ * a desktop application.
  */
 export class JsonStateFile<T> {
   private readonly backupPath: string;
@@ -59,7 +63,7 @@ export class JsonStateFile<T> {
   public write(value: T): void {
     fs.mkdirSync(path.dirname(this.filePath), { recursive: true });
 
-    if (fs.existsSync(this.filePath)) {
+    if (fs.existsSync(this.filePath) && this.isReadable(this.filePath)) {
       fs.copyFileSync(this.filePath, this.backupPath);
     }
 
@@ -72,5 +76,22 @@ export class JsonStateFile<T> {
     }
 
     fs.renameSync(this.tempPath, this.filePath);
+  }
+
+  /**
+   * Whether a file on disk parses.
+   *
+   * Guards the backup copy. Promoting an unreadable primary into `.bak`
+   * would destroy the last good copy at exactly the moment it becomes
+   * load-bearing — a corrupt primary is when the backup is the only thing
+   * standing between the user and an empty workspace list.
+   */
+  private isReadable(candidate: string): boolean {
+    try {
+      JSON.parse(fs.readFileSync(candidate, 'utf8'));
+      return true;
+    } catch {
+      return false;
+    }
   }
 }
