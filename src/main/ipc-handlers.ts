@@ -176,7 +176,7 @@ export function setupIpcHandlers(): boolean {
 
     // Start or attach to a session's terminal. Returns buffered output so a
     // remounted view repaints without restarting the conversation.
-    ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (_event, options: TerminalCreateOptions) => {
+    ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (event, options: TerminalCreateOptions) => {
         const {
             instanceId,
             cwd,
@@ -206,7 +206,7 @@ export function setupIpcHandlers(): boolean {
             binaryOverride,
             configDirOverride,
             extraArgs,
-        });
+        }, event.sender);
     });
 
     ipcMain.on(IPC_CHANNELS.TERMINAL_INPUT, (_event, instanceId: string, data: string) => {
