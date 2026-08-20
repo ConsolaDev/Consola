@@ -51,8 +51,7 @@ export class HarnessService {
 
     public importState(harnesses: Harness[]): boolean {
         if (this.hasState()) return false;
-        this.harnesses = this.withBuiltIn(harnesses);
-        this.commit();
+        this.commit(this.withBuiltIn(harnesses));
         return true;
     }
 
@@ -67,16 +66,16 @@ export class HarnessService {
             createdAt: now,
             updatedAt: now,
         };
-        this.harnesses = [...this.harnesses, harness];
-        this.commit();
+        this.commit([...this.harnesses, harness]);
         return harness;
     }
 
     public updateHarness(id: string, updates: HarnessUpdates): void {
-        this.harnesses = this.harnesses.map((harness) =>
-            harness.id === id ? { ...harness, ...updates, updatedAt: Date.now() } : harness
+        this.commit(
+            this.harnesses.map((harness) =>
+                harness.id === id ? { ...harness, ...updates, updatedAt: Date.now() } : harness
+            )
         );
-        this.commit();
     }
 
     /**
@@ -100,10 +99,11 @@ export class HarnessService {
     }
 
     private setArchived(id: string, archived: boolean): void {
-        this.harnesses = this.harnesses.map((harness) =>
-            harness.id === id ? { ...harness, archived, updatedAt: Date.now() } : harness
+        this.commit(
+            this.harnesses.map((harness) =>
+                harness.id === id ? { ...harness, archived, updatedAt: Date.now() } : harness
+            )
         );
-        this.commit();
     }
 
     /** The built-in is always present, however the stored list arrived. */
@@ -113,9 +113,18 @@ export class HarnessService {
             : [createBuiltInHarness(), ...harnesses];
     }
 
-    private commit(): void {
-        this.file.write({ version: HARNESS_STATE_VERSION, harnesses: this.harnesses });
+    /**
+     * Persist, then adopt, then notify.
+     *
+     * The order is the point. If the write throws, `this.harnesses` still holds
+     * the last state that reached disk, so a failed mutation cannot leave a
+     * reader seeing a record that does not exist — and the caller still gets the
+     * exception.
+     */
+    private commit(next: Harness[]): void {
+        this.file.write({ version: HARNESS_STATE_VERSION, harnesses: next });
+        this.harnesses = next;
         this.established = true;
-        for (const listener of this.listeners) listener(this.harnesses);
+        for (const listener of this.listeners) listener(next);
     }
 }
