@@ -8,6 +8,7 @@ import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore'
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { PromptComposer } from '../PromptComposer';
 import { generateSessionInstanceId } from '../../utils/sessionActions';
+import { primaryScope } from '../../../shared/workspace';
 import './styles.css';
 
 interface NewSessionViewProps {
@@ -59,13 +60,13 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
   // Which scope this conversation will run in. Follows the workspace's
   // primary scope whenever the workspace changes, like the harness default.
   const [selectedScopeId, setSelectedScopeId] = useState<string | undefined>(
-    workspace.scopes[0]?.id
+    primaryScope(workspace)?.id
   );
   const selectedScope =
-    workspace.scopes.find((scope) => scope.id === selectedScopeId) ?? workspace.scopes[0];
+    workspace.scopes.find((scope) => scope.id === selectedScopeId) ?? primaryScope(workspace);
 
   useEffect(() => {
-    setSelectedScopeId(workspace.scopes[0]?.id);
+    setSelectedScopeId(primaryScope(workspace)?.id);
   }, [workspace.id]);
 
   const handleWorkspaceChange = (workspaceId: string) => {
