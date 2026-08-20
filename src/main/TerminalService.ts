@@ -126,6 +126,11 @@ export class TerminalService extends EventEmitter {
         return this.isAwaitingConfirmation;
     }
 
+    /** Whether output is still flowing — the CLI is working. */
+    public busy(): boolean {
+        return this.isBusy;
+    }
+
     /** Escape sequences that repaint the PTY's current screen. */
     public getReplayBuffer(): string {
         return this.screen?.snapshot() ?? '';

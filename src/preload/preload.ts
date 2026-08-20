@@ -6,6 +6,7 @@ import {
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
+    TerminalStatusSnapshot,
     HarnessLaunchFields,
     HarnessProbeResult,
     WorkspaceSnapshot,
@@ -54,6 +55,11 @@ contextBridge.exposeInMainWorld('terminalAPI', {
     // Tear down a session's terminal
     destroy: (instanceId: string): void => {
         ipcRenderer.send(IPC_CHANNELS.TERMINAL_DESTROY, instanceId);
+    },
+
+    // Live status of every terminal, for a window that missed the edges
+    getStatusSnapshot: (): Promise<TerminalStatusSnapshot> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT);
     },
 
     onData: (callback: (message: TerminalDataMessage) => void) =>

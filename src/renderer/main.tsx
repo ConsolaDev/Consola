@@ -5,6 +5,7 @@ import App from './App';
 import { useSettingsStore } from './stores/settingsStore';
 import { hydrateWorkspaceStore } from './stores/workspaceStore';
 import { hydrateHarnessStore } from './stores/harnessStore';
+import { hydrateTerminalStatus } from './stores/terminalStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
@@ -38,8 +39,10 @@ async function bootstrap() {
   try {
     // Records live in the main process now, so they have to arrive before the
     // first render — an empty list on screen is indistinguishable from having
-    // no workspaces at all.
-    await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore()]);
+    // no workspaces at all. Terminal status comes along for the ride: it is
+    // broadcast on change only, so a window that opened late has no other way
+    // to learn a session is already waiting on a keypress.
+    await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore(), hydrateTerminalStatus()]);
   } catch (error) {
     // A blank window is the one outcome worse than an error message: it looks
     // like the app started and the data is gone.
