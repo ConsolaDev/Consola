@@ -65,6 +65,25 @@ function parseAccounts(text: string): GhAccount[] {
 }
 
 /**
+ * Drop any line that could carry a credential, for text that ends up in
+ * `GhProbeResult.error` — which crosses IPC.
+ *
+ * `parseAccounts` only recognizes today's `gh auth status` wording; a future
+ * or unusual wording could slip past it while the masked `Token:` line is
+ * still present, so the fallback text is scrubbed independently of parsing
+ * rather than trusted just because parsing found nothing. Matches on the
+ * word "token" (catches `Token:` and `Token scopes:`) and on gh's own token
+ * prefixes, so a stray raw or masked token survives neither.
+ */
+function stripTokenLines(text: string): string {
+    return text
+        .split('\n')
+        .filter((line) => !/token/i.test(line) && !/\bgh[oprsu]_|\bgithub_pat_/i.test(line))
+        .join('\n')
+        .trim();
+}
+
+/**
  * A copy of `env` with GH_TOKEN layered on, or a plain copy for null.
  *
  * Always a copy: the base environment is shared (getLoginEnv caches it), and
@@ -121,11 +140,14 @@ export class GhBroker {
             resolvedBinary: binary,
             version: parseVersion(version.stdout),
             accounts,
+            // Scrubbed rather than raw: this field crosses IPC, and a gh
+            // version whose account-line wording parseAccounts doesn't
+            // recognize would otherwise carry its masked `Token:` line
+            // straight through here.
             ...(accounts.length === 0
                 ? {
                       error:
-                          status.stderr.trim() ||
-                          status.stdout.trim() ||
+                          stripTokenLines(`${status.stderr}\n${status.stdout}`) ||
                           'No GitHub accounts are signed in. Run `gh auth login`.',
                   }
                 : {}),
