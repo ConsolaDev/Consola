@@ -1,4 +1,4 @@
-import type { Workspace } from '../../shared/workspace';
+import type { Session, Workspace } from '../../shared/workspace';
 import type { HarnessUpdates } from '../../shared/harness';
 
 /**
@@ -37,5 +37,27 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
     // what separates "clear this" from "leave it alone".
     if ('binaryPath' in updates) allowed.binaryPath = updates.binaryPath;
     if ('configDir' in updates) allowed.configDir = updates.configDir;
+    return allowed;
+}
+
+export type SessionUpdates = Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>;
+
+/**
+ * The one that matters most: `harnessId` is deliberately not on the list.
+ *
+ * A session's harness is fixed for its lifetime — the transcript lives inside
+ * that harness's config directory and `--resume` only finds it there — so a
+ * rewritten `harnessId` would silently orphan the conversation rather than
+ * failing where anyone could see it. `id`, `workspaceId`, `instanceId` and
+ * `claudeSessionId` name the session and its terminal; `createdAt` is history.
+ */
+export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
+    const allowed: SessionUpdates = {};
+    // All three are required on the record and none is clearable, so
+    // `undefined` can only ever be a bug: absence and explicit-undefined are
+    // treated alike. Contrast the harness filter, where `undefined` is a value.
+    if (updates.name !== undefined) allowed.name = updates.name;
+    if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
+    if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
     return allowed;
 }

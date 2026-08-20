@@ -10,8 +10,13 @@ import { IPC_CHANNELS } from '../shared/constants';
 import { JsonStateFile } from './state/JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
-import { allowedHarnessUpdates, allowedWorkspaceUpdates } from './state/updateFilters';
-import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
+import {
+    allowedHarnessUpdates,
+    allowedSessionUpdates,
+    allowedWorkspaceUpdates,
+    type SessionUpdates,
+} from './state/updateFilters';
+import type { NewSessionFields, Workspace } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 import {
     assignWorkspace,
@@ -138,24 +143,11 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_UPDATE,
-        (
-            _event,
-            workspaceId: string,
-            sessionId: string,
-            updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
-        ) => {
-            // Whitelisted rather than passed through: `harnessId` is deliberately
-            // excluded. A session's harness is fixed for its lifetime — the
-            // transcript lives inside that harness's config directory, and
-            // `--resume` only finds it there, so accepting a rewritten
-            // `harnessId` from the IPC payload would silently orphan the
-            // conversation. `Partial<Pick<...>>` only enforces this at compile
-            // time; a stale or untrusted caller could still send the key.
-            const allowed: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>> = {};
-            if (updates.name !== undefined) allowed.name = updates.name;
-            if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
-            if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
-            workspaces.updateSession(workspaceId, sessionId, allowed);
+        (_event, workspaceId: string, sessionId: string, updates: SessionUpdates) => {
+            // Filtering lives in updateFilters.ts, tested there: `harnessId` is
+            // the field this keeps out, and `Partial<Pick<...>>` is gone by the
+            // time a payload crosses IPC.
+            workspaces.updateSession(workspaceId, sessionId, allowedSessionUpdates(updates));
         }
     );
 
