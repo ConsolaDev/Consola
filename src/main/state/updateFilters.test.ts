@@ -131,4 +131,45 @@ describe('allowedSessionUpdates', () => {
 
     expect('name' in result).toBe(false);
   });
+
+  it('passes groupId through — regrouping is organizational, not identity', () => {
+    const result = allowedSessionUpdates({ groupId: 'g1' });
+
+    expect(result).toEqual({ groupId: 'g1' });
+  });
+
+  it('preserves an explicit groupId: undefined as an own key, so leaving a group reaches the service', () => {
+    const result = allowedSessionUpdates({ groupId: undefined });
+
+    // Same mechanism as harness binaryPath: presence separates "clear this"
+    // from "leave it alone".
+    expect('groupId' in result).toBe(true);
+    expect(result.groupId).toBeUndefined();
+  });
+
+  it('omits groupId entirely when the key is absent from the input', () => {
+    const result = allowedSessionUpdates({ name: 'Renamed' });
+
+    expect('groupId' in result).toBe(false);
+  });
+
+  it('drops scopeId, cwd, kind and workItem even alongside a legitimate field', () => {
+    // The session's place, working directory, nature and origin are fixed at
+    // creation, exactly like harnessId and model: immutable by omission.
+    const payload = {
+      scopeId: 'other-scope',
+      cwd: '/somewhere/else',
+      kind: 'conductor',
+      workItem: { provider: 'github', repo: 'a/b', type: 'pr', number: 1 },
+      name: 'Legit rename',
+    } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('scopeId');
+    expect(result).not.toHaveProperty('cwd');
+    expect(result).not.toHaveProperty('kind');
+    expect(result).not.toHaveProperty('workItem');
+    expect(result.name).toBe('Legit rename');
+  });
 });
