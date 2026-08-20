@@ -2,7 +2,7 @@ import { memo } from 'react';
 import { ChevronRight, Folder, GitBranch, MessageSquare } from 'lucide-react';
 import { FileIcon } from '../FileExplorer/FileIcon';
 import { STATUS_LABELS } from '../FileExplorer/GitChangesItem';
-import { fuzzyMatch } from './fuzzyMatch';
+import { HighlightMatch } from '../HighlightMatch';
 import type { PaletteItem } from './types';
 
 interface CommandPaletteRowProps {
@@ -18,27 +18,6 @@ interface CommandPaletteRowProps {
 /** Row ids double as `aria-activedescendant` targets, so they must be valid. */
 export function rowElementId(itemId: string): string {
   return `command-palette-option-${encodeURIComponent(itemId)}`;
-}
-
-/** Bold the characters the query actually matched. */
-function HighlightedLabel({ label, query }: { label: string; query: string }) {
-  const match = query.trim() ? fuzzyMatch(query.trim(), label) : null;
-  if (!match || match.indices.length === 0) return <>{label}</>;
-
-  const matched = new Set(match.indices);
-  return (
-    <>
-      {label.split('').map((char, index) =>
-        matched.has(index) ? (
-          <mark key={index} className="command-palette-match">
-            {char}
-          </mark>
-        ) : (
-          <span key={index}>{char}</span>
-        )
-      )}
-    </>
-  );
 }
 
 function RowIcon({ item }: { item: PaletteItem }) {
@@ -87,7 +66,7 @@ export const CommandPaletteRow = memo(function CommandPaletteRow({
       <RowIcon item={item} />
 
       <span className="command-palette-row-label">
-        <HighlightedLabel label={item.label} query={query} />
+        <HighlightMatch label={item.label} query={query} />
       </span>
 
       {item.kind === 'workspace' && item.status && (

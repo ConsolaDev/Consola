@@ -99,6 +99,18 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
+  it('drops model even alongside a legitimate field', () => {
+    // Same invariant as harnessId, one layer along: the model is replayed on
+    // every relaunch, so a rewritten one would silently move a conversation
+    // onto a different model part-way through.
+    const payload = { model: 'haiku', name: 'Legit rename' } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('model');
+    expect(result.name).toBe('Legit rename');
+  });
+
   it('drops every field that names the session or its terminal', () => {
     const payload = {
       id: 'attacker-controlled',

@@ -1,0 +1,103 @@
+/*
+ * Inline typeahead menu.
+ *
+ * Sits under the composer rather than over the page, so it is styled closer to
+ * a dropdown than to the command palette: no backdrop, no animation that would
+ * lag behind a fast typist, and a width that follows the box it belongs to.
+ */
+.typeahead-popover {
+  /* Matches the anchor, so the menu reads as part of the composer. */
+  width: var(--radix-popover-trigger-width);
+  max-width: 100%;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevation-2);
+  z-index: var(--z-modal);
+  overflow: hidden;
+}
+
+.typeahead-list {
+  /* About seven rows before scrolling: enough to scan, short enough to leave
+     the prompt itself visible while choosing. */
+  max-height: 280px;
+  overflow-y: auto;
+  padding: var(--space-1) 0;
+}
+
+.typeahead-row {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  /* The 3px inset leaves room for the selected row's accent bar, as in the
+     command palette. */
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) - 3px);
+  border-left: 3px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.typeahead-row.selected {
+  background: color-mix(in srgb, var(--color-accent) 28%, var(--color-bg-secondary));
+  border-left-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.typeahead-row-label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-medium);
+}
+
+/* The name is wrapped rather than dropped straight into the row above, because
+   the highlighter emits one element per character: as direct flex children the
+   gap would land between every letter. */
+.typeahead-row-name {
+  flex-shrink: 0;
+  max-width: 100%;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Argument hints can be longer than the name they belong to, so the hint is
+   what gives way when the row runs out of width. */
+.typeahead-row-hint {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-weight: var(--font-weight-normal);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Descriptions run long -- Claude's own are whole sentences -- so they are
+   clamped to one line rather than allowed to set the row height. */
+.typeahead-row-description {
+  overflow: hidden;
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.typeahead-row.selected .typeahead-row-description {
+  color: var(--color-text-secondary);
+}
+
+/* Loading, empty and error states share a row-shaped slot so the menu does not
+   change size as it settles. */
+.typeahead-notice {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-tertiary);
+  font-size: var(--font-size-xs);
+}
+
+.typeahead-notice--error {
+  color: var(--color-error);
+}

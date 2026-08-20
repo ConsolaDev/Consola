@@ -49,6 +49,7 @@ src/shared/         → Shared types and IPC channel constants
 - `LoginEnvironment.ts` - The ambient login-shell environment, shared by every driver
 - `drivers/` - One driver per agent CLI: binary resolution, argv, env, health probe
 - `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
+- `HarnessCapabilitiesCache.ts` - Remembers what each harness said it can offer
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -120,12 +121,36 @@ Two invariants are load-bearing:
 
 - **A session's harness is fixed for its lifetime.** The transcript is written
   inside that harness's config directory, and `--resume` only finds it there.
+  A session's model is fixed the same way and for the same kind of reason: it
+  is replayed on every relaunch, so a later edit would move a conversation onto
+  a different model part-way through. Both are kept immutable by being absent
+  from `allowedSessionUpdates`, not by validation.
 - **Deleting a harness archives it.** The record has to outlive removal, or
   every conversation started under it would resume against the wrong profile.
 
 A harness that pins nothing resolves exactly as Consola did before harnesses
 existed, ambient `CLAUDE_CONFIG_DIR` included. Keep that true: it is what the
 built-in harness and every migrated session rely on.
+
+### Ask the CLI What It Can Do
+
+Slash commands, subagents and models are not Consola's to enumerate. The CLI
+answers an `initialize` control request over stream-json stdio with its own
+`/` menu — commands, agents, models, output styles and the signed-in account —
+before running any turn, so the question costs no tokens and starts no
+conversation (`drivers/claudeCapabilities.ts`).
+
+The answer is scoped to the harness's config directory, not the working
+directory: a repo's own `.claude/commands` never appears, so the probe runs
+from the home directory and is cached per harness rather than per workspace.
+That cache lives in the main process, because the probe starts a real process
+and runs the user's `SessionStart` hooks — once per harness, not once per
+window. Cache by what a harness *launches as*, never by its record id, and an
+edited harness re-probes with nothing to invalidate.
+
+Parse the response strictly. It is the CLI's own wire format rather than a
+promised contract, so an unrecognised shape must throw: a plausible-looking
+empty result would read as "this harness has no commands".
 
 ### Claude's Own Storage
 
