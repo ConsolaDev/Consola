@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { boundsAreVisible, dedupeByWorkspace } from './window-manager';
+import { boundsAreVisible, dedupeByWorkspace, resolveWindowContext } from './window-manager';
 
 describe('dedupeByWorkspace', () => {
   it('keeps only the first entry for a repeated workspace id', () => {
@@ -77,5 +77,31 @@ describe('boundsAreVisible', () => {
     const bounds = { x: 1440, y: 0, width: 200, height: 200 };
 
     expect(boundsAreVisible(bounds, [primary])).toBe(false);
+  });
+});
+
+describe('resolveWindowContext', () => {
+  it('keeps a workspace that still exists, and the session inside it', () => {
+    const context = { workspaceId: 'a', activeSessionId: 's1' };
+
+    expect(resolveWindowContext(context, new Set(['a']))).toEqual(context);
+  });
+
+  it('drops a workspace that has since been deleted — a window never holds a dead id', () => {
+    const context = { workspaceId: 'gone', activeSessionId: 's1' };
+
+    expect(resolveWindowContext(context, new Set(['a']))).toEqual({
+      workspaceId: null,
+      activeSessionId: null,
+    });
+  });
+
+  it('drops the session along with the workspace, since it named one inside it', () => {
+    const context = { workspaceId: null, activeSessionId: 's1' };
+
+    expect(resolveWindowContext(context, new Set(['a']))).toEqual({
+      workspaceId: null,
+      activeSessionId: null,
+    });
   });
 });

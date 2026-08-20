@@ -15,6 +15,17 @@ const contexts = new Map<number, WindowContext>();
 
 const EMPTY_CONTEXT: WindowContext = { workspaceId: null, activeSessionId: null };
 
+/**
+ * Where the last window that held a workspace was pointing when it closed.
+ *
+ * `contexts` is emptied as each window closes and the layout file is only
+ * written at quit, so on macOS — where closing every window leaves the app and
+ * its PTYs running — this is the only surviving record of where the user was.
+ * Without it the dock icon reopens an empty Home window and the sessions that
+ * are still running become invisible.
+ */
+let lastHeldContext: WindowContext | null = null;
+
 export function createWindow(
     context: WindowContext = EMPTY_CONTEXT,
     bounds?: Electron.Rectangle
@@ -66,6 +77,10 @@ export function createWindow(
     window.on('closed', () => {
         // Only the view is forgotten. The PTYs this window was rendering keep
         // running, and reattach to whichever window opens the workspace next.
+        const closing = contexts.get(windowId);
+        // A Home window is worth nothing to remember: reopening into one is
+        // already what happens with nothing remembered at all.
+        if (closing?.workspaceId) lastHeldContext = closing;
         contexts.delete(windowId);
     });
 
@@ -127,6 +142,31 @@ export function focusOrCreate(workspaceId: string): BrowserWindow {
 
 export function getAnyWindow(): BrowserWindow | null {
     return BrowserWindow.getAllWindows()[0] ?? null;
+}
+
+/**
+ * Strip a workspace id that no longer names anything.
+ *
+ * A window never holds a dead id. The session id goes with it rather than
+ * being kept: it names a session inside the workspace that is gone.
+ *
+ * Pure and exported so both restore paths can be exercised without a window.
+ */
+export function resolveWindowContext(
+    context: WindowContext,
+    knownWorkspaceIds: Set<string>
+): WindowContext {
+    const workspaceId =
+        context.workspaceId && knownWorkspaceIds.has(context.workspaceId)
+            ? context.workspaceId
+            : null;
+    return { workspaceId, activeSessionId: workspaceId ? context.activeSessionId : null };
+}
+
+/** Where to reopen when the dock icon is clicked with no windows left. */
+export function contextToReopen(knownWorkspaceIds: Set<string>): WindowContext {
+    if (!lastHeldContext) return EMPTY_CONTEXT;
+    return resolveWindowContext(lastHeldContext, knownWorkspaceIds);
 }
 
 /** Every open window's context and geometry, for restoring on next launch. */
@@ -225,20 +265,15 @@ export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
     // Resolve dead workspace ids to Home first, then dedupe: two entries that
     // both point at a since-deleted workspace are two ordinary Home windows,
     // not a duplicate worth collapsing.
-    const resolved = windows.map((entry) => {
-        const workspaceId =
-            entry.workspaceId && knownWorkspaceIds.has(entry.workspaceId) ? entry.workspaceId : null;
-        return {
-            workspaceId,
-            activeSessionId: workspaceId ? entry.activeSessionId : null,
-            // A rectangle that lands on no attached display is worth nothing:
-            // restoring it would create a window that runs, badges, and can
-            // never be seen. Dropping it here — not clamping — falls back to
-            // createWindow's own default placement instead of guessing at a
-            // position the window was never actually at.
-            bounds: boundsAreVisible(entry.bounds, displays) ? entry.bounds : undefined,
-        };
-    });
+    const resolved = windows.map((entry) => ({
+        ...resolveWindowContext(entry, knownWorkspaceIds),
+        // A rectangle that lands on no attached display is worth nothing:
+        // restoring it would create a window that runs, badges, and can never
+        // be seen. Dropping it here — not clamping — falls back to
+        // createWindow's own default placement instead of guessing at a
+        // position the window was never actually at.
+        bounds: boundsAreVisible(entry.bounds, displays) ? entry.bounds : undefined,
+    }));
 
     for (const entry of dedupeByWorkspace(resolved)) {
         createWindow({ workspaceId: entry.workspaceId, activeSessionId: entry.activeSessionId }, entry.bounds);
