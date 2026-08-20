@@ -80,7 +80,7 @@ export function createWindow(
         const closing = contexts.get(windowId);
         // A Home window is worth nothing to remember: reopening into one is
         // already what happens with nothing remembered at all.
-        if (closing?.workspaceId) lastHeldContext = closing;
+        if (closing?.workspaceId) lastHeldContext = { ...closing };
         contexts.delete(windowId);
     });
 
@@ -160,7 +160,9 @@ export function resolveWindowContext(
         context.workspaceId && knownWorkspaceIds.has(context.workspaceId)
             ? context.workspaceId
             : null;
-    return { workspaceId, activeSessionId: workspaceId ? context.activeSessionId : null };
+    // Normalised to null rather than passed through: a stored entry can omit
+    // the key, and this context is JSON-serialised into the renderer's argv.
+    return { workspaceId, activeSessionId: workspaceId ? context.activeSessionId ?? null : null };
 }
 
 /** Where to reopen when the dock icon is clicked with no windows left. */
