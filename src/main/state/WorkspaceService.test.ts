@@ -285,6 +285,14 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].scopes).toHaveLength(1);
   });
 
+  it('removeScope refuses to drop the last scope', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const scope = workspace.scopes[0];
+
+    expect(() => service.removeScope(workspace.id, scope.id)).toThrow(/at least one scope/i);
+    expect(service.getAll()[0].scopes).toHaveLength(1);
+  });
+
   it('createSession returns undefined for an unknown scope', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
 

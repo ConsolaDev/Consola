@@ -125,6 +125,12 @@ export class WorkspaceService {
       );
     }
 
+    // A workspace is never scope-less: every session resolves its cwd through
+    // a scope, so there must always be at least one to point at.
+    if (workspace.scopes.length <= 1) {
+      throw new Error('A workspace needs at least one scope.');
+    }
+
     this.commit(
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
