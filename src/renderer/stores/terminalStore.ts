@@ -97,3 +97,24 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
         return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
     },
 }));
+
+/**
+ * Seed the store from the main process's live terminal state.
+ *
+ * `activity`, `awaiting-confirmation` and `exit` are edge-triggered: main emits
+ * only when a flag changes, and this store is per-renderer and starts empty. A
+ * window opened after a session hit a permission prompt would therefore show no
+ * attention dot at all — the session is parked and will not emit again until a
+ * human answers it. Reading main's state once at startup closes that gap.
+ */
+export async function hydrateTerminalStatus(): Promise<void> {
+    const snapshot = await terminalBridge.getStatusSnapshot();
+
+    useTerminalStore.setState((state) => {
+        const terminals = { ...state.terminals };
+        for (const [instanceId, status] of Object.entries(snapshot)) {
+            terminals[instanceId] = { ...INITIAL_STATE, ...terminals[instanceId], ...status };
+        }
+        return { terminals };
+    });
+}

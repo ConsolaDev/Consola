@@ -1,6 +1,7 @@
 import { BrowserWindow, WebContents } from 'electron';
 import { TerminalService, TerminalExitInfo, TerminalServiceOptions } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
+import type { TerminalStatusSnapshot } from '../shared/types';
 
 /**
  * Owns one TerminalService per session tab and forwards its events.
@@ -62,6 +63,27 @@ export class TerminalManager {
 
     public get(instanceId: string): TerminalService | undefined {
         return this.terminals.get(instanceId);
+    }
+
+    /**
+     * The current status of every live terminal.
+     *
+     * The three status channels are edge-triggered — they fire on change and
+     * never repeat — so a window born after an edge has no way to learn about
+     * it. A session parked at a permission prompt is the case that hurts: it
+     * will not emit again until a human answers, so without this the new
+     * window would show no attention dot for exactly as long as it matters.
+     */
+    public statusSnapshot(): TerminalStatusSnapshot {
+        const snapshot: TerminalStatusSnapshot = {};
+        for (const [instanceId, terminal] of this.terminals) {
+            snapshot[instanceId] = {
+                isBusy: terminal.busy(),
+                isAwaitingConfirmation: terminal.awaitingConfirmation(),
+                hasExited: terminal.hasClaudeExited(),
+            };
+        }
+        return snapshot;
     }
 
     public destroy(instanceId: string): void {

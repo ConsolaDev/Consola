@@ -5,6 +5,7 @@ import type {
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
+    TerminalStatusSnapshot,
 } from '../../shared/types';
 
 /**
@@ -57,5 +58,10 @@ export const terminalBridge = {
 
     onExit(callback: (message: TerminalExitMessage) => void): () => void {
         return window.terminalAPI.onExit(callback);
+    },
+
+    /** Live status of every terminal main holds, for a window that missed the edges. */
+    getStatusSnapshot(): Promise<TerminalStatusSnapshot> {
+        return window.terminalAPI.getStatusSnapshot();
     },
 };
