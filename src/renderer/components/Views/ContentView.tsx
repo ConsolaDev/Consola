@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { driverSupportsSessionNaming } from '../../../shared/constants';
+import { scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
@@ -47,7 +48,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
 
   // Determine instanceId and cwd from workspace
   const instanceId = session?.instanceId ?? '';
-  const cwd = workspace?.path ?? '';
+  // The session's home scope decides where it runs, unless the session
+  // carries a cwd override (worktrees, from Phase 1 on).
+  const scope = workspace ? scopeForSession(workspace, session) : undefined;
+  const cwd = session?.cwd ?? scope?.path ?? '';
 
   const sessionName = session?.name;
   const claudeSessionId = session?.claudeSessionId;
@@ -66,8 +70,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   );
   const supportsSessionNaming = driverSupportsSessionNaming(launchFields.driverId);
 
-  // Enable auto-refresh of git status on window focus
-  useGitStatusAutoRefresh(workspace?.isGitRepo ? workspace.path : null);
+  // Enable auto-refresh of git status on window focus, rooted at the scope —
+  // not the cwd: a worktree session's changes belong to its repo's scope.
+  useGitStatusAutoRefresh(scope?.isGitRepo ? scope.path : null);
 
   // Record that this tab has launched, so reopening it resumes the
   // conversation instead of trying to create a session ID Claude already has.
@@ -145,9 +150,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </>
           )}
         </h1>
-        {workspace.path && (
+        {cwd && (
           <PathDisplay
-            path={workspace.path}
+            path={cwd}
             className="workspace-view-path"
             showExplorerToggle
             isExplorerVisible={isExplorerVisible}
