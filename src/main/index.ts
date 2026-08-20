@@ -1,5 +1,11 @@
 import { BrowserWindow, app } from 'electron';
-import { createWindow, getAnyWindow, restoreWindowLayout, saveWindowLayout } from './window-manager';
+import {
+    contextToReopen,
+    createWindow,
+    getAnyWindow,
+    restoreWindowLayout,
+    saveWindowLayout,
+} from './window-manager';
 import { setupIpcHandlers, cleanupIpcHandlers, getKnownWorkspaceIds } from './ipc-handlers';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
@@ -63,7 +69,12 @@ app.whenReady().then(() => {
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
-            createWindow();
+            // Reopen where the user left off, not on an empty Home. The window
+            // registry was emptied as each window closed and the layout file is
+            // only written at quit, so the last workspace a window held is all
+            // that survives — and it is the affordance that makes "the sessions
+            // are still running" visible rather than merely true.
+            createWindow(contextToReopen(getKnownWorkspaceIds()));
         }
     });
 });
