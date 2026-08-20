@@ -810,6 +810,15 @@ ${truncatedDiff}`;
                 return assignWorkspace(requesting, null) ? 'took' : 'focused-elsewhere';
             }
 
+            // A dropdown rendered before another window deleted this workspace
+            // still lists it, and clicking it would put an id nothing can
+            // resume into the registry — which saveWindowLayout then writes out.
+            // 'focused-elsewhere' is already the renderer's "you did not get it,
+            // change nothing" path, so no renderer knows this case exists.
+            if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId)) {
+                return 'focused-elsewhere';
+            }
+
             const holder = findWindowForWorkspace(workspaceId);
             if (holder && holder !== requesting) {
                 if (holder.isMinimized()) holder.restore();
