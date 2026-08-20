@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Minus, Plus } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Github, Minus, Plus } from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
@@ -10,9 +10,10 @@ import {
 import { useTheme } from '../../hooks/useTheme';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
+import { GitHubSection } from '../GitHub';
 import './styles.css';
 
-type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts';
+type SettingsSection = 'appearance' | 'harnesses' | 'github' | 'shortcuts';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -23,6 +24,7 @@ interface SettingsSectionConfig {
 const sections: SettingsSectionConfig[] = [
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'harnesses', label: 'Harnesses', icon: Boxes },
+  { id: 'github', label: 'GitHub', icon: Github },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
 ];
 
@@ -73,6 +75,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
               />
             )}
             {activeSection === 'harnesses' && <HarnessesSection />}
+            {activeSection === 'github' && <GitHubSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
           </div>
 
