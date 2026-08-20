@@ -32,6 +32,11 @@ export const IPC_CHANNELS = {
     WORKSPACE_SESSION_CREATE: 'workspace:session-create',
     WORKSPACE_SESSION_UPDATE: 'workspace:session-update',
     WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
+    WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
+    WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',
+    WORKSPACE_SET_GITHUB_BINDING: 'workspace:set-github-binding',
+    WORKSPACE_GROUP_CREATE: 'workspace:group-create',
+    WORKSPACE_GROUP_ARCHIVE: 'workspace:group-archive',
 
     // Workspace state (main -> every renderer)
     WORKSPACE_CHANGED: 'workspace:changed',
@@ -46,6 +51,10 @@ export const IPC_CHANNELS = {
 
     // Harness records (main -> every renderer)
     HARNESS_CHANGED: 'harness:changed',
+
+    // GitHub via the gh CLI (renderer -> main). Probes only: tokens are
+    // borrowed inside main at spawn/call time and never cross this boundary.
+    GH_PROBE: 'github:probe',
 
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker (multi-select)
