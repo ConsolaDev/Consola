@@ -1,4 +1,5 @@
 import { BUILT_IN_HARNESS_ID } from './constants';
+import type { WorkItemRef } from './github';
 
 /**
  * Workspace and session records, and the ladder that brings old ones forward.
@@ -24,23 +25,62 @@ export interface Session {
   // Absent means no `--model` flag at all, so the CLI picks its own default —
   // the same "pins nothing" behaviour the built-in harness relies on.
   model?: string;
+  // Where this session belongs: its home in the sidebar and the default
+  // working directory. Fixed for the session's lifetime, like the harness.
+  scopeId: string;
+  // Where it actually runs, when that differs from the scope's path — a
+  // worktree session's cwd is the worktree, its scope is the repo it belongs
+  // to. Fixed for the session's lifetime.
+  cwd?: string;
+  // Why it exists alongside others. Mutable: dragging a session between
+  // groups is an organizational act, not an identity change.
+  groupId?: string;
+  // What drives this session: a person, or a conductor orchestrating others.
+  kind: 'interactive' | 'conductor';
+  // The remote item this session was launched from, when it was. Immutable.
+  workItem?: WorkItemRef;
   createdAt: number;
   lastActiveAt: number;
+}
+
+/** A durable *place* sessions run in. Few per workspace; nesting is allowed. */
+export interface Scope {
+  id: string;
+  name: string;                    // Defaults to the folder basename
+  path: string;                    // Absolute; overlap between scopes is fine
+  isGitRepo: boolean;              // Cached at add time
+  createdAt: number;
+}
+
+/** A plain container for sessions that belong together. */
+export interface Group {
+  id: string;
+  name: string;
+  parentGroupId?: string;          // Nesting
+  conductorSessionId?: string;     // Set only by the orchestration door
+  createdAt: number;
+  archivedAt?: number;             // Done groups collapse out of the sidebar
 }
 
 export interface Workspace {
   id: string;
   name: string;                    // From folder name
-  path: string;                    // Absolute folder path (1:1 relationship)
-  isGitRepo: boolean;              // Whether .git folder exists
   defaultHarnessId: string;        // Preselected when starting a conversation here
+  scopes: Scope[];                 // Replaces path + isGitRepo (state v6)
+  groups: Group[];
+  // Absent = pure local workspace, exactly today's behavior. Present = every
+  // session PTY in this workspace gets GH_TOKEN for this account.
+  github?: {
+    accountLogin: string;          // Which `gh` keyring account
+    org?: string;                  // Scopes the Inbox query; absent = all repos
+  };
   sessions: Session[];
   createdAt: number;
   updatedAt: number;
 }
 
 /** Shape version of the persisted workspace list. */
-export const CURRENT_WORKSPACE_STATE_VERSION = 5;
+export const CURRENT_WORKSPACE_STATE_VERSION = 6;
 
 export function generateId(): string {
   return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
@@ -64,6 +104,42 @@ export function generateUuid(): string {
   });
 }
 
+export interface NewScopeFields {
+  name: string;
+  path: string;
+  isGitRepo: boolean;
+}
+
+/** Fields are picked, never spread: an IPC payload cannot ride extra keys in. */
+export function createScopeRecord(fields: NewScopeFields): Scope {
+  return {
+    id: generateId(),
+    name: fields.name,
+    path: fields.path,
+    isGitRepo: fields.isGitRepo,
+    createdAt: Date.now(),
+  };
+}
+
+export interface NewGroupFields {
+  name: string;
+  parentGroupId?: string;
+  conductorSessionId?: string;
+}
+
+export function createGroupRecord(fields: NewGroupFields): Group {
+  const group: Group = { id: generateId(), name: fields.name, createdAt: Date.now() };
+  if (fields.parentGroupId !== undefined) group.parentGroupId = fields.parentGroupId;
+  if (fields.conductorSessionId !== undefined) {
+    group.conductorSessionId = fields.conductorSessionId;
+  }
+  return group;
+}
+
+/**
+ * Same signature as before v6 on purpose: creation flows still start from one
+ * chosen folder, which becomes the workspace's first scope.
+ */
 export function createWorkspaceRecord(
   name: string,
   path: string,
@@ -74,9 +150,9 @@ export function createWorkspaceRecord(
   return {
     id: generateId(),
     name,
-    path,
-    isGitRepo,
     defaultHarnessId,
+    scopes: [createScopeRecord({ name, path, isGitRepo })],
+    groups: [],
     sessions: [],
     createdAt: now,
     updatedAt: now,
@@ -85,19 +161,44 @@ export function createWorkspaceRecord(
 
 export type NewSessionFields = Pick<
   Session,
-  'name' | 'workspaceId' | 'instanceId' | 'harnessId' | 'model'
->;
+  'name' | 'workspaceId' | 'instanceId' | 'harnessId' | 'model' | 'scopeId'
+> &
+  Partial<Pick<Session, 'cwd' | 'groupId' | 'kind' | 'workItem'>>;
 
 export function createSessionRecord(fields: NewSessionFields): Session {
   const now = Date.now();
   return {
     ...fields,
+    kind: fields.kind ?? 'interactive',
     id: generateId(),
     claudeSessionId: generateUuid(),
     hasStarted: false,
     createdAt: now,
     lastActiveAt: now,
   };
+}
+
+/**
+ * The workspace's first scope — what every pre-v6 flow implicitly meant by
+ * "the workspace folder". A workspace always has at least one scope: the
+ * migration mints it and the UI refuses to remove the last one.
+ */
+export function primaryScope(workspace: Workspace): Scope | undefined {
+  return workspace.scopes[0];
+}
+
+/**
+ * The scope a session belongs to, falling back to the primary scope so a
+ * dangling scopeId degrades to pre-v6 behavior instead of a blank pane.
+ */
+export function scopeForSession(
+  workspace: Workspace,
+  session: Pick<Session, 'scopeId'> | undefined
+): Scope | undefined {
+  if (!session) return primaryScope(workspace);
+  return (
+    workspace.scopes.find((scope) => scope.id === session.scopeId) ?? primaryScope(workspace)
+  );
 }
 
 /**
