@@ -14,6 +14,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
+import { primaryScope } from '../../../shared/workspace';
 import { dialogBridge } from '../../services/dialogBridge';
 import { windowBridge } from '../../services/windowBridge';
 import { anyOtherWorkspaceNeedsAttention, workspaceStatusFor } from '../../utils/sessionStatus';
@@ -67,7 +68,7 @@ export function WorkspaceSwitcher() {
           }
         >
           <span className="workspace-switcher-icon">
-            {active?.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
+            {active && primaryScope(active)?.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
           </span>
           <span className="workspace-switcher-name">{active?.name ?? 'Select workspace'}</span>
           {/* Decorative: the button's own aria-label already carries this state.
@@ -90,7 +91,7 @@ export function WorkspaceSwitcher() {
                 onSelect={() => void setActiveWorkspace(workspace.id)}
               >
                 <span className="workspace-switcher-item-icon">
-                  {workspace.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
+                  {primaryScope(workspace)?.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
                 </span>
                 <span className="workspace-switcher-item-name">{workspace.name}</span>
                 {status && (
