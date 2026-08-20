@@ -125,7 +125,10 @@ export class GhBroker {
                 available: false,
                 resolvedBinary: binary,
                 accounts: [],
-                error: version.stderr.trim() || version.errorMessage || `\`${binary}\` did not run.`,
+                error:
+                    stripTokenLines(version.stderr) ||
+                    version.errorMessage ||
+                    `\`${binary}\` did not run.`,
             };
         }
 

@@ -587,7 +587,7 @@
 }
 
 .scope-row-action {
-  display: none;
+  display: inline-flex;
   align-items: center;
   justify-content: center;
   border: none;
@@ -596,10 +596,16 @@
   cursor: pointer;
   padding: 2px;
   border-radius: var(--radius-sm);
+  opacity: 0;
+  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
 }
 
 .scope-row:hover .scope-row-action {
-  display: inline-flex;
+  opacity: 1;
+}
+
+.scope-row:focus-within .scope-row-action {
+  opacity: 1;
 }
 
 .scope-row-action:hover {
