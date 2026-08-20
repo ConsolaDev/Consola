@@ -1,5 +1,13 @@
 import type { WorkspaceSnapshot } from '../../shared/types';
-import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
+import type {
+    Group,
+    NewGroupFields,
+    NewScopeFields,
+    NewSessionFields,
+    Scope,
+    Session,
+    Workspace,
+} from '../../shared/workspace';
 
 /**
  * Bridge to the workspace records owned by the main process.
@@ -44,13 +52,37 @@ export const workspaceBridge = {
     updateSession(
         workspaceId: string,
         sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
     ): Promise<void> {
         return window.workspaceAPI.updateSession(workspaceId, sessionId, updates);
     },
 
     deleteSession(workspaceId: string, sessionId: string): Promise<void> {
         return window.workspaceAPI.deleteSession(workspaceId, sessionId);
+    },
+
+    addScope(workspaceId: string, fields: NewScopeFields): Promise<Scope> {
+        return window.workspaceAPI.addScope(workspaceId, fields);
+    },
+
+    /** Rejects while any session still references the scope. */
+    removeScope(workspaceId: string, scopeId: string): Promise<void> {
+        return window.workspaceAPI.removeScope(workspaceId, scopeId);
+    },
+
+    setGitHubBinding(
+        workspaceId: string,
+        binding: { accountLogin: string; org?: string } | null
+    ): Promise<void> {
+        return window.workspaceAPI.setGitHubBinding(workspaceId, binding);
+    },
+
+    createGroup(workspaceId: string, fields: NewGroupFields): Promise<Group> {
+        return window.workspaceAPI.createGroup(workspaceId, fields);
+    },
+
+    archiveGroup(workspaceId: string, groupId: string): Promise<void> {
+        return window.workspaceAPI.archiveGroup(workspaceId, groupId);
     },
 
     onChanged(callback: (workspaces: Workspace[]) => void): () => void {

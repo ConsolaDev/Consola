@@ -15,7 +15,15 @@ import {
     ActivateWorkspaceResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
+import type {
+    Group,
+    NewGroupFields,
+    NewScopeFields,
+    NewSessionFields,
+    Scope,
+    Session,
+    Workspace,
+} from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 
 // Subscribe to a main->renderer channel, returning an unsubscribe function so
@@ -125,12 +133,30 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     updateSession: (
         workspaceId: string,
         sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
     ): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
 
     deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
+
+    addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
+
+    removeScope: (workspaceId: string, scopeId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE, workspaceId, scopeId),
+
+    setGitHubBinding: (
+        workspaceId: string,
+        binding: { accountLogin: string; org?: string } | null
+    ): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING, workspaceId, binding),
+
+    createGroup: (workspaceId: string, fields: NewGroupFields): Promise<Group> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_CREATE, workspaceId, fields),
+
+    archiveGroup: (workspaceId: string, groupId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE, workspaceId, groupId),
 
     onChanged: (callback: (workspaces: Workspace[]) => void) =>
         subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
