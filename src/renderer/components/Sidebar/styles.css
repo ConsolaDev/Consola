@@ -551,6 +551,67 @@
   border-radius: var(--radius-full);
 }
 
+/* --- Scopes tree ------------------------------------------------------- */
+
+.scope-group {
+  display: flex;
+  flex-direction: column;
+}
+
+.scope-group + .scope-group {
+  margin-top: 6px;
+}
+
+.scope-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px var(--space-2);
+  color: var(--color-text-secondary);
+  font-size: var(--sidebar-font-size-small);
+  user-select: none;
+}
+
+.scope-row-icon {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.scope-row-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.scope-row-action {
+  display: none;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+}
+
+.scope-row:hover .scope-row-action {
+  display: inline-flex;
+}
+
+.scope-row-action:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Sessions sit one step in from their scope's label. */
+.scope-group .session-nav-item {
+  margin-left: var(--space-3);
+}
+
 /* ═══════════════════════════════════════════════════════════
    REDUCED MOTION - Respect user preferences
    ═══════════════════════════════════════════════════════════ */
