@@ -202,11 +202,24 @@ export function scopeForSession(
 }
 
 /**
+ * The last path segment, or undefined for an empty path.
+ *
+ * Hand-rolled rather than node's `path.basename` because this module is
+ * shared with the renderer, where node builtins are unavailable.
+ */
+function scopeNameFromPath(target: unknown): string | undefined {
+  if (typeof target !== 'string' || target === '') return undefined;
+  const segments = target.split(/[\\/]/).filter(Boolean);
+  return segments.length > 0 ? segments[segments.length - 1] : undefined;
+}
+
+/**
  * Bring persisted state forward to the current shape.
  *
  * v2 -> v3 removes projects and adds path to workspace;
  * v3 -> v4 gives every session a Claude session UUID;
- * v4 -> v5 binds every workspace and session to a harness.
+ * v4 -> v5 binds every workspace and session to a harness;
+ * v5 -> v6 folds the workspace folder into a single scope and binds sessions to it.
  *
  * Exported so the migration can be exercised on its own — it is the one piece
  * of this state whose failure would cost people conversations.
@@ -279,6 +292,35 @@ export function migrateWorkspaceState(persistedState: unknown, version: number):
         harnessId: s.harnessId ?? BUILT_IN_HARNESS_ID,
       })),
     }));
+  }
+
+  if (state.workspaces && version < 6) {
+    // v5 -> v6: the workspace's single folder becomes its single scope, and
+    // every session is bound to it. A migrated workspace behaves byte-for-byte
+    // as before: same path, same isGitRepo, no github binding — the GitHub
+    // organs only switch on when the user binds an account.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    state.workspaces = state.workspaces.map((ws: any) => {
+      const { path: wsPath, isGitRepo, ...rest } = ws;
+      const scope: Scope = ws.scopes?.[0] ?? {
+        id: generateId(),
+        name: scopeNameFromPath(wsPath) ?? ws.name ?? 'workspace',
+        path: typeof wsPath === 'string' ? wsPath : '',
+        isGitRepo: isGitRepo ?? false,
+        createdAt: ws.createdAt ?? Date.now(),
+      };
+      return {
+        ...rest,
+        scopes: ws.scopes ?? [scope],
+        groups: ws.groups ?? [],
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        sessions: (ws.sessions ?? []).map((s: any) => ({
+          ...s,
+          scopeId: s.scopeId ?? scope.id,
+          kind: s.kind ?? 'interactive',
+        })),
+      };
+    });
   }
 
   return state;
