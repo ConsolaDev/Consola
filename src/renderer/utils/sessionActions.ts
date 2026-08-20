@@ -3,6 +3,7 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
+import { primaryScope } from '../../shared/workspace';
 
 /**
  * Session operations that span more than one store.
@@ -66,20 +67,32 @@ export async function activateSessionAnywhere(
 }
 
 /**
- * Create a session with the workspace's default harness and open it.
+ * Create a session in a scope with the workspace's default harness, and open it.
  *
- * The quick path used by the sidebar's `+`. Choosing a different harness, or
- * starting with a prompt, happens on the new-session screen instead.
+ * The quick path used by the sidebar's `+`. With no scope named it lands in
+ * the primary scope — which is exactly where every session landed before
+ * scopes existed. Choosing a harness or starting with a prompt happens on the
+ * new-session screen instead.
  */
-export async function createQuickSession(workspaceId: string): Promise<Session | undefined> {
+export async function createQuickSession(
+  workspaceId: string,
+  scopeId?: string
+): Promise<Session | undefined> {
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
   if (!workspace) return undefined;
+
+  const scope =
+    (scopeId
+      ? workspace.scopes.find((candidate) => candidate.id === scopeId)
+      : undefined) ?? primaryScope(workspace);
+  if (!scope) return undefined;
 
   const session = await useWorkspaceStore.getState().createSession(workspaceId, {
     name: 'New Session',
     workspaceId,
     instanceId: generateSessionInstanceId(workspaceId),
     harnessId: workspace.defaultHarnessId,
+    scopeId: scope.id,
   });
 
   if (session) {

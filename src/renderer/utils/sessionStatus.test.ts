@@ -4,28 +4,27 @@ import {
   sessionStatusFor,
   workspaceStatusFor,
 } from './sessionStatus';
-import type { Workspace } from '../../shared/workspace';
+import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
 
+// Built through the record creators rather than hand-rolled, so a shape
+// change to Workspace/Session updates this fixture automatically. The
+// specific id is what the tests key off of; everything else the creators
+// fill in is incidental to what these tests check.
 function workspace(id: string, instanceIds: string[]): Workspace {
+  const record = createWorkspaceRecord(id, `/code/${id}`, true);
+  const scopeId = record.scopes[0].id;
   return {
+    ...record,
     id,
-    name: id,
-    path: `/code/${id}`,
-    isGitRepo: true,
-    defaultHarnessId: 'default',
-    createdAt: 1,
-    updatedAt: 1,
-    sessions: instanceIds.map((instanceId, index) => ({
-      id: `${id}-s${index}`,
-      name: `Session ${index}`,
-      workspaceId: id,
-      instanceId,
-      claudeSessionId: '11111111-1111-4111-8111-111111111111',
-      hasStarted: true,
-      harnessId: 'default',
-      createdAt: 1,
-      lastActiveAt: 1,
-    })),
+    sessions: instanceIds.map((instanceId, index) =>
+      createSessionRecord({
+        name: `Session ${index}`,
+        workspaceId: id,
+        instanceId,
+        harnessId: record.defaultHarnessId,
+        scopeId,
+      })
+    ),
   };
 }
 
