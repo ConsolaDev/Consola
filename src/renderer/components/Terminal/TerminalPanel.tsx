@@ -9,6 +9,7 @@ import './styles.css';
 
 interface TerminalPanelProps {
     instanceId: string;
+    workspaceId: string;
     cwd: string;
     /** Session ID Consola assigned to this tab. */
     claudeSessionId: string;
@@ -28,6 +29,7 @@ interface TerminalPanelProps {
  */
 export function TerminalPanel({
     instanceId,
+    workspaceId,
     cwd,
     claudeSessionId,
     resume,
@@ -36,6 +38,7 @@ export function TerminalPanel({
 }: TerminalPanelProps) {
     const { containerRef, focus } = useTerminal({
         instanceId,
+        workspaceId,
         cwd,
         claudeSessionId,
         resume,

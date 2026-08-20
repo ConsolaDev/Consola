@@ -261,6 +261,7 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (event, options: TerminalCreateOptions) => {
         const {
             instanceId,
+            workspaceId,
             cwd,
             claudeSessionId,
             resume,
@@ -273,6 +274,15 @@ export function setupIpcHandlers(): boolean {
             configDirOverride,
             extraArgs,
         } = options;
+
+        // The workspace's GitHub binding, resolved here because this file owns
+        // the workspace records. TerminalService turns the login into a token
+        // at spawn time; the renderer never sees either step.
+        const workspace = workspaces
+            .getAll()
+            .find((candidate) => candidate.id === workspaceId);
+        const githubAccountLogin = workspace?.github?.accountLogin;
+
         return manager.ensure(instanceId, {
             cwd,
             claudeSessionId,
@@ -292,6 +302,7 @@ export function setupIpcHandlers(): boolean {
             binaryOverride,
             configDirOverride,
             extraArgs,
+            githubAccountLogin,
         }, event.sender);
     });
 

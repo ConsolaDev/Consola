@@ -12,6 +12,8 @@ import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xterm
 
 interface UseTerminalOptions {
     instanceId: string;
+    /** Workspace this session belongs to; main resolves its GitHub binding. */
+    workspaceId: string;
     cwd: string;
     claudeSessionId: string;
     /** Whether this tab has run before and should resume its conversation. */
@@ -31,6 +33,7 @@ interface UseTerminalOptions {
  */
 export function useTerminal({
     instanceId,
+    workspaceId,
     cwd,
     claudeSessionId,
     resume,
@@ -132,6 +135,7 @@ export function useTerminal({
         terminalBridge
             .create({
                 instanceId,
+                workspaceId,
                 cwd,
                 claudeSessionId,
                 resume,
@@ -178,7 +182,7 @@ export function useTerminal({
         };
         // The PTY identity is what matters here; theme and font are applied below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [instanceId, cwd, claudeSessionId, resume, setTerminalState]);
+    }, [instanceId, workspaceId, cwd, claudeSessionId, resume, setTerminalState]);
 
     // Follow the app's light/dark setting without rebuilding the terminal.
     useEffect(() => {

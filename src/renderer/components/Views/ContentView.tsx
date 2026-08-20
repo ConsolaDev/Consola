@@ -176,6 +176,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
             <TerminalPanel
               instanceId={instanceId}
+              workspaceId={workspaceId}
               cwd={cwd}
               claudeSessionId={session.claudeSessionId}
               resume={session.hasStarted}
