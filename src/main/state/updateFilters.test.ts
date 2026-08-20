@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessUpdates } from '../../shared/harness';
-import { allowedHarnessUpdates, allowedWorkspaceUpdates } from './updateFilters';
+import {
+  allowedHarnessUpdates,
+  allowedSessionUpdates,
+  allowedWorkspaceUpdates,
+  type SessionUpdates,
+} from './updateFilters';
 
 describe('allowedHarnessUpdates', () => {
   it('passes through a normal update', () => {
@@ -69,6 +74,48 @@ describe('allowedWorkspaceUpdates', () => {
 
   it('drops an explicit name: undefined rather than clobbering a real name', () => {
     const result = allowedWorkspaceUpdates({ name: undefined });
+
+    expect('name' in result).toBe(false);
+  });
+});
+
+describe('allowedSessionUpdates', () => {
+  it('passes through a normal update', () => {
+    const result = allowedSessionUpdates({ name: 'Refactor the parser', hasStarted: true });
+
+    expect(result).toEqual({ name: 'Refactor the parser', hasStarted: true });
+  });
+
+  it('drops harnessId even alongside a legitimate field', () => {
+    // Cast through `as unknown as SessionUpdates` to model what IPC can deliver
+    // once TypeScript's `Pick<>` is gone. This is the invariant that matters
+    // most here: the transcript lives in the harness's config directory, so a
+    // rewritten harnessId would resume against the wrong profile — or nothing.
+    const payload = { harnessId: 'other', name: 'Legit rename' } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('harnessId');
+    expect(result.name).toBe('Legit rename');
+  });
+
+  it('drops every field that names the session or its terminal', () => {
+    const payload = {
+      id: 'attacker-controlled',
+      workspaceId: 'somewhere-else',
+      instanceId: 'someone-elses-pty',
+      claudeSessionId: '11111111-1111-4111-8111-111111111111',
+      createdAt: 0,
+      lastActiveAt: 42,
+    } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).toEqual({ lastActiveAt: 42 });
+  });
+
+  it('drops an explicit name: undefined rather than clobbering a real name', () => {
+    const result = allowedSessionUpdates({ name: undefined });
 
     expect('name' in result).toBe(false);
   });
