@@ -180,6 +180,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               claudeSessionId={session.claudeSessionId}
               resume={session.hasStarted}
               harness={launchFields}
+              // Read from the session record rather than re-resolved: unlike
+              // the harness's launch fields, this was chosen once for this
+              // conversation and must not drift.
+              model={session.model}
             />
           </Panel>
           {hasOpenTabs && (

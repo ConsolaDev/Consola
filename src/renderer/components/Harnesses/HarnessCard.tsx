@@ -1,5 +1,6 @@
 import { Pencil, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { useHarnessStore, type Harness } from '../../stores/harnessStore';
+import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { describeHarnessStatus, HarnessStatusDot } from './HarnessStatusBadge';
 import './styles.css';
 
@@ -26,6 +27,12 @@ export function HarnessCard({
   const archiveHarness = useHarnessStore((state) => state.archiveHarness);
   const restoreHarness = useHarnessStore((state) => state.restoreHarness);
 
+  // Displayed, never requested: `enabled: false` means this card shows a
+  // richer account line if some composer already asked, but merely opening
+  // settings never starts a probe of its own. The probe runs the user's
+  // session hooks, which is too much to spend on a row coming into view.
+  const capabilities = useHarnessCapabilities(harness, false);
+
   const isProbing = status?.state === 'probing';
 
   return (
@@ -48,7 +55,12 @@ export function HarnessCard({
               <button
                 type="button"
                 className="harness-icon-button"
-                onClick={() => void probeHarness(harness.id)}
+                onClick={() => {
+                  void probeHarness(harness.id);
+                  // Only re-ask what was already asked. Checking a harness
+                  // should not be the thing that first spends a probe on it.
+                  if (capabilities.capabilities) capabilities.retry();
+                }}
                 disabled={isProbing}
                 aria-label={`Re-check ${harness.name}`}
                 title="Re-check"
@@ -60,7 +72,7 @@ export function HarnessCard({
           <span className="harness-card-status">
             {harness.archived
               ? `Archived${sessionCount > 0 ? ` · ${sessionCount} session${sessionCount === 1 ? '' : 's'} still use this` : ''}`
-              : describeHarnessStatus(status)}
+              : describeHarnessStatus(status, capabilities.capabilities?.account)}
           </span>
         </div>
       </div>

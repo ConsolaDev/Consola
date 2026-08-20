@@ -19,6 +19,11 @@ export interface Session {
   // transcript lives in that harness's config directory, so resuming under a
   // different one would lose the conversation.
   harnessId: string;
+  // Model this conversation runs on, as the CLI's own selector value. Fixed
+  // for the session's lifetime like the harness, and replayed on every resume.
+  // Absent means no `--model` flag at all, so the CLI picks its own default —
+  // the same "pins nothing" behaviour the built-in harness relies on.
+  model?: string;
   createdAt: number;
   lastActiveAt: number;
 }
@@ -78,7 +83,10 @@ export function createWorkspaceRecord(
   };
 }
 
-export type NewSessionFields = Pick<Session, 'name' | 'workspaceId' | 'instanceId' | 'harnessId'>;
+export type NewSessionFields = Pick<
+  Session,
+  'name' | 'workspaceId' | 'instanceId' | 'harnessId' | 'model'
+>;
 
 export function createSessionRecord(fields: NewSessionFields): Session {
   const now = Date.now();

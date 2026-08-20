@@ -18,6 +18,8 @@ interface UseTerminalOptions {
     resume: boolean;
     /** Binary, config directory and arguments from this session's harness. */
     harness: HarnessLaunchFields;
+    /** Model this session was pinned to, replayed on every launch. */
+    model?: string;
 }
 
 /**
@@ -33,6 +35,7 @@ export function useTerminal({
     claudeSessionId,
     resume,
     harness,
+    model,
 }: UseTerminalOptions) {
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
@@ -135,6 +138,7 @@ export function useTerminal({
                 cols: terminal.cols,
                 rows: terminal.rows,
                 initialPrompt,
+                model,
                 // Read at creation time on purpose: the PTY is already running
                 // for an existing session, and a harness edit only applies to
                 // the next launch.

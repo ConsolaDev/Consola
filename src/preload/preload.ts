@@ -8,6 +8,7 @@ import {
     TerminalExitMessage,
     TerminalStatusSnapshot,
     HarnessLaunchFields,
+    HarnessCapabilitiesResult,
     HarnessProbeResult,
     WorkspaceSnapshot,
     WindowContext,
@@ -86,6 +87,10 @@ contextBridge.exposeInMainWorld('harnessAPI', {
         fields: HarnessLaunchFields
     ): Promise<string | null> => {
         return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
+    },
+
+    getCapabilities: (fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_CAPABILITIES, fields);
     },
 });
 

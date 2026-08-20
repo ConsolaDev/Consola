@@ -1,10 +1,12 @@
-import { useState, useRef, useEffect } from 'react';
-import { Send, ChevronDown } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ChevronDown } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
+import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
+import { PromptComposer } from '../PromptComposer';
 import { generateSessionInstanceId } from '../../utils/sessionActions';
 import './styles.css';
 
@@ -15,7 +17,6 @@ interface NewSessionViewProps {
 export function NewSessionView({ workspace }: NewSessionViewProps) {
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const createSession = useWorkspaceStore((state) => state.createSession);
@@ -34,21 +35,26 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
     selectableHarnesses.find((harness) => harness.id === selectedHarnessId) ??
     selectableHarnesses[0];
 
-  // Focus the textarea when the view mounts, and follow the workspace's own
-  // default whenever the workspace changes.
+  // Which model this conversation will be pinned to. Undefined means no
+  // `--model` flag at all, leaving the CLI on its own default.
+  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
+
+  // The composer probes for these too; both read the same cached answer, so
+  // naming the models here costs nothing extra.
+  const { capabilities } = useHarnessCapabilities(selectedHarness, true);
+  const models = capabilities?.models ?? [];
+  const selectedModelInfo = models.find((model) => model.value === selectedModel);
+
+  // Follow the workspace's own default whenever the workspace changes.
   useEffect(() => {
-    textareaRef.current?.focus();
     setSelectedHarnessId(workspace.defaultHarnessId);
   }, [workspace.id, workspace.defaultHarnessId]);
 
-  // Auto-resize textarea
+  // A model belongs to the harness that offers it, so a different harness
+  // starts from its default again rather than keeping a value it may not have.
   useEffect(() => {
-    const textarea = textareaRef.current;
-    if (textarea) {
-      textarea.style.height = 'auto';
-      textarea.style.height = `${Math.min(textarea.scrollHeight, 200)}px`;
-    }
-  }, [prompt]);
+    setSelectedModel(undefined);
+  }, [selectedHarness?.id]);
 
   const handleWorkspaceChange = (workspaceId: string) => {
     setActiveWorkspace(workspaceId);
@@ -71,6 +77,9 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
         // Fixed now and never changed: the conversation's transcript will live
         // in this harness's config directory, and resuming reads it back.
         harnessId: selectedHarness?.id ?? workspace.defaultHarnessId,
+        // Fixed now for the same reason as the harness: every later launch,
+        // including a resume, replays it.
+        model: selectedModel,
       });
 
       if (!session) {
@@ -89,13 +98,6 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
       setPrompt('');
     } finally {
       setIsSubmitting(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault();
-      handleSubmit();
     }
   };
 
@@ -165,28 +167,58 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
               </DropdownMenu.Root>
             </>
           )}
+
+          {models.length > 0 && (
+            <>
+              <span>on</span>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button className="workspace-dropdown-trigger">
+                    <span>{selectedModelInfo?.displayName ?? 'Default model'}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="dropdown-content workspace-dropdown-content"
+                    sideOffset={4}
+                  >
+                    {/* Leaving the model unset is a real choice, not an empty
+                        one: it is what lets the CLI's own default apply, and
+                        keep applying as that default changes. */}
+                    <DropdownMenu.Item
+                      className={`dropdown-item ${selectedModel === undefined ? 'active' : ''}`}
+                      onSelect={() => setSelectedModel(undefined)}
+                    >
+                      Default model
+                    </DropdownMenu.Item>
+                    {models.map((model) => (
+                      <DropdownMenu.Item
+                        key={model.value}
+                        className={`dropdown-item ${
+                          model.value === selectedModel ? 'active' : ''
+                        }`}
+                        onSelect={() => setSelectedModel(model.value)}
+                        title={model.description}
+                      >
+                        {model.displayName}
+                      </DropdownMenu.Item>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </>
+          )}
         </div>
 
-        <div className="new-session-input-container">
-          <textarea
-            ref={textareaRef}
-            className="new-session-input"
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Ask anything..."
-            rows={1}
-            disabled={isSubmitting}
-          />
-          <button
-            className="new-session-submit"
-            onClick={handleSubmit}
-            disabled={!prompt.trim() || isSubmitting}
-            aria-label="Send message"
-          >
-            <Send size={18} />
-          </button>
-        </div>
+        <PromptComposer
+          value={prompt}
+          onChange={setPrompt}
+          onSubmit={handleSubmit}
+          harness={selectedHarness}
+          disabled={isSubmitting}
+          autoFocus
+        />
 
         <div className="new-session-hint">
           Press <kbd>Enter</kbd> to send, <kbd>Shift + Enter</kbd> for new line

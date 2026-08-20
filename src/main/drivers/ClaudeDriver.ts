@@ -4,8 +4,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { getLoginEnv } from '../LoginEnvironment';
 import { getDisplayName } from '../ClaudeSessionIndex';
-import type { HarnessAccount, HarnessProbeResult } from '../../shared/types';
-import type { HarnessConfig, HarnessDriver } from './HarnessDriver';
+import { probeClaudeCapabilities } from './claudeCapabilities';
+import type {
+    HarnessAccount,
+    HarnessCapabilities,
+    HarnessProbeResult,
+} from '../../shared/types';
+import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
 
 /**
  * Driver for Anthropic's `claude` CLI.
@@ -89,6 +94,19 @@ function readAccount(config: HarnessConfig): HarnessAccount | undefined {
     }
 }
 
+/**
+ * Explain why running the binary failed.
+ *
+ * An unresolved name means the search found nothing, which is worth saying
+ * plainly; anything else already has the CLI's own message, which is more
+ * specific than anything that could be written here.
+ */
+function describeSpawnFailure(resolvedBinary: string, error: Error): string {
+    return resolvedBinary === BINARY_NAME
+        ? `Not found — \`${BINARY_NAME}\` is not installed or not on PATH.`
+        : error.message;
+}
+
 /** Trim `2.1.232 (Claude Code)` down to the version itself. */
 function parseVersion(stdout: string): string | undefined {
     const trimmed = stdout.trim();
@@ -145,13 +163,14 @@ export class ClaudeDriver implements HarnessDriver {
      * once per ID — Claude rejects reuse — so every launch after the first
      * resumes instead.
      */
-    public buildSessionArgs(
-        config: HarnessConfig,
-        sessionId: string,
-        isResume: boolean
-    ): string[] {
-        const base = isResume ? ['--resume', sessionId] : ['--session-id', sessionId];
-        return [...base, ...config.extraArgs];
+    public buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] {
+        const base = launch.resume
+            ? ['--resume', launch.sessionId]
+            : ['--session-id', launch.sessionId];
+        const model = launch.model ? ['--model', launch.model] : [];
+        // The harness's own extra args come last so a hand-written `--model`
+        // there still wins: Claude takes the last occurrence of a flag.
+        return [...base, ...model, ...config.extraArgs];
     }
 
     /**
@@ -196,10 +215,7 @@ export class ClaudeDriver implements HarnessDriver {
                             available: false,
                             resolvedBinary,
                             account,
-                            error:
-                                resolvedBinary === BINARY_NAME
-                                    ? `Not found — \`${BINARY_NAME}\` is not installed or not on PATH.`
-                                    : error.message,
+                            error: describeSpawnFailure(resolvedBinary, error),
                         });
                         return;
                     }
@@ -216,6 +232,36 @@ export class ClaudeDriver implements HarnessDriver {
 
     public getSessionDisplayName(config: HarnessConfig, sessionId: string): string | null {
         return getDisplayName(sessionId, resolveConfigDir(config));
+    }
+
+    /**
+     * Ask this harness's CLI what it can offer a composer.
+     *
+     * Run from the home directory rather than any workspace. What comes back
+     * is scoped to the config directory, not the working directory — a repo's
+     * own `.claude/commands` never appears here — so a per-workspace probe
+     * would buy nothing and would run that repo's SessionStart hooks for the
+     * privilege.
+     */
+    public async probeCapabilities(config: HarnessConfig): Promise<HarnessCapabilities> {
+        if (config.binaryPath && !isExecutable(config.binaryPath)) {
+            throw new Error(`Not executable: ${config.binaryPath}`);
+        }
+        const resolvedBinary = this.resolveBinary(config);
+        try {
+            return await probeClaudeCapabilities(
+                resolvedBinary,
+                os.homedir(),
+                this.composeEnv(config, getLoginEnv())
+            );
+        } catch (error) {
+            throw new Error(
+                describeSpawnFailure(
+                    resolvedBinary,
+                    error instanceof Error ? error : new Error(String(error))
+                )
+            );
+        }
     }
 }
 

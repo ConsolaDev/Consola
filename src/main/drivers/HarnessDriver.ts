@@ -1,6 +1,7 @@
 import * as os from 'os';
 import * as path from 'path';
 import type {
+    HarnessCapabilities,
     HarnessDriverId,
     HarnessLaunchFields,
     HarnessProbeResult,
@@ -31,7 +32,7 @@ export interface HarnessDriver {
     resolveBinary(config: HarnessConfig): string;
 
     /** argv for an interactive session, including the harness's extra args. */
-    buildSessionArgs(config: HarnessConfig, sessionId: string, isResume: boolean): string[];
+    buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[];
 
     /** The ambient environment plus this harness's own variables. */
     composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
@@ -47,6 +48,37 @@ export interface HarnessDriver {
      * check for its absence rather than polling an answer that never comes.
      */
     getSessionDisplayName?(config: HarnessConfig, sessionId: string): string | null;
+
+    /**
+     * The commands, agents and models this CLI offers, asked of the CLI itself.
+     *
+     * Optional for the same reason as `getSessionDisplayName`: a CLI with no
+     * way to enumerate its own features simply omits this, and the composer
+     * goes without autocomplete rather than waiting on an answer that never
+     * comes.
+     *
+     * Unlike the other methods here this one may reject. It talks to a separate
+     * process over a pipe, so a missing binary, a hung child and unrecognised
+     * output are all ordinary outcomes. `HarnessCapabilitiesCache` is the one
+     * place that turns any driver's failure into the uniform shape the UI
+     * renders, so drivers should throw rather than invent an empty result.
+     */
+    probeCapabilities?(config: HarnessConfig): Promise<HarnessCapabilities>;
+}
+
+/**
+ * What fixes one session's argv, beyond the harness's own settings.
+ *
+ * An object rather than positional parameters: `buildSessionArgs` already took
+ * three, and everything here is chosen per conversation and then frozen, so
+ * the list grows as new session-scoped pins are added.
+ */
+export interface SessionLaunch {
+    sessionId: string;
+    /** Resume the existing conversation instead of starting one. */
+    resume: boolean;
+    /** Model selector to pin, when the session chose one. */
+    model?: string;
 }
 
 /** A harness's launch settings, normalised for driver consumption. */

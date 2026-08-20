@@ -65,6 +65,8 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
     rows?: number;
     /** Prompt to submit once the CLI is ready for input. */
     initialPrompt?: string;
+    /** Model this session is pinned to, replayed on every relaunch. */
+    model?: string;
 }
 
 export interface TerminalExitInfo {
@@ -197,11 +199,14 @@ export class TerminalService extends EventEmitter {
         }
 
         const binary = this.driver.resolveBinary(this.harness);
-        const args = this.driver.buildSessionArgs(
-            this.harness,
-            this.options.claudeSessionId,
-            resume
-        );
+        // Read from `options` on every launch rather than captured once, so a
+        // pinned model survives a resume, a restart, and the retry-as-fresh
+        // path below without any of them having to remember it.
+        const args = this.driver.buildSessionArgs(this.harness, {
+            sessionId: this.options.claudeSessionId,
+            resume,
+            model: this.options.model,
+        });
 
         try {
             this.claudeProducedOutput = false;
