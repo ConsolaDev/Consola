@@ -78,6 +78,21 @@ export interface TerminalExitMessage {
     exitCode: number;
 }
 
+/**
+ * Live status of every terminal the main process holds, keyed by instanceId.
+ *
+ * Shaped to match the renderer's `TerminalState` so a store can adopt an entry
+ * without translating it.
+ */
+export type TerminalStatusSnapshot = Record<
+    string,
+    {
+        isBusy: boolean;
+        isAwaitingConfirmation: boolean;
+        hasExited: boolean;
+    }
+>;
+
 export interface TerminalAPI {
     create: (options: TerminalCreateOptions) => Promise<TerminalSnapshot>;
     sendInput: (instanceId: string, data: string) => void;
@@ -91,6 +106,7 @@ export interface TerminalAPI {
         callback: (message: TerminalAwaitingConfirmationMessage) => void
     ) => () => void;
     onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
+    getStatusSnapshot: () => Promise<TerminalStatusSnapshot>;
 }
 
 /**

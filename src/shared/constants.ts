@@ -10,6 +10,7 @@ export const IPC_CHANNELS = {
     TERMINAL_RESIZE: 'terminal:resize',       // Terminal dimension changes
     TERMINAL_RESTART: 'terminal:restart',     // Relaunch claude after it exited
     TERMINAL_DESTROY: 'terminal:destroy',     // Tear down a session terminal
+    TERMINAL_STATUS_SNAPSHOT: 'terminal:status-snapshot', // Live status of every terminal
 
     // Terminal events (main -> renderer)
     TERMINAL_DATA: 'terminal:data',           // PTY output -> renderer

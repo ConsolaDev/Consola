@@ -256,6 +256,11 @@ export function setupIpcHandlers(): boolean {
         manager.destroy(instanceId);
     });
 
+    // Seed a freshly opened window from main's live state. The status channels
+    // are edge-triggered, so a window that opened after the edge would
+    // otherwise never learn about it.
+    ipcMain.handle(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT, () => manager.statusSnapshot());
+
     // === Harness queries ===
 
     // Is this harness's binary present, and who is it signed in as?
@@ -857,6 +862,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
     ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT);
 
     // Remove Claude CLI query handlers
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
