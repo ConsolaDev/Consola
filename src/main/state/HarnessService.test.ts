@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -106,6 +106,53 @@ describe('HarnessService', () => {
 
     expect(second).toBe(false);
     expect(service.getAll().map((harness) => harness.id)).not.toContain('late');
+  });
+
+  it('does not adopt state that failed to reach disk', () => {
+    service.addHarness({ id: 'work', driverId: 'claude', name: 'Work', accentColor: '#3b82f6' });
+
+    const file = new JsonStateFile<HarnessStateFile>(path.join(dir, 'harnesses.json'));
+    const failing = new HarnessService(file);
+    failing.load();
+    vi.spyOn(file, 'write').mockImplementation(() => {
+      throw new Error('ENOSPC');
+    });
+
+    expect(() => failing.archiveHarness('work')).toThrow('ENOSPC');
+
+    // The caller saw the failure; nothing else may see the phantom archive.
+    expect(failing.getAll().find((harness) => harness.id === 'work')?.archived).toBe(false);
+  });
+
+  it('does not report state it failed to persist as established', () => {
+    const file = new JsonStateFile<HarnessStateFile>(path.join(dir, 'harnesses.json'));
+    const failing = new HarnessService(file);
+    failing.load();
+    vi.spyOn(file, 'write').mockImplementation(() => {
+      throw new Error('ENOSPC');
+    });
+
+    expect(() =>
+      failing.importState([
+        {
+          id: 'imported',
+          driverId: 'claude',
+          name: 'Imported',
+          accentColor: '#22c55e',
+          enabled: true,
+          archived: false,
+          isBuiltIn: false,
+          extraArgs: [],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ])
+    ).toThrow('ENOSPC');
+
+    // A snapshot that answers with records while still asking to be imported
+    // would let the next import overwrite them.
+    expect(failing.hasState()).toBe(false);
+    expect(failing.getAll().map((harness) => harness.id)).not.toContain('imported');
   });
 
   it('clears a pinned binary path when asked to, so a harness can go back to PATH', () => {
