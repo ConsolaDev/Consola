@@ -4,6 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { JsonStateFile } from './JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './WorkspaceService';
+import type { Workspace } from '../../shared/workspace';
 
 let dir: string;
 let service: WorkspaceService;
@@ -59,6 +60,7 @@ describe('WorkspaceService', () => {
       workspaceId: workspace.id,
       instanceId: 'instance-1',
       harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
     });
 
     expect(session?.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
@@ -72,6 +74,7 @@ describe('WorkspaceService', () => {
       workspaceId: 'nope',
       instanceId: 'instance-1',
       harnessId: 'default',
+      scopeId: 'nope',
     });
 
     expect(session).toBeUndefined();
@@ -84,6 +87,7 @@ describe('WorkspaceService', () => {
       workspaceId: workspace.id,
       instanceId: 'instance-1',
       harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
     });
 
     service.deleteWorkspace(workspace.id);
@@ -104,12 +108,13 @@ describe('WorkspaceService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-      ],
+      ] as unknown as Workspace[],
       5
     );
 
     expect(imported).toBe(true);
     expect(service.getAll()).toHaveLength(1);
+    expect(service.getAll()[0].scopes[0].path).toBe('/code/consola');
 
     const second = service.importState(
       [
@@ -123,7 +128,7 @@ describe('WorkspaceService', () => {
           createdAt: 2,
           updatedAt: 2,
         },
-      ],
+      ] as unknown as Workspace[],
       5
     );
 
@@ -147,7 +152,7 @@ describe('WorkspaceService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-      ],
+      ] as unknown as Workspace[],
       5
     );
 
@@ -170,7 +175,7 @@ describe('WorkspaceService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-      ],
+      ] as unknown as Workspace[],
       5
     );
 
@@ -224,5 +229,119 @@ describe('WorkspaceService', () => {
 
     expect(service.getAll()[0].defaultHarnessId).toBe('default');
     expect(service.getAll()[0].sessions[0].harnessId).toBe('default');
+    expect(service.getAll()[0].sessions[0].scopeId).toBe(service.getAll()[0].scopes[0].id);
+  });
+
+  it('addScope appends a scope and persists it', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+
+    const scope = service.addScope(workspace.id, {
+      name: 'docs',
+      path: '/code/consola/docs',
+      isGitRepo: false,
+    });
+
+    expect(scope.id).not.toBe(workspace.scopes[0].id);
+    const reloaded = build();
+    expect(reloaded.getAll()[0].scopes.map((s) => s.path)).toEqual([
+      '/code/consola',
+      '/code/consola/docs',
+    ]);
+  });
+
+  it('addScope throws for an unknown workspace', () => {
+    expect(() =>
+      service.addScope('nope', { name: 'x', path: '/x', isGitRepo: false })
+    ).toThrow();
+  });
+
+  it('removeScope drops an unreferenced scope', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const scope = service.addScope(workspace.id, {
+      name: 'docs',
+      path: '/code/consola/docs',
+      isGitRepo: false,
+    });
+
+    service.removeScope(workspace.id, scope.id);
+
+    expect(service.getAll()[0].scopes).toHaveLength(1);
+  });
+
+  it('removeScope refuses while a session references the scope', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const scope = workspace.scopes[0];
+    service.createSession(workspace.id, {
+      name: 'New Session',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'default',
+      scopeId: scope.id,
+    });
+
+    // The pointer must outlive its referents: unlike harnesses there is no
+    // archive tier — a scope is only a pointer.
+    expect(() => service.removeScope(workspace.id, scope.id)).toThrow(/session/i);
+    expect(service.getAll()[0].scopes).toHaveLength(1);
+  });
+
+  it('createSession returns undefined for an unknown scope', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+
+    const session = service.createSession(workspace.id, {
+      name: 'New Session',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'default',
+      scopeId: 'not-a-scope',
+    });
+
+    expect(session).toBeUndefined();
+    expect(service.getAll()[0].sessions).toEqual([]);
+  });
+
+  it('setGitHubBinding sets, replaces and clears the binding', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+
+    service.setGitHubBinding(workspace.id, { accountLogin: 'SymJavi', org: 'sympower' });
+    expect(service.getAll()[0].github).toEqual({ accountLogin: 'SymJavi', org: 'sympower' });
+
+    service.setGitHubBinding(workspace.id, { accountLogin: 'personal' });
+    expect(service.getAll()[0].github).toEqual({ accountLogin: 'personal' });
+
+    service.setGitHubBinding(workspace.id, null);
+    // Absent, not null: absence is what "pure local workspace" means on disk.
+    expect(service.getAll()[0]).not.toHaveProperty('github');
+
+    const reloaded = build();
+    expect(reloaded.getAll()[0]).not.toHaveProperty('github');
+  });
+
+  it('createGroup and archiveGroup manage the group list', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+
+    const group = service.createGroup(workspace.id, { name: 'bump lodash' });
+    expect(service.getAll()[0].groups[0].name).toBe('bump lodash');
+    expect(service.getAll()[0].groups[0].archivedAt).toBeUndefined();
+
+    service.archiveGroup(workspace.id, group.id);
+    expect(service.getAll()[0].groups[0].archivedAt).toEqual(expect.any(Number));
+
+    const reloaded = build();
+    expect(reloaded.getAll()[0].groups[0].archivedAt).toEqual(expect.any(Number));
+  });
+
+  it('createGroup carries parent and conductor references', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const parent = service.createGroup(workspace.id, { name: 'parent' });
+
+    const child = service.createGroup(workspace.id, {
+      name: 'child',
+      parentGroupId: parent.id,
+      conductorSessionId: 'sess-1',
+    });
+
+    expect(child.parentGroupId).toBe(parent.id);
+    expect(child.conductorSessionId).toBe('sess-1');
   });
 });
