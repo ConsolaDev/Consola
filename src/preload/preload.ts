@@ -15,6 +15,7 @@ import {
     ActivateWorkspaceResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import type { GhProbeResult } from '../shared/github';
 import type {
     Group,
     NewGroupFields,
@@ -99,6 +100,14 @@ contextBridge.exposeInMainWorld('harnessAPI', {
 
     getCapabilities: (fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_CAPABILITIES, fields);
+    },
+});
+
+// Expose GitHub probing to the renderer. Probe only: tokens never cross this
+// bridge — they are borrowed and consumed entirely inside the main process.
+contextBridge.exposeInMainWorld('githubAPI', {
+    probe: (): Promise<GhProbeResult> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GH_PROBE);
     },
 });
 
