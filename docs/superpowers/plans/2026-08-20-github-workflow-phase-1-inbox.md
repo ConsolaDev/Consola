@@ -38,6 +38,34 @@
   `src/shared/workspace.ts` and will re-point exactly one call site here, then
   delete the twin.
 
+## Notes from Phase 0's final whole-branch review (added 2026-08-20)
+
+Phase 0 shipped on branch `feat/github-workflow` (commits 3787206..ba4f221, 155 unit
+tests, typecheck clean). Its final review flagged four things that will bite this
+phase specifically. Treat them as requirements, not suggestions.
+
+- **Do not key any cache off a scope id until the state file has been written at
+  v6 at least once.** v6 is the first migration rung that mints a *random* id, and
+  `WorkspaceService.load()` migrates in memory without writing back — so for an idle
+  install the scope id is regenerated on every launch until the first `commit()`.
+  This directly affects `WorktreeService.resolveRepo`'s remote→path cache and any
+  worktree registry. Key them off scope *path*, or force a write on migration.
+- **`GhBroker.token()` throws.** `GitHubService`'s fetcher must catch it the way
+  `TerminalService.borrowGhToken` does, or a signed-out account turns an Inbox
+  refresh into an unhandled rejection instead of the spec's "degrade to a labelled
+  stale state, never a dialog". Write one shared helper rather than a second
+  hand-rolled try/catch.
+- **There is no DI seam for `GhBroker`** — `TerminalService` imports the module
+  singleton directly. `GitHubService` will want an injected broker for tests; doing
+  that refactor first also makes the deferred `borrowGhToken` branch tests free
+  (no login / success / failure→notice).
+- **Non-UI scope mutation is now guarded service-side.** `removeScope` throws both
+  when a session references the scope and when it is the workspace's last scope, so
+  the clone-into-scope flow must handle both rejections. `addScope` still permits
+  exact duplicate paths, and `Scope.isGitRepo` is cached at add time and never
+  refreshed though the spec says "refreshed on demand" — both are this phase's to
+  settle.
+
 ---
 
 ### Task 1: Shared contracts — inbox types, work-item helpers, IPC channels
