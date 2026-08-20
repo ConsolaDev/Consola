@@ -23,6 +23,20 @@ case "$1" in
           echo "You are not logged into any GitHub hosts. To log in, run: gh auth login" >&2
           exit 1
         fi
+        if [ "$GH_STUB_MODE" = "unparseable" ]; then
+          # Simulates a gh wording parseAccounts doesn't recognize ("as"
+          # instead of "account") while still reporting a masked token line,
+          # exiting 0 the way a real success report would.
+          cat <<'STATUS'
+github.com
+  ✓ Logged in to github.com as SymJavi (keyring)
+  - Active account: true
+  - Git operations protocol: https
+  - Token: gho_************************************
+  - Token scopes: 'gist', 'read:org', 'repo', 'workflow'
+STATUS
+          exit 0
+        fi
         cat <<'STATUS'
 github.com
   ✓ Logged in to github.com account SymJavi (keyring)
@@ -131,6 +145,21 @@ describe('GhBroker.probe', () => {
     const flat = JSON.stringify(await broker.probe());
 
     expect(flat).not.toContain('gho_');
+  });
+
+  it('never carries a token in its result when the account line is unparseable', async () => {
+    // A gh wording parseAccounts doesn't recognize means zero accounts are
+    // parsed, which falls back to the raw status text for `error` — this is
+    // the one path where a masked token line could ride along unfiltered.
+    const broker = new GhBroker(stubEnv({ GH_STUB_MODE: 'unparseable' }));
+
+    const result = await broker.probe();
+
+    expect(result.accounts).toEqual([]);
+    expect(result.error).toBeDefined();
+    const flat = JSON.stringify(result);
+    expect(flat).not.toContain('gho_');
+    expect(flat).not.toMatch(/token/i);
   });
 });
 
