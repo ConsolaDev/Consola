@@ -110,7 +110,7 @@ export class WorkspaceService {
   public updateSession(
     workspaceId: string,
     sessionId: string,
-    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
   ): void {
     this.commit(
       this.workspaces.map((workspace) =>

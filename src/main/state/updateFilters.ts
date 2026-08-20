@@ -40,24 +40,35 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
     return allowed;
 }
 
-export type SessionUpdates = Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>;
+export type SessionUpdates = Partial<
+  Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>
+>;
 
 /**
- * The one that matters most: `harnessId` is deliberately not on the list.
+ * The ones that matter most: `harnessId` — and since v6 `scopeId`, `cwd`,
+ * `kind` and `workItem` — are deliberately not on the list.
  *
  * A session's harness is fixed for its lifetime — the transcript lives inside
  * that harness's config directory and `--resume` only finds it there — so a
  * rewritten `harnessId` would silently orphan the conversation rather than
- * failing where anyone could see it. `id`, `workspaceId`, `instanceId` and
- * `claudeSessionId` name the session and its terminal; `createdAt` is history.
+ * failing where anyone could see it. The scope, working directory, kind and
+ * work item are the session's identity in the same way: where it belongs,
+ * where it runs, what drives it, and why it exists. `groupId` alone is
+ * mutable — regrouping is an organizational act, not an identity change.
+ * `id`, `workspaceId`, `instanceId` and `claudeSessionId` name the session
+ * and its terminal; `createdAt` is history.
  */
 export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     const allowed: SessionUpdates = {};
-    // All three are required on the record and none is clearable, so
+    // These three are required on the record and none is clearable, so
     // `undefined` can only ever be a bug: absence and explicit-undefined are
-    // treated alike. Contrast the harness filter, where `undefined` is a value.
+    // treated alike. Contrast groupId below, where `undefined` is a value.
     if (updates.name !== undefined) allowed.name = updates.name;
     if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
     if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
+    // `undefined` IS the value here — it means "leave the group". Structured
+    // clone preserves an explicitly-undefined key, so presence is what
+    // separates "clear this" from "leave it alone".
+    if ('groupId' in updates) allowed.groupId = updates.groupId;
     return allowed;
 }
