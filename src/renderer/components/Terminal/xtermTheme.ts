@@ -62,11 +62,17 @@ export function buildXtermTheme(isDark: boolean): ITheme {
 
     return {
         ...ansi,
-        background: readToken('--color-bg-primary', isDark ? '#191919' : '#ffffff'),
-        foreground: readToken('--color-text-primary', isDark ? '#f2f2f2' : '#37352f'),
-        cursor: readToken('--color-accent', '#2383e2'),
-        cursorAccent: readToken('--color-bg-primary', isDark ? '#191919' : '#ffffff'),
-        selectionBackground: readToken('--color-bg-selected', 'rgba(35, 131, 226, 0.3)'),
+        background: readToken('--color-bg-primary', isDark ? '#050505' : '#ffffff'),
+        foreground: readToken(
+            '--color-text-primary',
+            isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 17, 17, 0.9)'
+        ),
+        cursor: readToken('--color-accent', isDark ? '#19aad8' : '#00c2ff'),
+        cursorAccent: readToken('--color-bg-primary', isDark ? '#050505' : '#ffffff'),
+        selectionBackground: readToken(
+            '--color-bg-selected',
+            isDark ? 'rgba(25, 170, 216, 0.25)' : 'rgba(0, 194, 255, 0.25)'
+        ),
     };
 }
 

@@ -1,36 +1,55 @@
-/* Notion-inspired dark theme */
+/*
+ * Warp dark theme.
+ *
+ * Values are Warp's own: `dark_theme()` in app/src/themes/default_themes.rs
+ * declares background #050505, foreground #ffffff and accent #19AAD8, and
+ * everything else is the foreground composited over the background at the
+ * ratios crates/warp_core/src/ui/theme/color.rs uses -- surface_1/2/3 at
+ * 5/10/15%, text at the DARKER_DETAILS opacities, borders at 10%.
+ *
+ * Which surface goes where was read off a screenshot of Warp, not inferred
+ * from the source, because the source misleads: `active_ui_text_color()` and
+ * friends are computed against surface_2, which reads as "surface_2 is the
+ * chrome". It isn't. Warp paints the sidebar and title bar with surface_1
+ * (#111111) and saves surface_2 (#1e1e1e) for popovers and dialogs that
+ * float above them. Sample the pixels before moving a surface.
+ */
 [data-theme='dark'] {
-  /* Background colors */
-  --color-bg-primary: #191919;
-  --color-bg-secondary: #202020;
-  --color-bg-tertiary: #2f2f2f;
-  --color-bg-sidebar: #202020;
+  /* Background colors -- background(), then surface_1/2/3 */
+  --color-bg-primary: #050505;
+  --color-bg-secondary: #1e1e1e;
+  --color-bg-tertiary: #2a2a2a;
+  --color-bg-sidebar: #111111;
 
-  /* Hover & active states */
-  --color-bg-hover: rgba(255, 255, 255, 0.055);
-  --color-bg-active: rgba(255, 255, 255, 0.09);
-  --color-bg-selected: rgba(35, 131, 226, 0.3);
+  /* Hover & active states -- fg overlays, accent overlay for selection */
+  --color-bg-hover: rgba(255, 255, 255, 0.1);
+  --color-bg-active: rgba(255, 255, 255, 0.15);
+  --color-bg-selected: rgba(25, 170, 216, 0.25);
 
-  /* Text colors */
-  --color-text-primary: rgba(255, 255, 255, 0.95);
-  --color-text-secondary: rgba(255, 255, 255, 0.85);
-  --color-text-tertiary: rgba(255, 255, 255, 0.75);
-  --color-text-disabled: rgba(255, 255, 255, 0.28);
+  /* Text colors -- main / sub / hint / disabled */
+  --color-text-primary: rgba(255, 255, 255, 0.9);
+  --color-text-secondary: rgba(255, 255, 255, 0.6);
+  --color-text-tertiary: rgba(255, 255, 255, 0.4);
+  --color-text-disabled: rgba(255, 255, 255, 0.2);
 
-  /* Border colors */
-  --color-border: rgba(255, 255, 255, 0.094);
-  --color-border-strong: rgba(255, 255, 255, 0.16);
+  /* Border colors -- outline(), split_pane_border_color() */
+  --color-border: rgba(255, 255, 255, 0.1);
+  --color-border-strong: rgba(255, 255, 255, 0.15);
 
-  /* Accent colors */
-  --color-accent: rgb(35, 131, 226);
-  --color-accent-hover: rgb(67, 152, 232);
-  --color-accent-text: #ffffff;
+  /*
+   * Accent colors. The accent is light enough that Warp's contrast picker
+   * lands on the background, not the foreground, for text sitting on it --
+   * #050505 scores 7.6:1 against #19AAD8 where white scores only 2.7:1.
+   */
+  --color-accent: rgb(25, 170, 216);
+  --color-accent-hover: rgb(117, 204, 231);
+  --color-accent-text: #050505;
 
   /* Semantic colors */
   --color-success: rgb(77, 171, 117);
   --color-warning: rgb(223, 171, 77);
   --color-error: rgb(235, 87, 87);
-  --color-info: rgb(67, 152, 232);
+  --color-info: rgb(25, 170, 216);
 
   /* Git status colors */
   --color-git-staged: rgb(77, 171, 117);     /* Green for staged */
@@ -40,8 +59,8 @@
 
   /* Scrollbar */
   --color-scrollbar-track: transparent;
-  --color-scrollbar-thumb: rgba(255, 255, 255, 0.16);
-  --color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.28);
+  --color-scrollbar-thumb: rgba(255, 255, 255, 0.15);
+  --color-scrollbar-thumb-hover: rgba(255, 255, 255, 0.2);
 
   /* Shadows - stronger for dark theme */
   --shadow-elevation-1: 0 1px 3px rgba(0, 0, 0, 0.24);
@@ -50,5 +69,5 @@
   /* Code block colors */
   --color-code-header-bg: rgba(0, 0, 0, 0.2);
   --color-code-border: rgba(255, 255, 255, 0.1);
-  --color-code-text-muted: rgba(255, 255, 255, 0.5);
+  --color-code-text-muted: rgba(255, 255, 255, 0.4);
 }
