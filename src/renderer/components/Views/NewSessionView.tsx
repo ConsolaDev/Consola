@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { ChevronDown } from 'lucide-react';
+import { ChevronDown, Folder, GitBranch } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -56,6 +56,18 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
     setSelectedModel(undefined);
   }, [selectedHarness?.id]);
 
+  // Which scope this conversation will run in. Follows the workspace's
+  // primary scope whenever the workspace changes, like the harness default.
+  const [selectedScopeId, setSelectedScopeId] = useState<string | undefined>(
+    workspace.scopes[0]?.id
+  );
+  const selectedScope =
+    workspace.scopes.find((scope) => scope.id === selectedScopeId) ?? workspace.scopes[0];
+
+  useEffect(() => {
+    setSelectedScopeId(workspace.scopes[0]?.id);
+  }, [workspace.id]);
+
   const handleWorkspaceChange = (workspaceId: string) => {
     setActiveWorkspace(workspaceId);
   };
@@ -63,6 +75,7 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
   const handleSubmit = async () => {
     const trimmedPrompt = prompt.trim();
     if (!trimmedPrompt || isSubmitting) return;
+    if (!selectedScope) return;
 
     setIsSubmitting(true);
 
@@ -80,6 +93,9 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
         // Fixed now for the same reason as the harness: every later launch,
         // including a resume, replays it.
         model: selectedModel,
+        // Fixed now like the harness and model: the scope is the session's
+        // home in the sidebar and its default working directory.
+        scopeId: selectedScope.id,
       });
 
       if (!session) {
@@ -127,6 +143,41 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
               </DropdownMenu.Content>
             </DropdownMenu.Portal>
           </DropdownMenu.Root>
+
+          {workspace.scopes.length > 1 && selectedScope && (
+            <>
+              <span>in</span>
+              <DropdownMenu.Root>
+                <DropdownMenu.Trigger asChild>
+                  <button className="workspace-dropdown-trigger">
+                    {selectedScope.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
+                    <span>{selectedScope.name}</span>
+                    <ChevronDown size={14} />
+                  </button>
+                </DropdownMenu.Trigger>
+                <DropdownMenu.Portal>
+                  <DropdownMenu.Content
+                    className="dropdown-content workspace-dropdown-content"
+                    sideOffset={4}
+                  >
+                    {workspace.scopes.map((scope) => (
+                      <DropdownMenu.Item
+                        key={scope.id}
+                        className={`dropdown-item ${
+                          scope.id === selectedScope.id ? 'active' : ''
+                        }`}
+                        onSelect={() => setSelectedScopeId(scope.id)}
+                        title={scope.path}
+                      >
+                        {scope.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
+                        {scope.name}
+                      </DropdownMenu.Item>
+                    ))}
+                  </DropdownMenu.Content>
+                </DropdownMenu.Portal>
+              </DropdownMenu.Root>
+            </>
+          )}
 
           {selectableHarnesses.length > 1 && selectedHarness && (
             <>
