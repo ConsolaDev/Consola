@@ -8,6 +8,7 @@ import type {
     Workspace,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
+import type { GhProbeResult } from './github';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
 export type HarnessDriverId = 'claude';
@@ -234,6 +235,17 @@ export interface HarnessAPI {
 }
 
 /**
+ * GitHub probing exposed to the renderer.
+ *
+ * Probe only: whether `gh` exists and which accounts its keyring holds.
+ * Tokens are borrowed inside the main process at spawn/call time and have no
+ * representation on this API at all.
+ */
+export interface GitHubAPI {
+    probe: () => Promise<GhProbeResult>;
+}
+
+/**
  * Workspace state exposed to the renderer. Main owns the records; the
  * renderer sends intents and listens for the result.
  */
@@ -289,6 +301,7 @@ declare global {
     interface Window {
         terminalAPI: TerminalAPI;
         harnessAPI: HarnessAPI;
+        githubAPI: GitHubAPI;
         workspaceAPI: WorkspaceAPI;
         harnessStateAPI: HarnessStateAPI;
         windowAPI: WindowAPI;
