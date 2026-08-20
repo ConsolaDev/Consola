@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { boundsAreVisible, dedupeByWorkspace, resolveWindowContext } from './window-manager';
+import {
+  boundsAreVisible,
+  dedupeByWorkspace,
+  isStoredWindow,
+  resolveWindowContext,
+} from './window-manager';
 
 describe('dedupeByWorkspace', () => {
   it('keeps only the first entry for a repeated workspace id', () => {
@@ -103,5 +108,38 @@ describe('resolveWindowContext', () => {
       workspaceId: null,
       activeSessionId: null,
     });
+  });
+});
+
+describe('isStoredWindow', () => {
+  const bounds = { x: 0, y: 0, width: 1000, height: 700 };
+
+  it('accepts an entry in the shape we write', () => {
+    expect(isStoredWindow({ workspaceId: 'a', activeSessionId: 's1', bounds })).toBe(true);
+  });
+
+  it('accepts a Home window with no session', () => {
+    expect(isStoredWindow({ workspaceId: null, activeSessionId: null, bounds })).toBe(true);
+  });
+
+  it('rejects an entry with no bounds — reading bounds.x off it used to take down the restore', () => {
+    expect(isStoredWindow({ workspaceId: 'a', activeSessionId: null })).toBe(false);
+  });
+
+  it('rejects bounds whose sides are not numbers', () => {
+    expect(isStoredWindow({ workspaceId: null, bounds: { x: '0', y: 0, width: 1, height: 1 } })).toBe(
+      false
+    );
+    expect(isStoredWindow({ workspaceId: null, bounds: { x: 0, y: 0, width: 1 } })).toBe(false);
+  });
+
+  it('rejects a workspace id that is not a string', () => {
+    expect(isStoredWindow({ workspaceId: 7, activeSessionId: null, bounds })).toBe(false);
+  });
+
+  it('rejects anything that is not an object, including the array itself being wrong', () => {
+    expect(isStoredWindow('windows')).toBe(false);
+    expect(isStoredWindow(null)).toBe(false);
+    expect(isStoredWindow(undefined)).toBe(false);
   });
 });

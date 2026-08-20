@@ -237,26 +237,72 @@ export function boundsAreVisible(
     });
 }
 
+type StoredWindow = WindowContext & { bounds: Electron.Rectangle };
+
+/**
+ * Whether a stored entry is shaped the way we wrote it.
+ *
+ * `windows.json` is an ordinary file: a user can edit it and a crash can
+ * truncate it. Parsing as JSON says nothing about the shape, and the restore
+ * below reads `entry.bounds.x` — one entry missing its rectangle used to throw
+ * inside `whenReady().then()`, an unhandled rejection with no window, no
+ * dialog and no message at all.
+ *
+ * `activeSessionId` is accepted as absent because a window with no session is
+ * an ordinary state, not a corrupt entry.
+ *
+ * Pure and exported so the malformed cases can be exercised without a window.
+ */
+export function isStoredWindow(entry: unknown): entry is StoredWindow {
+    if (typeof entry !== 'object' || entry === null) return false;
+    const { workspaceId, activeSessionId, bounds } = entry as Record<string, unknown>;
+
+    if (workspaceId != null && typeof workspaceId !== 'string') return false;
+    if (activeSessionId != null && typeof activeSessionId !== 'string') return false;
+    if (typeof bounds !== 'object' || bounds === null) return false;
+
+    const rectangle = bounds as Record<string, unknown>;
+    return (['x', 'y', 'width', 'height'] as const).every((side) =>
+        Number.isFinite(rectangle[side])
+    );
+}
+
 /**
  * Reopen the windows from last launch, or one empty window on a first run.
  *
  * A saved workspace that has since been deleted opens on Home rather than
  * failing: a window must never hold an id that names nothing.
+ *
+ * Nothing in a layout file is worth more than having a window at all, so every
+ * step of the restore is inside the guard — reading it, resolving it, and
+ * opening from it. This runs inside `whenReady().then()`, where anything that
+ * escapes is an unhandled rejection and the user gets a running app with no
+ * window and no explanation.
  */
 export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
-    let stored: WindowLayoutFile | null = null;
     try {
-        stored = layoutFile().read();
+        openStoredWindows(knownWorkspaceIds);
     } catch {
-        // A layout we cannot read is worth nothing; a fresh window costs a click.
-        stored = null;
+        // Fall through to the default window below.
     }
 
-    const windows = stored?.windows ?? [];
-    if (windows.length === 0) {
+    // Checked rather than assumed: a failure part-way through the loop has
+    // already opened windows, and a blank extra one on top would be its own
+    // small bug.
+    if (BrowserWindow.getAllWindows().length === 0) {
         createWindow();
-        return;
     }
+}
+
+function openStoredWindows(knownWorkspaceIds: Set<string>): void {
+    // Read back as `unknown`: the declared type describes what we write, not
+    // what a hand-edited or truncated file actually holds.
+    const stored = layoutFile().read() as { windows?: unknown } | null;
+    const entries = stored?.windows;
+    // Malformed entries are skipped one at a time rather than aborting the
+    // restore: one bad rectangle should not cost you the other three windows.
+    const windows = Array.isArray(entries) ? entries.filter(isStoredWindow) : [];
+    if (windows.length === 0) return;
 
     // Read once per restore, not once per window: displays don't change
     // between one createWindow call and the next in this loop.
@@ -276,6 +322,9 @@ export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
     }));
 
     for (const entry of dedupeByWorkspace(resolved)) {
-        createWindow({ workspaceId: entry.workspaceId, activeSessionId: entry.activeSessionId }, entry.bounds);
+        createWindow(
+            { workspaceId: entry.workspaceId, activeSessionId: entry.activeSessionId },
+            entry.bounds
+        );
     }
 }
