@@ -113,7 +113,14 @@ export async function hydrateTerminalStatus(): Promise<void> {
     useTerminalStore.setState((state) => {
         const terminals = { ...state.terminals };
         for (const [instanceId, status] of Object.entries(snapshot)) {
-            terminals[instanceId] = { ...INITIAL_STATE, ...terminals[instanceId], ...status };
+            // The snapshot merges UNDERNEATH what is already here, not over it.
+            // It is a value read at one instant; anything already in the store
+            // arrived from an edge that fired later, so the store is fresher.
+            // The distinction is dormant today because nothing writes terminals
+            // before the first render — but it becomes load-bearing the moment
+            // subscribeToEvents() moves earlier, which is the obvious way to
+            // close the remaining gap between this fetch and the subscription.
+            terminals[instanceId] = { ...INITIAL_STATE, ...status, ...terminals[instanceId] };
         }
         return { terminals };
     });
