@@ -88,8 +88,14 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-    // Read the layout while the windows still exist — by the time cleanup runs
-    // they are gone and there is nothing left to record.
-    saveWindowLayout();
+    try {
+        // Read the layout while the windows still exist — by the time cleanup
+        // runs they are gone and there is nothing left to record.
+        saveWindowLayout();
+    } catch {
+        // Losing the window positions is a small cost. Throwing out of this
+        // listener would skip cleanupIpcHandlers() entirely, including
+        // destroyAll(), and give up the one chance at a graceful shutdown.
+    }
     cleanupIpcHandlers();
 });
