@@ -1,8 +1,13 @@
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
-import { type NewSessionFields, type Session, type Workspace } from '../../shared/workspace';
+import {
+  type NewSessionFields,
+  type Scope,
+  type Session,
+  type Workspace,
+} from '../../shared/workspace';
 
-export type { Session, Workspace } from '../../shared/workspace';
+export type { Scope, Session, Workspace } from '../../shared/workspace';
 export { migrateWorkspaceState } from '../../shared/workspace';
 
 interface WorkspaceState {
@@ -23,11 +28,20 @@ interface WorkspaceState {
   updateSession: (
     workspaceId: string,
     sessionId: string,
-    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
   ) => Promise<void>;
   deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;
   getWorkspaceSessions: (workspaceId: string) => Session[];
+  addScope: (
+    workspaceId: string,
+    fields: { name: string; path: string; isGitRepo: boolean }
+  ) => Promise<Scope>;
+  removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
+  setGitHubBinding: (
+    workspaceId: string,
+    binding: { accountLogin: string; org?: string } | null
+  ) => Promise<void>;
 }
 
 /**
@@ -65,6 +79,13 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
 
   getWorkspaceSessions: (workspaceId) =>
     get().workspaces.find((workspace) => workspace.id === workspaceId)?.sessions ?? [],
+
+  addScope: (workspaceId, fields) => workspaceBridge.addScope(workspaceId, fields),
+
+  removeScope: (workspaceId, scopeId) => workspaceBridge.removeScope(workspaceId, scopeId),
+
+  setGitHubBinding: (workspaceId, binding) =>
+    workspaceBridge.setGitHubBinding(workspaceId, binding),
 }));
 
 const LEGACY_STORAGE_KEY = 'consola-workspaces';

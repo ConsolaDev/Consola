@@ -17,7 +17,12 @@ import {
     allowedWorkspaceUpdates,
     type SessionUpdates,
 } from './state/updateFilters';
-import type { NewSessionFields, Workspace } from '../shared/workspace';
+import type {
+    NewGroupFields,
+    NewScopeFields,
+    NewSessionFields,
+    Workspace,
+} from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 import {
     assignWorkspace,
@@ -156,6 +161,46 @@ export function setupIpcHandlers(): boolean {
         IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
         (_event, workspaceId: string, sessionId: string) =>
             workspaces.deleteSession(workspaceId, sessionId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_ADD_SCOPE,
+        (_event, workspaceId: string, fields: NewScopeFields) =>
+            workspaces.addScope(workspaceId, fields)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE,
+        (_event, workspaceId: string, scopeId: string) =>
+            workspaces.removeScope(workspaceId, scopeId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING,
+        (_event, workspaceId: string, binding: { accountLogin: string; org?: string } | null) =>
+            workspaces.setGitHubBinding(
+                workspaceId,
+                // Rebuilt from an allow-list, updateFilters-style: IPC can
+                // deliver any shape, and this object is persisted verbatim.
+                binding === null
+                    ? null
+                    : {
+                          accountLogin: String(binding.accountLogin),
+                          ...(binding.org ? { org: String(binding.org) } : {}),
+                      }
+            )
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_GROUP_CREATE,
+        (_event, workspaceId: string, fields: NewGroupFields) =>
+            workspaces.createGroup(workspaceId, fields)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE,
+        (_event, workspaceId: string, groupId: string) =>
+            workspaces.archiveGroup(workspaceId, groupId)
     );
 
     const harnessFile = new JsonStateFile<HarnessStateFile>(
@@ -875,6 +920,11 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
 
     harnessService = null;
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);

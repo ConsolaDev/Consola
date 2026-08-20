@@ -1,4 +1,12 @@
-import type { NewSessionFields, Session, Workspace } from './workspace';
+import type {
+    Group,
+    NewGroupFields,
+    NewScopeFields,
+    NewSessionFields,
+    Scope,
+    Session,
+    Workspace,
+} from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
@@ -247,9 +255,18 @@ export interface WorkspaceAPI {
     updateSession: (
         workspaceId: string,
         sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
     ) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+    addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
+    /** Rejects while any session still references the scope. */
+    removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
+    setGitHubBinding: (
+        workspaceId: string,
+        binding: { accountLogin: string; org?: string } | null
+    ) => Promise<void>;
+    createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
+    archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
     onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
 }
 
