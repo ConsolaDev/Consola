@@ -17,8 +17,9 @@ import {
 } from 'lucide-react';
 import type { GitFileStatus } from '../../types/electron';
 import type { Harness } from '../../stores/harnessStore';
-import type { Session, Workspace } from '../../stores/workspaceStore';
+import type { Scope, Session, Workspace } from '../../stores/workspaceStore';
 import type { TerminalState } from '../../stores/terminalStore';
+import { primaryScope, scopeForSession } from '../../../shared/workspace';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -68,6 +69,15 @@ export interface PaletteContext {
 }
 
 /**
+ * The scope the palette should treat as "here": the active session's, or the
+ * workspace's primary scope when no session is open. Git items act on this.
+ */
+function activeScope(ctx: PaletteContext): Scope | null {
+  if (!ctx.activeWorkspace) return null;
+  return scopeForSession(ctx.activeWorkspace, ctx.activeSession ?? undefined) ?? null;
+}
+
+/**
  * Whether the loaded git status describes the active workspace.
  *
  * `gitStatusStore` tracks one repository at a time and only refreshes while a
@@ -75,11 +85,8 @@ export interface PaletteContext {
  * would happily offer to commit against a repository the user left behind.
  */
 function hasFreshGitStatus(ctx: PaletteContext): boolean {
-  return (
-    ctx.activeWorkspace !== null &&
-    ctx.activeWorkspace.isGitRepo &&
-    ctx.gitStatusRootPath === ctx.activeWorkspace.path
-  );
+  const scope = activeScope(ctx);
+  return scope !== null && scope.isGitRepo && ctx.gitStatusRootPath === scope.path;
 }
 
 /** Actions, filtered to the ones that make sense right now. */
@@ -218,8 +225,9 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   }
 
   // --- git ----------------------------------------------------------------
-  if (activeWorkspace?.isGitRepo) {
-    const rootPath = activeWorkspace.path;
+  const scope = activeScope(ctx);
+  if (scope?.isGitRepo) {
+    const rootPath = scope.path;
 
     if (activeSession) {
       items.push({
@@ -335,9 +343,9 @@ export function buildWorkspaceItems(
     section: 'workspaces',
     id: `workspace:${workspace.id}`,
     label: workspace.name,
-    context: workspace.path,
+    context: primaryScope(workspace)?.path ?? '',
     workspaceId: workspace.id,
-    isGitRepo: workspace.isGitRepo,
+    isGitRepo: primaryScope(workspace)?.isGitRepo ?? false,
     status: workspaceStatusFor(workspace, terminals),
   }));
 }
@@ -350,9 +358,10 @@ export function buildWorkspaceItems(
  * inside a session's content view.
  */
 export function buildFileItems(ctx: PaletteContext): FilePaletteItem[] {
-  if (!ctx.activeSession || !hasFreshGitStatus(ctx) || !ctx.activeWorkspace) return [];
+  const scope = activeScope(ctx);
+  if (!ctx.activeSession || !hasFreshGitStatus(ctx) || !scope) return [];
 
-  const rootPath = ctx.activeWorkspace.path;
+  const rootPath = scope.path;
   const items: FilePaletteItem[] = [];
 
   ctx.fileStatuses.forEach((status, relativePath) => {
