@@ -110,9 +110,25 @@ export function setupIpcHandlers(): boolean {
         }
     );
 
-    ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) =>
-        workspaces.deleteWorkspace(id)
-    );
+    ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
+        // Read the sessions while the record still exists. Once it is gone
+        // nothing can name these terminals again: their PTYs would run untended
+        // until the app quits, and one parked at a permission prompt would hold
+        // the dock badge up forever, pointing at a session no window can reach
+        // and no UI can dismiss.
+        const doomed = workspaces.getAll().find((workspace) => workspace.id === id);
+        const stranded = doomed?.sessions.map((session) => session.instanceId) ?? [];
+
+        workspaces.deleteWorkspace(id);
+
+        // Only once the delete has reached disk — a failed write throws above
+        // and leaves the workspace, and its terminals, intact. destroy() clears
+        // the awaiting set and fires onAttentionChanged, so the PTY and the
+        // badge close together.
+        for (const instanceId of stranded) {
+            terminalManager?.destroy(instanceId);
+        }
+    });
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
