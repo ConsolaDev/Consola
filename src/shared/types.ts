@@ -39,6 +39,14 @@ export interface TerminalCreateOptions extends HarnessLaunchFields {
     rows?: number;
     /** Prompt to submit once the CLI is ready for input. */
     initialPrompt?: string;
+    /**
+     * Model this session is pinned to, as the CLI's own selector value.
+     *
+     * Session-scoped rather than part of `HarnessLaunchFields`: a harness
+     * describes an installation, while the model is chosen per conversation
+     * and then fixed, exactly like `harnessId`.
+     */
+    model?: string;
 }
 
 /** State needed to repaint a terminal view on mount. */
@@ -135,12 +143,86 @@ export interface HarnessProbeResult {
     error?: string;
 }
 
+/** One slash command a harness offers, as the CLI itself describes it. */
+export interface HarnessCommand {
+    /** Plugin-qualified, e.g. `feature-dev:feature-dev`. */
+    name: string;
+    description: string;
+    /** Placeholder for arguments the command takes, when it takes any. */
+    argumentHint?: string;
+    aliases?: string[];
+}
+
+/** One subagent a harness can dispatch to. */
+export interface HarnessAgent {
+    name: string;
+    description: string;
+}
+
+/** One model a harness offers, already labelled for display by the CLI. */
+export interface HarnessModel {
+    /** Value to pass back as the model selector, e.g. `sonnet`. */
+    value: string;
+    /** Concrete model the selector resolves to today. */
+    resolvedModel: string;
+    displayName: string;
+    description: string;
+    supportsEffort?: boolean;
+    supportedEffortLevels?: string[];
+    supportsFastMode?: boolean;
+    supportsAdaptiveThinking?: boolean;
+    supportsAutoMode?: boolean;
+}
+
+/**
+ * Who a harness is signed in as, according to the CLI rather than its files.
+ *
+ * Richer than `HarnessAccount` — it carries a plan name already worded for
+ * display — but it costs a full capability probe, so it enhances the account
+ * read from disk rather than replacing it.
+ */
+export interface HarnessCapabilityAccount {
+    signedIn: boolean;
+    emailAddress?: string;
+    organization?: string;
+    /** Already human-readable, e.g. `Claude Max`. */
+    subscriptionType?: string;
+    apiProvider?: string;
+}
+
+/**
+ * What a harness can offer a composer: its commands, agents and models.
+ *
+ * Deliberately separate from `HarnessProbeResult`. Health is cheap, always
+ * re-run, and every driver can answer it; capabilities cost a subprocess
+ * handshake that runs the user's session hooks, are cached for the app's
+ * lifetime, and a driver may not be able to answer them at all.
+ */
+export interface HarnessCapabilities {
+    commands: HarnessCommand[];
+    agents: HarnessAgent[];
+    models: HarnessModel[];
+    outputStyles: string[];
+    account?: HarnessCapabilityAccount;
+}
+
+/** Why a harness could not describe itself. Never a thrown error at the UI. */
+export interface HarnessCapabilitiesUnavailable {
+    supported: false;
+    reason: string;
+}
+
+export type HarnessCapabilitiesResult =
+    | ({ supported: true } & HarnessCapabilities)
+    | HarnessCapabilitiesUnavailable;
+
 export interface HarnessAPI {
     probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
     getSessionName: (
         sessionId: string,
         fields: HarnessLaunchFields
     ) => Promise<string | null>;
+    getCapabilities: (fields: HarnessLaunchFields) => Promise<HarnessCapabilitiesResult>;
 }
 
 /**

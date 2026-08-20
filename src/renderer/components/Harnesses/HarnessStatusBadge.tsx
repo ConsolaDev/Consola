@@ -1,4 +1,4 @@
-import type { HarnessAccount } from '../../../shared/types';
+import type { HarnessAccount, HarnessCapabilityAccount } from '../../../shared/types';
 import type { HarnessStatus } from '../../stores/harnessStore';
 import './styles.css';
 
@@ -27,11 +27,27 @@ function describePlan(account: HarnessAccount): string | null {
  *
  * Mirrors what the CLI would tell you: who it is signed in as, on which plan,
  * or why it could not be reached.
+ *
+ * The account read from the config file is the fast path and always available.
+ * When the CLI has also been asked directly — which costs a real probe — its
+ * answer is preferred: it words the plan itself, so a tier Consola has never
+ * heard of still reads properly instead of showing a raw identifier.
  */
-export function describeHarnessStatus(status: HarnessStatus | undefined): string {
+export function describeHarnessStatus(
+  status: HarnessStatus | undefined,
+  reported?: HarnessCapabilityAccount
+): string {
   if (!status || status.state === 'unknown') return 'Not checked yet.';
   if (status.state === 'probing') return 'Checking…';
   if (status.state === 'error') return status.error ?? 'Unavailable.';
+
+  if (reported?.signedIn) {
+    const identity = reported.emailAddress ?? reported.organization;
+    const plan = reported.subscriptionType;
+    if (identity) {
+      return plan ? `Authenticated as ${identity} · ${plan}` : `Authenticated as ${identity}`;
+    }
+  }
 
   const { account } = status;
   if (!account?.emailAddress && !account?.displayName) {

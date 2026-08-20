@@ -5,6 +5,7 @@ import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
+import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -220,6 +221,7 @@ export function setupIpcHandlers(): boolean {
             cols,
             rows,
             initialPrompt,
+            model,
             driverId,
             binaryOverride,
             configDirOverride,
@@ -235,6 +237,9 @@ export function setupIpcHandlers(): boolean {
             cols,
             rows,
             initialPrompt,
+            // Pinned when the session chose a model, absent when it did not —
+            // in which case the CLI picks its own default, as before.
+            model,
             // Absent for the built-in harness, which launches exactly as
             // Consola did before harnesses existed.
             driverId,
@@ -285,6 +290,17 @@ export function setupIpcHandlers(): boolean {
             return driver.getSessionDisplayName?.(toHarnessConfig(fields), sessionId) ?? null;
         }
     );
+
+    // What this harness's CLI can offer a composer: its slash commands, agents
+    // and models. Cached in main, so the probe — which starts a real process
+    // and runs the user's session hooks — happens once per harness rather than
+    // once per window.
+    ipcMain.handle(IPC_CHANNELS.HARNESS_CAPABILITIES, (_event, fields: HarnessLaunchFields) => {
+        return harnessCapabilitiesCache.get(
+            getDriver(fields?.driverId),
+            toHarnessConfig(fields)
+        );
+    });
 
     // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
@@ -884,6 +900,7 @@ export function cleanupIpcHandlers(): void {
     // Remove Claude CLI query handlers
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_CAPABILITIES);
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);

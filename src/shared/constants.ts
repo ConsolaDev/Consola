@@ -21,6 +21,7 @@ export const IPC_CHANNELS = {
     // Harness queries (renderer -> main)
     HARNESS_PROBE: 'harness:probe',               // Binary, version and signed-in account
     HARNESS_SESSION_NAME: 'harness:session-name', // Name from the driver's own transcripts
+    HARNESS_CAPABILITIES: 'harness:capabilities', // Slash commands, agents and models it offers
 
     // Workspace state (renderer -> main; main owns the records)
     WORKSPACE_GET_SNAPSHOT: 'workspace:get-snapshot',   // Current list + whether an import is due
@@ -108,6 +109,15 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
      * `getSessionDisplayName`.
      */
     supportsSessionNaming: boolean;
+    /**
+     * Whether this CLI can describe its own commands, agents and models.
+     *
+     * Declared here for the same reason as `supportsSessionNaming`: a driver
+     * that cannot answer must not have the composer waiting on a probe that
+     * will never succeed. Must match whether the driver implements
+     * `probeCapabilities`.
+     */
+    supportsCapabilities: boolean;
 }> = [
     {
         id: 'claude',
@@ -118,6 +128,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
         configDirEnvVar: 'CLAUDE_CONFIG_DIR',
         defaultConfigDir: '~/.claude',
         supportsSessionNaming: true,
+        supportsCapabilities: true,
     },
 ];
 
@@ -130,4 +141,10 @@ export function getDriverDescriptor(id: HarnessDriverId | undefined) {
 export function driverSupportsSessionNaming(id: HarnessDriverId | undefined): boolean {
     if (!id) return true; // Built-in harness runs the Claude driver.
     return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsSessionNaming ?? false;
+}
+
+/** Whether a driver can describe its own commands, agents and models. */
+export function driverSupportsCapabilities(id: HarnessDriverId | undefined): boolean {
+    if (!id) return true; // Built-in harness runs the Claude driver.
+    return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsCapabilities ?? false;
 }

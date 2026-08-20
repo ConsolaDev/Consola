@@ -16,6 +16,8 @@ interface TerminalPanelProps {
     resume: boolean;
     /** Binary, config directory and arguments from this session's harness. */
     harness: HarnessLaunchFields;
+    /** Model this session was pinned to, replayed on every launch. */
+    model?: string;
 }
 
 /**
@@ -30,6 +32,7 @@ export function TerminalPanel({
     claudeSessionId,
     resume,
     harness,
+    model,
 }: TerminalPanelProps) {
     const { containerRef, focus } = useTerminal({
         instanceId,
@@ -37,6 +40,7 @@ export function TerminalPanel({
         claudeSessionId,
         resume,
         harness,
+        model,
     });
 
     const { isDragging, notice, dropProps } = useTerminalFileDrop({
