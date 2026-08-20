@@ -12,3 +12,6 @@ playwright-report/
 
 # electron-builder output
 release/
+
+# Superpowers agent scratch (brainstorm ports/tokens, sdd run artefacts)
+.superpowers/
