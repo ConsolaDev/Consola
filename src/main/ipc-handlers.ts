@@ -6,6 +6,7 @@ import { TerminalManager } from './TerminalManager';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
+import { ghBroker } from './github/GhBroker';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -346,6 +347,12 @@ export function setupIpcHandlers(): boolean {
             toHarnessConfig(fields)
         );
     });
+
+    // === GitHub queries ===
+
+    // Is `gh` installed, and which accounts does its keyring hold? Tokens are
+    // deliberately not reachable over IPC — see GhBroker.
+    ipcMain.handle(IPC_CHANNELS.GH_PROBE, () => ghBroker.probe());
 
     // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
@@ -951,6 +958,9 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_CAPABILITIES);
+
+    // Remove GitHub query handlers
+    ipcMain.removeHandler(IPC_CHANNELS.GH_PROBE);
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
