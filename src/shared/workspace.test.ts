@@ -1,8 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
+  createSessionRecord,
+  createWorkspaceRecord,
   generateUuid,
   migrateWorkspaceState,
+  primaryScope,
+  scopeForSession,
+  type Workspace,
 } from './workspace';
 
 const UUID_V4 = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -109,6 +114,8 @@ describe('migrateWorkspaceState', () => {
       claudeSessionId: '11111111-1111-4111-8111-111111111111',
       hasStarted: true,
       harnessId: 'work',
+      scopeId: 'scope-1',
+      kind: 'interactive',
       createdAt: 1,
       lastActiveAt: 2,
     };
@@ -117,9 +124,11 @@ describe('migrateWorkspaceState', () => {
         {
           id: 'w1',
           name: 'consola',
-          path: '/code/consola',
-          isGitRepo: true,
           defaultHarnessId: 'work',
+          scopes: [
+            { id: 'scope-1', name: 'consola', path: '/code/consola', isGitRepo: true, createdAt: 1 },
+          ],
+          groups: [],
           sessions: [session],
           createdAt: 1,
           updatedAt: 2,
@@ -133,5 +142,69 @@ describe('migrateWorkspaceState', () => {
 
     expect(migrated.workspaces[0].sessions[0]).toEqual(session);
     expect(migrated.workspaces[0].defaultHarnessId).toBe('work');
+    expect(migrated.workspaces[0].scopes).toHaveLength(1);
+  });
+});
+
+describe('createWorkspaceRecord', () => {
+  it('mints a single scope from the folder instead of a path field', () => {
+    const workspace = createWorkspaceRecord('consola', '/code/consola', true);
+
+    expect(workspace).not.toHaveProperty('path');
+    expect(workspace).not.toHaveProperty('isGitRepo');
+    expect(workspace.scopes).toHaveLength(1);
+    expect(workspace.scopes[0].path).toBe('/code/consola');
+    expect(workspace.scopes[0].isGitRepo).toBe(true);
+    expect(workspace.scopes[0].name).toBe('consola');
+    expect(workspace.groups).toEqual([]);
+    expect(workspace.github).toBeUndefined();
+  });
+});
+
+describe('createSessionRecord', () => {
+  it('defaults kind to interactive and carries the scope', () => {
+    const session = createSessionRecord({
+      name: 'New Session',
+      workspaceId: 'w1',
+      instanceId: 'i1',
+      harnessId: 'default',
+      scopeId: 'scope-1',
+    });
+
+    expect(session.kind).toBe('interactive');
+    expect(session.scopeId).toBe('scope-1');
+    expect(session.cwd).toBeUndefined();
+    expect(session.groupId).toBeUndefined();
+    expect(session.workItem).toBeUndefined();
+  });
+
+  it('keeps an explicit kind', () => {
+    const session = createSessionRecord({
+      name: 'Conductor',
+      workspaceId: 'w1',
+      instanceId: 'i1',
+      harnessId: 'default',
+      scopeId: 'scope-1',
+      kind: 'conductor',
+    });
+
+    expect(session.kind).toBe('conductor');
+  });
+});
+
+describe('scope helpers', () => {
+  const workspace = {
+    ...createWorkspaceRecord('consola', '/code/consola', true),
+  } as Workspace;
+
+  it('primaryScope is the first scope', () => {
+    expect(primaryScope(workspace)?.path).toBe('/code/consola');
+  });
+
+  it('scopeForSession resolves the session scope and falls back to primary', () => {
+    const scope = workspace.scopes[0];
+    expect(scopeForSession(workspace, { scopeId: scope.id })?.id).toBe(scope.id);
+    expect(scopeForSession(workspace, { scopeId: 'gone' })?.id).toBe(scope.id);
+    expect(scopeForSession(workspace, undefined)?.id).toBe(scope.id);
   });
 });
