@@ -6,6 +6,7 @@ import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
 import { ScreenModel } from './ScreenModel';
+import { ghBroker, layerGhToken } from './github/GhBroker';
 
 /**
  * One session tab's terminal.
@@ -67,6 +68,12 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
     initialPrompt?: string;
     /** Model this session is pinned to, replayed on every relaunch. */
     model?: string;
+    /**
+     * GitHub account whose token this session's PTY gets as GH_TOKEN.
+     * Resolved from the workspace's binding by the create handler; absent for
+     * workspaces without a binding, which then spawn exactly as before.
+     */
+    githubAccountLogin?: string;
 }
 
 export interface TerminalExitInfo {
@@ -106,7 +113,7 @@ export class TerminalService extends EventEmitter {
     }
 
     public start(): void {
-        this.initClaude(this.options.resume);
+        void this.initClaude(this.options.resume);
     }
 
     /**
@@ -168,7 +175,7 @@ export class TerminalService extends EventEmitter {
     public restartClaude(): void {
         if (this.claudePty) return;
         this.disposeScreen();
-        this.initClaude(true);
+        void this.initClaude(true);
     }
 
     public destroy(): void {
@@ -183,7 +190,7 @@ export class TerminalService extends EventEmitter {
         this.removeAllListeners();
     }
 
-    private initClaude(resume: boolean): void {
+    private async initClaude(resume: boolean): Promise<void> {
         if (this.claudePty) return;
 
         // Checked before the spawn, not after: a directory Consola cannot enter
@@ -197,6 +204,11 @@ export class TerminalService extends EventEmitter {
             this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
             return;
         }
+
+        const ghToken = await this.borrowGhToken();
+        // The await yields; the session may have been closed or restarted in
+        // the meantime, and spawning now would leak an untracked PTY.
+        if (this.isDestroyed || this.claudePty) return;
 
         const binary = this.driver.resolveBinary(this.harness);
         // Read from `options` on every launch rather than captured once, so a
@@ -215,9 +227,10 @@ export class TerminalService extends EventEmitter {
                 cols: this.dimensions.cols,
                 rows: this.dimensions.rows,
                 cwd: this.options.cwd,
-                env: this.driver.composeEnv(this.harness, getLoginEnv()) as {
-                    [key: string]: string;
-                },
+                env: layerGhToken(
+                    this.driver.composeEnv(this.harness, getLoginEnv()),
+                    ghToken
+                ) as { [key: string]: string },
             });
             this.claudeExited = false;
 
@@ -235,7 +248,7 @@ export class TerminalService extends EventEmitter {
                 if (resume && exitCode !== 0) {
                     this.disposeScreen();
                     this.emit('data', CLEAR_SCREEN);
-                    this.initClaude(false);
+                    void this.initClaude(false);
                     return;
                 }
 
@@ -282,6 +295,30 @@ export class TerminalService extends EventEmitter {
         }
 
         return stats.isDirectory() ? null : `Working folder is not a directory: ${cwd}.`;
+    }
+
+    /**
+     * GH_TOKEN for this session's workspace account, or null.
+     *
+     * Null is the whole degradation story: no binding means no token and a
+     * spawn identical to pre-v6 Consola. A binding whose token cannot be
+     * borrowed also launches — but with a visible notice, because an agent
+     * silently running `gh` as whatever account happens to be active in the
+     * keyring is exactly the cross-account accident bindings exist to prevent.
+     */
+    private async borrowGhToken(): Promise<string | null> {
+        const login = this.options.githubAccountLogin;
+        if (!login) return null;
+        try {
+            return await ghBroker.token(login);
+        } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            this.writeNotice(
+                `Could not borrow a GitHub token for ${login}: ${message} ` +
+                    'This session runs without GH_TOKEN — check `gh auth status`.'
+            );
+            return null;
+        }
     }
 
     /**

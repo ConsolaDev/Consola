@@ -38,6 +38,12 @@ export interface TerminalDimensions {
 
 export interface TerminalCreateOptions extends HarnessLaunchFields {
     instanceId: string;
+    /**
+     * Workspace this session belongs to. Main resolves it to the workspace's
+     * GitHub account binding (if any) and borrows GH_TOKEN itself — the
+     * renderer names the workspace precisely so it never has to see a token.
+     */
+    workspaceId: string;
     cwd: string;
     /** Session ID Consola assigned to this tab. */
     claudeSessionId: string;
