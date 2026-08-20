@@ -1,10 +1,16 @@
 import { JsonStateFile } from './JsonStateFile';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
+  createGroupRecord,
+  createScopeRecord,
   createSessionRecord,
   createWorkspaceRecord,
   migrateWorkspaceState,
+  type Group,
+  type NewGroupFields,
+  type NewScopeFields,
   type NewSessionFields,
+  type Scope,
   type Session,
   type Workspace,
 } from '../../shared/workspace';
@@ -89,8 +95,110 @@ export class WorkspaceService {
     );
   }
 
+  public addScope(workspaceId: string, fields: NewScopeFields): Scope {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) throw new Error(`No workspace ${workspaceId}`);
+
+    const scope = createScopeRecord(fields);
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? { ...candidate, scopes: [...candidate.scopes, scope], updatedAt: Date.now() }
+          : candidate
+      )
+    );
+    return scope;
+  }
+
+  /**
+   * Remove a scope. Refuses while any session still references it: a scope is
+   * only a pointer, so the rule is simply that the pointer outlives its
+   * referents — there is no archive tier the way harnesses have.
+   */
+  public removeScope(workspaceId: string, scopeId: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) return;
+
+    if (workspace.sessions.some((session) => session.scopeId === scopeId)) {
+      throw new Error(
+        'This scope still has sessions. Close or delete them before removing the scope.'
+      );
+    }
+
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              scopes: candidate.scopes.filter((scope) => scope.id !== scopeId),
+              updatedAt: Date.now(),
+            }
+          : candidate
+      )
+    );
+  }
+
+  /**
+   * Bind this workspace to a `gh` keyring account, or unbind with null.
+   *
+   * Unbinding removes the key entirely rather than storing null: an absent
+   * `github` is what "pure local workspace, today's behavior" means, and
+   * every reader tests for absence.
+   */
+  public setGitHubBinding(
+    workspaceId: string,
+    binding: { accountLogin: string; org?: string } | null
+  ): void {
+    this.commit(
+      this.workspaces.map((candidate) => {
+        if (candidate.id !== workspaceId) return candidate;
+        if (binding === null) {
+          const { github: _github, ...rest } = candidate;
+          return { ...rest, updatedAt: Date.now() };
+        }
+        return { ...candidate, github: binding, updatedAt: Date.now() };
+      })
+    );
+  }
+
+  public createGroup(workspaceId: string, fields: NewGroupFields): Group {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) throw new Error(`No workspace ${workspaceId}`);
+
+    const group = createGroupRecord(fields);
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? { ...candidate, groups: [...candidate.groups, group], updatedAt: Date.now() }
+          : candidate
+      )
+    );
+    return group;
+  }
+
+  /** Archive a group. Sessions keep their groupId; group UI semantics land in Phase 2. */
+  public archiveGroup(workspaceId: string, groupId: string): void {
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              groups: candidate.groups.map((group) =>
+                group.id === groupId ? { ...group, archivedAt: Date.now() } : group
+              ),
+              updatedAt: Date.now(),
+            }
+          : candidate
+      )
+    );
+  }
+
   public createSession(workspaceId: string, fields: NewSessionFields): Session | undefined {
-    if (!this.workspaces.some((workspace) => workspace.id === workspaceId)) return undefined;
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) return undefined;
+    // A session pointing at a scope that does not exist would render nowhere
+    // and spawn nowhere; refuse the same quiet way an unknown workspace is.
+    if (!workspace.scopes.some((scope) => scope.id === fields.scopeId)) return undefined;
 
     const session = createSessionRecord(fields);
     this.commit(
