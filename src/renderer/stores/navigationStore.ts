@@ -17,6 +17,8 @@ export interface NavigationState {
   isExplorerVisible: boolean;
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
+  /** The Inbox view is showing instead of a session. Per-window, not persisted. */
+  isInboxOpen: boolean;
   toggleSidebar: () => void;
   setSidebarHidden: (hidden: boolean) => void;
   toggleExplorer: () => void;
@@ -24,6 +26,7 @@ export interface NavigationState {
   /** Ask main for the workspace. Resolves once the verdict is known. */
   setActiveWorkspace: (id: string | null) => Promise<void>;
   setActiveSession: (id: string | null) => void;
+  openInbox: () => void;
 }
 
 /**
@@ -61,6 +64,7 @@ export const useNavigationStore = create<NavigationState>()(
       isExplorerVisible: false,
       activeWorkspaceId: windowBridge.context.workspaceId,
       activeSessionId: windowBridge.context.activeSessionId,
+      isInboxOpen: false,
 
       toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
       setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
@@ -72,15 +76,17 @@ export const useNavigationStore = create<NavigationState>()(
         // 'focused-elsewhere' means another window already holds it and has
         // been brought forward. This window keeps showing what it was showing.
         if (verdict === 'took') {
-          set({ activeWorkspaceId: id, activeSessionId: null });
+          set({ activeWorkspaceId: id, activeSessionId: null, isInboxOpen: false });
           windowBridge.setActiveSession(null);
         }
       },
 
       setActiveSession: (id) => {
-        set({ activeSessionId: id });
+        set({ activeSessionId: id, isInboxOpen: false });
         windowBridge.setActiveSession(id);
       },
+
+      openInbox: () => set({ isInboxOpen: true }),
     }),
     {
       name: 'consola-navigation',
