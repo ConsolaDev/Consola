@@ -105,13 +105,63 @@ export class WorktreeService {
     return origin;
   }
 
+  /** Absolute `git-common-dir` for `dir` — the same value for every worktree of one repo. */
+  private async gitCommonDir(dir: string, env: NodeJS.ProcessEnv): Promise<string> {
+    const out = await this.run(
+      'git',
+      dir,
+      ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+      env
+    );
+    return out.trim();
+  }
+
+  /**
+   * Refuse to hand back `dir` unless it is actually a worktree of `clonePath`.
+   *
+   * Only called on the fast path, where `dir` was found to already exist —
+   * so this never adds a subprocess to a fresh worktree creation, only to
+   * reusing one.
+   */
+  private async assertBelongsToClone(
+    dir: string,
+    clonePath: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv
+  ): Promise<void> {
+    const [existingCommonDir, expectedCommonDir] = await Promise.all([
+      this.gitCommonDir(dir, env),
+      this.gitCommonDir(clonePath, env),
+    ]);
+    if (existingCommonDir === expectedCommonDir) return;
+    throw new Error(
+      `${dir} already exists but is a worktree of a different repository ` +
+        `(git dir ${existingCommonDir}), not ${clonePath} (git dir ${expectedCommonDir}). ` +
+        `Refusing to hand it to ${workItem.repo} ${workItem.type} #${workItem.number} — ` +
+        `two repositories share the worktree name "${worktreeDirName(workItem)}" here. ` +
+        `Remove the stale worktree, or clone one of them somewhere the collision cannot happen, ` +
+        `before retrying.`
+    );
+  }
+
   /**
    * The worktree for a work item, creating or recreating it as needed.
    *
    * Idempotent by design: resuming a session whose worktree was deleted lands
    * here again before the PTY spawns, and the checkout must simply happen
    * again. A linked worktree keeps a `.git` *file* pointing at the clone, so
-   * its presence is the "already exists" signal.
+   * its presence is the "already exists" signal — but the worktree directory
+   * name (`<repo-basename>-<type>-<number>`) is global across every clone in
+   * every workspace, so two repos that merely share a basename (e.g. two
+   * different orgs' `docs`) can collide on it. Before trusting an existing
+   * directory, its `git-common-dir` (which a linked worktree always points
+   * back at its origin repo's `.git`) must match `clonePath`'s own — that is
+   * the precise test for "this worktree actually belongs to this clone",
+   * unlike comparing origin URLs, which two clones of the *same* repo would
+   * also satisfy without proving *this* directory came from *this* clone.
+   * A mismatch refuses loudly rather than handing back another repo's
+   * worktree: silently doing so would point an agent's `gh` calls at the
+   * wrong repository, including any review or comment it writes.
    *
    * PRs: `git worktree add --detach` then `gh pr checkout <n>` inside it —
    * gh owns the branch naming and the fetch, with GH_TOKEN in `env`.
@@ -123,7 +173,10 @@ export class WorktreeService {
     env: NodeJS.ProcessEnv
   ): Promise<string> {
     const dir = path.join(this.root, worktreeDirName(workItem));
-    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+    if (fs.existsSync(path.join(dir, '.git'))) {
+      await this.assertBelongsToClone(dir, clonePath, workItem, env);
+      return dir;
+    }
 
     await fs.promises.mkdir(this.root, { recursive: true });
     // A worktree whose directory was deleted stays registered and would make
