@@ -106,10 +106,25 @@ export function SessionNavItem({
     setIsRenaming(true);
   };
 
+  // The row activates the session but also hosts the ⋯ actions trigger, and
+  // a <button> may not contain another button. A div with role="button"
+  // carries the same semantics while keeping the nested trigger valid; the
+  // key handler restores the Enter/Space activation a real button gets free.
+  const handleRowKeyDown = (e: React.KeyboardEvent) => {
+    if (isRenaming || e.target !== e.currentTarget) return;
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onClick();
+    }
+  };
+
   return (
-    <button
+    <div
+      role="button"
+      tabIndex={0}
       className={`session-nav-item ${isActive ? 'active' : ''}`}
       onClick={isRenaming ? undefined : onClick}
+      onKeyDown={handleRowKeyDown}
       title={accessibleName}
       aria-label={accessibleName}
     >
@@ -146,6 +161,6 @@ export function SessionNavItem({
           onDelete={handleDelete}
         />
       )}
-    </button>
+    </div>
   );
 }
