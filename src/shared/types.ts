@@ -361,6 +361,8 @@ export interface WorkspaceAPI {
     ) => Promise<void>;
     createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
     archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
+    fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;
+    listScopeRepos: (workspaceId: string, scopeId: string) => Promise<ScopeRepo[]>;
     onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
 }
 
