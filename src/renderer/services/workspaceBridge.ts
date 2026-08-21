@@ -1,4 +1,9 @@
-import type { WorkspaceSnapshot } from '../../shared/types';
+import type {
+    WorkspaceSnapshot,
+    SessionFanOutIntent,
+    SessionFanOutResult,
+    ScopeRepo,
+} from '../../shared/types';
 import type {
     Group,
     NewGroupFields,
@@ -83,6 +88,16 @@ export const workspaceBridge = {
 
     archiveGroup(workspaceId: string, groupId: string): Promise<void> {
         return window.workspaceAPI.archiveGroup(workspaceId, groupId);
+    },
+
+    /** Fan one prompt out across target repos: N sessions in a fresh group. */
+    fanOut(intent: SessionFanOutIntent): Promise<SessionFanOutResult> {
+        return window.workspaceAPI.fanOut(intent);
+    },
+
+    /** The git repos a fan-out can target inside a scope. */
+    listScopeRepos(workspaceId: string, scopeId: string): Promise<ScopeRepo[]> {
+        return window.workspaceAPI.listScopeRepos(workspaceId, scopeId);
     },
 
     onChanged(callback: (workspaces: Workspace[]) => void): () => void {

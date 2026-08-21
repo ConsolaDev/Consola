@@ -39,6 +39,10 @@ export const IPC_CHANNELS = {
     WORKSPACE_GROUP_CREATE: 'workspace:group-create',
     WORKSPACE_GROUP_ARCHIVE: 'workspace:group-archive',
 
+    // Fleet creation (renderer -> main)
+    SESSION_FAN_OUT: 'session:fan-out',              // N sessions into a fresh group
+    SCOPE_LIST_REPOS: 'workspace:scope-list-repos',  // A scope's launch targets
+
     // Workspace state (main -> every renderer)
     WORKSPACE_CHANGED: 'workspace:changed',
 

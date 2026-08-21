@@ -3,6 +3,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
+import { SessionLauncher } from './SessionLauncher';
+import { fanOut } from './fanOut';
+import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
@@ -13,6 +16,7 @@ import { cloneWorkspaceRepo } from './github/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { getLoginEnv } from './LoginEnvironment';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
+import type { SessionFanOutIntent } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { InboxSnapshot, WorkItemRef } from '../shared/github';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -392,6 +396,22 @@ export function setupIpcHandlers(): boolean {
             app.setBadgeCount(count > 0 ? count : 0);
         }
     };
+
+    // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
+    const launcher = new SessionLauncher(workspaces, harnesses, manager);
+
+    ipcMain.handle(IPC_CHANNELS.SESSION_FAN_OUT, (_event, intent: SessionFanOutIntent) =>
+        fanOut({ workspaces, launcher }, intent)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.SCOPE_LIST_REPOS,
+        (_event, workspaceId: string, scopeId: string) => {
+            const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+            const scope = workspace?.scopes.find((candidate) => candidate.id === scopeId);
+            return scope ? listScopeRepos(scope) : [];
+        }
+    );
 
     // Start or attach to a session's terminal. Returns buffered output so a
     // remounted view repaints without restarting the conversation.
@@ -1112,6 +1132,9 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
+    ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
+    ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
+
     ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT);
 
