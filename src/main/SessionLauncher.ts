@@ -1,3 +1,4 @@
+import * as fs from 'fs';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
@@ -88,6 +89,19 @@ export class SessionLauncher {
             this.workspaces.deleteSession(workspaceId, session.id);
             throw new Error(
                 `Session "${session.name}" has no working folder: scope ${session.scopeId} not found and no cwd given`
+            );
+        }
+
+        // A folder that is gone is the same failure as a folder that was never
+        // named, and it has to be caught here: node-pty enters the directory
+        // inside the PTY child, where the failure is silent (see
+        // TerminalService.describeCwdProblem). Without this the launch looks
+        // like a success, the session dies moments later with a blank pane,
+        // and fan-out reports a moved or deleted target as launched.
+        if (!fs.existsSync(cwd)) {
+            this.workspaces.deleteSession(workspaceId, session.id);
+            throw new Error(
+                `Session "${session.name}" has no working folder: ${cwd} does not exist`
             );
         }
 
