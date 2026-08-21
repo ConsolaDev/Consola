@@ -162,6 +162,9 @@ function currentBranch(dir: string): string {
   }).trim();
 }
 
+// These tests spawn real `git worktree add/remove` and `gh` processes, which can
+// exceed 5 seconds under parallel suite load. Using a per-test timeout instead
+// of raising the global default documents which tests need the allowance and why.
 describe('WorktreeService.ensureWorktree', () => {
   const pr51 = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 } as const;
   const issue87 = { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 87 } as const;
@@ -182,7 +185,7 @@ describe('WorktreeService.ensureWorktree', () => {
     expect(dir).toBe(path.join(root, 'controller-app-pr-51'));
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
     expect(currentBranch(dir)).toBe('stub-pr-51'); // the stub's checkout branch
-  });
+  }, 30_000);
 
   it('is idempotent — a second call returns the same directory untouched', async () => {
     const { clone, service } = setup();
@@ -193,7 +196,7 @@ describe('WorktreeService.ensureWorktree', () => {
 
     expect(second).toBe(first);
     expect(fs.readFileSync(path.join(first, 'wip.txt'), 'utf8')).toBe('uncommitted');
-  });
+  }, 30_000);
 
   it('recreates a worktree whose directory was deleted', async () => {
     const { clone, service } = setup();
@@ -204,7 +207,7 @@ describe('WorktreeService.ensureWorktree', () => {
     const again = await service.ensureWorktree(clone, pr51, { ...process.env });
     expect(again).toBe(dir);
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
-  });
+  }, 30_000);
 
   it('creates issue worktrees on a consola/issue-<n> branch, reusing it if present', async () => {
     const { clone, root, service } = setup();
@@ -216,7 +219,7 @@ describe('WorktreeService.ensureWorktree', () => {
     fs.rmSync(dir, { recursive: true, force: true });
     const again = await service.ensureWorktree(clone, issue87, { ...process.env });
     expect(currentBranch(again)).toBe('consola/issue-87');
-  });
+  }, 30_000);
 
   it('rejects with git stderr when the clone cannot host a worktree', async () => {
     const empty = path.join(tmpDir('consola-wt-empty-'), 'empty');
@@ -229,7 +232,7 @@ describe('WorktreeService.ensureWorktree', () => {
     await expect(service.ensureWorktree(empty, pr51, { ...process.env })).rejects.toThrow(
       /invalid reference: HEAD/
     );
-  });
+  }, 30_000);
 
   it('cleans up a worktree it created when the gh checkout step fails, so a later call retries', async () => {
     const { clone, root, service } = setup();
@@ -248,7 +251,7 @@ describe('WorktreeService.ensureWorktree', () => {
     expect(again).toBe(dir);
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
     expect(currentBranch(dir)).toBe('stub-pr-51');
-  });
+  }, 30_000);
 });
 
 describe('WorktreeService.prune', () => {
@@ -263,7 +266,7 @@ describe('WorktreeService.prune', () => {
     fs.writeFileSync(path.join(dir, 'wip.txt'), 'uncommitted');
     await expect(service.prune(dir)).rejects.toThrow(/uncommitted/);
     expect(fs.existsSync(dir)).toBe(true);
-  });
+  }, 30_000);
 
   it('removes a clean worktree and unregisters it', async () => {
     const clone = path.join(tmpDir('consola-wt-prune-'), 'controller-app');
@@ -276,5 +279,5 @@ describe('WorktreeService.prune', () => {
     expect(fs.existsSync(dir)).toBe(false);
     const list = execFileSync('git', ['-C', clone, 'worktree', 'list'], { encoding: 'utf8' });
     expect(list).not.toContain('controller-app-pr-51');
-  });
+  }, 30_000);
 });
