@@ -33,6 +33,7 @@ const IDLE = {
   isAwaitingConfirmation: false,
   hasExited: false,
   completedWhileAway: false,
+  status: 'ready' as const,
 };
 
 describe('sessionStatusFor', () => {
