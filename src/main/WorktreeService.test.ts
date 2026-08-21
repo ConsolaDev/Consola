@@ -135,4 +135,124 @@ describe('WorktreeService.resolveRepo', () => {
     service.invalidate();
     expect(service.resolveRepo(workspace, 'sympower/new-name')).toBe(dir);
   });
+
+  it('resolves to null rather than throwing when a scope path no longer exists', () => {
+    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => 'gh');
+    const missing = path.join(tmpDir('consola-wt-missing-'), 'moved-away');
+    const workspace = makeWorkspace([makeScope(missing, false)]);
+
+    expect(service.resolveRepo(workspace, 'sympower/controller-app')).toBeNull();
+  });
+});
+
+const STUB_GH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
+
+function initCloneWithCommit(dir: string, origin: string): void {
+  initRepo(dir, origin);
+  execFileSync('git', ['-C', dir, 'config', 'user.email', 'test@consola.test']);
+  execFileSync('git', ['-C', dir, 'config', 'user.name', 'Consola Test']);
+  fs.writeFileSync(path.join(dir, 'README.md'), 'fixture');
+  execFileSync('git', ['-C', dir, 'add', '.']);
+  execFileSync('git', ['-C', dir, 'commit', '-q', '-m', 'init']);
+}
+
+function currentBranch(dir: string): string {
+  return execFileSync('git', ['-C', dir, 'rev-parse', '--abbrev-ref', 'HEAD'], {
+    encoding: 'utf8',
+  }).trim();
+}
+
+describe('WorktreeService.ensureWorktree', () => {
+  const pr51 = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 } as const;
+  const issue87 = { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 87 } as const;
+
+  function setup() {
+    const clone = path.join(tmpDir('consola-wt-clone-'), 'controller-app');
+    initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
+    const root = tmpDir('consola-wt-worktrees-');
+    const service = new WorktreeService(root, async () => STUB_GH);
+    return { clone, root, service };
+  }
+
+  it('creates a PR worktree under the spec name and checks the PR out via gh', async () => {
+    const { clone, root, service } = setup();
+
+    const dir = await service.ensureWorktree(clone, pr51, { ...process.env });
+
+    expect(dir).toBe(path.join(root, 'controller-app-pr-51'));
+    expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
+    expect(currentBranch(dir)).toBe('stub-pr-51'); // the stub's checkout branch
+  });
+
+  it('is idempotent — a second call returns the same directory untouched', async () => {
+    const { clone, service } = setup();
+
+    const first = await service.ensureWorktree(clone, pr51, { ...process.env });
+    fs.writeFileSync(path.join(first, 'wip.txt'), 'uncommitted');
+    const second = await service.ensureWorktree(clone, pr51, { ...process.env });
+
+    expect(second).toBe(first);
+    expect(fs.readFileSync(path.join(first, 'wip.txt'), 'utf8')).toBe('uncommitted');
+  });
+
+  it('recreates a worktree whose directory was deleted', async () => {
+    const { clone, service } = setup();
+
+    const dir = await service.ensureWorktree(clone, pr51, { ...process.env });
+    fs.rmSync(dir, { recursive: true, force: true });
+
+    const again = await service.ensureWorktree(clone, pr51, { ...process.env });
+    expect(again).toBe(dir);
+    expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
+  });
+
+  it('creates issue worktrees on a consola/issue-<n> branch, reusing it if present', async () => {
+    const { clone, root, service } = setup();
+
+    const dir = await service.ensureWorktree(clone, issue87, { ...process.env });
+    expect(dir).toBe(path.join(root, 'controller-app-issue-87'));
+    expect(currentBranch(dir)).toBe('consola/issue-87');
+
+    fs.rmSync(dir, { recursive: true, force: true });
+    const again = await service.ensureWorktree(clone, issue87, { ...process.env });
+    expect(currentBranch(again)).toBe('consola/issue-87');
+  });
+
+  it('rejects with git stderr when the clone cannot host a worktree', async () => {
+    const empty = path.join(tmpDir('consola-wt-empty-'), 'empty');
+    initRepo(empty, 'git@github.com:sympower/empty.git'); // no commits: worktree add fails
+    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
+
+    await expect(
+      service.ensureWorktree(empty, pr51, { ...process.env })
+    ).rejects.toThrow(/./); // the git message travels up verbatim
+  });
+});
+
+describe('WorktreeService.prune', () => {
+  const pr51 = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 } as const;
+
+  it('refuses while the worktree holds uncommitted changes', async () => {
+    const clone = path.join(tmpDir('consola-wt-prune-'), 'controller-app');
+    initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
+    const dir = await service.ensureWorktree(clone, pr51, { ...process.env });
+
+    fs.writeFileSync(path.join(dir, 'wip.txt'), 'uncommitted');
+    await expect(service.prune(dir)).rejects.toThrow(/uncommitted/);
+    expect(fs.existsSync(dir)).toBe(true);
+  });
+
+  it('removes a clean worktree and unregisters it', async () => {
+    const clone = path.join(tmpDir('consola-wt-prune-'), 'controller-app');
+    initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
+    const dir = await service.ensureWorktree(clone, pr51, { ...process.env });
+
+    await service.prune(dir);
+
+    expect(fs.existsSync(dir)).toBe(false);
+    const list = execFileSync('git', ['-C', clone, 'worktree', 'list'], { encoding: 'utf8' });
+    expect(list).not.toContain('controller-app-pr-51');
+  });
 });

@@ -104,4 +104,92 @@ export class WorktreeService {
     this.remoteCache.set(dir, origin);
     return origin;
   }
+
+  /**
+   * The worktree for a work item, creating or recreating it as needed.
+   *
+   * Idempotent by design: resuming a session whose worktree was deleted lands
+   * here again before the PTY spawns, and the checkout must simply happen
+   * again. A linked worktree keeps a `.git` *file* pointing at the clone, so
+   * its presence is the "already exists" signal.
+   *
+   * PRs: `git worktree add --detach` then `gh pr checkout <n>` inside it —
+   * gh owns the branch naming and the fetch, with GH_TOKEN in `env`.
+   * Issues: a `consola/issue-<n>` branch, created on first use, reused after.
+   */
+  public async ensureWorktree(
+    clonePath: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv
+  ): Promise<string> {
+    const dir = path.join(this.root, worktreeDirName(workItem));
+    if (fs.existsSync(path.join(dir, '.git'))) return dir;
+
+    await fs.promises.mkdir(this.root, { recursive: true });
+    // A worktree whose directory was deleted stays registered and would make
+    // `worktree add` refuse; prune drops stale registrations only.
+    await this.run('git', clonePath, ['worktree', 'prune'], env);
+
+    if (workItem.type === 'pr') {
+      await this.run('git', clonePath, ['worktree', 'add', '--detach', dir], env);
+      await this.run(await this.ghBinary(), dir, ['pr', 'checkout', String(workItem.number)], env);
+    } else {
+      const branch = `consola/issue-${workItem.number}`;
+      const existing = await this.run('git', clonePath, ['branch', '--list', branch], env);
+      await this.run(
+        'git',
+        clonePath,
+        existing.trim()
+          ? ['worktree', 'add', dir, branch]
+          : ['worktree', 'add', '-b', branch, dir],
+        env
+      );
+    }
+    return dir;
+  }
+
+  /**
+   * Remove a work-item worktree — offered, never automatic.
+   *
+   * Refuses while the worktree holds uncommitted changes: pruning is cleanup,
+   * and cleanup must never be the thing that loses work.
+   */
+  public async prune(worktreePath: string): Promise<void> {
+    const status = await this.run('git', worktreePath, ['status', '--porcelain'], process.env);
+    if (status.trim()) {
+      throw new Error(
+        `Refusing to prune ${worktreePath}: it has uncommitted changes. Commit or discard them first.`
+      );
+    }
+    const commonDir = (
+      await this.run(
+        'git',
+        worktreePath,
+        ['rev-parse', '--path-format=absolute', '--git-common-dir'],
+        process.env
+      )
+    ).trim();
+    const mainRoot = path.dirname(commonDir);
+    await this.run('git', mainRoot, ['worktree', 'remove', worktreePath], process.env);
+  }
+
+  /** Run a subprocess; on failure surface stderr as the Error message. */
+  private async run(
+    binary: string,
+    cwd: string,
+    args: string[],
+    env: NodeJS.ProcessEnv
+  ): Promise<string> {
+    try {
+      const { stdout } = await execFileAsync(binary, args, {
+        cwd,
+        env: env as { [key: string]: string },
+        maxBuffer: 10 * 1024 * 1024,
+      });
+      return stdout;
+    } catch (error) {
+      const stderr = (error as { stderr?: string | Buffer }).stderr?.toString().trim();
+      throw new Error(stderr || (error instanceof Error ? error.message : String(error)));
+    }
+  }
 }
