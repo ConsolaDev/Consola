@@ -14,8 +14,8 @@ import './styles.css';
 /**
  * The workspace this window holds: Inbox · Groups · Scopes.
  *
- * A grouped session renders under its group with its scope as subtitle; an
- * ungrouped one renders under its scope. Group badges are derived from the
+ * A grouped session renders under its group, subtitled with the folder it
+ * runs in; an ungrouped one renders under its scope. Group badges are derived from the
  * terminal status store on every render — progress is never stored. Which
  * workspace this is lives in the top bar.
  */
@@ -69,10 +69,12 @@ export function Sidebar() {
     }
   }
 
-  // The subtitle a grouped session carries: where it runs, since its row no
-  // longer sits under a scope heading.
-  const scopeNameFor = (scopeId: string) =>
-    workspace?.scopes.find((scope) => scope.id === scopeId)?.name;
+  // The scope a grouped session belongs to, which its row uses to say where
+  // it runs — its row no longer sits under a scope heading. The whole record
+  // goes down, not just the name: a session with a cwd of its own is
+  // subtitled by that folder instead, which needs the scope's path to compare.
+  const scopeFor = (scopeId: string) =>
+    workspace?.scopes.find((scope) => scope.id === scopeId);
 
   const scopeIds = new Set(workspace?.scopes.map((scope) => scope.id) ?? []);
   // A session whose scope is gone still renders — losing a row over a broken
@@ -145,7 +147,7 @@ export function Sidebar() {
                 group={group}
                 sessions={grouped.get(group.id) ?? []}
                 workspaceId={workspace.id}
-                scopeNameFor={scopeNameFor}
+                scopeFor={scopeFor}
                 activeSessionId={activeSessionId}
               />
             ))}

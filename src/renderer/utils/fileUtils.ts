@@ -66,6 +66,17 @@ const MARKDOWN_EXTENSIONS = new Set(['md', 'markdown']);
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'ico']);
 
 /**
+ * The last segment of a path, POSIX or Windows.
+ *
+ * The renderer has no Node `path`. Trailing separators are stripped first so
+ * a folder path that ends in one still names the folder rather than nothing.
+ */
+export function basename(filePath: string): string {
+  const trimmed = filePath.replace(/[\\/]+$/, '');
+  return trimmed.split(/[\\/]/).pop() ?? '';
+}
+
+/**
  * Get the file extension from a path (lowercase)
  */
 export function getFileExtension(filePath: string): string {
