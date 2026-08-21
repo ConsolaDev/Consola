@@ -12,11 +12,13 @@ interface NewGroupDialogProps {
 export function NewGroupDialog({ workspaceId, onClose }: NewGroupDialogProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
 
   const create = async () => {
     const trimmed = name.trim();
-    if (!trimmed) return;
+    if (!trimmed || submitting) return;
     setError(null);
+    setSubmitting(true);
     try {
       await workspaceBridge.createGroup(workspaceId, { name: trimmed });
       onClose();
@@ -24,6 +26,8 @@ export function NewGroupDialog({ workspaceId, onClose }: NewGroupDialogProps) {
       // Keep the dialog open so the name is not lost, and say what happened
       // instead of a native alert.
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -62,7 +66,7 @@ export function NewGroupDialog({ workspaceId, onClose }: NewGroupDialogProps) {
             <button
               className="dialog-button-primary"
               onClick={() => void create()}
-              disabled={!name.trim()}
+              disabled={!name.trim() || submitting}
             >
               Create
             </button>

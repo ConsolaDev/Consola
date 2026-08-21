@@ -27,7 +27,12 @@ export function NewMenu() {
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content className="dropdown-content" sideOffset={6} align="start">
+          <DropdownMenu.Content
+            className="dropdown-content"
+            sideOffset={6}
+            align="start"
+            onCloseAutoFocus={(event) => event.preventDefault()}
+          >
             <DropdownMenu.Item
               className="dropdown-item"
               onSelect={() => void createQuickSession(activeWorkspaceId)}
