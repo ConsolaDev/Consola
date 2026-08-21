@@ -2,6 +2,7 @@ import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
 import type { WindowContext } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
+import { IPC_CHANNELS } from '../shared/constants';
 
 /**
  * The open windows, and which workspace each one holds.
@@ -138,15 +139,30 @@ export function setActiveSession(window: BrowserWindow, sessionId: string | null
     contexts.set(window.webContents.id, { ...existing, activeSessionId: sessionId });
 }
 
-/** Focus the window already holding a workspace, or open one for it. */
-export function focusOrCreate(workspaceId: string): BrowserWindow {
+/**
+ * Focus the window already holding a workspace, or open one for it —
+ * optionally landing on a specific session, which is how a notification
+ * click reaches the right pane.
+ */
+export function focusOrCreate(
+    workspaceId: string,
+    activeSessionId: string | null = null
+): BrowserWindow {
     const existing = findWindowForWorkspace(workspaceId);
     if (existing) {
         if (existing.isMinimized()) existing.restore();
         existing.focus();
+        if (activeSessionId) {
+            // Recorded in the registry (for relaunch) and pushed to the
+            // renderer (for right now) — the two views of one fact.
+            setActiveSession(existing, activeSessionId);
+            existing.webContents.send(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, activeSessionId);
+        }
         return existing;
     }
-    return createWindow({ workspaceId, activeSessionId: null });
+    // A fresh window learns its session the way every restored window does:
+    // through the context injected at construction.
+    return createWindow({ workspaceId, activeSessionId });
 }
 
 export function getAnyWindow(): BrowserWindow | null {

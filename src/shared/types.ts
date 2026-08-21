@@ -418,4 +418,6 @@ export interface WindowAPI {
     openWindow: (workspaceId: string | null) => Promise<void>;
     setActiveSession: (sessionId: string | null) => void;
     onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
+    /** A notification click chose a session; this window should show it. */
+    onActivateSession: (callback: (sessionId: string) => void) => () => void;
 }
