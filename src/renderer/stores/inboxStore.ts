@@ -24,6 +24,7 @@ interface InboxState {
   refresh: (workspaceId: string) => Promise<void>;
   adoptSnapshot: (snapshot: InboxSnapshot) => void;
   launch: (workspaceId: string, item: InboxItem) => Promise<void>;
+  cloneAndLaunch: (workspaceId: string, item: InboxItem, destinationDir: string) => Promise<void>;
   openClonePrompt: (workspaceId: string, item: InboxItem) => void;
   dismissClonePrompt: () => void;
   /** Subscribe to main's pushes. Call once near the app root. */
@@ -100,6 +101,36 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       // "Degrade, never dialog" applies to a thrown/rejected launch too —
       // an unhandled rejection would otherwise leave the item silent instead
       // of surfacing the error on its row.
+      const message = error instanceof Error ? error.message : String(error);
+      set((state) => ({ launchErrors: { ...state.launchErrors, [key]: message } }));
+    } finally {
+      set((state) => {
+        const { [key]: _done, ...launching } = state.launching;
+        return { launching };
+      });
+    }
+  },
+
+  cloneAndLaunch: async (workspaceId, item, destinationDir) => {
+    const key = launchKey(workspaceId, item);
+    // Same shape as launch(): guard set before the first await, errors land
+    // on the item (never a dialog), guard cleared on every path.
+    set((state) => {
+      const { [key]: _cleared, ...launchErrors } = state.launchErrors;
+      return { clonePrompt: null, launching: { ...state.launching, [key]: true }, launchErrors };
+    });
+    try {
+      const result = await githubBridge.cloneRepo(workspaceId, item.workItem.repo, destinationDir);
+      if (!result || !result.ok) {
+        set((state) => ({
+          launchErrors: { ...state.launchErrors, [key]: result?.error ?? 'Clone failed.' },
+        }));
+        return;
+      }
+      // The clone landed and (if needed) became a scope; the normal launch
+      // path now resolves it and continues: worktree, record, spawn.
+      await get().launch(workspaceId, item);
+    } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set((state) => ({ launchErrors: { ...state.launchErrors, [key]: message } }));
     } finally {
