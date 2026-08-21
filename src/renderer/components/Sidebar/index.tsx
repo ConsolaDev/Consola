@@ -134,7 +134,7 @@ export function Sidebar() {
         </div>
       )}
       {workspace && groups.length > 0 && (
-        <div className="sidebar-section">
+        <div className="sidebar-section sidebar-section-groups">
           <div className="sidebar-section-header">
             <span className="sidebar-section-title">Groups</span>
           </div>
