@@ -20,6 +20,46 @@
   overflow: hidden;
 }
 
+/* Pinned Inbox row — only rendered for GitHub-bound workspaces */
+.sidebar-inbox {
+  padding: var(--space-2) var(--space-2) 0;
+}
+
+.sidebar-inbox-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: var(--sidebar-row-padding-y) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--sidebar-font-size);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.sidebar-inbox-row:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.sidebar-inbox-row.active {
+  background: var(--color-bg-selected);
+  color: var(--color-text-primary);
+}
+
+.sidebar-inbox-name {
+  flex: 1;
+  text-align: left;
+}
+
+.sidebar-inbox-count {
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-tertiary);
+}
+
 /* Sidebar sections */
 .sidebar-section {
   flex: 1;

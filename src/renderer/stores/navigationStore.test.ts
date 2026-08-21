@@ -15,7 +15,7 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
-import { mergeNavigationState, type NavigationState } from './navigationStore';
+import { mergeNavigationState, useNavigationStore, type NavigationState } from './navigationStore';
 
 /**
  * A minimal, fully-typed NavigationState to use as `current` in merge tests.
@@ -28,12 +28,14 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     isExplorerVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
+    isInboxOpen: false,
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
     toggleExplorer: vi.fn(),
     setExplorerVisible: vi.fn(),
     setActiveWorkspace: vi.fn(),
     setActiveSession: vi.fn(),
+    openInbox: vi.fn(),
     ...overrides,
   };
 }
@@ -89,5 +91,20 @@ describe('mergeNavigationState', () => {
 
     expect(() => mergeNavigationState(undefined, current)).not.toThrow();
     expect(mergeNavigationState(undefined, current)).toEqual(current);
+  });
+});
+
+describe('inbox navigation', () => {
+  it('opens the inbox', () => {
+    useNavigationStore.setState({ isInboxOpen: false });
+    useNavigationStore.getState().openInbox();
+    expect(useNavigationStore.getState().isInboxOpen).toBe(true);
+  });
+
+  it('closes the inbox when a session is activated', () => {
+    useNavigationStore.setState({ isInboxOpen: true });
+    useNavigationStore.getState().setActiveSession('session-1');
+    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-1');
   });
 });
