@@ -1,6 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import type { SessionNameResult } from '../shared/types';
 import { getLoginEnv } from './LoginEnvironment';
 
 /**
@@ -164,10 +165,27 @@ function readFirstPrompt(sessionId: string, configDir?: string): string | null {
                       : '';
 
             const trimmed = text.trim();
-            // Skip command wrappers and tool results to reach real prose.
-            if (trimmed && !trimmed.startsWith('<')) {
-                return trimmed;
+            if (!trimmed) continue;
+
+            // A slash-command expansion carries the user's own words after an
+            // ARGUMENTS: marker — prefer them over anything the skill injected.
+            const argumentsIndex = trimmed.indexOf('ARGUMENTS:');
+            if (argumentsIndex !== -1) {
+                const args = trimmed.slice(argumentsIndex + 'ARGUMENTS:'.length).trim();
+                if (args) return args;
             }
+
+            // Skip command wrappers, tool results, and injected skill content
+            // (markdown headings, skill preambles) to reach real prose.
+            if (
+                trimmed.startsWith('<') ||
+                trimmed.startsWith('#') ||
+                trimmed.startsWith('Base directory for this skill:')
+            ) {
+                continue;
+            }
+
+            return trimmed;
         }
     } catch {
         // Transcript unreadable or mid-write.
@@ -186,18 +204,18 @@ export function getDisplayName(
     sessionId: string,
     configDir?: string,
     maxLength = 60
-): string | null {
+): SessionNameResult | null {
     const entry = findEntry(sessionId, configDir);
-    const raw = (
-        entry?.summary ||
-        entry?.firstPrompt ||
-        readFirstPrompt(sessionId, configDir) ||
-        ''
-    ).trim();
+    const summary = entry?.summary?.trim();
+    const raw =
+        summary ||
+        (entry?.firstPrompt || readFirstPrompt(sessionId, configDir) || '').trim();
     if (!raw) return null;
 
     const collapsed = raw.replace(/\s+/g, ' ');
-    return collapsed.length > maxLength
-        ? `${collapsed.slice(0, maxLength - 1).trimEnd()}…`
-        : collapsed;
+    const name =
+        collapsed.length > maxLength
+            ? `${collapsed.slice(0, maxLength - 1).trimEnd()}…`
+            : collapsed;
+    return { name, source: summary ? 'summary' : 'prompt' };
 }

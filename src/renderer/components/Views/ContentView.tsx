@@ -54,7 +54,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
   const cwd = session?.cwd ?? scope?.path ?? '';
 
-  const sessionName = session?.name;
+  const nameIsUserSet = session?.nameIsUserSet;
   const claudeSessionId = session?.claudeSessionId;
   const hasStarted = session?.hasStarted;
   const harnessId = session?.harnessId;
@@ -83,39 +83,53 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     }
   }, [hasStarted, sessionId, workspaceId, updateSession]);
 
-  // The CLI writes a summary for a conversation once it has content. Adopt it
-  // as the tab name, polling until it appears, and stop once the session is
-  // named. Drivers whose transcripts Consola cannot read never produce one, so
-  // they are skipped outright rather than polled forever.
+  // The CLI writes a summary for a conversation once it has content. Adopt
+  // what it knows as the tab name: a prompt-derived name is a stand-in, so the
+  // poll continues past it and stops only once the CLI's own summary lands. A
+  // name the user typed wins permanently and is never polled over. Drivers
+  // whose transcripts Consola cannot read never produce a name, so they are
+  // skipped outright rather than polled forever.
   useEffect(() => {
     if (!claudeSessionId) return;
     if (!supportsSessionNaming) return;
-    if (sessionName !== '' && sessionName !== 'New Session') return;
+    if (nameIsUserSet) return;
 
     let cancelled = false;
+    let timer: ReturnType<typeof setInterval> | undefined;
 
     const adoptName = () => {
       harnessBridge
         .getSessionName(claudeSessionId, launchFields)
-        .then((name) => {
-          if (cancelled || !name) return;
-          void updateSession(workspaceId, sessionId, { name });
+        .then((result) => {
+          if (cancelled || !result) return;
+          if (result.source === 'summary' && timer !== undefined) {
+            clearInterval(timer);
+          }
+          // Read the live name rather than depending on it: a dependency
+          // would restart this effect — and its interval — on every adoption,
+          // and the poll must outlive the names it writes.
+          const current = useWorkspaceStore
+            .getState()
+            .getSession(workspaceId, sessionId)?.name;
+          if (result.name !== current) {
+            void updateSession(workspaceId, sessionId, { name: result.name });
+          }
         })
         .catch(() => {
-          // Index not written yet; the next poll will pick it up.
+          // Transcript not written yet; the next poll will pick it up.
         });
     };
 
     adoptName();
-    const timer = setInterval(adoptName, SESSION_NAME_POLL_MS);
+    timer = setInterval(adoptName, SESSION_NAME_POLL_MS);
 
     return () => {
       cancelled = true;
-      clearInterval(timer);
+      if (timer !== undefined) clearInterval(timer);
     };
   }, [
     claudeSessionId,
-    sessionName,
+    nameIsUserSet,
     sessionId,
     workspaceId,
     updateSession,

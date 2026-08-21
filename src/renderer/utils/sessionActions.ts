@@ -164,5 +164,9 @@ export async function renameSession(
 ): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed || trimmed === session.name) return;
-  await useWorkspaceStore.getState().updateSession(workspaceId, session.id, { name: trimmed });
+  // A typed name is the user's own and wins permanently: the flag stops the
+  // CLI-summary poll from ever overwriting it.
+  await useWorkspaceStore
+    .getState()
+    .updateSession(workspaceId, session.id, { name: trimmed, nameIsUserSet: true });
 }

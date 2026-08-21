@@ -403,14 +403,18 @@
   color: var(--color-text-primary);
 }
 
-.session-nav-item-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex-shrink: 0;
-  width: 14px;
-  height: 14px;
-  color: var(--color-text-tertiary);
+/* Accent bar on the active row. Anchored at the row's own left edge here;
+   nested rows pull it back out of their indent below, so it always sits at
+   the sidebar's edge regardless of nesting depth. */
+.session-nav-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 20%;
+  bottom: 20%;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--color-accent);
 }
 
 .session-nav-item-name {
@@ -418,6 +422,34 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.session-nav-item.active .session-nav-item-name {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+
+/* Trailing status word — only urgent states render one, so calm rows stay
+   quiet. It yields its space to the ⋯ menu on hover. */
+.session-status-word {
+  flex-shrink: 0;
+  font-size: 9px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.session-nav-item:hover .session-status-word,
+.session-nav-item:focus-within .session-status-word {
+  display: none;
+}
+
+.session-status-word--needs-attention {
+  color: var(--color-warning);
+}
+
+.session-status-word--exited {
+  color: var(--color-error);
 }
 
 .session-rename-input {
@@ -433,8 +465,10 @@
   outline: none;
 }
 
+/* Hidden with display rather than opacity so the status word and the ⋯ menu
+   genuinely trade the same trailing space instead of both reserving it. */
 .session-actions-trigger {
-  display: flex;
+  display: none;
   align-items: center;
   justify-content: center;
   width: 18px;
@@ -444,12 +478,12 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.session-nav-item:hover .session-actions-trigger {
-  opacity: 1;
+.session-nav-item:hover .session-actions-trigger,
+.session-nav-item:focus-within .session-actions-trigger {
+  display: flex;
 }
 
 .session-actions-trigger:hover {
@@ -458,30 +492,44 @@
 }
 
 .session-actions-trigger[data-state='open'] {
-  opacity: 1;
+  display: flex;
   background: var(--color-bg-active);
   color: var(--color-text-primary);
 }
 
-/* Session status indicator */
+/* Session status indicator.
+
+   Leading, fixed-size, and always rendered — `ready` draws a dim hairline
+   ring instead of collapsing to nothing, which is what keeps the column
+   scannable. Shape carries meaning alongside colour (filled / ring / hollow),
+   so no state depends on hue alone. */
 .session-status-indicator {
-  width: 6px;
-  height: 6px;
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 
-.session-status-indicator--running {
+.session-status-indicator--working {
   background: var(--color-accent);
   animation: session-pulse 1.5s ease-in-out infinite;
 }
 
-.session-status-indicator--error {
-  background: var(--color-error);
+.session-status-indicator--ready {
+  border: 1px solid color-mix(in srgb, var(--color-text-tertiary) 55%, transparent);
 }
 
-.session-status-indicator--attention {
-  background: var(--color-warning);
+.session-status-indicator--needs-attention {
+  border: 2px solid var(--color-warning);
+}
+
+.session-status-indicator--done {
+  background: var(--color-success);
+}
+
+.session-status-indicator--exited {
+  border: 1px solid var(--color-error);
 }
 
 @keyframes session-pulse {
@@ -658,12 +706,18 @@
   margin-left: var(--space-3);
 }
 
+/* …but the active row's accent bar stays at the sidebar's edge, outside the
+   indent, so it survives nesting under scopes and future groups. */
+.scope-group .session-nav-item.active::before {
+  left: calc(-1 * var(--space-3));
+}
+
 /* ═══════════════════════════════════════════════════════════
    REDUCED MOTION - Respect user preferences
    ═══════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
-  .session-status-indicator--running {
+  .session-status-indicator--working {
     animation: none;
   }
 
