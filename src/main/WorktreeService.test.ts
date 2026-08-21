@@ -252,6 +252,31 @@ describe('WorktreeService.ensureWorktree', () => {
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
     expect(currentBranch(dir)).toBe('stub-pr-51');
   }, 30_000);
+
+  it('refuses a worktree-name collision between two repos with the same basename', async () => {
+    // Two different clones — different orgs, same basename "controller-app" —
+    // land in the same worktrees root, so `worktreeDirName` collides:
+    // both would compute "controller-app-pr-51".
+    const root = tmpDir('consola-wt-worktrees-');
+    const service = new WorktreeService(root, async () => STUB_GH);
+
+    const cloneA = path.join(tmpDir('consola-wt-clone-a-'), 'controller-app');
+    initCloneWithCommit(cloneA, 'git@github.com:sympower/controller-app.git');
+    const dirA = await service.ensureWorktree(cloneA, pr51, { ...process.env });
+    expect(dirA).toBe(path.join(root, 'controller-app-pr-51'));
+
+    const cloneB = path.join(tmpDir('consola-wt-clone-b-'), 'controller-app');
+    initCloneWithCommit(cloneB, 'git@github.com:javier/controller-app.git');
+
+    // cloneB's work item hashes to the exact same directory name as cloneA's,
+    // which the fast path must recognise as belonging to cloneA and refuse —
+    // never silently hand back cloneA's worktree for cloneB's PR.
+    await expect(service.ensureWorktree(cloneB, pr51, { ...process.env })).rejects.toThrow(
+      /different repository/
+    );
+    // Refusing must not touch cloneA's worktree.
+    expect(fs.existsSync(path.join(dirA, '.git'))).toBe(true);
+  }, 30_000);
 });
 
 describe('WorktreeService.prune', () => {
