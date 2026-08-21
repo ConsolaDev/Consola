@@ -116,3 +116,14 @@ export function subscribeToWindowWorkspace(): () => void {
     });
   });
 }
+
+/**
+ * React to main pointing this window at a session — an OS notification click.
+ * Main already recorded the session on the window's registry entry, so only
+ * the store moves here; echoing setActiveSession back would be a loop.
+ */
+export function subscribeToActivateSession(): () => void {
+  return windowBridge.onActivateSession((sessionId) => {
+    useNavigationStore.setState({ activeSessionId: sessionId });
+  });
+}
