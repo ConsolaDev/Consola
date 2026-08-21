@@ -12,6 +12,7 @@ import { harnessBridge } from '../../services/harnessBridge';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
+import { WorkItemStrip } from '../WorkItemStrip';
 import { PathDisplay } from './PathDisplay';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
@@ -160,6 +161,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           />
         )}
       </div>
+      {session.workItem && <WorkItemStrip workspaceId={workspaceId} session={session} />}
       <div className="workspace-view-content">
         <Group
           orientation="horizontal"
