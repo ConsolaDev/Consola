@@ -8,7 +8,7 @@ import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { ghBroker } from './github/GhBroker';
 import { GitHubService } from './github/GitHubService';
-import { launchWorkItem } from './github/launchWorkItem';
+import { createLaunchCoalescer, type WorkItemLaunchDeps } from './github/launchWorkItem';
 import { cloneWorkspaceRepo } from './github/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { getLoginEnv } from './LoginEnvironment';
@@ -331,22 +331,23 @@ export function setupIpcHandlers(): boolean {
     // One click on an Inbox item. Worktree first, record second; the spawn is
     // third and happens when the renderer mounts the session pane — the same
     // terminal-create path every session uses.
+    const launchWorkItemDeps: WorkItemLaunchDeps = {
+        getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+        createSession: (id, fields) => workspaces.createSession(id, fields),
+        resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+        ensureWorktree: (clonePath, item, env) => worktrees.ensureWorktree(clonePath, item, env),
+        composeEnv: composeGhEnv,
+        findItem: (id, ref) => github.findItem(id, ref),
+        pathExists: (target) => fs.existsSync(target),
+    };
+    // Coalesced (not just called directly) so two overlapping launches of the
+    // same work item can never mint two sessions for it — see
+    // createLaunchCoalescer's doc comment.
+    const launchWorkItem = createLaunchCoalescer(launchWorkItemDeps);
     ipcMain.handle(
         IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM,
         (_event, workspaceId: string, workItem: WorkItemRef) =>
-            launchWorkItem(
-                {
-                    getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
-                    createSession: (id, fields) => workspaces.createSession(id, fields),
-                    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
-                    ensureWorktree: (clonePath, item, env) =>
-                        worktrees.ensureWorktree(clonePath, item, env),
-                    composeEnv: composeGhEnv,
-                    findItem: (id, ref) => github.findItem(id, ref),
-                },
-                workspaceId,
-                workItem
-            )
+            launchWorkItem(workspaceId, workItem)
     );
 
     // "Clone into scope..." — the destination the user picked becomes the
