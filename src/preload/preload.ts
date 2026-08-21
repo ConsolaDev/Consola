@@ -17,6 +17,9 @@ import {
     ActivateWorkspaceResult,
     WorkItemLaunchResult,
     CloneRepoResult,
+    SessionFanOutIntent,
+    SessionFanOutResult,
+    ScopeRepo,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { GhProbeResult, InboxSnapshot, WorkItemRef } from '../shared/github';
@@ -195,6 +198,12 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
     archiveGroup: (workspaceId: string, groupId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE, workspaceId, groupId),
+
+    fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),
+
+    listScopeRepos: (workspaceId: string, scopeId: string): Promise<ScopeRepo[]> =>
+        ipcRenderer.invoke(IPC_CHANNELS.SCOPE_LIST_REPOS, workspaceId, scopeId),
 
     onChanged: (callback: (workspaces: Workspace[]) => void) =>
         subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
