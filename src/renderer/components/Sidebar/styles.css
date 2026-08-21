@@ -75,6 +75,19 @@
   padding: var(--space-2);
 }
 
+/* Groups sizes to its contents instead of claiming half the sidebar: two
+   flex: 1 sections would split the height evenly, leaving a one-group pane
+   half empty while the scope list scrolled inside a box half its size. The
+   cap is what keeps a long group list from starving Scopes in the other
+   direction — Scopes flexes from a zero basis, so it would absorb none of
+   the shrink and collapse to nothing. Past the cap, Groups scrolls on the
+   overflow it inherits. */
+.sidebar-section-groups {
+  flex: 0 1 auto;
+  min-height: 0;
+  max-height: 50%;
+}
+
 .sidebar-section-header {
   display: flex;
   align-items: center;
