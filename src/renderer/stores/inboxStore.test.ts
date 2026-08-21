@@ -138,4 +138,26 @@ describe('launch', () => {
 
     expect(useInboxStore.getState().clonePrompt).toEqual({ workspaceId: 'ws-1', item: item51 });
   });
+
+  it('records an error, keyed, when launchWorkItem rejects instead of resolving', async () => {
+    vi.mocked(githubBridge.launchWorkItem).mockRejectedValue(new Error('main process crashed'));
+
+    await useInboxStore.getState().launch('ws-1', item51);
+
+    expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51)]).toBe(
+      'main process crashed'
+    );
+    expect(useInboxStore.getState().launching[launchKey('ws-1', item51)]).toBeUndefined();
+  });
+
+  it('records an error when the bridge degrades to null', async () => {
+    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue(null);
+
+    await useInboxStore.getState().launch('ws-1', item51);
+
+    expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51)]).toBe(
+      'Could not reach the main process to launch this item.'
+    );
+    expect(useInboxStore.getState().launching[launchKey('ws-1', item51)]).toBeUndefined();
+  });
 });
