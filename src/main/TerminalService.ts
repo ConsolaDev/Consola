@@ -179,6 +179,12 @@ export class TerminalService extends EventEmitter {
     public restartClaude(): void {
         if (this.claudePty) return;
         this.disposeScreen();
+        // The screen the flag described is gone with it. Only classifyScreen()
+        // ever clears this, and it does not run until the new PTY paints
+        // something — so a CLI that died on a menu would leave the flag set
+        // and the spawn's leading emitStatus() would ring needs-attention for
+        // a menu nobody can answer.
+        this.isAwaitingConfirmation = false;
         void this.initClaude(true);
     }
 
