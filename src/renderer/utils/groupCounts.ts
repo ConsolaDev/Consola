@@ -39,9 +39,18 @@ export function groupCountsFor(
     return counts;
 }
 
-/** The sidebar badge: "◐2 · 7" when someone needs you, a plain "7" otherwise. */
+/**
+ * The sidebar badge: who needs you, what died, how many there are.
+ *
+ * "◐2 · ✕1 · 7" at its fullest, down to a plain "7" when the group is simply
+ * getting on with it. A member whose CLI exited is the one state a glance at
+ * the group would otherwise miss entirely — nothing about a dead session
+ * asks for attention, so without its own segment it hides inside the total.
+ */
 export function formatGroupBadge(counts: GroupCounts): string {
-    return counts.needsAttention > 0
-        ? `◐${counts.needsAttention} · ${counts.total}`
-        : `${counts.total}`;
+    const segments: string[] = [];
+    if (counts.needsAttention > 0) segments.push(`◐${counts.needsAttention}`);
+    if (counts.exited > 0) segments.push(`✕${counts.exited}`);
+    segments.push(`${counts.total}`);
+    return segments.join(' · ');
 }

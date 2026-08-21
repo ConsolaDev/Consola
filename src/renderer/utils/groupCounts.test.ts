@@ -44,6 +44,18 @@ describe('formatGroupBadge', () => {
         );
     });
 
+    it('names the exited members, which nothing else would surface', () => {
+        expect(formatGroupBadge({ total: 7, needsAttention: 0, working: 3, exited: 1 })).toBe(
+            '✕1 · 7'
+        );
+    });
+
+    it('shows both, attention first', () => {
+        expect(formatGroupBadge({ total: 7, needsAttention: 2, working: 3, exited: 1 })).toBe(
+            '◐2 · ✕1 · 7'
+        );
+    });
+
     it('shows the plain total otherwise', () => {
         expect(formatGroupBadge({ total: 7, needsAttention: 0, working: 3, exited: 0 })).toBe('7');
     });
