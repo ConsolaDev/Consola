@@ -9,6 +9,7 @@ import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { ghBroker } from './github/GhBroker';
 import { GitHubService } from './github/GitHubService';
 import { launchWorkItem } from './github/launchWorkItem';
+import { cloneWorkspaceRepo } from './github/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { getLoginEnv } from './LoginEnvironment';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
@@ -346,6 +347,37 @@ export function setupIpcHandlers(): boolean {
                 workspaceId,
                 workItem
             )
+    );
+
+    // "Clone into scope..." — the destination the user picked becomes the
+    // clone's container. isGitRepo: false is load-bearing: resolveRepo only
+    // scans a non-repo scope's children, and the clone lands one level down
+    // (destinationDir/<repo-basename>), never at destinationDir itself.
+    ipcMain.handle(
+        IPC_CHANNELS.GITHUB_CLONE_REPO,
+        async (_event, workspaceId: string, repo: string, destinationDir: string) => {
+            const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+            if (!workspace) return { ok: false, error: `Unknown workspace: ${workspaceId}` };
+            const result = await cloneWorkspaceRepo(
+                {
+                    ghBinary: resolveGhBinary,
+                    composeEnv: composeGhEnv,
+                    addScope: (id, dirPath) => {
+                        workspaces.addScope(id, {
+                            name: path.basename(dirPath),
+                            path: dirPath,
+                            isGitRepo: false,
+                        });
+                    },
+                },
+                workspace,
+                repo,
+                destinationDir
+            );
+            // A fresh clone changes what resolveRepo can find, scope or not.
+            if (result.ok) worktreeService?.invalidate();
+            return result;
+        }
     );
 
     terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
@@ -1067,6 +1099,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.GITHUB_REFRESH_INBOX);
     ipcMain.removeHandler(IPC_CHANNELS.GITHUB_RESOLVE_REPOS);
     ipcMain.removeHandler(IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM);
+    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_CLONE_REPO);
 
     // Clean up all terminal services
     terminalManager?.destroyAll();

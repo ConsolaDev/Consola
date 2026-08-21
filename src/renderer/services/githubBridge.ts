@@ -1,5 +1,5 @@
 import type { GhProbeResult, InboxSnapshot, WorkItemRef } from '../../shared/github';
-import type { WorkItemLaunchResult } from '../../shared/types';
+import type { CloneRepoResult, WorkItemLaunchResult } from '../../shared/types';
 
 function getAPI() {
     if (typeof window !== 'undefined' && window.githubAPI) {
@@ -56,6 +56,17 @@ export const githubBridge = {
         const api = getAPI();
         if (!api) return null;
         return api.launchWorkItem(workspaceId, workItem);
+    },
+
+    /** Clone an un-cloned inbox repo into a chosen directory. */
+    cloneRepo: async (
+        workspaceId: string,
+        repo: string,
+        destinationDir: string
+    ): Promise<CloneRepoResult | null> => {
+        const api = getAPI();
+        if (!api) return null;
+        return api.cloneRepo(workspaceId, repo, destinationDir);
     },
 
     onInboxChanged: (callback: (snapshot: InboxSnapshot) => void): (() => void) => {

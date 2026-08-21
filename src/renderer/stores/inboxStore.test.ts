@@ -7,6 +7,7 @@ vi.mock('../services/githubBridge', () => ({
     refreshInbox: vi.fn(async () => undefined),
     resolveRepos: vi.fn(async () => ({})),
     launchWorkItem: vi.fn(),
+    cloneRepo: vi.fn(),
     onInboxChanged: vi.fn(() => () => {}),
   },
 }));
@@ -159,5 +160,33 @@ describe('launch', () => {
       'Could not reach the main process to launch this item.'
     );
     expect(useInboxStore.getState().launching[launchKey('ws-1', item51)]).toBeUndefined();
+  });
+});
+
+describe('cloneAndLaunch', () => {
+  it('clones, then continues the launch', async () => {
+    vi.mocked(githubBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/x' });
+    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+      ok: true,
+      reattached: false,
+      seedPrompt: 'seed',
+      session: { id: 'session-2', instanceId: 'inst-2' } as never,
+    });
+    useInboxStore.setState({ clonePrompt: { workspaceId: 'ws-1', item: item51 } });
+
+    await useInboxStore.getState().cloneAndLaunch('ws-1', item51, '/repos');
+
+    expect(githubBridge.cloneRepo).toHaveBeenCalledWith('ws-1', 'sympower/controller-app', '/repos');
+    expect(githubBridge.launchWorkItem).toHaveBeenCalled();
+    expect(useInboxStore.getState().clonePrompt).toBeNull();
+  });
+
+  it('surfaces a clone failure on the item and does not launch', async () => {
+    vi.mocked(githubBridge.cloneRepo).mockResolvedValue({ ok: false, error: 'denied' });
+
+    await useInboxStore.getState().cloneAndLaunch('ws-1', item51, '/repos');
+
+    expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51)]).toBe('denied');
+    expect(githubBridge.launchWorkItem).not.toHaveBeenCalled();
   });
 });
