@@ -1,7 +1,9 @@
-import { Folder, GitBranch, Plus, Settings, X } from 'lucide-react';
+import { useEffect } from 'react';
+import { Folder, GitBranch, Inbox as InboxIcon, Plus, Settings, X } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Scope } from '../../stores/workspaceStore';
+import { useInboxStore } from '../../stores/inboxStore';
 import { useSettings } from '../../contexts/SettingsContext';
 import { dialogBridge } from '../../services/dialogBridge';
 import { SessionNavItem } from './SessionNavItem';
@@ -26,11 +28,26 @@ export function Sidebar() {
   const removeScope = useWorkspaceStore((state) => state.removeScope);
   const { openSettings } = useSettings();
 
+  const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId) ?? null;
+
+  const isInboxOpen = useNavigationStore((state) => state.isInboxOpen);
+  const openInbox = useNavigationStore((state) => state.openInbox);
+  const inboxCount = useInboxStore((state) =>
+    workspace ? (state.snapshots[workspace.id]?.items.length ?? 0) : 0
+  );
+
+  // Prime the inbox for github-bound workspaces so the count is live even
+  // before the Inbox view is ever opened. Main answers from cache or kicks a
+  // background refresh whose result arrives on the push channel.
+  const githubAccount = workspace?.github?.accountLogin;
+  useEffect(() => {
+    if (workspace && githubAccount) void useInboxStore.getState().load(workspace.id);
+  }, [workspace?.id, githubAccount]);
+
   if (isSidebarHidden) {
     return null;
   }
 
-  const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId) ?? null;
   // Sessions appear once Claude has named them, so an unnamed one is a session
   // whose first turn has not landed yet.
   const sessions = workspace?.sessions.filter((session) => session.name.length > 0) ?? [];
@@ -81,6 +98,18 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
+      {workspace?.github && (
+        <div className="sidebar-inbox">
+          <button
+            className={`sidebar-inbox-row ${isInboxOpen ? 'active' : ''}`}
+            onClick={openInbox}
+          >
+            <InboxIcon size={14} />
+            <span className="sidebar-inbox-name">Inbox</span>
+            {inboxCount > 0 && <span className="sidebar-inbox-count">{inboxCount}</span>}
+          </button>
+        </div>
+      )}
       <div className="sidebar-section">
         <div className="sidebar-section-header">
           <span className="sidebar-section-title">Scopes</span>

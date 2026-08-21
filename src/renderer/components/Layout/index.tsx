@@ -9,6 +9,7 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { useCommandPalette } from '../../contexts/CommandPaletteContext';
 import { useNavigationStore, subscribeToWindowWorkspace } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useInboxStore } from '../../stores/inboxStore';
 import './styles.css';
 
 export function Layout() {
@@ -36,6 +37,10 @@ export function Layout() {
   // Terminals report activity for every session, including ones whose pane is
   // not mounted, so the subscription lives here rather than in the pane.
   useEffect(() => useTerminalStore.getState().subscribeToEvents(), []);
+
+  // Inbox snapshots arrive on main's push channel for every github-bound
+  // workspace, including ones whose pane is not mounted.
+  useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
 
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.
