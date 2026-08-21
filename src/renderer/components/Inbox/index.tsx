@@ -4,6 +4,7 @@ import type { InboxItem } from '../../../shared/github';
 import { sameWorkItem } from '../../../shared/github';
 import { launchKey, useInboxStore } from '../../stores/inboxStore';
 import type { Workspace } from '../../stores/workspaceStore';
+import { CloneDialog } from './CloneDialog';
 import {
   actionFor,
   dotClassFor,
@@ -138,6 +139,7 @@ export function InboxView({ workspace }: InboxViewProps) {
           );
         })}
       </div>
+      <CloneDialog />
     </div>
   );
 }

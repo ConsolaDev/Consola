@@ -14,6 +14,7 @@ import {
     WindowContext,
     ActivateWorkspaceResult,
     WorkItemLaunchResult,
+    CloneRepoResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { GhProbeResult, InboxSnapshot, WorkItemRef } from '../shared/github';
@@ -122,6 +123,13 @@ contextBridge.exposeInMainWorld('githubAPI', {
 
     launchWorkItem: (workspaceId: string, workItem: WorkItemRef): Promise<WorkItemLaunchResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM, workspaceId, workItem),
+
+    cloneRepo: (
+        workspaceId: string,
+        repo: string,
+        destinationDir: string
+    ): Promise<CloneRepoResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_CLONE_REPO, workspaceId, repo, destinationDir),
 
     onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) =>
         subscribe<InboxSnapshot>(IPC_CHANNELS.GITHUB_INBOX_CHANGED, callback),
