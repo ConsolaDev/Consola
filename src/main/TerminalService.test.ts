@@ -157,4 +157,32 @@ describe('TerminalService status event', () => {
         ]);
         service.destroy();
     });
+
+    it('does not ring needs-attention when a restart follows a menu on screen', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+
+        // The CLI dies with a confirmation menu still painted, so the last
+        // thing it said was 'needs-attention'.
+        pty.feed('Do you want to proceed?');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        pty.exit(1);
+        await vi.advanceTimersByTimeAsync(0);
+
+        const statuses: string[] = [];
+        service.on('status', (status: string) => statuses.push(status));
+
+        // Restarting throws the screen away, so the menu is gone; a fresh PTY
+        // takes the next spawn.
+        installFakePty();
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+
+        // Nothing has been painted yet, so nothing can be waiting on the user.
+        // A stale flag surviving the restart would fire an OS notification for
+        // a menu that is no longer on screen.
+        expect(statuses).toEqual(['ready']);
+
+        service.destroy();
+    });
 });
