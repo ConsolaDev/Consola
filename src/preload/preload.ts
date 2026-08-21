@@ -13,9 +13,10 @@ import {
     WorkspaceSnapshot,
     WindowContext,
     ActivateWorkspaceResult,
+    WorkItemLaunchResult,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { GhProbeResult } from '../shared/github';
+import type { GhProbeResult, InboxSnapshot, WorkItemRef } from '../shared/github';
 import type {
     Group,
     NewGroupFields,
@@ -109,6 +110,21 @@ contextBridge.exposeInMainWorld('githubAPI', {
     probe: (): Promise<GhProbeResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GH_PROBE);
     },
+
+    getInbox: (workspaceId: string): Promise<InboxSnapshot | null> =>
+        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_GET_INBOX, workspaceId),
+
+    refreshInbox: (workspaceId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_REFRESH_INBOX, workspaceId),
+
+    resolveRepos: (workspaceId: string, repos: string[]): Promise<Record<string, string | null>> =>
+        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_RESOLVE_REPOS, workspaceId, repos),
+
+    launchWorkItem: (workspaceId: string, workItem: WorkItemRef): Promise<WorkItemLaunchResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM, workspaceId, workItem),
+
+    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) =>
+        subscribe<InboxSnapshot>(IPC_CHANNELS.GITHUB_INBOX_CHANGED, callback),
 });
 
 // Expose workspace state to the renderer. Main owns the records; the renderer

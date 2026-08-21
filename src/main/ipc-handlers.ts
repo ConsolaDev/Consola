@@ -7,8 +7,13 @@ import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { ghBroker } from './github/GhBroker';
+import { GitHubService } from './github/GitHubService';
+import { launchWorkItem } from './github/launchWorkItem';
+import { WorktreeService } from './WorktreeService';
+import { getLoginEnv } from './LoginEnvironment';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import type { InboxSnapshot, WorkItemRef } from '../shared/github';
 import { JsonStateFile } from './state/JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
@@ -43,6 +48,12 @@ let workspaceService: WorkspaceService | null = null;
 
 // The single writer for harness records, shared by every window
 let harnessService: HarnessService | null = null;
+
+// GitHub organs: one inbox fetcher, one worktree owner — both main-side. The
+// broker itself is the module singleton imported above, shared with GH_PROBE.
+let githubService: GitHubService | null = null;
+let worktreeService: WorktreeService | null = null;
+let onBrowserWindowFocus: (() => void) | null = null;
 
 /**
  * Load a state service, or refuse to start.
@@ -243,6 +254,99 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(IPC_CHANNELS.HARNESS_ARCHIVE, (_event, id: string) => harnesses.archiveHarness(id));
 
     ipcMain.handle(IPC_CHANNELS.HARNESS_RESTORE, (_event, id: string) => harnesses.restoreHarness(id));
+
+    // The gh binary, resolved once. CONSOLA_GH_PATH is the test seam: the
+    // Playwright suite points it at the stub gh fixture so no network or
+    // keyring is ever touched.
+    let cachedGhBinary: string | null = null;
+    const resolveGhBinary = async (): Promise<string> => {
+        if (process.env.CONSOLA_GH_PATH) return process.env.CONSOLA_GH_PATH;
+        if (!cachedGhBinary) {
+            const probe = await ghBroker.probe();
+            cachedGhBinary = probe.available && probe.resolvedBinary ? probe.resolvedBinary : 'gh';
+        }
+        return cachedGhBinary;
+    };
+
+    // Login env plus this account's token — composed here and only here, so a
+    // token never crosses IPC and never lands in a renderer-bound payload.
+    const composeGhEnv = async (accountLogin: string): Promise<NodeJS.ProcessEnv> => ({
+        ...getLoginEnv(),
+        GH_TOKEN: await ghBroker.token(accountLogin),
+    });
+
+    const worktrees = new WorktreeService(undefined, resolveGhBinary);
+    worktreeService = worktrees;
+    // The remote->path map is only as fresh as the scope list that feeds it.
+    workspaces.onChange(() => worktrees.invalidate());
+
+    const github = new GitHubService({
+        getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+        getGitHubWorkspaceIds: () =>
+            workspaces.getAll().filter((workspace) => workspace.github).map((workspace) => workspace.id),
+        token: (login) => ghBroker.token(login),
+        ghBinary: resolveGhBinary,
+        baseEnv: () => ({ ...getLoginEnv() }),
+        broadcast: (snapshot: InboxSnapshot) => {
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed()) {
+                    window.webContents.send(IPC_CHANNELS.GITHUB_INBOX_CHANGED, snapshot);
+                }
+            }
+        },
+    });
+    githubService = github;
+    github.start();
+    onBrowserWindowFocus = () => github.onWindowFocus();
+    app.on('browser-window-focus', onBrowserWindowFocus);
+
+    // Cached snapshot, or null. Null also kicks a background refresh, so the
+    // first Inbox open populates itself through the push channel.
+    ipcMain.handle(IPC_CHANNELS.GITHUB_GET_INBOX, (_event, workspaceId: string) => {
+        const snapshot = github.getSnapshot(workspaceId);
+        if (!snapshot) void github.refresh(workspaceId);
+        return snapshot;
+    });
+
+    ipcMain.handle(IPC_CHANNELS.GITHUB_REFRESH_INBOX, (_event, workspaceId: string) =>
+        github.refresh(workspaceId)
+    );
+
+    // Which of these remote repos have a local clone in this workspace's
+    // scopes — the Inbox uses it to label buttons ("Review" vs "Clone into
+    // scope..."), read-only and token-free.
+    ipcMain.handle(
+        IPC_CHANNELS.GITHUB_RESOLVE_REPOS,
+        (_event, workspaceId: string, repos: string[]) => {
+            const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+            const resolved: Record<string, string | null> = {};
+            for (const repo of repos) {
+                resolved[repo] = workspace ? worktrees.resolveRepo(workspace, repo) : null;
+            }
+            return resolved;
+        }
+    );
+
+    // One click on an Inbox item. Worktree first, record second; the spawn is
+    // third and happens when the renderer mounts the session pane — the same
+    // terminal-create path every session uses.
+    ipcMain.handle(
+        IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM,
+        (_event, workspaceId: string, workItem: WorkItemRef) =>
+            launchWorkItem(
+                {
+                    getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+                    createSession: (id, fields) => workspaces.createSession(id, fields),
+                    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+                    ensureWorktree: (clonePath, item, env) =>
+                        worktrees.ensureWorktree(clonePath, item, env),
+                    composeEnv: composeGhEnv,
+                    findItem: (id, ref) => github.findItem(id, ref),
+                },
+                workspaceId,
+                workItem
+            )
+    );
 
     terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
     const manager = terminalManager;
@@ -951,6 +1055,18 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ARCHIVE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_RESTORE);
+
+    githubService?.stop();
+    githubService = null;
+    worktreeService = null;
+    if (onBrowserWindowFocus) {
+        app.removeListener('browser-window-focus', onBrowserWindowFocus);
+        onBrowserWindowFocus = null;
+    }
+    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_GET_INBOX);
+    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_REFRESH_INBOX);
+    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_RESOLVE_REPOS);
+    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM);
 
     // Clean up all terminal services
     terminalManager?.destroyAll();
