@@ -93,7 +93,8 @@ export class TerminalService extends EventEmitter {
     private claudeExited = false;
     /** Whether the current Claude launch has painted anything at all. */
     private claudeProducedOutput = false;
-    private pendingPrompt: string | null = null;
+    /** Prompts waiting for the composer, oldest first. */
+    private promptQueue: string[] = [];
     private isAwaitingConfirmation = false;
     private isDestroyed = false;
 
@@ -109,7 +110,7 @@ export class TerminalService extends EventEmitter {
         // failure would be indistinguishable from a missing conversation.
         this.driver = getDriver(options.driverId);
         this.harness = toHarnessConfig(options);
-        this.pendingPrompt = options.initialPrompt ?? null;
+        this.promptQueue = options.initialPrompt != null ? [options.initialPrompt] : [];
     }
 
     public start(): void {
@@ -117,14 +118,15 @@ export class TerminalService extends EventEmitter {
     }
 
     /**
-     * Queue a prompt to submit once the CLI is ready.
+     * Queue a prompt to submit once the CLI is ready. Prompts append — they
+     * are delivered oldest-first, one per ready-composer transition.
      *
      * Delivery waits for the terminal to go quiet and refuses to type into a
      * confirmation menu, so a prompt can never be mistaken for an answer to the
      * workspace trust gate or a permission request.
      */
     public queuePrompt(prompt: string): void {
-        this.pendingPrompt = prompt;
+        this.promptQueue.push(prompt);
         if (!this.isBusy) {
             this.deliverPendingPrompt();
         }
@@ -397,13 +399,12 @@ export class TerminalService extends EventEmitter {
      * until the user has dealt with the menu themselves.
      */
     private deliverPendingPrompt(): void {
-        if (!this.pendingPrompt) return;
+        if (this.promptQueue.length === 0) return;
         if (!this.claudePty) return;
         if (this.isAwaitingConfirmation) return;
         if (!this.isComposerReady()) return;
 
-        const prompt = this.pendingPrompt;
-        this.pendingPrompt = null;
+        const prompt = this.promptQueue.shift()!;
         this.paste(prompt);
         this.claudePty.write('\r');
     }
