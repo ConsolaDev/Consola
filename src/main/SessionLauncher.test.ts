@@ -1,7 +1,22 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { SessionLauncher } from './SessionLauncher';
 import type { Session, Workspace } from '../shared/workspace';
 import type { Harness } from '../shared/harness';
+
+// Real folders on disk. The launcher refuses to spawn into a working folder
+// that is not there, so a made-up fixture path would send every case down the
+// rollback branch and none of them would prove anything.
+const scopeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-launcher-'));
+const targetDir = path.join(scopeDir, 'flex-portal');
+fs.mkdirSync(targetDir, { recursive: true });
+const missingDir = path.join(scopeDir, 'moved-away');
+
+afterAll(() => {
+    fs.rmSync(scopeDir, { recursive: true, force: true });
+});
 
 function workspaceFixture(): Workspace {
     return {
@@ -9,7 +24,7 @@ function workspaceFixture(): Workspace {
         name: 'fleet',
         defaultHarnessId: 'default',
         scopes: [
-            { id: 'scope-1', name: 'sympower', path: '/repos/sympower', isGitRepo: false, createdAt: 1 },
+            { id: 'scope-1', name: 'sympower', path: scopeDir, isGitRepo: false, createdAt: 1 },
         ],
         groups: [],
         github: { accountLogin: 'octocat' },
@@ -90,7 +105,7 @@ describe('SessionLauncher', () => {
         expect(terminals.startHeadless).toHaveBeenCalledWith(
             'instance-1',
             expect.objectContaining({
-                cwd: '/repos/sympower', // the scope's path: the session has no cwd of its own
+                cwd: scopeDir, // the scope's path: the session has no cwd of its own
                 claudeSessionId: '11111111-1111-4111-8111-111111111111',
                 resume: false,
                 initialPrompt: 'review the PR',
@@ -109,15 +124,29 @@ describe('SessionLauncher', () => {
     });
 
     it('prefers the session cwd over the scope path', async () => {
-        const session = sessionFixture({ cwd: '/repos/sympower/flex-portal' });
+        const session = sessionFixture({ cwd: targetDir });
         const { launcher, terminals } = buildLauncher(session);
 
-        await launcher.launchSession('ws-1', { ...launchFields, cwd: '/repos/sympower/flex-portal' });
+        await launcher.launchSession('ws-1', { ...launchFields, cwd: targetDir });
 
         expect(terminals.startHeadless).toHaveBeenCalledWith(
             'instance-1',
-            expect.objectContaining({ cwd: '/repos/sympower/flex-portal' })
+            expect.objectContaining({ cwd: targetDir })
         );
+    });
+
+    it('rolls the record back when the working folder is gone', async () => {
+        // A fan-out target that has been moved or deleted since the dialog
+        // listed it. The PTY would spawn and die silently; fan-out would
+        // report it as launched.
+        const session = sessionFixture({ cwd: missingDir });
+        const { launcher, workspaces, terminals } = buildLauncher(session);
+
+        await expect(
+            launcher.launchSession('ws-1', { ...launchFields, cwd: missingDir })
+        ).rejects.toThrow(`has no working folder: ${missingDir} does not exist`);
+        expect(workspaces.deleteSession).toHaveBeenCalledWith('ws-1', 'session-1');
+        expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
     it('rolls the record back when the session has nowhere to run', async () => {
