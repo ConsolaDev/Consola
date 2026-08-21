@@ -51,6 +51,15 @@ github.com
 STATUS
         ;;
       token)
+        if [ "$GH_STUB_MODE" = "leaky-token-error" ]; then
+          # A failure whose stderr carries a masked token line alongside a
+          # plain-text reason — proves the scrub drops the token line and
+          # keeps the rest, rather than either leaking it or losing the
+          # whole message.
+          echo "authentication error" >&2
+          echo "Token: gho_leaked1234567890" >&2
+          exit 1
+        fi
         if [ "$4" = "SymJavi" ]; then
           echo "gho_stub_token_symjavi"
         else
@@ -194,6 +203,16 @@ describe('GhBroker.token', () => {
 
     const tokenCalls = invocations().filter((line) => line.startsWith('auth token'));
     expect(tokenCalls).toHaveLength(2);
+  });
+
+  it('scrubs a leaked token out of a failing token() error, matching how probe() scrubs', async () => {
+    // GhBroker.token()'s error rides into GitHubService's InboxSnapshot.error,
+    // which is broadcast to every renderer — "tokens never cross IPC" is
+    // absolute, so this path must strip the same way probe() already does.
+    const broker = new GhBroker(stubEnv({ GH_STUB_MODE: 'leaky-token-error' }));
+
+    await expect(broker.token('SymJavi')).rejects.toThrow('authentication error');
+    await expect(broker.token('SymJavi')).rejects.not.toThrow(/gho_|token/i);
   });
 });
 
