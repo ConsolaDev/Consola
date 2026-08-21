@@ -4,7 +4,13 @@ import type { InboxItem } from '../../../shared/github';
 import { sameWorkItem } from '../../../shared/github';
 import { launchKey, useInboxStore } from '../../stores/inboxStore';
 import type { Workspace } from '../../stores/workspaceStore';
-import { actionFor, dotClassFor, formatAge, metaLineFor } from './inboxPresentation';
+import {
+  actionFor,
+  dotClassFor,
+  formatAge,
+  metaLineFor,
+  type InboxAction,
+} from './inboxPresentation';
 import './styles.css';
 
 interface InboxViewProps {
@@ -39,12 +45,8 @@ export function InboxView({ workspace }: InboxViewProps) {
   const github = workspace.github;
   if (!github) return null;
 
-  const handleAction = (item: InboxItem) => {
-    const hasSession = workspace.sessions.some((session) =>
-      sameWorkItem(session.workItem, item.workItem)
-    );
-    const cloned = resolved?.[item.workItem.repo] !== null; // unknown counts as cloned
-    if (actionFor(item, hasSession, cloned).kind === 'clone') {
+  const handleAction = (item: InboxItem, action: InboxAction) => {
+    if (action.kind === 'clone') {
       openClonePrompt(workspace.id, item);
     } else {
       void launch(workspace.id, item);
@@ -128,7 +130,7 @@ export function InboxView({ workspace }: InboxViewProps) {
               <button
                 className={`inbox-item-action ${action.kind === 'clone' ? 'ghost' : ''}`}
                 disabled={launching[key]}
-                onClick={() => handleAction(item)}
+                onClick={() => handleAction(item, action)}
               >
                 {launching[key] ? 'Preparing...' : action.label}
               </button>

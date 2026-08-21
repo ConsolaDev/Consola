@@ -26,6 +26,10 @@ describe('formatAge', () => {
     expect(formatAge(now - 3 * 3_600_000, now)).toBe('3h ago');
     expect(formatAge(0, now)).toBe('never');
   });
+
+  it('rolls over to days once 24 hours have passed', () => {
+    expect(formatAge(now - 2 * 86_400_000, now)).toBe('2d ago');
+  });
 });
 
 describe('actionFor', () => {
@@ -75,10 +79,32 @@ describe('metaLineFor and roleLabelFor', () => {
     ).toBe('your issue');
   });
 
+  it('labels assigned items', () => {
+    expect(roleLabelFor(makeItem({ role: 'assigned' }))).toBe('assigned to you');
+  });
+
   it('mentions changes requested when GitHub says so', () => {
     expect(metaLineFor(makeItem({ reviewDecision: 'CHANGES_REQUESTED' }))).toContain(
       'changes requested'
     );
+  });
+
+  it('mentions approved when GitHub says so', () => {
+    expect(metaLineFor(makeItem({ reviewDecision: 'APPROVED' }))).toContain('approved');
+  });
+
+  it('omits CI status and diff stats entirely when the item carries neither, as issues do', () => {
+    expect(
+      metaLineFor(
+        makeItem({
+          workItem: { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 12 },
+          ciStatus: undefined,
+          reviewDecision: undefined,
+          additions: undefined,
+          deletions: undefined,
+        })
+      )
+    ).toBe('controller-app · review requested');
   });
 });
 
