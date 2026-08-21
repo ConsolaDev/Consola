@@ -95,10 +95,40 @@ function toItem(node: SearchNode, role: InboxItem['role']): InboxItem | null {
  * reason you were asked (a requested review) outranks the reason you are
  * merely attached (assignee, author). Malformed nodes are skipped, never
  * thrown on — a half-broken payload still yields the readable remainder.
+ *
+ * Throws when the top-level payload is malformed (not an object, data is null,
+ * or errors exist without usable data), so that Task 4's error handling can
+ * label the error in the UI rather than silently treating it as empty.
  */
 export function parseInboxPayload(payload: unknown): InboxItem[] {
+  // Allow null explicitly
+  if (payload === null) {
+    return [];
+  }
+
+  // Reject primitives and arrays (must be a non-null object)
+  if (typeof payload !== 'object' || Array.isArray(payload)) {
+    throw new Error('Inbox payload must be a JSON object');
+  }
+
+  const payloadObj = payload as Record<string, unknown>;
+
+  // Reject if data is present but null (GraphQL top-level failure shape)
+  if ('data' in payloadObj && payloadObj.data === null) {
+    throw new Error('GitHub API returned no data');
+  }
+
+  // Reject if errors exist without usable data
+  if (Array.isArray(payloadObj.errors) && payloadObj.errors.length > 0) {
+    const hasData = 'data' in payloadObj && payloadObj.data !== null;
+    if (!hasData) {
+      const firstError = (payloadObj.errors[0] as any)?.message || 'Unknown GitHub API error';
+      throw new Error(firstError);
+    }
+  }
+
   const data =
-    (payload as { data?: Record<string, { nodes?: SearchNode[] } | undefined> } | null)?.data ?? {};
+    (payloadObj as { data?: Record<string, { nodes?: SearchNode[] } | undefined> }).data ?? {};
   const roles: Array<[InboxItem['role'], string]> = [
     ['review-requested', 'reviewRequested'],
     ['assigned', 'assigned'],
