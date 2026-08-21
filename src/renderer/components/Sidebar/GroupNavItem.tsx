@@ -2,9 +2,10 @@ import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Archive, Boxes, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
-import { type Session } from '../../stores/workspaceStore';
+import { type Scope, type Session } from '../../stores/workspaceStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { workspaceBridge } from '../../services/workspaceBridge';
+import { basename } from '../../utils/fileUtils';
 import { formatGroupBadge, groupCountsFor } from '../../utils/groupCounts';
 import { activateSession } from '../../utils/sessionActions';
 import { SessionNavItem } from './SessionNavItem';
@@ -13,14 +14,14 @@ interface GroupNavItemProps {
   group: Group;
   sessions: Session[];
   workspaceId: string;
-  /** The scope name a member session shows as its subtitle. */
-  scopeNameFor: (scopeId: string) => string | undefined;
+  /** The scope a member session runs under, for its subtitle. */
+  scopeFor: (scopeId: string) => Scope | undefined;
   activeSessionId: string | null;
 }
 
 /**
  * One group in the sidebar: a collapsible header with a derived badge, and
- * its member sessions beneath, each subtitled with its scope.
+ * its member sessions beneath, each subtitled with where it runs.
  *
  * The badge is recomputed from the terminal store on every render — progress
  * is derived, never stored (see groupCounts.ts).
@@ -29,12 +30,23 @@ export function GroupNavItem({
   group,
   sessions,
   workspaceId,
-  scopeNameFor,
+  scopeFor,
   activeSessionId,
 }: GroupNavItemProps) {
   const [isOpen, setIsOpen] = useState(true);
   const terminals = useTerminalStore((state) => state.terminals);
   const counts = groupCountsFor(sessions, terminals);
+
+  // Where a member runs, which is not always its scope: a fan-out member
+  // runs in one repo inside the scope, and auto-naming overwrites the repo
+  // name it launched with on its first pane mount. Naming the folder keeps
+  // that identity on the row; a session that runs in the scope's own folder
+  // has nothing to add, so it says the scope.
+  const subtitleFor = (session: Session): string | undefined => {
+    const scope = scopeFor(session.scopeId);
+    if (session.cwd && session.cwd !== scope?.path) return basename(session.cwd);
+    return scope?.name;
+  };
 
   // Archiving is how a group ends: the record outlives it so member sessions
   // keep their groupId, and the sidebar hands them back to their scopes.
@@ -89,7 +101,7 @@ export function GroupNavItem({
             workspaceId={workspaceId}
             isActive={activeSessionId === session.id}
             onClick={() => activateSession(workspaceId, session.id)}
-            subtitle={scopeNameFor(session.scopeId)}
+            subtitle={subtitleFor(session)}
           />
         ))}
     </div>
