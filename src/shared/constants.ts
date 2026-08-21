@@ -75,6 +75,16 @@ export const IPC_CHANNELS = {
     // Commit message generation (headless `claude -p`)
     GENERATE_COMMIT_MESSAGE: 'git:generate-commit-message',
 
+    // GitHub inbox (renderer -> main; main owns the cache)
+    GITHUB_GET_INBOX: 'github:get-inbox',           // Cached snapshot, or null (a refresh is kicked off)
+    GITHUB_REFRESH_INBOX: 'github:refresh-inbox',   // Manual refresh; result arrives on the push channel
+    GITHUB_RESOLVE_REPOS: 'github:resolve-repos',   // Which remote repos have a local clone in this workspace
+    GITHUB_LAUNCH_WORK_ITEM: 'github:launch-work-item', // Resolve -> worktree -> session record; returns the session
+    GITHUB_CLONE_REPO: 'github:clone-repo',         // Clone an un-cloned repo into a chosen directory
+
+    // GitHub inbox (main -> every renderer)
+    GITHUB_INBOX_CHANGED: 'github:inbox-changed',   // One workspace's InboxSnapshot
+
     // Window identity (renderer -> main)
     WINDOW_ACTIVATE_WORKSPACE: 'window:activate-workspace', // Claim a workspace, or be told who holds it
     WINDOW_OPEN: 'window:open',                             // Open another window
