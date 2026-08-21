@@ -775,8 +775,10 @@
   margin-top: var(--space-4);
 }
 
-/* The header is its group's title and its collapse control at once: a row of
-   the same height and size as the sessions below it, told apart by weight. */
+/* The header is its group's title, its collapse control and its actions menu
+   at once: a row of the same height and size as the sessions below it, told
+   apart by weight. The row is a plain element because the actions trigger is
+   a button, and a button may not contain another. */
 .group-nav-header {
   display: flex;
   align-items: center;
@@ -784,19 +786,40 @@
   width: 100%;
   min-height: var(--sidebar-row-height);
   padding: var(--sidebar-row-padding-y) var(--space-2);
-  border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-primary);
   font-size: var(--sidebar-font-size);
   font-weight: var(--font-weight-medium);
   text-align: left;
-  cursor: pointer;
   transition: background var(--transition-fast);
 }
 
 .group-nav-header:hover {
   background: var(--color-bg-hover);
+}
+
+/* The collapse control fills the row so clicking anywhere but the trigger
+   toggles the group, exactly as the whole header used to. */
+.group-nav-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+/* Same hover-reveal the session rows give their ⋯ trigger. */
+.group-nav-header:hover .session-actions-trigger,
+.group-nav-header:focus-within .session-actions-trigger {
+  visibility: visible;
 }
 
 .group-nav-name {
