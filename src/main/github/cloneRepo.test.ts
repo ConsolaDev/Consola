@@ -111,4 +111,23 @@ describe('cloneWorkspaceRepo', () => {
     expect(result.error).toContain('canned failure');
     expect(fs.existsSync(path.join(container, 'msa-resource-bff'))).toBe(false);
   });
+
+  it('reports the clone succeeded even when adding the scope afterwards throws', async () => {
+    const source = makeSourceRepo();
+    const outside = tmpDir('consola-clone-outside-');
+    const workspace = makeWorkspace([{ path: tmpDir('consola-clone-other-'), isGitRepo: false }]);
+    const { deps } = makeDeps(source, {
+      addScope: vi.fn(() => {
+        throw new Error('No workspace ws-1');
+      }),
+    });
+
+    const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', outside);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain(path.join(outside, 'msa-resource-bff'));
+    expect(result.error).toContain('No workspace ws-1');
+    // The clone itself must not be undone just because the scope-add failed.
+    expect(fs.existsSync(path.join(outside, 'msa-resource-bff', '.git'))).toBe(true);
+  });
 });
