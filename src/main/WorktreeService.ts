@@ -132,7 +132,17 @@ export class WorktreeService {
 
     if (workItem.type === 'pr') {
       await this.run('git', clonePath, ['worktree', 'add', '--detach', dir], env);
-      await this.run(await this.ghBinary(), dir, ['pr', 'checkout', String(workItem.number)], env);
+      // From here on this call owns a worktree it just created: if the
+      // checkout fails, leaving it behind would make the next call's fast
+      // path treat a half-provisioned worktree as done forever, with the
+      // session running against the wrong commit and no error ever
+      // surfacing again. Undo the add and let the original error travel up.
+      try {
+        await this.run(await this.ghBinary(), dir, ['pr', 'checkout', String(workItem.number)], env);
+      } catch (error) {
+        await this.removeCreatedWorktree(clonePath, dir);
+        throw error;
+      }
     } else {
       const branch = `consola/issue-${workItem.number}`;
       const existing = await this.run('git', clonePath, ['branch', '--list', branch], env);
@@ -144,8 +154,25 @@ export class WorktreeService {
           : ['worktree', 'add', '-b', branch, dir],
         env
       );
+      // No step follows the add on this path today, so there is nothing to
+      // unwind — but if one is added later, wrap it the same way as above.
     }
     return dir;
+  }
+
+  /**
+   * Best-effort cleanup for a worktree this call created but could not
+   * finish provisioning. Never removes a worktree it did not just create —
+   * that could destroy a user's in-progress work. Failures here are
+   * swallowed: the caller's original git/gh error is what must reach the
+   * Inbox, never a secondary cleanup failure.
+   */
+  private async removeCreatedWorktree(clonePath: string, dir: string): Promise<void> {
+    try {
+      await this.run('git', clonePath, ['worktree', 'remove', '--force', dir], process.env);
+    } catch {
+      // Best-effort only; the original error above is what gets thrown.
+    }
   }
 
   /**

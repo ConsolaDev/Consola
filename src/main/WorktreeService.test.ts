@@ -223,9 +223,31 @@ describe('WorktreeService.ensureWorktree', () => {
     initRepo(empty, 'git@github.com:sympower/empty.git'); // no commits: worktree add fails
     const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
 
-    await expect(
-      service.ensureWorktree(empty, pr51, { ...process.env })
-    ).rejects.toThrow(/./); // the git message travels up verbatim
+    // git's own message for "worktree add on a repo with no commits yet" —
+    // asserting this exact substring, not just "something was thrown",
+    // proves the real stderr travels up rather than a generic wrapper.
+    await expect(service.ensureWorktree(empty, pr51, { ...process.env })).rejects.toThrow(
+      /invalid reference: HEAD/
+    );
+  });
+
+  it('cleans up a worktree it created when the gh checkout step fails, so a later call retries', async () => {
+    const { clone, root, service } = setup();
+    const failEnv = { ...process.env, STUB_GH_FAIL: '1' };
+
+    await expect(service.ensureWorktree(clone, pr51, failEnv)).rejects.toThrow(
+      /gh: canned failure \(STUB_GH_FAIL=1\)/
+    );
+
+    const dir = path.join(root, 'controller-app-pr-51');
+    // The half-created worktree must not survive the failed checkout, or the
+    // next call's fast path would treat it as already done and never retry.
+    expect(fs.existsSync(dir)).toBe(false);
+
+    const again = await service.ensureWorktree(clone, pr51, { ...process.env });
+    expect(again).toBe(dir);
+    expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
+    expect(currentBranch(dir)).toBe('stub-pr-51');
   });
 });
 
