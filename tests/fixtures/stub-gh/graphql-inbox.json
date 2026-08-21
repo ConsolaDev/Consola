@@ -1,0 +1,77 @@
+{
+  "data": {
+    "assigned": {
+      "nodes": [
+        {
+          "__typename": "Issue",
+          "title": "Rate limit returns 500",
+          "number": 87,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/msa-resource-bff/issues/87",
+          "updatedAt": "2026-08-20T07:12:00Z",
+          "repository": { "nameWithOwner": "sympower/msa-resource-bff" }
+        },
+        {
+          "__typename": "PullRequest",
+          "title": "Fix auth retry loop",
+          "number": 42,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/flex-portal/pull/42",
+          "updatedAt": "2026-08-20T08:05:00Z",
+          "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "reviewDecision": "REVIEW_REQUIRED",
+          "additions": 84,
+          "deletions": 12,
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        }
+      ]
+    },
+    "authored": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "title": "Ingestion retry policy",
+          "number": 204,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/dt-shared-ingestion/pull/204",
+          "updatedAt": "2026-08-20T06:40:00Z",
+          "repository": { "nameWithOwner": "sympower/dt-shared-ingestion" },
+          "reviewDecision": "CHANGES_REQUESTED",
+          "additions": 120,
+          "deletions": 30,
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        }
+      ]
+    },
+    "reviewRequested": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "title": "Fix auth retry loop",
+          "number": 42,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/flex-portal/pull/42",
+          "updatedAt": "2026-08-20T08:05:00Z",
+          "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "reviewDecision": "REVIEW_REQUIRED",
+          "additions": 84,
+          "deletions": 12,
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+        },
+        {
+          "__typename": "PullRequest",
+          "title": "Extract billing client",
+          "number": 51,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/controller-app/pull/51",
+          "updatedAt": "2026-08-20T07:55:00Z",
+          "repository": { "nameWithOwner": "sympower/controller-app" },
+          "reviewDecision": "REVIEW_REQUIRED",
+          "additions": 210,
+          "deletions": 88,
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "FAILURE" } } }] }
+        }
+      ]
+    }
+  }
+}
