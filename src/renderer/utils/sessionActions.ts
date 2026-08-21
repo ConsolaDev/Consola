@@ -3,7 +3,9 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
-import { primaryScope } from '../../shared/workspace';
+import { generateSessionInstanceId, primaryScope } from '../../shared/workspace';
+
+export { generateSessionInstanceId };
 
 /**
  * Session operations that span more than one store.
@@ -13,12 +15,6 @@ import { primaryScope } from '../../shared/workspace';
  * creation lands on the wrong screen. Keeping them here means the sidebar and
  * the command palette cannot drift on what "delete a session" involves.
  */
-
-/** Terminal instance id for a new session in a workspace. */
-export function generateSessionInstanceId(workspaceId: string): string {
-  const sessionId = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-  return `workspace-${workspaceId}-session-${sessionId}`;
-}
 
 /**
  * Select a session within the workspace this window already holds.
