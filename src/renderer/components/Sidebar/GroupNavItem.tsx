@@ -44,8 +44,12 @@ export function GroupNavItem({
   // has nothing to add, so it says the scope.
   const subtitleFor = (session: Session): string | undefined => {
     const scope = scopeFor(session.scopeId);
-    if (session.cwd && session.cwd !== scope?.path) return basename(session.cwd);
-    return scope?.name;
+    const runsIn =
+      session.cwd && session.cwd !== scope?.path ? basename(session.cwd) : scope?.name;
+    // A fan-out member launches named for its folder and is renamed on its
+    // first pane mount. Until then the name already says where it runs, and a
+    // row that prints the same word twice says nothing the first one did not.
+    return runsIn === session.name ? undefined : runsIn;
   };
 
   // Archiving is how a group ends: the record outlives it so member sessions
