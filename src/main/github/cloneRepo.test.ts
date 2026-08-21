@@ -2,15 +2,27 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { describe, expect, it, vi } from 'vitest';
+import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
 import { cloneWorkspaceRepo, type CloneRepoDeps } from './cloneRepo';
 
 const STUB = path.resolve(__dirname, '../../../tests/fixtures/stub-gh/gh');
 
+// Every dir handed out by tmpDir(), swept in one afterAll — these tests spin
+// up several independent roots and repos rather than sharing one temp dir.
+const createdDirs: string[] = [];
+
 function tmpDir(prefix: string): string {
-  return fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  createdDirs.push(dir);
+  return dir;
 }
+
+afterAll(() => {
+  for (const dir of createdDirs) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 /** A local "origin" for the stub's `repo clone` to clone from. */
 function makeSourceRepo(): string {
@@ -82,6 +94,20 @@ describe('cloneWorkspaceRepo', () => {
 
     expect(result.ok).toBe(true);
     expect(addScope).toHaveBeenCalledWith('ws-1', outside);
+  });
+
+  it('refuses when the destination directory does not exist', async () => {
+    const source = makeSourceRepo();
+    const missing = path.join(tmpDir('consola-clone-parent-'), 'does-not-exist');
+    const workspace = makeWorkspace([{ path: missing, isGitRepo: false }]);
+    const { deps, addScope } = makeDeps(source);
+
+    const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', missing);
+
+    expect(result.ok).toBe(false);
+    expect(result.error).toContain('Destination not found');
+    expect(result.error).toContain(missing);
+    expect(addScope).not.toHaveBeenCalled();
   });
 
   it('refuses when the target directory already exists', async () => {
