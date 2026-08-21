@@ -288,6 +288,12 @@ export interface CloneRepoResult {
     error?: string;
 }
 
+/** One launch target inside a scope: a git repo the fan-out dialog can pick. */
+export interface ScopeRepo {
+    name: string;
+    path: string;
+}
+
 /**
  * Inbox surface of the github preload API. Read-only against GitHub by
  * construction: there is no method here that writes to GitHub.
