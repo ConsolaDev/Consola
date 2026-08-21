@@ -176,8 +176,11 @@ export class GhBroker {
 
         const result = await this.run(binary, ['auth', 'token', '--user', accountLogin]);
         if (result.failed) {
+            // Scrubbed like probe()'s failures: this error reaches
+            // GitHubService's InboxSnapshot.error, which is broadcast to
+            // every renderer, so no raw subprocess text may cross that line.
             throw new Error(
-                result.stderr.trim() ||
+                stripTokenLines(result.stderr) ||
                     result.errorMessage ||
                     `gh auth token failed for ${accountLogin}.`
             );
