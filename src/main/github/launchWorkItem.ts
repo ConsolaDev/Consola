@@ -1,6 +1,6 @@
 import * as path from 'path';
 import type { InboxItem, WorkItemRef } from '../../shared/github';
-import { sameWorkItem } from '../../shared/github';
+import { sameWorkItem, workItemKey } from '../../shared/github';
 import type { WorkItemLaunchResult } from '../../shared/types';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 
@@ -16,6 +16,8 @@ export interface WorkItemLaunchDeps {
   /** Login env plus GH_TOKEN for this account. Composed main-side only. */
   composeEnv(accountLogin: string): Promise<NodeJS.ProcessEnv>;
   findItem(workspaceId: string, ref: WorkItemRef): InboxItem | undefined;
+  /** Whether a path exists on disk — used to notice a re-attach whose worktree was deleted. */
+  pathExists(target: string): boolean;
 }
 
 /** Same shape as the renderer's generateSessionInstanceId — one id namespace. */
@@ -90,7 +92,34 @@ export async function launchWorkItem(
   const existing = workspace.sessions.find((session) =>
     sameWorkItem(session.workItem, workItem)
   );
-  if (existing) return { ok: true, session: existing, reattached: true };
+  if (existing) {
+    // A present cwd stays on the fast path untouched — no subprocess on the
+    // common re-attach. Only a *missing* cwd (the worktree directory was
+    // deleted out from under the session) re-ensures it before handing the
+    // session back, so TerminalService never has to reject the spawn with
+    // "Working folder not found" for a directory ensureWorktree can just
+    // recreate.
+    if (existing.cwd && !deps.pathExists(existing.cwd)) {
+      const clonePath = deps.resolveRepo(workspace, workItem.repo);
+      if (clonePath) {
+        try {
+          const env = await deps.composeEnv(workspace.github.accountLogin);
+          await deps.ensureWorktree(clonePath, workItem, env);
+        } catch (error) {
+          return {
+            ok: false,
+            reason: 'error',
+            message: error instanceof Error ? error.message : String(error),
+          };
+        }
+      }
+      // clonePath === null means the clone itself is gone too — there is
+      // nothing to rebuild from, so fall through to the honest re-attach
+      // below; the user gets today's terminal notice rather than a launch
+      // failure for a problem this call cannot fix.
+    }
+    return { ok: true, session: existing, reattached: true };
+  }
 
   const clonePath = deps.resolveRepo(workspace, workItem.repo);
   if (!clonePath) return { ok: false, reason: 'not-cloned' };
@@ -122,4 +151,33 @@ export async function launchWorkItem(
     return { ok: false, reason: 'error', message: 'Could not create the session record.' };
   }
   return { ok: true, session, seedPrompt: buildSeedPrompt(workItem, item), reattached: false };
+}
+
+/**
+ * Coalesces concurrent launches of the *same* work item into one in-flight
+ * call — the same in-flight-Map pattern `GitHubService.refresh` already uses
+ * for concurrent inbox refreshes of one workspace.
+ *
+ * Not reachable through the UI today (the renderer's `launching[key]` disables
+ * the button, and one workspace belongs to one window), but two overlapping
+ * calls would each pass the "existing session" check before either created
+ * one, minting two sessions for one work item and violating "one work item,
+ * one session, forever." It would also let two concurrent `ensureWorktree`
+ * calls for the same item race — one call's failure cleanup removing a
+ * worktree directory the other just fast-pathed onto. Keyed by workspace id
+ * plus work-item key, so concurrent launches of *different* items still run
+ * in parallel.
+ */
+export function createLaunchCoalescer(
+  deps: WorkItemLaunchDeps
+): (workspaceId: string, workItem: WorkItemRef) => Promise<WorkItemLaunchResult> {
+  const inFlight = new Map<string, Promise<WorkItemLaunchResult>>();
+  return (workspaceId, workItem) => {
+    const key = `${workspaceId}:${workItemKey(workItem)}`;
+    const running = inFlight.get(key);
+    if (running) return running;
+    const job = launchWorkItem(deps, workspaceId, workItem).finally(() => inFlight.delete(key));
+    inFlight.set(key, job);
+    return job;
+  };
 }
