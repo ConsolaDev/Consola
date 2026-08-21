@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Canned `gh` for tests. Keyed on argv so every consumer — GhBroker probes,
+# GitHubService fetches, WorktreeService checkouts, the clone flow, and the
+# Playwright inbox spec — runs deterministically without network or a keyring.
+#
+# Env knobs:
+#   STUB_GH_FAIL=1           every invocation exits 1 with a canned stderr line
+#   STUB_GH_CLONE_FROM=path  `repo clone` clones from this local repo instead of GitHub
+set -euo pipefail
+here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ "${STUB_GH_FAIL:-}" == "1" ]]; then
+  echo "gh: canned failure (STUB_GH_FAIL=1)" >&2
+  exit 1
+fi
+
+cmd="${1:-} ${2:-}"
+case "$cmd" in
+  "--version "*|"--version")
+    echo "gh version 2.62.0 (stub)"
+    ;;
+  "auth status")
+    echo "github.com"
+    echo "  Logged in to github.com account SymJavi (keyring)"
+    echo "  - Active account: true"
+    ;;
+  "auth token")
+    # gh auth token --user <login>  ->  $3=--user  $4=<login>
+    echo "gho_stub_token_for_${4:-unknown}"
+    ;;
+  "api graphql")
+    cat "$here/graphql-inbox.json"
+    ;;
+  "pr checkout")
+    # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.
+    git checkout -B "stub-pr-${3:?pr number}" --quiet
+    ;;
+  "repo clone")
+    # gh repo clone <owner/name> <dir> — clone from the local fixture instead.
+    git clone --quiet "${STUB_GH_CLONE_FROM:?set STUB_GH_CLONE_FROM}" "${4:?target dir}"
+    ;;
+  *)
+    echo "stub gh: unhandled argv: $*" >&2
+    exit 64
+    ;;
+esac
