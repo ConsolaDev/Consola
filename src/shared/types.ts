@@ -231,12 +231,23 @@ export type HarnessCapabilitiesResult =
     | ({ supported: true } & HarnessCapabilities)
     | HarnessCapabilitiesUnavailable;
 
+/**
+ * A session's display name and where it came from. `summary` is the CLI's own
+ * settled name for the conversation; `prompt` is a stand-in read from the
+ * opening message, so a caller adopting names knows to keep asking until a
+ * summary lands.
+ */
+export interface SessionNameResult {
+    name: string;
+    source: 'summary' | 'prompt';
+}
+
 export interface HarnessAPI {
     probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
     getSessionName: (
         sessionId: string,
         fields: HarnessLaunchFields
-    ) => Promise<string | null>;
+    ) => Promise<SessionNameResult | null>;
     getCapabilities: (fields: HarnessLaunchFields) => Promise<HarnessCapabilitiesResult>;
 }
 
@@ -305,7 +316,7 @@ export interface WorkspaceAPI {
     updateSession: (
         workspaceId: string,
         sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
+        updates: Partial<Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
     ) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
     addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;

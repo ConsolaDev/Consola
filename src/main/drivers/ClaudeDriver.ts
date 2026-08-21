@@ -9,6 +9,7 @@ import type {
     HarnessAccount,
     HarnessCapabilities,
     HarnessProbeResult,
+    SessionNameResult,
 } from '../../shared/types';
 import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
 
@@ -230,7 +231,7 @@ export class ClaudeDriver implements HarnessDriver {
         });
     }
 
-    public getSessionDisplayName(config: HarnessConfig, sessionId: string): string | null {
+    public getSessionDisplayName(config: HarnessConfig, sessionId: string): SessionNameResult | null {
         return getDisplayName(sessionId, resolveConfigDir(config));
     }
 

@@ -28,7 +28,7 @@ interface WorkspaceState {
   updateSession: (
     workspaceId: string,
     sessionId: string,
-    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
+    updates: Partial<Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
   ) => Promise<void>;
   deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;

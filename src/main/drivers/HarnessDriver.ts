@@ -5,6 +5,7 @@ import type {
     HarnessDriverId,
     HarnessLaunchFields,
     HarnessProbeResult,
+    SessionNameResult,
 } from '../../shared/types';
 
 /**
@@ -47,7 +48,7 @@ export interface HarnessDriver {
      * omits it, and sessions keep whatever name they were given. Callers must
      * check for its absence rather than polling an answer that never comes.
      */
-    getSessionDisplayName?(config: HarnessConfig, sessionId: string): string | null;
+    getSessionDisplayName?(config: HarnessConfig, sessionId: string): SessionNameResult | null;
 
     /**
      * The commands, agents and models this CLI offers, asked of the CLI itself.

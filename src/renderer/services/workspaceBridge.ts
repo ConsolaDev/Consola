@@ -52,7 +52,7 @@ export const workspaceBridge = {
     updateSession(
         workspaceId: string,
         sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
+        updates: Partial<Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
     ): Promise<void> {
         return window.workspaceAPI.updateSession(workspaceId, sessionId, updates);
     },

@@ -2,26 +2,35 @@ import type { TerminalState } from '../stores/terminalStore';
 import type { Workspace } from '../../shared/workspace';
 
 /**
- * What a session's dot shows.
+ * What a session's dot shows — the status vocabulary from the GitHub workflow
+ * design (2026-08-20), derived here in the renderer from the flags terminals
+ * already emit rather than a promoted main-process event.
  *
- * Activity is inferred from terminal output, so the only states Consola can
+ * Activity is inferred from terminal output, so the states Consola can
  * distinguish are "the process is gone", "a menu is waiting on a keypress",
- * and "output is flowing".
+ * "output is flowing", and — tracked renderer-side — "it finished while you
+ * were elsewhere". Everything else is `ready`, including the second or so a
+ * session spends booting.
  */
-export type SessionStatus = 'error' | 'attention' | 'running' | null;
+export type SessionStatus = 'exited' | 'needs-attention' | 'done' | 'working' | 'ready';
 
 export function sessionStatusFor(terminal: TerminalState | undefined): SessionStatus {
-  if (!terminal) return null;
-  if (terminal.hasExited) return 'error';
-  if (terminal.isAwaitingConfirmation) return 'attention';
-  if (terminal.isBusy) return 'running';
-  return null;
+  if (!terminal) return 'ready';
+  if (terminal.hasExited) return 'exited';
+  if (terminal.isAwaitingConfirmation) return 'needs-attention';
+  if (terminal.isBusy) return 'working';
+  if (terminal.completedWhileAway) return 'done';
+  return 'ready';
 }
 
-const RANK: Record<Exclude<SessionStatus, null>, number> = {
-  error: 3,
-  attention: 2,
-  running: 1,
+// `done` outranks `working` at the workspace level: a finished session is
+// actionable (there is a result to look at) while one still working is not.
+const RANK: Record<SessionStatus, number> = {
+  exited: 4,
+  'needs-attention': 3,
+  done: 2,
+  working: 1,
+  ready: 0,
 };
 
 /** The most urgent status among a workspace's sessions. */
@@ -29,11 +38,11 @@ export function workspaceStatusFor(
   workspace: Workspace,
   terminals: Record<string, TerminalState>
 ): SessionStatus {
-  let worst: SessionStatus = null;
+  let worst: SessionStatus = 'ready';
 
   for (const session of workspace.sessions) {
     const status = sessionStatusFor(terminals[session.instanceId]);
-    if (status && (!worst || RANK[status] > RANK[worst])) {
+    if (RANK[status] > RANK[worst]) {
       worst = status;
     }
   }
@@ -44,7 +53,8 @@ export function workspaceStatusFor(
 /**
  * Whether a workspace this window is not showing wants a human.
  *
- * Deliberately excludes `running`: a session doing work is not a reason to
+ * Deliberately excludes `working` and `done`: a session doing work — or one
+ * that finished and is merely waiting to be looked at — is not a reason to
  * pull someone out of another project. Only a waiting menu or a dead process
  * is.
  */
@@ -56,6 +66,6 @@ export function anyOtherWorkspaceNeedsAttention(
   return workspaces.some((workspace) => {
     if (workspace.id === activeWorkspaceId) return false;
     const status = workspaceStatusFor(workspace, terminals);
-    return status === 'attention' || status === 'error';
+    return status === 'needs-attention' || status === 'exited';
   });
 }

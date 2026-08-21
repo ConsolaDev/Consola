@@ -107,7 +107,7 @@
 
 /*
  * The one signal the sidebar tree used to carry: something elsewhere wants
- * you. Reuses the same variable as .session-status-indicator--attention
+ * you. Reuses the same variable as .session-status-indicator--needs-attention
  * (there is no --color-status-attention token) so the two dots cannot drift
  * apart.
  */
