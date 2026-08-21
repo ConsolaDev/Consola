@@ -15,7 +15,13 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
-import { mergeNavigationState, useNavigationStore, type NavigationState } from './navigationStore';
+import {
+  mergeNavigationState,
+  useNavigationStore,
+  subscribeToWindowWorkspace,
+  type NavigationState,
+} from './navigationStore';
+import { windowBridge } from '../services/windowBridge';
 
 /**
  * A minimal, fully-typed NavigationState to use as `current` in merge tests.
@@ -106,5 +112,15 @@ describe('inbox navigation', () => {
     useNavigationStore.getState().setActiveSession('session-1');
     expect(useNavigationStore.getState().isInboxOpen).toBe(false);
     expect(useNavigationStore.getState().activeSessionId).toBe('session-1');
+  });
+
+  it('closes the inbox when main hands this window a different workspace', () => {
+    useNavigationStore.setState({ isInboxOpen: true });
+    subscribeToWindowWorkspace();
+    const onWorkspaceChanged = vi.mocked(windowBridge.onWorkspaceChanged);
+    const workspaceChangedCallback = onWorkspaceChanged.mock.calls.at(-1)?.[0];
+    workspaceChangedCallback?.('workspace-2');
+    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
   });
 });
