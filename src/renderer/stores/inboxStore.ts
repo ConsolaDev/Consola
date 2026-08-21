@@ -39,14 +39,28 @@ export const useInboxStore = create<InboxState>((set, get) => ({
   clonePrompt: null,
 
   load: async (workspaceId) => {
-    const snapshot = await githubBridge.getInbox(workspaceId);
-    // null means main has no cache yet; it has kicked off a refresh and the
-    // result will arrive on the push channel.
-    if (snapshot) get().adoptSnapshot(snapshot);
+    try {
+      const snapshot = await githubBridge.getInbox(workspaceId);
+      // null means main has no cache yet; it has kicked off a refresh and the
+      // result will arrive on the push channel.
+      if (snapshot) get().adoptSnapshot(snapshot);
+    } catch (error) {
+      // Same "degrade, never dialog" reasoning as launch(): this is called
+      // fire-and-forget (`void load(...)`) from the Sidebar, and there is no
+      // per-item error key to write into — so log rather than let the
+      // rejection escape as unhandled.
+      console.error('inboxStore.load failed:', error);
+    }
   },
 
   refresh: async (workspaceId) => {
-    await githubBridge.refreshInbox(workspaceId);
+    try {
+      await githubBridge.refreshInbox(workspaceId);
+    } catch (error) {
+      // Same reasoning as load(): `void refresh(...)` from the refresh
+      // button has no per-item error key either.
+      console.error('inboxStore.refresh failed:', error);
+    }
   },
 
   adoptSnapshot: (snapshot) => {
@@ -126,6 +140,20 @@ export const useInboxStore = create<InboxState>((set, get) => ({
           launchErrors: { ...state.launchErrors, [key]: result?.error ?? 'Clone failed.' },
         }));
         return;
+      }
+      if (result.path) {
+        // Record the resolved path immediately: if the launch below fails
+        // (e.g. `gh pr checkout` because the branch is already checked out
+        // elsewhere), the item's button must read "Review" from the clone
+        // that did succeed, not keep offering "Clone into scope..." for a
+        // repo that already has one.
+        const path = result.path;
+        set((state) => ({
+          resolvedRepos: {
+            ...state.resolvedRepos,
+            [workspaceId]: { ...state.resolvedRepos[workspaceId], [item.workItem.repo]: path },
+          },
+        }));
       }
       // The clone landed and (if needed) became a scope; the normal launch
       // path now resolves it and continues: worktree, record, spawn.

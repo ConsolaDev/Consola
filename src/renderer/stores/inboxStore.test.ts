@@ -66,6 +66,32 @@ beforeEach(() => {
   vi.clearAllMocks();
 });
 
+describe('load', () => {
+  it('adopts the snapshot when the bridge resolves one', async () => {
+    vi.mocked(githubBridge.getInbox).mockResolvedValue(snapshot);
+
+    await useInboxStore.getState().load('ws-1');
+
+    expect(useInboxStore.getState().snapshots['ws-1']).toEqual(snapshot);
+  });
+
+  it('does not throw when the bridge call rejects', async () => {
+    vi.mocked(githubBridge.getInbox).mockRejectedValue(new Error('main process crashed'));
+
+    // A floating `void load(...)` at the call sites means a rejection here
+    // would be an unhandled rejection — this must resolve instead.
+    await expect(useInboxStore.getState().load('ws-1')).resolves.toBeUndefined();
+  });
+});
+
+describe('refresh', () => {
+  it('does not throw when the bridge call rejects', async () => {
+    vi.mocked(githubBridge.refreshInbox).mockRejectedValue(new Error('main process crashed'));
+
+    await expect(useInboxStore.getState().refresh('ws-1')).resolves.toBeUndefined();
+  });
+});
+
 describe('adoptSnapshot', () => {
   it('stores the snapshot by workspace and asks main which repos are cloned', async () => {
     vi.mocked(githubBridge.resolveRepos).mockResolvedValue({
@@ -179,6 +205,26 @@ describe('cloneAndLaunch', () => {
     expect(githubBridge.cloneRepo).toHaveBeenCalledWith('ws-1', 'sympower/controller-app', '/repos');
     expect(githubBridge.launchWorkItem).toHaveBeenCalled();
     expect(useInboxStore.getState().clonePrompt).toBeNull();
+  });
+
+  it('records the resolved path on a successful clone, even when the launch after it fails', async () => {
+    vi.mocked(githubBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/controller-app' });
+    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+      ok: false,
+      reason: 'error',
+      message: 'fatal: branch already checked out',
+    });
+
+    await useInboxStore.getState().cloneAndLaunch('ws-1', item51, '/repos');
+
+    expect(useInboxStore.getState().resolvedRepos['ws-1']).toEqual({
+      'sympower/controller-app': '/repos/controller-app',
+    });
+    // The button reads the failure off launchErrors, not "Clone into
+    // scope..." again — the clone itself did succeed.
+    expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51)]).toBe(
+      'fatal: branch already checked out'
+    );
   });
 
   it('surfaces a clone failure on the item and does not launch', async () => {
