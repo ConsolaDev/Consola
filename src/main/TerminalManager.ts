@@ -65,6 +65,29 @@ export class TerminalManager {
         };
     }
 
+    /**
+     * Start a session's terminal with no view attached.
+     *
+     * Fan-out and conductors create sessions before any pane exists. This is
+     * ensure() minus the owner: output lands in the ScreenModel, status
+     * broadcasts to every window, and the first pane to mount goes through
+     * ensure(), takes ownership, and repaints from the replay buffer.
+     * "Terminals outlive their views" gains "…and can be born without one."
+     */
+    public startHeadless(instanceId: string, options: TerminalServiceOptions): void {
+        const existing = this.terminals.get(instanceId);
+        if (existing) {
+            // Already running — the start is idempotent, but a prompt that
+            // rode in with the call must not be dropped.
+            if (options.initialPrompt) existing.queuePrompt(options.initialPrompt);
+            return;
+        }
+        const terminal = new TerminalService(options);
+        this.terminals.set(instanceId, terminal);
+        this.wireEvents(instanceId, terminal);
+        terminal.start();
+    }
+
     public get(instanceId: string): TerminalService | undefined {
         return this.terminals.get(instanceId);
     }
