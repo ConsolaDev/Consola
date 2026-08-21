@@ -41,7 +41,7 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
 }
 
 export type SessionUpdates = Partial<
-  Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>
+  Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>
 >;
 
 /**
@@ -64,6 +64,9 @@ export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     // `undefined` can only ever be a bug: absence and explicit-undefined are
     // treated alike. Contrast groupId below, where `undefined` is a value.
     if (updates.name !== undefined) allowed.name = updates.name;
+    // Optional on the record but set-only in practice: `undefined` never
+    // means "clear the flag", so it is treated like the required fields.
+    if (updates.nameIsUserSet !== undefined) allowed.nameIsUserSet = updates.nameIsUserSet;
     if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
     if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
     // `undefined` IS the value here — it means "leave the group". Structured

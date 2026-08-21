@@ -28,18 +28,41 @@ function workspace(id: string, instanceIds: string[]): Workspace {
   };
 }
 
-const IDLE = { isBusy: false, isAwaitingConfirmation: false, hasExited: false };
+const IDLE = {
+  isBusy: false,
+  isAwaitingConfirmation: false,
+  hasExited: false,
+  completedWhileAway: false,
+};
 
 describe('sessionStatusFor', () => {
-  it('is null for a terminal that has not started', () => {
-    expect(sessionStatusFor(undefined)).toBeNull();
+  it('is ready for a terminal that has not started', () => {
+    expect(sessionStatusFor(undefined)).toBe('ready');
   });
 
   it('ranks an exit above a waiting menu, and a waiting menu above work', () => {
-    expect(sessionStatusFor({ ...IDLE, hasExited: true, isAwaitingConfirmation: true })).toBe('error');
-    expect(sessionStatusFor({ ...IDLE, isAwaitingConfirmation: true, isBusy: true })).toBe('attention');
-    expect(sessionStatusFor({ ...IDLE, isBusy: true })).toBe('running');
-    expect(sessionStatusFor(IDLE)).toBeNull();
+    expect(sessionStatusFor({ ...IDLE, hasExited: true, isAwaitingConfirmation: true })).toBe(
+      'exited'
+    );
+    expect(sessionStatusFor({ ...IDLE, isAwaitingConfirmation: true, isBusy: true })).toBe(
+      'needs-attention'
+    );
+    expect(sessionStatusFor({ ...IDLE, isBusy: true })).toBe('working');
+    expect(sessionStatusFor(IDLE)).toBe('ready');
+  });
+
+  it('shows a finished-while-away session as done once it is calm', () => {
+    expect(sessionStatusFor({ ...IDLE, completedWhileAway: true })).toBe('done');
+  });
+
+  it('lets every live signal outrank done', () => {
+    expect(sessionStatusFor({ ...IDLE, completedWhileAway: true, isBusy: true })).toBe('working');
+    expect(
+      sessionStatusFor({ ...IDLE, completedWhileAway: true, isAwaitingConfirmation: true })
+    ).toBe('needs-attention');
+    expect(sessionStatusFor({ ...IDLE, completedWhileAway: true, hasExited: true })).toBe(
+      'exited'
+    );
   });
 });
 
@@ -50,11 +73,11 @@ describe('workspaceStatusFor', () => {
       b: { ...IDLE, isAwaitingConfirmation: true },
     };
 
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('attention');
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('needs-attention');
   });
 
-  it('is null when nothing is happening', () => {
-    expect(workspaceStatusFor(workspace('w1', ['a']), { a: IDLE })).toBeNull();
+  it('is ready when nothing is happening', () => {
+    expect(workspaceStatusFor(workspace('w1', ['a']), { a: IDLE })).toBe('ready');
   });
 
   it('ranks a dead process above a waiting menu across a workspace, matching a single session', () => {
@@ -63,7 +86,16 @@ describe('workspaceStatusFor', () => {
       b: { ...IDLE, hasExited: true },
     };
 
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('error');
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('exited');
+  });
+
+  it('ranks an unvisited finish above work still in progress', () => {
+    const terminals = {
+      a: { ...IDLE, isBusy: true },
+      b: { ...IDLE, completedWhileAway: true },
+    };
+
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('done');
   });
 });
 
@@ -76,9 +108,13 @@ describe('anyOtherWorkspaceNeedsAttention', () => {
     expect(anyOtherWorkspaceNeedsAttention(workspaces, 'w2', terminals)).toBe(true);
   });
 
-  it('does not count work in progress as needing you', () => {
-    const workspaces = [workspace('w1', ['a'])];
-    const terminals = { a: { ...IDLE, isBusy: true } };
+  it('does not count work in progress, calm, or finished sessions as needing you', () => {
+    const workspaces = [workspace('w1', ['a', 'b', 'c'])];
+    const terminals = {
+      a: { ...IDLE, isBusy: true },
+      b: IDLE,
+      c: { ...IDLE, completedWhileAway: true },
+    };
 
     expect(anyOtherWorkspaceNeedsAttention(workspaces, null, terminals)).toBe(false);
   });

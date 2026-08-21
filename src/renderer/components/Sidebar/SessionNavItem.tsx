@@ -1,10 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { MessageSquare } from 'lucide-react';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
 import { deleteSessionCompletely } from '../../utils/sessionActions';
-import { sessionStatusFor } from '../../utils/sessionStatus';
+import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
 
 interface SessionNavItemProps {
   session: Session;
@@ -12,6 +11,24 @@ interface SessionNavItemProps {
   isActive: boolean;
   onClick: () => void;
 }
+
+/** Spoken form of each status, for the row's accessible name and tooltip. */
+const STATUS_LABELS: Record<SessionStatus, string> = {
+  working: 'working',
+  ready: 'ready',
+  'needs-attention': 'needs attention',
+  done: 'done',
+  exited: 'exited',
+};
+
+/**
+ * The trailing status word. Only the states that want a human get one —
+ * calm rows are carried by the dot alone, so the list stays quiet.
+ */
+const STATUS_WORDS: Partial<Record<SessionStatus, string>> = {
+  'needs-attention': 'attention',
+  exited: 'exited',
+};
 
 export function SessionNavItem({
   session,
@@ -26,7 +43,23 @@ export function SessionNavItem({
   const sessionStatus = useTerminalStore((state) =>
     sessionStatusFor(state.terminals[session.instanceId])
   );
+  const acknowledgeCompletion = useTerminalStore((state) => state.acknowledgeCompletion);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
+
+  // `done` means "finished while you were elsewhere" — being the active row is
+  // being looked at, so the completion stops being news the moment it lands.
+  useEffect(() => {
+    if (isActive && sessionStatus === 'done') {
+      acknowledgeCompletion(session.instanceId);
+    }
+  }, [isActive, sessionStatus, session.instanceId, acknowledgeCompletion]);
+
+  // Rendered status, not stored status: the effect above clears the flag only
+  // after paint, and the active row must never flash `done` for that frame.
+  const displayStatus: SessionStatus =
+    isActive && sessionStatus === 'done' ? 'ready' : sessionStatus;
+  const statusWord = STATUS_WORDS[displayStatus];
+  const accessibleName = `${session.name} — ${STATUS_LABELS[displayStatus]}`;
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -39,7 +72,12 @@ export function SessionNavItem({
     const trimmedName = newName.trim();
     try {
       if (trimmedName && trimmedName !== session.name) {
-        await updateSession(workspaceId, session.id, { name: trimmedName });
+        // A typed name is the user's own and wins permanently: the flag stops
+        // the CLI-summary poll from ever overwriting it.
+        await updateSession(workspaceId, session.id, {
+          name: trimmedName,
+          nameIsUserSet: true,
+        });
       } else {
         setNewName(session.name);
       }
@@ -72,10 +110,16 @@ export function SessionNavItem({
     <button
       className={`session-nav-item ${isActive ? 'active' : ''}`}
       onClick={isRenaming ? undefined : onClick}
+      title={accessibleName}
+      aria-label={accessibleName}
     >
-      <span className="session-nav-item-icon">
-        <MessageSquare size={14} />
-      </span>
+      {/* Decorative: the button's aria-label already carries the status, and
+          an ancestor's aria-label short-circuits the accessible-name
+          computation before it descends into subtree content. */}
+      <span
+        className={`session-status-indicator session-status-indicator--${displayStatus}`}
+        aria-hidden="true"
+      />
       {isRenaming ? (
         <input
           ref={inputRef}
@@ -90,8 +134,10 @@ export function SessionNavItem({
       ) : (
         <span className="session-nav-item-name">{session.name}</span>
       )}
-      {sessionStatus && (
-        <span className={`session-status-indicator session-status-indicator--${sessionStatus}`} />
+      {!isRenaming && statusWord && (
+        <span className={`session-status-word session-status-word--${displayStatus}`} aria-hidden="true">
+          {statusWord}
+        </span>
       )}
       {!isRenaming && (
         <SessionActionsMenu

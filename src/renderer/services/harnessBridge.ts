@@ -2,6 +2,7 @@ import type {
     HarnessCapabilitiesResult,
     HarnessLaunchFields,
     HarnessProbeResult,
+    SessionNameResult,
 } from '../../shared/types';
 
 /**
@@ -18,12 +19,17 @@ export const harnessBridge = {
     },
 
     /**
-     * A session's name from its harness's own transcripts.
+     * A session's name from its harness's own transcripts, tagged with
+     * whether it is the CLI's settled summary or a stand-in from the opening
+     * prompt.
      *
      * Resolves to null both while the transcript is still being written and
      * for drivers whose transcripts Consola cannot read at all.
      */
-    getSessionName(sessionId: string, fields: HarnessLaunchFields): Promise<string | null> {
+    getSessionName(
+        sessionId: string,
+        fields: HarnessLaunchFields
+    ): Promise<SessionNameResult | null> {
         return window.harnessAPI.getSessionName(sessionId, fields);
     },
 

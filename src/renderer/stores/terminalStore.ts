@@ -16,12 +16,20 @@ export interface TerminalState {
     isAwaitingConfirmation: boolean;
     /** The claude process exited; the pane offers a restart. */
     hasExited: boolean;
+    /**
+     * Work finished and nobody has looked yet — the `done` dot. Set on the
+     * busy→idle edge, cleared by new work or by the session's row being the
+     * active one. Renderer-only: main has no notion of which session a human
+     * is looking at.
+     */
+    completedWhileAway: boolean;
 }
 
 const INITIAL_STATE: TerminalState = {
     isBusy: false,
     isAwaitingConfirmation: false,
     hasExited: false,
+    completedWhileAway: false,
 };
 
 interface TerminalStoreState {
@@ -30,6 +38,10 @@ interface TerminalStoreState {
     pendingPrompts: Record<string, string>;
     getState: (instanceId: string) => TerminalState;
     setState: (instanceId: string, updates: Partial<TerminalState>) => void;
+    /** Record a busy-flag edge, marking a completion when work stops. */
+    noteActivity: (instanceId: string, busy: boolean) => void;
+    /** The session has been looked at; its completion is no longer news. */
+    acknowledgeCompletion: (instanceId: string) => void;
     setPendingPrompt: (instanceId: string, prompt: string) => void;
     consumePendingPrompt: (instanceId: string) => string | undefined;
     removeInstance: (instanceId: string) => void;
@@ -53,6 +65,25 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
                 },
             },
         }));
+    },
+
+    noteActivity: (instanceId, busy) => {
+        const { getState, setState } = get();
+        // Only a true busy→idle edge is a completion: an idle report for a
+        // terminal never seen working (hydration, repaints) is not news —
+        // though it must not erase a completion already standing.
+        const previous = getState(instanceId);
+        setState(instanceId, {
+            isBusy: busy,
+            completedWhileAway: busy ? false : previous.isBusy || previous.completedWhileAway,
+        });
+    },
+
+    acknowledgeCompletion: (instanceId) => {
+        // Guarded rather than delegated to setState, which would mint state
+        // for a terminal that has none.
+        if (!get().terminals[instanceId]?.completedWhileAway) return;
+        get().setState(instanceId, { completedWhileAway: false });
     },
 
     setPendingPrompt: (instanceId, prompt) => {
@@ -80,11 +111,11 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
     },
 
     subscribeToEvents: () => {
-        const { setState } = get();
+        const { setState, noteActivity } = get();
 
         const unsubscribers = [
             terminalBridge.onActivity(({ instanceId, busy }) => {
-                setState(instanceId, { isBusy: busy });
+                noteActivity(instanceId, busy);
             }),
             terminalBridge.onAwaitingConfirmation(({ instanceId, awaiting }) => {
                 setState(instanceId, { isAwaitingConfirmation: awaiting });

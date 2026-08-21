@@ -10,6 +10,7 @@ import {
     HarnessLaunchFields,
     HarnessCapabilitiesResult,
     HarnessProbeResult,
+    SessionNameResult,
     WorkspaceSnapshot,
     WindowContext,
     ActivateWorkspaceResult,
@@ -96,7 +97,7 @@ contextBridge.exposeInMainWorld('harnessAPI', {
     getSessionName: (
         sessionId: string,
         fields: HarnessLaunchFields
-    ): Promise<string | null> => {
+    ): Promise<SessionNameResult | null> => {
         return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
     },
 

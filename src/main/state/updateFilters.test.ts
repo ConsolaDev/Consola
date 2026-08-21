@@ -132,6 +132,18 @@ describe('allowedSessionUpdates', () => {
     expect('name' in result).toBe(false);
   });
 
+  it('passes nameIsUserSet through alongside the rename that sets it', () => {
+    const result = allowedSessionUpdates({ name: 'My name', nameIsUserSet: true });
+
+    expect(result).toEqual({ name: 'My name', nameIsUserSet: true });
+  });
+
+  it('drops an explicit nameIsUserSet: undefined — the flag is set, never cleared', () => {
+    const result = allowedSessionUpdates({ nameIsUserSet: undefined });
+
+    expect('nameIsUserSet' in result).toBe(false);
+  });
+
   it('passes groupId through — regrouping is organizational, not identity', () => {
     const result = allowedSessionUpdates({ groupId: 'g1' });
 

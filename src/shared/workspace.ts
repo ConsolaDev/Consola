@@ -12,6 +12,9 @@ import type { WorkItemRef } from './github';
 export interface Session {
   id: string;
   name: string;                    // From Claude's session summary, or user-provided
+  // A human typed this name, so it wins permanently: the CLI-summary poll
+  // never runs for a session whose name is user-set. Set, never cleared.
+  nameIsUserSet?: boolean;
   workspaceId: string;             // Parent workspace
   instanceId: string;              // Terminal instance ID
   claudeSessionId: string;         // UUID passed to `claude --session-id`
