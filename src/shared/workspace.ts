@@ -90,6 +90,17 @@ export function generateId(): string {
 }
 
 /**
+ * Terminal instance id for a new session in a workspace.
+ *
+ * Shared because both sides mint sessions: the renderer on the new-session
+ * screen, and the main process when fan-out creates a fleet. One format, or
+ * the "every terminal message carries instanceId" contract quietly forks.
+ */
+export function generateSessionInstanceId(workspaceId: string): string {
+  return `workspace-${workspaceId}-session-${generateId()}`;
+}
+
+/**
  * A session ID for `claude --session-id`, which requires a valid UUID.
  *
  * Assigning it here — rather than discovering it after the fact — is what lets a
