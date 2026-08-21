@@ -7,6 +7,7 @@ import { getLoginEnv } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
 import { ScreenModel } from './ScreenModel';
 import { ghBroker, layerGhToken } from './github/GhBroker';
+import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 
 /**
  * One session tab's terminal.
@@ -97,6 +98,7 @@ export class TerminalService extends EventEmitter {
     private promptQueue: string[] = [];
     private isAwaitingConfirmation = false;
     private isDestroyed = false;
+    private lastStatus: TerminalStatus | null = null;
 
     constructor(options: TerminalServiceOptions) {
         super();
@@ -202,6 +204,7 @@ export class TerminalService extends EventEmitter {
         const cwdProblem = this.describeCwdProblem();
         if (cwdProblem) {
             this.claudeExited = true;
+            this.emitStatus();
             this.writeNotice(cwdProblem);
             this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
             return;
@@ -235,6 +238,7 @@ export class TerminalService extends EventEmitter {
                 ) as { [key: string]: string },
             });
             this.claudeExited = false;
+            this.emitStatus();
 
             this.claudePty.onData((data) => this.handleData(data));
 
@@ -264,11 +268,13 @@ export class TerminalService extends EventEmitter {
                     );
                 }
 
+                this.emitStatus();
                 this.emit('exit', { exitCode } as TerminalExitInfo);
             });
         } catch (error) {
             console.error(`Error spawning ${this.driver.id}:`, error);
             this.claudeExited = true;
+            this.emitStatus();
             this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
         }
     }
@@ -348,11 +354,13 @@ export class TerminalService extends EventEmitter {
         this.emit('data', data);
 
         this.setBusy(true);
+        this.emitStatus();
         if (this.idleTimer) clearTimeout(this.idleTimer);
         this.idleTimer = setTimeout(() => {
             this.classifyScreen();
             this.setBusy(false);
             this.deliverPendingPrompt();
+            this.emitStatus();
         }, IDLE_DEBOUNCE_MS);
     }
 
@@ -418,5 +426,24 @@ export class TerminalService extends EventEmitter {
         if (this.isBusy === busy) return;
         this.isBusy = busy;
         this.emit('activity', busy);
+    }
+
+    /**
+     * Emit 'status' when the derived status changed.
+     *
+     * Called at the seams where the flags settle — spawn, data starting to
+     * flow, the idle debounce classifying the screen, and exit — never per
+     * flag, so listeners see one event per transition. Deduped here, which
+     * makes calling it liberally safe.
+     */
+    private emitStatus(): void {
+        const status = deriveTerminalStatus({
+            busy: this.isBusy,
+            awaitingConfirmation: this.isAwaitingConfirmation,
+            exited: this.claudeExited,
+        });
+        if (status === this.lastStatus) return;
+        this.lastStatus = status;
+        this.emit('status', status);
     }
 }

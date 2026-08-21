@@ -127,3 +127,34 @@ describe('TerminalService prompt FIFO', () => {
         service.destroy();
     });
 });
+
+describe('TerminalService status event', () => {
+    it('emits one status per derived change across a session lifecycle', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        const statuses: string[] = [];
+        service.on('status', (status: string) => statuses.push(status));
+
+        pty.feed('booting up');                        // output starts flowing
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);  // settles, no menu
+        pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);  // settles on a menu
+        pty.feed('\x1b[2J\x1b[3J\x1b[H❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);  // menu answered
+        pty.exit(0);
+
+        // The spawn's initial 'ready' fired inside buildService(), before this
+        // listener attached — real listeners do see it, because wireEvents()
+        // runs before start() in TerminalManager. From here: data -> working,
+        // settle -> ready, menu -> needs-attention, cleared -> ready, exit.
+        expect(statuses).toEqual([
+            'working',
+            'ready',
+            'working',
+            'needs-attention',
+            'ready',
+            'exited',
+        ]);
+        service.destroy();
+    });
+});
