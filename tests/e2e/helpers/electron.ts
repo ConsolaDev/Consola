@@ -6,6 +6,8 @@ import path from 'path';
 export interface LaunchOptions {
   /** Profile directory. Defaults to a fresh temp dir, so runs cannot collide. */
   userDataDir?: string;
+  /** Extra environment for the app process (stub gh, worktree root, ...). */
+  env?: Record<string, string>;
 }
 
 /** The chord for a new window, matching useKeyboardShortcuts on this platform. */
@@ -32,6 +34,7 @@ export async function launchElectron(
     env: {
       ...process.env,
       NODE_ENV: 'test',
+      ...(options.env ?? {}),
     },
   });
 
