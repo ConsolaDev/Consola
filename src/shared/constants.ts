@@ -17,6 +17,7 @@ export const IPC_CHANNELS = {
     TERMINAL_ACTIVITY: 'terminal:activity',   // Busy/idle inferred from output
     TERMINAL_AWAITING_CONFIRMATION: 'terminal:awaiting-confirmation', // Menu on screen
     TERMINAL_EXIT: 'terminal:exit',           // A PTY exited
+    TERMINAL_STATUS: 'terminal:status',       // Derived status: working | ready | needs-attention | exited
 
     // Harness queries (renderer -> main)
     HARNESS_PROBE: 'harness:probe',               // Binary, version and signed-in account
