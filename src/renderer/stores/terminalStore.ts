@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { terminalBridge } from '../services/terminalBridge';
+import { deriveTerminalStatus, type TerminalStatus } from '../../shared/terminalStatus';
 
 /**
  * Per-session terminal state.
@@ -23,6 +24,8 @@ export interface TerminalState {
      * is looking at.
      */
     completedWhileAway: boolean;
+    /** Main's derived status — what group counts and badges consume. */
+    status: TerminalStatus;
 }
 
 const INITIAL_STATE: TerminalState = {
@@ -30,6 +33,7 @@ const INITIAL_STATE: TerminalState = {
     isAwaitingConfirmation: false,
     hasExited: false,
     completedWhileAway: false,
+    status: 'ready',
 };
 
 interface TerminalStoreState {
@@ -123,6 +127,9 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
             terminalBridge.onExit(({ instanceId }) => {
                 setState(instanceId, { hasExited: true, isBusy: false });
             }),
+            terminalBridge.onStatus(({ instanceId, status }) => {
+                setState(instanceId, { status });
+            }),
         ];
 
         return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
@@ -143,7 +150,7 @@ export async function hydrateTerminalStatus(): Promise<void> {
 
     useTerminalStore.setState((state) => {
         const terminals = { ...state.terminals };
-        for (const [instanceId, status] of Object.entries(snapshot)) {
+        for (const [instanceId, flags] of Object.entries(snapshot)) {
             // The snapshot merges UNDERNEATH what is already here, not over it.
             // It is a value read at one instant; anything already in the store
             // arrived from an edge that fired later, so the store is fresher.
@@ -151,7 +158,17 @@ export async function hydrateTerminalStatus(): Promise<void> {
             // before the first render — but it becomes load-bearing the moment
             // subscribeToEvents() moves earlier, which is the obvious way to
             // close the remaining gap between this fetch and the subscription.
-            terminals[instanceId] = { ...INITIAL_STATE, ...status, ...terminals[instanceId] };
+            const derivedStatus = deriveTerminalStatus({
+                busy: flags.isBusy,
+                awaitingConfirmation: flags.isAwaitingConfirmation,
+                exited: flags.hasExited,
+            });
+            terminals[instanceId] = {
+                ...INITIAL_STATE,
+                ...flags,
+                ...{ status: derivedStatus },
+                ...terminals[instanceId],
+            };
         }
         return { terminals };
     });

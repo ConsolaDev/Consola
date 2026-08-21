@@ -6,6 +6,7 @@ import {
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
+    TerminalStatusMessage,
     TerminalStatusSnapshot,
     HarnessLaunchFields,
     HarnessCapabilitiesResult,
@@ -86,6 +87,9 @@ contextBridge.exposeInMainWorld('terminalAPI', {
 
     onExit: (callback: (message: TerminalExitMessage) => void) =>
         subscribe(IPC_CHANNELS.TERMINAL_EXIT, callback),
+
+    onStatus: (callback: (message: TerminalStatusMessage) => void) =>
+        subscribe(IPC_CHANNELS.TERMINAL_STATUS, callback),
 });
 
 // Expose harness queries to the renderer

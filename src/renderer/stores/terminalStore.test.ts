@@ -10,11 +10,13 @@ vi.mock('../services/terminalBridge', () => ({
     onActivity: vi.fn(() => () => {}),
     onAwaitingConfirmation: vi.fn(() => () => {}),
     onExit: vi.fn(() => () => {}),
+    onStatus: vi.fn(() => () => {}),
     getStatusSnapshot: vi.fn(async () => ({})),
   },
 }));
 
-import { useTerminalStore } from './terminalStore';
+import { terminalBridge } from '../services/terminalBridge';
+import { hydrateTerminalStatus, useTerminalStore } from './terminalStore';
 
 const store = () => useTerminalStore.getState();
 
@@ -66,5 +68,19 @@ describe('acknowledgeCompletion', () => {
     store().acknowledgeCompletion('t1');
 
     expect(useTerminalStore.getState().terminals['t1']).toBeUndefined();
+  });
+});
+
+describe('hydrateTerminalStatus', () => {
+  it('derives status from the snapshot flags', async () => {
+    vi.mocked(terminalBridge.getStatusSnapshot).mockResolvedValueOnce({
+      t1: { isBusy: false, isAwaitingConfirmation: true, hasExited: false },
+      t2: { isBusy: false, isAwaitingConfirmation: false, hasExited: false },
+    });
+
+    await hydrateTerminalStatus();
+
+    expect(store().getState('t1').status).toBe('needs-attention');
+    expect(store().getState('t2').status).toBe('ready');
   });
 });
