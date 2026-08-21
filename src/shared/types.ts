@@ -294,6 +294,26 @@ export interface ScopeRepo {
     path: string;
 }
 
+/** Renderer intent: fan one prompt out across target repos as a fresh group. */
+export interface SessionFanOutIntent {
+    workspaceId: string;
+    scopeId: string;
+    targetPaths: string[];
+    prompt: string;
+    groupName: string;
+}
+
+/**
+ * What a fan-out produced. `failed` lists the targets whose launch failed;
+ * the group and every session in `created` exist regardless — a 15-repo
+ * fan-out that trips on repo 9 still yields 14 working sessions.
+ */
+export interface SessionFanOutResult {
+    group: Group;
+    created: Session[];
+    failed: Array<{ path: string; error: string }>;
+}
+
 /**
  * Inbox surface of the github preload API. Read-only against GitHub by
  * construction: there is no method here that writes to GitHub.

@@ -2,6 +2,7 @@ import * as path from 'path';
 import type { InboxItem, WorkItemRef } from '../../shared/github';
 import { sameWorkItem, workItemKey } from '../../shared/github';
 import type { WorkItemLaunchResult } from '../../shared/types';
+import { generateSessionInstanceId } from '../../shared/workspace';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 
 export interface WorkItemLaunchDeps {
@@ -18,12 +19,6 @@ export interface WorkItemLaunchDeps {
   findItem(workspaceId: string, ref: WorkItemRef): InboxItem | undefined;
   /** Whether a path exists on disk — used to notice a re-attach whose worktree was deleted. */
   pathExists(target: string): boolean;
-}
-
-/** Same shape as the renderer's generateSessionInstanceId — one id namespace. */
-function generateInstanceId(workspaceId: string): string {
-  const suffix = Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-  return `workspace-${workspaceId}-session-${suffix}`;
 }
 
 /** The deepest scope whose path contains the clone — its home in the sidebar. */
@@ -140,7 +135,7 @@ export async function launchWorkItem(
   const session = deps.createSession(workspaceId, {
     name: workItemSessionName(workItem, item),
     workspaceId,
-    instanceId: generateInstanceId(workspaceId),
+    instanceId: generateSessionInstanceId(workspaceId),
     harnessId: workspace.defaultHarnessId,
     scopeId: scopeIdForPath(workspace, clonePath),
     cwd: worktreePath,
