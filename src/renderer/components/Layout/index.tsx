@@ -7,7 +7,11 @@ import { useTheme } from '../../hooks/useTheme';
 import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useCommandPalette } from '../../contexts/CommandPaletteContext';
-import { useNavigationStore, subscribeToWindowWorkspace } from '../../stores/navigationStore';
+import {
+  useNavigationStore,
+  subscribeToWindowWorkspace,
+  subscribeToActivateSession,
+} from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import './styles.css';
@@ -45,6 +49,9 @@ export function Layout() {
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.
   useEffect(() => subscribeToWindowWorkspace(), []);
+
+  // A notification click can land on a window that is already open.
+  useEffect(() => subscribeToActivateSession(), []);
 
   return (
     <div className="layout">

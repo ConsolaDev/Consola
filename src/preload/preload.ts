@@ -344,6 +344,9 @@ contextBridge.exposeInMainWorld('windowAPI', {
 
     onWorkspaceChanged: (callback: (workspaceId: string | null) => void) =>
         subscribe<string | null>(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, callback),
+
+    onActivateSession: (callback: (sessionId: string) => void) =>
+        subscribe<string>(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, callback),
 });
 
 // Session storage types

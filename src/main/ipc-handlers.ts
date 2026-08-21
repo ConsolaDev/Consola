@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, dialog, app } from 'electron';
+import { ipcMain, BrowserWindow, dialog, app, Notification } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
@@ -15,6 +15,7 @@ import { createLaunchCoalescer, type WorkItemLaunchDeps } from './github/launchW
 import { cloneWorkspaceRepo } from './github/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { getLoginEnv } from './LoginEnvironment';
+import { NotificationPolicy, findSessionByInstanceId } from './attention';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { SessionFanOutIntent } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -397,6 +398,30 @@ export function setupIpcHandlers(): boolean {
         }
     };
 
+    const notificationPolicy = new NotificationPolicy();
+
+    // The fourth attention altitude: session dot → group count → switcher dot
+    // → OS notification. Rings only for a session hitting needs-attention
+    // while no Consola window is focused; the Inbox never notifies — only
+    // terminals emit status. Clicking lands on the right window and session.
+    manager.onStatusChanged = (instanceId, status) => {
+        const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
+        if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
+        if (!Notification.isSupported()) return;
+
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (!located) return;
+
+        const notification = new Notification({
+            title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
+            body: 'Click to open it in Consola.',
+        });
+        notification.on('click', () => {
+            focusOrCreate(located.workspace.id, located.session.id);
+        });
+        notification.show();
+    };
+
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
     const launcher = new SessionLauncher(workspaces, harnesses, manager);
 
@@ -481,6 +506,7 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
         manager.destroy(instanceId);
+        notificationPolicy.forget(instanceId);
     });
 
     // Seed a freshly opened window from main's live state. The status channels

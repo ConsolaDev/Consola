@@ -28,4 +28,9 @@ export const windowBridge = {
     onWorkspaceChanged(callback: (workspaceId: string | null) => void): () => void {
         return window.windowAPI.onWorkspaceChanged(callback);
     },
+
+    /** A notification click chose a session in this window's workspace. */
+    onActivateSession(callback: (sessionId: string) => void): () => void {
+        return window.windowAPI.onActivateSession(callback);
+    },
 };
