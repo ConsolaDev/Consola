@@ -8,7 +8,7 @@ import type {
     Workspace,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
-import type { GhProbeResult } from './github';
+import type { GhProbeResult, InboxSnapshot, WorkItemRef } from './github';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
 export type HarnessDriverId = 'claude';
@@ -252,6 +252,38 @@ export interface GitHubAPI {
 }
 
 /**
+ * Outcome of the one-click work-item launch.
+ *
+ * 'not-cloned' is a normal answer, not an error: the renderer responds by
+ * offering the clone-into-scope dialog. 'error' carries the git/gh message and
+ * is surfaced on the Inbox item — never a dialog.
+ */
+export type WorkItemLaunchResult =
+    | { ok: true; session: Session; seedPrompt?: string; reattached: boolean }
+    | { ok: false; reason: 'not-cloned' }
+    | { ok: false; reason: 'error'; message: string };
+
+export interface CloneRepoResult {
+    ok: boolean;
+    /** Absolute path of the fresh clone when ok. */
+    path?: string;
+    error?: string;
+}
+
+/**
+ * Inbox surface of the github preload API. Read-only against GitHub by
+ * construction: there is no method here that writes to GitHub.
+ */
+export interface GitHubInboxAPI {
+    getInbox: (workspaceId: string) => Promise<InboxSnapshot | null>;
+    refreshInbox: (workspaceId: string) => Promise<void>;
+    resolveRepos: (workspaceId: string, repos: string[]) => Promise<Record<string, string | null>>;
+    launchWorkItem: (workspaceId: string, workItem: WorkItemRef) => Promise<WorkItemLaunchResult>;
+    cloneRepo: (workspaceId: string, repo: string, destinationDir: string) => Promise<CloneRepoResult>;
+    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) => () => void;
+}
+
+/**
  * Workspace state exposed to the renderer. Main owns the records; the
  * renderer sends intents and listens for the result.
  */
@@ -307,7 +339,7 @@ declare global {
     interface Window {
         terminalAPI: TerminalAPI;
         harnessAPI: HarnessAPI;
-        githubAPI: GitHubAPI;
+        githubAPI: GitHubAPI & GitHubInboxAPI;
         workspaceAPI: WorkspaceAPI;
         harnessStateAPI: HarnessStateAPI;
         windowAPI: WindowAPI;
