@@ -36,11 +36,19 @@ export function FanOutDialog({ workspaceId, onClose }: FanOutDialogProps) {
   useEffect(() => {
     if (!scope) return;
     let cancelled = false;
-    void workspaceBridge.listScopeRepos(workspaceId, scope.id).then((found) => {
-      if (cancelled) return;
-      setRepos(found);
-      setSelected(new Set());
-    });
+    void workspaceBridge
+      .listScopeRepos(workspaceId, scope.id)
+      .then((found) => {
+        if (cancelled) return;
+        setRepos(found);
+        setSelected(new Set());
+      })
+      .catch(() => {
+        // An unreadable scope folder leaves the previous scope's repos on
+        // screen otherwise, which would fan out into the wrong targets. The
+        // empty list renders as "No git repositories inside this scope."
+        if (!cancelled) setRepos([]);
+      });
     return () => {
       cancelled = true;
     };
