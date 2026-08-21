@@ -1,6 +1,7 @@
 import { useNavigationStore } from '../../stores/navigationStore';
 import { SidebarToggle } from '../Sidebar/SidebarToggle';
 import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { NewMenu } from './NewMenu';
 
 export function AppHeader() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -13,6 +14,7 @@ export function AppHeader() {
       </div>
       <div className={`app-header-content ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
         <WorkspaceSwitcher />
+        <NewMenu />
       </div>
     </header>
   );
