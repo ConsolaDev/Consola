@@ -109,6 +109,10 @@ export const useNavigationStore = create<NavigationState>()(
 /** React to main dropping this window's workspace, e.g. after a delete. */
 export function subscribeToWindowWorkspace(): () => void {
   return windowBridge.onWorkspaceChanged((workspaceId) => {
-    useNavigationStore.setState({ activeWorkspaceId: workspaceId, activeSessionId: null });
+    useNavigationStore.setState({
+      activeWorkspaceId: workspaceId,
+      activeSessionId: null,
+      isInboxOpen: false,
+    });
   });
 }
