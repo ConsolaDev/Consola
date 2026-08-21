@@ -135,6 +135,7 @@ export interface TerminalAPI {
         callback: (message: TerminalAwaitingConfirmationMessage) => void
     ) => () => void;
     onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
+    onStatus: (callback: (message: TerminalStatusMessage) => void) => () => void;
     getStatusSnapshot: () => Promise<TerminalStatusSnapshot>;
 }
 

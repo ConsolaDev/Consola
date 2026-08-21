@@ -5,6 +5,7 @@ import type {
     TerminalActivityMessage,
     TerminalAwaitingConfirmationMessage,
     TerminalExitMessage,
+    TerminalStatusMessage,
     TerminalStatusSnapshot,
 } from '../../shared/types';
 
@@ -58,6 +59,11 @@ export const terminalBridge = {
 
     onExit(callback: (message: TerminalExitMessage) => void): () => void {
         return window.terminalAPI.onExit(callback);
+    },
+
+    /** Derived status for any session in any workspace: the fleet vocabulary. */
+    onStatus(callback: (message: TerminalStatusMessage) => void): () => void {
+        return window.terminalAPI.onStatus(callback);
     },
 
     /** Live status of every terminal main holds, for a window that missed the edges. */
