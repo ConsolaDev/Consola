@@ -1,4 +1,4 @@
-import { BrowserWindow, app, screen } from 'electron';
+import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
 import type { WindowContext } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -59,6 +59,15 @@ export function createWindow(
             // IPC round trip would cost a frame of empty shell.
             additionalArguments: [`--consola-window=${JSON.stringify(context)}`],
         },
+    });
+
+    // "Open on GitHub" and every other external link leaves the app: the OS
+    // browser gets the URL and no second Electron window ever opens.
+    window.webContents.setWindowOpenHandler(({ url }) => {
+        if (url.startsWith('https://') || url.startsWith('http://')) {
+            void shell.openExternal(url);
+        }
+        return { action: 'deny' };
     });
 
     // Captured now, not in the handler: by the time 'closed' fires Electron has
