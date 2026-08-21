@@ -71,7 +71,18 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     });
     try {
       const result = await githubBridge.launchWorkItem(workspaceId, item.workItem);
-      if (!result) return;
+      if (!result) {
+        // Only reachable when window.githubAPI itself is missing (a broken
+        // preload) — the bridge already null-guarded, so this is main
+        // being unreachable rather than a GitHub-side failure.
+        set((state) => ({
+          launchErrors: {
+            ...state.launchErrors,
+            [key]: 'Could not reach the main process to launch this item.',
+          },
+        }));
+        return;
+      }
       if (result.ok) {
         if (!result.reattached && result.seedPrompt) {
           // The prompt rides the existing pending-prompt path: the terminal
@@ -81,10 +92,16 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         }
         activateSession(workspaceId, result.session.id);
       } else if (result.reason === 'not-cloned') {
-        set({ clonePrompt: { workspaceId, item } });
+        get().openClonePrompt(workspaceId, item);
       } else {
         set((state) => ({ launchErrors: { ...state.launchErrors, [key]: result.message } }));
       }
+    } catch (error) {
+      // "Degrade, never dialog" applies to a thrown/rejected launch too —
+      // an unhandled rejection would otherwise leave the item silent instead
+      // of surfacing the error on its row.
+      const message = error instanceof Error ? error.message : String(error);
+      set((state) => ({ launchErrors: { ...state.launchErrors, [key]: message } }));
     } finally {
       set((state) => {
         const { [key]: _done, ...launching } = state.launching;
