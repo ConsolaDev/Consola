@@ -10,6 +10,8 @@ interface SessionNavItemProps {
   workspaceId: string;
   isActive: boolean;
   onClick: () => void;
+  /** Rendered under the name — the scope a grouped session belongs to. */
+  subtitle?: string;
 }
 
 /** Spoken form of each status, for the row's accessible name and tooltip. */
@@ -35,6 +37,7 @@ export function SessionNavItem({
   workspaceId,
   isActive,
   onClick,
+  subtitle,
 }: SessionNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [newName, setNewName] = useState(session.name);
@@ -147,7 +150,10 @@ export function SessionNavItem({
           onClick={(e) => e.stopPropagation()}
         />
       ) : (
-        <span className="session-nav-item-name">{session.name}</span>
+        <span className="session-nav-item-text">
+          <span className="session-nav-item-name">{session.name}</span>
+          {subtitle && <span className="session-nav-item-subtitle">{subtitle}</span>}
+        </span>
       )}
       {!isRenaming && statusWord && (
         <span className={`session-status-word session-status-word--${displayStatus}`} aria-hidden="true">

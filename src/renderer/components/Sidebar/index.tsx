@@ -2,22 +2,22 @@ import { useEffect } from 'react';
 import { Folder, GitBranch, Inbox as InboxIcon, Plus, Settings, X } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useWorkspaceStore, type Scope } from '../../stores/workspaceStore';
+import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettings } from '../../contexts/SettingsContext';
 import { dialogBridge } from '../../services/dialogBridge';
 import { SessionNavItem } from './SessionNavItem';
+import { GroupNavItem } from './GroupNavItem';
 import { activateSession, createQuickSession } from '../../utils/sessionActions';
 import './styles.css';
 
 /**
- * The scopes of the workspace this window holds, with each session nested
- * under the scope it runs in.
+ * The workspace this window holds: Inbox · Groups · Scopes.
  *
- * Scopes are the one level of structure the sidebar carries: a window shows
- * one workspace, a workspace holds a few durable places, and every session
- * has exactly one home among them. Which workspace this is lives in the top
- * bar.
+ * A grouped session renders under its group with its scope as subtitle; an
+ * ungrouped one renders under its scope. Group badges are derived from the
+ * terminal status store on every render — progress is never stored. Which
+ * workspace this is lives in the top bar.
  */
 export function Sidebar() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -51,10 +51,33 @@ export function Sidebar() {
   // Sessions appear once Claude has named them, so an unnamed one is a session
   // whose first turn has not landed yet.
   const sessions = workspace?.sessions.filter((session) => session.name.length > 0) ?? [];
+
+  // A live group owns its members' rows; everything else falls through to the
+  // scope it runs in. The partition is what keeps a session on exactly one
+  // row — an archived group hands its members back to their scopes.
+  const groups = (workspace?.groups ?? []).filter((group) => !group.archivedAt);
+  const liveGroupIds = new Set(groups.map((group) => group.id));
+  const grouped = new Map<string, Session[]>();
+  const ungrouped: Session[] = [];
+  for (const session of sessions) {
+    if (session.groupId && liveGroupIds.has(session.groupId)) {
+      const members = grouped.get(session.groupId) ?? [];
+      members.push(session);
+      grouped.set(session.groupId, members);
+    } else {
+      ungrouped.push(session);
+    }
+  }
+
+  // The subtitle a grouped session carries: where it runs, since its row no
+  // longer sits under a scope heading.
+  const scopeNameFor = (scopeId: string) =>
+    workspace?.scopes.find((scope) => scope.id === scopeId)?.name;
+
   const scopeIds = new Set(workspace?.scopes.map((scope) => scope.id) ?? []);
   // A session whose scope is gone still renders — losing a row over a broken
   // pointer would look like data loss.
-  const orphanSessions = sessions.filter((session) => !scopeIds.has(session.scopeId));
+  const orphanSessions = ungrouped.filter((session) => !scopeIds.has(session.scopeId));
 
   const handleAddScope = async () => {
     if (!workspace) return;
@@ -110,6 +133,25 @@ export function Sidebar() {
           </button>
         </div>
       )}
+      {workspace && groups.length > 0 && (
+        <div className="sidebar-section">
+          <div className="sidebar-section-header">
+            <span className="sidebar-section-title">Groups</span>
+          </div>
+          <nav className="session-list">
+            {groups.map((group) => (
+              <GroupNavItem
+                key={group.id}
+                group={group}
+                sessions={grouped.get(group.id) ?? []}
+                workspaceId={workspace.id}
+                scopeNameFor={scopeNameFor}
+                activeSessionId={activeSessionId}
+              />
+            ))}
+          </nav>
+        </div>
+      )}
       <div className="sidebar-section">
         <div className="sidebar-section-header">
           <span className="sidebar-section-title">Scopes</span>
@@ -128,7 +170,7 @@ export function Sidebar() {
         <nav className="session-list">
           {workspace &&
             workspace.scopes.map((scope) => {
-              const scopeSessions = sessions.filter(
+              const scopeSessions = ungrouped.filter(
                 (session) => session.scopeId === scope.id
               );
               const removable =
