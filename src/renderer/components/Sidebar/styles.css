@@ -427,8 +427,29 @@
   background: var(--color-accent);
 }
 
-.session-nav-item-name {
+/* The row's text column. It carries the flexing the name used to, so a
+   subtitle can stack under the name without either line escaping the row. */
+.session-nav-item-text {
   flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.session-nav-item-name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The scope a grouped session runs in. Its row sits under a group rather
+   than under a scope row, so the subtitle is what places it. */
+.session-nav-item-subtitle {
+  max-width: 100%;
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-tertiary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -724,6 +745,66 @@
    as a detached box inside the group. Full width also means nothing can
    overflow the sidebar and summon a horizontal scrollbar. */
 .scope-group .session-nav-item {
+  padding-left: calc(var(--space-2) + var(--space-3));
+}
+
+/* --- Groups ------------------------------------------------------------ */
+
+/* A group keeps its members in the same tight rhythm a scope keeps its own,
+   so the two sections of the sidebar read as one list. */
+.group-nav-item {
+  display: flex;
+  flex-direction: column;
+  row-gap: 2px;
+}
+
+.group-nav-item + .group-nav-item {
+  margin-top: var(--space-4);
+}
+
+/* The header is its group's title and its collapse control at once: a row of
+   the same height and size as the sessions below it, told apart by weight. */
+.group-nav-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--sidebar-row-height);
+  padding: var(--sidebar-row-padding-y) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: var(--sidebar-font-size);
+  font-weight: var(--font-weight-medium);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.group-nav-header:hover {
+  background: var(--color-bg-hover);
+}
+
+.group-nav-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Derived on every render from the terminal statuses — never stored. */
+.group-nav-count {
+  flex: none;
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-secondary);
+}
+
+/* Members sit one step in from their header, the same step scope sessions
+   take. The indent is padding for the same reason: the row stays full-width,
+   so its hover and active backgrounds meet the accent bar at the edge. */
+.group-nav-item .session-nav-item {
   padding-left: calc(var(--space-2) + var(--space-3));
 }
 
