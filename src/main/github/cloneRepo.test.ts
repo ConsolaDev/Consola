@@ -69,6 +69,9 @@ function makeDeps(source: string, overrides: Partial<CloneRepoDeps> = {}) {
   return { deps, addScope };
 }
 
+// Tests that call cloneWorkspaceRepo spawn real `git clone` (via gh stub) which can
+// exceed 5 seconds under parallel suite load. Guard tests that return before cloning
+// (destination missing, destination already exists) use the default timeout.
 describe('cloneWorkspaceRepo', () => {
   it('clones into the destination and leaves scopes alone when a scope covers it', async () => {
     const source = makeSourceRepo();
@@ -82,7 +85,7 @@ describe('cloneWorkspaceRepo', () => {
     expect(result.path).toBe(path.join(container, 'msa-resource-bff'));
     expect(fs.existsSync(path.join(container, 'msa-resource-bff', '.git'))).toBe(true);
     expect(addScope).not.toHaveBeenCalled();
-  });
+  }, 30_000);
 
   it('adds a scope for a destination no scope covers', async () => {
     const source = makeSourceRepo();
@@ -94,7 +97,7 @@ describe('cloneWorkspaceRepo', () => {
 
     expect(result.ok).toBe(true);
     expect(addScope).toHaveBeenCalledWith('ws-1', outside);
-  });
+  }, 30_000);
 
   it('refuses when the destination directory does not exist', async () => {
     const source = makeSourceRepo();
@@ -136,7 +139,7 @@ describe('cloneWorkspaceRepo', () => {
     expect(result.ok).toBe(false);
     expect(result.error).toContain('canned failure');
     expect(fs.existsSync(path.join(container, 'msa-resource-bff'))).toBe(false);
-  });
+  }, 30_000);
 
   it('reports the clone succeeded even when adding the scope afterwards throws', async () => {
     const source = makeSourceRepo();
@@ -155,5 +158,5 @@ describe('cloneWorkspaceRepo', () => {
     expect(result.error).toContain('No workspace ws-1');
     // The clone itself must not be undone just because the scope-add failed.
     expect(fs.existsSync(path.join(outside, 'msa-resource-bff', '.git'))).toBe(true);
-  });
+  }, 30_000);
 });
