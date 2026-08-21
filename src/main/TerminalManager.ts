@@ -2,6 +2,7 @@ import { BrowserWindow, WebContents } from 'electron';
 import { TerminalService, TerminalExitInfo, TerminalServiceOptions } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { TerminalStatusSnapshot } from '../shared/types';
+import type { TerminalStatus } from '../shared/terminalStatus';
 
 /**
  * Owns one TerminalService per session tab and forwards its events.
@@ -23,6 +24,9 @@ export class TerminalManager {
 
     /** Called whenever getAttentionCount() may have changed. */
     public onAttentionChanged?: () => void;
+
+    /** Called on every status transition, after the broadcast. Drives OS notifications. */
+    public onStatusChanged?: (instanceId: string, status: TerminalStatus) => void;
 
     /** How many sessions are waiting on a human, across every workspace. */
     public getAttentionCount(): number {
@@ -154,6 +158,13 @@ export class TerminalManager {
             this.awaiting.delete(instanceId);
             this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
             this.onAttentionChanged?.();
+        });
+
+        terminal.on('status', (status: TerminalStatus) => {
+            // Light state, per the windows design: any window may need it for
+            // group counts and attention dots, so it goes to all of them.
+            this.broadcast(IPC_CHANNELS.TERMINAL_STATUS, { instanceId, status });
+            this.onStatusChanged?.(instanceId, status);
         });
     }
 }

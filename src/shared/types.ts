@@ -9,6 +9,7 @@ import type {
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
 import type { GhProbeResult, InboxSnapshot, WorkItemRef } from './github';
+import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
 export type HarnessDriverId = 'claude';
@@ -99,6 +100,11 @@ export interface TerminalAwaitingConfirmationMessage {
 export interface TerminalExitMessage {
     instanceId: string;
     exitCode: number;
+}
+
+export interface TerminalStatusMessage {
+    instanceId: string;
+    status: TerminalStatus;
 }
 
 /**
