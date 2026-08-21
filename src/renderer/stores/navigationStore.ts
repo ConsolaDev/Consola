@@ -121,9 +121,13 @@ export function subscribeToWindowWorkspace(): () => void {
  * React to main pointing this window at a session — an OS notification click.
  * Main already recorded the session on the window's registry entry, so only
  * the store moves here; echoing setActiveSession back would be a loop.
+ *
+ * The Inbox closes with it, the same way it does for every other route into a
+ * session: a window showing the Inbox would otherwise swallow the click and
+ * leave the notification looking broken.
  */
 export function subscribeToActivateSession(): () => void {
   return windowBridge.onActivateSession((sessionId) => {
-    useNavigationStore.setState({ activeSessionId: sessionId });
+    useNavigationStore.setState({ activeSessionId: sessionId, isInboxOpen: false });
   });
 }

@@ -12,12 +12,14 @@ vi.mock('../services/windowBridge', () => ({
     openWindow: vi.fn(),
     setActiveSession: vi.fn(),
     onWorkspaceChanged: vi.fn(() => () => {}),
+    onActivateSession: vi.fn(() => () => {}),
   },
 }));
 
 import {
   mergeNavigationState,
   useNavigationStore,
+  subscribeToActivateSession,
   subscribeToWindowWorkspace,
   type NavigationState,
 } from './navigationStore';
@@ -112,6 +114,16 @@ describe('inbox navigation', () => {
     useNavigationStore.getState().setActiveSession('session-1');
     expect(useNavigationStore.getState().isInboxOpen).toBe(false);
     expect(useNavigationStore.getState().activeSessionId).toBe('session-1');
+  });
+
+  it('closes the inbox when a notification click activates a session', () => {
+    useNavigationStore.setState({ isInboxOpen: true, activeSessionId: null });
+    subscribeToActivateSession();
+    const onActivateSession = vi.mocked(windowBridge.onActivateSession);
+    const activateCallback = onActivateSession.mock.calls.at(-1)?.[0];
+    activateCallback?.('session-2');
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-2');
+    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
   });
 
   it('closes the inbox when main hands this window a different workspace', () => {
