@@ -106,4 +106,46 @@ describe('parseInboxPayload', () => {
     expect(parseInboxPayload({})).toEqual([]);
     expect(parseInboxPayload(null)).toEqual([]);
   });
+
+  // Top-level validation: Rule 1 — reject non-objects
+  it('throws when payload is a string', () => {
+    expect(() => parseInboxPayload('not an object')).toThrow();
+  });
+
+  it('throws when payload is a number', () => {
+    expect(() => parseInboxPayload(42)).toThrow();
+  });
+
+  it('throws when payload is a boolean', () => {
+    expect(() => parseInboxPayload(true)).toThrow();
+  });
+
+  it('throws when payload is an array', () => {
+    expect(() => parseInboxPayload([])).toThrow();
+  });
+
+  // Top-level validation: Rule 2 — reject data: null
+  it('throws when payload.data is null', () => {
+    expect(() => parseInboxPayload({ data: null })).toThrow('GitHub API returned no data');
+  });
+
+  // Top-level validation: Rule 3 — reject errors without data
+  it('throws when payload.errors exists with no data, carrying the error message', () => {
+    const payload = {
+      errors: [{ message: 'API rate limit exceeded' }],
+    };
+    expect(() => parseInboxPayload(payload)).toThrow('API rate limit exceeded');
+  });
+
+  it('does not throw when errors exist but data is present and valid', () => {
+    const payload = {
+      data: {
+        assigned: { nodes: [] },
+        authored: { nodes: [] },
+        reviewRequested: { nodes: [] },
+      },
+      errors: [{ message: 'Some warning' }],
+    };
+    expect(parseInboxPayload(payload)).toEqual([]);
+  });
 });
