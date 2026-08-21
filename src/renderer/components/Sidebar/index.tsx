@@ -138,7 +138,7 @@ export function Sidebar() {
                 <div key={scope.id} className="scope-group">
                   <div className="scope-row" title={scope.path}>
                     <span className="scope-row-icon">
-                      {scope.isGitRepo ? <GitBranch size={12} /> : <Folder size={12} />}
+                      {scope.isGitRepo ? <GitBranch size={13} /> : <Folder size={13} />}
                     </span>
                     <span className="scope-row-name">{scope.name}</span>
                     <button

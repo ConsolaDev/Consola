@@ -1,14 +1,18 @@
 /* Sidebar container */
 .sidebar {
   /*
-   * The sidebar runs one step above the app's small type. At 12px the
-   * workspace and session names read as chrome rather than content, which is
-   * wrong for the one list you navigate by all day. The extra pixel is paid
-   * back by tighter rows, so the sidebar ends up denser, not taller.
+   * The sidebar is the one list you navigate by all day, so its rows run one
+   * step above the app's small type and in primary text colour rather than
+   * reading as dim chrome. The small size is for the section title and
+   * supporting metadata (counts, shortcuts), one step under the rows.
    */
   --sidebar-font-size: 13px;
   --sidebar-font-size-small: 12px;
-  --sidebar-row-padding-y: 6px;
+  --sidebar-row-padding-y: 4px;
+  /* Every nav row — inbox, scope, session, settings — locks to one height.
+     Content differs per row (icons, dots, hover triggers), so the min-height
+     is what keeps the list reading as one rhythm. */
+  --sidebar-row-height: 28px;
 
   display: flex;
   flex-direction: column;
@@ -30,19 +34,19 @@
   align-items: center;
   gap: 8px;
   width: 100%;
+  min-height: var(--sidebar-row-height);
   padding: var(--sidebar-row-padding-y) var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: var(--sidebar-font-size);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast);
 }
 
 .sidebar-inbox-row:hover {
   background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .sidebar-inbox-row.active {
@@ -57,13 +61,17 @@
 
 .sidebar-inbox-count {
   font-size: var(--sidebar-font-size-small);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 /* Sidebar sections */
 .sidebar-section {
   flex: 1;
   overflow-y: auto;
+  /* Rows ellipsize; anything wider is a layout bug, never something the user
+     should pan to. Without this, overflow-y: auto forces overflow-x to auto
+     and a stray wide row summons a horizontal scrollbar. */
+  overflow-x: hidden;
   padding: var(--space-2);
 }
 
@@ -77,7 +85,7 @@
 .sidebar-section-title {
   font-size: var(--sidebar-font-size-small);
   font-weight: var(--font-weight-medium);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.05em;
 }
@@ -91,7 +99,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -115,20 +123,20 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
+  min-height: var(--sidebar-row-height);
   padding: var(--sidebar-row-padding-y) var(--space-2);
   border: none;
   border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   font-size: var(--sidebar-font-size);
   text-align: left;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition: background var(--transition-fast);
 }
 
 .sidebar-settings-button:hover {
   background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .sidebar-settings-button span:first-of-type {
@@ -137,7 +145,7 @@
 
 .sidebar-settings-shortcut {
   font-size: var(--sidebar-font-size-small);
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   font-family: var(--font-mono);
 }
 
@@ -382,20 +390,22 @@
   align-items: center;
   gap: var(--space-2);
   width: 100%;
-  padding: var(--space-1) var(--space-2);
+  min-height: var(--sidebar-row-height);
+  padding: var(--sidebar-row-padding-y) var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   font-size: var(--sidebar-font-size);
   text-align: left;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  /* The row is a div acting as a button; keep its label a target, not text. */
+  user-select: none;
+  transition: background var(--transition-fast);
 }
 
 .session-nav-item:hover {
   background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
 .session-nav-item.active {
@@ -425,23 +435,18 @@
 }
 
 .session-nav-item.active .session-nav-item-name {
-  color: var(--color-text-primary);
   font-weight: 500;
 }
 
 /* Trailing status word — only urgent states render one, so calm rows stay
-   quiet. It yields its space to the ⋯ menu on hover. */
+   quiet. It keeps its place on hover; the ⋯ menu has its own reserved slot,
+   so nothing in the row moves. */
 .session-status-word {
   flex-shrink: 0;
-  font-size: 9px;
+  font-size: 10px;
   font-weight: 500;
   letter-spacing: 0.08em;
   text-transform: uppercase;
-}
-
-.session-nav-item:hover .session-status-word,
-.session-nav-item:focus-within .session-status-word {
-  display: none;
 }
 
 .session-status-word--needs-attention {
@@ -465,25 +470,29 @@
   outline: none;
 }
 
-/* Hidden with display rather than opacity so the status word and the ⋯ menu
-   genuinely trade the same trailing space instead of both reserving it. */
+/* Always in the layout, revealed with visibility: a row must measure exactly
+   the same at rest and under hover, or the whole list shudders as the cursor
+   travels it. visibility (not opacity) also keeps the hidden button out of
+   the tab order and away from stray clicks. */
 .session-actions-trigger {
-  display: none;
+  display: flex;
+  visibility: hidden;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
   width: 18px;
   height: 18px;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
 .session-nav-item:hover .session-actions-trigger,
 .session-nav-item:focus-within .session-actions-trigger {
-  display: flex;
+  visibility: visible;
 }
 
 .session-actions-trigger:hover {
@@ -492,7 +501,7 @@
 }
 
 .session-actions-trigger[data-state='open'] {
-  display: flex;
+  visibility: visible;
   background: var(--color-bg-active);
   color: var(--color-text-primary);
 }
@@ -517,7 +526,7 @@
 }
 
 .session-status-indicator--ready {
-  border: 1px solid color-mix(in srgb, var(--color-text-tertiary) 55%, transparent);
+  border: 1px solid color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
 }
 
 .session-status-indicator--needs-attention {
@@ -641,22 +650,30 @@
 
 /* --- Scopes tree ------------------------------------------------------- */
 
+/* Tight within a group, clearly apart between groups: the 2px/12px pair is
+   what lets the eye parse the tree without indent guides. */
 .scope-group {
   display: flex;
   flex-direction: column;
+  row-gap: 2px;
 }
 
 .scope-group + .scope-group {
-  margin-top: 6px;
+  margin-top: var(--space-4);
 }
 
+/* The scope row is its group's title: it runs at the same size as its
+   sessions, so full text colour and medium weight are what make it read as
+   a header over them instead of a sibling. */
 .scope-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  padding: 3px var(--space-2);
-  color: var(--color-text-secondary);
-  font-size: var(--sidebar-font-size-small);
+  gap: var(--space-2);
+  min-height: var(--sidebar-row-height);
+  padding: var(--sidebar-row-padding-y) var(--space-2);
+  color: var(--color-text-primary);
+  font-size: var(--sidebar-font-size);
+  font-weight: var(--font-weight-medium);
   user-select: none;
 }
 
@@ -664,7 +681,7 @@
   display: inline-flex;
   align-items: center;
   flex-shrink: 0;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .scope-row-name {
@@ -701,15 +718,13 @@
   color: var(--color-text-primary);
 }
 
-/* Sessions sit one step in from their scope's label. */
+/* Sessions sit one step in from their scope's label. The indent is padding,
+   not margin: the row itself stays full-width, so its hover and active
+   backgrounds run edge to edge and meet the accent bar instead of floating
+   as a detached box inside the group. Full width also means nothing can
+   overflow the sidebar and summon a horizontal scrollbar. */
 .scope-group .session-nav-item {
-  margin-left: var(--space-3);
-}
-
-/* …but the active row's accent bar stays at the sidebar's edge, outside the
-   indent, so it survives nesting under scopes and future groups. */
-.scope-group .session-nav-item.active::before {
-  left: calc(-1 * var(--space-3));
+  padding-left: calc(var(--space-2) + var(--space-3));
 }
 
 /* ═══════════════════════════════════════════════════════════
