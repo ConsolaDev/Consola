@@ -366,6 +366,22 @@ export interface WorkspaceAPI {
     onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
 }
 
+/** The orchestration door's intent: everything main needs, nothing it owns. */
+export interface ConductorCreateRequest {
+    workspaceId: string;
+    scopeId: string;
+    name: string;
+    kickoff: string;
+}
+
+/**
+ * Conductor orchestration exposed to the renderer. One intent: create. The
+ * conductor itself is an ordinary session and rides every existing API.
+ */
+export interface ConductorAPI {
+    create: (request: ConductorCreateRequest) => Promise<Group>;
+}
+
 /**
  * Harness state exposed to the renderer. Main owns the records; the renderer
  * sends intents and listens for the result. Separate from `HarnessAPI`, which
@@ -387,6 +403,7 @@ declare global {
         harnessAPI: HarnessAPI;
         githubAPI: GitHubAPI & GitHubInboxAPI;
         workspaceAPI: WorkspaceAPI;
+        conductorAPI: ConductorAPI;
         harnessStateAPI: HarnessStateAPI;
         windowAPI: WindowAPI;
     }
