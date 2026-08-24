@@ -5,10 +5,10 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettings } from '../../contexts/SettingsContext';
-import { dialogBridge } from '../../services/dialogBridge';
 import { SessionNavItem } from './SessionNavItem';
 import { GroupNavItem } from './GroupNavItem';
 import { activateSession, createQuickSession } from '../../utils/sessionActions';
+import { addScopeViaDialog } from '../../utils/scopeActions';
 import './styles.css';
 
 /**
@@ -24,7 +24,6 @@ export function Sidebar() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const addScope = useWorkspaceStore((state) => state.addScope);
   const removeScope = useWorkspaceStore((state) => state.removeScope);
   const { openSettings } = useSettings();
 
@@ -83,14 +82,8 @@ export function Sidebar() {
 
   const handleAddScope = async () => {
     if (!workspace) return;
-    const folder = await dialogBridge.selectFolder();
-    if (!folder) return;
     try {
-      await addScope(workspace.id, {
-        name: folder.name,
-        path: folder.path,
-        isGitRepo: folder.isGitRepo,
-      });
+      await addScopeViaDialog(workspace.id);
     } catch (error) {
       console.error('Failed to add scope', error);
     }

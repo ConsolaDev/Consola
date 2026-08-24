@@ -1,13 +1,15 @@
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
 import {
+  type Group,
+  type NewGroupFields,
   type NewSessionFields,
   type Scope,
   type Session,
   type Workspace,
 } from '../../shared/workspace';
 
-export type { Scope, Session, Workspace } from '../../shared/workspace';
+export type { Group, Scope, Session, Workspace } from '../../shared/workspace';
 export { migrateWorkspaceState } from '../../shared/workspace';
 
 interface WorkspaceState {
@@ -37,11 +39,24 @@ interface WorkspaceState {
     workspaceId: string,
     fields: { name: string; path: string; isGitRepo: boolean }
   ) => Promise<Scope>;
+  updateScope: (
+    workspaceId: string,
+    scopeId: string,
+    updates: Partial<Pick<Scope, 'name'>>
+  ) => Promise<void>;
   removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
   setGitHubBinding: (
     workspaceId: string,
     binding: { accountLogin: string; org?: string } | null
   ) => Promise<void>;
+  createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
+  updateGroup: (
+    workspaceId: string,
+    groupId: string,
+    updates: Partial<Pick<Group, 'name'>>
+  ) => Promise<void>;
+  archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
 }
 
 /**
@@ -82,10 +97,22 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
 
   addScope: (workspaceId, fields) => workspaceBridge.addScope(workspaceId, fields),
 
+  updateScope: (workspaceId, scopeId, updates) =>
+    workspaceBridge.updateScope(workspaceId, scopeId, updates),
+
   removeScope: (workspaceId, scopeId) => workspaceBridge.removeScope(workspaceId, scopeId),
 
   setGitHubBinding: (workspaceId, binding) =>
     workspaceBridge.setGitHubBinding(workspaceId, binding),
+
+  createGroup: (workspaceId, fields) => workspaceBridge.createGroup(workspaceId, fields),
+
+  updateGroup: (workspaceId, groupId, updates) =>
+    workspaceBridge.updateGroup(workspaceId, groupId, updates),
+
+  archiveGroup: (workspaceId, groupId) => workspaceBridge.archiveGroup(workspaceId, groupId),
+
+  restoreGroup: (workspaceId, groupId) => workspaceBridge.restoreGroup(workspaceId, groupId),
 }));
 
 const LEGACY_STORAGE_KEY = 'consola-workspaces';

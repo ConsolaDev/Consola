@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { workspaceBridge } from '../../services/workspaceBridge';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import './styles.css';
 
 interface NewGroupDialogProps {
@@ -20,7 +20,7 @@ export function NewGroupDialog({ workspaceId, onClose }: NewGroupDialogProps) {
     setError(null);
     setSubmitting(true);
     try {
-      await workspaceBridge.createGroup(workspaceId, { name: trimmed });
+      await useWorkspaceStore.getState().createGroup(workspaceId, { name: trimmed });
       onClose();
     } catch (err) {
       // Keep the dialog open so the name is not lost, and say what happened

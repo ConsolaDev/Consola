@@ -32,15 +32,19 @@ import { JsonStateFile } from './state/JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
+    allowedGroupUpdates,
     allowedHarnessUpdates,
+    allowedScopeUpdates,
     allowedSessionUpdates,
     allowedWorkspaceUpdates,
     type SessionUpdates,
 } from './state/updateFilters';
 import type {
+    Group,
     NewGroupFields,
     NewScopeFields,
     NewSessionFields,
+    Scope,
     Workspace,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
@@ -206,6 +210,15 @@ export function setupIpcHandlers(): boolean {
     );
 
     ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE,
+        (_event, workspaceId: string, scopeId: string, updates: Partial<Pick<Scope, 'name'>>) => {
+            // Filtering lives in updateFilters.ts, tested there: `path` is the
+            // field this keeps out — sessions resolve their cwd through it.
+            workspaces.updateScope(workspaceId, scopeId, allowedScopeUpdates(updates));
+        }
+    );
+
+    ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE,
         (_event, workspaceId: string, scopeId: string) =>
             workspaces.removeScope(workspaceId, scopeId)
@@ -234,9 +247,26 @@ export function setupIpcHandlers(): boolean {
     );
 
     ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_GROUP_UPDATE,
+        (_event, workspaceId: string, groupId: string, updates: Partial<Pick<Group, 'name'>>) => {
+            // Filtering lives in updateFilters.ts, tested there:
+            // `conductorSessionId` and `archivedAt` are the fields this keeps
+            // out — the first is the orchestration door's alone, the second
+            // has its own archive/restore verbs.
+            workspaces.updateGroup(workspaceId, groupId, allowedGroupUpdates(updates));
+        }
+    );
+
+    ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE,
         (_event, workspaceId: string, groupId: string) =>
             workspaces.archiveGroup(workspaceId, groupId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_GROUP_RESTORE,
+        (_event, workspaceId: string, groupId: string) =>
+            workspaces.restoreGroup(workspaceId, groupId)
     );
 
     const harnessFile = new JsonStateFile<HarnessStateFile>(
@@ -1203,10 +1233,13 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE);
 
     harnessService = null;
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);

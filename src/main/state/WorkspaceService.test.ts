@@ -293,6 +293,31 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].scopes).toHaveLength(1);
   });
 
+  it('updateScope renames a scope in place, leaving siblings and identity untouched', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const other = service.addScope(workspace.id, {
+      name: 'docs',
+      path: '/code/consola/docs',
+      isGitRepo: false,
+    });
+
+    service.updateScope(workspace.id, workspace.scopes[0].id, { name: 'renamed' });
+
+    const scopes = build().getAll()[0].scopes;
+    expect(scopes.find((s) => s.id === workspace.scopes[0].id)?.name).toBe('renamed');
+    expect(scopes.find((s) => s.id === workspace.scopes[0].id)?.path).toBe('/code/consola');
+    expect(scopes.find((s) => s.id === other.id)?.name).toBe('docs');
+  });
+
+  it('updateScope is a no-op for an unknown workspace or scope', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+
+    service.updateScope('nope', workspace.scopes[0].id, { name: 'x' });
+    service.updateScope(workspace.id, 'nope', { name: 'x' });
+
+    expect(service.getAll()[0].scopes[0].name).toBe('consola');
+  });
+
   it('createSession returns undefined for an unknown scope', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
 
@@ -372,5 +397,34 @@ describe('WorkspaceService', () => {
     service.updateGroup(workspace.id, group.id, { archivedAt: 123 });
 
     expect(build().getAll()[0].groups.find((g) => g.id === group.id)?.archivedAt).toBe(123);
+  });
+
+  it('renames a group via updateGroup without touching its lifecycle fields', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const group = service.createGroup(workspace.id, {
+      name: 'old name',
+      conductorSessionId: 'cond-1',
+    });
+
+    service.updateGroup(workspace.id, group.id, { name: 'new name' });
+
+    const reloaded = build().getAll()[0].groups.find((g) => g.id === group.id);
+    expect(reloaded?.name).toBe('new name');
+    expect(reloaded?.conductorSessionId).toBe('cond-1');
+    expect(reloaded?.archivedAt).toBeUndefined();
+  });
+
+  it('restoreGroup persists as absence, indistinguishable from never archived', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const group = service.createGroup(workspace.id, { name: 'phoenix' });
+    service.archiveGroup(workspace.id, group.id);
+
+    service.restoreGroup(workspace.id, group.id);
+
+    // Absent, not null or undefined-valued: JSON.stringify drops the
+    // explicitly-undefined key on persist, so a restored group round-trips
+    // exactly like one that was never archived.
+    const reloaded = build().getAll()[0].groups.find((g) => g.id === group.id);
+    expect(reloaded).not.toHaveProperty('archivedAt');
   });
 });

@@ -70,6 +70,14 @@ export const workspaceBridge = {
         return window.workspaceAPI.addScope(workspaceId, fields);
     },
 
+    updateScope(
+        workspaceId: string,
+        scopeId: string,
+        updates: Partial<Pick<Scope, 'name'>>
+    ): Promise<void> {
+        return window.workspaceAPI.updateScope(workspaceId, scopeId, updates);
+    },
+
     /** Rejects while any session still references the scope. */
     removeScope(workspaceId: string, scopeId: string): Promise<void> {
         return window.workspaceAPI.removeScope(workspaceId, scopeId);
@@ -86,8 +94,20 @@ export const workspaceBridge = {
         return window.workspaceAPI.createGroup(workspaceId, fields);
     },
 
+    updateGroup(
+        workspaceId: string,
+        groupId: string,
+        updates: Partial<Pick<Group, 'name'>>
+    ): Promise<void> {
+        return window.workspaceAPI.updateGroup(workspaceId, groupId, updates);
+    },
+
     archiveGroup(workspaceId: string, groupId: string): Promise<void> {
         return window.workspaceAPI.archiveGroup(workspaceId, groupId);
+    },
+
+    restoreGroup(workspaceId: string, groupId: string): Promise<void> {
+        return window.workspaceAPI.restoreGroup(workspaceId, groupId);
     },
 
     /** Fan one prompt out across target repos: N sessions in a fresh group. */

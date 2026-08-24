@@ -2,9 +2,8 @@ import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Archive, Boxes, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
-import { type Scope, type Session } from '../../stores/workspaceStore';
+import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useTerminalStore } from '../../stores/terminalStore';
-import { workspaceBridge } from '../../services/workspaceBridge';
 import { basename } from '../../utils/fileUtils';
 import { formatGroupBadge, groupCountsFor } from '../../utils/groupCounts';
 import { activateSession } from '../../utils/sessionActions';
@@ -63,7 +62,7 @@ export function GroupNavItem({
   // keep their groupId, and the sidebar hands them back to their scopes.
   const handleArchive = async () => {
     try {
-      await workspaceBridge.archiveGroup(workspaceId, group.id);
+      await useWorkspaceStore.getState().archiveGroup(workspaceId, group.id);
     } catch (error) {
       // Main refused; the group visibly staying put is the signal.
       console.error('Failed to archive group', error);

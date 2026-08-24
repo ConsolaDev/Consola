@@ -34,10 +34,13 @@ export const IPC_CHANNELS = {
     WORKSPACE_SESSION_UPDATE: 'workspace:session-update',
     WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
     WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
+    WORKSPACE_UPDATE_SCOPE: 'workspace:update-scope',
     WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',
     WORKSPACE_SET_GITHUB_BINDING: 'workspace:set-github-binding',
     WORKSPACE_GROUP_CREATE: 'workspace:group-create',
+    WORKSPACE_GROUP_UPDATE: 'workspace:group-update',
     WORKSPACE_GROUP_ARCHIVE: 'workspace:group-archive',
+    WORKSPACE_GROUP_RESTORE: 'workspace:group-restore',
 
     // Conductor orchestration (renderer -> main; main scaffolds, groups, launches)
     CONDUCTOR_CREATE: 'conductor:create',

@@ -1,10 +1,6 @@
-/* GitHub settings section. Follows the Harnesses section's structure. */
-
-.github-section-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-}
+/* GitHub binding panel, mounted inside the Workspace settings section —
+   panel chrome (.ws-panel-*) and the account picker rows (.ws-choice-*)
+   come from WorkspaceSettings/styles.css. */
 
 .github-icon-button {
   display: flex;
@@ -57,54 +53,10 @@
   margin: 0;
 }
 
-.github-subheading {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-}
-
 .github-bound-tag {
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-normal);
   color: var(--color-text-tertiary);
-}
-
-.github-account-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.github-account-row {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  color: var(--color-text-primary);
-  cursor: pointer;
-  text-align: left;
-  font-size: var(--font-size-sm);
-  transition: border-color var(--transition-fast), background var(--transition-fast);
-}
-
-.github-account-row:hover {
-  background: var(--color-bg-hover);
-}
-
-.github-account-row.selected {
-  border-color: var(--color-accent);
-}
-
-.github-account-login {
-  flex: 1;
-  font-weight: var(--font-weight-medium);
 }
 
 .github-account-hint {
@@ -139,6 +91,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
+}
+
+/* The shared primary button has no disabled state, and its hover would light
+   up a dead "Bind account". Scoped here so other dialogs are untouched. */
+.github-section-actions .dialog-button-primary:disabled,
+.github-section-actions .dialog-button-primary:disabled:hover {
+  background: var(--color-accent);
+  opacity: 0.5;
+  cursor: default;
 }
 
 .github-unbind-button {

@@ -353,6 +353,11 @@ export interface WorkspaceAPI {
     ) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
     addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
+    updateScope: (
+        workspaceId: string,
+        scopeId: string,
+        updates: Partial<Pick<Scope, 'name'>>
+    ) => Promise<void>;
     /** Rejects while any session still references the scope. */
     removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
     setGitHubBinding: (
@@ -360,7 +365,13 @@ export interface WorkspaceAPI {
         binding: { accountLogin: string; org?: string } | null
     ) => Promise<void>;
     createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
+    updateGroup: (
+        workspaceId: string,
+        groupId: string,
+        updates: Partial<Pick<Group, 'name'>>
+    ) => Promise<void>;
     archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
+    restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
     fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;
     listScopeRepos: (workspaceId: string, scopeId: string) => Promise<ScopeRepo[]>;
     onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;
