@@ -50,6 +50,8 @@ interface Endpoint {
     token: string;
     configPath: string;
     server: net.Server;
+    /** Live client connections, so unregister can sever them, not just stop listening. */
+    sockets: Set<net.Socket>;
 }
 
 /** Longest a client may stall mid-handshake before the line is cut. */
@@ -57,6 +59,19 @@ const HANDSHAKE_LIMIT_BYTES = 4096;
 
 export class ConductorControlServer {
     private readonly endpoints = new Map<string, Endpoint>();
+    /**
+     * In-flight `register()` calls, keyed by session id.
+     *
+     * `register` is `async`, so the gap between reading `endpoints` and
+     * writing it spans several awaits (socket listen, mkdir, writeFile). Two
+     * overlapping callers — the headless launch and a pane mount racing each
+     * other — would otherwise both pass the "already registered" check, each
+     * open its own listening socket, and leave one of them behind with
+     * nothing in `endpoints` to ever unregister it. Memoizing the promise
+     * closes that window: a second caller before the first settles gets the
+     * same promise, not a second endpoint.
+     */
+    private readonly pendingRegistrations = new Map<string, Promise<string>>();
 
     constructor(private readonly deps: ConductorControlDeps) {}
 
@@ -77,6 +92,18 @@ export class ConductorControlServer {
         const existing = this.endpoints.get(session.id);
         if (existing) return existing.configPath;
 
+        const pending = this.pendingRegistrations.get(session.id);
+        if (pending) return pending;
+
+        const promise = this.createEndpoint(session).finally(() => {
+            this.pendingRegistrations.delete(session.id);
+        });
+        this.pendingRegistrations.set(session.id, promise);
+        return promise;
+    }
+
+    /** The actual registration work, run at most once concurrently per session id. */
+    private async createEndpoint(session: Session): Promise<string> {
         const token = crypto.randomBytes(16).toString('hex');
         const socketPath = newSocketPath();
         const server = net.createServer((socket) => this.handleConnection(session.id, socket));
@@ -107,16 +134,21 @@ export class ConductorControlServer {
             mode: 0o600,
         });
 
-        this.endpoints.set(session.id, { socketPath, token, configPath, server });
+        this.endpoints.set(session.id, { socketPath, token, configPath, server, sockets: new Set() });
         return configPath;
     }
 
-    /** Close a conductor's endpoint and remove its socket and config file. */
+    /** Close a conductor's endpoint, sever any live connections, and remove its socket and config file. */
     public unregister(sessionId: string): void {
         const endpoint = this.endpoints.get(sessionId);
         if (!endpoint) return;
         this.endpoints.delete(sessionId);
         endpoint.server.close();
+        // close() only stops accepting new connections; an already-connected
+        // shim would otherwise keep a working, now-unaccounted-for channel.
+        for (const socket of endpoint.sockets) {
+            socket.destroy();
+        }
         for (const doomed of [endpoint.socketPath, endpoint.configPath]) {
             try {
                 fs.unlinkSync(doomed);
@@ -143,6 +175,8 @@ export class ConductorControlServer {
             socket.destroy();
             return;
         }
+        endpoint.sockets.add(socket);
+        socket.once('close', () => endpoint.sockets.delete(socket));
 
         let buffer = '';
         const onData = (chunk: Buffer) => {
@@ -171,7 +205,17 @@ export class ConductorControlServer {
             if (rest.length > 0) socket.unshift(Buffer.from(rest, 'utf8'));
 
             const transport = new StdioServerTransport(socket, socket);
-            void this.buildServerFor(conductorSessionId).connect(transport);
+            // buildServerFor throws synchronously today (Task 6 stub) and
+            // connect() can reject once it is real; either would otherwise
+            // escape this event handler as an uncaught exception / unhandled
+            // rejection and take down the main process over one bad socket.
+            try {
+                this.buildServerFor(conductorSessionId)
+                    .connect(transport)
+                    .catch(() => socket.destroy());
+            } catch {
+                socket.destroy();
+            }
         };
         socket.on('data', onData);
         socket.on('error', () => socket.destroy());
