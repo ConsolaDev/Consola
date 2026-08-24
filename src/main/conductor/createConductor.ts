@@ -1,6 +1,6 @@
 import type { ConductorCreateRequest } from '../../shared/types';
 import type { Group, NewSessionFields, Session, Workspace } from '../../shared/workspace';
-import { generateId } from '../../shared/workspace';
+import { generateSessionInstanceId } from '../../shared/workspace';
 
 /**
  * The orchestration door's spine: scaffold -> group -> conductor session.
@@ -63,7 +63,7 @@ export async function createConductor(
         session = await deps.launchSession(request.workspaceId, {
             name: 'conductor',
             workspaceId: request.workspaceId,
-            instanceId: generateId(),
+            instanceId: generateSessionInstanceId(request.workspaceId),
             harnessId: workspace.defaultHarnessId,
             scopeId: request.scopeId,
             cwd: conductorDir,
