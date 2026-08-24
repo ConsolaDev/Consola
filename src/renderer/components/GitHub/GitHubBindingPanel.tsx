@@ -1,26 +1,26 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Check, RefreshCw } from 'lucide-react';
 import type { GhProbeResult } from '../../../shared/github';
+import type { Workspace } from '../../../shared/workspace';
 import { githubBridge } from '../../services/githubBridge';
-import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import './styles.css';
 
+interface GitHubBindingPanelProps {
+  workspace: Workspace;
+}
+
 /**
- * The GitHub settings section: bind the active workspace to one `gh` keyring
- * account.
+ * Bind a workspace to one `gh` keyring account. Mounted inside the Workspace
+ * settings section, which supplies the workspace and the panel chrome.
  *
  * Consola stores zero GitHub credentials. The `gh` CLI is the broker: this
- * section only learns which accounts exist (via a main-process probe) and
+ * panel only learns which accounts exist (via a main-process probe) and
  * records a login name on the workspace. Tokens are borrowed main-side at
  * spawn time and never reach this component.
  */
-export function GitHubSection() {
-  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
-  const workspaces = useWorkspaceStore((state) => state.workspaces);
+export function GitHubBindingPanel({ workspace }: GitHubBindingPanelProps) {
   const setGitHubBinding = useWorkspaceStore((state) => state.setGitHubBinding);
-
-  const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId) ?? null;
 
   const [probe, setProbe] = useState<GhProbeResult | null>(null);
   const [selectedLogin, setSelectedLogin] = useState<string | null>(null);
@@ -40,9 +40,9 @@ export function GitHubSection() {
 
   // Follow the workspace's stored binding whenever the workspace changes.
   useEffect(() => {
-    setSelectedLogin(workspace?.github?.accountLogin ?? null);
-    setOrg(workspace?.github?.org ?? '');
-  }, [workspace?.id, workspace?.github?.accountLogin, workspace?.github?.org]);
+    setSelectedLogin(workspace.github?.accountLogin ?? null);
+    setOrg(workspace.github?.org ?? '');
+  }, [workspace.id, workspace.github?.accountLogin, workspace.github?.org]);
 
   const handleSave = async () => {
     // Belt and suspenders: selectedLogin can only ever be set from an
@@ -51,7 +51,7 @@ export function GitHubSection() {
     // place that can reach the IPC boundary. A binding with a missing or
     // empty accountLogin must never be constructible, let alone sent — main
     // coerces it with String(...) and would otherwise persist "undefined".
-    if (!workspace || !selectedLogin) return;
+    if (!selectedLogin) return;
     setIsSaving(true);
     try {
       await setGitHubBinding(workspace.id, {
@@ -64,7 +64,6 @@ export function GitHubSection() {
   };
 
   const handleUnbind = async () => {
-    if (!workspace) return;
     setIsSaving(true);
     try {
       await setGitHubBinding(workspace.id, null);
@@ -73,14 +72,17 @@ export function GitHubSection() {
     }
   };
 
-  const bound = workspace?.github;
+  const bound = workspace.github;
   const isDirty =
     selectedLogin !== (bound?.accountLogin ?? null) || org.trim() !== (bound?.org ?? '');
 
   return (
-    <div className="settings-modal-section">
-      <div className="github-section-header">
-        <h2 className="settings-modal-section-title">GitHub</h2>
+    <>
+      <div className="ws-panel-header">
+        <h3 className="ws-panel-title">
+          GitHub
+          {bound && <span className="github-bound-tag">bound: {bound.accountLogin}</span>}
+        </h3>
         <button
           type="button"
           className="github-icon-button"
@@ -93,7 +95,7 @@ export function GitHubSection() {
       </div>
 
       <p className="github-section-description">
-        Bind a workspace to one <code>gh</code> account and every session in it
+        Bind this workspace to one <code>gh</code> account and every session in it
         runs <code>gh</code> as that account — no global account switching.
         Consola stores no credentials; the <code>gh</code> CLI holds them.
       </p>
@@ -127,29 +129,21 @@ export function GitHubSection() {
         </div>
       )}
 
-      {probe !== null && probe.available && probe.accounts.length > 0 && !workspace && (
-        <p className="github-section-status">Open a workspace to bind an account to it.</p>
-      )}
-
-      {probe !== null && probe.available && probe.accounts.length > 0 && workspace && (
+      {probe !== null && probe.available && probe.accounts.length > 0 && (
         <>
-          <h3 className="github-subheading">
-            Account for “{workspace.name}”
-            {bound && <span className="github-bound-tag">bound: {bound.accountLogin}</span>}
-          </h3>
-          <div className="github-account-list" role="radiogroup" aria-label="GitHub account">
+          <div className="ws-choice-list" role="radiogroup" aria-label="GitHub account">
             {probe.accounts.map((account) => (
               <button
                 key={account.login}
                 type="button"
                 role="radio"
                 aria-checked={selectedLogin === account.login}
-                className={`github-account-row ${
+                className={`ws-choice-row ${
                   selectedLogin === account.login ? 'selected' : ''
                 }`}
                 onClick={() => setSelectedLogin(account.login)}
               >
-                <span className="github-account-login">{account.login}</span>
+                <span className="ws-choice-name">{account.login}</span>
                 {account.active && (
                   <span className="github-account-hint">gh’s active account</span>
                 )}
@@ -159,7 +153,7 @@ export function GitHubSection() {
           </div>
 
           <label className="github-org-field">
-            <span>Organization (optional — narrows the future Inbox)</span>
+            <span>Organization (optional — narrows the Inbox)</span>
             <input
               type="text"
               value={org}
@@ -195,6 +189,6 @@ export function GitHubSection() {
           </p>
         </>
       )}
-    </div>
+    </>
   );
 }

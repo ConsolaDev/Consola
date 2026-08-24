@@ -26,11 +26,16 @@
   /* Border colors -- outline(), split_pane_border_color() */
   --color-border: rgba(17, 17, 17, 0.1);
   --color-border-strong: rgba(17, 17, 17, 0.15);
+  /* Hovered outlines. Referenced by dialog CSS since before it was defined. */
+  --color-border-hover: rgba(17, 17, 17, 0.2);
 
   /* Accent colors -- foreground wins the contrast pick on this accent */
   --color-accent: rgb(0, 194, 255);
   --color-accent-hover: rgb(6, 123, 159);
   --color-accent-text: #111111;
+  /* Focus rings and selected-chip fills. Long referenced by dialog CSS but
+     never defined, which silently voided every declaration using it. */
+  --color-accent-muted: rgba(0, 194, 255, 0.25);
 
   /* Semantic colors */
   --color-success: rgb(68, 131, 97);

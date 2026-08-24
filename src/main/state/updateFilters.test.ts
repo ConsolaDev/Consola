@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessUpdates } from '../../shared/harness';
 import {
+  allowedGroupUpdates,
   allowedHarnessUpdates,
+  allowedScopeUpdates,
   allowedSessionUpdates,
   allowedWorkspaceUpdates,
   type SessionUpdates,
@@ -76,6 +78,60 @@ describe('allowedWorkspaceUpdates', () => {
     const result = allowedWorkspaceUpdates({ name: undefined });
 
     expect('name' in result).toBe(false);
+  });
+});
+
+describe('allowedScopeUpdates', () => {
+  it('passes a rename through', () => {
+    expect(allowedScopeUpdates({ name: 'renamed' })).toEqual({ name: 'renamed' });
+  });
+
+  it('drops path and isGitRepo even alongside a legitimate rename', () => {
+    const payload = {
+      name: 'Legit rename',
+      path: '/attacker/controlled',
+      isGitRepo: false,
+      id: 'attacker-controlled',
+    } as unknown as Parameters<typeof allowedScopeUpdates>[0];
+
+    const result = allowedScopeUpdates(payload);
+
+    expect(result).not.toHaveProperty('path');
+    expect(result).not.toHaveProperty('isGitRepo');
+    expect(result).not.toHaveProperty('id');
+    expect(result.name).toBe('Legit rename');
+  });
+
+  it('drops an explicit name: undefined rather than clobbering a real name', () => {
+    expect('name' in allowedScopeUpdates({ name: undefined })).toBe(false);
+  });
+});
+
+describe('allowedGroupUpdates', () => {
+  it('passes a rename through', () => {
+    expect(allowedGroupUpdates({ name: 'renamed' })).toEqual({ name: 'renamed' });
+  });
+
+  it('drops conductorSessionId and archivedAt even alongside a legitimate rename', () => {
+    const payload = {
+      name: 'Legit rename',
+      conductorSessionId: 'attacker-controlled',
+      archivedAt: undefined,
+      parentGroupId: 'attacker-controlled',
+    } as unknown as Parameters<typeof allowedGroupUpdates>[0];
+
+    const result = allowedGroupUpdates(payload);
+
+    // archivedAt has its own archive/restore verbs; an explicitly-undefined
+    // key here must not become a silent un-archive through the rename door.
+    expect(result).not.toHaveProperty('conductorSessionId');
+    expect(result).not.toHaveProperty('archivedAt');
+    expect(result).not.toHaveProperty('parentGroupId');
+    expect(result.name).toBe('Legit rename');
+  });
+
+  it('drops an explicit name: undefined rather than clobbering a real name', () => {
+    expect('name' in allowedGroupUpdates({ name: undefined })).toBe(false);
   });
 });
 

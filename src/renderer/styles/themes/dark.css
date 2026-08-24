@@ -35,6 +35,8 @@
   /* Border colors -- outline(), split_pane_border_color() */
   --color-border: rgba(255, 255, 255, 0.1);
   --color-border-strong: rgba(255, 255, 255, 0.15);
+  /* Hovered outlines. Referenced by dialog CSS since before it was defined. */
+  --color-border-hover: rgba(255, 255, 255, 0.2);
 
   /*
    * Accent colors. The accent is light enough that Warp's contrast picker
@@ -44,6 +46,9 @@
   --color-accent: rgb(25, 170, 216);
   --color-accent-hover: rgb(117, 204, 231);
   --color-accent-text: #050505;
+  /* Focus rings and selected-chip fills. Long referenced by dialog CSS but
+     never defined, which silently voided every declaration using it. */
+  --color-accent-muted: rgba(25, 170, 216, 0.25);
 
   /* Semantic colors */
   --color-success: rgb(77, 171, 117);

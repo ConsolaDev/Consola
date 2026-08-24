@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Github, Minus, Plus } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus } from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
@@ -10,10 +10,10 @@ import {
 import { useTheme } from '../../hooks/useTheme';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
-import { GitHubSection } from '../GitHub';
+import { WorkspaceSettingsSection } from '../WorkspaceSettings';
 import './styles.css';
 
-type SettingsSection = 'appearance' | 'harnesses' | 'github' | 'shortcuts';
+type SettingsSection = 'workspace' | 'appearance' | 'harnesses' | 'shortcuts';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -21,10 +21,12 @@ interface SettingsSectionConfig {
   icon: typeof Palette;
 }
 
+// The GitHub binding lives inside the Workspace section — it was always
+// workspace-scoped, and a standalone tab hid that.
 const sections: SettingsSectionConfig[] = [
+  { id: 'workspace', label: 'Workspace', icon: Folder },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'harnesses', label: 'Harnesses', icon: Boxes },
-  { id: 'github', label: 'GitHub', icon: Github },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
 ];
 
@@ -40,7 +42,7 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
+  const [activeSection, setActiveSection] = useState<SettingsSection>('workspace');
   const { theme, setTheme, terminalFontSize, setTerminalFontSize } = useSettingsStore();
   useTheme();
 
@@ -66,6 +68,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
           </nav>
 
           <div className="settings-modal-body">
+            {activeSection === 'workspace' && <WorkspaceSettingsSection />}
             {activeSection === 'appearance' && (
               <AppearanceSection
                 theme={theme}
@@ -75,7 +78,6 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
               />
             )}
             {activeSection === 'harnesses' && <HarnessesSection />}
-            {activeSection === 'github' && <GitHubSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
           </div>
 

@@ -1,4 +1,4 @@
-import type { Session, Workspace } from '../../shared/workspace';
+import type { Group, Scope, Session, Workspace } from '../../shared/workspace';
 import type { HarnessUpdates } from '../../shared/harness';
 
 /**
@@ -22,6 +22,37 @@ export function allowedWorkspaceUpdates(
     // never an intent, so absence and explicit-undefined are treated alike.
     if (updates.name !== undefined) allowed.name = updates.name;
     if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
+    return allowed;
+}
+
+/**
+ * `path` and `isGitRepo` are deliberately not on the list: a scope's path is
+ * its identity — sessions resolve their cwd through it, and a rewritten path
+ * would silently redirect future launches while running terminals kept the
+ * old one. Renaming is the only edit a scope supports.
+ */
+export function allowedScopeUpdates(
+    updates: Partial<Pick<Scope, 'name'>>
+): Partial<Pick<Scope, 'name'>> {
+    const allowed: Partial<Pick<Scope, 'name'>> = {};
+    // Required on the record: `undefined` can only ever be a bug, never an
+    // intent, so absence and explicit-undefined are treated alike.
+    if (updates.name !== undefined) allowed.name = updates.name;
+    return allowed;
+}
+
+/**
+ * `conductorSessionId` is deliberately not on the list — only the
+ * orchestration door sets it, main-side, and a renderer that could point a
+ * group at an arbitrary session would corrupt conductor wiring. `archivedAt`
+ * stays off too: archive and restore are named verbs with their own channels,
+ * the same split allowedHarnessUpdates makes for `archived`.
+ */
+export function allowedGroupUpdates(
+    updates: Partial<Pick<Group, 'name'>>
+): Partial<Pick<Group, 'name'>> {
+    const allowed: Partial<Pick<Group, 'name'>> = {};
+    if (updates.name !== undefined) allowed.name = updates.name;
     return allowed;
 }
 

@@ -95,6 +95,26 @@ export class WorkspaceService {
     );
   }
 
+  public updateScope(
+    workspaceId: string,
+    scopeId: string,
+    updates: Partial<Pick<Scope, 'name'>>
+  ): void {
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.id === workspaceId
+          ? {
+              ...workspace,
+              scopes: workspace.scopes.map((scope) =>
+                scope.id === scopeId ? { ...scope, ...updates } : scope
+              ),
+              updatedAt: Date.now(),
+            }
+          : workspace
+      )
+    );
+  }
+
   public addScope(workspaceId: string, fields: NewScopeFields): Scope {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) throw new Error(`No workspace ${workspaceId}`);
@@ -185,7 +205,7 @@ export class WorkspaceService {
   public updateGroup(
     workspaceId: string,
     groupId: string,
-    updates: Partial<Pick<Group, 'conductorSessionId' | 'archivedAt'>>
+    updates: Partial<Pick<Group, 'name' | 'conductorSessionId' | 'archivedAt'>>
   ): void {
     this.commit(
       this.workspaces.map((workspace) =>
@@ -200,6 +220,19 @@ export class WorkspaceService {
           : workspace
       )
     );
+  }
+
+  /**
+   * Bring an archived group back into circulation.
+   *
+   * A dedicated verb rather than `{ archivedAt: undefined }` through the
+   * generic update, mirroring restoreHarness: lifecycle transitions get their
+   * own named door, and the generic allow-list never carries `archivedAt`.
+   * The explicitly-undefined key is dropped by JSON.stringify on persist, so
+   * a restored group round-trips indistinguishable from one never archived.
+   */
+  public restoreGroup(workspaceId: string, groupId: string): void {
+    this.updateGroup(workspaceId, groupId, { archivedAt: undefined });
   }
 
   /** Archive a group. Sessions keep their groupId; group UI semantics land in Phase 2. */

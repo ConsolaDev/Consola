@@ -1,1 +1,1 @@
-export { GitHubSection } from './GitHubSection';
+export { GitHubBindingPanel } from './GitHubBindingPanel';

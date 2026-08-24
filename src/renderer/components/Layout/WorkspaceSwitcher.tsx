@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Boxes,
@@ -18,6 +19,7 @@ import { primaryScope } from '../../../shared/workspace';
 import { dialogBridge } from '../../services/dialogBridge';
 import { windowBridge } from '../../services/windowBridge';
 import { anyOtherWorkspaceNeedsAttention, workspaceStatusFor } from '../../utils/sessionStatus';
+import { DeleteWorkspaceDialog } from '../Dialogs/DeleteWorkspaceDialog';
 
 /**
  * The workspace this window holds, and the way to change it.
@@ -33,11 +35,11 @@ export function WorkspaceSwitcher() {
   const terminals = useTerminalStore((state) => state.terminals);
   const harnesses = useHarnessStore((state) => state.harnesses);
   const updateWorkspace = useWorkspaceStore((state) => state.updateWorkspace);
-  const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
 
   const active = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const elsewhere = anyOtherWorkspaceNeedsAttention(workspaces, activeWorkspaceId, terminals);
   const selectableHarnesses = harnesses.filter(isSelectableHarness);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const handleAddWorkspace = async () => {
     const folder = await dialogBridge.selectFolder();
@@ -48,15 +50,8 @@ export function WorkspaceSwitcher() {
     await setActiveWorkspace(workspace.id);
   };
 
-  const handleDelete = async () => {
-    if (!active) return;
-    if (!window.confirm(`Are you sure you want to delete "${active.name}"?`)) return;
-    // Main drops this window's workspace when the record disappears, so there
-    // is nothing to clear here.
-    await deleteWorkspace(active.id);
-  };
-
   return (
+    <>
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button
@@ -81,7 +76,16 @@ export function WorkspaceSwitcher() {
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="dropdown-content" sideOffset={6} align="start">
+        <DropdownMenu.Content
+          className="dropdown-content"
+          sideOffset={6}
+          align="start"
+          // Selecting Delete opens a dialog; the menu refocusing its trigger
+          // would race the dialog's own focus grab (see NewMenu).
+          onCloseAutoFocus={(event) => {
+            if (confirmingDelete) event.preventDefault();
+          }}
+        >
           {workspaces.map((workspace) => {
             const status = workspaceStatusFor(workspace, terminals);
             return (
@@ -155,7 +159,7 @@ export function WorkspaceSwitcher() {
           {active && (
             <DropdownMenu.Item
               className="dropdown-item dropdown-item-destructive"
-              onSelect={() => void handleDelete()}
+              onSelect={() => setConfirmingDelete(true)}
             >
               <Trash2 size={14} />
               <span>Delete workspace</span>
@@ -164,5 +168,14 @@ export function WorkspaceSwitcher() {
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
+
+    {active && (
+      <DeleteWorkspaceDialog
+        workspace={active}
+        open={confirmingDelete}
+        onOpenChange={setConfirmingDelete}
+      />
+    )}
+    </>
   );
 }
