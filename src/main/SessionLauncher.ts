@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
+import { mcpConfigForSession } from './conductor/ConductorControlServer';
 import type { TerminalServiceOptions } from './TerminalService';
 
 /**
@@ -59,6 +60,12 @@ function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
 }
 
 export class SessionLauncher {
+    /**
+     * Kind-gated MCP registration, set at wiring time (ipc-handlers).
+     * Optional so unit tests and early boot need no conductor machinery.
+     */
+    public conductorControl?: { register(session: Session): Promise<string> };
+
     constructor(
         private readonly workspaces: SessionRecordStore,
         private readonly harnesses: HarnessRecordStore,
@@ -105,6 +112,13 @@ export class SessionLauncher {
             );
         }
 
+        // Conductors, and only conductors, get an endpoint and a config file
+        // pointing at it. The gate is `mcpConfigForSession`, shared with
+        // TERMINAL_CREATE, so both launch paths agree on what a conductor is.
+        const mcpConfigPath = this.conductorControl
+            ? await mcpConfigForSession(session, this.conductorControl)
+            : undefined;
+
         const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
         this.terminals.startHeadless(session.instanceId, {
             cwd,
@@ -117,6 +131,7 @@ export class SessionLauncher {
             // TERMINAL_CREATE handler resolves it: TerminalService turns the
             // login into a token at spawn time.
             githubAccountLogin: workspace.github?.accountLogin,
+            mcpConfigPath,
             ...launchFieldsFor(harness),
         });
 

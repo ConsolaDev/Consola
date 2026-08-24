@@ -20,6 +20,7 @@ import {
     SessionFanOutIntent,
     SessionFanOutResult,
     ScopeRepo,
+    ConductorCreateRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { GhProbeResult, InboxSnapshot, WorkItemRef } from '../shared/github';
@@ -207,6 +208,13 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
     onChanged: (callback: (workspaces: Workspace[]) => void) =>
         subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
+});
+
+// Conductor orchestration: one intent. The conductor itself is an ordinary
+// session and rides the terminal and workspace APIs above.
+contextBridge.exposeInMainWorld('conductorAPI', {
+    create: (request: ConductorCreateRequest): Promise<Group> =>
+        ipcRenderer.invoke(IPC_CHANNELS.CONDUCTOR_CREATE, request),
 });
 
 // Expose harness state to the renderer. Main owns the records; the renderer
