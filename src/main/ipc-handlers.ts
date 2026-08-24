@@ -1239,6 +1239,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
+    ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
     ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 
