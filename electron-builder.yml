@@ -21,8 +21,11 @@ files:
 
 # node-pty loads pty.node and execs spawn-helper by path. Neither works from
 # inside an asar archive, so every session terminal would fail to spawn.
+# The conductor shim is spawned by the *claude* CLI, an outside process, so
+# it too must exist as a real file on disk.
 asarUnpack:
   - '**/node_modules/node-pty/**'
+  - dist/main/main/conductor/conductorShim.js
 
 mac:
   category: public.app-category.developer-tools
