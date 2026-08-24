@@ -21,6 +21,10 @@ import {
   useNavigationStore,
   subscribeToActivateSession,
   subscribeToWindowWorkspace,
+  clampSidebarWidth,
+  SIDEBAR_WIDTH_DEFAULT,
+  SIDEBAR_WIDTH_MAX,
+  SIDEBAR_WIDTH_MIN,
   type NavigationState,
 } from './navigationStore';
 import { windowBridge } from '../services/windowBridge';
@@ -33,12 +37,14 @@ import { windowBridge } from '../services/windowBridge';
 function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState {
   return {
     isSidebarHidden: false,
+    sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     isExplorerVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
     isInboxOpen: false,
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
+    setSidebarWidth: vi.fn(),
     toggleExplorer: vi.fn(),
     setExplorerVisible: vi.fn(),
     setActiveWorkspace: vi.fn(),
@@ -134,5 +140,61 @@ describe('inbox navigation', () => {
     workspaceChangedCallback?.('workspace-2');
     expect(useNavigationStore.getState().isInboxOpen).toBe(false);
     expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
+  });
+});
+
+describe('sidebar width', () => {
+  it('clamps to the drag bounds and rounds to whole pixels', () => {
+    expect(clampSidebarWidth(SIDEBAR_WIDTH_MIN - 1)).toBe(SIDEBAR_WIDTH_MIN);
+    expect(clampSidebarWidth(SIDEBAR_WIDTH_MAX + 1)).toBe(SIDEBAR_WIDTH_MAX);
+    expect(clampSidebarWidth(300)).toBe(300);
+    expect(clampSidebarWidth(300.6)).toBe(301);
+  });
+
+  it('falls back to the default for a value that is not a finite number', () => {
+    expect(clampSidebarWidth(Number.NaN)).toBe(SIDEBAR_WIDTH_DEFAULT);
+    expect(clampSidebarWidth(Number.POSITIVE_INFINITY)).toBe(SIDEBAR_WIDTH_DEFAULT);
+  });
+
+  it('takes an in-range persisted width', () => {
+    const result = mergeNavigationState({ sidebarWidth: 320 }, makeCurrent());
+    expect(result.sidebarWidth).toBe(320);
+  });
+
+  it('clamps an out-of-range persisted width instead of rejecting it', () => {
+    // A hand-edited blob, or one written before the bounds changed, still has
+    // to land on a width the layout can show.
+    expect(mergeNavigationState({ sidebarWidth: 50 }, makeCurrent()).sidebarWidth).toBe(
+      SIDEBAR_WIDTH_MIN
+    );
+    expect(mergeNavigationState({ sidebarWidth: 9999 }, makeCurrent()).sidebarWidth).toBe(
+      SIDEBAR_WIDTH_MAX
+    );
+  });
+
+  it('ignores a persisted width that is not a number', () => {
+    const current = makeCurrent({ sidebarWidth: 300 });
+    expect(mergeNavigationState({ sidebarWidth: '320' }, current).sidebarWidth).toBe(300);
+  });
+
+  it('keeps the current width when the key is absent', () => {
+    const current = makeCurrent({ sidebarWidth: 300 });
+    expect(mergeNavigationState({}, current).sidebarWidth).toBe(300);
+  });
+
+  it('clamps a width set through the action', () => {
+    useNavigationStore.getState().setSidebarWidth(SIDEBAR_WIDTH_MAX + 100);
+    expect(useNavigationStore.getState().sidebarWidth).toBe(SIDEBAR_WIDTH_MAX);
+    useNavigationStore.getState().setSidebarWidth(300);
+    expect(useNavigationStore.getState().sidebarWidth).toBe(300);
+  });
+
+  it('survives hiding and showing the sidebar', () => {
+    useNavigationStore.setState({ isSidebarHidden: false });
+    useNavigationStore.getState().setSidebarWidth(300);
+    useNavigationStore.getState().toggleSidebar();
+    useNavigationStore.getState().toggleSidebar();
+    expect(useNavigationStore.getState().isSidebarHidden).toBe(false);
+    expect(useNavigationStore.getState().sidebarWidth).toBe(300);
   });
 });

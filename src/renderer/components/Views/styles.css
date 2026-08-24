@@ -182,12 +182,12 @@
 }
 
 .resize-handle:hover::after,
-.resize-handle[data-resize-handle-state="drag"]::after {
+.resize-handle[data-separator="active"]::after {
   background: var(--color-accent);
 }
 
 /* Prevent text selection in panels while dragging a resize handle */
-.workspace-view-content:has(.resize-handle[data-resize-handle-state="drag"]) {
+.workspace-view-content:has(.resize-handle[data-separator="active"]) {
   user-select: none;
 }
 
