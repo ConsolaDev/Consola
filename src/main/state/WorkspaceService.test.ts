@@ -352,4 +352,25 @@ describe('WorkspaceService', () => {
     expect(child.parentGroupId).toBe(parent.id);
     expect(child.conductorSessionId).toBe('sess-1');
   });
+
+  it('updates a group in place, leaving its siblings untouched', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const group = service.createGroup(workspace.id, { name: 'symbalance-api' });
+    const other = service.createGroup(workspace.id, { name: 'untouched' });
+
+    service.updateGroup(workspace.id, group.id, { conductorSessionId: 'cond-1' });
+
+    const groups = build().getAll()[0].groups;
+    expect(groups.find((g) => g.id === group.id)?.conductorSessionId).toBe('cond-1');
+    expect(groups.find((g) => g.id === other.id)?.conductorSessionId).toBeUndefined();
+  });
+
+  it('archives a group via updateGroup', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const group = service.createGroup(workspace.id, { name: 'doomed' });
+
+    service.updateGroup(workspace.id, group.id, { archivedAt: 123 });
+
+    expect(build().getAll()[0].groups.find((g) => g.id === group.id)?.archivedAt).toBe(123);
+  });
 });

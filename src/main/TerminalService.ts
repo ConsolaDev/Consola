@@ -70,6 +70,12 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
     /** Model this session is pinned to, replayed on every relaunch. */
     model?: string;
     /**
+     * MCP config file registered with the CLI on every launch of this
+     * session. Set by main for conductor sessions only; opaque here — which
+     * flag it becomes is the driver's business.
+     */
+    mcpConfigPath?: string;
+    /**
      * GitHub account whose token this session's PTY gets as GH_TOKEN.
      * Resolved from the workspace's binding by the create handler; absent for
      * workspaces without a binding, which then spawn exactly as before.
@@ -229,6 +235,7 @@ export class TerminalService extends EventEmitter {
             sessionId: this.options.claudeSessionId,
             resume,
             model: this.options.model,
+            mcpConfigPath: this.options.mcpConfigPath,
         });
 
         try {

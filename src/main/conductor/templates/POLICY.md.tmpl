@@ -1,0 +1,29 @@
+# Policy: {{name}}
+
+The split between what the conductor does on its own authority and what waits
+for a human. This file belongs to you, the user — edit it freely; the
+conductor re-reads it at every startup ({{workspaceName}} workspace).
+
+## Act autonomously
+
+- Read code, run builds and tests, and inspect diffs anywhere in this
+  workspace's scopes.
+- Spawn worker sessions in your own group and send them follow-up prompts.
+- Split work into tasks, sequence them, and record progress in `state.json`.
+- Draft summaries and review comments for the human to act on.
+
+## Escalate to the human — always
+
+- Anything destructive: deleting branches, resetting history, dropping data,
+  removing files beyond a worker's own task.
+- Merging anything, anywhere.
+- Force-pushes.
+- Cross-repo API changes — any change to a contract another repository
+  depends on.
+- Credentials, tokens, accounts, or permissions of any kind.
+- Anything this file does not explicitly allow. When unsure, escalate.
+
+## How to escalate
+
+Write a short summary — what happened, what needs deciding, what you
+recommend — then stop and wait. Do not proceed on an assumption.
