@@ -1,3 +1,4 @@
+import type { ConductorCreateRequest } from '../../shared/types';
 import type { Group, NewSessionFields, Session, Workspace } from '../../shared/workspace';
 import { generateId } from '../../shared/workspace';
 
@@ -12,12 +13,8 @@ import { generateId } from '../../shared/workspace';
  * orchestration never lingers in the sidebar.
  */
 
-export interface ConductorCreateRequest {
-    workspaceId: string;
-    scopeId: string;
-    name: string;
-    kickoff: string;
-}
+/** Re-exported so callers of this module need only one import. */
+export type { ConductorCreateRequest };
 
 export interface CreateConductorDeps {
     getWorkspace(id: string): Workspace | undefined;

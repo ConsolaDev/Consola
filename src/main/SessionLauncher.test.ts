@@ -160,6 +160,29 @@ describe('SessionLauncher', () => {
         expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
+    it('registers MCP config for conductor sessions only', async () => {
+        const register = vi.fn(async () => '/tmp/cond.json');
+
+        const conductor = buildLauncher(sessionFixture({ kind: 'conductor' }));
+        conductor.launcher.conductorControl = { register };
+        await conductor.launcher.launchSession('ws-1', { ...launchFields, kind: 'conductor' });
+
+        // The conductor's control tools reach the PTY as an opaque path.
+        expect(register).toHaveBeenCalledTimes(1);
+        expect(conductor.terminals.startHeadless).toHaveBeenCalledWith(
+            'instance-1',
+            expect.objectContaining({ mcpConfigPath: '/tmp/cond.json' })
+        );
+
+        // Every other kind passes through untouched: no registration, no path.
+        const interactive = buildLauncher(sessionFixture());
+        interactive.launcher.conductorControl = { register };
+        await interactive.launcher.launchSession('ws-1', launchFields);
+
+        expect(register).toHaveBeenCalledTimes(1);
+        expect(interactive.terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
+    });
+
     it('pins nothing for the built-in or an unknown harness', async () => {
         const session = sessionFixture({ harnessId: 'default' });
         const { launcher, terminals } = buildLauncher(session);
