@@ -1,7 +1,7 @@
 # GitHub Workflow: Accounts, Scopes, Work Items, Groups
 
 **Date:** 2026-08-20
-**Status:** Design — approved in brainstorm, not implemented
+**Status:** Implemented — all four phases shipped to main (Model, Inbox, Fleet, Conductors; merged 2026-08-24)
 **Mockups:** `.superpowers/brainstorm/87378-1787218296/content/` (full-flow.html is the walkthrough)
 **Prior art:** `research/2026-08-18-agent-deck-conductor-listeners-actions.md`,
 `docs/superpowers/specs/2026-08-19-workspace-windows-design.md`
