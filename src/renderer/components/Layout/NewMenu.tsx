@@ -3,18 +3,26 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { Plus } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { createQuickSession } from '../../utils/sessionActions';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { FanOutDialog } from '../Dialogs/FanOutDialog';
+import { OrchestrationDialog } from '../Dialogs/OrchestrationDialog';
 
 /**
  * The ＋ New menu: everything that creates work, in one place, in increasing
- * order of machinery — a session, a group, a fan-out, and (Phase 3) an
- * orchestration. This is the whole creation surface a casual user ever sees.
+ * order of machinery — a session, a group, a fan-out, and an orchestration.
+ * This is the whole creation surface a casual user ever sees.
  */
 export function NewMenu() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
-  const [openDialog, setOpenDialog] = useState<'group' | 'fan-out' | null>(null);
+  // The orchestration door generates a conductor directory inside a scope, so
+  // a workspace with none has nowhere to put one.
+  const scopeCount = useWorkspaceStore(
+    (state) =>
+      state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.scopes.length ?? 0
+  );
+  const [openDialog, setOpenDialog] = useState<'group' | 'fan-out' | 'orchestration' | null>(null);
 
   if (!activeWorkspaceId) return null;
 
@@ -46,25 +54,34 @@ export function NewMenu() {
             <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('fan-out')}>
               <span>Fan-out…</span>
             </DropdownMenu.Item>
-            <Tooltip.Provider delayDuration={200}>
-              <Tooltip.Root>
-                {/* Radix disables pointer events on a disabled item, so the
-                    tooltip trigger is a wrapper that still receives hover. */}
-                <Tooltip.Trigger asChild>
-                  <span style={{ display: 'block' }}>
-                    <DropdownMenu.Item className="dropdown-item" disabled>
-                      <span>Orchestration…</span>
-                    </DropdownMenu.Item>
-                  </span>
-                </Tooltip.Trigger>
-                <Tooltip.Portal>
-                  <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
-                    Coming soon
-                    <Tooltip.Arrow className="tooltip-arrow" />
-                  </Tooltip.Content>
-                </Tooltip.Portal>
-              </Tooltip.Root>
-            </Tooltip.Provider>
+            {scopeCount === 0 ? (
+              <Tooltip.Provider delayDuration={200}>
+                <Tooltip.Root>
+                  {/* Radix disables pointer events on a disabled item, so the
+                      tooltip trigger is a wrapper that still receives hover. */}
+                  <Tooltip.Trigger asChild>
+                    <span style={{ display: 'block' }}>
+                      <DropdownMenu.Item className="dropdown-item" disabled>
+                        <span>Orchestration…</span>
+                      </DropdownMenu.Item>
+                    </span>
+                  </Tooltip.Trigger>
+                  <Tooltip.Portal>
+                    <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
+                      Add a scope first — the conductor needs somewhere to live
+                      <Tooltip.Arrow className="tooltip-arrow" />
+                    </Tooltip.Content>
+                  </Tooltip.Portal>
+                </Tooltip.Root>
+              </Tooltip.Provider>
+            ) : (
+              <DropdownMenu.Item
+                className="dropdown-item"
+                onSelect={() => setOpenDialog('orchestration')}
+              >
+                <span>Orchestration…</span>
+              </DropdownMenu.Item>
+            )}
           </DropdownMenu.Content>
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
@@ -74,6 +91,9 @@ export function NewMenu() {
       )}
       {openDialog === 'fan-out' && (
         <FanOutDialog workspaceId={activeWorkspaceId} onClose={() => setOpenDialog(null)} />
+      )}
+      {openDialog === 'orchestration' && (
+        <OrchestrationDialog workspaceId={activeWorkspaceId} onClose={() => setOpenDialog(null)} />
       )}
     </>
   );
