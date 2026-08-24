@@ -80,6 +80,14 @@ export interface SessionLaunch {
     resume: boolean;
     /** Model selector to pin, when the session chose one. */
     model?: string;
+    /**
+     * MCP config file to register with the CLI, when the session carries one.
+     *
+     * Set only for conductor sessions. A driver whose CLI cannot load MCP
+     * servers from a config file must throw when this is set — silently
+     * ignoring it would launch a conductor with no hands.
+     */
+    mcpConfigPath?: string;
 }
 
 /** A harness's launch settings, normalised for driver consumption. */

@@ -16,8 +16,16 @@ import { cloneWorkspaceRepo } from './github/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { getLoginEnv } from './LoginEnvironment';
 import { NotificationPolicy, findSessionByInstanceId } from './attention';
+import {
+    ConductorControlServer,
+    mcpConfigForSession,
+    type ConductorSessionStatus,
+} from './conductor/ConductorControlServer';
+import { createConductor } from './conductor/createConductor';
+import { scaffold } from './conductor/ConductorScaffold';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
-import type { SessionFanOutIntent } from '../shared/types';
+import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
+import { deriveTerminalStatus } from '../shared/terminalStatus';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { InboxSnapshot, WorkItemRef } from '../shared/github';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -157,6 +165,11 @@ export function setupIpcHandlers(): boolean {
         for (const instanceId of stranded) {
             terminalManager?.destroy(instanceId);
         }
+
+        // Same reasoning one layer down: a conductor's endpoint would outlive
+        // its record as a listening socket and a config file on disk that
+        // nothing can ever name again. A no-op for every other session.
+        doomed?.sessions.forEach((session) => conductorControl.unregister(session.id));
     });
 
     ipcMain.handle(
@@ -177,8 +190,13 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
-        (_event, workspaceId: string, sessionId: string) =>
-            workspaces.deleteSession(workspaceId, sessionId)
+        (_event, workspaceId: string, sessionId: string) => {
+            // Before the record goes: unregister is a no-op for every session
+            // that never had an endpoint, and the only chance a conductor gets
+            // to have its socket closed and its config file removed.
+            conductorControl.unregister(sessionId);
+            workspaces.deleteSession(workspaceId, sessionId);
+        }
     );
 
     ipcMain.handle(
@@ -425,6 +443,56 @@ export function setupIpcHandlers(): boolean {
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
     const launcher = new SessionLauncher(workspaces, harnesses, manager);
 
+    // The conductor control plane. Tool logic runs here in main, next to the
+    // records and terminals it acts on; each conductor session reaches it
+    // through its own private socket (see ConductorControlServer).
+    const conductorControl = new ConductorControlServer({
+        getWorkspaces: () => workspaces.getAll(),
+        launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
+        queuePrompt: (instanceId, prompt) => {
+            const terminal = manager.get(instanceId);
+            if (!terminal || terminal.hasClaudeExited()) return false;
+            terminal.queuePrompt(prompt);
+            return true;
+        },
+        // The same derivation the terminal:status event promotes, from the
+        // same flags — so what a conductor sees and what the fleet UI shows
+        // can never disagree. A terminal that is gone reads as exited.
+        getStatus: (instanceId): ConductorSessionStatus => {
+            const terminal = manager.get(instanceId);
+            if (!terminal) return 'exited';
+            return deriveTerminalStatus({
+                busy: terminal.busy(),
+                awaitingConfirmation: terminal.awaitingConfirmation(),
+                exited: terminal.hasClaudeExited(),
+            });
+        },
+        // In the packaged app the shim must be a real file on disk — the
+        // claude CLI, an outside process, spawns it. Hence asarUnpack.
+        shimEntryPath: () =>
+            path
+                .join(__dirname, 'conductor/conductorShim.js')
+                .replace('app.asar', 'app.asar.unpacked'),
+        configDir: () => path.join(app.getPath('userData'), 'conductor-mcp'),
+    });
+    launcher.conductorControl = conductorControl;
+    app.on('will-quit', () => conductorControl.dispose());
+
+    ipcMain.handle(IPC_CHANNELS.CONDUCTOR_CREATE, (_event, request: ConductorCreateRequest) =>
+        createConductor(
+            {
+                getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+                scaffold,
+                createGroup: (workspaceId, fields) => workspaces.createGroup(workspaceId, fields),
+                updateGroup: (workspaceId, groupId, updates) =>
+                    workspaces.updateGroup(workspaceId, groupId, updates),
+                launchSession: (workspaceId, fields) =>
+                    launcher.launchSession(workspaceId, fields),
+            },
+            request
+        )
+    );
+
     ipcMain.handle(IPC_CHANNELS.SESSION_FAN_OUT, (_event, intent: SessionFanOutIntent) =>
         fanOut({ workspaces, launcher }, intent)
     );
@@ -440,7 +508,7 @@ export function setupIpcHandlers(): boolean {
 
     // Start or attach to a session's terminal. Returns buffered output so a
     // remounted view repaints without restarting the conversation.
-    ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, (event, options: TerminalCreateOptions) => {
+    ipcMain.handle(IPC_CHANNELS.TERMINAL_CREATE, async (event, options: TerminalCreateOptions) => {
         const {
             instanceId,
             workspaceId,
@@ -465,6 +533,18 @@ export function setupIpcHandlers(): boolean {
             .find((candidate) => candidate.id === workspaceId);
         const githubAccountLogin = workspace?.github?.accountLogin;
 
+        // Conductors get their control tools back on every relaunch: the
+        // config file references this run's socket, so it is (re)generated
+        // before the PTY spawns. Kind-gated — every other session passes
+        // through untouched, and the renderer never sees the path.
+        const record = workspaces
+            .getAll()
+            .flatMap((candidate) => candidate.sessions)
+            .find((session) => session.instanceId === instanceId);
+        const mcpConfigPath = record
+            ? await mcpConfigForSession(record, conductorControl)
+            : undefined;
+
         return manager.ensure(instanceId, {
             cwd,
             claudeSessionId,
@@ -485,6 +565,7 @@ export function setupIpcHandlers(): boolean {
             configDirOverride,
             extraArgs,
             githubAccountLogin,
+            mcpConfigPath,
         }, event.sender);
     });
 
@@ -1158,6 +1239,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
+    ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
     ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 

@@ -169,9 +169,10 @@ export class ClaudeDriver implements HarnessDriver {
             ? ['--resume', launch.sessionId]
             : ['--session-id', launch.sessionId];
         const model = launch.model ? ['--model', launch.model] : [];
+        const mcp = launch.mcpConfigPath ? ['--mcp-config', launch.mcpConfigPath] : [];
         // The harness's own extra args come last so a hand-written `--model`
         // there still wins: Claude takes the last occurrence of a flag.
-        return [...base, ...model, ...config.extraArgs];
+        return [...base, ...model, ...mcp, ...config.extraArgs];
     }
 
     /**
