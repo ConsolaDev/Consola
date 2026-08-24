@@ -9,6 +9,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
+import { openTerminalLink } from './terminalLinks';
 
 interface UseTerminalOptions {
     instanceId: string;
@@ -63,11 +64,13 @@ export function useTerminal({
             // Claude repaints its own view; the PTY is the source of truth.
             scrollback: 5000,
             macOptionIsMeta: true,
+            // OSC 8 hyperlinks; plain URLs in the output are the addon's below.
+            linkHandler: { activate: openTerminalLink },
         });
 
         const fitAddon = new FitAddon();
         terminal.loadAddon(fitAddon);
-        terminal.loadAddon(new WebLinksAddon());
+        terminal.loadAddon(new WebLinksAddon(openTerminalLink));
 
         const unicodeAddon = new Unicode11Addon();
         terminal.loadAddon(unicodeAddon);
