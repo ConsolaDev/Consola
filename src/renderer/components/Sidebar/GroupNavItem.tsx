@@ -37,6 +37,13 @@ export function GroupNavItem({
   const terminals = useTerminalStore((state) => state.terminals);
   const counts = groupCountsFor(sessions, terminals);
 
+  // The conductor sits at the head of its group's member list — the brain
+  // above its workers — while the workers keep their existing relative order.
+  const conductor = sessions.find((session) => session.kind === 'conductor');
+  const orderedSessions = conductor
+    ? [conductor, ...sessions.filter((session) => session !== conductor)]
+    : sessions;
+
   // Where a member runs, which is not always its scope: a fan-out member
   // runs in one repo inside the scope, and auto-naming overwrites the repo
   // name it launched with on its first pane mount. Naming the folder keeps
@@ -98,7 +105,7 @@ export function GroupNavItem({
         </DropdownMenu.Root>
       </div>
       {isOpen &&
-        sessions.map((session) => (
+        orderedSessions.map((session) => (
           <SessionNavItem
             key={session.id}
             session={session}

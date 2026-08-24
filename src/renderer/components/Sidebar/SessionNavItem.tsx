@@ -138,6 +138,11 @@ export function SessionNavItem({
         className={`session-status-indicator session-status-indicator--${displayStatus}`}
         aria-hidden="true"
       />
+      {session.kind === 'conductor' && (
+        <span className="session-conductor-glyph" aria-hidden>
+          🧠
+        </span>
+      )}
       {isRenaming ? (
         <input
           ref={inputRef}
