@@ -24,6 +24,47 @@
   overflow: hidden;
 }
 
+/*
+ * Resize handle on the sidebar's right edge. Layout renders it as a flex
+ * sibling of .sidebar, where .sidebar's overflow: hidden cannot clip it. It
+ * is zero wide, so the content area sits exactly where it always has: the
+ * hit zone is the ::before straddling the seam, and the ::after line lands on
+ * .sidebar's own border-right and only ever changes its colour.
+ */
+.sidebar-resize-handle {
+  position: relative;
+  flex: none;
+  width: 0;
+  z-index: var(--z-sidebar);
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.sidebar-resize-handle::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -4px;
+  width: 9px;
+}
+
+.sidebar-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: -1px;
+  width: 1px;
+  background: transparent;
+  transition: background var(--transition-fast);
+}
+
+.sidebar-resize-handle:hover::after,
+.sidebar-resize-handle[data-dragging]::after {
+  background: var(--color-accent);
+}
+
 /* Pinned Inbox row — only rendered for GitHub-bound workspaces */
 .sidebar-inbox {
   padding: var(--space-2) var(--space-2) 0;

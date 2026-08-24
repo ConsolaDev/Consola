@@ -34,7 +34,6 @@
   min-width: var(--sidebar-width);
   padding: var(--space-2) var(--space-3);
   padding-left: 72px; /* Always position right next to macOS traffic light buttons */
-  transition: width var(--transition-normal), min-width var(--transition-normal);
 }
 
 .app-header-sidebar.hidden {
@@ -69,6 +68,25 @@
   flex-direction: column;
   overflow: hidden;
   background: var(--color-bg-primary);
+}
+
+/*
+ * Sidebar resize in flight. The pointer roams the whole window, so everything
+ * under it stops hit-testing: the cursor stays the layout's own instead of
+ * whatever it passes over, nothing lights up on the way, and no text gets
+ * selected. The handle opts back in — it holds the pointer capture.
+ */
+.layout:has(.sidebar-resize-handle[data-dragging]) {
+  cursor: col-resize;
+  user-select: none;
+}
+
+.layout:has(.sidebar-resize-handle[data-dragging]) > * {
+  pointer-events: none;
+}
+
+.sidebar-resize-handle[data-dragging] {
+  pointer-events: auto;
 }
 
 /* Workspace switcher */

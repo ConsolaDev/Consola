@@ -1,5 +1,6 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, type CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
+import { SidebarResizeHandle } from '../Sidebar/SidebarResizeHandle';
 import { AppHeader } from './AppHeader';
 import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
@@ -21,6 +22,9 @@ export function Layout() {
   const { togglePalette, openPalette } = useCommandPalette();
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const setActiveSession = useNavigationStore((state) => state.setActiveSession);
+  const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
+  const sidebarWidth = useNavigationStore((state) => state.sidebarWidth);
+  const layoutRef = useRef<HTMLDivElement>(null);
 
   const handleNewSession = () => {
     // Only enter new session view if a workspace is selected
@@ -53,11 +57,17 @@ export function Layout() {
   // A notification click can land on a window that is already open.
   useEffect(() => subscribeToActivateSession(), []);
 
+  // The sidebar and the header strip above it both read this variable, so
+  // the two cannot drift apart. It goes on the root as a style prop rather
+  // than from an effect so a persisted width paints on the first frame.
+  const layoutStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties;
+
   return (
-    <div className="layout">
+    <div ref={layoutRef} className="layout" style={layoutStyle}>
       <AppHeader />
       <div className="layout-body">
         <Sidebar />
+        {!isSidebarHidden && <SidebarResizeHandle layoutRef={layoutRef} />}
         <main className="content-area">
           <MainContent />
         </main>
