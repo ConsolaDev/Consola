@@ -1,0 +1,212 @@
+import * as crypto from 'crypto';
+import * as fs from 'fs';
+import * as net from 'net';
+import * as os from 'os';
+import * as path from 'path';
+import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+import { z } from 'zod/v3';
+import {
+    generateId,
+    type NewSessionFields,
+    type Session,
+    type Workspace,
+} from '../../shared/workspace';
+
+/**
+ * The control surface a conductor session drives Consola with.
+ *
+ * One endpoint per conductor: a private Unix socket plus a generated
+ * `--mcp-config` file that has the CLI spawn `conductorShim.ts`, a dumb pipe
+ * between its stdio and our socket. The tool logic runs here, in the main
+ * process, next to the session records and terminals it acts on.
+ *
+ * Security boundary: a tool call is authenticated by which conductor's socket
+ * it arrived on — the socket path and handshake token exist only in that
+ * conductor's config file. Scope of authority is that conductor's group,
+ * resolved fresh from the records on every call, never trusted from
+ * arguments. Tokens never appear in tool results.
+ */
+
+export type ConductorSessionStatus = 'working' | 'ready' | 'needs-attention' | 'exited';
+
+export interface ConductorControlDeps {
+    getWorkspaces(): Workspace[];
+    launchSession(
+        workspaceId: string,
+        fields: NewSessionFields & { initialPrompt?: string }
+    ): Promise<Session>;
+    /** Enqueue on the session's guarded FIFO. False when no live terminal. */
+    queuePrompt(instanceId: string, prompt: string): boolean;
+    getStatus(instanceId: string): ConductorSessionStatus;
+    /** Absolute path to the compiled stdio shim the CLI will spawn. */
+    shimEntryPath(): string;
+    /** Directory for per-session MCP config files. Created on demand. */
+    configDir(): string;
+}
+
+interface Endpoint {
+    socketPath: string;
+    token: string;
+    configPath: string;
+    server: net.Server;
+}
+
+/** Longest a client may stall mid-handshake before the line is cut. */
+const HANDSHAKE_LIMIT_BYTES = 4096;
+
+export class ConductorControlServer {
+    private readonly endpoints = new Map<string, Endpoint>();
+
+    constructor(private readonly deps: ConductorControlDeps) {}
+
+    /**
+     * Ensure this conductor has a live endpoint; returns its config path.
+     *
+     * Idempotent because both launch paths call it: the headless spawn at
+     * creation, and TERMINAL_CREATE when a pane mounts after an app restart.
+     * The config references this run's socket, so it is rewritten per run.
+     */
+    public async register(session: Session): Promise<string> {
+        if (session.kind !== 'conductor') {
+            throw new Error(
+                `Session ${session.id} is not a conductor; refusing to register control tools.`
+            );
+        }
+
+        const existing = this.endpoints.get(session.id);
+        if (existing) return existing.configPath;
+
+        const token = crypto.randomBytes(16).toString('hex');
+        const socketPath = newSocketPath();
+        const server = net.createServer((socket) => this.handleConnection(session.id, socket));
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject);
+            server.listen(socketPath, () => resolve());
+        });
+
+        const configPath = path.join(this.deps.configDir(), `${session.id}.json`);
+        const config = {
+            mcpServers: {
+                consola: {
+                    type: 'stdio',
+                    command: process.execPath,
+                    args: [this.deps.shimEntryPath()],
+                    env: {
+                        // Turns the Electron binary into plain Node for the
+                        // shim — no system Node install is assumed.
+                        ELECTRON_RUN_AS_NODE: '1',
+                        CONSOLA_CONDUCTOR_SOCKET: socketPath,
+                        CONSOLA_CONDUCTOR_TOKEN: token,
+                    },
+                },
+            },
+        };
+        await fs.promises.mkdir(this.deps.configDir(), { recursive: true });
+        await fs.promises.writeFile(configPath, JSON.stringify(config, null, 2), {
+            mode: 0o600,
+        });
+
+        this.endpoints.set(session.id, { socketPath, token, configPath, server });
+        return configPath;
+    }
+
+    /** Close a conductor's endpoint and remove its socket and config file. */
+    public unregister(sessionId: string): void {
+        const endpoint = this.endpoints.get(sessionId);
+        if (!endpoint) return;
+        this.endpoints.delete(sessionId);
+        endpoint.server.close();
+        for (const doomed of [endpoint.socketPath, endpoint.configPath]) {
+            try {
+                fs.unlinkSync(doomed);
+            } catch {
+                // Already gone, or a Windows named pipe with no file to unlink.
+            }
+        }
+    }
+
+    public dispose(): void {
+        for (const sessionId of [...this.endpoints.keys()]) {
+            this.unregister(sessionId);
+        }
+    }
+
+    /**
+     * First line on a new connection is a handshake `{"token": "..."}\n`;
+     * everything after is JSON-RPC handed to a fresh MCP server instance.
+     * A wrong token gets a closed socket and nothing else.
+     */
+    private handleConnection(conductorSessionId: string, socket: net.Socket): void {
+        const endpoint = this.endpoints.get(conductorSessionId);
+        if (!endpoint) {
+            socket.destroy();
+            return;
+        }
+
+        let buffer = '';
+        const onData = (chunk: Buffer) => {
+            buffer += chunk.toString('utf8');
+            const newline = buffer.indexOf('\n');
+            if (newline === -1) {
+                if (buffer.length > HANDSHAKE_LIMIT_BYTES) socket.destroy();
+                return;
+            }
+            socket.off('data', onData);
+
+            let authenticated = false;
+            try {
+                authenticated = JSON.parse(buffer.slice(0, newline)).token === endpoint.token;
+            } catch {
+                // Not even JSON: treated the same as a wrong token.
+            }
+            if (!authenticated) {
+                socket.destroy();
+                return;
+            }
+
+            // Bytes that arrived glued to the handshake belong to the
+            // JSON-RPC stream; push them back for the transport to read.
+            const rest = buffer.slice(newline + 1);
+            if (rest.length > 0) socket.unshift(Buffer.from(rest, 'utf8'));
+
+            const transport = new StdioServerTransport(socket, socket);
+            void this.buildServerFor(conductorSessionId).connect(transport);
+        };
+        socket.on('data', onData);
+        socket.on('error', () => socket.destroy());
+    }
+
+    /**
+     * The MCP surface for one conductor. Implemented in Task 6; the stub
+     * keeps Task 4 compiling and failing honestly if reached.
+     */
+    public buildServerFor(conductorSessionId: string): McpServer {
+        void conductorSessionId;
+        throw new Error('buildServerFor is implemented in Task 6.');
+    }
+}
+
+/**
+ * A fresh, unguessable rendezvous path. Random per registration, so a stale
+ * file from a crash can never collide, and knowing one run's path buys
+ * nothing in the next.
+ */
+function newSocketPath(): string {
+    const suffix = crypto.randomBytes(8).toString('hex');
+    return process.platform === 'win32'
+        ? `\\\\.\\pipe\\consola-conductor-${suffix}`
+        : path.join(os.tmpdir(), `consola-conductor-${suffix}.sock`);
+}
+
+/**
+ * The kind gate both launch paths share: conductors get a config path,
+ * everything else gets nothing. One implementation, so "interactive sessions
+ * never carry MCP registration" is a single tested fact.
+ */
+export async function mcpConfigForSession(
+    session: Session,
+    control: { register(session: Session): Promise<string> }
+): Promise<string | undefined> {
+    return session.kind === 'conductor' ? control.register(session) : undefined;
+}
