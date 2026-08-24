@@ -185,6 +185,13 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
 
+    updateScope: (
+        workspaceId: string,
+        scopeId: string,
+        updates: Partial<Pick<Scope, 'name'>>
+    ): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE, workspaceId, scopeId, updates),
+
     removeScope: (workspaceId: string, scopeId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE, workspaceId, scopeId),
 
@@ -197,8 +204,18 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     createGroup: (workspaceId: string, fields: NewGroupFields): Promise<Group> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_CREATE, workspaceId, fields),
 
+    updateGroup: (
+        workspaceId: string,
+        groupId: string,
+        updates: Partial<Pick<Group, 'name'>>
+    ): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE, workspaceId, groupId, updates),
+
     archiveGroup: (workspaceId: string, groupId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE, workspaceId, groupId),
+
+    restoreGroup: (workspaceId: string, groupId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE, workspaceId, groupId),
 
     fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),
