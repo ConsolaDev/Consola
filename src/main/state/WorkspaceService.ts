@@ -182,6 +182,26 @@ export class WorkspaceService {
     return group;
   }
 
+  public updateGroup(
+    workspaceId: string,
+    groupId: string,
+    updates: Partial<Pick<Group, 'conductorSessionId' | 'archivedAt'>>
+  ): void {
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.id === workspaceId
+          ? {
+              ...workspace,
+              groups: workspace.groups.map((group) =>
+                group.id === groupId ? { ...group, ...updates } : group
+              ),
+              updatedAt: Date.now(),
+            }
+          : workspace
+      )
+    );
+  }
+
   /** Archive a group. Sessions keep their groupId; group UI semantics land in Phase 2. */
   public archiveGroup(workspaceId: string, groupId: string): void {
     this.commit(
