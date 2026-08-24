@@ -5,9 +5,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
+// 'zod/v3', not 'zod': the root import trips TS2589 in the SDK's zod-compat conditional types.
 import { z } from 'zod/v3';
 import {
-    generateId,
+    generateSessionInstanceId,
     type NewSessionFields,
     type Session,
     type Workspace,
@@ -54,7 +55,7 @@ interface Endpoint {
     sockets: Set<net.Socket>;
 }
 
-/** Longest a client may stall mid-handshake before the line is cut. */
+/** Byte cap on the pre-handshake buffer: a first line longer than this cuts the connection. */
 const HANDSHAKE_LIMIT_BYTES = 4096;
 
 export class ConductorControlServer {
@@ -360,7 +361,7 @@ export class ConductorControlServer {
         const spawned = await this.deps.launchSession(workspace.id, {
             name: args.name,
             workspaceId: workspace.id,
-            instanceId: generateId(),
+            instanceId: generateSessionInstanceId(workspace.id),
             harnessId: conductor.harnessId,
             scopeId: scope.id,
             cwd: args.cwd,
