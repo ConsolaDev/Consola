@@ -222,12 +222,83 @@ export class ConductorControlServer {
     }
 
     /**
-     * The MCP surface for one conductor. Implemented in Task 6; the stub
-     * keeps Task 4 compiling and failing honestly if reached.
+     * The MCP surface for one conductor. A fresh instance per connection —
+     * identity is baked in from the endpoint, never read from arguments.
+     * Results are single-line JSON of small structured objects: the bell,
+     * not the package.
      */
     public buildServerFor(conductorSessionId: string): McpServer {
-        void conductorSessionId;
-        throw new Error('buildServerFor is implemented in Task 6.');
+        const server = new McpServer({ name: 'consola', version: '1.0.0' });
+
+        server.registerTool(
+            'consola_spawn_session',
+            {
+                description:
+                    'Start a worker session in your group. scopePath must be one of the ' +
+                    "workspace's scopes (omit for your own scope); cwd must be inside it. " +
+                    'Returns { sessionId, instanceId }.',
+                inputSchema: {
+                    name: z.string().min(1),
+                    scopePath: z.string().optional(),
+                    cwd: z.string().optional(),
+                    prompt: z.string().min(1),
+                },
+            },
+            (args) => this.asResult(() => this.handleSpawnSession(conductorSessionId, args))
+        );
+
+        server.registerTool(
+            'consola_send_prompt',
+            {
+                description:
+                    'Queue a prompt on a session in your group. Delivery waits for an ' +
+                    'empty composer and never types into a menu.',
+                inputSchema: {
+                    sessionId: z.string().min(1),
+                    prompt: z.string().min(1),
+                },
+            },
+            (args) => this.asResult(() => this.handleSendPrompt(conductorSessionId, args))
+        );
+
+        server.registerTool(
+            'consola_session_status',
+            {
+                description:
+                    "One group member's state: working | ready | needs-attention | exited.",
+                inputSchema: { sessionId: z.string().min(1) },
+            },
+            (args) => this.asResult(() => this.handleSessionStatus(conductorSessionId, args))
+        );
+
+        server.registerTool(
+            'consola_group_status',
+            {
+                description: 'Every session in your group: [{ sessionId, name, status }].',
+                inputSchema: {},
+            },
+            () => this.asResult(() => this.handleGroupStatus(conductorSessionId))
+        );
+
+        return server;
+    }
+
+    /** Uniform tool envelope: JSON on success, the bare message on failure. */
+    private async asResult(run: () => unknown | Promise<unknown>) {
+        try {
+            const value = await run();
+            return { content: [{ type: 'text' as const, text: JSON.stringify(value) }] };
+        } catch (error) {
+            return {
+                isError: true,
+                content: [
+                    {
+                        type: 'text' as const,
+                        text: error instanceof Error ? error.message : String(error),
+                    },
+                ],
+            };
+        }
     }
 
     /**
