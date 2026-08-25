@@ -40,4 +40,13 @@ describe('PROVIDER_META', () => {
       }
     }
   });
+
+  it('gives every provider a web URL template for pr and issue, parameterised by repo and number', () => {
+    for (const meta of Object.values(PROVIDER_META)) {
+      for (const template of Object.values(meta.webUrlTemplate)) {
+        expect(template).toContain('{{repo}}');
+        expect(template).toContain('{{number}}');
+      }
+    }
+  });
 });

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   isValidWorkItemRef,
   sameWorkItem,
+  toWorkItemRef,
   workItemKey,
   workItemUrl,
   type WorkItemRef,
@@ -87,5 +88,19 @@ describe('isValidWorkItemRef', () => {
     expect(isValidWorkItemRef(null)).toBe(false);
     expect(isValidWorkItemRef('github:sympower/controller-app:pr:51')).toBe(false);
     expect(isValidWorkItemRef(undefined)).toBe(false);
+  });
+});
+
+describe('toWorkItemRef', () => {
+  // Rebuilds from an allow-list, the same discipline setActions/setProviderBinding
+  // use, so a payload that passed isValidWorkItemRef cannot smuggle stray keys
+  // into workspaces.json.
+  it('keeps only provider, repo, type, and number', () => {
+    const withExtra = { ...pr51, token: 'ghp_secret', extra: 'nope' } as unknown as WorkItemRef;
+    expect(toWorkItemRef(withExtra)).toEqual(pr51);
+  });
+
+  it('rebuilds a plain ref unchanged', () => {
+    expect(toWorkItemRef(pr51)).toEqual(pr51);
   });
 });
