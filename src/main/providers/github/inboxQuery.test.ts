@@ -2,7 +2,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it } from 'vitest';
-import { INBOX_QUERY, parseInboxPayload, searchStrings } from './inboxQuery';
+import type { InboxItem } from '../../../shared/workItems';
+import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } from './inboxQuery';
 
 const canned = JSON.parse(
   fs.readFileSync(
@@ -11,136 +12,294 @@ const canned = JSON.parse(
   )
 );
 
-/** A minimal PullRequest node under one alias; overrides shape the case. */
-function payloadWith(alias: string, node: Record<string, unknown>) {
+/** One PullRequest node carrying every field the fragment asks for. */
+function prNode(number: number, overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
-    data: {
-      assigned: { nodes: [] },
-      authored: { nodes: [] },
-      reviewRequested: { nodes: [] },
-      [alias]: {
-        nodes: [
-          {
-            __typename: 'PullRequest',
-            title: 'A',
-            number: 1,
-            state: 'OPEN',
-            url: 'https://github.com/o/r/pull/1',
-            updatedAt: '2026-08-20T00:00:00Z',
-            repository: { nameWithOwner: 'o/r' },
-            ...node,
-          },
-        ],
-      },
+    __typename: 'PullRequest',
+    title: `PR ${number}`,
+    number,
+    state: 'OPEN',
+    url: `https://github.com/o/r/pull/${number}`,
+    updatedAt: '2026-08-20T00:00:00Z',
+    repository: { nameWithOwner: 'o/r' },
+    author: { login: 'someone' },
+    comments: { totalCount: 0 },
+    isDraft: false,
+    reviewDecision: 'REVIEW_REQUIRED',
+    additions: 1,
+    deletions: 1,
+    commits: { nodes: [{ commit: { statusCheckRollup: null } }] },
+    ...overrides,
+  };
+}
+
+/** A `commits` field whose rollup carries the given state and contexts. */
+function rollup(state: string, contexts?: { totalCount: number; nodes: unknown[] }) {
+  return {
+    commits: {
+      nodes: [{ commit: { statusCheckRollup: { state, ...(contexts ? { contexts } : {}) } } }],
     },
   };
 }
 
+const checkRun = (status: string, conclusion: string | null) => ({
+  __typename: 'CheckRun',
+  status,
+  conclusion,
+});
+const statusContext = (state: string) => ({ __typename: 'StatusContext', state });
+
+/** A payload with nodes under the named aliases and every other alias empty. */
+function payloadWith(nodesByAlias: Partial<Record<string, unknown[]>>): unknown {
+  const data: Record<string, { nodes: unknown[] }> = {};
+  for (const alias of INBOX_SEARCH_ALIASES) data[alias] = { nodes: nodesByAlias[alias] ?? [] };
+  return { data };
+}
+
+const only = (payload: unknown): InboxItem => {
+  const items = parseInboxPayload(payload);
+  expect(items).toHaveLength(1);
+  return items[0];
+};
+
 describe('searchStrings', () => {
-  it('scopes every search to the org when one is set', () => {
-    const searches = searchStrings('SymJavi', 'sympower');
-    expect(searches.assigned).toBe('assignee:SymJavi is:open archived:false org:sympower');
-    expect(searches.authored).toBe('author:SymJavi is:open archived:false org:sympower');
-    expect(searches.reviewRequested).toBe(
-      'review-requested:SymJavi is:open is:pr archived:false org:sympower'
-    );
+  it('builds the five qualifiers, org-scoped', () => {
+    expect(searchStrings('SymJavi', 'sympower')).toEqual({
+      direct: 'user-review-requested:SymJavi is:pr is:open archived:false org:sympower',
+      team: 'review-requested:SymJavi is:pr is:open archived:false org:sympower',
+      authored: 'author:SymJavi is:open archived:false org:sympower',
+      assigned: 'assignee:SymJavi is:open archived:false org:sympower',
+      involved: 'involves:SymJavi is:open archived:false org:sympower',
+    });
   });
 
-  it('omits the org qualifier when the workspace has none — all repos for the account', () => {
-    expect(searchStrings('SymJavi').assigned).toBe('assignee:SymJavi is:open archived:false');
+  it('omits the org qualifier when the workspace has none -- all repos for the account', () => {
+    expect(searchStrings('SymJavi').involved).toBe('involves:SymJavi is:open archived:false');
   });
 });
 
 describe('INBOX_QUERY', () => {
-  it('declares the three aliased searches the parser reads', () => {
-    for (const alias of ['assigned:', 'authored:', 'reviewRequested:']) {
-      expect(INBOX_QUERY).toContain(alias);
+  it('declares one variable and one aliased search per alias, first: 50 each', () => {
+    for (const alias of INBOX_SEARCH_ALIASES) {
+      expect(INBOX_QUERY).toContain(`$${alias}: String!`);
+      expect(INBOX_QUERY).toContain(`${alias}: search(query: $${alias}, type: ISSUE, first: 50)`);
     }
   });
 
-  it('asks for the fields the provider-neutral item is built from', () => {
-    for (const field of ['isDraft', 'author { login }', 'comments { totalCount }', 'reviewDecision']) {
-      expect(INBOX_QUERY).toContain(field);
-    }
+  it('asks for the fields check counts, authorship and comment counts derive from', () => {
+    expect(INBOX_QUERY).toContain('contexts(first: 100)');
+    expect(INBOX_QUERY).toContain('... on CheckRun { status conclusion }');
+    expect(INBOX_QUERY).toContain('... on StatusContext { state }');
+    expect(INBOX_QUERY).toContain('comments { totalCount }');
+    expect(INBOX_QUERY).toContain('author { login }');
+    expect(INBOX_QUERY).toContain('isDraft');
   });
 });
 
-describe('parseInboxPayload', () => {
+describe('parseInboxPayload over the canned fixture', () => {
   const items = parseInboxPayload(canned);
+  const byNumber = (number: number) => items.find((item) => item.workItem.number === number);
 
-  it('parses the canned payload into deduplicated items', () => {
-    // 5 nodes in the fixture, but PR #42 appears under two aliases.
-    expect(items).toHaveLength(4);
+  it('yields nine distinct items from eleven nodes', () => {
+    expect(items).toHaveLength(9);
   });
 
-  it('merges the roles of an item that appears under several aliases, request first', () => {
-    const pr42 = items.find((item) => item.workItem.number === 42);
-    expect(pr42?.roles).toEqual(['review-requested-direct', 'assignee']);
+  it('keeps a directly requested review out of the team role', () => {
+    expect(byNumber(51)?.roles).toEqual(['review-requested-direct']);
   });
 
-  it('maps PullRequest nodes to pr items with author, comments, CI and a normalised review verdict', () => {
-    const pr51 = items.find((item) => item.workItem.number === 51);
-    expect(pr51?.workItem).toEqual({
+  it('marks a team-only request as such', () => {
+    expect(byNumber(60)?.roles).toEqual(['review-requested-team']);
+  });
+
+  it('merges every role an item was returned under', () => {
+    expect(byNumber(70)?.roles).toEqual(['author', 'involved']);
+    expect(byNumber(12)?.roles).toEqual(['assignee', 'involved']);
+  });
+
+  it('keeps items only the involves search returned', () => {
+    expect(byNumber(200)?.roles).toEqual(['involved']);
+    expect(byNumber(300)?.roles).toEqual(['involved']);
+  });
+
+  it('reads author, draft flag, comment count and diff size', () => {
+    expect(byNumber(70)?.author).toBe('SymJavi');
+    expect(byNumber(70)?.isDraft).toBe(true);
+    expect(byNumber(51)?.isDraft).toBe(false);
+    expect(byNumber(12)?.commentCount).toBe(3);
+    expect(byNumber(51)?.additions).toBe(210);
+    expect(byNumber(51)?.deletions).toBe(88);
+  });
+
+  it('normalises the review decision', () => {
+    expect(byNumber(90)?.reviewDecision).toBe('approved');
+    expect(byNumber(80)?.reviewDecision).toBe('changes-requested');
+    expect(byNumber(51)?.reviewDecision).toBe('review-required');
+    expect(byNumber(70)?.reviewDecision).toBe('none');
+    expect(byNumber(12)?.reviewDecision).toBe('none');
+  });
+
+  it('derives check counts and the CI verdict from the rollup', () => {
+    expect(byNumber(51)?.checks).toEqual({ passed: 2, failed: 1, pending: 0, total: 3 });
+    expect(byNumber(51)?.ciStatus).toBe('failing');
+    expect(byNumber(90)?.checks).toEqual({ passed: 4, failed: 0, pending: 0, total: 4 });
+    expect(byNumber(90)?.ciStatus).toBe('passing');
+    expect(byNumber(100)?.checks).toEqual({ passed: 0, failed: 0, pending: 2, total: 2 });
+    expect(byNumber(100)?.ciStatus).toBe('pending');
+  });
+
+  it('leaves checks and ciStatus undefined when there is no rollup', () => {
+    expect(byNumber(70)?.checks).toBeUndefined();
+    expect(byNumber(70)?.ciStatus).toBeUndefined();
+    expect(byNumber(12)?.checks).toBeUndefined();
+    expect(byNumber(12)?.ciStatus).toBeUndefined();
+  });
+
+  it('maps Issue nodes to issue work items and PullRequest nodes to pr', () => {
+    expect(byNumber(12)?.workItem).toEqual({
       provider: 'github',
-      repo: 'sympower/controller-app',
-      type: 'pr',
-      number: 51,
+      repo: 'sympower/msa-resource-bff',
+      type: 'issue',
+      number: 12,
     });
-    expect(pr51?.roles).toEqual(['review-requested-direct']);
-    expect(pr51?.author).toBe('anna');
-    expect(pr51?.isDraft).toBe(false);
-    expect(pr51?.commentCount).toBe(3);
-    expect(pr51?.ciStatus).toBe('failing');
-    expect(pr51?.reviewDecision).toBe('review-required');
-    expect(pr51?.additions).toBe(210);
-    expect(pr51?.deletions).toBe(88);
-    expect(pr51?.state).toBe('open');
-    expect(pr51?.checks).toBeUndefined();
-  });
-
-  it('maps Issue nodes to issue items with no CI and no review verdict', () => {
-    const issue87 = items.find((item) => item.workItem.number === 87);
-    expect(issue87?.workItem.type).toBe('issue');
-    expect(issue87?.roles).toEqual(['assignee']);
-    expect(issue87?.author).toBe('mira');
-    expect(issue87?.commentCount).toBe(4);
-    expect(issue87?.isDraft).toBe(false);
-    expect(issue87?.ciStatus).toBeUndefined();
-    expect(issue87?.reviewDecision).toBe('none');
-  });
-
-  it('labels the authored alias as author', () => {
-    const pr204 = items.find((item) => item.workItem.number === 204);
-    expect(pr204?.roles).toEqual(['author']);
-    expect(pr204?.reviewDecision).toBe('changes-requested');
+    expect(byNumber(51)?.workItem.type).toBe('pr');
+    expect(byNumber(51)?.state).toBe('open');
   });
 
   it('sorts newest-updated first', () => {
     const stamps = items.map((item) => item.updatedAt);
     expect(stamps).toEqual([...stamps].sort().reverse());
   });
+});
 
-  it('maps SUCCESS to passing and PENDING to pending', () => {
-    const passing = payloadWith('reviewRequested', {
-      commits: { nodes: [{ commit: { statusCheckRollup: { state: 'SUCCESS' } } }] },
+describe('parseInboxPayload derivation rules', () => {
+  it('classifies completed CheckRuns by conclusion', () => {
+    const node = prNode(
+      1,
+      rollup('FAILURE', {
+        totalCount: 8,
+        nodes: [
+          checkRun('COMPLETED', 'SUCCESS'),
+          checkRun('COMPLETED', 'NEUTRAL'),
+          checkRun('COMPLETED', 'SKIPPED'),
+          checkRun('COMPLETED', 'FAILURE'),
+          checkRun('COMPLETED', 'CANCELLED'),
+          checkRun('COMPLETED', 'TIMED_OUT'),
+          checkRun('COMPLETED', 'ACTION_REQUIRED'),
+          checkRun('COMPLETED', 'STARTUP_FAILURE'),
+        ],
+      })
+    );
+    expect(only(payloadWith({ authored: [node] })).checks).toEqual({
+      passed: 3,
+      failed: 5,
+      pending: 0,
+      total: 8,
     });
-    const pending = payloadWith('reviewRequested', {
-      commits: { nodes: [{ commit: { statusCheckRollup: { state: 'PENDING' } } }] },
-    });
-    expect(parseInboxPayload(passing)[0].ciStatus).toBe('passing');
-    expect(parseInboxPayload(pending)[0].ciStatus).toBe('pending');
   });
 
-  it('normalises APPROVED and treats a missing verdict as none', () => {
-    expect(parseInboxPayload(payloadWith('authored', { reviewDecision: 'APPROVED' }))[0].reviewDecision).toBe('approved');
-    expect(parseInboxPayload(payloadWith('authored', { reviewDecision: null }))[0].reviewDecision).toBe('none');
+  it('treats an unfinished or stale CheckRun as pending', () => {
+    const node = prNode(
+      1,
+      rollup('PENDING', {
+        totalCount: 3,
+        nodes: [
+          checkRun('IN_PROGRESS', null),
+          checkRun('QUEUED', null),
+          checkRun('COMPLETED', 'STALE'),
+        ],
+      })
+    );
+    expect(only(payloadWith({ authored: [node] })).checks).toEqual({
+      passed: 0,
+      failed: 0,
+      pending: 3,
+      total: 3,
+    });
   });
 
-  it('carries isDraft through and defaults author and comments when GitHub omits them', () => {
-    const [draft] = parseInboxPayload(payloadWith('authored', { isDraft: true }));
-    expect(draft.isDraft).toBe(true);
-    expect(draft.author).toBe('');
-    expect(draft.commentCount).toBe(0);
+  it('classifies StatusContexts by state', () => {
+    const node = prNode(
+      1,
+      rollup('FAILURE', {
+        totalCount: 5,
+        nodes: [
+          statusContext('SUCCESS'),
+          statusContext('ERROR'),
+          statusContext('FAILURE'),
+          statusContext('PENDING'),
+          statusContext('EXPECTED'),
+        ],
+      })
+    );
+    expect(only(payloadWith({ authored: [node] })).checks).toEqual({
+      passed: 1,
+      failed: 2,
+      pending: 2,
+      total: 5,
+    });
+  });
+
+  it('counts an unrecognised context type in the total only', () => {
+    const node = prNode(
+      1,
+      rollup('SUCCESS', {
+        totalCount: 2,
+        nodes: [{ __typename: 'Mystery' }, checkRun('COMPLETED', 'SUCCESS')],
+      })
+    );
+    expect(only(payloadWith({ authored: [node] })).checks).toEqual({
+      passed: 1,
+      failed: 0,
+      pending: 0,
+      total: 2,
+    });
+  });
+
+  it('maps the rollup state to ciStatus', () => {
+    const verdict = (state: string) =>
+      only(payloadWith({ authored: [prNode(1, rollup(state))] })).ciStatus;
+    expect(verdict('SUCCESS')).toBe('passing');
+    expect(verdict('FAILURE')).toBe('failing');
+    expect(verdict('ERROR')).toBe('failing');
+    expect(verdict('PENDING')).toBe('pending');
+    expect(verdict('EXPECTED')).toBe('pending');
+    expect(verdict('SOMETHING_NEW')).toBeUndefined();
+  });
+
+  it('reports no checks when the rollup carries no contexts -- never a zeroed object', () => {
+    const item = only(payloadWith({ authored: [prNode(1, rollup('SUCCESS'))] }));
+    expect(item.ciStatus).toBe('passing');
+    expect(item.checks).toBeUndefined();
+  });
+
+  it('reads a null or unfamiliar reviewDecision as none', () => {
+    expect(only(payloadWith({ authored: [prNode(1, { reviewDecision: null })] })).reviewDecision).toBe(
+      'none'
+    );
+    expect(
+      only(payloadWith({ authored: [prNode(1, { reviewDecision: 'SOMETHING_NEW' })] })).reviewDecision
+    ).toBe('none');
+  });
+
+  it('defaults a missing author and comment count', () => {
+    const item = only(payloadWith({ authored: [prNode(1, { author: null, comments: undefined })] }));
+    expect(item.author).toBe('');
+    expect(item.commentCount).toBe(0);
+  });
+
+  it('gives each role to an item several searches returned', () => {
+    const item = only(payloadWith({ authored: [prNode(1)], assigned: [prNode(1)] }));
+    expect(item.roles).toEqual(['author', 'assignee']);
+  });
+
+  it('suppresses the team role when the item was requested directly, whatever the payload order', () => {
+    const payload = { data: { team: { nodes: [prNode(1)] }, direct: { nodes: [prNode(1)] } } };
+    expect(only(payload).roles).toEqual(['review-requested-direct']);
+  });
+
+  it('never records a role twice', () => {
+    expect(only(payloadWith({ authored: [prNode(1), prNode(1)] })).roles).toEqual(['author']);
   });
 
   it('skips malformed nodes rather than throwing', () => {
@@ -148,16 +307,13 @@ describe('parseInboxPayload', () => {
     expect(parseInboxPayload(payload)).toEqual([]);
   });
 
-  // A driver must throw on an unrecognised reply, never return an empty list —
-  // an empty inbox and a broken fetch must never look the same to the caller.
-  it('throws when the payload has no data object', () => {
-    expect(() => parseInboxPayload({})).toThrow(/data/);
+  it('parses data present with a missing alias key as empty for that alias', () => {
+    expect(parseInboxPayload({ data: { assigned: { nodes: [] } } })).toEqual([]);
   });
 
-  it('throws when the payload is null', () => {
-    expect(() => parseInboxPayload(null)).toThrow();
-  });
-
+  // Controller ruling: a non-object payload, null, and a payload with no
+  // `data` object all keep throwing -- an empty inbox and a broken fetch
+  // must never look the same to the caller.
   it('throws when the payload is not an object', () => {
     expect(() => parseInboxPayload('not an object')).toThrow('Inbox payload must be a JSON object');
     expect(() => parseInboxPayload(42)).toThrow();
@@ -165,25 +321,27 @@ describe('parseInboxPayload', () => {
     expect(() => parseInboxPayload([])).toThrow();
   });
 
+  it('throws when the payload is null', () => {
+    expect(() => parseInboxPayload(null)).toThrow('Inbox payload must be a JSON object');
+  });
+
+  it('throws when the payload has no data object', () => {
+    expect(() => parseInboxPayload({})).toThrow('GitHub API response has no data');
+  });
+
   it('throws when payload.data is null', () => {
     expect(() => parseInboxPayload({ data: null })).toThrow('GitHub API returned no data');
   });
 
-  it('throws when payload.errors exists with no data, carrying the error message', () => {
+  it('throws when errors exist without data, carrying the message', () => {
     expect(() => parseInboxPayload({ errors: [{ message: 'API rate limit exceeded' }] })).toThrow(
       'API rate limit exceeded'
     );
   });
 
-  it('does not throw when errors exist but data is present and valid', () => {
-    const payload = {
-      data: { assigned: { nodes: [] }, authored: { nodes: [] }, reviewRequested: { nodes: [] } },
-      errors: [{ message: 'Some warning' }],
-    };
-    expect(parseInboxPayload(payload)).toEqual([]);
-  });
-
-  it('parses data present with a missing alias key as empty for that alias', () => {
-    expect(parseInboxPayload({ data: { assigned: { nodes: [] } } })).toEqual([]);
+  it('tolerates errors alongside usable data', () => {
+    expect(parseInboxPayload({ ...(payloadWith({}) as object), errors: [{ message: 'warning' }] })).toEqual(
+      []
+    );
   });
 });

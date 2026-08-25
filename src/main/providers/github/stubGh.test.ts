@@ -25,9 +25,22 @@ describe('stub gh fixture', () => {
     );
   });
 
-  it('answers api graphql with the canned inbox payload', () => {
+  it('answers api graphql with the five-alias canned inbox payload', () => {
     const payload = JSON.parse(runStub(['api', 'graphql', '-f', 'query=whatever']));
-    expect(payload.data.reviewRequested.nodes.length).toBeGreaterThan(0);
+    expect(Object.keys(payload.data)).toEqual(['direct', 'team', 'authored', 'assigned', 'involved']);
+    expect(payload.data.direct.nodes.length).toBeGreaterThan(0);
+  });
+
+  it('prints GRAPHQL_INBOX_FIXTURE instead of the canned payload when set', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-stub-gh-'));
+    const fixture = path.join(dir, 'inbox.json');
+    fs.writeFileSync(fixture, JSON.stringify({ data: { direct: { nodes: [] } } }));
+    try {
+      const payload = JSON.parse(runStub(['api', 'graphql'], { GRAPHQL_INBOX_FIXTURE: fixture }));
+      expect(payload).toEqual({ data: { direct: { nodes: [] } } });
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('fails every call with a canned stderr when STUB_GH_FAIL=1', () => {

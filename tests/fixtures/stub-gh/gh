@@ -4,11 +4,12 @@
 # Playwright inbox spec — runs deterministically without network or a keyring.
 #
 # Env knobs:
-#   STUB_GH_FAIL=1           every invocation exits 1 with a canned stderr line
-#   STUB_GH_CLONE_FROM=path  `repo clone` clones from this local repo instead of GitHub
-#   STUB_GH_LOG=path         append one line per invocation: argv (newlines
-#                            flattened — the GraphQL query spans lines) then
-#                            the GH_TOKEN the call saw
+#   STUB_GH_FAIL=1                every invocation exits 1 with a canned stderr line
+#   STUB_GH_CLONE_FROM=path       `repo clone` clones from this local repo instead of GitHub
+#   STUB_GH_LOG=path              append one line per invocation: argv (newlines
+#                                 flattened — the GraphQL query spans lines) then
+#                                 the GH_TOKEN the call saw
+#   GRAPHQL_INBOX_FIXTURE=path    `api graphql` prints this file instead of graphql-inbox.json
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -39,7 +40,9 @@ case "$cmd" in
     echo "gho_stub_token_for_${4:-unknown}"
     ;;
   "api graphql")
-    cat "$here/graphql-inbox.json"
+    # The static fixture keeps fixed dates for the parser tests; the e2e
+    # points this at a payload it generates with live timestamps.
+    cat "${GRAPHQL_INBOX_FIXTURE:-$here/graphql-inbox.json}"
     ;;
   "pr checkout")
     # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.

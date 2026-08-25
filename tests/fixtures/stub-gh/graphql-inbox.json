@@ -1,33 +1,111 @@
 {
   "data": {
-    "assigned": {
+    "direct": {
       "nodes": [
         {
-          "__typename": "Issue",
-          "title": "Rate limit returns 500",
-          "number": 87,
+          "__typename": "PullRequest",
+          "title": "Extract billing client",
+          "number": 51,
           "state": "OPEN",
-          "url": "https://github.com/sympower/msa-resource-bff/issues/87",
-          "updatedAt": "2026-08-20T07:12:00Z",
-          "author": { "login": "mira" },
-          "comments": { "totalCount": 4 },
-          "repository": { "nameWithOwner": "sympower/msa-resource-bff" }
+          "url": "https://github.com/sympower/controller-app/pull/51",
+          "updatedAt": "2026-08-22T07:55:00Z",
+          "repository": { "nameWithOwner": "sympower/controller-app" },
+          "author": { "login": "steve-sympower" },
+          "comments": { "totalCount": 1 },
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "additions": 210,
+          "deletions": 88,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "FAILURE",
+                    "contexts": {
+                      "totalCount": 3,
+                      "nodes": [
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "FAILURE" },
+                        { "__typename": "StatusContext", "state": "SUCCESS" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "team": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "title": "Extract billing client",
+          "number": 51,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/controller-app/pull/51",
+          "updatedAt": "2026-08-22T07:55:00Z",
+          "repository": { "nameWithOwner": "sympower/controller-app" },
+          "author": { "login": "steve-sympower" },
+          "comments": { "totalCount": 1 },
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "additions": 210,
+          "deletions": 88,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "FAILURE",
+                    "contexts": {
+                      "totalCount": 3,
+                      "nodes": [
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "FAILURE" },
+                        { "__typename": "StatusContext", "state": "SUCCESS" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
         },
         {
           "__typename": "PullRequest",
-          "title": "Fix auth retry loop",
-          "number": 42,
+          "title": "Migrate flex-portal to the shared auth client",
+          "number": 60,
           "state": "OPEN",
-          "url": "https://github.com/sympower/flex-portal/pull/42",
-          "updatedAt": "2026-08-20T08:05:00Z",
-          "isDraft": false,
-          "author": { "login": "kenji" },
-          "comments": { "totalCount": 2 },
+          "url": "https://github.com/sympower/flex-portal/pull/60",
+          "updatedAt": "2026-08-22T06:10:00Z",
           "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "author": { "login": "maria-sympower" },
+          "comments": { "totalCount": 0 },
+          "isDraft": false,
           "reviewDecision": "REVIEW_REQUIRED",
-          "additions": 84,
-          "deletions": 12,
-          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+          "additions": 340,
+          "deletions": 120,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "SUCCESS",
+                    "contexts": {
+                      "totalCount": 2,
+                      "nodes": [
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
         }
       ]
     },
@@ -35,55 +113,209 @@
       "nodes": [
         {
           "__typename": "PullRequest",
-          "title": "Ingestion retry policy",
-          "number": 204,
+          "title": "WIP: auto-scale the operating envelope axis",
+          "number": 70,
           "state": "OPEN",
-          "url": "https://github.com/sympower/dt-shared-ingestion/pull/204",
-          "updatedAt": "2026-08-20T06:40:00Z",
-          "isDraft": false,
-          "author": { "login": "SymJavi" },
-          "comments": { "totalCount": 6 },
-          "repository": { "nameWithOwner": "sympower/dt-shared-ingestion" },
-          "reviewDecision": "CHANGES_REQUESTED",
-          "additions": 120,
-          "deletions": 30,
-          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
-        }
-      ]
-    },
-    "reviewRequested": {
-      "nodes": [
-        {
-          "__typename": "PullRequest",
-          "title": "Fix auth retry loop",
-          "number": 42,
-          "state": "OPEN",
-          "url": "https://github.com/sympower/flex-portal/pull/42",
-          "updatedAt": "2026-08-20T08:05:00Z",
-          "isDraft": false,
-          "author": { "login": "kenji" },
-          "comments": { "totalCount": 2 },
+          "url": "https://github.com/sympower/flex-portal/pull/70",
+          "updatedAt": "2026-08-21T18:00:00Z",
           "repository": { "nameWithOwner": "sympower/flex-portal" },
-          "reviewDecision": "REVIEW_REQUIRED",
-          "additions": 84,
-          "deletions": 12,
-          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "SUCCESS" } } }] }
+          "author": { "login": "SymJavi" },
+          "comments": { "totalCount": 0 },
+          "isDraft": true,
+          "reviewDecision": null,
+          "additions": 40,
+          "deletions": 8,
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
         },
         {
           "__typename": "PullRequest",
-          "title": "Extract billing client",
-          "number": 51,
+          "title": "Explain the one year cap on custom revenue date ranges",
+          "number": 80,
           "state": "OPEN",
-          "url": "https://github.com/sympower/controller-app/pull/51",
-          "updatedAt": "2026-08-20T07:55:00Z",
+          "url": "https://github.com/sympower/flex-portal/pull/80",
+          "updatedAt": "2026-08-21T16:30:00Z",
+          "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "author": { "login": "SymJavi" },
+          "comments": { "totalCount": 2 },
           "isDraft": false,
-          "author": { "login": "anna" },
-          "comments": { "totalCount": 3 },
-          "repository": { "nameWithOwner": "sympower/controller-app" },
+          "reviewDecision": "CHANGES_REQUESTED",
+          "additions": 25,
+          "deletions": 4,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "SUCCESS",
+                    "contexts": {
+                      "totalCount": 2,
+                      "nodes": [
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "PullRequest",
+          "title": "Add release notes generator",
+          "number": 90,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/flex-portal/pull/90",
+          "updatedAt": "2026-08-21T12:00:00Z",
+          "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "author": { "login": "SymJavi" },
+          "comments": { "totalCount": 1 },
+          "isDraft": false,
+          "reviewDecision": "APPROVED",
+          "additions": 180,
+          "deletions": 20,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "SUCCESS",
+                    "contexts": {
+                      "totalCount": 4,
+                      "nodes": [
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" },
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "PullRequest",
+          "title": "Filter ActivationScheduleUpdated by activationProvider",
+          "number": 100,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/flex-portal/pull/100",
+          "updatedAt": "2026-08-21T09:45:00Z",
+          "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "author": { "login": "SymJavi" },
+          "comments": { "totalCount": 0 },
+          "isDraft": false,
           "reviewDecision": "REVIEW_REQUIRED",
-          "additions": 210,
-          "deletions": 88,
-          "commits": { "nodes": [{ "commit": { "statusCheckRollup": { "state": "FAILURE" } } }] }
+          "additions": 60,
+          "deletions": 12,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "PENDING",
+                    "contexts": {
+                      "totalCount": 2,
+                      "nodes": [
+                        { "__typename": "StatusContext", "state": "PENDING" },
+                        { "__typename": "CheckRun", "status": "IN_PROGRESS", "conclusion": null }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        }
+      ]
+    },
+    "assigned": {
+      "nodes": [
+        {
+          "__typename": "Issue",
+          "title": "Rate limit returns 500",
+          "number": 12,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/msa-resource-bff/issues/12",
+          "updatedAt": "2026-08-20T07:12:00Z",
+          "repository": { "nameWithOwner": "sympower/msa-resource-bff" },
+          "author": { "login": "erkki-sympower" },
+          "comments": { "totalCount": 3 }
+        }
+      ]
+    },
+    "involved": {
+      "nodes": [
+        {
+          "__typename": "PullRequest",
+          "title": "WIP: auto-scale the operating envelope axis",
+          "number": 70,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/flex-portal/pull/70",
+          "updatedAt": "2026-08-21T18:00:00Z",
+          "repository": { "nameWithOwner": "sympower/flex-portal" },
+          "author": { "login": "SymJavi" },
+          "comments": { "totalCount": 0 },
+          "isDraft": true,
+          "reviewDecision": null,
+          "additions": 40,
+          "deletions": 8,
+          "commits": { "nodes": [{ "commit": { "statusCheckRollup": null } }] }
+        },
+        {
+          "__typename": "Issue",
+          "title": "Rate limit returns 500",
+          "number": 12,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/msa-resource-bff/issues/12",
+          "updatedAt": "2026-08-20T07:12:00Z",
+          "repository": { "nameWithOwner": "sympower/msa-resource-bff" },
+          "author": { "login": "erkki-sympower" },
+          "comments": { "totalCount": 3 }
+        },
+        {
+          "__typename": "PullRequest",
+          "title": "Bump shared tooling to node 22",
+          "number": 200,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/other-repo/pull/200",
+          "updatedAt": "2026-08-23T10:00:00Z",
+          "repository": { "nameWithOwner": "sympower/other-repo" },
+          "author": { "login": "renovate[bot]" },
+          "comments": { "totalCount": 0 },
+          "isDraft": false,
+          "reviewDecision": "REVIEW_REQUIRED",
+          "additions": 3,
+          "deletions": 3,
+          "commits": {
+            "nodes": [
+              {
+                "commit": {
+                  "statusCheckRollup": {
+                    "state": "SUCCESS",
+                    "contexts": {
+                      "totalCount": 1,
+                      "nodes": [
+                        { "__typename": "CheckRun", "status": "COMPLETED", "conclusion": "SUCCESS" }
+                      ]
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "__typename": "Issue",
+          "title": "Legacy exporter drops trailing rows",
+          "number": 300,
+          "state": "OPEN",
+          "url": "https://github.com/sympower/old-repo/issues/300",
+          "updatedAt": "2026-02-01T09:00:00Z",
+          "repository": { "nameWithOwner": "sympower/old-repo" },
+          "author": { "login": "someone-else" },
+          "comments": { "totalCount": 7 }
         }
       ]
     }
