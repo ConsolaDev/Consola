@@ -27,7 +27,9 @@ function workspaceFixture(): Workspace {
             { id: 'scope-1', name: 'sympower', path: scopeDir, isGitRepo: false, createdAt: 1 },
         ],
         groups: [],
-        github: { accountLogin: 'octocat' },
+        provider: { id: 'github', accountLogin: 'octocat' },
+        actions: [],
+        sectionDefaults: {},
         sessions: [],
         createdAt: 1,
         updatedAt: 1,
@@ -113,7 +115,8 @@ describe('SessionLauncher', () => {
                 binaryOverride: '/opt/claude/bin/claude',
                 configDirOverride: '/Users/me/.claude-work',
                 extraArgs: ['--verbose'],
-                githubAccountLogin: 'octocat',
+                providerId: 'github',
+                providerAccountLogin: 'octocat',
             })
         );
         // The conversation exists now; every later attach must --resume it.

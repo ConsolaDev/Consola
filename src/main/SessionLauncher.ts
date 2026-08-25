@@ -127,10 +127,11 @@ export class SessionLauncher {
             resume: false,
             initialPrompt,
             model: session.model,
-            // The workspace's GitHub binding, resolved here the same way the
+            // The workspace's provider binding, resolved here the same way the
             // TERMINAL_CREATE handler resolves it: TerminalService turns the
-            // login into a token at spawn time.
-            githubAccountLogin: workspace.github?.accountLogin,
+            // login into a token at spawn time, under the driver's variable.
+            providerId: workspace.provider?.id,
+            providerAccountLogin: workspace.provider?.accountLogin,
             mcpConfigPath,
             ...launchFieldsFor(harness),
         });
