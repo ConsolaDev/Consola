@@ -26,7 +26,7 @@ import { IPC_CHANNELS } from '../shared/constants';
 import type { InboxSection } from '../shared/inboxSections';
 import type { GitProviderId, ProviderProbeResult } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
-import type { InboxSnapshot, WorkItemRef } from '../shared/workItems';
+import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
     Group,
     NewGroupFields,
@@ -141,8 +141,12 @@ contextBridge.exposeInMainWorld('providerAPI', {
     resolveRepos: (workspaceId: string, repos: string[]): Promise<Record<string, string | null>> =>
         ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS, workspaceId, repos),
 
-    launchWorkItem: (workspaceId: string, workItem: WorkItemRef): Promise<WorkItemLaunchResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM, workspaceId, workItem),
+    launchWorkItem: (
+        workspaceId: string,
+        ref: WorkItemRef,
+        action: WorkItemLaunchAction
+    ): Promise<WorkItemLaunchResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM, workspaceId, ref, action),
 
     cloneRepo: (
         workspaceId: string,
