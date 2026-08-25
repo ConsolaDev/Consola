@@ -1,9 +1,13 @@
 import * as path from 'path';
-import type { InboxItem, WorkItemRef } from '../../shared/github';
-import { sameWorkItem, workItemKey } from '../../shared/github';
+import type { GitProviderId } from '../../shared/providers';
 import type { WorkItemLaunchResult } from '../../shared/types';
+import { createDefaultActions, defaultActionNameForType } from '../../shared/workItemActions';
+import type { InboxItem, WorkItemRef } from '../../shared/workItems';
+import { sameWorkItem, workItemKey } from '../../shared/workItems';
 import { generateSessionInstanceId } from '../../shared/workspace';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
+import { describeError } from './errors';
+import type { GitProviderDriver } from './GitProviderDriver';
 
 export interface WorkItemLaunchDeps {
   getWorkspace(id: string): Workspace | undefined;
@@ -14,11 +18,13 @@ export interface WorkItemLaunchDeps {
     workItem: WorkItemRef,
     env: NodeJS.ProcessEnv
   ): Promise<string>;
-  /** Login env plus GH_TOKEN for this account. Composed main-side only. */
-  composeEnv(accountLogin: string): Promise<NodeJS.ProcessEnv>;
+  /** Login env plus this account's token, under the driver's variable. Composed main-side only. */
+  composeEnv(driver: GitProviderDriver, accountLogin: string): Promise<NodeJS.ProcessEnv>;
   findItem(workspaceId: string, ref: WorkItemRef): InboxItem | undefined;
   /** Whether a path exists on disk — used to notice a re-attach whose worktree was deleted. */
   pathExists(target: string): boolean;
+  /** getProviderDriver — throws on an unknown id, which becomes the launch error. */
+  resolveDriver(id: GitProviderId): GitProviderDriver;
 }
 
 /** The deepest scope whose path contains the clone — its home in the sidebar. */
@@ -38,26 +44,33 @@ export function workItemSessionName(workItem: WorkItemRef, item?: InboxItem): st
 }
 
 /**
- * The prompt seeded into the fresh session.
+ * The body seeded until Phase C renders the chosen action: the default
+ * action for the item type, read from the same defaults a bound workspace is
+ * seeded with, so the two can never say different things.
+ */
+function defaultBodyForType(type: 'pr' | 'issue'): string {
+  const name = defaultActionNameForType(type);
+  const action = createDefaultActions().find((candidate) => candidate.name === name);
+  if (!action) throw new Error(`No default action named ${name}.`);
+  return action.prompt;
+}
+
+/**
+ * The prompt seeded into the fresh session: the provider's context header,
+ * a blank line, the body.
  *
  * Delivered through the existing guarded queue (TerminalService.queuePrompt via
  * TerminalCreateOptions.initialPrompt), so it can never answer a trust gate or
- * permission menu. It tells the agent where it is and to read the item with gh
- * first — the token in its env makes that work as the workspace's account.
+ * permission menu. The header tells the agent where it is and to read the
+ * item with the provider's CLI first — the token in its env makes that work
+ * as the workspace's account.
  */
-export function buildSeedPrompt(workItem: WorkItemRef, item?: InboxItem): string {
-  const noun = workItem.type === 'pr' ? 'pull request' : 'issue';
-  const ghNoun = workItem.type === 'pr' ? 'pr' : 'issue';
-  const title = item ? ` ("${item.title}")` : '';
-  const task =
-    workItem.type === 'pr'
-      ? 'review the changes and summarise your findings before writing any review comments'
-      : 'investigate it and propose a plan before changing anything';
-  return (
-    `This session is for ${noun} #${workItem.number}${title} in ${workItem.repo}. ` +
-    `You are in a dedicated git worktree for it, so the user's own checkout stays untouched. ` +
-    `Start with \`gh ${ghNoun} view ${workItem.number}\` to read it, then ${task}.`
-  );
+export function buildSeedPrompt(
+  driver: GitProviderDriver,
+  workItem: WorkItemRef,
+  item?: InboxItem
+): string {
+  return `${driver.seedHeader(workItem, item)}\n\n${defaultBodyForType(workItem.type)}`;
 }
 
 /**
@@ -69,7 +82,8 @@ export function buildSeedPrompt(workItem: WorkItemRef, item?: InboxItem): string
  * created and the message is surfaced on the Inbox item.
  *
  * Re-attach: one work item, one session, forever. A second click returns the
- * existing session rather than minting a rival.
+ * existing session rather than minting a rival. (Phase C replaces this with
+ * "always a new session"; the shared worktree is what makes that safe.)
  */
 export async function launchWorkItem(
   deps: WorkItemLaunchDeps,
@@ -80,8 +94,18 @@ export async function launchWorkItem(
   if (!workspace) {
     return { ok: false, reason: 'error', message: `Unknown workspace: ${workspaceId}` };
   }
-  if (!workspace.github) {
-    return { ok: false, reason: 'error', message: 'This workspace has no GitHub account bound.' };
+  const provider = workspace.provider;
+  if (!provider) {
+    return { ok: false, reason: 'error', message: 'This workspace has no provider account bound.' };
+  }
+
+  // Resolved up front: a provider this build lacks is a launch error like
+  // any other, shown on the item, never a crash in the handler.
+  let driver: GitProviderDriver;
+  try {
+    driver = deps.resolveDriver(provider.id);
+  } catch (error) {
+    return { ok: false, reason: 'error', message: describeError(error) };
   }
 
   const existing = workspace.sessions.find((session) =>
@@ -98,14 +122,10 @@ export async function launchWorkItem(
       const clonePath = deps.resolveRepo(workspace, workItem.repo);
       if (clonePath) {
         try {
-          const env = await deps.composeEnv(workspace.github.accountLogin);
+          const env = await deps.composeEnv(driver, provider.accountLogin);
           await deps.ensureWorktree(clonePath, workItem, env);
         } catch (error) {
-          return {
-            ok: false,
-            reason: 'error',
-            message: error instanceof Error ? error.message : String(error),
-          };
+          return { ok: false, reason: 'error', message: describeError(error) };
         }
       }
       // clonePath === null means the clone itself is gone too — there is
@@ -121,14 +141,10 @@ export async function launchWorkItem(
 
   let worktreePath: string;
   try {
-    const env = await deps.composeEnv(workspace.github.accountLogin);
+    const env = await deps.composeEnv(driver, provider.accountLogin);
     worktreePath = await deps.ensureWorktree(clonePath, workItem, env);
   } catch (error) {
-    return {
-      ok: false,
-      reason: 'error',
-      message: error instanceof Error ? error.message : String(error),
-    };
+    return { ok: false, reason: 'error', message: describeError(error) };
   }
 
   const item = deps.findItem(workspaceId, workItem);
@@ -141,27 +157,35 @@ export async function launchWorkItem(
     cwd: worktreePath,
     kind: 'interactive',
     workItem,
+    // The label the sidebar and strip show: which verb this session was
+    // started as. Phase C makes it the chosen action; until then it is the
+    // type's default, matching what the v7 migration wrote for older sessions.
+    workItemAction: defaultActionNameForType(workItem.type),
   });
   if (!session) {
     return { ok: false, reason: 'error', message: 'Could not create the session record.' };
   }
-  return { ok: true, session, seedPrompt: buildSeedPrompt(workItem, item), reattached: false };
+  return {
+    ok: true,
+    session,
+    seedPrompt: buildSeedPrompt(driver, workItem, item),
+    reattached: false,
+  };
 }
 
 /**
  * Coalesces concurrent launches of the *same* work item into one in-flight
- * call — the same in-flight-Map pattern `GitHubService.refresh` already uses
+ * call — the same in-flight-Map pattern `InboxService.refresh` already uses
  * for concurrent inbox refreshes of one workspace.
  *
  * Not reachable through the UI today (the renderer's `launching[key]` disables
  * the button, and one workspace belongs to one window), but two overlapping
  * calls would each pass the "existing session" check before either created
- * one, minting two sessions for one work item and violating "one work item,
- * one session, forever." It would also let two concurrent `ensureWorktree`
- * calls for the same item race — one call's failure cleanup removing a
- * worktree directory the other just fast-pathed onto. Keyed by workspace id
- * plus work-item key, so concurrent launches of *different* items still run
- * in parallel.
+ * one, minting two sessions for one work item. It would also let two
+ * concurrent `ensureWorktree` calls for the same item race — one call's
+ * failure cleanup removing a worktree directory the other just fast-pathed
+ * onto. Keyed by workspace id plus work-item key, so concurrent launches of
+ * *different* items still run in parallel.
  */
 export function createLaunchCoalescer(
   deps: WorkItemLaunchDeps

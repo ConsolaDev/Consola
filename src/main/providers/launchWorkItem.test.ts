@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { InboxItem, WorkItemRef } from '../../shared/github';
+import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
+import type { GitProviderDriver } from './GitProviderDriver';
 import {
   buildSeedPrompt,
   createLaunchCoalescer,
@@ -8,21 +9,42 @@ import {
   workItemSessionName,
   type WorkItemLaunchDeps,
 } from './launchWorkItem';
+import { createStubDriver } from './stubDriver.test-helpers';
 
 const pr51: WorkItemRef = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 };
+const issue87: WorkItemRef = { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 87 };
 
 const item51: InboxItem = {
   workItem: pr51,
   title: 'Extract billing client',
+  author: 'anna',
+  roles: ['review-requested-direct'],
+  isDraft: false,
   state: 'open',
-  role: 'review-requested',
+  reviewDecision: 'review-required',
   ciStatus: 'failing',
-  reviewDecision: 'REVIEW_REQUIRED',
+  commentCount: 3,
   updatedAt: '2026-08-20T07:55:00Z',
   url: 'https://github.com/sympower/controller-app/pull/51',
   additions: 210,
   deletions: 88,
 };
+
+const REVIEW_BODY =
+  'Review the changes and summarise your findings before writing any review comments.';
+const IMPLEMENT_BODY = 'Investigate it and propose a plan before changing anything.';
+
+/**
+ * This file's flavour of the shared stub: a token tied to the login (so a
+ * launch's composed env proves which account it borrowed for).
+ */
+function makeStubDriver(overrides: Partial<GitProviderDriver> = {}): GitProviderDriver {
+  return createStubDriver({
+    tokenEnvVar: 'STUB_TOKEN',
+    token: vi.fn(async (login: string) => `tok-${login}`),
+    ...overrides,
+  });
+}
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   const now = Date.now();
@@ -35,16 +57,19 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
       { id: 'scope-controller', name: 'controller-app', path: '/repos/controller-app', isGitRepo: true, createdAt: now },
     ],
     groups: [],
-    github: { accountLogin: 'SymJavi', org: 'sympower' },
+    provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
+    actions: [],
+    sectionDefaults: {},
     sessions: [],
     createdAt: now,
     updatedAt: now,
     ...overrides,
-  } as Workspace;
+  };
 }
 
 function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> = {}) {
   const created: NewSessionFields[] = [];
+  const driver = makeStubDriver();
   const deps: WorkItemLaunchDeps = {
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
     createSession: (workspaceId, fields) => {
@@ -60,31 +85,39 @@ function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> =
     },
     resolveRepo: () => '/repos/controller-app',
     ensureWorktree: vi.fn(async () => '/worktrees/controller-app-pr-51'),
-    composeEnv: async () => ({ GH_TOKEN: 'gho_test' }),
+    composeEnv: vi.fn(async (resolved, login) => ({ [resolved.tokenEnvVar]: `tok-${login}` })),
     findItem: () => item51,
     pathExists: () => true,
+    resolveDriver: () => driver,
     ...overrides,
   };
-  return { deps, created };
+  return { deps, created, driver };
+}
+
+function existingSession(overrides: Partial<Session> = {}): Session {
+  return {
+    id: 'session-existing',
+    name: 'PR #51 - Extract billing client',
+    workspaceId: 'ws-1',
+    instanceId: 'inst-existing',
+    claudeSessionId: 'uuid-existing',
+    hasStarted: true,
+    harnessId: 'default',
+    scopeId: 'scope-controller',
+    cwd: '/worktrees/controller-app-pr-51',
+    kind: 'interactive',
+    workItem: pr51,
+    workItemAction: 'Review',
+    createdAt: 1,
+    lastActiveAt: 1,
+    ...overrides,
+  };
 }
 
 describe('launchWorkItem', () => {
   it('re-attaches to an existing session for the same work item, touching nothing', async () => {
-    const existing = {
-      id: 'session-existing',
-      name: 'PR #51 - Extract billing client',
-      workspaceId: 'ws-1',
-      instanceId: 'inst-existing',
-      claudeSessionId: 'uuid-existing',
-      hasStarted: true,
-      harnessId: 'default',
-      scopeId: 'scope-controller',
-      cwd: '/worktrees/controller-app-pr-51',
-      kind: 'interactive',
-      workItem: { ...pr51, repo: 'Sympower/Controller-App' }, // casing differs on purpose
-      createdAt: 1,
-      lastActiveAt: 1,
-    } as unknown as Session;
+    // Casing differs on purpose: repo identity is case-insensitive.
+    const existing = existingSession({ workItem: { ...pr51, repo: 'Sympower/Controller-App' } });
     const workspace = makeWorkspace({ sessions: [existing] });
     const { deps, created } = makeDeps(workspace);
 
@@ -95,53 +128,23 @@ describe('launchWorkItem', () => {
     expect(deps.ensureWorktree).not.toHaveBeenCalled();
   });
 
-  it('re-ensures a deleted worktree before re-attaching, and reports no fresh session', async () => {
-    const existing = {
-      id: 'session-existing',
-      name: 'PR #51 - Extract billing client',
-      workspaceId: 'ws-1',
-      instanceId: 'inst-existing',
-      claudeSessionId: 'uuid-existing',
-      hasStarted: true,
-      harnessId: 'default',
-      scopeId: 'scope-controller',
-      cwd: '/worktrees/controller-app-pr-51',
-      kind: 'interactive',
-      workItem: pr51,
-      createdAt: 1,
-      lastActiveAt: 1,
-    } as unknown as Session;
+  it('re-ensures a deleted worktree before re-attaching, with the env the driver composed', async () => {
+    const existing = existingSession();
     const workspace = makeWorkspace({ sessions: [existing] });
-    const { deps, created } = makeDeps(workspace, { pathExists: () => false });
+    const { deps, created, driver } = makeDeps(workspace, { pathExists: () => false });
 
     const result = await launchWorkItem(deps, 'ws-1', pr51);
 
     expect(result).toEqual({ ok: true, session: existing, reattached: true });
     expect(created).toHaveLength(0);
-    expect(deps.ensureWorktree).toHaveBeenCalledWith(
-      '/repos/controller-app',
-      pr51,
-      { GH_TOKEN: 'gho_test' }
-    );
+    expect(deps.composeEnv).toHaveBeenCalledWith(driver, 'SymJavi');
+    expect(deps.ensureWorktree).toHaveBeenCalledWith('/repos/controller-app', pr51, {
+      STUB_TOKEN: 'tok-SymJavi',
+    });
   });
 
   it('re-attaches without ensuring anything when the clone itself is gone too', async () => {
-    const existing = {
-      id: 'session-existing',
-      name: 'PR #51 - Extract billing client',
-      workspaceId: 'ws-1',
-      instanceId: 'inst-existing',
-      claudeSessionId: 'uuid-existing',
-      hasStarted: true,
-      harnessId: 'default',
-      scopeId: 'scope-controller',
-      cwd: '/worktrees/controller-app-pr-51',
-      kind: 'interactive',
-      workItem: pr51,
-      createdAt: 1,
-      lastActiveAt: 1,
-    } as unknown as Session;
-    const workspace = makeWorkspace({ sessions: [existing] });
+    const workspace = makeWorkspace({ sessions: [existingSession()] });
     const { deps } = makeDeps(workspace, { pathExists: () => false, resolveRepo: () => null });
 
     const result = await launchWorkItem(deps, 'ws-1', pr51);
@@ -149,27 +152,12 @@ describe('launchWorkItem', () => {
     // The clone can't be resolved, so there's nothing to rebuild the
     // worktree from — the honest answer is today's re-attach, which hands
     // the user the existing terminal's "working folder not found" notice.
-    expect(result).toEqual({ ok: true, session: existing, reattached: true });
+    expect(result).toMatchObject({ ok: true, reattached: true });
     expect(deps.ensureWorktree).not.toHaveBeenCalled();
   });
 
   it('surfaces ensureWorktree failure as the launch error rather than re-attaching into a broken directory', async () => {
-    const existing = {
-      id: 'session-existing',
-      name: 'PR #51 - Extract billing client',
-      workspaceId: 'ws-1',
-      instanceId: 'inst-existing',
-      claudeSessionId: 'uuid-existing',
-      hasStarted: true,
-      harnessId: 'default',
-      scopeId: 'scope-controller',
-      cwd: '/worktrees/controller-app-pr-51',
-      kind: 'interactive',
-      workItem: pr51,
-      createdAt: 1,
-      lastActiveAt: 1,
-    } as unknown as Session;
-    const workspace = makeWorkspace({ sessions: [existing] });
+    const workspace = makeWorkspace({ sessions: [existingSession()] });
     const { deps } = makeDeps(workspace, {
       pathExists: () => false,
       ensureWorktree: vi.fn(async () => {
@@ -179,16 +167,11 @@ describe('launchWorkItem', () => {
 
     const result = await launchWorkItem(deps, 'ws-1', pr51);
 
-    expect(result).toEqual({
-      ok: false,
-      reason: 'error',
-      message: 'fatal: unable to recreate worktree',
-    });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'fatal: unable to recreate worktree' });
   });
 
   it('reports not-cloned when no scope resolves the repo, creating nothing', async () => {
-    const workspace = makeWorkspace();
-    const { deps, created } = makeDeps(workspace, { resolveRepo: () => null });
+    const { deps, created } = makeDeps(makeWorkspace(), { resolveRepo: () => null });
 
     const result = await launchWorkItem(deps, 'ws-1', pr51);
 
@@ -197,8 +180,7 @@ describe('launchWorkItem', () => {
   });
 
   it('creates no session record when the worktree step fails — atomicity', async () => {
-    const workspace = makeWorkspace();
-    const { deps, created } = makeDeps(workspace, {
+    const { deps, created } = makeDeps(makeWorkspace(), {
       ensureWorktree: vi.fn(async () => {
         throw new Error('fatal: not a valid ref');
       }),
@@ -210,16 +192,16 @@ describe('launchWorkItem', () => {
     expect(created).toHaveLength(0);
   });
 
-  it('creates the record with the matched scope, worktree cwd, and work item', async () => {
-    const workspace = makeWorkspace();
-    const { deps, created } = makeDeps(workspace);
+  it('creates the record with the matched scope, worktree cwd, work item and the action name', async () => {
+    const { deps, created } = makeDeps(makeWorkspace());
 
     const result = await launchWorkItem(deps, 'ws-1', pr51);
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.reattached).toBe(false);
-    expect(result.seedPrompt).toContain('#51');
+    // The driver's header, a blank line, then the type's default body.
+    expect(result.seedPrompt).toBe(`stub header for #51 (Extract billing client)\n\n${REVIEW_BODY}`);
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({
       name: 'PR #51 - Extract billing client',
@@ -229,24 +211,57 @@ describe('launchWorkItem', () => {
       cwd: '/worktrees/controller-app-pr-51',
       kind: 'interactive',
       workItem: pr51,
+      workItemAction: 'Review',
     });
     expect(created[0].instanceId).toMatch(/^workspace-ws-1-session-/);
   });
 
-  it('errors plainly for a workspace without a github binding', async () => {
-    const workspace = makeWorkspace({ github: undefined });
-    const { deps } = makeDeps(workspace);
+  it('labels an issue launch Implement and seeds the Implement body', async () => {
+    const { deps, created } = makeDeps(makeWorkspace(), {
+      ensureWorktree: vi.fn(async () => '/worktrees/controller-app-issue-87'),
+      findItem: () => undefined,
+    });
+
+    const result = await launchWorkItem(deps, 'ws-1', issue87);
+
+    expect(result).toMatchObject({
+      ok: true,
+      seedPrompt: `stub header for #87\n\n${IMPLEMENT_BODY}`,
+    });
+    expect(created[0]).toMatchObject({ name: 'Issue #87', workItemAction: 'Implement' });
+  });
+
+  it('errors plainly for a workspace without a provider binding', async () => {
+    const { deps, created } = makeDeps(makeWorkspace({ provider: undefined }));
 
     const result = await launchWorkItem(deps, 'ws-1', pr51);
 
-    expect(result.ok).toBe(false);
+    expect(result).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'This workspace has no provider account bound.',
+    });
+    expect(created).toHaveLength(0);
+  });
+
+  it('errors, creating nothing, when the provider is unknown to this build', async () => {
+    const { deps, created } = makeDeps(makeWorkspace(), {
+      resolveDriver: () => {
+        throw new Error('Unknown git provider "gitlab".');
+      },
+    });
+
+    const result = await launchWorkItem(deps, 'ws-1', pr51);
+
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown git provider "gitlab".' });
+    expect(created).toHaveLength(0);
+    expect(deps.ensureWorktree).not.toHaveBeenCalled();
   });
 });
 
 describe('createLaunchCoalescer', () => {
   it('coalesces concurrent launches of the same work item into one call', async () => {
-    const workspace = makeWorkspace();
-    const { deps, created } = makeDeps(workspace);
+    const { deps, created } = makeDeps(makeWorkspace());
     const launch = createLaunchCoalescer(deps);
 
     // Not reachable through the UI (the renderer's `launching[key]` disables
@@ -261,9 +276,7 @@ describe('createLaunchCoalescer', () => {
   });
 
   it('does not coalesce launches of different work items', async () => {
-    const issue87: WorkItemRef = { ...pr51, type: 'issue', number: 87 };
-    const workspace = makeWorkspace();
-    const { deps, created } = makeDeps(workspace);
+    const { deps, created } = makeDeps(makeWorkspace());
     const launch = createLaunchCoalescer(deps);
 
     await Promise.all([launch('ws-1', pr51), launch('ws-1', issue87)]);
@@ -290,19 +303,14 @@ describe('createLaunchCoalescer', () => {
 });
 
 describe('buildSeedPrompt', () => {
-  it('describes the item and the worktree, and starts from gh view', () => {
-    const prompt = buildSeedPrompt(pr51, item51);
-    expect(prompt).toContain('pull request #51');
-    expect(prompt).toContain('Extract billing client');
-    expect(prompt).toContain('sympower/controller-app');
-    expect(prompt).toContain('gh pr view 51');
-    expect(prompt).toContain('worktree');
+  it("is the driver's header, a blank line, and the Review body for a PR", () => {
+    expect(buildSeedPrompt(makeStubDriver(), pr51, item51)).toBe(
+      `stub header for #51 (Extract billing client)\n\n${REVIEW_BODY}`
+    );
   });
 
-  it('still reads sensibly without a cached inbox item', () => {
-    const prompt = buildSeedPrompt({ ...pr51, type: 'issue', number: 87 });
-    expect(prompt).toContain('issue #87');
-    expect(prompt).toContain('gh issue view 87');
+  it('is the header and the Implement body for an issue, with no cached item', () => {
+    expect(buildSeedPrompt(makeStubDriver(), issue87)).toBe(`stub header for #87\n\n${IMPLEMENT_BODY}`);
   });
 });
 
@@ -310,6 +318,6 @@ describe('workItemSessionName', () => {
   it('uses the title when the inbox holds one, a plain label when not', () => {
     expect(workItemSessionName(pr51, item51)).toBe('PR #51 - Extract billing client');
     expect(workItemSessionName(pr51)).toBe('PR #51');
-    expect(workItemSessionName({ ...pr51, type: 'issue', number: 87 })).toBe('Issue #87');
+    expect(workItemSessionName(issue87)).toBe('Issue #87');
   });
 });
