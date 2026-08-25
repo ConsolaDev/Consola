@@ -9,15 +9,6 @@
   background: var(--color-bg-secondary);
 }
 
-/* The dot reuses .inbox-dot--* colors from the Inbox stylesheet; declare the
-   base shape here too so the strip stands alone when the Inbox never mounted. */
-.work-item-strip .inbox-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-}
-
 .work-item-strip-text {
   display: flex;
   flex-direction: column;
