@@ -29,7 +29,12 @@ import { IPC_CHANNELS } from '../shared/constants';
 import type { InboxSection } from '../shared/inboxSections';
 import { isGitProviderId, type GitProviderId } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
-import { isValidWorkItemRef, type InboxSnapshot, type WorkItemRef } from '../shared/workItems';
+import {
+    isValidWorkItemRef,
+    toWorkItemRef,
+    type InboxSnapshot,
+    type WorkItemRef,
+} from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
@@ -194,12 +199,14 @@ export function setupIpcHandlers(): boolean {
             // shape is checked here too — the service assumes a real ref.
             // `workItem: undefined` (unlink) passes straight through.
             const allowed = allowedSessionUpdates(updates);
-            if (
-                'workItem' in allowed &&
-                allowed.workItem !== undefined &&
-                !isValidWorkItemRef(allowed.workItem)
-            ) {
-                throw new Error('Invalid work item reference.');
+            if ('workItem' in allowed && allowed.workItem !== undefined) {
+                if (!isValidWorkItemRef(allowed.workItem)) {
+                    throw new Error('Invalid work item reference.');
+                }
+                // Rebuilt from the same four-field allow-list setActions and
+                // setProviderBinding use — a validated shape can still carry
+                // stray keys the renderer sent alongside it into workspaces.json.
+                allowed.workItem = toWorkItemRef(allowed.workItem);
             }
             workspaces.updateSession(workspaceId, sessionId, allowed);
         }
@@ -241,10 +248,21 @@ export function setupIpcHandlers(): boolean {
         IPC_CHANNELS.WORKSPACE_SET_PROVIDER_BINDING,
         (_event, workspaceId: string, binding: WorkspaceProvider | null) => {
             // Rebuilt from an allow-list, updateFilters-style: IPC can deliver
-            // any shape, and this object is persisted verbatim. An unknown
-            // provider id is refused here, before it can reach disk.
-            if (binding !== null && !isGitProviderId(binding.id)) {
-                throw new Error(`Unknown git provider "${String(binding.id)}".`);
+            // any shape, and this object is persisted verbatim. `!binding`
+            // guards the property reads below — IPC's declared type doesn't
+            // stop a caller from actually sending `undefined`, which used to
+            // reach `binding.id` directly and throw a raw TypeError instead
+            // of this message.
+            if (binding !== null && (!binding || !isGitProviderId(binding.id))) {
+                throw new Error(`Unknown git provider "${String(binding?.id)}".`);
+            }
+            // `String(binding.accountLogin)` would happily turn a missing
+            // login into the literal text "undefined" and persist that.
+            if (
+                binding !== null &&
+                !(typeof binding.accountLogin === 'string' && binding.accountLogin.length > 0)
+            ) {
+                throw new Error(`Missing account login for provider "${binding.id}".`);
             }
             workspaces.setProviderBinding(
                 workspaceId,
@@ -252,7 +270,7 @@ export function setupIpcHandlers(): boolean {
                     ? null
                     : {
                           id: binding.id,
-                          accountLogin: String(binding.accountLogin),
+                          accountLogin: binding.accountLogin,
                           ...(binding.org ? { org: String(binding.org) } : {}),
                       }
             );
@@ -425,8 +443,15 @@ export function setupIpcHandlers(): boolean {
     const launchWorkItem = createLaunchCoalescer(launchWorkItemDeps);
     ipcMain.handle(
         IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM,
-        (_event, workspaceId: string, workItem: WorkItemRef) =>
-            launchWorkItem(workspaceId, workItem)
+        (_event, workspaceId: string, workItem: WorkItemRef) => {
+            // Shape-validated like WORKSPACE_SESSION_UPDATE's link payload:
+            // this one persists workItem into the session record too, and
+            // derives a worktree directory name from repo.
+            if (!isValidWorkItemRef(workItem)) {
+                return { ok: false, reason: 'error', message: 'Invalid work item reference.' };
+            }
+            return launchWorkItem(workspaceId, toWorkItemRef(workItem));
+        }
     );
 
     // "Clone into scope..." — the destination the user picked becomes the
