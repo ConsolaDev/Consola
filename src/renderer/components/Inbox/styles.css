@@ -164,6 +164,12 @@
 .inbox-pane-slot {
   flex: none;
   overflow-y: auto;
+  /* .inbox-pane carries its own width and left border (ruling: no
+     duplicate box model between the slot and the pane), but the pane's own
+     padding is bottom/left only -- it assumes a parent that already insets
+     it from the top and right, the way .inbox-main insets the list. The
+     slot is that parent, so it owns the matching top/right padding. */
+  padding: var(--space-4) var(--space-4) 0 0;
 }
 
 .inbox-empty {
