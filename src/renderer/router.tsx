@@ -1,5 +1,6 @@
 import { createHashRouter } from 'react-router-dom';
 import { Layout } from './components/Layout';
+import { LinkSessionDialog } from './components/Dialogs/LinkSessionDialog';
 import { WorkspaceSettingsProvider } from './contexts/WorkspaceSettingsContext';
 import { SettingsProvider } from './contexts/SettingsContext';
 import { CommandPaletteProvider } from './contexts/CommandPaletteContext';
@@ -14,6 +15,9 @@ function LayoutWithProviders() {
         {/* Inside SettingsProvider: the palette offers "Open settings". */}
         <CommandPaletteProvider>
           <Layout />
+          {/* Mounted here, not in the Sidebar: the sidebar unmounts when
+              hidden, and the dialog is opened from three unrelated trees. */}
+          <LinkSessionDialog />
         </CommandPaletteProvider>
       </SettingsProvider>
     </WorkspaceSettingsProvider>
