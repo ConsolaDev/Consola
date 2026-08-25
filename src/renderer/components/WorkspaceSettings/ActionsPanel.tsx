@@ -9,6 +9,7 @@ import {
 } from '../../../shared/workItemActions';
 import { generateId } from '../../../shared/ids';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 
 export interface ActionsPanelProps {
@@ -108,7 +109,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
       await setActions(workspace.id, nextActions, nextDefaults);
       return null;
     } catch (err) {
-      return err instanceof Error ? err.message : String(err);
+      return ipcErrorMessage(err);
     }
   };
 

@@ -8,6 +8,7 @@ import {
 } from '../../stores/linkSessionDialogStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { SearchableList } from '../SearchableList';
 import { itemRowsFor, sessionRowsFor, type LinkRow } from './linkSessionRows';
 import './styles.css';
@@ -75,7 +76,7 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
     } catch (err) {
       // Main refused (conductor, or already linked to a different item):
       // say so in place and leave the picker where it was.
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorMessage(err));
     } finally {
       setSubmitting(false);
     }
