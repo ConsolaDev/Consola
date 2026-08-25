@@ -1,15 +1,25 @@
 import { describe, expect, it } from 'vitest';
-import type { InboxItem } from '../../../shared/github';
-import { actionFor, dotClassFor, formatAge, metaLineFor, roleLabelFor } from './inboxPresentation';
+import type { InboxItem } from '../../../shared/workItems';
+import {
+  actionFor,
+  dotClassFor,
+  formatAge,
+  metaLineFor,
+  primaryRole,
+  roleLabelFor,
+} from './inboxPresentation';
 
 function makeItem(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
     workItem: { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 },
     title: 'Extract billing client',
+    author: 'anna',
+    roles: ['review-requested-direct'],
+    isDraft: false,
     state: 'open',
-    role: 'review-requested',
+    reviewDecision: 'review-required',
     ciStatus: 'failing',
-    reviewDecision: 'REVIEW_REQUIRED',
+    commentCount: 3,
     updatedAt: '2026-08-20T07:55:00Z',
     url: 'https://github.com/sympower/controller-app/pull/51',
     additions: 210,
@@ -17,6 +27,8 @@ function makeItem(overrides: Partial<InboxItem> = {}): InboxItem {
     ...overrides,
   };
 }
+
+const issue87 = { provider: 'github', repo: 'o/r', type: 'issue', number: 87 } as const;
 
 describe('formatAge', () => {
   const now = Date.parse('2026-08-20T09:00:00Z');
@@ -29,6 +41,17 @@ describe('formatAge', () => {
 
   it('rolls over to days once 24 hours have passed', () => {
     expect(formatAge(now - 2 * 86_400_000, now)).toBe('2d ago');
+  });
+});
+
+describe('primaryRole', () => {
+  it('leads with the reason you were asked over the reason you are attached', () => {
+    expect(primaryRole(makeItem({ roles: ['author', 'assignee', 'review-requested-team'] }))).toBe(
+      'review-requested-team'
+    );
+    expect(primaryRole(makeItem({ roles: ['author', 'assignee'] }))).toBe('assignee');
+    expect(primaryRole(makeItem({ roles: ['author'] }))).toBe('author');
+    expect(primaryRole(makeItem({ roles: [] }))).toBeUndefined();
   });
 });
 
@@ -46,17 +69,11 @@ describe('actionFor', () => {
 
   it('labels launches by role: Review, Address review, Start work', () => {
     expect(actionFor(makeItem(), false, true).label).toBe('Review');
-    expect(actionFor(makeItem({ role: 'author' }), false, true).label).toBe('Address review');
-    expect(
-      actionFor(
-        makeItem({
-          role: 'assigned',
-          workItem: { provider: 'github', repo: 'o/r', type: 'issue', number: 87 },
-        }),
-        false,
-        true
-      ).label
-    ).toBe('Start work');
+    expect(actionFor(makeItem({ roles: ['author'] }), false, true).label).toBe('Address review');
+    // Asked to review your own PR: the request wins, as it did when the
+    // parser picked one role.
+    expect(actionFor(makeItem({ roles: ['author', 'review-requested-direct'] }), false, true).label).toBe('Review');
+    expect(actionFor(makeItem({ roles: ['assignee'], workItem: issue87 }), false, true).label).toBe('Start work');
   });
 });
 
@@ -68,29 +85,24 @@ describe('metaLineFor and roleLabelFor', () => {
   });
 
   it('labels authored items as yours', () => {
-    expect(roleLabelFor(makeItem({ role: 'author' }))).toBe('your PR');
-    expect(
-      roleLabelFor(
-        makeItem({
-          role: 'author',
-          workItem: { provider: 'github', repo: 'o/r', type: 'issue', number: 1 },
-        })
-      )
-    ).toBe('your issue');
+    expect(roleLabelFor(makeItem({ roles: ['author'] }))).toBe('your PR');
+    expect(roleLabelFor(makeItem({ roles: ['author'], workItem: issue87 }))).toBe('your issue');
   });
 
-  it('labels assigned items', () => {
-    expect(roleLabelFor(makeItem({ role: 'assigned' }))).toBe('assigned to you');
+  it('labels assigned items, and team requests like direct ones', () => {
+    expect(roleLabelFor(makeItem({ roles: ['assignee'] }))).toBe('assigned to you');
+    expect(roleLabelFor(makeItem({ roles: ['review-requested-team'] }))).toBe('review requested');
+    expect(roleLabelFor(makeItem({ roles: ['involved'] }))).toBe('involves you');
   });
 
-  it('mentions changes requested when GitHub says so', () => {
-    expect(metaLineFor(makeItem({ reviewDecision: 'CHANGES_REQUESTED' }))).toContain(
+  it('mentions changes requested when the provider says so', () => {
+    expect(metaLineFor(makeItem({ reviewDecision: 'changes-requested' }))).toContain(
       'changes requested'
     );
   });
 
-  it('mentions approved when GitHub says so', () => {
-    expect(metaLineFor(makeItem({ reviewDecision: 'APPROVED' }))).toContain('approved');
+  it('mentions approved when the provider says so', () => {
+    expect(metaLineFor(makeItem({ reviewDecision: 'approved' }))).toContain('approved');
   });
 
   it('omits CI status and diff stats entirely when the item carries neither, as issues do', () => {
@@ -99,7 +111,7 @@ describe('metaLineFor and roleLabelFor', () => {
         makeItem({
           workItem: { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 12 },
           ciStatus: undefined,
-          reviewDecision: undefined,
+          reviewDecision: 'none',
           additions: undefined,
           deletions: undefined,
         })
@@ -112,8 +124,7 @@ describe('dotClassFor', () => {
   it('flags failing CI red, requested reviews attention, the rest idle', () => {
     expect(dotClassFor(makeItem())).toBe('inbox-dot--err');
     expect(dotClassFor(makeItem({ ciStatus: 'passing' }))).toBe('inbox-dot--att');
-    expect(dotClassFor(makeItem({ ciStatus: 'passing', role: 'assigned' }))).toBe(
-      'inbox-dot--idle'
-    );
+    expect(dotClassFor(makeItem({ ciStatus: 'passing', roles: ['review-requested-team'] }))).toBe('inbox-dot--att');
+    expect(dotClassFor(makeItem({ ciStatus: 'passing', roles: ['assignee'] }))).toBe('inbox-dot--idle');
   });
 });

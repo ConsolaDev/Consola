@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { PROVIDER_META } from '../../../shared/providers';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 
@@ -89,7 +90,11 @@ export function ManifestHeader({ workspace }: ManifestHeaderProps) {
           )}
           {harness?.name ?? workspace.defaultHarnessId}
         </span>
-        {workspace.github && <span className="ws-fact">gh {workspace.github.accountLogin}</span>}
+        {workspace.provider && (
+          <span className="ws-fact">
+            {PROVIDER_META[workspace.provider.id].cliName} {workspace.provider.accountLogin}
+          </span>
+        )}
       </div>
     </div>
   );
