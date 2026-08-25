@@ -158,39 +158,6 @@
   cursor: default;
 }
 
-.clone-dialog-overlay {
-  position: fixed;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.45);
-}
-
-.clone-dialog {
-  position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
-  width: 420px;
-  max-width: calc(100vw - 32px);
-  background: var(--color-bg-secondary);
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  padding: var(--space-4);
-}
-
-.clone-dialog-title {
-  font-size: 14px;
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  margin: 0 0 6px;
-}
-
-.clone-dialog-description {
-  font-size: 12.5px;
-  color: var(--color-text-secondary);
-  margin: 0 0 12px;
-  line-height: 1.5;
-}
-
 .clone-dialog-options {
   display: flex;
   flex-direction: column;
@@ -221,20 +188,4 @@
 .clone-dialog-option-path {
   font-size: 11px;
   color: var(--color-text-tertiary);
-}
-
-.clone-dialog-footer {
-  display: flex;
-  justify-content: flex-end;
-  margin-top: 12px;
-}
-
-.clone-dialog-cancel {
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  padding: 4px 12px;
-  cursor: pointer;
 }

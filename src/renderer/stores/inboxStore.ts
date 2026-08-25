@@ -1,14 +1,26 @@
 import { create } from 'zustand';
-import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
-import { workItemKey } from '../../shared/workItems';
+import type { InboxItem, InboxSnapshot, WorkItemLaunchAction } from '../../shared/workItems';
+import { workItemActionKey, workItemKey } from '../../shared/workItems';
 import { inboxBridge } from '../services/inboxBridge';
 import { providerBridge } from '../services/providerBridge';
 import { activateSession } from '../utils/sessionActions';
 import { useTerminalStore } from './terminalStore';
 
-/** Key for per-item launch state: one workspace's view of one work item. */
-export function launchKey(workspaceId: string, item: InboxItem): string {
+/** Key for per-item state: one workspace's view of one work item. */
+export function itemKey(workspaceId: string, item: InboxItem): string {
   return `${workspaceId}:${workItemKey(item.workItem)}`;
+}
+
+/**
+ * Key for one action against one item — the same key main's coalescer uses,
+ * so what the UI shows as in flight is exactly what main would collapse.
+ */
+export function launchKey(
+  workspaceId: string,
+  item: InboxItem,
+  action: WorkItemLaunchAction
+): string {
+  return `${itemKey(workspaceId, item)}:${workItemActionKey(action)}`;
 }
 
 interface InboxState {
@@ -16,16 +28,21 @@ interface InboxState {
   snapshots: Record<string, InboxSnapshot>;
   /** Per-workspace map of remote repo -> local clone path (null = not cloned). */
   resolvedRepos: Record<string, Record<string, string | null>>;
-  /** Launch failures surfaced on their Inbox item — never a dialog. */
+  /**
+   * Failures surfaced in the pane — never a dialog. Keyed by launchKey for a
+   * launch (one action's error sits under its own button) and by itemKey for
+   * a clone (the item's only error at that point).
+   */
   launchErrors: Record<string, string>;
+  /** Same keying as launchErrors: which button, or which item, is busy. */
   launching: Record<string, boolean>;
   /** The item whose repo needs cloning; renders the clone dialog when set. */
   clonePrompt: { workspaceId: string; item: InboxItem } | null;
   load: (workspaceId: string) => Promise<void>;
   refresh: (workspaceId: string) => Promise<void>;
   adoptSnapshot: (snapshot: InboxSnapshot) => void;
-  launch: (workspaceId: string, item: InboxItem) => Promise<void>;
-  cloneAndLaunch: (workspaceId: string, item: InboxItem, destinationDir: string) => Promise<void>;
+  launch: (workspaceId: string, item: InboxItem, action: WorkItemLaunchAction) => Promise<void>;
+  cloneRepo: (workspaceId: string, item: InboxItem, destinationDir: string) => Promise<void>;
   openClonePrompt: (workspaceId: string, item: InboxItem) => void;
   dismissClonePrompt: () => void;
   /** Subscribe to main's pushes. Call once near the app root. */
@@ -68,8 +85,9 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     set((state) => ({
       snapshots: { ...state.snapshots, [snapshot.workspaceId]: snapshot },
     }));
-    // Repo resolution rides along so button labels are honest. Fire-and-forget:
-    // until it lands, items assume "cloned" and the launch path corrects them.
+    // Repo resolution rides along so the pane is honest about "Clone into
+    // scope...". Fire-and-forget: until it lands, items assume "cloned" and
+    // the launch path corrects them.
     const repos = [...new Set(snapshot.items.map((item) => item.workItem.repo))];
     if (repos.length === 0) return;
     void providerBridge.resolveRepos(snapshot.workspaceId, repos).then((resolved) => {
@@ -79,18 +97,18 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     });
   },
 
-  launch: async (workspaceId, item) => {
-    const key = launchKey(workspaceId, item);
+  launch: async (workspaceId, item, action) => {
+    const key = launchKey(workspaceId, item, action);
     set((state) => {
       const { [key]: _cleared, ...launchErrors } = state.launchErrors;
       return { launching: { ...state.launching, [key]: true }, launchErrors };
     });
     try {
-      const result = await providerBridge.launchWorkItem(workspaceId, item.workItem);
+      const result = await providerBridge.launchWorkItem(workspaceId, item.workItem, action);
       if (!result) {
         // Only reachable when window.providerAPI itself is missing (a broken
-        // preload) — the bridge already null-guarded, so this is main
-        // being unreachable rather than a provider-side failure.
+        // preload) — the bridge already null-guarded, so this is main being
+        // unreachable rather than a provider-side failure.
         set((state) => ({
           launchErrors: {
             ...state.launchErrors,
@@ -100,12 +118,11 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         return;
       }
       if (result.ok) {
-        if (!result.reattached && result.seedPrompt) {
-          // The prompt rides the existing pending-prompt path: the terminal
-          // pane consumes it on mount and sends it as initialPrompt, where the
-          // main-side guarded queue delivers it — never into a menu.
-          useTerminalStore.getState().setPendingPrompt(result.session.instanceId, result.seedPrompt);
-        }
+        // Always a fresh session, so the prompt is always seeded. It rides
+        // the existing pending-prompt path: the terminal pane consumes it on
+        // mount and sends it as initialPrompt, where the main-side guarded
+        // queue delivers it — never into a menu.
+        useTerminalStore.getState().setPendingPrompt(result.session.instanceId, result.seedPrompt);
         activateSession(workspaceId, result.session.id);
       } else if (result.reason === 'not-cloned') {
         get().openClonePrompt(workspaceId, item);
@@ -114,8 +131,8 @@ export const useInboxStore = create<InboxState>((set, get) => ({
       }
     } catch (error) {
       // "Degrade, never dialog" applies to a thrown/rejected launch too —
-      // an unhandled rejection would otherwise leave the item silent instead
-      // of surfacing the error on its row.
+      // an unhandled rejection would otherwise leave the button silent
+      // instead of surfacing the error under it.
       const message = error instanceof Error ? error.message : String(error);
       set((state) => ({ launchErrors: { ...state.launchErrors, [key]: message } }));
     } finally {
@@ -126,10 +143,12 @@ export const useInboxStore = create<InboxState>((set, get) => ({
     }
   },
 
-  cloneAndLaunch: async (workspaceId, item, destinationDir) => {
-    const key = launchKey(workspaceId, item);
+  cloneRepo: async (workspaceId, item, destinationDir) => {
+    const key = itemKey(workspaceId, item);
     // Same shape as launch(): guard set before the first await, errors land
-    // on the item (never a dialog), guard cleared on every path.
+    // on the item (never a dialog), guard cleared on every path. The clone
+    // does not continue into a launch: which action to start is the user's
+    // choice, and the pane offers them all once the repo resolves.
     set((state) => {
       const { [key]: _cleared, ...launchErrors } = state.launchErrors;
       return { clonePrompt: null, launching: { ...state.launching, [key]: true }, launchErrors };
@@ -143,11 +162,9 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         return;
       }
       if (result.path) {
-        // Record the resolved path immediately: if the launch below fails
-        // (e.g. `gh pr checkout` because the branch is already checked out
-        // elsewhere), the item's button must read "Review" from the clone
-        // that did succeed, not keep offering "Clone into scope..." for a
-        // repo that already has one.
+        // Record the resolved path immediately so the pane stops offering
+        // "Clone into scope..." for a repo that now has one, without waiting
+        // for the next snapshot's resolveRepos round trip.
         const path = result.path;
         set((state) => ({
           resolvedRepos: {
@@ -156,9 +173,6 @@ export const useInboxStore = create<InboxState>((set, get) => ({
           },
         }));
       }
-      // The clone landed and (if needed) became a scope; the normal launch
-      // path now resolves it and continues: worktree, record, spawn.
-      await get().launch(workspaceId, item);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       set((state) => ({ launchErrors: { ...state.launchErrors, [key]: message } }));
@@ -174,6 +188,5 @@ export const useInboxStore = create<InboxState>((set, get) => ({
 
   dismissClonePrompt: () => set({ clonePrompt: null }),
 
-  subscribeToEvents: () =>
-    inboxBridge.onInboxChanged((snapshot) => get().adoptSnapshot(snapshot)),
+  subscribeToEvents: () => inboxBridge.onInboxChanged((snapshot) => get().adoptSnapshot(snapshot)),
 }));
