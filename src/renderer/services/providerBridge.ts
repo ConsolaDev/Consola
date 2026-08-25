@@ -1,6 +1,6 @@
 import type { GitProviderId, ProviderProbeResult } from '../../shared/providers';
 import type { CloneRepoResult, WorkItemLaunchResult } from '../../shared/types';
-import type { WorkItemRef } from '../../shared/workItems';
+import type { WorkItemLaunchAction, WorkItemRef } from '../../shared/workItems';
 
 function getAPI() {
     if (typeof window !== 'undefined' && window.providerAPI) {
@@ -34,14 +34,15 @@ export const providerBridge = {
         return api.resolveRepos(workspaceId, repos);
     },
 
-    /** One click on an Inbox item: resolve -> worktree -> session record. */
+    /** Start a session from an action: validate -> render -> worktree -> record. */
     launchWorkItem: async (
         workspaceId: string,
-        workItem: WorkItemRef
+        ref: WorkItemRef,
+        action: WorkItemLaunchAction
     ): Promise<WorkItemLaunchResult | null> => {
         const api = getAPI();
         if (!api) return null;
-        return api.launchWorkItem(workspaceId, workItem);
+        return api.launchWorkItem(workspaceId, ref, action);
     },
 
     /** Clone an un-cloned inbox repo into a chosen directory. */
