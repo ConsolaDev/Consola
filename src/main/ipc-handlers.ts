@@ -381,11 +381,15 @@ export function setupIpcHandlers(): boolean {
     );
 
     // Is the provider's CLI installed, and which accounts does its keyring
-    // hold? Tokens are deliberately not reachable over IPC. An unknown id
-    // rejects — the binding panel degrades on it, like the CLI being absent.
-    ipcMain.handle(IPC_CHANNELS.PROVIDER_PROBE, (_event, id: GitProviderId) =>
-        getProviderDriver(id).probe()
-    );
+    // hold? Tokens are deliberately not reachable over IPC. An id this build
+    // does not know degrades to an unavailable result, never a rejection —
+    // the binding panel renders it like a missing binary.
+    ipcMain.handle(IPC_CHANNELS.PROVIDER_PROBE, (_event, id: GitProviderId) => {
+        if (!isGitProviderId(id)) {
+            return { available: false, accounts: [], error: `Unknown git provider "${String(id)}".` };
+        }
+        return getProviderDriver(id).probe();
+    });
 
     // Which of these remote repos have a local clone in this workspace's
     // scopes — the Inbox uses it to label buttons ("Review" vs "Clone into
