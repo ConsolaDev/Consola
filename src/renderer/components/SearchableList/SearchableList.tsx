@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useId, useMemo, useRef } from 'react';
 import { HighlightMatch } from '../HighlightMatch';
 import { rankSearchableItems, type SearchableListItem } from './rankSearchableItems';
 import './styles.css';
@@ -43,6 +43,7 @@ export function SearchableList<T extends SearchableListItem>({
   leadingSlot,
 }: SearchableListProps<T>) {
   const listRef = useRef<HTMLDivElement>(null);
+  const rowsId = useId();
   const ranked = useMemo(() => rankSearchableItems(items, query), [items, query]);
 
   // Keep the highlight on something activatable: when the query drops the
@@ -95,8 +96,8 @@ export function SearchableList<T extends SearchableListItem>({
         type="text"
         className="dialog-input searchable-list-input"
         role="combobox"
-        aria-expanded
-        aria-controls="searchable-list-rows"
+        aria-expanded={ranked.length > 0}
+        aria-controls={rowsId}
         aria-activedescendant={activeId ? rowElementId(activeId) : undefined}
         aria-label={inputAriaLabel}
         placeholder={placeholder}
@@ -105,7 +106,7 @@ export function SearchableList<T extends SearchableListItem>({
         onKeyDown={handleKeyDown}
         autoFocus
       />
-      <div className="searchable-list-rows" role="listbox" id="searchable-list-rows" ref={listRef}>
+      <div className="searchable-list-rows" role="listbox" id={rowsId} ref={listRef}>
         {ranked.length === 0 && <div className="searchable-list-empty">{emptyMessage}</div>}
         {ranked.map((item) => {
           const isActive = item.id === activeId;
