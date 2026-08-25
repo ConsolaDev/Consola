@@ -71,16 +71,39 @@ function parseAccounts(text: string): GhAccount[] {
  * `parseAccounts` only recognizes today's `gh auth status` wording; a future
  * or unusual wording could slip past it while the masked `Token:` line is
  * still present, so the fallback text is scrubbed independently of parsing
- * rather than trusted just because parsing found nothing. Matches on the
- * word "token" (catches `Token:` and `Token scopes:`) and on gh's own token
- * prefixes, so a stray raw or masked token survives neither.
+ * rather than trusted just because parsing found nothing. Matches gh's own
+ * credential-label lines (`Token:` / `Token scopes:`, anchored to the start
+ * of the line so only the label counts) and any line carrying a raw or
+ * masked token value (gh's `gho_`/`ghp_`/`ghu_`/`ghs_`/`ghr_`/`github_pat_`
+ * prefixes) — deliberately NOT the bare word "token" anywhere in a line: gh
+ * uses that word in genuine, non-secret diagnostics too (e.g. "no oauth
+ * token found for account X"), and matching it unconditionally would drop
+ * that useful text, pushing callers toward a less-safe, unscrubbed fallback
+ * — which is exactly the failure mode this function exists to prevent.
  */
 function stripTokenLines(text: string): string {
     return text
         .split('\n')
-        .filter((line) => !/token/i.test(line) && !/\bgh[oprsu]_|\bgithub_pat_/i.test(line))
+        .filter(
+            (line) =>
+                !/^\s*[-*]?\s*tokens?\s*(scopes?)?\s*:/i.test(line) &&
+                !/\bgh[oprsu]_|\bgithub_pat_/i.test(line)
+        )
         .join('\n')
         .trim();
+}
+
+/**
+ * Node's `execFile` prefixes a non-zero-exit error's `message` with
+ * `Command failed: <argv>` — an echo of the argv we already built ourselves,
+ * never new information, and for `gh auth token` it always names the
+ * "token" subcommand, which `stripTokenLines`'s label match deliberately
+ * leaves alone as ordinary text. Dropped unconditionally before an error
+ * message is used as a scrub source, so it never reintroduces the bare word
+ * "token" into a user-facing message.
+ */
+function stripCommandEcho(message: string): string {
+    return message.replace(/^Command failed:.*(\n|$)/, '');
 }
 
 /**
@@ -125,9 +148,13 @@ export class GhBroker {
                 available: false,
                 resolvedBinary: binary,
                 accounts: [],
+                // Both sources scrubbed: errorMessage embeds stderr verbatim
+                // (via Node's "Command failed: ..." wrapping), so leaving it
+                // raw would undo the scrub the moment stderr alone reduces
+                // to nothing.
                 error:
                     stripTokenLines(version.stderr) ||
-                    version.errorMessage ||
+                    stripTokenLines(stripCommandEcho(version.errorMessage ?? '')) ||
                     `\`${binary}\` did not run.`,
             };
         }
@@ -176,13 +203,18 @@ export class GhBroker {
 
         const result = await this.run(binary, ['auth', 'token', '--user', accountLogin]);
         if (result.failed) {
-            // Scrubbed like probe()'s failures: this error reaches
-            // GitHubService's InboxSnapshot.error, which is broadcast to
-            // every renderer, so no raw subprocess text may cross that line.
+            // Scrubbed like probe()'s failures, and both sources scrubbed
+            // for the same reason: this error reaches GitHubService's
+            // InboxSnapshot.error, which is broadcast to every renderer, so
+            // no raw subprocess text may cross that line — including via
+            // errorMessage's verbatim copy of stderr once stderr alone
+            // scrubs to nothing (e.g. stderr that is only a masked token
+            // line). The literal fallback deliberately avoids the word
+            // "token" itself, so a rejection is never mistaken for a leak.
             throw new Error(
                 stripTokenLines(result.stderr) ||
-                    result.errorMessage ||
-                    `gh auth token failed for ${accountLogin}.`
+                    stripTokenLines(stripCommandEcho(result.errorMessage ?? '')) ||
+                    `gh could not authenticate ${accountLogin}.`
             );
         }
 
