@@ -7,6 +7,7 @@ import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Scope, Workspace } from '../shared/workspace';
 import { getProviderDriver, type GitProviderDriver } from './providers';
+import { createStubDriver } from './providers/stubDriver.test-helpers';
 import { WorktreeService, worktreeDirName } from './WorktreeService';
 
 const STUB_GH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
@@ -176,31 +177,6 @@ describe('WorktreeService.ensureWorktree', () => {
   const pr51 = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 } as const;
   const issue87 = { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 87 } as const;
 
-  /**
-   * The real GitHub driver with its checkout counted. Every method is
-   * forwarded explicitly: spreading a class instance would drop its
-   * prototype methods.
-   */
-  function countingDriver(): { driver: GitProviderDriver; checkout: ReturnType<typeof vi.fn> } {
-    const real = getProviderDriver('github');
-    const checkout = vi.fn((dir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv) =>
-      real.checkout(dir, ref, env)
-    );
-    const driver: GitProviderDriver = {
-      id: real.id,
-      tokenEnvVar: real.tokenEnvVar,
-      probe: () => real.probe(),
-      token: (login) => real.token(login),
-      fetchInbox: (binding, env) => real.fetchInbox(binding, env),
-      checkout,
-      cloneRepo: (repo, destination, env) => real.cloneRepo(repo, destination, env),
-      matchesRemote: (url, repo) => real.matchesRemote(url, repo),
-      workItemUrl: (ref) => real.workItemUrl(ref),
-      seedHeader: (ref, item) => real.seedHeader(ref, item),
-    };
-    return { driver, checkout };
-  }
-
   function setup(resolveDriver?: (id: GitProviderId) => GitProviderDriver) {
     const clone = path.join(tmpDir('consola-wt-clone-'), 'controller-app');
     initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
@@ -231,7 +207,14 @@ describe('WorktreeService.ensureWorktree', () => {
   }, 30_000);
 
   it('a second launch on the same item returns the same directory without a second checkout', async () => {
-    const { driver, checkout } = countingDriver();
+    // The stub driver's own checkout is real GitHubDriver.checkout, wrapped
+    // in a vi.fn only to count calls — the PR checkout still runs against
+    // the fixture gh, exactly like the other ensureWorktree cases.
+    const real = getProviderDriver('github');
+    const checkout = vi.fn((dir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv) =>
+      real.checkout(dir, ref, env)
+    );
+    const driver = createStubDriver({ checkout });
     const { clone, service } = setup(() => driver);
 
     const first = await service.ensureWorktree(clone, pr51, { ...process.env });
@@ -296,6 +279,25 @@ describe('WorktreeService.ensureWorktree', () => {
     expect(again).toBe(dir);
     expect(fs.existsSync(path.join(dir, '.git'))).toBe(true);
     expect(currentBranch(dir)).toBe('stub-pr-51');
+  }, 30_000);
+
+  it('unwinds the worktree it just added when the provider is unknown to this build', async () => {
+    const { clone, root, service } = setup(() => {
+      throw new Error('Unknown git provider "github".');
+    });
+
+    // resolveDriver is called inside the try — same branch as a failed
+    // checkout — so an unknown provider must unwind the worktree it just
+    // added exactly like a failed gh checkout does, never leave it behind
+    // for the fast path to mistake for done.
+    await expect(service.ensureWorktree(clone, pr51, { ...process.env })).rejects.toThrow(
+      /Unknown git provider "github"/
+    );
+
+    const dir = path.join(root, 'controller-app-pr-51');
+    expect(fs.existsSync(dir)).toBe(false);
+    const list = execFileSync('git', ['-C', clone, 'worktree', 'list'], { encoding: 'utf8' });
+    expect(list).not.toContain('controller-app-pr-51');
   }, 30_000);
 
   it('refuses a worktree-name collision between two repos with the same basename', async () => {
