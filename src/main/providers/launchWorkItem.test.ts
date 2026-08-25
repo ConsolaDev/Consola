@@ -1,50 +1,44 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
+import type { WorkItemAction } from '../../shared/workItemActions';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
-import {
-  buildSeedPrompt,
-  createLaunchCoalescer,
-  launchWorkItem,
-  workItemSessionName,
-  type WorkItemLaunchDeps,
-} from './launchWorkItem';
-import { createStubDriver } from './stubDriver.test-helpers';
+import { createLaunchCoalescer, launchWorkItem, type WorkItemLaunchDeps } from './launchWorkItem';
 
 const pr51: WorkItemRef = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 };
-const issue87: WorkItemRef = { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 87 };
 
 const item51: InboxItem = {
   workItem: pr51,
   title: 'Extract billing client',
-  author: 'anna',
+  author: 'steve-sympower',
   roles: ['review-requested-direct'],
   isDraft: false,
   state: 'open',
   reviewDecision: 'review-required',
   ciStatus: 'failing',
-  commentCount: 3,
+  commentCount: 1,
   updatedAt: '2026-08-20T07:55:00Z',
   url: 'https://github.com/sympower/controller-app/pull/51',
   additions: 210,
   deletions: 88,
 };
 
-const REVIEW_BODY =
-  'Review the changes and summarise your findings before writing any review comments.';
-const IMPLEMENT_BODY = 'Investigate it and propose a plan before changing anything.';
+const review: WorkItemAction = {
+  id: 'a-review',
+  name: 'Review',
+  appliesTo: ['pr'],
+  prompt: 'Review {{type}} #{{number}} ("{{title}}").',
+};
+const blank: WorkItemAction = { id: 'a-blank', name: 'Blank', appliesTo: ['pr'], prompt: '   ' };
 
-/**
- * This file's flavour of the shared stub: a token tied to the login (so a
- * launch's composed env proves which account it borrowed for).
- */
-function makeStubDriver(overrides: Partial<GitProviderDriver> = {}): GitProviderDriver {
-  return createStubDriver({
-    tokenEnvVar: 'STUB_TOKEN',
-    token: vi.fn(async (login: string) => `tok-${login}`),
-    ...overrides,
-  });
-}
+// Only seedHeader matters to a launch; the seam is proven by the launch
+// never naming 'github' itself — the driver comes from deps.resolveDriver.
+const stubDriver = {
+  id: 'github',
+  tokenEnvVar: 'STUB_TOKEN',
+  seedHeader: (ref: WorkItemRef, item?: InboxItem) =>
+    `HEADER ${ref.type} #${ref.number}${item ? ` "${item.title}"` : ''}`,
+} as unknown as GitProviderDriver;
 
 function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   const now = Date.now();
@@ -58,125 +52,93 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     ],
     groups: [],
     provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
-    actions: [],
+    actions: [review, blank],
     sectionDefaults: {},
     sessions: [],
     createdAt: now,
     updatedAt: now,
     ...overrides,
-  };
+  } as Workspace;
 }
 
 function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> = {}) {
   const created: NewSessionFields[] = [];
-  const driver = makeStubDriver();
+  let minted = 0;
   const deps: WorkItemLaunchDeps = {
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
+    resolveDriver: vi.fn(() => stubDriver),
     createSession: (workspaceId, fields) => {
       created.push(fields);
+      minted += 1;
       return {
         ...fields,
-        id: 'session-new',
-        claudeSessionId: 'uuid-new',
+        id: `session-${minted}`,
+        claudeSessionId: `uuid-${minted}`,
         hasStarted: false,
         createdAt: Date.now(),
         lastActiveAt: Date.now(),
       } as Session;
     },
-    resolveRepo: () => '/repos/controller-app',
+    resolveRepo: vi.fn(() => '/repos/controller-app'),
     ensureWorktree: vi.fn(async () => '/worktrees/controller-app-pr-51'),
-    composeEnv: vi.fn(async (resolved, login) => ({ [resolved.tokenEnvVar]: `tok-${login}` })),
+    composeEnv: vi.fn(async () => ({ STUB_TOKEN: 'gho_test' })),
     findItem: () => item51,
-    pathExists: () => true,
-    resolveDriver: () => driver,
     ...overrides,
   };
-  return { deps, created, driver };
-}
-
-function existingSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: 'session-existing',
-    name: 'PR #51 - Extract billing client',
-    workspaceId: 'ws-1',
-    instanceId: 'inst-existing',
-    claudeSessionId: 'uuid-existing',
-    hasStarted: true,
-    harnessId: 'default',
-    scopeId: 'scope-controller',
-    cwd: '/worktrees/controller-app-pr-51',
-    kind: 'interactive',
-    workItem: pr51,
-    workItemAction: 'Review',
-    createdAt: 1,
-    lastActiveAt: 1,
-    ...overrides,
-  };
+  return { deps, created };
 }
 
 describe('launchWorkItem', () => {
-  it('re-attaches to an existing session for the same work item, touching nothing', async () => {
-    // Casing differs on purpose: repo identity is case-insensitive.
-    const existing = existingSession({ workItem: { ...pr51, repo: 'Sympower/Controller-App' } });
-    const workspace = makeWorkspace({ sessions: [existing] });
-    const { deps, created } = makeDeps(workspace);
+  it('errors plainly for an unknown workspace', async () => {
+    const { deps } = makeDeps(makeWorkspace());
+    const result = await launchWorkItem(deps, 'ws-missing', pr51, { id: review.id });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown workspace: ws-missing' });
+  });
 
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
-    expect(result).toEqual({ ok: true, session: existing, reattached: true });
+  it('errors plainly for a workspace without a provider binding, touching nothing', async () => {
+    const { deps, created } = makeDeps(makeWorkspace({ provider: undefined }));
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'This workspace has no provider account bound.',
+    });
     expect(created).toHaveLength(0);
+    expect(deps.resolveRepo).not.toHaveBeenCalled();
+  });
+
+  it('rejects a malformed ref before anything else', async () => {
+    const { deps } = makeDeps(makeWorkspace());
+    const bad = { ...pr51, number: 1.5 } as WorkItemRef;
+    const result = await launchWorkItem(deps, 'ws-1', bad, { id: review.id });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'Invalid work item reference.' });
+    expect(deps.resolveRepo).not.toHaveBeenCalled();
+  });
+
+  it('refuses an unknown action id without resolving the repo', async () => {
+    const { deps, created } = makeDeps(makeWorkspace());
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: 'a-deleted' });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown action.' });
+    expect(created).toHaveLength(0);
+    expect(deps.resolveRepo).not.toHaveBeenCalled();
     expect(deps.ensureWorktree).not.toHaveBeenCalled();
   });
 
-  it('re-ensures a deleted worktree before re-attaching, with the env the driver composed', async () => {
-    const existing = existingSession();
-    const workspace = makeWorkspace({ sessions: [existing] });
-    const { deps, created, driver } = makeDeps(workspace, { pathExists: () => false });
-
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
-    expect(result).toEqual({ ok: true, session: existing, reattached: true });
+  it('refuses an empty rendered body before touching disk', async () => {
+    const { deps, created } = makeDeps(makeWorkspace());
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: blank.id });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'This action has no prompt to send.' });
     expect(created).toHaveLength(0);
-    expect(deps.composeEnv).toHaveBeenCalledWith(driver, 'SymJavi');
-    expect(deps.ensureWorktree).toHaveBeenCalledWith('/repos/controller-app', pr51, {
-      STUB_TOKEN: 'tok-SymJavi',
-    });
-  });
-
-  it('re-attaches without ensuring anything when the clone itself is gone too', async () => {
-    const workspace = makeWorkspace({ sessions: [existingSession()] });
-    const { deps } = makeDeps(workspace, { pathExists: () => false, resolveRepo: () => null });
-
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
-    // The clone can't be resolved, so there's nothing to rebuild the
-    // worktree from — the honest answer is today's re-attach, which hands
-    // the user the existing terminal's "working folder not found" notice.
-    expect(result).toMatchObject({ ok: true, reattached: true });
+    expect(deps.resolveRepo).not.toHaveBeenCalled();
     expect(deps.ensureWorktree).not.toHaveBeenCalled();
-  });
-
-  it('surfaces ensureWorktree failure as the launch error rather than re-attaching into a broken directory', async () => {
-    const workspace = makeWorkspace({ sessions: [existingSession()] });
-    const { deps } = makeDeps(workspace, {
-      pathExists: () => false,
-      ensureWorktree: vi.fn(async () => {
-        throw new Error('fatal: unable to recreate worktree');
-      }),
-    });
-
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
-    expect(result).toEqual({ ok: false, reason: 'error', message: 'fatal: unable to recreate worktree' });
   });
 
   it('reports not-cloned when no scope resolves the repo, creating nothing', async () => {
-    const { deps, created } = makeDeps(makeWorkspace(), { resolveRepo: () => null });
-
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
+    const { deps, created } = makeDeps(makeWorkspace(), { resolveRepo: vi.fn(() => null) });
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
     expect(result).toEqual({ ok: false, reason: 'not-cloned' });
     expect(created).toHaveLength(0);
+    expect(deps.ensureWorktree).not.toHaveBeenCalled();
   });
 
   it('creates no session record when the worktree step fails — atomicity', async () => {
@@ -185,26 +147,25 @@ describe('launchWorkItem', () => {
         throw new Error('fatal: not a valid ref');
       }),
     });
-
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
     expect(result).toEqual({ ok: false, reason: 'error', message: 'fatal: not a valid ref' });
     expect(created).toHaveLength(0);
   });
 
-  it('creates the record with the matched scope, worktree cwd, work item and the action name', async () => {
-    const { deps, created } = makeDeps(makeWorkspace());
+  it('creates the record with the matched scope, worktree cwd, item and action name, and returns the seed', async () => {
+    const workspace = makeWorkspace();
+    const { deps, created } = makeDeps(workspace);
 
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
 
     expect(result.ok).toBe(true);
     if (!result.ok) return;
-    expect(result.reattached).toBe(false);
-    // The driver's header, a blank line, then the type's default body.
-    expect(result.seedPrompt).toBe(`stub header for #51 (Extract billing client)\n\n${REVIEW_BODY}`);
+    expect(result.seedPrompt).toBe(
+      'HEADER pr #51 "Extract billing client"\n\nReview pull request #51 ("Extract billing client").'
+    );
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({
-      name: 'PR #51 - Extract billing client',
+      name: 'Extract billing client',
       workspaceId: 'ws-1',
       harnessId: 'default',
       scopeId: 'scope-controller', // deepest matching scope, not the container
@@ -214,110 +175,134 @@ describe('launchWorkItem', () => {
       workItemAction: 'Review',
     });
     expect(created[0].instanceId).toMatch(/^workspace-ws-1-session-/);
+    expect(deps.resolveDriver).toHaveBeenCalledWith('github');
+    expect(deps.composeEnv).toHaveBeenCalledWith(stubDriver, 'SymJavi');
+    expect(deps.ensureWorktree).toHaveBeenCalledWith('/repos/controller-app', pr51, {
+      STUB_TOKEN: 'gho_test',
+    });
   });
 
-  it('labels an issue launch Implement and seeds the Implement body', async () => {
-    const { deps, created } = makeDeps(makeWorkspace(), {
-      ensureWorktree: vi.fn(async () => '/worktrees/controller-app-issue-87'),
-      findItem: () => undefined,
-    });
+  it('renders a custom prompt like an action and snapshots the name "Custom prompt"', async () => {
+    const { deps, created } = makeDeps(makeWorkspace({ actions: [] }));
 
-    const result = await launchWorkItem(deps, 'ws-1', issue87);
+    const result = await launchWorkItem(deps, 'ws-1', pr51, {
+      customPrompt: '  /security-review on {{repo}}  ',
+    });
 
     expect(result).toMatchObject({
       ok: true,
-      seedPrompt: `stub header for #87\n\n${IMPLEMENT_BODY}`,
+      seedPrompt: 'HEADER pr #51 "Extract billing client"\n\n/security-review on sympower/controller-app',
     });
-    expect(created[0]).toMatchObject({ name: 'Issue #87', workItemAction: 'Implement' });
+    expect(created[0]).toMatchObject({ workItemAction: 'Custom prompt' });
   });
 
-  it('errors plainly for a workspace without a provider binding', async () => {
-    const { deps, created } = makeDeps(makeWorkspace({ provider: undefined }));
-
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
-
-    expect(result).toEqual({
-      ok: false,
-      reason: 'error',
-      message: 'This workspace has no provider account bound.',
-    });
+  it('refuses a whitespace-only custom prompt', async () => {
+    const { deps, created } = makeDeps(makeWorkspace());
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: ' \n ' });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'This action has no prompt to send.' });
     expect(created).toHaveLength(0);
   });
 
-  it('errors, creating nothing, when the provider is unknown to this build', async () => {
-    const { deps, created } = makeDeps(makeWorkspace(), {
-      resolveDriver: () => {
-        throw new Error('Unknown git provider "gitlab".');
-      },
-    });
+  it('falls back to the plain label as the name when the inbox has no item', async () => {
+    const { deps, created } = makeDeps(makeWorkspace(), { findItem: () => undefined });
+    const issue87: WorkItemRef = { ...pr51, type: 'issue', number: 87 };
+    const implement: WorkItemAction = { id: 'a-impl', name: 'Implement', appliesTo: ['issue'], prompt: 'Go.' };
+    const workspace = makeWorkspace({ actions: [implement] });
+    const { deps: deps2, created: created2 } = makeDeps(workspace, { findItem: () => undefined });
 
-    const result = await launchWorkItem(deps, 'ws-1', pr51);
+    await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    const result = await launchWorkItem(deps2, 'ws-1', issue87, { id: implement.id });
 
-    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown git provider "gitlab".' });
-    expect(created).toHaveLength(0);
-    expect(deps.ensureWorktree).not.toHaveBeenCalled();
+    expect(created[0].name).toBe('PR #51');
+    expect(created2[0].name).toBe('Issue #87');
+    expect(result).toMatchObject({ ok: true, seedPrompt: 'HEADER issue #87\n\nGo.' });
+  });
+
+  // Ruling 4: two direct calls through deps (not the coalescer) for the same
+  // ref. Both must succeed with distinct session ids: re-attach is gone, so
+  // a second launch of the same item is not folded into the first. The
+  // worktree is ensured on each call — it is idempotent, so both sessions
+  // land on the identical cwd, and ensureWorktree is asserted to have run
+  // twice (once per direct call — nothing here coalesces them).
+  it('always mints a new session — two direct launches of the same item never re-attach', async () => {
+    const { deps, created } = makeDeps(makeWorkspace());
+
+    const first = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    const second = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    if (!first.ok || !second.ok) return;
+    expect(second.session.id).not.toBe(first.session.id);
+    expect(created).toHaveLength(2);
+    expect(created[0].cwd).toBe(created[1].cwd);
+    expect(deps.ensureWorktree).toHaveBeenCalledTimes(2);
   });
 });
 
 describe('createLaunchCoalescer', () => {
-  it('coalesces concurrent launches of the same work item into one call', async () => {
+  it('coalesces concurrent launches of the same item and action into one call', async () => {
     const { deps, created } = makeDeps(makeWorkspace());
     const launch = createLaunchCoalescer(deps);
 
-    // Not reachable through the UI (the renderer's `launching[key]` disables
-    // the button), but this proves the main-side defence: two overlapping
-    // calls must not each pass the "existing session" check and mint a
-    // rival session for the same work item.
-    const [first, second] = await Promise.all([launch('ws-1', pr51), launch('ws-1', pr51)]);
+    const [first, second] = await Promise.all([
+      launch('ws-1', pr51, { id: review.id }),
+      launch('ws-1', pr51, { id: review.id }),
+    ]);
 
     expect(created).toHaveLength(1);
     expect(deps.ensureWorktree).toHaveBeenCalledTimes(1);
     expect(first).toBe(second);
   });
 
-  it('does not coalesce launches of different work items', async () => {
+  it('does not coalesce two different actions on the same item', async () => {
+    const fixCi: WorkItemAction = { id: 'a-fixci', name: 'Fix CI', appliesTo: ['pr'], prompt: 'Fix.' };
+    const { deps, created } = makeDeps(makeWorkspace({ actions: [review, fixCi] }));
+    const launch = createLaunchCoalescer(deps);
+
+    await Promise.all([launch('ws-1', pr51, { id: review.id }), launch('ws-1', pr51, { id: fixCi.id })]);
+
+    expect(created).toHaveLength(2);
+    expect(created.map((fields) => fields.workItemAction).sort()).toEqual(['Fix CI', 'Review']);
+  });
+
+  it('coalesces a custom prompt by its trimmed body', async () => {
     const { deps, created } = makeDeps(makeWorkspace());
     const launch = createLaunchCoalescer(deps);
 
-    await Promise.all([launch('ws-1', pr51), launch('ws-1', issue87)]);
+    await Promise.all([
+      launch('ws-1', pr51, { customPrompt: '/security-review' }),
+      launch('ws-1', pr51, { customPrompt: '  /security-review\n' }),
+    ]);
+
+    expect(created).toHaveLength(1);
+  });
+
+  it('does not coalesce launches of different work items', async () => {
+    const issue87: WorkItemRef = { ...pr51, type: 'issue', number: 87 };
+    const implement: WorkItemAction = { id: 'a-impl', name: 'Implement', appliesTo: ['issue'], prompt: 'Go.' };
+    const { deps, created } = makeDeps(makeWorkspace({ actions: [review, implement] }));
+    const launch = createLaunchCoalescer(deps);
+
+    await Promise.all([launch('ws-1', pr51, { id: review.id }), launch('ws-1', issue87, { id: implement.id })]);
 
     expect(created).toHaveLength(2);
   });
 
-  it('runs a later launch of the same item fresh once the first has settled', async () => {
+  it('runs a later launch of the same item and action fresh once the first has settled', async () => {
     const workspace = makeWorkspace();
     const { deps, created } = makeDeps(workspace);
     const launch = createLaunchCoalescer(deps);
 
-    const first = await launch('ws-1', pr51);
+    const first = await launch('ws-1', pr51, { id: review.id });
     if (!first.ok) throw new Error('expected the first launch to succeed');
-    // The real session now exists in `workspace.sessions` (as it would once
-    // WorkspaceService persists it), so this second, non-overlapping call
-    // re-attaches rather than launching fresh.
     workspace.sessions = [first.session];
-    const second = await launch('ws-1', pr51);
+    const second = await launch('ws-1', pr51, { id: review.id });
 
-    expect(created).toHaveLength(1);
-    expect(second).toMatchObject({ ok: true, reattached: true });
-  });
-});
-
-describe('buildSeedPrompt', () => {
-  it("is the driver's header, a blank line, and the Review body for a PR", () => {
-    expect(buildSeedPrompt(makeStubDriver(), pr51, item51)).toBe(
-      `stub header for #51 (Extract billing client)\n\n${REVIEW_BODY}`
-    );
-  });
-
-  it('is the header and the Implement body for an issue, with no cached item', () => {
-    expect(buildSeedPrompt(makeStubDriver(), issue87)).toBe(`stub header for #87\n\n${IMPLEMENT_BODY}`);
-  });
-});
-
-describe('workItemSessionName', () => {
-  it('uses the title when the inbox holds one, a plain label when not', () => {
-    expect(workItemSessionName(pr51, item51)).toBe('PR #51 - Extract billing client');
-    expect(workItemSessionName(pr51)).toBe('PR #51');
-    expect(workItemSessionName(issue87)).toBe('Issue #87');
+    // Two clicks, spaced out, are two sessions: always-a-new-session.
+    expect(created).toHaveLength(2);
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(second.session.id).not.toBe(first.session.id);
   });
 });
