@@ -8,6 +8,7 @@ import {
   Folder,
   GitBranch,
   Plus,
+  Settings,
   SquareArrowOutUpRight,
   Trash2,
 } from 'lucide-react';
@@ -15,6 +16,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
+import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { primaryScope } from '../../../shared/workspace';
 import { dialogBridge } from '../../services/dialogBridge';
 import { windowBridge } from '../../services/windowBridge';
@@ -40,6 +42,11 @@ export function WorkspaceSwitcher() {
   const elsewhere = anyOtherWorkspaceNeedsAttention(workspaces, activeWorkspaceId, terminals);
   const selectableHarnesses = harnesses.filter(isSelectableHarness);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
+  const { openWorkspaceSettings } = useWorkspaceSettings();
+  // One-shot, like confirmingDelete: set as the item is chosen, read as the
+  // menu closes, cleared on the next open so an ordinary dismissal refocuses
+  // the trigger again.
+  const [openingSettings, setOpeningSettings] = useState(false);
 
   const handleAddWorkspace = async () => {
     const folder = await dialogBridge.selectFolder();
@@ -52,7 +59,11 @@ export function WorkspaceSwitcher() {
 
   return (
     <>
-    <DropdownMenu.Root>
+    <DropdownMenu.Root
+      onOpenChange={(open) => {
+        if (open) setOpeningSettings(false);
+      }}
+    >
       <DropdownMenu.Trigger asChild>
         <button
           className="workspace-switcher"
@@ -80,10 +91,11 @@ export function WorkspaceSwitcher() {
           className="dropdown-content"
           sideOffset={6}
           align="start"
-          // Selecting Delete opens a dialog; the menu refocusing its trigger
-          // would race the dialog's own focus grab (see NewMenu).
+          // Selecting Delete or Workspace settings opens a dialog; the menu
+          // refocusing its trigger would race the dialog's own focus grab
+          // (see NewMenu).
           onCloseAutoFocus={(event) => {
-            if (confirmingDelete) event.preventDefault();
+            if (confirmingDelete || openingSettings) event.preventDefault();
           }}
         >
           {workspaces.map((workspace) => {
@@ -108,6 +120,19 @@ export function WorkspaceSwitcher() {
           })}
 
           {workspaces.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
+
+          {active && (
+            <DropdownMenu.Item
+              className="dropdown-item"
+              onSelect={() => {
+                setOpeningSettings(true);
+                openWorkspaceSettings(active.id);
+              }}
+            >
+              <Settings size={14} />
+              <span>Workspace settings…</span>
+            </DropdownMenu.Item>
+          )}
 
           {active && (
             <DropdownMenu.Item

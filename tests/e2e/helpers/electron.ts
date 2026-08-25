@@ -15,6 +15,16 @@ export function newWindowChord(): string {
   return process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN';
 }
 
+/** The chord for the global Settings modal, matching useKeyboardShortcuts on this platform. */
+export function settingsChord(): string {
+  return process.platform === 'darwin' ? 'Meta+Comma' : 'Control+Comma';
+}
+
+/** The command palette chord, matching isCommandPaletteShortcut on this platform. */
+export function commandPaletteChord(): string {
+  return process.platform === 'darwin' ? 'Meta+KeyK' : 'Control+Shift+KeyP';
+}
+
 export function createProfileDir(): string {
   return fs.mkdtempSync(path.join(os.tmpdir(), 'consola-e2e-'));
 }
