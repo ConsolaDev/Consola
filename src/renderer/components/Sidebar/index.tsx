@@ -35,13 +35,13 @@ export function Sidebar() {
     workspace ? (state.snapshots[workspace.id]?.items.length ?? 0) : 0
   );
 
-  // Prime the inbox for github-bound workspaces so the count is live even
+  // Prime the inbox for provider-bound workspaces so the count is live even
   // before the Inbox view is ever opened. Main answers from cache or kicks a
   // background refresh whose result arrives on the push channel.
-  const githubAccount = workspace?.github?.accountLogin;
+  const providerAccount = workspace?.provider?.accountLogin;
   useEffect(() => {
-    if (workspace && githubAccount) void useInboxStore.getState().load(workspace.id);
-  }, [workspace?.id, githubAccount]);
+    if (workspace && providerAccount) void useInboxStore.getState().load(workspace.id);
+  }, [workspace?.id, providerAccount]);
 
   if (isSidebarHidden) {
     return null;
@@ -116,7 +116,7 @@ export function Sidebar() {
 
   return (
     <aside className="sidebar">
-      {workspace?.github && (
+      {workspace?.provider && (
         <div className="sidebar-inbox">
           <button
             className={`sidebar-inbox-row ${isInboxOpen ? 'active' : ''}`}

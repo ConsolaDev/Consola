@@ -1,1 +1,0 @@
-export { GitHubBindingPanel } from './GitHubBindingPanel';
