@@ -1,5 +1,5 @@
 /*
- * Workspace settings section.
+ * Workspace settings modal.
  *
  * One manifest header — the workspace's passport — over hairline-separated
  * panels, one per fact the header states. Everything derives from the shared
@@ -287,4 +287,36 @@
 .ws-danger-button:hover {
   background: var(--color-error);
   color: white;
+}
+
+/* The modal's nav header names the thing being edited. */
+.settings-modal-workspace-title {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.settings-modal-workspace-subtitle {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-tertiary);
+}
+
+/* The danger entry raises only its color, like the panel's own title. */
+.settings-modal-nav-item.danger,
+.settings-modal-nav-item.danger:hover,
+.settings-modal-nav-item.danger.active {
+  color: var(--color-error);
+}
+
+/* A panel shown on its own has nothing above it to separate from: the
+   hairline that stacked the panels under the old Workspace tab goes. */
+.settings-modal-section > .ws-panel:first-child {
+  padding-top: 0;
+  border-top: none;
 }
