@@ -161,7 +161,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
   }
 });
 
-test('the sidebar gear opens the global modal; the workspace modal commits a rename, shows the Actions placeholder, and Cancel on delete leaves Danger zone active', async () => {
+test('the sidebar gear opens the global modal; the workspace modal commits a rename, shows the Actions panel, and Cancel on delete leaves Danger zone active', async () => {
   test.setTimeout(60_000);
   const { page, cleanup } = await launchSeeded();
   try {
@@ -201,9 +201,11 @@ test('the sidebar gear opens the global modal; the workspace modal commits a ren
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await expect(modal).toBeVisible();
 
-    // Actions is still Phase C's placeholder.
+    // Actions now renders the real panel; the fixture seeds a bound
+    // provider but no actions, so it shows the panel's own empty state.
     await modal.getByRole('button', { name: 'Actions', exact: true }).click();
-    await expect(modal.getByText('Actions are configured in the next release.')).toBeVisible();
+    await expect(modal.getByTestId('actions-panel')).toBeVisible();
+    await expect(modal.getByText('No actions. Add one, or restore the defaults.')).toBeVisible();
 
     // Danger zone: Cancel on the confirmation leaves the workspace modal
     // open with Danger zone still the active section.
