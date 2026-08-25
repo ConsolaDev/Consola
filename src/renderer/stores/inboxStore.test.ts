@@ -1,14 +1,20 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { InboxItem, InboxSnapshot } from '../../shared/github';
+import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
 
-vi.mock('../services/githubBridge', () => ({
-  githubBridge: {
+vi.mock('../services/inboxBridge', () => ({
+  inboxBridge: {
     getInbox: vi.fn(async () => null),
     refreshInbox: vi.fn(async () => undefined),
+    onInboxChanged: vi.fn(() => () => {}),
+  },
+}));
+
+vi.mock('../services/providerBridge', () => ({
+  providerBridge: {
+    probe: vi.fn(async () => ({ available: false, accounts: [] })),
     resolveRepos: vi.fn(async () => ({})),
     launchWorkItem: vi.fn(),
     cloneRepo: vi.fn(),
-    onInboxChanged: vi.fn(() => () => {}),
   },
 }));
 
@@ -27,7 +33,8 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
-import { githubBridge } from '../services/githubBridge';
+import { inboxBridge } from '../services/inboxBridge';
+import { providerBridge } from '../services/providerBridge';
 import { useNavigationStore } from './navigationStore';
 import { useTerminalStore } from './terminalStore';
 import { launchKey, useInboxStore } from './inboxStore';
@@ -35,9 +42,13 @@ import { launchKey, useInboxStore } from './inboxStore';
 const item51: InboxItem = {
   workItem: { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 },
   title: 'Extract billing client',
+  author: 'anna',
+  roles: ['review-requested-direct'],
+  isDraft: false,
   state: 'open',
-  role: 'review-requested',
+  reviewDecision: 'review-required',
   ciStatus: 'failing',
+  commentCount: 3,
   updatedAt: '2026-08-20T07:55:00Z',
   url: 'https://github.com/sympower/controller-app/pull/51',
 };
@@ -68,7 +79,7 @@ beforeEach(() => {
 
 describe('load', () => {
   it('adopts the snapshot when the bridge resolves one', async () => {
-    vi.mocked(githubBridge.getInbox).mockResolvedValue(snapshot);
+    vi.mocked(inboxBridge.getInbox).mockResolvedValue(snapshot);
 
     await useInboxStore.getState().load('ws-1');
 
@@ -76,7 +87,7 @@ describe('load', () => {
   });
 
   it('does not throw when the bridge call rejects', async () => {
-    vi.mocked(githubBridge.getInbox).mockRejectedValue(new Error('main process crashed'));
+    vi.mocked(inboxBridge.getInbox).mockRejectedValue(new Error('main process crashed'));
 
     // A floating `void load(...)` at the call sites means a rejection here
     // would be an unhandled rejection — this must resolve instead.
@@ -86,7 +97,7 @@ describe('load', () => {
 
 describe('refresh', () => {
   it('does not throw when the bridge call rejects', async () => {
-    vi.mocked(githubBridge.refreshInbox).mockRejectedValue(new Error('main process crashed'));
+    vi.mocked(inboxBridge.refreshInbox).mockRejectedValue(new Error('main process crashed'));
 
     await expect(useInboxStore.getState().refresh('ws-1')).resolves.toBeUndefined();
   });
@@ -94,7 +105,7 @@ describe('refresh', () => {
 
 describe('adoptSnapshot', () => {
   it('stores the snapshot by workspace and asks main which repos are cloned', async () => {
-    vi.mocked(githubBridge.resolveRepos).mockResolvedValue({
+    vi.mocked(providerBridge.resolveRepos).mockResolvedValue({
       'sympower/controller-app': '/repos/controller-app',
     });
 
@@ -106,13 +117,13 @@ describe('adoptSnapshot', () => {
     });
 
     expect(useInboxStore.getState().snapshots['ws-1']).toEqual(snapshot);
-    expect(githubBridge.resolveRepos).toHaveBeenCalledWith('ws-1', ['sympower/controller-app']);
+    expect(providerBridge.resolveRepos).toHaveBeenCalledWith('ws-1', ['sympower/controller-app']);
   });
 });
 
 describe('launch', () => {
   it('seeds the prompt and activates the session on a fresh launch', async () => {
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue({
       ok: true,
       reattached: false,
       seedPrompt: 'This session is for pull request #51...',
@@ -128,7 +139,7 @@ describe('launch', () => {
   });
 
   it('does not re-seed the prompt when re-attaching', async () => {
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue({
       ok: true,
       reattached: true,
       session: { id: 'session-1', instanceId: 'inst-1' } as never,
@@ -141,7 +152,7 @@ describe('launch', () => {
   });
 
   it('records an error on the item, keyed, when the launch fails', async () => {
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue({
       ok: false,
       reason: 'error',
       message: 'fatal: not a valid ref',
@@ -156,7 +167,7 @@ describe('launch', () => {
   });
 
   it('opens the clone prompt when the repo is not cloned', async () => {
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue({
       ok: false,
       reason: 'not-cloned',
     });
@@ -167,7 +178,7 @@ describe('launch', () => {
   });
 
   it('records an error, keyed, when launchWorkItem rejects instead of resolving', async () => {
-    vi.mocked(githubBridge.launchWorkItem).mockRejectedValue(new Error('main process crashed'));
+    vi.mocked(providerBridge.launchWorkItem).mockRejectedValue(new Error('main process crashed'));
 
     await useInboxStore.getState().launch('ws-1', item51);
 
@@ -178,7 +189,7 @@ describe('launch', () => {
   });
 
   it('records an error when the bridge degrades to null', async () => {
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue(null);
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue(null);
 
     await useInboxStore.getState().launch('ws-1', item51);
 
@@ -191,8 +202,8 @@ describe('launch', () => {
 
 describe('cloneAndLaunch', () => {
   it('clones, then continues the launch', async () => {
-    vi.mocked(githubBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/x' });
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+    vi.mocked(providerBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/x' });
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue({
       ok: true,
       reattached: false,
       seedPrompt: 'seed',
@@ -202,14 +213,14 @@ describe('cloneAndLaunch', () => {
 
     await useInboxStore.getState().cloneAndLaunch('ws-1', item51, '/repos');
 
-    expect(githubBridge.cloneRepo).toHaveBeenCalledWith('ws-1', 'sympower/controller-app', '/repos');
-    expect(githubBridge.launchWorkItem).toHaveBeenCalled();
+    expect(providerBridge.cloneRepo).toHaveBeenCalledWith('ws-1', 'sympower/controller-app', '/repos');
+    expect(providerBridge.launchWorkItem).toHaveBeenCalled();
     expect(useInboxStore.getState().clonePrompt).toBeNull();
   });
 
   it('records the resolved path on a successful clone, even when the launch after it fails', async () => {
-    vi.mocked(githubBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/controller-app' });
-    vi.mocked(githubBridge.launchWorkItem).mockResolvedValue({
+    vi.mocked(providerBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/controller-app' });
+    vi.mocked(providerBridge.launchWorkItem).mockResolvedValue({
       ok: false,
       reason: 'error',
       message: 'fatal: branch already checked out',
@@ -228,11 +239,11 @@ describe('cloneAndLaunch', () => {
   });
 
   it('surfaces a clone failure on the item and does not launch', async () => {
-    vi.mocked(githubBridge.cloneRepo).mockResolvedValue({ ok: false, error: 'denied' });
+    vi.mocked(providerBridge.cloneRepo).mockResolvedValue({ ok: false, error: 'denied' });
 
     await useInboxStore.getState().cloneAndLaunch('ws-1', item51, '/repos');
 
     expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51)]).toBe('denied');
-    expect(githubBridge.launchWorkItem).not.toHaveBeenCalled();
+    expect(providerBridge.launchWorkItem).not.toHaveBeenCalled();
   });
 });
