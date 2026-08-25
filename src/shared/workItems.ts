@@ -141,3 +141,20 @@ export function isValidWorkItemRef(value: unknown): value is WorkItemRef {
 export function toWorkItemRef(ref: WorkItemRef): WorkItemRef {
   return { provider: ref.provider, repo: ref.repo, type: ref.type, number: ref.number };
 }
+
+/**
+ * What a launch asks for: a stored action by id, or an ad-hoc body that is
+ * rendered like an action's but never persisted (its session records the
+ * name snapshot 'Custom prompt').
+ */
+export type WorkItemLaunchAction = { id: string } | { customPrompt: string };
+
+/**
+ * 'action:<id>' or 'custom:<trimmed body>' — the key under which one action
+ * against one item is coalesced (main) and shown as in-flight (renderer).
+ * The raw trimmed body rather than a hash: the strings are short, and an
+ * inspectable key is worth more than a shorter one.
+ */
+export function workItemActionKey(action: WorkItemLaunchAction): string {
+  return 'id' in action ? `action:${action.id}` : `custom:${action.customPrompt.trim()}`;
+}

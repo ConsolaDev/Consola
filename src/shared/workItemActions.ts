@@ -109,6 +109,27 @@ function isKnownSection(value: string): value is InboxSection {
 }
 
 /**
+ * The action the Inbox pane highlights for an item.
+ *
+ * `preferredId` is the section default; it only wins when it still exists
+ * and applies to the item's type, because a default can dangle after a
+ * delete or point at an action whose appliesTo was edited underneath it.
+ * Otherwise the first applicable action in the user's own order wins —
+ * which is what "drag to reorder" is for.
+ */
+export function defaultActionFor(
+  actions: WorkItemAction[],
+  itemType: 'pr' | 'issue',
+  preferredId?: string
+): WorkItemAction | undefined {
+  const applicable = actions.filter((action) => action.appliesTo.includes(itemType));
+  const preferred = preferredId
+    ? applicable.find((action) => action.id === preferredId)
+    : undefined;
+  return preferred ?? applicable[0];
+}
+
+/**
  * Pure validation for workspace:set-actions: unique ids, a name, non-empty
  * appliesTo and prompt per action, every default pointing at an existing
  * action of a matching type. Shape checks come first because this runs on an
