@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
@@ -62,7 +63,12 @@ export function SessionNavItem({
   const displayStatus: SessionStatus =
     isActive && sessionStatus === 'done' ? 'ready' : sessionStatus;
   const statusWord = STATUS_WORDS[displayStatus];
-  const accessibleName = `${session.name} — ${STATUS_LABELS[displayStatus]}`;
+  // The row reads the derived label — "PR #4118 · Review", "⑂ name" — and
+  // shows `name` underneath only when the label stopped saying it. A group
+  // member's runs-in subtitle joins it rather than replacing it.
+  const label = sessionLabel(session);
+  const subtitleText = [sessionSubtitle(session), subtitle].filter(Boolean).join(' · ');
+  const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}`;
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -156,8 +162,8 @@ export function SessionNavItem({
         />
       ) : (
         <span className="session-nav-item-text">
-          <span className="session-nav-item-name">{session.name}</span>
-          {subtitle && <span className="session-nav-item-subtitle">{subtitle}</span>}
+          <span className="session-nav-item-name">{label}</span>
+          {subtitleText && <span className="session-nav-item-subtitle">{subtitleText}</span>}
         </span>
       )}
       {!isRenaming && statusWord && (
@@ -167,7 +173,8 @@ export function SessionNavItem({
       )}
       {!isRenaming && (
         <SessionActionsMenu
-          sessionName={session.name}
+          session={session}
+          workspaceId={workspaceId}
           onRename={handleStartRename}
           onDelete={handleDelete}
         />
