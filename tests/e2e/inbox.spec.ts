@@ -55,7 +55,25 @@ function seedWorkspaceState(userDataDir: string, repoDir: string): string {
             ],
             groups: [],
             github: { accountLogin: 'SymJavi', org: 'sympower' },
-            sessions: [],
+            // A hand-made session, never launched from an item: no workItem,
+            // so sessionLabel reads it as a plain name and the sidebar's
+            // Link/Unlink flow (finding 2a) has something to link.
+            sessions: [
+              {
+                id: 'session-handmade',
+                name: 'Local notes',
+                workspaceId,
+                instanceId: `workspace-${workspaceId}-session-handmade`,
+                claudeSessionId: 'uuid-handmade',
+                hasStarted: false,
+                harnessId: 'default',
+                scopeId: 'scope-controller',
+                cwd: repoDir,
+                kind: 'interactive',
+                createdAt: now,
+                lastActiveAt: now,
+              },
+            ],
             createdAt: now,
             updatedAt: now,
           },
@@ -101,6 +119,16 @@ function sessionsIn(stateFile: string): SeededSession[] {
   } catch {
     return []; // mid-write; the poll comes back
   }
+}
+
+/**
+ * Just the sessions an action launched, excluding the fixture's hand-made
+ * session (finding 2a) — which never carries a workItem — so the existing
+ * "one launch, then a second" counts stay exact regardless of what else the
+ * fixture seeds.
+ */
+function launchedSessionsIn(stateFile: string): SeededSession[] {
+  return sessionsIn(stateFile).filter((session) => session.workItem !== undefined);
 }
 
 test('inbox renders, an action cuts a worktree and a session, a second action shares the worktree', async () => {
@@ -184,8 +212,8 @@ test('inbox renders, an action cuts a worktree and a session, a second action sh
       }).trim()
     ).toBe('stub-pr-51'); // the stub's `gh pr checkout` branch
 
-    await expect.poll(() => sessionsIn(stateFile).length, { timeout: 20_000 }).toBe(1);
-    const [first] = sessionsIn(stateFile);
+    await expect.poll(() => launchedSessionsIn(stateFile).length, { timeout: 20_000 }).toBe(1);
+    const [first] = launchedSessionsIn(stateFile);
     expect(first.workItem).toMatchObject({
       provider: 'github',
       repo: 'sympower/controller-app',
@@ -205,12 +233,60 @@ test('inbox renders, an action cuts a worktree and a session, a second action sh
     await expect(pane.locator('.inbox-pane-session-row')).toHaveCount(1, { timeout: 10_000 });
     await startAction(pane, 'Review');
 
-    await expect.poll(() => sessionsIn(stateFile).length, { timeout: 20_000 }).toBe(2);
-    const [older, newer] = sessionsIn(stateFile);
+    await expect.poll(() => launchedSessionsIn(stateFile).length, { timeout: 20_000 }).toBe(2);
+    const [older, newer] = launchedSessionsIn(stateFile);
     expect(newer.id).not.toBe(older.id);
     expect(newer.cwd).toBe(worktree);
     expect(newer.workItemAction).toBe('Review');
     expect(newer.workItem).toMatchObject({ repo: 'sympower/controller-app', type: 'pr', number: 51 });
+
+    // Finding 2a: the sidebar's Link/Unlink door on a hand-made session,
+    // from the opposite end of the same relation the actions above exercise.
+    // The row's accessible name carries its status word, so match on the
+    // name text alone — it is unaffected by "ready" vs. later states.
+    const handmadeRow = page.locator('.session-nav-item', { hasText: 'Local notes' });
+    await expect(handmadeRow).toBeVisible();
+    // The ⋯ trigger is visibility:hidden until the row is hovered or
+    // focused — hovering first is what makes the click actionable at all.
+    await handmadeRow.hover();
+    await handmadeRow.getByLabel('Session actions').click();
+    await page.getByRole('menuitem', { name: 'Link to work item...' }).click();
+
+    const linkDialog = page.getByRole('dialog', {
+      name: 'Link "Local notes" to a work item',
+      exact: true,
+    });
+    await expect(linkDialog).toBeVisible();
+    // Not exact: the option's accessible name is its label plus its
+    // context (the repo), same as the command palette's rows.
+    await linkDialog.getByRole('option', { name: '#51 Extract billing client' }).click();
+    await linkDialog.getByRole('button', { name: 'Link', exact: true }).click();
+    await expect(linkDialog).toBeHidden();
+
+    // Linking is metadata only, from the sidebar's end: the item pane now
+    // lists all three sessions on #51, and the sidebar row's name switches
+    // to the hand-made-session glyph. Starting the second Review activated
+    // its own session, so navigate back to the Inbox and the item first.
+    await inboxRow.click();
+    await item51.click();
+    await expect(pane.locator('.inbox-pane-session-row')).toHaveCount(3, { timeout: 10_000 });
+    await expect(handmadeRow.locator('.session-nav-item-name')).toHaveText(/^⑂ /);
+
+    await handmadeRow.hover();
+    await handmadeRow.getByLabel('Session actions').click();
+    await page.getByRole('menuitem', { name: 'Unlink' }).click();
+
+    // Unlinking is metadata-only too: the record loses the relation but
+    // keeps exactly the cwd it already had.
+    await expect
+      .poll(
+        () => sessionsIn(stateFile).find((session) => session.id === 'session-handmade')?.workItem,
+        { timeout: 10_000 }
+      )
+      .toBeUndefined();
+    const handmade = sessionsIn(stateFile).find((session) => session.id === 'session-handmade');
+    expect(handmade?.workItemAction).toBeUndefined();
+    expect(handmade?.cwd).toBe(repoDir);
   } finally {
     // Guaranteed even if an assertion above throws: a mid-test failure must
     // not leave a real Electron process running for the rest of the worker,

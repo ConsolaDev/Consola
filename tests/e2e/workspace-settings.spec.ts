@@ -17,7 +17,9 @@ const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
  * appends ' Test' to the profile dir under NODE_ENV=test, so the file must
  * land there. Shape per the v7 record in src/shared/workspace.ts: `provider`
  * replaces `github`; `actions` and `sectionDefaults` are the two fields the
- * migration adds, empty here because nothing in this spec reads them.
+ * migration adds. `actions` seeds one real action (finding 2b's edit flow
+ * needs a row to edit); `sectionDefaults` stays empty because nothing here
+ * reads it.
  */
 function seedWorkspaceState(userDataDir: string, scopeDir: string): string {
   const effective = `${userDataDir} Test`;
@@ -45,7 +47,7 @@ function seedWorkspaceState(userDataDir: string, scopeDir: string): string {
             ],
             groups: [],
             provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
-            actions: [],
+            actions: [{ id: 'a-review', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }],
             sectionDefaults: {},
             sessions: [],
             createdAt: now,
@@ -60,6 +62,22 @@ function seedWorkspaceState(userDataDir: string, scopeDir: string): string {
   return workspaceId;
 }
 
+interface SeededAction {
+  id?: string;
+  name?: string;
+  prompt?: string;
+}
+
+/** Read back the persisted actions list, for asserting a write actually landed. */
+function actionsIn(stateFile: string): SeededAction[] {
+  try {
+    const parsed = JSON.parse(fs.readFileSync(stateFile, 'utf8'));
+    return parsed.workspaces?.[0]?.actions ?? [];
+  } catch {
+    return []; // mid-write; the poll comes back
+  }
+}
+
 /**
  * Launch against a seeded profile with the stub gh on the path: the sidebar
  * primes the Inbox for a bound workspace, and that must never reach a real
@@ -67,11 +85,14 @@ function seedWorkspaceState(userDataDir: string, scopeDir: string): string {
  */
 async function launchSeeded(): Promise<{
   page: Page;
+  /** workspaces.json for this run — asserting a write actually persisted. */
+  stateFile: string;
   cleanup: () => Promise<void>;
 }> {
   const userDataDir = createProfileDir();
   const scopeDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-ws-settings-'));
   seedWorkspaceState(userDataDir, scopeDir);
+  const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
   const { app, page } = await launchElectron({
     userDataDir,
     env: {
@@ -88,7 +109,7 @@ async function launchSeeded(): Promise<{
     fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
     fs.rmSync(scopeDir, { recursive: true, force: true });
   };
-  return { page, cleanup };
+  return { page, stateFile, cleanup };
 }
 
 /** The switcher trigger; its accessible name never includes the workspace. */
@@ -163,7 +184,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
 
 test('the sidebar gear opens the global modal; the workspace modal commits a rename, shows the Actions panel, and Cancel on delete leaves Danger zone active', async () => {
   test.setTimeout(60_000);
-  const { page, cleanup } = await launchSeeded();
+  const { page, stateFile, cleanup } = await launchSeeded();
   try {
     // The sidebar footer gear is the other door into Settings, and it opens
     // the global modal (not a workspace one), landing on Appearance.
@@ -201,11 +222,34 @@ test('the sidebar gear opens the global modal; the workspace modal commits a ren
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await expect(modal).toBeVisible();
 
-    // Actions now renders the real panel; the fixture seeds a bound
-    // provider but no actions, so it shows the panel's own empty state.
+    // Actions now renders the real panel; the fixture seeds one action.
     await modal.getByRole('button', { name: 'Actions', exact: true }).click();
-    await expect(modal.getByTestId('actions-panel')).toBeVisible();
-    await expect(modal.getByText('No actions. Add one, or restore the defaults.')).toBeVisible();
+    const actionsPanel = modal.getByTestId('actions-panel');
+    await expect(actionsPanel).toBeVisible();
+    await expect(actionsPanel.locator('.ws-action-name')).toHaveText('Review');
+
+    // Finding 2b: Edit opens the row's editor; renaming and Save commit the
+    // whole write, and both the row and the persisted state show it.
+    await actionsPanel.getByRole('button', { name: 'Edit Review', exact: true }).click();
+    const nameInput = actionsPanel.getByLabel('Action name');
+    await expect(nameInput).toHaveValue('Review');
+    await nameInput.fill('Review carefully');
+    await actionsPanel.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(actionsPanel.locator('.ws-action-name')).toHaveText('Review carefully');
+    await expect
+      .poll(() => actionsIn(stateFile).find((action) => action.id === 'a-review')?.name, {
+        timeout: 10_000,
+      })
+      .toBe('Review carefully');
+
+    // Editing again and clearing the prompt is refused client-side: the
+    // inline error appears and the editor (the name input) stays mounted
+    // rather than closing over the rejection.
+    await actionsPanel.getByRole('button', { name: 'Edit Review carefully', exact: true }).click();
+    await actionsPanel.getByLabel('Action prompt').fill('');
+    await actionsPanel.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(actionsPanel.getByText('An action needs a prompt.')).toBeVisible();
+    await expect(actionsPanel.getByLabel('Action name')).toBeVisible();
 
     // Danger zone: Cancel on the confirmation leaves the workspace modal
     // open with Danger zone still the active section.
