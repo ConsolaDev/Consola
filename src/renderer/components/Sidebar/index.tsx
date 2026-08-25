@@ -4,6 +4,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
+import { itemsForView } from '../../../shared/inboxViews';
 import { useSettings } from '../../contexts/SettingsContext';
 import { SessionNavItem } from './SessionNavItem';
 import { GroupNavItem } from './GroupNavItem';
@@ -31,8 +32,12 @@ export function Sidebar() {
 
   const isInboxOpen = useNavigationStore((state) => state.isInboxOpen);
   const openInbox = useNavigationStore((state) => state.openInbox);
+  // The sectioned count, not the raw cache: the cache now holds everything
+  // the "involves" search returned, and the badge is for things waiting on
+  // a triage decision. Unfiltered on purpose -- the sidebar has no filter
+  // context, and a badge that shrank with a repo selection would lie.
   const inboxCount = useInboxStore((state) =>
-    workspace ? (state.snapshots[workspace.id]?.items.length ?? 0) : 0
+    workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0
   );
 
   // Prime the inbox for provider-bound workspaces so the count is live even
