@@ -1,13 +1,23 @@
 #!/usr/bin/env bash
-# Canned `gh` for tests. Keyed on argv so every consumer — GhBroker probes,
-# GitHubService fetches, WorktreeService checkouts, the clone flow, and the
+# Canned `gh` for tests. Keyed on argv so every consumer — GitHubDriver
+# probes and fetches, WorktreeService checkouts, the clone flow, and the
 # Playwright inbox spec — runs deterministically without network or a keyring.
 #
 # Env knobs:
 #   STUB_GH_FAIL=1           every invocation exits 1 with a canned stderr line
 #   STUB_GH_CLONE_FROM=path  `repo clone` clones from this local repo instead of GitHub
+#   STUB_GH_LOG=path         append one line per invocation: argv (newlines
+#                            flattened — the GraphQL query spans lines) then
+#                            the GH_TOKEN the call saw
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+if [[ -n "${STUB_GH_LOG:-}" ]]; then
+  # printf '%s' rather than echo so the only newline is the one added after
+  # flattening; a trailing space would otherwise ride into every assertion.
+  printf '%s' "$* GH_TOKEN=${GH_TOKEN:-}" | tr '\n' ' ' >> "$STUB_GH_LOG"
+  printf '\n' >> "$STUB_GH_LOG"
+fi
 
 if [[ "${STUB_GH_FAIL:-}" == "1" ]]; then
   echo "gh: canned failure (STUB_GH_FAIL=1)" >&2
