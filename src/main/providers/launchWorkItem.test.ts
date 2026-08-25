@@ -61,6 +61,15 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
   } as Workspace;
 }
 
+/** A promise plus its own resolver, for pinning an async mock mid-flight. */
+function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => {
+    resolve = res;
+  });
+  return { promise, resolve };
+}
+
 function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> = {}) {
   const created: NewSessionFields[] = [];
   let minted = 0;
@@ -152,6 +161,18 @@ describe('launchWorkItem', () => {
     expect(created).toHaveLength(0);
   });
 
+  it('errors, creating nothing, when the provider is unknown to this build', async () => {
+    const { deps, created } = makeDeps(makeWorkspace(), {
+      resolveDriver: vi.fn(() => {
+        throw new Error('Unknown git provider "gitlab".');
+      }),
+    });
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown git provider "gitlab".' });
+    expect(created).toHaveLength(0);
+    expect(deps.ensureWorktree).not.toHaveBeenCalled();
+  });
+
   it('creates the record with the matched scope, worktree cwd, item and action name, and returns the seed', async () => {
     const workspace = makeWorkspace();
     const { deps, created } = makeDeps(workspace);
@@ -237,6 +258,49 @@ describe('launchWorkItem', () => {
     expect(created).toHaveLength(2);
     expect(created[0].cwd).toBe(created[1].cwd);
     expect(deps.ensureWorktree).toHaveBeenCalledTimes(2);
+  });
+
+  // Finding 1: two different actions on the same item run concurrently
+  // (that's the point of the action-keyed coalescer above launchWorkItem),
+  // but WorktreeService.ensureWorktree is not safe under two overlapping
+  // calls for one directory, so launchWorkItem must serialise just that
+  // step per item. ensureWorktree is backed by deferred promises so the
+  // test can observe the second call has not started until the first
+  // settles, without a real timing race.
+  it('serialises the worktree step per item while different actions still run concurrently', async () => {
+    const fixCi: WorkItemAction = { id: 'a-fixci', name: 'Fix CI', appliesTo: ['pr'], prompt: 'Fix.' };
+    const workspace = makeWorkspace({ actions: [review, fixCi] });
+    const firstCall = deferred<string>();
+    const secondCall = deferred<string>();
+    let ensureWorktreeCalls = 0;
+    const ensureWorktree = vi.fn(async () => {
+      ensureWorktreeCalls += 1;
+      return ensureWorktreeCalls === 1 ? firstCall.promise : secondCall.promise;
+    });
+    const { deps, created } = makeDeps(workspace, { ensureWorktree });
+
+    const launch1 = launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    const launch2 = launchWorkItem(deps, 'ws-1', pr51, { id: fixCi.id });
+
+    // Flush microtasks generously so both launches reach the worktree step.
+    // launch2's ensureWorktree call cannot start no matter how many ticks
+    // pass here: it is chained after launch1's, which is itself blocked on
+    // an unresolved deferred promise.
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(ensureWorktree).toHaveBeenCalledTimes(1);
+
+    firstCall.resolve('/worktrees/controller-app-pr-51');
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+    expect(ensureWorktree).toHaveBeenCalledTimes(2);
+    secondCall.resolve('/worktrees/controller-app-pr-51');
+
+    const [result1, result2] = await Promise.all([launch1, launch2]);
+
+    expect(result1.ok).toBe(true);
+    expect(result2.ok).toBe(true);
+    if (!result1.ok || !result2.ok) return;
+    expect(result2.session.id).not.toBe(result1.session.id);
+    expect(created[0].cwd).toBe(created[1].cwd);
   });
 });
 
