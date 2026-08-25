@@ -3,6 +3,7 @@ import type { GitProviderId } from '../../shared/providers';
 import type { InboxItem, WorkItemLaunchAction, WorkItemRef } from '../../shared/workItems';
 import { isValidWorkItemRef, workItemActionKey, workItemKey } from '../../shared/workItems';
 import { fallbackWorkItemTitle, renderActionPrompt } from '../../shared/workItemPrompt';
+import type { WorkItemPromptResult } from '../../shared/workItemPrompt';
 import type { WorkItemLaunchResult } from '../../shared/types';
 import { generateSessionInstanceId } from '../../shared/workspace';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
@@ -39,14 +40,50 @@ function scopeIdForPath(workspace: Workspace, clonePath: string): string {
  * The action's name snapshot and raw body. A stored action is looked up by
  * id; a custom prompt is named 'Custom prompt' so the sidebar and strip
  * still have a label, and its body is never persisted anywhere.
+ *
+ * Discriminates on `'id' in action`, matching the IPC door's shape check and
+ * `workItemActionKey` — the same three sites must agree on which variant a
+ * value is, or a payload could pass validation as one shape and be resolved
+ * as the other.
  */
 function resolveAction(
   workspace: Workspace,
   action: WorkItemLaunchAction
 ): { name: string; body: string } | undefined {
-  if ('customPrompt' in action) return { name: 'Custom prompt', body: action.customPrompt };
-  const stored = workspace.actions.find((candidate) => candidate.id === action.id);
-  return stored ? { name: stored.name, body: stored.prompt } : undefined;
+  if ('id' in action) {
+    const stored = workspace.actions.find((candidate) => candidate.id === action.id);
+    return stored ? { name: stored.name, body: stored.prompt } : undefined;
+  }
+  return { name: 'Custom prompt', body: action.customPrompt };
+}
+
+/**
+ * Serialises the worktree step for one item, keyed by workspace + item.
+ *
+ * Same-item, different-action launches are meant to run concurrently — a
+ * "Review" and a "Fix CI" started back to back on the same PR should both
+ * proceed, and that's the whole point of the action-keyed coalescer. But
+ * WorktreeService.ensureWorktree is not safe under two overlapping calls for
+ * one directory: both callers can see no .git and race mkdir/prune, or one
+ * call's failure cleanup can remove a worktree the other just fast-pathed
+ * onto. So only this step is chained per item; action resolution, rendering,
+ * resolveRepo and createSession all still run concurrently.
+ *
+ * The map always holds a promise that resolves, never rejects — a failed
+ * `run` must not poison the chain for the next caller — and each entry
+ * removes itself once its chain has settled, so a quiet item's key does not
+ * linger forever.
+ */
+const worktreeChains = new Map<string, Promise<unknown>>();
+
+function chainWorktreeStep(key: string, run: () => Promise<string>): Promise<string> {
+  const previous = worktreeChains.get(key) ?? Promise.resolve();
+  const started = previous.catch(() => undefined).then(run);
+  const settled = started.catch(() => undefined).then(() => {
+    if (worktreeChains.get(key) === settled) worktreeChains.delete(key);
+  });
+  worktreeChains.set(key, settled);
+  return started;
 }
 
 /**
@@ -91,7 +128,14 @@ export async function launchWorkItem(
   }
 
   const item = deps.findItem(workspaceId, ref);
-  const prompt = renderActionPrompt(driver.seedHeader(ref, item), resolved.body, ref, item);
+  let prompt: WorkItemPromptResult;
+  try {
+    // seedHeader is a driver method, not deps-injected data — a broken
+    // template should degrade like any other fallible step, not reject.
+    prompt = renderActionPrompt(driver.seedHeader(ref, item), resolved.body, ref, item);
+  } catch (error) {
+    return { ok: false, reason: 'error', message: describeError(error) };
+  }
   if (!prompt.ok) return { ok: false, reason: 'error', message: prompt.message };
 
   const clonePath = deps.resolveRepo(workspace, ref.repo);
@@ -100,7 +144,10 @@ export async function launchWorkItem(
   let worktreePath: string;
   try {
     const env = await deps.composeEnv(driver, workspace.provider.accountLogin);
-    worktreePath = await deps.ensureWorktree(clonePath, ref, env);
+    const worktreeChainKey = `${workspaceId}:${workItemKey(ref)}`;
+    worktreePath = await chainWorktreeStep(worktreeChainKey, () =>
+      deps.ensureWorktree(clonePath, ref, env)
+    );
   } catch (error) {
     return { ok: false, reason: 'error', message: describeError(error) };
   }
@@ -129,9 +176,13 @@ export async function launchWorkItem(
  *
  * Keyed by item plus action (custom prompts by item plus trimmed body): a
  * double-click on one button still mints one session, while two different
- * actions started back to back on the same item each get their own. It also
- * keeps two concurrent ensureWorktree calls for one item from racing — one
- * call's failure cleanup removing a worktree the other just fast-pathed onto.
+ * actions started back to back on the same item each get their own — that
+ * concurrency is intentional, e.g. a review and a "fix CI" on the same PR
+ * should both proceed rather than one waiting on the other. What isn't safe
+ * under that concurrency is the worktree step: WorktreeService.ensureWorktree
+ * cannot tolerate two overlapping calls for the same directory, so
+ * launchWorkItem serialises only that step per item (see chainWorktreeStep)
+ * — this coalescer's job is strictly the identical-request case above it.
  */
 export function createLaunchCoalescer(
   deps: WorkItemLaunchDeps
