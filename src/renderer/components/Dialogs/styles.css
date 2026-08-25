@@ -514,6 +514,16 @@
   padding-left: 18px;
 }
 
+/* Link-session dialog: a picker wants a little more room than a confirm. */
+.link-session-dialog {
+  max-width: 480px;
+}
+
+.link-session-dialog .dialog-error {
+  display: block;
+  margin-top: var(--space-2);
+}
+
 /* Orchestration dialog */
 .orchestration-dialog {
   width: 480px;
