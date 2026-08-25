@@ -56,7 +56,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
         <Dialog.Content className="settings-modal-content">
           <Dialog.Title className="sr-only">Settings</Dialog.Title>
 
-          <nav className="settings-modal-nav">
+          <nav className="settings-modal-nav" aria-label="Settings sections">
             <div className="settings-modal-nav-header">Settings</div>
             {/* Stands where the Workspace tab was, so muscle memory has
                 somewhere to land for this release. Dialog.Close composes its
@@ -77,7 +77,9 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             {sections.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
+                type="button"
                 className={`settings-modal-nav-item ${activeSection === id ? 'active' : ''}`}
+                aria-current={activeSection === id ? 'true' : undefined}
                 onClick={() => setActiveSection(id)}
               >
                 <Icon size={16} />
