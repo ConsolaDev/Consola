@@ -1,31 +1,19 @@
+/* The Inbox: header, view tabs, then a two-column body -- the sectioned or
+   flat list on the left, the selected item's pane on the right. Rows are
+   GitHub-lean on purpose (mockup inbox-layout option B); everything Consola
+   adds to an item lives in the pane. */
 .inbox-view {
-  height: 100%;
   display: flex;
   flex-direction: column;
-  padding: var(--space-4);
+  height: 100%;
   background: var(--color-bg-primary);
-}
-
-/* Two columns under the header: the list, and the pane when a row is
-   selected. Each scrolls on its own so the pane's actions stay in reach. */
-.inbox-body {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  gap: var(--space-4);
-}
-
-.inbox-main {
-  flex: 1;
-  min-width: 0;
-  overflow-y: auto;
 }
 
 .inbox-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-bottom: var(--space-4);
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4) 0;
 }
 
 .inbox-title {
@@ -35,12 +23,16 @@
   margin: 0;
 }
 
-.inbox-tabs {
+.inbox-filters {
   display: flex;
-  gap: 4px;
+  gap: var(--space-2);
+  margin-left: var(--space-2);
 }
 
-.inbox-tab {
+.inbox-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: transparent;
@@ -48,10 +40,41 @@
   font-size: 12px;
   padding: 2px 8px;
   cursor: pointer;
+  white-space: nowrap;
 }
 
-.inbox-tab.active {
+.inbox-filter-trigger:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.inbox-filter-trigger:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.inbox-filter-trigger.active {
   border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+.inbox-filter-trigger-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+
+.inbox-filter-menu {
+  min-width: 220px;
+}
+
+/* A fixed-width slot so ticked and unticked rows line up. */
+.inbox-filter-item-indicator {
+  display: inline-flex;
+  justify-content: center;
+  width: 14px;
+  flex: none;
   color: var(--color-accent);
 }
 
@@ -84,11 +107,63 @@
   color: var(--color-text-primary);
 }
 
-.inbox-list {
+/* View tabs (mockup inbox-views option 2). */
+.inbox-view-tabs {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 720px;
+  gap: 2px;
+  padding: 0 var(--space-4);
+  margin-top: var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.inbox-view-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12.5px;
+  padding: 4px 10px 6px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.inbox-view-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.inbox-view-tab.active {
+  color: var(--color-text-primary);
+  border-bottom-color: var(--color-accent);
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-view-tab-count {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+/* Two columns. The pane is fixed width so the list does not reflow when it
+   opens; the list scrolls on its own so the header and tabs stay put. */
+.inbox-body {
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}
+
+.inbox-main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.inbox-pane-slot {
+  flex: none;
+  overflow-y: auto;
 }
 
 .inbox-empty {
@@ -96,61 +171,115 @@
   font-size: 13px;
 }
 
-.inbox-item {
+/* Sections. */
+.inbox-section {
+  margin-bottom: var(--space-3);
+}
+
+.inbox-section-toggle {
   display: flex;
   align-items: center;
-  gap: 10px;
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-  padding: 8px 10px;
+  gap: 6px;
+  width: 100%;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  padding: 4px 0;
   cursor: pointer;
-  user-select: none;
+  text-align: left;
 }
 
-.inbox-item:hover {
-  background: var(--color-bg-hover);
-}
-
-.inbox-item:focus-visible {
-  outline: 2px solid var(--color-accent);
-  outline-offset: -1px;
-}
-
-.inbox-item.selected {
-  border-color: var(--color-accent);
-  background: var(--color-bg-active);
-}
-
-/* An unresolved repo: the row stays selectable (the pane is where "Clone
-   into scope..." lives) but reads as not-yet-actionable at a glance. */
-.inbox-item.uncloned {
-  opacity: 0.55;
-}
-
-.inbox-item-sessions {
+.inbox-section.collapsed .inbox-section-toggle {
   color: var(--color-text-secondary);
 }
 
-.inbox-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
+.inbox-section-count {
+  border-radius: var(--radius-full);
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  padding: 0 7px;
 }
 
-.inbox-dot--att { background: var(--color-warning); }
-.inbox-dot--err { background: var(--color-error); }
-.inbox-dot--idle { background: var(--color-text-disabled); }
+/* Rows. */
+.inbox-list {
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-top: 4px;
+}
 
-.inbox-item-text {
+.inbox-row {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 7px 10px;
+  border-bottom: 1px solid var(--color-border);
+  cursor: pointer;
+}
+
+.inbox-row:last-child {
+  border-bottom: none;
+}
+
+.inbox-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-row.selected {
+  background: var(--color-bg-selected);
+}
+
+.inbox-row:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+/* GitHub's left bar for reviews asked of you personally. */
+.inbox-row--accent::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 3px;
+  background: var(--color-warning);
+}
+
+/* No local clone: still listed, visibly out of reach until cloned. */
+.inbox-row--uncloned {
+  opacity: 0.55;
+}
+
+.inbox-row-icon {
+  flex: none;
+  margin-top: 1px;
+  color: var(--color-success);
+}
+
+.inbox-row-icon--issue {
+  color: var(--color-accent);
+}
+
+.inbox-row-icon--draft {
+  color: var(--color-text-tertiary);
+}
+
+.inbox-row-text {
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 1px;
-  min-width: 0;
-  flex: 1;
 }
 
-.inbox-item-title {
+.inbox-row-title {
   font-size: 13px;
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
@@ -159,19 +288,73 @@
   text-overflow: ellipsis;
 }
 
-.inbox-item-meta {
-  font-size: 11.5px;
-  color: var(--color-text-tertiary);
-}
-
-.inbox-item-link {
+.inbox-row-meta {
   display: flex;
   align-items: center;
+  gap: 4px;
+  font-size: 11.5px;
   color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
 }
 
-.inbox-item-link:hover {
-  color: var(--color-text-primary);
+.inbox-row-meta-facts {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.inbox-row-sessions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+}
+
+.inbox-row-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: none;
+  margin-top: 2px;
+  font-size: 11.5px;
+  white-space: nowrap;
+}
+
+.inbox-row-review--approved {
+  color: var(--color-success);
+}
+
+.inbox-row-review--changes-requested {
+  color: var(--color-error);
+}
+
+.inbox-row-review--review-required {
+  color: var(--color-warning);
+}
+
+.inbox-row-checks {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.inbox-row-checks--ok {
+  color: var(--color-success);
+}
+
+.inbox-row-checks--warn {
+  color: var(--color-warning);
+}
+
+.inbox-row-checks--bad {
+  color: var(--color-error);
+}
+
+.inbox-row-comments {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  color: var(--color-text-tertiary);
 }
 
 .clone-dialog-options {
