@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   createDefaultActions,
   createDefaultSectionDefaults,
+  defaultActionFor,
   defaultActionNameForType,
   validateActionsWrite,
   type WorkItemAction,
@@ -166,5 +167,33 @@ describe('validateActionsWrite', () => {
     expect(
       validateActionsWrite({ actions: [], sectionDefaults: null as unknown as typeof sectionDefaults })
     ).toEqual({ ok: false, message: 'Section defaults must be an object.' });
+  });
+});
+
+describe('defaultActionFor', () => {
+  const review: WorkItemAction = { id: 'a-review', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' };
+  const fixCi: WorkItemAction = { id: 'a-fixci', name: 'Fix CI', appliesTo: ['pr'], prompt: 'Fix CI.' };
+  const implement: WorkItemAction = { id: 'a-impl', name: 'Implement', appliesTo: ['issue'], prompt: 'Do it.' };
+  const both: WorkItemAction = { id: 'a-both', name: 'Summarise', appliesTo: ['pr', 'issue'], prompt: 'Sum.' };
+  const actions = [review, fixCi, implement, both];
+
+  it('picks the first action whose appliesTo matches the item type', () => {
+    expect(defaultActionFor(actions, 'pr')).toBe(review);
+    expect(defaultActionFor(actions, 'issue')).toBe(implement);
+  });
+
+  it('honours a preferred id when it matches the type — the section default', () => {
+    expect(defaultActionFor(actions, 'pr', 'a-fixci')).toBe(fixCi);
+    expect(defaultActionFor(actions, 'issue', 'a-both')).toBe(both);
+  });
+
+  it('ignores a preferred id of the wrong type or one that no longer exists', () => {
+    expect(defaultActionFor(actions, 'issue', 'a-review')).toBe(implement);
+    expect(defaultActionFor(actions, 'pr', 'a-deleted')).toBe(review);
+  });
+
+  it('is undefined when nothing applies', () => {
+    expect(defaultActionFor([review, fixCi], 'issue')).toBeUndefined();
+    expect(defaultActionFor([], 'pr', 'a-review')).toBeUndefined();
   });
 });

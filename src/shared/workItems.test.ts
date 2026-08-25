@@ -3,6 +3,7 @@ import {
   isValidWorkItemRef,
   sameWorkItem,
   toWorkItemRef,
+  workItemActionKey,
   workItemKey,
   workItemUrl,
   type WorkItemRef,
@@ -102,5 +103,18 @@ describe('toWorkItemRef', () => {
 
   it('rebuilds a plain ref unchanged', () => {
     expect(toWorkItemRef(pr51)).toEqual(pr51);
+  });
+});
+
+describe('workItemActionKey', () => {
+  it('keys a stored action by id', () => {
+    expect(workItemActionKey({ id: 'a-review' })).toBe('action:a-review');
+  });
+
+  it('keys a custom prompt by its trimmed body, so a retyped prompt coalesces', () => {
+    expect(workItemActionKey({ customPrompt: '  /security-review \n' })).toBe(
+      'custom:/security-review'
+    );
+    expect(workItemActionKey({ customPrompt: 'a' })).not.toBe(workItemActionKey({ customPrompt: 'b' }));
   });
 });
