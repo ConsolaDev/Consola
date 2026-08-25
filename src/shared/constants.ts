@@ -36,7 +36,8 @@ export const IPC_CHANNELS = {
     WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
     WORKSPACE_UPDATE_SCOPE: 'workspace:update-scope',
     WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',
-    WORKSPACE_SET_GITHUB_BINDING: 'workspace:set-github-binding',
+    WORKSPACE_SET_PROVIDER_BINDING: 'workspace:set-provider-binding',
+    WORKSPACE_SET_ACTIONS: 'workspace:set-actions',    // actions + sectionDefaults, one validated write
     WORKSPACE_GROUP_CREATE: 'workspace:group-create',
     WORKSPACE_GROUP_UPDATE: 'workspace:group-update',
     WORKSPACE_GROUP_ARCHIVE: 'workspace:group-archive',
@@ -63,10 +64,6 @@ export const IPC_CHANNELS = {
     // Harness records (main -> every renderer)
     HARNESS_CHANGED: 'harness:changed',
 
-    // GitHub via the gh CLI (renderer -> main). Probes only: tokens are
-    // borrowed inside main at spawn/call time and never cross this boundary.
-    GH_PROBE: 'github:probe',
-
     // Dialog channels
     DIALOG_SELECT_FOLDERS: 'dialog:select-folders',  // Open folder picker (multi-select)
     DIALOG_SELECT_FOLDER: 'dialog:select-folder',    // Open folder picker (single select for workspace)
@@ -86,15 +83,19 @@ export const IPC_CHANNELS = {
     // Commit message generation (headless `claude -p`)
     GENERATE_COMMIT_MESSAGE: 'git:generate-commit-message',
 
-    // GitHub inbox (renderer -> main; main owns the cache)
-    GITHUB_GET_INBOX: 'github:get-inbox',           // Cached snapshot, or null (a refresh is kicked off)
-    GITHUB_REFRESH_INBOX: 'github:refresh-inbox',   // Manual refresh; result arrives on the push channel
-    GITHUB_RESOLVE_REPOS: 'github:resolve-repos',   // Which remote repos have a local clone in this workspace
-    GITHUB_LAUNCH_WORK_ITEM: 'github:launch-work-item', // Resolve -> worktree -> session record; returns the session
-    GITHUB_CLONE_REPO: 'github:clone-repo',         // Clone an un-cloned repo into a chosen directory
+    // Provider operations (renderer -> main). Tokens are borrowed inside main
+    // at call time and never cross this boundary.
+    PROVIDER_PROBE: 'provider:probe',                   // Is the CLI installed, who is signed in
+    PROVIDER_RESOLVE_REPOS: 'provider:resolve-repos',   // Which remote repos have a local clone in this workspace
+    PROVIDER_LAUNCH_WORK_ITEM: 'provider:launch-work-item', // Resolve -> worktree -> session record; returns the session
+    PROVIDER_CLONE_REPO: 'provider:clone-repo',         // Clone an un-cloned repo into a chosen directory
 
-    // GitHub inbox (main -> every renderer)
-    GITHUB_INBOX_CHANGED: 'github:inbox-changed',   // One workspace's InboxSnapshot
+    // Inbox (renderer -> main; main owns the cache)
+    INBOX_GET: 'inbox:get',                             // Cached snapshot, or null (a refresh is kicked off)
+    INBOX_REFRESH: 'inbox:refresh',                     // Manual refresh; result arrives on the push channel
+
+    // Inbox (main -> every renderer)
+    INBOX_CHANGED: 'inbox:changed',                     // One workspace's InboxSnapshot
 
     // Window identity (renderer -> main)
     WINDOW_ACTIVATE_WORKSPACE: 'window:activate-workspace', // Claim a workspace, or be told who holds it
