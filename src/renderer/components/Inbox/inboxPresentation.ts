@@ -58,26 +58,6 @@ export function metaLineFor(item: InboxItem): string {
   return parts.join(' · ');
 }
 
-export interface InboxAction {
-  label: string;
-  kind: 'launch' | 'open' | 'clone';
-}
-
-/**
- * The one button an item shows.
- *
- * A session wins over everything: one work item, one session, re-attached
- * forever. An unresolved repo offers the clone path instead of failing.
- * Otherwise the label names the likely job, by the row's leading role.
- */
-export function actionFor(item: InboxItem, hasSession: boolean, cloned: boolean): InboxAction {
-  if (hasSession) return { label: 'Open session', kind: 'open' };
-  if (!cloned) return { label: 'Clone into scope...', kind: 'clone' };
-  if (item.workItem.type === 'issue') return { label: 'Start work', kind: 'launch' };
-  if (primaryRole(item) === 'author') return { label: 'Address review', kind: 'launch' };
-  return { label: 'Review', kind: 'launch' };
-}
-
 /** Status dot class: failing CI screams, requested reviews nudge, rest idle. */
 export function dotClassFor(item: InboxItem): string {
   if (item.ciStatus === 'failing') return 'inbox-dot--err';
