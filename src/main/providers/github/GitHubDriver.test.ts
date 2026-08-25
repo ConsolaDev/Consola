@@ -66,6 +66,14 @@ STATUS
           echo "Token: gho_leaked1234567890" >&2
           exit 1
         fi
+        if [ "$GH_STUB_MODE" = "token-only-error" ]; then
+          # stderr is ONLY a masked token line, nothing else — the case
+          # where scrubbing stderr leaves nothing, so a naive fallback would
+          # reach for the unscrubbed Node error message instead (which
+          # embeds this same stderr verbatim) and leak the token anyway.
+          echo "Token: gho_leaked1234567890" >&2
+          exit 1
+        fi
         if [ "$4" = "SymJavi" ]; then
           echo "gho_stub_token_symjavi"
         else
@@ -221,6 +229,27 @@ describe('GitHubDriver.token', () => {
     await expect(driver.token('SymJavi')).rejects.toThrow('authentication error');
     await expect(driver.token('SymJavi')).rejects.not.toThrow(/gho_|token/i);
   });
+
+  it('never falls back to the raw, unscrubbed subprocess error when stderr scrubs to nothing', async () => {
+    // Regression: the fallback below stripTokenLines(stderr) used to be the
+    // unscrubbed Node error message, which embeds stderr verbatim (via
+    // "Command failed: ..."). When stderr is ONLY a masked token line,
+    // scrubbing it leaves "" — exactly the case that used to fall through
+    // to the raw message and leak the token anyway. The rejection must
+    // still be non-empty (the literal fallback), never the leaked value.
+    const driver = new GitHubDriver(stubEnv({ GH_STUB_MODE: 'token-only-error' }));
+
+    let message = '';
+    try {
+      await driver.token('SymJavi');
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    expect(message).not.toMatch(/gho_/);
+    expect(message).not.toMatch(/token/i);
+    expect(message.length).toBeGreaterThan(0);
+  });
 });
 
 describe('GitHubDriver CONSOLA_GH_PATH override', () => {
@@ -333,6 +362,28 @@ describe('GitHubDriver.fetchInbox', () => {
     await expect(driver.fetchInbox(binding, fixtureEnv())).rejects.toThrow(
       'Inbox payload must be a JSON object'
     );
+  });
+
+  it('names the verb and exit code, never the full argv, when gh fails with empty stderr', async () => {
+    // fetchInbox's argv carries the whole multi-KB GraphQL query — a bare
+    // error.message fallback would put that in a user-facing message
+    // (InboxSnapshot.error, broadcast to every renderer). A gh that fails
+    // silently (empty stderr) is the case that used to fall back to it.
+    const silent = path.join(dir, 'silent-fail-gh');
+    fs.writeFileSync(silent, '#!/bin/sh\nexit 2\n', { mode: 0o755 });
+    process.env.CONSOLA_GH_PATH = silent;
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+
+    let message = '';
+    try {
+      await driver.fetchInbox(binding, fixtureEnv());
+    } catch (error) {
+      message = error instanceof Error ? error.message : String(error);
+    }
+
+    // An exact match, not just a substring check: proves the message is
+    // only the verb/noun and exit code, with no room for the argv to hide.
+    expect(message).toBe('gh api graphql failed (exit 2).');
   });
 });
 
