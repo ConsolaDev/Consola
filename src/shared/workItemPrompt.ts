@@ -40,3 +40,29 @@ export function renderSeedHeader(
 ): string {
   return substitutePlaceholders(templates[ref.type], ref, item);
 }
+
+export type WorkItemPromptResult =
+  | { ok: true; seedPrompt: string }
+  | { ok: false; message: string };
+
+/**
+ * The prompt seeded into a session started from an action.
+ *
+ * `header` arrives already rendered — the driver resolved its own template's
+ * placeholders — and `body` is the action's raw template, so the two halves
+ * cannot disagree about what `{{title}}` means. An empty or whitespace-only
+ * rendered body is refused rather than seeding a session with nothing but
+ * the header: the header says where the agent is, the body is the job.
+ */
+export function renderActionPrompt(
+  header: string,
+  body: string,
+  ref: WorkItemRef,
+  item?: InboxItem
+): WorkItemPromptResult {
+  const renderedBody = substitutePlaceholders(body, ref, item).trim();
+  if (!renderedBody) {
+    return { ok: false, message: 'This action has no prompt to send.' };
+  }
+  return { ok: true, seedPrompt: `${header}\n\n${renderedBody}` };
+}
