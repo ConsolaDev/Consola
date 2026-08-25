@@ -1,4 +1,3 @@
-// src/renderer/components/Inbox/InboxItemPane.tsx
 import { useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { sectionFor } from '../../../shared/inboxSections';
