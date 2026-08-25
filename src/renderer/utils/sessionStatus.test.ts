@@ -3,6 +3,7 @@ import {
   anyOtherWorkspaceNeedsAttention,
   sessionStatusFor,
   workspaceStatusFor,
+  worstStatus,
 } from './sessionStatus';
 import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
 
@@ -97,6 +98,24 @@ describe('workspaceStatusFor', () => {
     };
 
     expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('done');
+  });
+});
+
+describe('worstStatus', () => {
+  it('is ready for nothing at all -- an item with no sessions shows no dot', () => {
+    expect(worstStatus([])).toBe('ready');
+  });
+
+  it('passes a lone status through', () => {
+    expect(worstStatus(['working'])).toBe('working');
+    expect(worstStatus(['done'])).toBe('done');
+  });
+
+  it('picks the most urgent status, in the same order the workspace rollup uses', () => {
+    expect(worstStatus(['ready', 'working'])).toBe('working');
+    expect(worstStatus(['working', 'done'])).toBe('done');
+    expect(worstStatus(['done', 'needs-attention', 'working'])).toBe('needs-attention');
+    expect(worstStatus(['needs-attention', 'exited', 'ready'])).toBe('exited');
   });
 });
 
