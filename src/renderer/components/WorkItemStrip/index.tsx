@@ -9,8 +9,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor } from '../../utils/sessionStatus';
-import { dotClassFor, metaLineFor } from '../Inbox/inboxPresentation';
-import '../Inbox/styles.css';
+import { metaLineFor } from '../Inbox/inboxPresentation';
 import './styles.css';
 
 interface WorkItemStripProps {
@@ -56,7 +55,6 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
 
   return (
     <div className="work-item-strip">
-      <span className={`inbox-dot ${item ? dotClassFor(item) : 'inbox-dot--idle'}`} />
       <div className="work-item-strip-text">
         <span className="work-item-strip-title">
           #{workItem.number} {item?.title ?? `${label} in ${workItem.repo}`}
