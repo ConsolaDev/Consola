@@ -393,6 +393,10 @@ export class GitHubDriver implements GitProviderDriver {
                 cwd,
                 env: env as { [key: string]: string },
                 maxBuffer: 10 * 1024 * 1024,
+                // Unlike run(), this used to have no timeout: a hung `gh api
+                // graphql` (or any exec caller) would pin
+                // InboxService.inFlight[workspaceId] forever.
+                timeout: 60_000,
             });
             return stdout;
         } catch (error) {
