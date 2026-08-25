@@ -1,5 +1,5 @@
 // src/renderer/components/Inbox/index.tsx
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useId, useMemo, useState } from 'react';
 import {
   DEFAULT_COLLAPSED_SECTIONS,
   INBOX_SECTIONS,
@@ -45,6 +45,9 @@ const SECTION_LABELS = Object.fromEntries(
  * live in the settings store because they survive relaunch.
  */
 export function InboxView({ workspace }: InboxViewProps) {
+  // Shared between the tab strip and the panel below it, so each tab's own
+  // id and the panel's aria-labelledby agree on the same generated string.
+  const panelId = useId();
   const [view, setView] = useState<InboxViewId>('inbox');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   // Keyed by workspace id: MainContent keeps this component mounted across
@@ -168,9 +171,14 @@ export function InboxView({ workspace }: InboxViewProps) {
         onUpdatedChange={(next) => setInboxUpdatedFilter(workspace.id, next)}
         onRefresh={() => void refresh(workspace.id)}
       />
-      <ViewTabs active={view} counts={counts} onSelect={setView} />
-      <div className={`inbox-body ${selected ? 'inbox-body--pane-open' : ''}`}>
-        <div className="inbox-main">
+      <ViewTabs active={view} counts={counts} onSelect={setView} panelId={panelId} />
+      <div className="inbox-body">
+        <div
+          className="inbox-main"
+          id={panelId}
+          role="tabpanel"
+          aria-labelledby={`${panelId}-tab-${view}`}
+        >
           {!snapshot && <p className="inbox-empty">Fetching from {providerName}...</p>}
           {snapshot &&
             view === 'inbox' &&
@@ -212,16 +220,20 @@ export function InboxView({ workspace }: InboxViewProps) {
           )}
         </div>
         {selected && (
-          // Keyed by item so the pane's confirm and custom-prompt state never
-          // carries over when selection moves to a different item.
-          <aside className="inbox-pane-slot">
+          // A plain div, not a landmark: InboxItemPane's own <aside
+          // aria-label="Work item details"> is the complementary region --
+          // wrapping it in a second, unnamed one would nest two landmarks
+          // for one piece of content. Keyed by item so the pane's confirm
+          // and custom-prompt state never carries over when selection moves
+          // to a different item.
+          <div className="inbox-pane-slot">
             <InboxItemPane
               key={workItemKey(selected.workItem)}
               workspace={workspace}
               item={selected}
               onClose={() => setSelectedKey(null)}
             />
-          </aside>
+          </div>
         )}
       </div>
       <CloneDialog />
