@@ -161,6 +161,21 @@ describe('launchWorkItem', () => {
     expect(created).toHaveLength(0);
   });
 
+  // Finding 3: createSession runs inside the same try as resolveRepo and
+  // ensureWorktree, so a throw there degrades exactly like a worktree
+  // failure instead of rejecting the invoke with Electron's own prefix.
+  it('degrades plainly when createSession throws, calling nothing past it', async () => {
+    const { deps, created } = makeDeps(makeWorkspace(), {
+      createSession: vi.fn(() => {
+        throw new Error('disk full');
+      }),
+    });
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'disk full' });
+    expect(created).toHaveLength(0);
+    expect(deps.ensureWorktree).toHaveBeenCalledTimes(1);
+  });
+
   it('errors, creating nothing, when the provider is unknown to this build', async () => {
     const { deps, created } = makeDeps(makeWorkspace(), {
       resolveDriver: vi.fn(() => {

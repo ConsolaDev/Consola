@@ -127,42 +127,49 @@ export async function launchWorkItem(
     return { ok: false, reason: 'error', message: describeError(error) };
   }
 
-  const item = deps.findItem(workspaceId, ref);
+  let item: InboxItem | undefined;
   let prompt: WorkItemPromptResult;
   try {
-    // seedHeader is a driver method, not deps-injected data — a broken
-    // template should degrade like any other fallible step, not reject.
+    // findItem and seedHeader both run off deps/driver state, not validated
+    // input — a lookup miss or a broken template should degrade like any
+    // other fallible step here, not reject the whole invoke.
+    item = deps.findItem(workspaceId, ref);
     prompt = renderActionPrompt(driver.seedHeader(ref, item), resolved.body, ref, item);
   } catch (error) {
     return { ok: false, reason: 'error', message: describeError(error) };
   }
   if (!prompt.ok) return { ok: false, reason: 'error', message: prompt.message };
 
-  const clonePath = deps.resolveRepo(workspace, ref.repo);
-  if (!clonePath) return { ok: false, reason: 'not-cloned' };
-
-  let worktreePath: string;
+  // One try around resolve -> worktree -> record: every step past this
+  // point can throw (a bad scope path, a git failure, a full disk), and any
+  // of them must degrade the same way as the steps above rather than reject
+  // the invoke with Electron's own prefixed message. `not-cloned` is a
+  // normal return, not a throw, so it still reads as that reason.
+  let session: Session | undefined;
   try {
+    const clonePath = deps.resolveRepo(workspace, ref.repo);
+    if (!clonePath) return { ok: false, reason: 'not-cloned' };
+
     const env = await deps.composeEnv(driver, workspace.provider.accountLogin);
     const worktreeChainKey = `${workspaceId}:${workItemKey(ref)}`;
-    worktreePath = await chainWorktreeStep(worktreeChainKey, () =>
+    const worktreePath = await chainWorktreeStep(worktreeChainKey, () =>
       deps.ensureWorktree(clonePath, ref, env)
     );
+
+    session = deps.createSession(workspaceId, {
+      name: item?.title ?? fallbackWorkItemTitle(ref),
+      workspaceId,
+      instanceId: generateSessionInstanceId(workspaceId),
+      harnessId: workspace.defaultHarnessId,
+      scopeId: scopeIdForPath(workspace, clonePath),
+      cwd: worktreePath,
+      kind: 'interactive',
+      workItem: ref,
+      workItemAction: resolved.name,
+    });
   } catch (error) {
     return { ok: false, reason: 'error', message: describeError(error) };
   }
-
-  const session = deps.createSession(workspaceId, {
-    name: item?.title ?? fallbackWorkItemTitle(ref),
-    workspaceId,
-    instanceId: generateSessionInstanceId(workspaceId),
-    harnessId: workspace.defaultHarnessId,
-    scopeId: scopeIdForPath(workspace, clonePath),
-    cwd: worktreePath,
-    kind: 'interactive',
-    workItem: ref,
-    workItemAction: resolved.name,
-  });
   if (!session) {
     return { ok: false, reason: 'error', message: 'Could not create the session record.' };
   }
