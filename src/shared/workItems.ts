@@ -158,3 +158,20 @@ export type WorkItemLaunchAction = { id: string } | { customPrompt: string };
 export function workItemActionKey(action: WorkItemLaunchAction): string {
   return 'id' in action ? `action:${action.id}` : `custom:${action.customPrompt.trim()}`;
 }
+
+/**
+ * Shape-validate an unknown value as a WorkItemLaunchAction before it reaches
+ * launchWorkItem: exactly one of `id` or `customPrompt`, string-typed. "Exactly
+ * one" matters as much as "string-typed" — a payload carrying both would
+ * otherwise pass an `'id' in action` gate and then be resolved as the other
+ * variant downstream, which is the same discriminant `resolveAction` and
+ * `workItemActionKey` use, so all three sites must agree on which shape wins.
+ */
+export function isValidWorkItemLaunchAction(value: unknown): value is WorkItemLaunchAction {
+  if (typeof value !== 'object' || value === null) return false;
+  const hasId = 'id' in value;
+  const hasCustomPrompt = 'customPrompt' in value;
+  if (hasId === hasCustomPrompt) return false;
+  const candidate = value as Record<string, unknown>;
+  return hasId ? typeof candidate.id === 'string' : typeof candidate.customPrompt === 'string';
+}

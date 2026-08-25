@@ -30,6 +30,7 @@ import type { InboxSection } from '../shared/inboxSections';
 import { isGitProviderId, type GitProviderId } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
 import {
+    isValidWorkItemLaunchAction,
     isValidWorkItemRef,
     toWorkItemRef,
     type InboxSnapshot,
@@ -452,11 +453,9 @@ export function setupIpcHandlers(): boolean {
             }
             // Cheap shape check on the action too — the renderer sends one of
             // two variants and IPC has already stripped TypeScript's types.
-            const validAction =
-                action &&
-                typeof action === 'object' &&
-                ('id' in action ? typeof action.id === 'string' : typeof action.customPrompt === 'string');
-            if (!validAction) {
+            // Exactly one of id/customPrompt, string-typed: the same
+            // discriminant resolveAction and workItemActionKey use.
+            if (!isValidWorkItemLaunchAction(action)) {
                 return { ok: false, reason: 'error', message: 'Invalid launch action.' };
             }
             return launchWorkItem(workspaceId, toWorkItemRef(workItem), action);
