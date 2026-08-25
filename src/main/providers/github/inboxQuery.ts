@@ -223,12 +223,14 @@ function toItem(node: SearchNode): ItemFacts | null {
  * remainder.
  *
  * Throws when the top-level payload is malformed: not an object (including
- * null), missing a `data` object entirely, or `data` itself is null, or
- * `errors` exist alongside no usable `data`. A payload with `data` present
- * but a missing alias key still parses -- that alias just contributes no
- * items. Throwing here (rather than degrading to []) is what lets the
- * caller label the failure in the UI instead of an unrecognised reply
- * silently reading as "nothing to do".
+ * null), missing a `data` object entirely, `data` itself is null or not an
+ * object, or `errors` exist alongside no alias with usable (array) data --
+ * including the partial-failure shape where `data` is present but every
+ * alias resolved to null. A payload with `data` present but a missing alias
+ * key still parses -- that alias just contributes no items. Throwing here
+ * (rather than degrading to []) is what lets the caller label the failure in
+ * the UI instead of an unrecognised reply silently reading as "nothing to
+ * do".
  */
 export function parseInboxPayload(payload: unknown): InboxItem[] {
   if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) {
@@ -236,9 +238,10 @@ export function parseInboxPayload(payload: unknown): InboxItem[] {
   }
 
   const payloadObj = payload as Record<string, unknown>;
-  const hasData = 'data' in payloadObj && payloadObj.data !== null;
+  const rawData = payloadObj.data;
+  const hasData = 'data' in payloadObj && rawData !== null;
 
-  // errors alongside no usable data: surface gh's own reason, e.g. a rate limit.
+  // errors alongside no data at all: surface gh's own reason, e.g. a rate limit.
   if (Array.isArray(payloadObj.errors) && payloadObj.errors.length > 0 && !hasData) {
     const firstError =
       (payloadObj.errors[0] as { message?: string })?.message || 'Unknown GitHub API error';
@@ -248,11 +251,30 @@ export function parseInboxPayload(payload: unknown): InboxItem[] {
   if (!('data' in payloadObj)) {
     throw new Error('GitHub API response has no data');
   }
-  if (payloadObj.data === null) {
+  if (rawData === null) {
     throw new Error('GitHub API returned no data');
   }
+  if (typeof rawData !== 'object' || Array.isArray(rawData)) {
+    throw new Error('GitHub API returned malformed data');
+  }
 
-  const data = payloadObj.data as Partial<Record<InboxSearchAlias, { nodes?: SearchNode[] }>>;
+  const data = rawData as Partial<Record<InboxSearchAlias, { nodes?: SearchNode[] }>>;
+
+  // A GraphQL partial failure: `data` is a valid object but every alias
+  // resolved to null and `errors` explains why. Throw rather than degrade to
+  // [] -- otherwise a rate limit or field error silently reads as "nothing to
+  // do". An alias with usable data alongside errors still parses; that
+  // partial result is worth showing rather than discarding.
+  const hasUsableAlias = INBOX_SEARCH_ALIASES.some(
+    (alias) =>
+      typeof data[alias] === 'object' && data[alias] !== null && Array.isArray(data[alias]?.nodes)
+  );
+  if (Array.isArray(payloadObj.errors) && payloadObj.errors.length > 0 && !hasUsableAlias) {
+    const firstError =
+      (payloadObj.errors[0] as { message?: string })?.message || 'GitHub API returned errors';
+    throw new Error(firstError);
+  }
+
   const byKey = new Map<string, InboxItem>();
   for (const alias of INBOX_SEARCH_ALIASES) {
     const role = ALIAS_ROLE[alias];
