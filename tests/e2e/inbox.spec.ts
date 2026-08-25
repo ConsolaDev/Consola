@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication } from '@playwright/test';
+import type { ElectronApplication, Locator } from '@playwright/test';
 import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -69,10 +69,29 @@ function seedWorkspaceState(userDataDir: string, repoDir: string): string {
 }
 
 interface SeededSession {
+  id?: string;
   workItem?: { provider: string; repo: string; type: string; number: number };
+  workItemAction?: string;
   cwd?: string;
   scopeId?: string;
   kind?: string;
+}
+
+/**
+ * Click an action in the pane. When another session on the item is still
+ * working, the button turns into the spec's inline "Start anyway" confirm
+ * and wants a second click — that is the concurrency warning doing its job,
+ * not a failure, so take it when it appears and move on when it does not.
+ */
+async function startAction(pane: Locator, name: string): Promise<void> {
+  await pane.getByRole('button', { name, exact: true }).click();
+  const confirm = pane.getByRole('button', { name: /Start anyway/ });
+  try {
+    await confirm.waitFor({ state: 'visible', timeout: 1_500 });
+    await confirm.click();
+  } catch {
+    // No confirm appeared: nothing was working on the item.
+  }
 }
 
 function sessionsIn(stateFile: string): SeededSession[] {
@@ -84,7 +103,7 @@ function sessionsIn(stateFile: string): SeededSession[] {
   }
 }
 
-test('inbox renders, launch cuts a worktree and a session, relaunch re-attaches', async () => {
+test('inbox renders, an action cuts a worktree and a session, a second action shares the worktree', async () => {
   test.setTimeout(90_000);
 
   const userDataDir = createProfileDir();
@@ -132,16 +151,28 @@ test('inbox renders, launch cuts a worktree and a session, relaunch re-attaches'
     await expect(workspaceSettings).toBeHidden();
     await expect(inboxRow).toHaveClass(/active/);
 
-    // The un-cloned repo's issue offers the clone path instead of failing.
+    // The un-cloned repo's issue offers only the clone path, in the pane.
     await page.locator('.inbox-tab', { hasText: 'Issues' }).click();
-    await expect(
-      page.locator('.inbox-item-action.ghost', { hasText: 'Clone into scope' })
-    ).toBeVisible();
+    await page.locator('.inbox-item', { hasText: 'Rate limit returns 500' }).click();
+    const pane = page.locator('[data-testid="inbox-pane"]');
+    await expect(pane.locator('.inbox-pane-clone', { hasText: 'Clone into scope' })).toBeVisible({
+      timeout: 10_000,
+    });
+    await expect(pane.locator('[data-action-id]')).toHaveCount(0);
+    // Esc closes the pane; selecting the row again would too.
+    await page.keyboard.press('Escape');
+    await expect(pane).toHaveCount(0);
     await page.locator('.inbox-tab', { hasText: 'PRs' }).click();
 
-    // One click: worktree first, record second, spawn third.
+    // Select the row: the pane opens with the section default highlighted,
+    // and "Review" is the seeded default for a PR awaiting your review.
     const item51 = page.locator('.inbox-item', { hasText: 'Extract billing client' });
-    await item51.getByRole('button', { name: 'Review' }).click();
+    await item51.click();
+    await expect(pane).toBeVisible();
+    await expect(pane.locator('.inbox-pane-action--default')).toHaveText('Review');
+
+    // One click: worktree first, record second, spawn third.
+    await startAction(pane, 'Review');
 
     const worktree = path.join(worktreesDir, 'controller-app-pr-51');
     await expect
@@ -154,36 +185,32 @@ test('inbox renders, launch cuts a worktree and a session, relaunch re-attaches'
     ).toBe('stub-pr-51'); // the stub's `gh pr checkout` branch
 
     await expect.poll(() => sessionsIn(stateFile).length, { timeout: 20_000 }).toBe(1);
-    const [session] = sessionsIn(stateFile);
-    expect(session.workItem).toMatchObject({
+    const [first] = sessionsIn(stateFile);
+    expect(first.workItem).toMatchObject({
       provider: 'github',
       repo: 'sympower/controller-app',
       type: 'pr',
       number: 51,
     });
-    expect(session.cwd).toBe(worktree);
-    expect(session.scopeId).toBe('scope-controller');
-    expect(session.kind).toBe('interactive');
+    expect(first.workItemAction).toBe('Review');
+    expect(first.cwd).toBe(worktree);
+    expect(first.scopeId).toBe('scope-controller');
+    expect(first.kind).toBe('interactive');
 
-    // Re-attach: the item now reads "Open session", and clicking it must not
-    // mint a second session -- one work item, one session, forever. Proving a
-    // negative has no auto-waiting equivalent, so poll repeatedly across a
-    // window comparable to the positive launch path above (worktree creation
-    // plus the record write can legitimately take seconds) instead of
-    // trusting one fixed-delay snapshot -- a regression that re-ran the
-    // launch pipeline instead of re-attaching would land its second record
-    // somewhere in this window and get caught immediately.
+    // The launch opened the session; back to the Inbox, the pane now lists
+    // it. A second "Review" is a SECOND session — always a new session —
+    // and it shares the item's worktree rather than cutting another.
     await inboxRow.click();
-    await expect(item51.getByRole('button', { name: 'Open session' })).toBeVisible({
-      timeout: 10_000,
-    });
-    await item51.getByRole('button', { name: 'Open session' }).click();
+    await item51.click();
+    await expect(pane.locator('.inbox-pane-session-row')).toHaveCount(1, { timeout: 10_000 });
+    await startAction(pane, 'Review');
 
-    const reattachWatchUntil = Date.now() + 8_000;
-    while (Date.now() < reattachWatchUntil) {
-      expect(sessionsIn(stateFile)).toHaveLength(1);
-      await page.waitForTimeout(400);
-    }
+    await expect.poll(() => sessionsIn(stateFile).length, { timeout: 20_000 }).toBe(2);
+    const [older, newer] = sessionsIn(stateFile);
+    expect(newer.id).not.toBe(older.id);
+    expect(newer.cwd).toBe(worktree);
+    expect(newer.workItemAction).toBe('Review');
+    expect(newer.workItem).toMatchObject({ repo: 'sympower/controller-app', type: 'pr', number: 51 });
   } finally {
     // Guaranteed even if an assertion above throws: a mid-test failure must
     // not leave a real Electron process running for the rest of the worker,
