@@ -37,14 +37,19 @@ export function InboxView({ workspace }: InboxViewProps) {
     setSelectedKey(null);
   }, [workspace.id]);
 
-  // Esc closes the pane. Each dialog that can sit above the Inbox opts
-  // into owning its own Esc — CloneDialog and LinkSessionDialog both wire
-  // onEscapeKeyDown to stopPropagation() — so this window listener relies
-  // on that contract and only ever sees the key when no dialog is open.
+  // Esc closes the pane. The Inbox defers to ANY open dialog, without
+  // requiring dialogs to opt in: CloneDialog and LinkSessionDialog also
+  // stopPropagation on their own Esc, but WorkspaceSettingsModal and its
+  // ConfirmDialog can sit above the Inbox too and never wired that up, so
+  // this listener checks for an open Radix dialog itself rather than
+  // trusting every future dialog to remember the contract.
   useEffect(() => {
     if (!selectedKey) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') setSelectedKey(null);
+      if (event.key !== 'Escape') return;
+      if (event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+      setSelectedKey(null);
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -150,6 +155,10 @@ export function InboxView({ workspace }: InboxViewProps) {
               const isUncloned = resolved?.[item.workItem.repo] === null;
               const title = `#${item.workItem.number} ${item.title}`;
               const meta = metaLineFor(item);
+              // The visible meta line gains a "· N sessions" suffix when the
+              // item has any; the accessible name must say the same thing.
+              const sessionSuffix =
+                sessionCount > 0 ? ` · ${sessionCount} session${sessionCount === 1 ? '' : 's'}` : '';
               return (
                 // A div with role="button": the row selects, and it may one
                 // day host controls of its own — a <button> could not.
@@ -164,7 +173,7 @@ export function InboxView({ workspace }: InboxViewProps) {
                   // Without an explicit name, role="button" falls back to
                   // name-from-content and would absorb the nested link's own
                   // "Open on {provider}" label into the row's accessible name.
-                  aria-label={`${title} — ${meta}`}
+                  aria-label={`${title} — ${meta}${sessionSuffix}`}
                   aria-pressed={isSelected}
                   onClick={() => toggle(key)}
                   onKeyDown={(event) => {
