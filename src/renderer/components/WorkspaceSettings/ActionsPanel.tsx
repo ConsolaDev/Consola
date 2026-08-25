@@ -71,6 +71,11 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
   const [dragId, setDragId] = useState<string | null>(null);
   const [overId, setOverId] = useState<string | null>(null);
   const [confirmingRestore, setConfirmingRestore] = useState(false);
+  // One write in flight at a time: without this, a double-click on Move
+  // up/down, Save or Delete would fire two commits against the same
+  // not-yet-refreshed `workspace.actions`, racing each other. Mirrors
+  // ConfirmDialog's own isConfirming guard.
+  const [busy, setBusy] = useState(false);
 
   const provider = workspace.provider;
   if (!provider) {
@@ -108,10 +113,15 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
   };
 
   const commit = async (nextActions: WorkItemAction[], nextDefaults: SectionDefaults) => {
-    const message = await writeActions(nextActions, nextDefaults);
-    // The whole write was rejected; disk is unchanged, so is the list.
-    setError(message);
-    return message === null;
+    setBusy(true);
+    try {
+      const message = await writeActions(nextActions, nextDefaults);
+      // The whole write was rejected; disk is unchanged, so is the list.
+      setError(message);
+      return message === null;
+    } finally {
+      setBusy(false);
+    }
   };
 
   const startEdit = (action: WorkItemAction) =>
@@ -249,7 +259,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
           </div>
         </div>
         <div className="ws-field">
-          <span className="ws-field-label">Context header · {providerName} sends this first, not editable</span>
+          <span className="ws-field-label">Context header · sent first by {providerName}</span>
           {/* Raw template on purpose: the editor shows what is stored, and
               the placeholders are what the body may use too. */}
           <pre className="ws-action-header">{headerTemplates[headerType]}</pre>
@@ -274,6 +284,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
               type="button"
               className="dialog-button-secondary ws-panel-action ws-action-delete"
               onClick={() => void deleteAction(current.id)}
+              disabled={busy}
             >
               <Trash2 size={13} />
               Delete
@@ -294,6 +305,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
             type="button"
             className="dialog-button-primary ws-panel-action"
             onClick={() => void saveEdit()}
+            disabled={busy}
           >
             Save
           </button>
@@ -319,7 +331,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
             type="button"
             className="dialog-button-secondary ws-panel-action"
             onClick={startAdd}
-            disabled={editing !== null}
+            disabled={editing !== null || busy}
           >
             <Plus size={14} />
             Add action
@@ -341,7 +353,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
                 overId === action.id && dragId !== action.id ? 'drop-target' : ''
               }`}
               data-action-id={action.id}
-              draggable={editing === null}
+              draggable={editing === null && !busy}
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = 'move';
                 setDragId(action.id);
@@ -374,7 +386,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
                 type="button"
                 className="ws-row-action"
                 onClick={() => nudge(action.id, -1)}
-                disabled={index === 0 || editing !== null}
+                disabled={index === 0 || editing !== null || busy}
                 aria-label={`Move ${action.name} up`}
                 title="Move up"
               >
@@ -384,7 +396,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
                 type="button"
                 className="ws-row-action"
                 onClick={() => nudge(action.id, 1)}
-                disabled={index === actions.length - 1 || editing !== null}
+                disabled={index === actions.length - 1 || editing !== null || busy}
                 aria-label={`Move ${action.name} down`}
                 title="Move down"
               >
@@ -394,7 +406,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
                 type="button"
                 className="ws-row-action"
                 onClick={() => startEdit(action)}
-                disabled={editing !== null}
+                disabled={editing !== null || busy}
                 aria-label={`Edit ${action.name}`}
                 title="Edit"
               >
@@ -424,6 +436,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
                 value={defaults[section.id] ?? ''}
                 onChange={(event) => setDefault(section.id, event.target.value)}
                 aria-label={`Default action for ${section.label}`}
+                disabled={busy}
               >
                 <option value="">None</option>
                 {options.map((action) => (
