@@ -84,11 +84,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   }, [hasStarted, sessionId, workspaceId, updateSession]);
 
   // The CLI writes a summary for a conversation once it has content. Adopt
-  // what it knows as the tab name: a prompt-derived name is a stand-in, so the
-  // poll continues past it and stops only once the CLI's own summary lands. A
-  // name the user typed wins permanently and is never polled over. Drivers
-  // whose transcripts Consola cannot read never produce a name, so they are
-  // skipped outright rather than polled forever.
+  // what it knows as the session's name: a prompt-derived name is a stand-in,
+  // so the poll continues past it and stops only once the CLI's own summary
+  // lands. A name the user typed wins permanently and is never polled over.
+  // Drivers whose transcripts Consola cannot read never produce a name, so
+  // they are skipped outright rather than polled forever. For a work-item
+  // session `name` is only the subtitle — the sidebar label is derived from
+  // the record (sessionLabel), so this poll refines the subtitle and never
+  // decides what the row reads.
   useEffect(() => {
     if (!claudeSessionId) return;
     if (!supportsSessionNaming) return;
