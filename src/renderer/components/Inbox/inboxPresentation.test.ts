@@ -1,13 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '../../../shared/workItems';
-import {
-  actionFor,
-  dotClassFor,
-  formatAge,
-  metaLineFor,
-  primaryRole,
-  roleLabelFor,
-} from './inboxPresentation';
+import { dotClassFor, formatAge, metaLineFor, primaryRole, roleLabelFor } from './inboxPresentation';
 
 function makeItem(overrides: Partial<InboxItem> = {}): InboxItem {
   return {
@@ -52,28 +45,6 @@ describe('primaryRole', () => {
     expect(primaryRole(makeItem({ roles: ['author', 'assignee'] }))).toBe('assignee');
     expect(primaryRole(makeItem({ roles: ['author'] }))).toBe('author');
     expect(primaryRole(makeItem({ roles: [] }))).toBeUndefined();
-  });
-});
-
-describe('actionFor', () => {
-  it('is Open session whenever a session exists, regardless of anything else', () => {
-    expect(actionFor(makeItem(), true, false)).toEqual({ label: 'Open session', kind: 'open' });
-  });
-
-  it('offers the clone path when the repo has no local clone', () => {
-    expect(actionFor(makeItem(), false, false)).toEqual({
-      label: 'Clone into scope...',
-      kind: 'clone',
-    });
-  });
-
-  it('labels launches by role: Review, Address review, Start work', () => {
-    expect(actionFor(makeItem(), false, true).label).toBe('Review');
-    expect(actionFor(makeItem({ roles: ['author'] }), false, true).label).toBe('Address review');
-    // Asked to review your own PR: the request wins, as it did when the
-    // parser picked one role.
-    expect(actionFor(makeItem({ roles: ['author', 'review-requested-direct'] }), false, true).label).toBe('Review');
-    expect(actionFor(makeItem({ roles: ['assignee'], workItem: issue87 }), false, true).label).toBe('Start work');
   });
 });
 
