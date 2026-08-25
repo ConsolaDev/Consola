@@ -61,3 +61,27 @@
 .work-item-strip-link:hover {
   color: var(--color-text-primary);
 }
+
+/* The action this session was started as — the same accent the pane's
+   default action button uses, so the two read as one vocabulary. */
+.work-item-strip-action {
+  border-color: var(--color-accent);
+  color: var(--color-accent);
+}
+
+/* A pill that is also a menu trigger: reset the button chrome, keep the pill. */
+.work-item-strip-siblings {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.work-item-strip-siblings:hover,
+.work-item-strip-siblings[data-state='open'] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
