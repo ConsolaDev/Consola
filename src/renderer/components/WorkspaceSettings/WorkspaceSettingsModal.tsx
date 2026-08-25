@@ -103,7 +103,7 @@ function WorkspaceSettingsBody({ workspace }: { workspace: Workspace }) {
 
   return (
     <>
-      <nav className="settings-modal-nav">
+      <nav className="settings-modal-nav" aria-label="Workspace settings sections">
         <div className="settings-modal-nav-header">
           {/* The visible text is the accessible title: unlike the global
               modal's decorative "Settings" header, this one names the thing
@@ -116,13 +116,15 @@ function WorkspaceSettingsBody({ workspace }: { workspace: Workspace }) {
         </div>
         {NAV_ORDER.map((id) => {
           const { label, icon: Icon, danger } = NAV_META[id];
+          const isActive = activeSection === id;
           return (
             <button
               key={id}
               type="button"
-              className={`settings-modal-nav-item ${activeSection === id ? 'active' : ''} ${
-                danger ? 'danger' : ''
-              }`}
+              className={['settings-modal-nav-item', isActive && 'active', danger && 'danger']
+                .filter(Boolean)
+                .join(' ')}
+              aria-current={isActive ? 'true' : undefined}
               onClick={() => setActiveSection(id)}
             >
               <Icon size={16} />

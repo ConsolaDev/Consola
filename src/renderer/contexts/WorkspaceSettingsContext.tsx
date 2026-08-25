@@ -32,6 +32,7 @@ const WorkspaceSettingsContext = createContext<WorkspaceSettingsContextType | nu
 export function WorkspaceSettingsProvider({ children }: { children: ReactNode }) {
   const [openForWorkspaceId, setOpenForWorkspaceId] = useState<string | null>(null);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
 
   const openWorkspaceSettings = useCallback((workspaceId?: string) => {
     const target = workspaceId ?? useNavigationStore.getState().activeWorkspaceId;
@@ -51,10 +52,14 @@ export function WorkspaceSettingsProvider({ children }: { children: ReactNode })
   // A session activating while the modal is open — an OS notification click
   // landing on this window, or the new-session chord reaching the layout
   // underneath — must not leave the dialog obscuring what the window just
-  // switched to. The Inbox closes on the same cue.
+  // switched to. The Inbox closes on the same cue. activeWorkspaceId is
+  // watched too: switching workspaces while the Inbox is showing sets
+  // activeSessionId to null, which is a no-op change against a
+  // dependency list of activeSessionId alone, so the modal would keep
+  // editing the workspace that was just left.
   useEffect(() => {
     setOpenForWorkspaceId(null);
-  }, [activeSessionId]);
+  }, [activeSessionId, activeWorkspaceId]);
 
   // Memoised so consumers that put the openers in dependency lists (the
   // palette's context snapshot) do not rebuild on every render here.
