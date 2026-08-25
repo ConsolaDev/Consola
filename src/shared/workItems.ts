@@ -1,5 +1,5 @@
 import type { GitProviderId } from './providers';
-import { isGitProviderId } from './providers';
+import { isGitProviderId, PROVIDER_META } from './providers';
 
 /**
  * Work-item shapes shared by main and renderer.
@@ -99,10 +99,14 @@ export function workItemKey(ref: WorkItemRef): string {
  * Canonical web URL for a work item, for when no fetched item carries one.
  *
  * Renderer-reachable on purpose (the strip needs a link with no driver round
- * trip); the GitHub driver's own workItemUrl delegates here.
+ * trip); the GitHub driver's own workItemUrl delegates here. A plain
+ * find-and-replace rather than workItemPrompt.ts's substitutePlaceholders:
+ * that module imports from this one, so borrowing it back would be a cycle.
  */
 export function workItemUrl(ref: WorkItemRef): string {
-  return `https://github.com/${ref.repo}/${ref.type === 'pr' ? 'pull' : 'issues'}/${ref.number}`;
+  return PROVIDER_META[ref.provider].webUrlTemplate[ref.type]
+    .replace('{{repo}}', ref.repo)
+    .replace('{{number}}', String(ref.number));
 }
 
 /** Exactly one slash, no whitespace on either side of it. */
@@ -126,4 +130,14 @@ export function isValidWorkItemRef(value: unknown): value is WorkItemRef {
     Number.isInteger(ref.number) &&
     ref.number > 0
   );
+}
+
+/**
+ * Rebuild a ref from an allow-list, setActions/setProviderBinding-style: an
+ * IPC payload that passed isValidWorkItemRef is still whatever shape the
+ * renderer sent, and this is the caller's chance to drop anything beyond the
+ * four fields before it is stored or persisted.
+ */
+export function toWorkItemRef(ref: WorkItemRef): WorkItemRef {
+  return { provider: ref.provider, repo: ref.repo, type: ref.type, number: ref.number };
 }

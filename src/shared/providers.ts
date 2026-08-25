@@ -53,6 +53,12 @@ export interface ProviderMeta {
    * Placeholders are the ones workItemPrompt.ts substitutes.
    */
   seedHeaderTemplate: Record<'pr' | 'issue', string>;
+  /**
+   * Canonical web URL per item type, `{{repo}}`/`{{number}}` substituted by
+   * workItemUrl. Per-provider so a future non-GitHub driver names its own
+   * host and path shape instead of workItemUrl hardcoding one.
+   */
+  webUrlTemplate: Record<'pr' | 'issue', string>;
 }
 
 export const PROVIDER_META: Record<GitProviderId, ProviderMeta> = {
@@ -65,6 +71,10 @@ export const PROVIDER_META: Record<GitProviderId, ProviderMeta> = {
     seedHeaderTemplate: {
       pr: 'This session is for pull request #{{number}} ("{{title}}") in {{repo}}. You are in a dedicated git worktree for it, so the user\'s own checkout stays untouched. Start with `gh pr view {{number}}` to read it.',
       issue: 'This session is for issue #{{number}} ("{{title}}") in {{repo}}. You are in a dedicated git worktree for it, so the user\'s own checkout stays untouched. Start with `gh issue view {{number}}` to read it.',
+    },
+    webUrlTemplate: {
+      pr: 'https://github.com/{{repo}}/pull/{{number}}',
+      issue: 'https://github.com/{{repo}}/issues/{{number}}',
     },
   },
 };
