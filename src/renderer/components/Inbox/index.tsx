@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ExternalLink, RefreshCw } from 'lucide-react';
+import { ExternalLink, RefreshCw, Settings } from 'lucide-react';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { InboxItem } from '../../../shared/workItems';
 import { sameWorkItem } from '../../../shared/workItems';
 import { launchKey, useInboxStore } from '../../stores/inboxStore';
 import type { Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { CloneDialog } from './CloneDialog';
 import {
   actionFor,
@@ -34,6 +35,7 @@ export function InboxView({ workspace }: InboxViewProps) {
   const launch = useInboxStore((state) => state.launch);
   const openClonePrompt = useInboxStore((state) => state.openClonePrompt);
   const refresh = useInboxStore((state) => state.refresh);
+  const { openWorkspaceSettings } = useWorkspaceSettings();
 
   useEffect(() => {
     void useInboxStore.getState().load(workspace.id);
@@ -93,6 +95,16 @@ export function InboxView({ workspace }: InboxViewProps) {
             onClick={() => void refresh(workspace.id)}
           >
             <RefreshCw size={13} />
+          </button>
+          {/* Same quiet chrome as refresh; Phase C's Actions editor is what
+              this door is for, so it sits where the Inbox is triaged. */}
+          <button
+            className="inbox-refresh inbox-settings-button"
+            aria-label="Workspace settings"
+            title="Workspace settings"
+            onClick={() => openWorkspaceSettings(workspace.id)}
+          >
+            <Settings size={13} />
           </button>
         </div>
       </div>
