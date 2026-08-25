@@ -1,15 +1,14 @@
-import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterAll, describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
+import type { GitProviderDriver } from './GitProviderDriver';
 import { cloneWorkspaceRepo, type CloneRepoDeps } from './cloneRepo';
-
-const STUB = path.resolve(__dirname, '../../../tests/fixtures/stub-gh/gh');
+import { createStubDriver } from './stubDriver.test-helpers';
 
 // Every dir handed out by tmpDir(), swept in one afterAll — these tests spin
-// up several independent roots and repos rather than sharing one temp dir.
+// up several independent destinations rather than sharing one temp dir.
 const createdDirs: string[] = [];
 
 function tmpDir(prefix: string): string {
@@ -24,20 +23,10 @@ afterAll(() => {
   }
 });
 
-/** A local "origin" for the stub's `repo clone` to clone from. */
-function makeSourceRepo(): string {
-  const dir = path.join(tmpDir('consola-clone-src-'), 'msa-resource-bff');
-  fs.mkdirSync(dir, { recursive: true });
-  execFileSync('git', ['init', '-q', '-b', 'main', dir]);
-  execFileSync('git', ['-C', dir, 'config', 'user.email', 'test@consola.test']);
-  execFileSync('git', ['-C', dir, 'config', 'user.name', 'Consola Test']);
-  fs.writeFileSync(path.join(dir, 'README.md'), 'fixture');
-  execFileSync('git', ['-C', dir, 'add', '.']);
-  execFileSync('git', ['-C', dir, 'commit', '-q', '-m', 'init']);
-  return dir;
-}
-
-function makeWorkspace(scopePaths: Array<{ path: string; isGitRepo: boolean }>): Workspace {
+function makeWorkspace(
+  scopePaths: Array<{ path: string; isGitRepo: boolean }>,
+  overrides: Partial<Workspace> = {}
+): Workspace {
   const now = Date.now();
   return {
     id: 'ws-1',
@@ -51,101 +40,145 @@ function makeWorkspace(scopePaths: Array<{ path: string; isGitRepo: boolean }>):
       createdAt: now,
     })),
     groups: [],
-    github: { accountLogin: 'SymJavi', org: 'sympower' },
+    provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
+    actions: [],
+    sectionDefaults: {},
     sessions: [],
     createdAt: now,
     updatedAt: now,
-  } as Workspace;
+    ...overrides,
+  };
 }
 
-function makeDeps(source: string, overrides: Partial<CloneRepoDeps> = {}) {
+/**
+ * This file's flavour of the shared stub: a token tied to the login, and a
+ * cloneRepo that leaves a `.git` marker so the tests can tell a clone
+ * happened without running git. The real `gh repo clone` mechanics are
+ * GitHubDriver.test.ts's business.
+ */
+function makeStubDriver(overrides: Partial<GitProviderDriver> = {}): GitProviderDriver {
+  return createStubDriver({
+    tokenEnvVar: 'STUB_TOKEN',
+    token: vi.fn(async (login: string) => `tok-${login}`),
+    cloneRepo: vi.fn(async (_repo: string, destinationDir: string) => {
+      fs.mkdirSync(path.join(destinationDir, '.git'), { recursive: true });
+    }),
+    ...overrides,
+  });
+}
+
+function makeDeps(driver: GitProviderDriver = makeStubDriver(), overrides: Partial<CloneRepoDeps> = {}) {
   const addScope = vi.fn();
   const deps: CloneRepoDeps = {
-    ghBinary: async () => STUB,
-    composeEnv: async () => ({ ...process.env, STUB_GH_CLONE_FROM: source, GH_TOKEN: 'gho_test' }),
+    resolveDriver: () => driver,
+    composeEnv: vi.fn(async (resolved, login) => ({ [resolved.tokenEnvVar]: `tok-${login}` })),
     addScope,
     ...overrides,
   };
-  return { deps, addScope };
+  return { deps, addScope, driver };
 }
 
-// Tests that call cloneWorkspaceRepo spawn real `git clone` (via gh stub) which can
-// exceed 5 seconds under parallel suite load. Guard tests that return before cloning
-// (destination missing, destination already exists) use the default timeout.
 describe('cloneWorkspaceRepo', () => {
-  it('clones into the destination and leaves scopes alone when a scope covers it', async () => {
-    const source = makeSourceRepo();
+  it('clones through the driver into <destination>/<repo basename> with the composed env, leaving scopes alone when a scope covers it', async () => {
     const container = tmpDir('consola-clone-dst-');
     const workspace = makeWorkspace([{ path: container, isGitRepo: false }]);
-    const { deps, addScope } = makeDeps(source);
+    const { deps, addScope, driver } = makeDeps();
 
     const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', container);
 
-    expect(result.ok).toBe(true);
-    expect(result.path).toBe(path.join(container, 'msa-resource-bff'));
-    expect(fs.existsSync(path.join(container, 'msa-resource-bff', '.git'))).toBe(true);
+    const target = path.join(container, 'msa-resource-bff');
+    expect(result).toEqual({ ok: true, path: target });
+    expect(driver.cloneRepo).toHaveBeenCalledWith('sympower/msa-resource-bff', target, {
+      STUB_TOKEN: 'tok-SymJavi',
+    });
+    expect(fs.existsSync(path.join(target, '.git'))).toBe(true);
     expect(addScope).not.toHaveBeenCalled();
-  }, 30_000);
+  });
 
   it('adds a scope for a destination no scope covers', async () => {
-    const source = makeSourceRepo();
     const outside = tmpDir('consola-clone-outside-');
     const workspace = makeWorkspace([{ path: tmpDir('consola-clone-other-'), isGitRepo: false }]);
-    const { deps, addScope } = makeDeps(source);
+    const { deps, addScope } = makeDeps();
 
     const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', outside);
 
     expect(result.ok).toBe(true);
     expect(addScope).toHaveBeenCalledWith('ws-1', outside);
-  }, 30_000);
+  });
 
   it('refuses when the destination directory does not exist', async () => {
-    const source = makeSourceRepo();
     const missing = path.join(tmpDir('consola-clone-parent-'), 'does-not-exist');
     const workspace = makeWorkspace([{ path: missing, isGitRepo: false }]);
-    const { deps, addScope } = makeDeps(source);
+    const { deps, addScope, driver } = makeDeps();
 
     const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', missing);
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('Destination not found');
     expect(result.error).toContain(missing);
+    expect(driver.cloneRepo).not.toHaveBeenCalled();
     expect(addScope).not.toHaveBeenCalled();
   });
 
   it('refuses when the target directory already exists', async () => {
-    const source = makeSourceRepo();
     const container = tmpDir('consola-clone-dst-');
     fs.mkdirSync(path.join(container, 'msa-resource-bff'));
     const workspace = makeWorkspace([{ path: container, isGitRepo: false }]);
-    const { deps } = makeDeps(source);
+    const { deps, driver } = makeDeps();
 
     const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', container);
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain('already exists');
+    expect(driver.cloneRepo).not.toHaveBeenCalled();
   });
 
-  it('returns gh stderr on a failed clone, creating nothing', async () => {
-    const source = makeSourceRepo();
+  it("returns the driver's error on a failed clone, creating nothing", async () => {
     const container = tmpDir('consola-clone-dst-');
     const workspace = makeWorkspace([{ path: container, isGitRepo: false }]);
-    const { deps } = makeDeps(source, {
-      composeEnv: async () => ({ ...process.env, STUB_GH_FAIL: '1', GH_TOKEN: 'gho_test' }),
+    const { deps } = makeDeps(
+      makeStubDriver({
+        cloneRepo: vi.fn(async () => {
+          throw new Error('gh: canned failure (STUB_GH_FAIL=1)');
+        }),
+      })
+    );
+
+    const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', container);
+
+    expect(result).toEqual({ ok: false, error: 'gh: canned failure (STUB_GH_FAIL=1)' });
+    expect(fs.existsSync(path.join(container, 'msa-resource-bff'))).toBe(false);
+  });
+
+  it('errors when the provider is unknown to this build', async () => {
+    const container = tmpDir('consola-clone-dst-');
+    const workspace = makeWorkspace([{ path: container, isGitRepo: false }]);
+    const { deps } = makeDeps(makeStubDriver(), {
+      resolveDriver: () => {
+        throw new Error('Unknown git provider "gitlab".');
+      },
     });
 
     const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', container);
 
-    expect(result.ok).toBe(false);
-    expect(result.error).toContain('canned failure');
-    expect(fs.existsSync(path.join(container, 'msa-resource-bff'))).toBe(false);
-  }, 30_000);
+    expect(result).toEqual({ ok: false, error: 'Unknown git provider "gitlab".' });
+  });
+
+  it('errors plainly for a workspace without a provider binding', async () => {
+    const container = tmpDir('consola-clone-dst-');
+    const workspace = makeWorkspace([{ path: container, isGitRepo: false }], { provider: undefined });
+    const { deps, driver } = makeDeps();
+
+    const result = await cloneWorkspaceRepo(deps, workspace, 'sympower/msa-resource-bff', container);
+
+    expect(result).toEqual({ ok: false, error: 'This workspace has no provider account bound.' });
+    expect(driver.cloneRepo).not.toHaveBeenCalled();
+  });
 
   it('reports the clone succeeded even when adding the scope afterwards throws', async () => {
-    const source = makeSourceRepo();
     const outside = tmpDir('consola-clone-outside-');
     const workspace = makeWorkspace([{ path: tmpDir('consola-clone-other-'), isGitRepo: false }]);
-    const { deps } = makeDeps(source, {
+    const { deps } = makeDeps(makeStubDriver(), {
       addScope: vi.fn(() => {
         throw new Error('No workspace ws-1');
       }),
@@ -158,5 +191,5 @@ describe('cloneWorkspaceRepo', () => {
     expect(result.error).toContain('No workspace ws-1');
     // The clone itself must not be undone just because the scope-add failed.
     expect(fs.existsSync(path.join(outside, 'msa-resource-bff', '.git'))).toBe(true);
-  }, 30_000);
+  });
 });
