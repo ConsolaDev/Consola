@@ -1,5 +1,6 @@
 import { BUILT_IN_HARNESS_ID } from './constants';
 import type { WorkItemRef } from './github';
+import { generateId } from './ids';
 
 /**
  * Workspace and session records, and the ladder that brings old ones forward.
@@ -84,10 +85,6 @@ export interface Workspace {
 
 /** Shape version of the persisted workspace list. */
 export const CURRENT_WORKSPACE_STATE_VERSION = 6;
-
-export function generateId(): string {
-  return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-}
 
 /**
  * Terminal instance id for a new session in a workspace.
