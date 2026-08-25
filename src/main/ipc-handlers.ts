@@ -33,6 +33,7 @@ import {
     isValidWorkItemRef,
     toWorkItemRef,
     type InboxSnapshot,
+    type WorkItemLaunchAction,
     type WorkItemRef,
 } from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
@@ -424,33 +425,41 @@ export function setupIpcHandlers(): boolean {
         }
     );
 
-    // One click on an Inbox item. Worktree first, record second; the spawn is
-    // third and happens when the renderer mounts the session pane — the same
-    // terminal-create path every session uses.
+    // Start a session from an action. Worktree first, record second; the
+    // spawn is third and happens when the renderer mounts the session pane —
+    // the same terminal-create path every session uses.
     const launchWorkItemDeps: WorkItemLaunchDeps = {
         getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+        resolveDriver: getProviderDriver,
         createSession: (id, fields) => workspaces.createSession(id, fields),
         resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
         ensureWorktree: (clonePath, item, env) => worktrees.ensureWorktree(clonePath, item, env),
         composeEnv: composeProviderEnv,
         findItem: (id, ref) => inbox.findItem(id, ref),
-        pathExists: (target) => fs.existsSync(target),
-        resolveDriver: getProviderDriver,
     };
     // Coalesced (not just called directly) so two overlapping launches of the
-    // same work item can never mint two sessions for it — see
+    // same item and action can never mint two sessions for it — see
     // createLaunchCoalescer's doc comment.
     const launchWorkItem = createLaunchCoalescer(launchWorkItemDeps);
     ipcMain.handle(
         IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM,
-        (_event, workspaceId: string, workItem: WorkItemRef) => {
+        (_event, workspaceId: string, workItem: WorkItemRef, action: WorkItemLaunchAction) => {
             // Shape-validated like WORKSPACE_SESSION_UPDATE's link payload:
             // this one persists workItem into the session record too, and
             // derives a worktree directory name from repo.
             if (!isValidWorkItemRef(workItem)) {
                 return { ok: false, reason: 'error', message: 'Invalid work item reference.' };
             }
-            return launchWorkItem(workspaceId, toWorkItemRef(workItem));
+            // Cheap shape check on the action too — the renderer sends one of
+            // two variants and IPC has already stripped TypeScript's types.
+            const validAction =
+                action &&
+                typeof action === 'object' &&
+                ('id' in action ? typeof action.id === 'string' : typeof action.customPrompt === 'string');
+            if (!validAction) {
+                return { ok: false, reason: 'error', message: 'Invalid launch action.' };
+            }
+            return launchWorkItem(workspaceId, toWorkItemRef(workItem), action);
         }
     );
 
