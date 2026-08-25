@@ -110,10 +110,13 @@ export function InboxView({ workspace }: InboxViewProps) {
     : undefined;
 
   // A refresh can drop the selected item from the snapshot entirely (PR
-  // merged, issue closed) without ever clearing selectedKey. Once that
-  // key no longer resolves to anything shown, drop it -- otherwise a later
-  // refresh that resurrects a same-numbered item would reopen the pane on
-  // a selection the user never made.
+  // merged, issue closed) without ever clearing selectedKey. `selected` is
+  // resolved against the raw `items` snapshot, not `filtered`/`shown`, on
+  // purpose -- switching a view or filter must not close the pane on an
+  // item that is still in the inbox, just no longer displayed. Once the key
+  // no longer resolves against the raw snapshot either, drop it -- otherwise
+  // a later refresh that resurrects a same-numbered item would reopen the
+  // pane on a selection the user never made.
   useEffect(() => {
     if (selectedKey && !selected) setSelectedKey(null);
   }, [selected, selectedKey]);

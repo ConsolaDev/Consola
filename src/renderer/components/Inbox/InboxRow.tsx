@@ -11,7 +11,6 @@ import {
   reviewStateLabel,
   worstStatusForItem,
 } from './inboxPresentation';
-import '../../styles/statusDots.css';
 
 interface InboxRowProps {
   item: InboxItem;
@@ -38,11 +37,9 @@ export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect
   const meta = [`${repoName}#${item.workItem.number}`, item.author, relativeTime(item.updatedAt)]
     .filter(Boolean)
     .join(' · ');
-  // The visible meta line gains a "· N sessions" suffix when the item has
-  // any; the accessible name must say the same thing, since a role="button"
-  // div with no text content of its own falls back to nothing without one.
-  const sessionSuffix =
-    sessions.length > 0 ? ` · ${sessions.length} session${sessions.length === 1 ? '' : 's'}` : '';
+  const checksBreakdown = item.checks
+    ? `${item.checks.passed} passed, ${item.checks.failed} failed, ${item.checks.pending} pending`
+    : '';
 
   const icon =
     item.workItem.type === 'issue' ? (
@@ -70,7 +67,6 @@ export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect
       role="button"
       tabIndex={0}
       aria-pressed={selected}
-      aria-label={`${item.title} — ${meta}${sessionSuffix}`}
       className={[
         'inbox-row',
         selected ? 'selected' : '',
@@ -93,6 +89,10 @@ export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect
             <span className="inbox-row-sessions">
               <span className="inbox-row-meta-sep">·</span>
               <span className={`status-dot status-dot--${sessionStatus}`} aria-hidden="true" />
+              {/* The dot's colour is the only visual cue for session status;
+                  give it a text alternative since role="button" computes its
+                  accessible name from visible content. */}
+              <span className="sr-only">{sessionStatus}</span>
               {sessions.length} {sessions.length === 1 ? 'session' : 'sessions'}
             </span>
           )}
@@ -103,14 +103,13 @@ export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect
           <span className={`inbox-row-review inbox-row-review--${item.reviewDecision}`}>{review}</span>
         )}
         {checks && (
-          <span
-            className={`inbox-row-checks inbox-row-checks--${checks.tone}`}
-            title={`${item.checks?.passed ?? 0} passed, ${item.checks?.failed ?? 0} failed, ${
-              item.checks?.pending ?? 0
-            } pending`}
-          >
+          <span className={`inbox-row-checks inbox-row-checks--${checks.tone}`} title={checksBreakdown}>
             {checks.tone === 'bad' ? <X size={11} aria-hidden="true" /> : <Check size={11} aria-hidden="true" />}
             {checks.text}
+            {/* checks.text is just "passed/total" -- the pass/fail/pending
+                split otherwise lives only in the hover title, which most
+                screen readers never expose. */}
+            <span className="sr-only">{checksBreakdown}</span>
           </span>
         )}
         {item.commentCount > 0 && (
