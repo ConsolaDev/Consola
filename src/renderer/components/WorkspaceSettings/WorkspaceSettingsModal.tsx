@@ -8,7 +8,7 @@ import { HarnessPanel } from './HarnessPanel';
 import { ScopesPanel } from './ScopesPanel';
 import { GroupsPanel } from './GroupsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
-import { ActionsPlaceholderPanel } from './ActionsPlaceholderPanel';
+import { ActionsPanel } from './ActionsPanel';
 import { providerNavLabel } from './navLabels';
 import '../Dialogs/styles.css';
 import './styles.css';
@@ -148,9 +148,7 @@ function WorkspaceSettingsBody({ workspace }: { workspace: Workspace }) {
               <ProviderBindingPanel workspace={workspace} />
             </section>
           )}
-          {/* Phase C swaps this one branch for <ActionsPanel workspace={workspace} />
-              and deletes ActionsPlaceholderPanel.tsx; nothing else here changes. */}
-          {activeSection === 'actions' && <ActionsPlaceholderPanel />}
+          {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
           {activeSection === 'groups' && <GroupsPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}
         </div>
