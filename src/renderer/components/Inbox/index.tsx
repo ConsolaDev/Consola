@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
+import { PROVIDER_META } from '../../../shared/providers';
 import type { InboxItem } from '../../../shared/workItems';
 import { sameWorkItem } from '../../../shared/workItems';
 import { launchKey, useInboxStore } from '../../stores/inboxStore';
@@ -45,6 +46,7 @@ export function InboxView({ workspace }: InboxViewProps) {
 
   const provider = workspace.provider;
   if (!provider) return null;
+  const providerName = PROVIDER_META[provider.id].displayName;
 
   const handleAction = (item: InboxItem, action: InboxAction) => {
     if (action.kind === 'clone') {
@@ -80,7 +82,7 @@ export function InboxView({ workspace }: InboxViewProps) {
           {snapshot?.error ? (
             // Degrade, never dialog: name the failure, show the data's age.
             <span className="inbox-meta-error" title={snapshot.error}>
-              GitHub unreachable · showing data from {formatAge(snapshot.fetchedAt)}
+              {providerName} unreachable · showing data from {formatAge(snapshot.fetchedAt)}
             </span>
           ) : (
             <span className="inbox-meta-age">updated {formatAge(snapshot?.fetchedAt ?? 0)}</span>
@@ -98,7 +100,7 @@ export function InboxView({ workspace }: InboxViewProps) {
       <div className="inbox-list">
         {shown.length === 0 && (
           <p className="inbox-empty">
-            {snapshot ? 'Nothing here right now.' : 'Fetching from GitHub...'}
+            {snapshot ? 'Nothing here right now.' : `Fetching from ${providerName}...`}
           </p>
         )}
         {shown.map((item) => {
@@ -124,7 +126,7 @@ export function InboxView({ workspace }: InboxViewProps) {
                 href={item.url}
                 target="_blank"
                 rel="noreferrer"
-                aria-label="Open on GitHub"
+                aria-label={`Open on ${providerName}`}
               >
                 <ExternalLink size={13} />
               </a>
