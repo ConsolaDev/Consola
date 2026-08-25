@@ -4,7 +4,12 @@ import type { Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { createProfileDir, launchElectron, settingsChord } from './helpers/electron';
+import {
+  commandPaletteChord,
+  createProfileDir,
+  launchElectron,
+  settingsChord,
+} from './helpers/electron';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
 
@@ -150,6 +155,30 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await expect(modal).toBeVisible();
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('General');
 
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(modal).toBeHidden();
+  } finally {
+    await cleanup();
+  }
+});
+
+test('the command palette offers Workspace settings… for the held workspace', async () => {
+  test.setTimeout(60_000);
+  const { page, cleanup } = await launchSeeded();
+  try {
+    await holdWorkspace(page);
+
+    await page.keyboard.press(commandPaletteChord());
+    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
+    await expect(palette).toBeVisible();
+    await palette.getByRole('combobox').fill('workspace settings');
+    // The row's accessible name is its label plus its context ("… Sympower"),
+    // so this match is deliberately not exact.
+    await palette.getByRole('option', { name: 'Workspace settings…' }).click();
+
+    await expect(palette).toBeHidden();
+    const modal = page.getByRole('dialog', { name: 'Sympower', exact: true });
+    await expect(modal).toBeVisible();
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
   } finally {

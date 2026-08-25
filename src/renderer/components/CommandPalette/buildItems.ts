@@ -66,6 +66,7 @@ export interface PaletteContext {
   isGitReviewOpen: boolean;
   terminalFontSize: number;
   openSettings: () => void;
+  openWorkspaceSettings: (workspaceId?: string) => void;
 }
 
 /**
@@ -107,6 +108,20 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       // Opens the composer rather than creating a record, so backing out
       // leaves no empty session behind.
       run: () => openNewSessionComposer(activeWorkspace.id),
+    });
+  }
+
+  if (activeWorkspace) {
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.workspace.settings',
+      label: 'Workspace settings…',
+      context: activeWorkspace.name,
+      icon: Settings,
+      // Explicit id rather than the context's fallback: the palette's
+      // snapshot names the workspace this row was built for.
+      run: () => ctx.openWorkspaceSettings(activeWorkspace.id),
     });
   }
 
