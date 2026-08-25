@@ -5,7 +5,6 @@ import { createSessionRecord, type Session } from '../../../shared/workspace';
 import type { TerminalState } from '../../stores/terminalStore';
 import {
   checksLabel,
-  dotClassFor,
   formatAge,
   groupSessionsByWorkItem,
   hasAccentBar,
@@ -225,20 +224,5 @@ describe('worstStatusForItem', () => {
     expect(worstStatusForItem([a, b], terminals)).toBe('needs-attention');
     expect(worstStatusForItem([a], terminals)).toBe('working');
     expect(worstStatusForItem([], terminals)).toBe('ready');
-  });
-});
-
-// Kept per controller ruling: Inbox/index.tsx still renders dotClassFor
-// until Task 12 deletes the row that uses it.
-describe('dotClassFor', () => {
-  it('flags failing CI red, requested reviews attention, the rest idle', () => {
-    expect(dotClassFor(makeItem())).toBe('inbox-dot--err');
-    expect(dotClassFor(makeItem({ ciStatus: 'passing' }))).toBe('inbox-dot--att');
-    expect(dotClassFor(makeItem({ ciStatus: 'passing', roles: ['review-requested-team'] }))).toBe(
-      'inbox-dot--att'
-    );
-    expect(dotClassFor(makeItem({ ciStatus: 'passing', roles: ['assignee'] }))).toBe(
-      'inbox-dot--idle'
-    );
   });
 });
