@@ -100,7 +100,7 @@ describe('parseInboxPayload over the canned fixture', () => {
   const items = parseInboxPayload(canned);
   const byNumber = (number: number) => items.find((item) => item.workItem.number === number);
 
-  it('yields nine distinct items from eleven nodes', () => {
+  it('yields nine distinct items from twelve nodes', () => {
     expect(items).toHaveLength(9);
   });
 
@@ -343,5 +343,38 @@ describe('parseInboxPayload derivation rules', () => {
     expect(parseInboxPayload({ ...(payloadWith({}) as object), errors: [{ message: 'warning' }] })).toEqual(
       []
     );
+  });
+
+  // A GraphQL partial failure: `data` is present but every alias resolved to
+  // null and `errors` explains why. That must not read as "nothing to do".
+  it('throws when errors accompany data whose aliases are all null, carrying the message', () => {
+    const payload = {
+      data: { direct: null, team: null, authored: null, assigned: null, involved: null },
+      errors: [{ message: 'field error on direct' }],
+    };
+    expect(() => parseInboxPayload(payload)).toThrow('field error on direct');
+  });
+
+  it('parses when errors accompany at least one alias with usable data', () => {
+    const payload = {
+      data: {
+        direct: { nodes: [prNode(1)] },
+        team: null,
+        authored: null,
+        assigned: null,
+        involved: null,
+      },
+      errors: [{ message: 'partial failure' }],
+    };
+    expect(parseInboxPayload(payload)).toHaveLength(1);
+  });
+
+  it.each([
+    { label: 'a string', value: 'x' },
+    { label: 'a number', value: 42 },
+    { label: 'an array', value: [] },
+    { label: 'a boolean', value: true },
+  ])('throws when data is $label instead of an object', ({ value }) => {
+    expect(() => parseInboxPayload({ data: value })).toThrow('GitHub API returned malformed data');
   });
 });
