@@ -7,13 +7,14 @@ import {
   TERMINAL_FONT_SIZE_MAX,
   type ThemeMode,
 } from '../../stores/settingsStore';
+import { useNavigationStore } from '../../stores/navigationStore';
 import { useTheme } from '../../hooks/useTheme';
+import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
-import { WorkspaceSettingsSection } from '../WorkspaceSettings';
 import './styles.css';
 
-type SettingsSection = 'workspace' | 'appearance' | 'harnesses' | 'shortcuts';
+type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -21,10 +22,10 @@ interface SettingsSectionConfig {
   icon: typeof Palette;
 }
 
-// The GitHub binding lives inside the Workspace section — it was always
-// workspace-scoped, and a standalone tab hid that.
+// Only what is global lives here. Everything that belongs to one workspace —
+// name, harness, scopes, provider, actions, groups, deletion — has a modal of
+// its own, opened from the workspace menu.
 const sections: SettingsSectionConfig[] = [
-  { id: 'workspace', label: 'Workspace', icon: Folder },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'harnesses', label: 'Harnesses', icon: Boxes },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
@@ -42,8 +43,10 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('workspace');
+  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
   const { theme, setTheme, terminalFontSize, setTerminalFontSize } = useSettingsStore();
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
+  const { openWorkspaceSettings } = useWorkspaceSettings();
   useTheme();
 
   return (
@@ -55,6 +58,22 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
 
           <nav className="settings-modal-nav">
             <div className="settings-modal-nav-header">Settings</div>
+            {/* Stands where the Workspace tab was, so muscle memory has
+                somewhere to land for this release. Dialog.Close composes its
+                own onClick after ours: two independent state updates — open
+                the workspace modal, close this one — in a single commit. */}
+            <Dialog.Close asChild>
+              <button
+                type="button"
+                className="settings-modal-nav-pointer"
+                onClick={() => openWorkspaceSettings()}
+                disabled={activeWorkspaceId === null}
+                title={activeWorkspaceId === null ? 'Open a workspace to manage it here.' : undefined}
+              >
+                <Folder size={14} />
+                <span>Workspace settings are in the workspace menu</span>
+              </button>
+            </Dialog.Close>
             {sections.map(({ id, label, icon: Icon }) => (
               <button
                 key={id}
@@ -68,7 +87,6 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
           </nav>
 
           <div className="settings-modal-body">
-            {activeSection === 'workspace' && <WorkspaceSettingsSection />}
             {activeSection === 'appearance' && (
               <AppearanceSection
                 theme={theme}
