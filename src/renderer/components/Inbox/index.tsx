@@ -31,12 +31,16 @@ export function InboxView({ workspace }: InboxViewProps) {
 
   useEffect(() => {
     void useInboxStore.getState().load(workspace.id);
+    // A different workspace's snapshot has its own keys; carrying a
+    // selection across would risk landing on an unrelated item that
+    // happens to share a repo/number with one in the workspace just left.
+    setSelectedKey(null);
   }, [workspace.id]);
 
-  // Esc closes the pane. A dialog open above the Inbox (CloneDialog) stops
-  // Esc on its own topmost dismissable layer — Radix's DismissableLayer,
-  // via onEscapeKeyDown — so this window listener only ever sees the key
-  // when no dialog is in front of the pane.
+  // Esc closes the pane. Each dialog that can sit above the Inbox opts
+  // into owning its own Esc — CloneDialog and LinkSessionDialog both wire
+  // onEscapeKeyDown to stopPropagation() — so this window listener relies
+  // on that contract and only ever sees the key when no dialog is open.
   useEffect(() => {
     if (!selectedKey) return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -53,6 +57,15 @@ export function InboxView({ workspace }: InboxViewProps) {
   const selectedItem = selectedKey
     ? shown.find((item) => workItemKey(item.workItem) === selectedKey)
     : undefined;
+
+  // A refresh can drop the selected item from the snapshot entirely (PR
+  // merged, issue closed) without ever clearing selectedKey. Once that
+  // key no longer resolves to anything shown, drop it — otherwise a later
+  // refresh that resurrects a same-numbered item would reopen the pane on
+  // a selection the user never made.
+  useEffect(() => {
+    if (selectedKey && !selectedItem) setSelectedKey(null);
+  }, [selectedItem, selectedKey]);
 
   const provider = workspace.provider;
   if (!provider) return null;
@@ -135,6 +148,8 @@ export function InboxView({ workspace }: InboxViewProps) {
               // cloned, same as the pane. The row stays selectable either
               // way — greyed is a hint, not a block on the clone affordance.
               const isUncloned = resolved?.[item.workItem.repo] === null;
+              const title = `#${item.workItem.number} ${item.title}`;
+              const meta = metaLineFor(item);
               return (
                 // A div with role="button": the row selects, and it may one
                 // day host controls of its own — a <button> could not.
@@ -146,9 +161,17 @@ export function InboxView({ workspace }: InboxViewProps) {
                   data-work-item-key={key}
                   role="button"
                   tabIndex={0}
+                  // Without an explicit name, role="button" falls back to
+                  // name-from-content and would absorb the nested link's own
+                  // "Open on {provider}" label into the row's accessible name.
+                  aria-label={`${title} — ${meta}`}
                   aria-pressed={isSelected}
                   onClick={() => toggle(key)}
                   onKeyDown={(event) => {
+                    // The nested link is its own tab stop; its Enter bubbles
+                    // here too. Only react when the row itself is the target,
+                    // so the link's native Enter-to-navigate still fires.
+                    if (event.target !== event.currentTarget) return;
                     if (event.key === 'Enter' || event.key === ' ') {
                       event.preventDefault();
                       toggle(key);
@@ -157,11 +180,9 @@ export function InboxView({ workspace }: InboxViewProps) {
                 >
                   <span className={`inbox-dot ${dotClassFor(item)}`} />
                   <div className="inbox-item-text">
-                    <span className="inbox-item-title">
-                      #{item.workItem.number} {item.title}
-                    </span>
+                    <span className="inbox-item-title">{title}</span>
                     <span className="inbox-item-meta">
-                      {metaLineFor(item)}
+                      {meta}
                       {sessionCount > 0 && (
                         <span className="inbox-item-sessions">
                           {' · '}
