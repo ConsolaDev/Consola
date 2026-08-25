@@ -123,6 +123,15 @@ test('inbox renders, launch cuts a worktree and a session, relaunch re-attaches'
       page.locator('.inbox-item-title', { hasText: '#51 Extract billing client' })
     ).toBeVisible({ timeout: 15_000 });
 
+    // The header's gear opens Workspace Settings for this workspace and
+    // leaves the Inbox where it was.
+    await page.locator('.inbox-settings-button').click();
+    const workspaceSettings = page.getByRole('dialog', { name: 'Sympower', exact: true });
+    await expect(workspaceSettings).toBeVisible();
+    await workspaceSettings.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(workspaceSettings).toBeHidden();
+    await expect(inboxRow).toHaveClass(/active/);
+
     // The un-cloned repo's issue offers the clone path instead of failing.
     await page.locator('.inbox-tab', { hasText: 'Issues' }).click();
     await expect(
