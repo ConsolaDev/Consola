@@ -134,18 +134,3 @@ export function worstStatusForItem(
 ): SessionStatus {
   return worstStatus(linked.map((session) => sessionStatusFor(terminals[session.instanceId])));
 }
-
-/**
- * Status dot class for the still-live `Inbox/index.tsx` row: failing CI
- * screams, requested reviews nudge, everything else idles. Kept alongside
- * the GitHub-shaped helpers above -- rather than folded into roleLabelFor's
- * precedence -- because it only ever cared about the review-requested roles,
- * not the full strongest-reason ordering those now express.
- */
-export function dotClassFor(item: InboxItem): string {
-  if (item.ciStatus === 'failing') return 'inbox-dot--err';
-  if (item.roles.includes('review-requested-direct') || item.roles.includes('review-requested-team')) {
-    return 'inbox-dot--att';
-  }
-  return 'inbox-dot--idle';
-}
