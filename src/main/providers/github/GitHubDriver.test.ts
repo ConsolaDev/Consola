@@ -5,6 +5,7 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { GitHubDriver } from './GitHubDriver';
+import { INBOX_SEARCH_ALIASES, searchStrings } from './inboxQuery';
 
 /** The repo-wide canned gh, for the verbs that run real git underneath. */
 const FIXTURE_GH = path.resolve(__dirname, '../../../../tests/fixtures/stub-gh/gh');
@@ -324,23 +325,32 @@ describe('GitHubDriver.fetchInbox', () => {
     process.env.CONSOLA_GH_PATH = FIXTURE_GH;
   });
 
-  it('runs one gh api graphql request for the three searches and returns merged items', async () => {
+  it('sends one gh api graphql call carrying the query and all five searches, with the token env', async () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     const items = await driver.fetchInbox(binding, fixtureEnv());
 
-    expect(items).toHaveLength(4);
-    expect(items.find((item) => item.workItem.number === 42)?.roles).toEqual([
-      'review-requested-direct',
-      'assignee',
-    ]);
+    expect(items).toHaveLength(9);
     const [call] = invocations();
     expect(call).toContain('api graphql -f query=');
-    expect(call).toContain('-f assigned=assignee:SymJavi is:open archived:false org:sympower');
-    expect(call).toContain(
-      '-f reviewRequested=review-requested:SymJavi is:open is:pr archived:false org:sympower'
-    );
+    const searches = searchStrings('SymJavi', 'sympower');
+    for (const alias of INBOX_SEARCH_ALIASES) {
+      expect(call).toContain(`-f ${alias}=${searches[alias]}`);
+    }
+    // One -f for the query, one per alias -- nothing under the old three-alias names.
+    expect(call.match(/ -f /g)).toHaveLength(INBOX_SEARCH_ALIASES.length + 1);
+    expect(call).not.toContain('reviewRequested=');
     expect(call).toMatch(/GH_TOKEN=gho_test$/);
+  });
+
+  it('propagates a parser rejection instead of answering with an empty inbox', async () => {
+    const broken = path.join(dir, 'broken-inbox.json');
+    fs.writeFileSync(broken, JSON.stringify({ data: null }));
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+
+    await expect(
+      driver.fetchInbox(binding, fixtureEnv({ GRAPHQL_INBOX_FIXTURE: broken }))
+    ).rejects.toThrow('GitHub API returned no data');
   });
 
   it('rejects with gh stderr when the request fails', async () => {

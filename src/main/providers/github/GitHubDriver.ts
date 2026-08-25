@@ -14,7 +14,7 @@ import { workItemUrl } from '../../../shared/workItems';
 import { renderSeedHeader } from '../../../shared/workItemPrompt';
 import { getLoginEnv } from '../../LoginEnvironment';
 import type { GitProviderDriver } from '../GitProviderDriver';
-import { INBOX_QUERY, parseInboxPayload, searchStrings } from './inboxQuery';
+import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } from './inboxQuery';
 
 const execFileAsync = promisify(execFile);
 
@@ -266,30 +266,22 @@ export class GitHubDriver implements GitProviderDriver {
     }
 
     /**
-     * One `gh api graphql` call, three searches, parsed into neutral items.
+     * One `gh api graphql` call, five searches, parsed into neutral items.
      *
      * `env` is the caller's composed environment — the login env plus
      * GH_TOKEN — so the request runs as the workspace's account rather than
-     * whatever the keyring considers active. Parse failures propagate: an
-     * unrecognised reply must never read as an empty inbox.
+     * whatever the keyring considers active. The flag list is derived from
+     * INBOX_SEARCH_ALIASES so the query, the parser and this argv cannot
+     * drift apart. Parse failures propagate: an unrecognised reply must
+     * never read as an empty inbox.
      */
     public async fetchInbox(binding: ProviderBinding, env: NodeJS.ProcessEnv): Promise<InboxItem[]> {
         const searches = searchStrings(binding.accountLogin, binding.org);
-        const stdout = await this.exec(
-            [
-                'api',
-                'graphql',
-                '-f',
-                `query=${INBOX_QUERY}`,
-                '-f',
-                `assigned=${searches.assigned}`,
-                '-f',
-                `authored=${searches.authored}`,
-                '-f',
-                `reviewRequested=${searches.reviewRequested}`,
-            ],
-            env
-        );
+        const args = ['api', 'graphql', '-f', `query=${INBOX_QUERY}`];
+        for (const alias of INBOX_SEARCH_ALIASES) {
+            args.push('-f', `${alias}=${searches[alias]}`);
+        }
+        const stdout = await this.exec(args, env);
         return parseInboxPayload(JSON.parse(stdout));
     }
 
