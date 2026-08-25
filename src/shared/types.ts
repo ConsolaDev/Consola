@@ -5,10 +5,15 @@ import type {
     NewSessionFields,
     Scope,
     Session,
+    SessionUpdates,
     Workspace,
+    WorkspaceProvider,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
-import type { GhProbeResult, InboxSnapshot, WorkItemRef } from './github';
+import type { InboxSection } from './inboxSections';
+import type { GitProviderId, ProviderProbeResult } from './providers';
+import type { WorkItemAction } from './workItemActions';
+import type { InboxSnapshot, WorkItemRef } from './workItems';
 import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
@@ -41,8 +46,8 @@ export interface TerminalCreateOptions extends HarnessLaunchFields {
     instanceId: string;
     /**
      * Workspace this session belongs to. Main resolves it to the workspace's
-     * GitHub account binding (if any) and borrows GH_TOKEN itself — the
-     * renderer names the workspace precisely so it never has to see a token.
+     * provider binding (if any) and borrows the token itself — the renderer
+     * names the workspace precisely so it never has to see a token.
      */
     workspaceId: string;
     cwd: string;
@@ -259,17 +264,6 @@ export interface HarnessAPI {
 }
 
 /**
- * GitHub probing exposed to the renderer.
- *
- * Probe only: whether `gh` exists and which accounts its keyring holds.
- * Tokens are borrowed inside the main process at spawn/call time and have no
- * representation on this API at all.
- */
-export interface GitHubAPI {
-    probe: () => Promise<GhProbeResult>;
-}
-
-/**
  * Outcome of the one-click work-item launch.
  *
  * 'not-cloned' is a normal answer, not an error: the renderer responds by
@@ -315,16 +309,25 @@ export interface SessionFanOutResult {
 }
 
 /**
- * Inbox surface of the github preload API. Read-only against GitHub by
- * construction: there is no method here that writes to GitHub.
+ * The Inbox surface of preload. Read-only against the provider by
+ * construction: there is no method here that writes to it.
  */
-export interface GitHubInboxAPI {
+export interface InboxAPI {
     getInbox: (workspaceId: string) => Promise<InboxSnapshot | null>;
     refreshInbox: (workspaceId: string) => Promise<void>;
+    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) => () => void;
+}
+
+/**
+ * Provider operations exposed to the renderer: probe a CLI, map remote repos
+ * to clones, launch a work item, clone a repo. Tokens are borrowed inside the
+ * main process at call time and have no representation on this API at all.
+ */
+export interface ProviderAPI {
+    probe: (id: GitProviderId) => Promise<ProviderProbeResult>;
     resolveRepos: (workspaceId: string, repos: string[]) => Promise<Record<string, string | null>>;
     launchWorkItem: (workspaceId: string, workItem: WorkItemRef) => Promise<WorkItemLaunchResult>;
     cloneRepo: (workspaceId: string, repo: string, destinationDir: string) => Promise<CloneRepoResult>;
-    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) => () => void;
 }
 
 /**
@@ -346,11 +349,7 @@ export interface WorkspaceAPI {
     ) => Promise<void>;
     deleteWorkspace: (id: string) => Promise<void>;
     createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
-    updateSession: (
-        workspaceId: string,
-        sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
-    ) => Promise<void>;
+    updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
     addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
     updateScope: (
@@ -360,9 +359,12 @@ export interface WorkspaceAPI {
     ) => Promise<void>;
     /** Rejects while any session still references the scope. */
     removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
-    setGitHubBinding: (
+    setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null) => Promise<void>;
+    /** Replaces actions and section defaults in one validated write; rejects with the validation message. */
+    setActions: (
         workspaceId: string,
-        binding: { accountLogin: string; org?: string } | null
+        actions: WorkItemAction[],
+        sectionDefaults: Partial<Record<InboxSection, string>>
     ) => Promise<void>;
     createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
     updateGroup: (
@@ -412,7 +414,8 @@ declare global {
     interface Window {
         terminalAPI: TerminalAPI;
         harnessAPI: HarnessAPI;
-        githubAPI: GitHubAPI & GitHubInboxAPI;
+        inboxAPI: InboxAPI;
+        providerAPI: ProviderAPI;
         workspaceAPI: WorkspaceAPI;
         conductorAPI: ConductorAPI;
         harnessStateAPI: HarnessStateAPI;
