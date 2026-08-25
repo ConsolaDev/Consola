@@ -2,9 +2,25 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { GitProviderId } from '../shared/providers';
+import type { WorkItemRef } from '../shared/workItems';
 import type { Scope, Workspace } from '../shared/workspace';
-import { WorktreeService, normalizeRemote, worktreeDirName } from './WorktreeService';
+import { getProviderDriver, type GitProviderDriver } from './providers';
+import { WorktreeService, worktreeDirName } from './WorktreeService';
+
+const STUB_GH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
+
+// The service resolves its driver from the registry, and the GitHub driver
+// resolves `gh` through CONSOLA_GH_PATH on every call — so pointing that at
+// the fixture is the whole test seam, exactly as the Playwright rig does it.
+beforeEach(() => {
+  process.env.CONSOLA_GH_PATH = STUB_GH;
+});
+
+afterEach(() => {
+  delete process.env.CONSOLA_GH_PATH;
+});
 
 // Every dir handed out by tmpDir(), swept in one afterAll — these tests spin
 // up several independent roots and repos rather than sharing one temp dir.
@@ -32,7 +48,7 @@ function makeScope(dir: string, isGitRepo: boolean): Scope {
   return { id: `scope-${path.basename(dir)}`, name: path.basename(dir), path: dir, isGitRepo, createdAt: Date.now() };
 }
 
-function makeWorkspace(scopes: Scope[]): Workspace {
+function makeWorkspace(scopes: Scope[], overrides: Partial<Workspace> = {}): Workspace {
   const now = Date.now();
   return {
     id: 'ws-1',
@@ -40,40 +56,15 @@ function makeWorkspace(scopes: Scope[]): Workspace {
     defaultHarnessId: 'default',
     scopes,
     groups: [],
-    github: { accountLogin: 'SymJavi', org: 'sympower' },
+    provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
+    actions: [],
+    sectionDefaults: {},
     sessions: [],
     createdAt: now,
     updatedAt: now,
-  } as Workspace;
+    ...overrides,
+  };
 }
-
-describe('normalizeRemote', () => {
-  it('parses scp-style ssh remotes', () => {
-    expect(normalizeRemote('git@github.com:Sympower/Controller-App.git')).toBe(
-      'sympower/controller-app'
-    );
-  });
-
-  it('parses https remotes with and without .git', () => {
-    expect(normalizeRemote('https://github.com/sympower/flex-portal.git')).toBe(
-      'sympower/flex-portal'
-    );
-    expect(normalizeRemote('https://github.com/sympower/flex-portal')).toBe(
-      'sympower/flex-portal'
-    );
-  });
-
-  it('parses ssh:// remotes', () => {
-    expect(normalizeRemote('ssh://git@github.com/sympower/flextools.git')).toBe(
-      'sympower/flextools'
-    );
-  });
-
-  it('returns null for remotes it cannot read', () => {
-    expect(normalizeRemote('/some/local/path')).toBeNull();
-    expect(normalizeRemote('')).toBeNull();
-  });
-});
 
 describe('worktreeDirName', () => {
   it('is <repo-basename>-<type>-<number>', () => {
@@ -103,25 +94,25 @@ describe('WorktreeService.resolveRepo', () => {
   });
 
   it('matches a repo scope on its origin remote', () => {
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => 'gh');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const workspace = makeWorkspace([makeScope(repoScope, true)]);
     expect(service.resolveRepo(workspace, 'sympower/controller-app')).toBe(repoScope);
   });
 
   it('scans a container scope one level deep', () => {
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => 'gh');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const workspace = makeWorkspace([makeScope(containerScope, false)]);
     expect(service.resolveRepo(workspace, 'sympower/flex-portal')).toBe(childClone);
   });
 
   it('returns null when no scope holds the repo', () => {
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => 'gh');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const workspace = makeWorkspace([makeScope(repoScope, true), makeScope(containerScope, false)]);
     expect(service.resolveRepo(workspace, 'sympower/msa-resource-bff')).toBeNull();
   });
 
   it('caches remote lookups until invalidate()', () => {
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => 'gh');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const dir = path.join(tmpDir('consola-wt-cache-'), 'renamed');
     initRepo(dir, 'git@github.com:sympower/old-name.git');
     const workspace = makeWorkspace([makeScope(dir, true)]);
@@ -137,15 +128,31 @@ describe('WorktreeService.resolveRepo', () => {
   });
 
   it('resolves to null rather than throwing when a scope path no longer exists', () => {
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => 'gh');
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const missing = path.join(tmpDir('consola-wt-missing-'), 'moved-away');
     const workspace = makeWorkspace([makeScope(missing, false)]);
 
     expect(service.resolveRepo(workspace, 'sympower/controller-app')).toBeNull();
   });
-});
 
-const STUB_GH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
+  it('resolves nothing for a workspace without a provider binding', () => {
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
+    const workspace = makeWorkspace([makeScope(repoScope, true)], { provider: undefined });
+
+    // Which URLs count as this repo is the provider's call; with no
+    // provider there is nothing to match against.
+    expect(service.resolveRepo(workspace, 'sympower/controller-app')).toBeNull();
+  });
+
+  it('resolves nothing, rather than throwing, when the provider is unknown to this build', () => {
+    const service = new WorktreeService(tmpDir('consola-wt-root-'), () => {
+      throw new Error('Unknown git provider "gitlab".');
+    });
+    const workspace = makeWorkspace([makeScope(repoScope, true)]);
+
+    expect(service.resolveRepo(workspace, 'sympower/controller-app')).toBeNull();
+  });
+});
 
 function initCloneWithCommit(dir: string, origin: string): void {
   initRepo(dir, origin);
@@ -169,11 +176,36 @@ describe('WorktreeService.ensureWorktree', () => {
   const pr51 = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 } as const;
   const issue87 = { provider: 'github', repo: 'sympower/controller-app', type: 'issue', number: 87 } as const;
 
-  function setup() {
+  /**
+   * The real GitHub driver with its checkout counted. Every method is
+   * forwarded explicitly: spreading a class instance would drop its
+   * prototype methods.
+   */
+  function countingDriver(): { driver: GitProviderDriver; checkout: ReturnType<typeof vi.fn> } {
+    const real = getProviderDriver('github');
+    const checkout = vi.fn((dir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv) =>
+      real.checkout(dir, ref, env)
+    );
+    const driver: GitProviderDriver = {
+      id: real.id,
+      tokenEnvVar: real.tokenEnvVar,
+      probe: () => real.probe(),
+      token: (login) => real.token(login),
+      fetchInbox: (binding, env) => real.fetchInbox(binding, env),
+      checkout,
+      cloneRepo: (repo, destination, env) => real.cloneRepo(repo, destination, env),
+      matchesRemote: (url, repo) => real.matchesRemote(url, repo),
+      workItemUrl: (ref) => real.workItemUrl(ref),
+      seedHeader: (ref, item) => real.seedHeader(ref, item),
+    };
+    return { driver, checkout };
+  }
+
+  function setup(resolveDriver?: (id: GitProviderId) => GitProviderDriver) {
     const clone = path.join(tmpDir('consola-wt-clone-'), 'controller-app');
     initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
     const root = tmpDir('consola-wt-worktrees-');
-    const service = new WorktreeService(root, async () => STUB_GH);
+    const service = new WorktreeService(root, resolveDriver);
     return { clone, root, service };
   }
 
@@ -196,6 +228,19 @@ describe('WorktreeService.ensureWorktree', () => {
 
     expect(second).toBe(first);
     expect(fs.readFileSync(path.join(first, 'wip.txt'), 'utf8')).toBe('uncommitted');
+  }, 30_000);
+
+  it('a second launch on the same item returns the same directory without a second checkout', async () => {
+    const { driver, checkout } = countingDriver();
+    const { clone, service } = setup(() => driver);
+
+    const first = await service.ensureWorktree(clone, pr51, { ...process.env });
+    const second = await service.ensureWorktree(clone, pr51, { ...process.env });
+
+    // Shared by every session on the item: the fast path must not re-run the
+    // provider's checkout, which would reset a branch someone is working on.
+    expect(second).toBe(first);
+    expect(checkout).toHaveBeenCalledTimes(1);
   }, 30_000);
 
   it('recreates a worktree whose directory was deleted', async () => {
@@ -224,7 +269,7 @@ describe('WorktreeService.ensureWorktree', () => {
   it('rejects with git stderr when the clone cannot host a worktree', async () => {
     const empty = path.join(tmpDir('consola-wt-empty-'), 'empty');
     initRepo(empty, 'git@github.com:sympower/empty.git'); // no commits: worktree add fails
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
 
     // git's own message for "worktree add on a repo with no commits yet" —
     // asserting this exact substring, not just "something was thrown",
@@ -258,7 +303,7 @@ describe('WorktreeService.ensureWorktree', () => {
     // land in the same worktrees root, so `worktreeDirName` collides:
     // both would compute "controller-app-pr-51".
     const root = tmpDir('consola-wt-worktrees-');
-    const service = new WorktreeService(root, async () => STUB_GH);
+    const service = new WorktreeService(root);
 
     const cloneA = path.join(tmpDir('consola-wt-clone-a-'), 'controller-app');
     initCloneWithCommit(cloneA, 'git@github.com:sympower/controller-app.git');
@@ -285,7 +330,7 @@ describe('WorktreeService.prune', () => {
   it('refuses while the worktree holds uncommitted changes', async () => {
     const clone = path.join(tmpDir('consola-wt-prune-'), 'controller-app');
     initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const dir = await service.ensureWorktree(clone, pr51, { ...process.env });
 
     fs.writeFileSync(path.join(dir, 'wip.txt'), 'uncommitted');
@@ -296,7 +341,7 @@ describe('WorktreeService.prune', () => {
   it('removes a clean worktree and unregisters it', async () => {
     const clone = path.join(tmpDir('consola-wt-prune-'), 'controller-app');
     initCloneWithCommit(clone, 'git@github.com:sympower/controller-app.git');
-    const service = new WorktreeService(tmpDir('consola-wt-root-'), async () => STUB_GH);
+    const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const dir = await service.ensureWorktree(clone, pr51, { ...process.env });
 
     await service.prune(dir);
