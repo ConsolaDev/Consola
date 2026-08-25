@@ -230,6 +230,11 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].defaultHarnessId).toBe('default');
     expect(service.getAll()[0].sessions[0].harnessId).toBe('default');
     expect(service.getAll()[0].sessions[0].scopeId).toBe(service.getAll()[0].scopes[0].id);
+
+    // v7 reached through the same ladder: empty verbs for a local-only import.
+    expect(service.getAll()[0].actions).toEqual([]);
+    expect(service.getAll()[0].sectionDefaults).toEqual({});
+    expect(service.getAll()[0]).not.toHaveProperty('provider');
   });
 
   it('addScope appends a scope and persists it', () => {

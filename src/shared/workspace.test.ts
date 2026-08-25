@@ -133,6 +133,8 @@ describe('migrateWorkspaceState', () => {
             { id: 'scope-1', name: 'consola', path: '/code/consola', isGitRepo: true, createdAt: 1 },
           ],
           groups: [],
+          actions: [],
+          sectionDefaults: {},
           sessions: [session],
           createdAt: 1,
           updatedAt: 2,
@@ -147,6 +149,8 @@ describe('migrateWorkspaceState', () => {
     expect(migrated.workspaces[0].sessions[0]).toEqual(session);
     expect(migrated.workspaces[0].defaultHarnessId).toBe('work');
     expect(migrated.workspaces[0].scopes).toHaveLength(1);
+    expect(migrated.workspaces[0].actions).toEqual([]);
+    expect(migrated.workspaces[0]).not.toHaveProperty('provider');
   });
 
   it('folds path and isGitRepo into a single scope at v6', () => {
@@ -284,7 +288,7 @@ describe('migrateWorkspaceState', () => {
     expect(migrated.workspaces[0].groups).toEqual([]);
   });
 
-  it('carries a v2 workspace through the whole ladder to v6', () => {
+  it('carries a v2 workspace through the whole ladder', () => {
     const state = {
       workspaces: [
         {
@@ -314,6 +318,11 @@ describe('migrateWorkspaceState', () => {
     expect(session.harnessId).toBe('default');
     expect(session.scopeId).toBe(workspace.scopes[0].id);
     expect(session.kind).toBe('interactive');
+
+    // v7: a local-only workspace gains the two empty fields and nothing else.
+    expect(workspace.actions).toEqual([]);
+    expect(workspace.sectionDefaults).toEqual({});
+    expect(workspace).not.toHaveProperty('provider');
   });
 
   it('carries a v4 workspace through harness backfill and scoping together', () => {
@@ -442,6 +451,192 @@ describe('migrateWorkspaceState', () => {
   });
 });
 
+describe('migrateWorkspaceState v6 -> v7', () => {
+  function v6Session(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 's1',
+      name: 'PR #51 - Extract billing client',
+      workspaceId: 'w1',
+      instanceId: 'i1',
+      claudeSessionId: '11111111-1111-4111-8111-111111111111',
+      hasStarted: true,
+      harnessId: 'default',
+      scopeId: 'scope-1',
+      kind: 'interactive',
+      createdAt: 1,
+      lastActiveAt: 2,
+      ...overrides,
+    };
+  }
+
+  function v6Workspace(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'w1',
+      name: 'Sympower',
+      defaultHarnessId: 'default',
+      scopes: [
+        { id: 'scope-1', name: 'controller-app', path: '/repos/controller-app', isGitRepo: true, createdAt: 1 },
+      ],
+      groups: [],
+      sessions: [],
+      createdAt: 1,
+      updatedAt: 2,
+      ...overrides,
+    };
+  }
+
+  it('turns the github binding into a provider binding and seeds the default actions', () => {
+    const state = {
+      workspaces: [v6Workspace({ github: { accountLogin: 'SymJavi', org: 'sympower' } })],
+    };
+
+    const migrated = migrateWorkspaceState(state, 6) as { workspaces: any[] };
+    const workspace = migrated.workspaces[0];
+
+    expect(workspace.provider).toEqual({ id: 'github', accountLogin: 'SymJavi', org: 'sympower' });
+    expect(workspace).not.toHaveProperty('github');
+    expect(workspace.actions.map((action: { name: string }) => action.name)).toEqual([
+      'Review',
+      'Address review',
+      'Fix CI',
+      'Implement',
+      'Triage',
+    ]);
+    const idOf = (name: string) =>
+      workspace.actions.find((action: { name: string }) => action.name === name).id;
+    expect(workspace.sectionDefaults).toEqual({
+      'needs-your-review': idOf('Review'),
+      'needs-team-review': idOf('Review'),
+      'needs-action': idOf('Address review'),
+      waiting: idOf('Fix CI'),
+      issues: idOf('Implement'),
+    });
+  });
+
+  it('never lets one bound workspace pick up an action id minted for another', () => {
+    // Mirrors 'never lets one workspace pick up a scope minted for another':
+    // many workspaces migrate in the same pass, and each workspace's own
+    // createDefaultActions() call must mint its own ids — a shared closure
+    // would let two bound workspaces collide on one action set.
+    const state = {
+      workspaces: [
+        v6Workspace({ id: 'w1', github: { accountLogin: 'SymJavi' } }),
+        v6Workspace({
+          id: 'w2',
+          name: 'Other',
+          scopes: [
+            { id: 'scope-2', name: 'other-app', path: '/repos/other-app', isGitRepo: true, createdAt: 1 },
+          ],
+          github: { accountLogin: 'OtherAcct' },
+        }),
+      ],
+    };
+
+    const migrated = migrateWorkspaceState(state, 6) as { workspaces: any[] };
+    const [w1, w2] = migrated.workspaces;
+
+    const w1Ids = new Set(w1.actions.map((action: { id: string }) => action.id));
+    const w2Ids = new Set(w2.actions.map((action: { id: string }) => action.id));
+    expect([...w1Ids].some((id) => w2Ids.has(id))).toBe(false);
+
+    // Each workspace's section defaults point only at its own actions.
+    for (const actionId of Object.values(w1.sectionDefaults) as string[]) {
+      expect(w1Ids.has(actionId)).toBe(true);
+    }
+    for (const actionId of Object.values(w2.sectionDefaults) as string[]) {
+      expect(w2Ids.has(actionId)).toBe(true);
+    }
+  });
+
+  it('omits org from the provider binding when the github binding had none', () => {
+    const state = { workspaces: [v6Workspace({ github: { accountLogin: 'personal' } })] };
+
+    const migrated = migrateWorkspaceState(state, 6) as { workspaces: any[] };
+
+    // toEqual alone would pass even if `org: undefined` snuck in — assert the
+    // key is truly absent, not merely undefined-valued.
+    expect(migrated.workspaces[0].provider).toEqual({ id: 'github', accountLogin: 'personal' });
+    expect(migrated.workspaces[0].provider).not.toHaveProperty('org');
+  });
+
+  it('leaves a local-only workspace byte-for-byte alone apart from the two empty fields', () => {
+    const input = v6Workspace({ sessions: [v6Session()] });
+
+    const migrated = migrateWorkspaceState({ workspaces: [input] }, 6) as { workspaces: any[] };
+
+    // Key order matters here: JSON.stringify is how the file is written, and
+    // "identical apart from the two new fields" is the spec's promise.
+    expect(JSON.stringify(migrated.workspaces[0])).toBe(
+      JSON.stringify({ ...input, actions: [], sectionDefaults: {} })
+    );
+    expect(migrated.workspaces[0]).not.toHaveProperty('provider');
+  });
+
+  it('backfills workItemAction by item type: Review for PRs, Implement for issues', () => {
+    const pr = { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 };
+    const issue = { provider: 'github', repo: 'sympower/msa-resource-bff', type: 'issue', number: 87 };
+    const state = {
+      workspaces: [
+        v6Workspace({
+          github: { accountLogin: 'SymJavi' },
+          sessions: [
+            v6Session({ id: 's-pr', workItem: pr }),
+            v6Session({ id: 's-issue', workItem: issue }),
+            v6Session({ id: 's-kept', workItem: pr, workItemAction: 'Fix CI' }),
+            v6Session({ id: 's-plain' }),
+          ],
+        }),
+      ],
+    };
+
+    const migrated = migrateWorkspaceState(state, 6) as { workspaces: any[] };
+    const [prSession, issueSession, keptSession, plainSession] = migrated.workspaces[0].sessions;
+
+    expect(prSession.workItemAction).toBe('Review');
+    expect(issueSession.workItemAction).toBe('Implement');
+    // A name already on the record is history, not something to rewrite.
+    expect(keptSession.workItemAction).toBe('Fix CI');
+    expect(plainSession).not.toHaveProperty('workItemAction');
+  });
+
+  it('does not reseed a workspace that somehow already carries actions', () => {
+    const existing = [{ id: 'a1', name: 'Mine', appliesTo: ['pr'], prompt: 'Do the thing.' }];
+    const state = {
+      workspaces: [
+        v6Workspace({
+          github: { accountLogin: 'SymJavi' },
+          actions: existing,
+          sectionDefaults: { waiting: 'a1' },
+        }),
+      ],
+    };
+
+    const migrated = migrateWorkspaceState(state, 6) as { workspaces: any[] };
+
+    expect(migrated.workspaces[0].actions).toEqual(existing);
+    expect(migrated.workspaces[0].sectionDefaults).toEqual({ waiting: 'a1' });
+  });
+
+  it('leaves an already-v7 bound workspace untouched at version 7', () => {
+    const workspace = {
+      ...v6Workspace(),
+      provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
+      actions: [{ id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }],
+      sectionDefaults: { 'needs-your-review': 'a1' },
+      sessions: [
+        v6Session({
+          workItem: { provider: 'github', repo: 'sympower/controller-app', type: 'pr', number: 51 },
+          workItemAction: 'Review',
+        }),
+      ],
+    };
+
+    const migrated = migrateWorkspaceState({ workspaces: [workspace] }, 7) as { workspaces: any[] };
+
+    expect(migrated.workspaces[0]).toEqual(workspace);
+  });
+});
+
 describe('createWorkspaceRecord', () => {
   it('mints a single scope from the folder instead of a path field', () => {
     const workspace = createWorkspaceRecord('consola', '/code/consola', true);
@@ -453,7 +648,9 @@ describe('createWorkspaceRecord', () => {
     expect(workspace.scopes[0].isGitRepo).toBe(true);
     expect(workspace.scopes[0].name).toBe('consola');
     expect(workspace.groups).toEqual([]);
-    expect(workspace.github).toBeUndefined();
+    expect(workspace.provider).toBeUndefined();
+    expect(workspace.actions).toEqual([]);
+    expect(workspace.sectionDefaults).toEqual({});
   });
 });
 
