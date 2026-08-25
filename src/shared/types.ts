@@ -13,7 +13,7 @@ import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
 import type { InboxSection } from './inboxSections';
 import type { GitProviderId, ProviderProbeResult } from './providers';
 import type { WorkItemAction } from './workItemActions';
-import type { InboxSnapshot, WorkItemRef } from './workItems';
+import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from './workItems';
 import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
@@ -264,14 +264,15 @@ export interface HarnessAPI {
 }
 
 /**
- * Outcome of the one-click work-item launch.
+ * Outcome of starting a session from an action.
  *
- * 'not-cloned' is a normal answer, not an error: the renderer responds by
- * offering the clone-into-scope dialog. 'error' carries the git/gh message and
- * is surfaced on the Inbox item — never a dialog.
+ * Always a fresh session: re-attaching is an explicit "Open" on a listed
+ * session, never a side effect of a launch. 'not-cloned' is a normal answer,
+ * not an error — the renderer offers the clone-into-scope dialog. 'error'
+ * carries the message and is surfaced in the pane, never as a dialog.
  */
 export type WorkItemLaunchResult =
-    | { ok: true; session: Session; seedPrompt?: string; reattached: boolean }
+    | { ok: true; session: Session; seedPrompt: string }
     | { ok: false; reason: 'not-cloned' }
     | { ok: false; reason: 'error'; message: string };
 
@@ -326,7 +327,11 @@ export interface InboxAPI {
 export interface ProviderAPI {
     probe: (id: GitProviderId) => Promise<ProviderProbeResult>;
     resolveRepos: (workspaceId: string, repos: string[]) => Promise<Record<string, string | null>>;
-    launchWorkItem: (workspaceId: string, workItem: WorkItemRef) => Promise<WorkItemLaunchResult>;
+    launchWorkItem: (
+        workspaceId: string,
+        ref: WorkItemRef,
+        action: WorkItemLaunchAction
+    ) => Promise<WorkItemLaunchResult>;
     cloneRepo: (workspaceId: string, repo: string, destinationDir: string) => Promise<CloneRepoResult>;
 }
 
