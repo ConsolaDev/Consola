@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ExternalLink, RefreshCw } from 'lucide-react';
-import type { InboxItem } from '../../../shared/github';
-import { sameWorkItem } from '../../../shared/github';
+import type { InboxItem } from '../../../shared/workItems';
+import { sameWorkItem } from '../../../shared/workItems';
 import { launchKey, useInboxStore } from '../../stores/inboxStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { CloneDialog } from './CloneDialog';
@@ -43,8 +43,8 @@ export function InboxView({ workspace }: InboxViewProps) {
   const issues = items.filter((item) => item.workItem.type === 'issue');
   const shown = tab === 'pr' ? prs : issues;
 
-  const github = workspace.github;
-  if (!github) return null;
+  const provider = workspace.provider;
+  if (!provider) return null;
 
   const handleAction = (item: InboxItem, action: InboxAction) => {
     if (action.kind === 'clone') {
@@ -74,8 +74,8 @@ export function InboxView({ workspace }: InboxViewProps) {
         </div>
         <div className="inbox-meta">
           <span className="inbox-meta-account">
-            {github.accountLogin}
-            {github.org ? ` · ${github.org}` : ''}
+            {provider.accountLogin}
+            {provider.org ? ` · ${provider.org}` : ''}
           </span>
           {snapshot?.error ? (
             // Degrade, never dialog: name the failure, show the data's age.

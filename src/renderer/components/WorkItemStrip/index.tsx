@@ -1,5 +1,5 @@
 import { ExternalLink } from 'lucide-react';
-import { sameWorkItem, workItemUrl } from '../../../shared/github';
+import { sameWorkItem, workItemUrl } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
 import { useInboxStore } from '../../stores/inboxStore';
 import { dotClassFor, metaLineFor } from '../Inbox/inboxPresentation';

@@ -1,6 +1,6 @@
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { GitHubBindingPanel } from '../GitHub';
+import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
 import { HarnessPanel } from './HarnessPanel';
 import { ScopesPanel } from './ScopesPanel';
@@ -11,7 +11,7 @@ import './styles.css';
 /**
  * The Workspace settings section: everything one workspace is, in the order
  * the domain model tells it — identity, engine, places, allegiance, history,
- * end of life. Scoped to the active workspace, like the GitHub binding
+ * end of life. Scoped to the active workspace, like the provider binding
  * always was.
  *
  * Keyed by workspace id so switching workspaces remounts every panel: no
@@ -39,7 +39,7 @@ export function WorkspaceSettingsSection() {
       <HarnessPanel workspace={workspace} />
       <ScopesPanel workspace={workspace} />
       <section className="ws-panel">
-        <GitHubBindingPanel workspace={workspace} />
+        <ProviderBindingPanel workspace={workspace} />
       </section>
       <GroupsPanel workspace={workspace} />
       <DangerZonePanel workspace={workspace} />
