@@ -1,4 +1,5 @@
 import { ExternalLink } from 'lucide-react';
+import { PROVIDER_META } from '../../../shared/providers';
 import { sameWorkItem, workItemUrl } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
 import { useInboxStore } from '../../stores/inboxStore';
@@ -33,6 +34,7 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
 
   if (!workItem) return null;
   const label = workItem.type === 'pr' ? 'PR' : 'Issue';
+  const providerName = PROVIDER_META[workItem.provider].displayName;
 
   return (
     <div className="work-item-strip">
@@ -56,7 +58,7 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
         target="_blank"
         rel="noreferrer"
       >
-        Open on GitHub <ExternalLink size={12} />
+        Open on {providerName} <ExternalLink size={12} />
       </a>
     </div>
   );

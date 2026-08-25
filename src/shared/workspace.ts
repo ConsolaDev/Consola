@@ -218,10 +218,9 @@ export function createSessionRecord(fields: NewSessionFields): Session {
 /**
  * What a session update may carry across IPC.
  *
- * The shared definition: `src/main/state/updateFilters.ts` still declares its
- * own copy today, but a later task will make it re-export this one instead,
- * and every other layer (the service, the API types, preload, the bridge,
- * the store) will import it from here too — six copies had drifted apart.
+ * The shared definition: `src/main/state/updateFilters.ts` re-exports this
+ * one, and every other layer (the service, the API types, preload, the
+ * bridge, the store) imports it from here too — six copies had drifted apart.
  * `workItem` is the mutable link, with presence semantics: an explicitly
  * undefined key means unlink. Everything that fixes a session's identity
  * (`scopeId`, `cwd`, `kind`, `harnessId`, `model`) is absent on purpose.
