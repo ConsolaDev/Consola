@@ -1,14 +1,17 @@
 import { useEffect } from 'react';
-import { Folder, GitBranch, Inbox as InboxIcon, Plus, Settings, X } from 'lucide-react';
+import { Inbox as InboxIcon, Plus, Settings } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { itemsForView } from '../../../shared/inboxViews';
 import { useSettings } from '../../contexts/SettingsContext';
 import { SessionNavItem } from './SessionNavItem';
 import { GroupNavItem } from './GroupNavItem';
-import { activateSession, createQuickSession } from '../../utils/sessionActions';
+import { ScopeNavItem } from './ScopeNavItem';
+import { sidebarSectionForSession } from './sidebarSections';
+import { activateSession } from '../../utils/sessionActions';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import './styles.css';
 
@@ -19,6 +22,10 @@ import './styles.css';
  * runs in; an ungrouped one renders under its scope. Group badges are derived from the
  * terminal status store on every render — progress is never stored. Which
  * workspace this is lives in the top bar.
+ *
+ * Scopes and groups both fold shut, and both remember it across a relaunch;
+ * the set of folded ids lives in the settings store, since it is a
+ * preference rather than anything the workspace record owns.
  */
 export function Sidebar() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -48,6 +55,28 @@ export function Sidebar() {
     if (workspace && providerAccount) void useInboxStore.getState().load(workspace.id);
   }, [workspace?.id, providerAccount]);
 
+  // Activating a session inside a folded section has to reveal it, or the
+  // pane shows a conversation the sidebar has nowhere to point at. A live
+  // group wins over the scope because that is the row the session renders
+  // under.
+  //
+  // The workspace is read at call time rather than closed over: its identity
+  // changes on every unrelated workspace write, and re-running on those would
+  // keep prising open a section the user had just folded shut.
+  const expandSidebarSection = useSettingsStore((state) => state.expandSidebarSection);
+  useEffect(() => {
+    if (!activeWorkspaceId || !activeSessionId) return;
+    const current = useWorkspaceStore
+      .getState()
+      .workspaces.find((candidate) => candidate.id === activeWorkspaceId);
+    const session = current?.sessions.find((candidate) => candidate.id === activeSessionId);
+    if (!current || !session) return;
+    const liveGroupIds = new Set(
+      current.groups.filter((group) => !group.archivedAt).map((group) => group.id)
+    );
+    expandSidebarSection(sidebarSectionForSession(liveGroupIds, session));
+  }, [activeWorkspaceId, activeSessionId, expandSidebarSection]);
+
   if (isSidebarHidden) {
     return null;
   }
@@ -64,10 +93,11 @@ export function Sidebar() {
   const grouped = new Map<string, Session[]>();
   const ungrouped: Session[] = [];
   for (const session of sessions) {
-    if (session.groupId && liveGroupIds.has(session.groupId)) {
-      const members = grouped.get(session.groupId) ?? [];
+    const sectionId = sidebarSectionForSession(liveGroupIds, session);
+    if (sectionId === session.groupId) {
+      const members = grouped.get(sectionId) ?? [];
       members.push(session);
-      grouped.set(session.groupId, members);
+      grouped.set(sectionId, members);
     } else {
       ungrouped.push(session);
     }
@@ -177,39 +207,15 @@ export function Sidebar() {
                 workspace.scopes.length > 1 &&
                 workspace.sessions.every((session) => session.scopeId !== scope.id);
               return (
-                <div key={scope.id} className="scope-group">
-                  <div className="scope-row" title={scope.path}>
-                    <span className="scope-row-icon">
-                      {scope.isGitRepo ? <GitBranch size={13} /> : <Folder size={13} />}
-                    </span>
-                    <span className="scope-row-name">{scope.name}</span>
-                    <button
-                      className="scope-row-action"
-                      onClick={() => void createQuickSession(workspace.id, scope.id)}
-                      aria-label={`New session in ${scope.name}`}
-                    >
-                      <Plus size={12} />
-                    </button>
-                    {removable && (
-                      <button
-                        className="scope-row-action"
-                        onClick={() => void handleRemoveScope(scope)}
-                        aria-label={`Remove scope ${scope.name}`}
-                      >
-                        <X size={12} />
-                      </button>
-                    )}
-                  </div>
-                  {scopeSessions.map((session) => (
-                    <SessionNavItem
-                      key={session.id}
-                      session={session}
-                      workspaceId={workspace.id}
-                      isActive={activeSessionId === session.id}
-                      onClick={() => activateSession(workspace.id, session.id)}
-                    />
-                  ))}
-                </div>
+                <ScopeNavItem
+                  key={scope.id}
+                  scope={scope}
+                  sessions={scopeSessions}
+                  workspaceId={workspace.id}
+                  activeSessionId={activeSessionId}
+                  removable={removable}
+                  onRemove={(target) => void handleRemoveScope(target)}
+                />
               );
             })}
           {workspace &&
