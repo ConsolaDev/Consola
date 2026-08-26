@@ -744,17 +744,44 @@
 
 /* The scope row is its group's title: it runs at the same size as its
    sessions, so full text colour and medium weight are what make it read as
-   a header over them instead of a sibling. */
+   a header over them instead of a sibling. Since it folds the scope, it also
+   takes the hover a group header takes — a row that responds to the cursor
+   is the cheapest way to say it can be clicked. */
 .scope-row {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   min-height: var(--sidebar-row-height);
   padding: var(--sidebar-row-padding-y) var(--space-2);
+  border-radius: var(--radius-sm);
   color: var(--color-text-primary);
   font-size: var(--sidebar-font-size);
   font-weight: var(--font-weight-medium);
   user-select: none;
+  transition: background var(--transition-fast);
+}
+
+.scope-row:hover {
+  background: var(--color-bg-hover);
+}
+
+/* The collapse control fills the row so clicking the name folds the scope,
+   leaving add and remove as the only other targets — the same division of
+   the row a group header makes, which is also what lines the two sections'
+   names up at the same indent. */
+.scope-row-toggle {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-2);
+  padding: 0;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
 
 .scope-row-icon {
@@ -766,9 +793,20 @@
 
 .scope-row-name {
   flex: 1;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* Only while folded, where it is the one thing left saying the scope holds
+   anything. Sized and coloured exactly like a group's badge: the two sit a
+   row apart, and a count that read differently in each would suggest the two
+   numbers meant different things. */
+.scope-row-count {
+  flex: none;
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-secondary);
 }
 
 .scope-row-action {
