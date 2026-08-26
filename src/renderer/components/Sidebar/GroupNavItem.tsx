@@ -1,7 +1,7 @@
-import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Archive, Boxes, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
+import { useSettingsStore } from '../../stores/settingsStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
@@ -23,7 +23,9 @@ interface GroupNavItemProps {
  * its member sessions beneath, each subtitled with where it runs.
  *
  * The badge is recomputed from the terminal store on every render — progress
- * is derived, never stored (see groupCounts.ts).
+ * is derived, never stored (see groupCounts.ts). Folded state, by contrast,
+ * is a preference: it lives in the settings store keyed by group id, in the
+ * same set the scope rows use, so a fold outlives a relaunch.
  */
 export function GroupNavItem({
   group,
@@ -32,7 +34,10 @@ export function GroupNavItem({
   scopeFor,
   activeSessionId,
 }: GroupNavItemProps) {
-  const [isOpen, setIsOpen] = useState(true);
+  const collapsed = useSettingsStore((state) =>
+    state.collapsedSidebarSections.includes(group.id)
+  );
+  const toggleSidebarSection = useSettingsStore((state) => state.toggleSidebarSection);
   const terminals = useTerminalStore((state) => state.terminals);
   const counts = groupCountsFor(sessions, terminals);
 
@@ -74,9 +79,19 @@ export function GroupNavItem({
       {/* The header collapses the group but also hosts the actions trigger,
           and a <button> may not contain another button — hence a row. */}
       <div className="group-nav-header">
-        <button className="group-nav-toggle" onClick={() => setIsOpen((open) => !open)}>
-          {isOpen ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
-          <Boxes size={14} />
+        <button
+          className="group-nav-toggle"
+          aria-expanded={!collapsed}
+          onClick={() => toggleSidebarSection(group.id)}
+        >
+          {collapsed ? (
+            <ChevronRight size={12} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={12} aria-hidden="true" />
+          )}
+          {/* Decorative: the button names itself from this subtree, and the
+              glyph adds nothing the group's name does not already say. */}
+          <Boxes size={14} aria-hidden="true" />
           <span className="group-nav-name">{group.name}</span>
           <span className="group-nav-count">{formatGroupBadge(counts)}</span>
         </button>
@@ -103,7 +118,7 @@ export function GroupNavItem({
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       </div>
-      {isOpen &&
+      {!collapsed &&
         orderedSessions.map((session) => (
           <SessionNavItem
             key={session.id}
