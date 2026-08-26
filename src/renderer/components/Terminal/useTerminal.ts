@@ -10,6 +10,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
 import { openTerminalLink } from './terminalLinks';
+import { terminalKeyOverride } from './terminalKeys';
 
 interface UseTerminalOptions {
     instanceId: string;
@@ -105,6 +106,22 @@ export function useTerminal({
         // Forward keystrokes to the PTY.
         const dataDisposable = terminal.onData((data) => {
             terminalBridge.sendInput(instanceId, data);
+        });
+
+        // A few keys have to send something other than what xterm would.
+        // Claiming one means answering for its whole press — keydown, keypress
+        // and keyup — so xterm never emits its own bytes alongside ours. The
+        // substitute goes through `input()` rather than the bridge, so it takes
+        // the same path to the PTY as a typed key, scrollback included.
+        terminal.attachCustomKeyEventHandler((event) => {
+            const override = terminalKeyOverride(event);
+            if (!override) return true;
+
+            if (event.type === 'keydown') {
+                event.preventDefault();
+                terminal.input(override);
+            }
+            return false;
         });
 
         // Receive this session's output only.
