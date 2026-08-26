@@ -6,7 +6,8 @@ import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
 import { ScreenModel } from './ScreenModel';
-import { ghBroker, layerGhToken } from './github/GhBroker';
+import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
+import { getProviderDriver, layerProviderToken } from './providers';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 
 /**
@@ -76,11 +77,13 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
      */
     mcpConfigPath?: string;
     /**
-     * GitHub account whose token this session's PTY gets as GH_TOKEN.
-     * Resolved from the workspace's binding by the create handler; absent for
-     * workspaces without a binding, which then spawn exactly as before.
+     * Provider whose token this session's PTY gets, and as which account.
+     * Resolved from the workspace's binding by whoever builds these options;
+     * both absent for workspaces without a binding, which then spawn exactly
+     * as before. The variable the token lands in is the driver's to name.
      */
-    githubAccountLogin?: string;
+    providerId?: GitProviderId;
+    providerAccountLogin?: string;
 }
 
 export interface TerminalExitInfo {
@@ -222,7 +225,7 @@ export class TerminalService extends EventEmitter {
             return;
         }
 
-        const ghToken = await this.borrowGhToken();
+        const borrowed = await this.borrowProviderToken();
         // The await yields; the session may have been closed or restarted in
         // the meantime, and spawning now would leak an untracked PTY.
         if (this.isDestroyed || this.claudePty) return;
@@ -245,9 +248,10 @@ export class TerminalService extends EventEmitter {
                 cols: this.dimensions.cols,
                 rows: this.dimensions.rows,
                 cwd: this.options.cwd,
-                env: layerGhToken(
+                env: layerProviderToken(
                     this.driver.composeEnv(this.harness, getLoginEnv()),
-                    ghToken
+                    borrowed?.envVar ?? null,
+                    borrowed?.token ?? null
                 ) as { [key: string]: string },
             });
             this.claudeExited = false;
@@ -319,24 +323,28 @@ export class TerminalService extends EventEmitter {
     }
 
     /**
-     * GH_TOKEN for this session's workspace account, or null.
+     * The provider token for this session's workspace account, with the
+     * variable it belongs in, or null.
      *
      * Null is the whole degradation story: no binding means no token and a
      * spawn identical to pre-v6 Consola. A binding whose token cannot be
-     * borrowed also launches — but with a visible notice, because an agent
-     * silently running `gh` as whatever account happens to be active in the
-     * keyring is exactly the cross-account accident bindings exist to prevent.
+     * borrowed — or whose provider this build lacks — also launches, but with
+     * a visible notice, because an agent silently running the provider CLI
+     * as whatever account happens to be active in its keyring is exactly the
+     * cross-account accident bindings exist to prevent.
      */
-    private async borrowGhToken(): Promise<string | null> {
-        const login = this.options.githubAccountLogin;
-        if (!login) return null;
+    private async borrowProviderToken(): Promise<{ envVar: string; token: string } | null> {
+        const { providerId, providerAccountLogin: login } = this.options;
+        if (!providerId || !login) return null;
         try {
-            return await ghBroker.token(login);
+            const driver = getProviderDriver(providerId);
+            return { envVar: driver.tokenEnvVar, token: await driver.token(login) };
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
+            const meta = isGitProviderId(providerId) ? PROVIDER_META[providerId] : undefined;
             this.writeNotice(
-                `Could not borrow a GitHub token for ${login}: ${message} ` +
-                    'This session runs without GH_TOKEN — check `gh auth status`.'
+                `Could not borrow a ${meta?.displayName ?? providerId} token for ${login}: ${message} ` +
+                    `This session runs without one — check \`${meta?.cliName ?? providerId} auth status\`.`
             );
             return null;
         }

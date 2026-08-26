@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import './styles.css';
 
 interface ConfirmDialogProps {
@@ -45,7 +46,7 @@ export function ConfirmDialog({
       await onConfirm();
       handleOpenChange(false);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      setError(ipcErrorMessage(err));
     } finally {
       setIsConfirming(false);
     }

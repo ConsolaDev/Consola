@@ -9,12 +9,11 @@ import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
-import { ghBroker } from './github/GhBroker';
-import { GitHubService } from './github/GitHubService';
-import { createLaunchCoalescer, type WorkItemLaunchDeps } from './github/launchWorkItem';
-import { cloneWorkspaceRepo } from './github/cloneRepo';
+import { composeProviderEnv, getProviderDriver } from './providers';
+import { InboxService } from './providers/InboxService';
+import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
+import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
-import { getLoginEnv } from './LoginEnvironment';
 import { NotificationPolicy, findSessionByInstanceId } from './attention';
 import {
     ConductorControlServer,
@@ -27,7 +26,17 @@ import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
 import { deriveTerminalStatus } from '../shared/terminalStatus';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { InboxSnapshot, WorkItemRef } from '../shared/github';
+import type { InboxSection } from '../shared/inboxSections';
+import { isGitProviderId, type GitProviderId } from '../shared/providers';
+import type { WorkItemAction } from '../shared/workItemActions';
+import {
+    isValidWorkItemLaunchAction,
+    isValidWorkItemRef,
+    toWorkItemRef,
+    type InboxSnapshot,
+    type WorkItemLaunchAction,
+    type WorkItemRef,
+} from '../shared/workItems';
 import { JsonStateFile } from './state/JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './state/WorkspaceService';
 import { HarnessService, type HarnessStateFile } from './state/HarnessService';
@@ -46,6 +55,7 @@ import type {
     NewSessionFields,
     Scope,
     Workspace,
+    WorkspaceProvider,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 import {
@@ -67,9 +77,9 @@ let workspaceService: WorkspaceService | null = null;
 // The single writer for harness records, shared by every window
 let harnessService: HarnessService | null = null;
 
-// GitHub organs: one inbox fetcher, one worktree owner — both main-side. The
-// broker itself is the module singleton imported above, shared with GH_PROBE.
-let githubService: GitHubService | null = null;
+// Provider organs: one inbox fetcher, one worktree owner — both main-side.
+// The drivers themselves live in the registry under ./providers.
+let inboxService: InboxService | null = null;
 let worktreeService: WorktreeService | null = null;
 let onBrowserWindowFocus: (() => void) | null = null;
 
@@ -187,8 +197,20 @@ export function setupIpcHandlers(): boolean {
         (_event, workspaceId: string, sessionId: string, updates: SessionUpdates) => {
             // Filtering lives in updateFilters.ts, tested there: `harnessId` is
             // the field this keeps out, and `Partial<Pick<...>>` is gone by the
-            // time a payload crosses IPC.
-            workspaces.updateSession(workspaceId, sessionId, allowedSessionUpdates(updates));
+            // time a payload crosses IPC. A link carries a whole object, so its
+            // shape is checked here too — the service assumes a real ref.
+            // `workItem: undefined` (unlink) passes straight through.
+            const allowed = allowedSessionUpdates(updates);
+            if ('workItem' in allowed && allowed.workItem !== undefined) {
+                if (!isValidWorkItemRef(allowed.workItem)) {
+                    throw new Error('Invalid work item reference.');
+                }
+                // Rebuilt from the same four-field allow-list setActions and
+                // setProviderBinding use — a validated shape can still carry
+                // stray keys the renderer sent alongside it into workspaces.json.
+                allowed.workItem = toWorkItemRef(allowed.workItem);
+            }
+            workspaces.updateSession(workspaceId, sessionId, allowed);
         }
     );
 
@@ -225,19 +247,49 @@ export function setupIpcHandlers(): boolean {
     );
 
     ipcMain.handle(
-        IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING,
-        (_event, workspaceId: string, binding: { accountLogin: string; org?: string } | null) =>
-            workspaces.setGitHubBinding(
+        IPC_CHANNELS.WORKSPACE_SET_PROVIDER_BINDING,
+        (_event, workspaceId: string, binding: WorkspaceProvider | null) => {
+            // Rebuilt from an allow-list, updateFilters-style: IPC can deliver
+            // any shape, and this object is persisted verbatim. `!binding`
+            // guards the property reads below — IPC's declared type doesn't
+            // stop a caller from actually sending `undefined`, which used to
+            // reach `binding.id` directly and throw a raw TypeError instead
+            // of this message.
+            if (binding !== null && (!binding || !isGitProviderId(binding.id))) {
+                throw new Error(`Unknown git provider "${String(binding?.id)}".`);
+            }
+            // `String(binding.accountLogin)` would happily turn a missing
+            // login into the literal text "undefined" and persist that.
+            if (
+                binding !== null &&
+                !(typeof binding.accountLogin === 'string' && binding.accountLogin.length > 0)
+            ) {
+                throw new Error(`Missing account login for provider "${binding.id}".`);
+            }
+            workspaces.setProviderBinding(
                 workspaceId,
-                // Rebuilt from an allow-list, updateFilters-style: IPC can
-                // deliver any shape, and this object is persisted verbatim.
                 binding === null
                     ? null
                     : {
-                          accountLogin: String(binding.accountLogin),
+                          id: binding.id,
+                          accountLogin: binding.accountLogin,
                           ...(binding.org ? { org: String(binding.org) } : {}),
                       }
-            )
+            );
+        }
+    );
+
+    // One validated write for actions and their section defaults. The
+    // service rebuilds the records and rejects the whole payload on the
+    // first problem, so the panel can show the message inline.
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SET_ACTIONS,
+        (
+            _event,
+            workspaceId: string,
+            actions: WorkItemAction[],
+            sectionDefaults: Partial<Record<InboxSection, string>>
+        ) => workspaces.setActions(workspaceId, actions, sectionDefaults)
     );
 
     ipcMain.handle(
@@ -309,68 +361,61 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(IPC_CHANNELS.HARNESS_RESTORE, (_event, id: string) => harnesses.restoreHarness(id));
 
-    // The gh binary, resolved once. CONSOLA_GH_PATH is the test seam: the
-    // Playwright suite points it at the stub gh fixture so no network or
-    // keyring is ever touched.
-    let cachedGhBinary: string | null = null;
-    const resolveGhBinary = async (): Promise<string> => {
-        if (process.env.CONSOLA_GH_PATH) return process.env.CONSOLA_GH_PATH;
-        if (!cachedGhBinary) {
-            const probe = await ghBroker.probe();
-            cachedGhBinary = probe.available && probe.resolvedBinary ? probe.resolvedBinary : 'gh';
-        }
-        return cachedGhBinary;
-    };
-
-    // Login env plus this account's token — composed here and only here, so a
-    // token never crosses IPC and never lands in a renderer-bound payload.
-    const composeGhEnv = async (accountLogin: string): Promise<NodeJS.ProcessEnv> => ({
-        ...getLoginEnv(),
-        GH_TOKEN: await ghBroker.token(accountLogin),
-    });
-
-    const worktrees = new WorktreeService(undefined, resolveGhBinary);
+    const worktrees = new WorktreeService();
     worktreeService = worktrees;
     // The remote->path map is only as fresh as the scope list that feeds it.
     workspaces.onChange(() => worktrees.invalidate());
 
-    const github = new GitHubService({
+    const inbox = new InboxService({
         getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
-        getGitHubWorkspaceIds: () =>
-            workspaces.getAll().filter((workspace) => workspace.github).map((workspace) => workspace.id),
-        token: (login) => ghBroker.token(login),
-        ghBinary: resolveGhBinary,
-        baseEnv: () => ({ ...getLoginEnv() }),
+        getBoundWorkspaceIds: () =>
+            workspaces.getAll().filter((workspace) => workspace.provider).map((workspace) => workspace.id),
+        resolveDriver: getProviderDriver,
+        // Login env plus this account's token — composed in main and only in
+        // main, so a token never crosses IPC and never lands in a
+        // renderer-bound payload.
+        composeEnv: composeProviderEnv,
         broadcast: (snapshot: InboxSnapshot) => {
             for (const window of BrowserWindow.getAllWindows()) {
                 if (!window.isDestroyed()) {
-                    window.webContents.send(IPC_CHANNELS.GITHUB_INBOX_CHANGED, snapshot);
+                    window.webContents.send(IPC_CHANNELS.INBOX_CHANGED, snapshot);
                 }
             }
         },
     });
-    githubService = github;
-    github.start();
-    onBrowserWindowFocus = () => github.onWindowFocus();
+    inboxService = inbox;
+    inbox.start();
+    onBrowserWindowFocus = () => inbox.onWindowFocus();
     app.on('browser-window-focus', onBrowserWindowFocus);
 
     // Cached snapshot, or null. Null also kicks a background refresh, so the
     // first Inbox open populates itself through the push channel.
-    ipcMain.handle(IPC_CHANNELS.GITHUB_GET_INBOX, (_event, workspaceId: string) => {
-        const snapshot = github.getSnapshot(workspaceId);
-        if (!snapshot) void github.refresh(workspaceId);
+    ipcMain.handle(IPC_CHANNELS.INBOX_GET, (_event, workspaceId: string) => {
+        const snapshot = inbox.getSnapshot(workspaceId);
+        if (!snapshot) void inbox.refresh(workspaceId);
         return snapshot;
     });
 
-    ipcMain.handle(IPC_CHANNELS.GITHUB_REFRESH_INBOX, (_event, workspaceId: string) =>
-        github.refresh(workspaceId)
+    ipcMain.handle(IPC_CHANNELS.INBOX_REFRESH, (_event, workspaceId: string) =>
+        inbox.refresh(workspaceId)
     );
+
+    // Is the provider's CLI installed, and which accounts does its keyring
+    // hold? Tokens are deliberately not reachable over IPC. An id this build
+    // does not know degrades to an unavailable result, never a rejection —
+    // the binding panel renders it like a missing binary.
+    ipcMain.handle(IPC_CHANNELS.PROVIDER_PROBE, (_event, id: GitProviderId) => {
+        if (!isGitProviderId(id)) {
+            return { available: false, accounts: [], error: `Unknown git provider "${String(id)}".` };
+        }
+        return getProviderDriver(id).probe();
+    });
 
     // Which of these remote repos have a local clone in this workspace's
     // scopes — the Inbox uses it to label buttons ("Review" vs "Clone into
     // scope..."), read-only and token-free.
     ipcMain.handle(
-        IPC_CHANNELS.GITHUB_RESOLVE_REPOS,
+        IPC_CHANNELS.PROVIDER_RESOLVE_REPOS,
         (_event, workspaceId: string, repos: string[]) => {
             const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
             const resolved: Record<string, string | null> = {};
@@ -381,26 +426,40 @@ export function setupIpcHandlers(): boolean {
         }
     );
 
-    // One click on an Inbox item. Worktree first, record second; the spawn is
-    // third and happens when the renderer mounts the session pane — the same
-    // terminal-create path every session uses.
+    // Start a session from an action. Worktree first, record second; the
+    // spawn is third and happens when the renderer mounts the session pane —
+    // the same terminal-create path every session uses.
     const launchWorkItemDeps: WorkItemLaunchDeps = {
         getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+        resolveDriver: getProviderDriver,
         createSession: (id, fields) => workspaces.createSession(id, fields),
         resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
         ensureWorktree: (clonePath, item, env) => worktrees.ensureWorktree(clonePath, item, env),
-        composeEnv: composeGhEnv,
-        findItem: (id, ref) => github.findItem(id, ref),
-        pathExists: (target) => fs.existsSync(target),
+        composeEnv: composeProviderEnv,
+        findItem: (id, ref) => inbox.findItem(id, ref),
     };
     // Coalesced (not just called directly) so two overlapping launches of the
-    // same work item can never mint two sessions for it — see
+    // same item and action can never mint two sessions for it — see
     // createLaunchCoalescer's doc comment.
     const launchWorkItem = createLaunchCoalescer(launchWorkItemDeps);
     ipcMain.handle(
-        IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM,
-        (_event, workspaceId: string, workItem: WorkItemRef) =>
-            launchWorkItem(workspaceId, workItem)
+        IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM,
+        (_event, workspaceId: string, workItem: WorkItemRef, action: WorkItemLaunchAction) => {
+            // Shape-validated like WORKSPACE_SESSION_UPDATE's link payload:
+            // this one persists workItem into the session record too, and
+            // derives a worktree directory name from repo.
+            if (!isValidWorkItemRef(workItem)) {
+                return { ok: false, reason: 'error', message: 'Invalid work item reference.' };
+            }
+            // Cheap shape check on the action too — the renderer sends one of
+            // two variants and IPC has already stripped TypeScript's types.
+            // Exactly one of id/customPrompt, string-typed: the same
+            // discriminant resolveAction and workItemActionKey use.
+            if (!isValidWorkItemLaunchAction(action)) {
+                return { ok: false, reason: 'error', message: 'Invalid launch action.' };
+            }
+            return launchWorkItem(workspaceId, toWorkItemRef(workItem), action);
+        }
     );
 
     // "Clone into scope..." — the destination the user picked becomes the
@@ -408,14 +467,14 @@ export function setupIpcHandlers(): boolean {
     // scans a non-repo scope's children, and the clone lands one level down
     // (destinationDir/<repo-basename>), never at destinationDir itself.
     ipcMain.handle(
-        IPC_CHANNELS.GITHUB_CLONE_REPO,
+        IPC_CHANNELS.PROVIDER_CLONE_REPO,
         async (_event, workspaceId: string, repo: string, destinationDir: string) => {
             const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
             if (!workspace) return { ok: false, error: `Unknown workspace: ${workspaceId}` };
             const result = await cloneWorkspaceRepo(
                 {
-                    ghBinary: resolveGhBinary,
-                    composeEnv: composeGhEnv,
+                    resolveDriver: getProviderDriver,
+                    composeEnv: composeProviderEnv,
                     addScope: (id, dirPath) => {
                         workspaces.addScope(id, {
                             name: path.basename(dirPath),
@@ -555,13 +614,15 @@ export function setupIpcHandlers(): boolean {
             extraArgs,
         } = options;
 
-        // The workspace's GitHub binding, resolved here because this file owns
-        // the workspace records. TerminalService turns the login into a token
-        // at spawn time; the renderer never sees either step.
+        // The workspace's provider binding, resolved here because this file
+        // owns the workspace records. TerminalService turns the login into a
+        // token at spawn time, under the driver's variable; the renderer
+        // never sees either step.
         const workspace = workspaces
             .getAll()
             .find((candidate) => candidate.id === workspaceId);
-        const githubAccountLogin = workspace?.github?.accountLogin;
+        const providerId = workspace?.provider?.id;
+        const providerAccountLogin = workspace?.provider?.accountLogin;
 
         // Conductors get their control tools back on every relaunch: the
         // config file references this run's socket, so it is (re)generated
@@ -594,7 +655,8 @@ export function setupIpcHandlers(): boolean {
             binaryOverride,
             configDirOverride,
             extraArgs,
-            githubAccountLogin,
+            providerId,
+            providerAccountLogin,
             mcpConfigPath,
         }, event.sender);
     });
@@ -652,12 +714,6 @@ export function setupIpcHandlers(): boolean {
             toHarnessConfig(fields)
         );
     });
-
-    // === GitHub queries ===
-
-    // Is `gh` installed, and which accounts does its keyring hold? Tokens are
-    // deliberately not reachable over IPC — see GhBroker.
-    ipcMain.handle(IPC_CHANNELS.GH_PROBE, () => ghBroker.probe());
 
     // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
@@ -1235,7 +1291,8 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);
-    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SET_PROVIDER_BINDING);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SET_ACTIONS);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
@@ -1249,18 +1306,19 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ARCHIVE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_RESTORE);
 
-    githubService?.stop();
-    githubService = null;
+    inboxService?.stop();
+    inboxService = null;
     worktreeService = null;
     if (onBrowserWindowFocus) {
         app.removeListener('browser-window-focus', onBrowserWindowFocus);
         onBrowserWindowFocus = null;
     }
-    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_GET_INBOX);
-    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_REFRESH_INBOX);
-    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_RESOLVE_REPOS);
-    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM);
-    ipcMain.removeHandler(IPC_CHANNELS.GITHUB_CLONE_REPO);
+    ipcMain.removeHandler(IPC_CHANNELS.INBOX_GET);
+    ipcMain.removeHandler(IPC_CHANNELS.INBOX_REFRESH);
+    ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_PROBE);
+    ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS);
+    ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM);
+    ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
 
     // Clean up all terminal services
     terminalManager?.destroyAll();
@@ -1283,9 +1341,6 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_CAPABILITIES);
-
-    // Remove GitHub query handlers
-    ipcMain.removeHandler(IPC_CHANNELS.GH_PROBE);
 
     // Remove dialog IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);

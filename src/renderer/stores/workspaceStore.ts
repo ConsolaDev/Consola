@@ -1,12 +1,16 @@
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
+import type { InboxSection } from '../../shared/inboxSections';
+import type { WorkItemAction } from '../../shared/workItemActions';
 import {
   type Group,
   type NewGroupFields,
   type NewSessionFields,
   type Scope,
   type Session,
+  type SessionUpdates,
   type Workspace,
+  type WorkspaceProvider,
 } from '../../shared/workspace';
 
 export type { Group, Scope, Session, Workspace } from '../../shared/workspace';
@@ -27,11 +31,7 @@ interface WorkspaceState {
   ) => Promise<void>;
   getWorkspace: (id: string) => Workspace | undefined;
   createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
-  updateSession: (
-    workspaceId: string,
-    sessionId: string,
-    updates: Partial<Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
-  ) => Promise<void>;
+  updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
   deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;
   getWorkspaceSessions: (workspaceId: string) => Session[];
@@ -45,9 +45,12 @@ interface WorkspaceState {
     updates: Partial<Pick<Scope, 'name'>>
   ) => Promise<void>;
   removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
-  setGitHubBinding: (
+  setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null) => Promise<void>;
+  /** Replaces actions and section defaults in one validated write; rejects with the message. */
+  setActions: (
     workspaceId: string,
-    binding: { accountLogin: string; org?: string } | null
+    actions: WorkItemAction[],
+    sectionDefaults: Partial<Record<InboxSection, string>>
   ) => Promise<void>;
   createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
   updateGroup: (
@@ -102,8 +105,11 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
 
   removeScope: (workspaceId, scopeId) => workspaceBridge.removeScope(workspaceId, scopeId),
 
-  setGitHubBinding: (workspaceId, binding) =>
-    workspaceBridge.setGitHubBinding(workspaceId, binding),
+  setProviderBinding: (workspaceId, binding) =>
+    workspaceBridge.setProviderBinding(workspaceId, binding),
+
+  setActions: (workspaceId, actions, sectionDefaults) =>
+    workspaceBridge.setActions(workspaceId, actions, sectionDefaults),
 
   createGroup: (workspaceId, fields) => workspaceBridge.createGroup(workspaceId, fields),
 

@@ -1,0 +1,66 @@
+.searchable-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.searchable-list-input {
+  width: 100%;
+}
+
+/* About seven rows before scrolling: enough to scan, short enough to keep
+   the dialog's title and buttons on screen. */
+.searchable-list-rows {
+  max-height: 280px;
+  overflow-y: auto;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-1) 0;
+}
+
+.searchable-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  /* The 3px inset leaves room for the selected row's accent bar, as in the
+     command palette. */
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) - 3px);
+  border-left: 3px solid transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  user-select: none;
+}
+
+.searchable-list-row.selected {
+  background: color-mix(in srgb, var(--color-accent) 28%, var(--color-bg-secondary));
+  border-left-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+/* Listed, greyed, and not a target: the hint in the context slot says why. */
+.searchable-list-row[aria-disabled='true'] {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.searchable-list-row-label {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.searchable-list-row-context {
+  margin-left: auto;
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.searchable-list-empty {
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
