@@ -173,7 +173,7 @@ Every terminal message carries `instanceId`; there is one terminal per session.
 
 ## Tech Stack
 
-- **Electron 28** - Desktop framework
+- **Electron 43** - Desktop framework
 - **React 19** - UI (with react-router-dom hash routing)
 - **Zustand** - State management
 - **claude CLI** - AI integration, driven as a subprocess (not a library)
