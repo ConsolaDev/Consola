@@ -1,5 +1,9 @@
-import type { Group, Scope, Session, Workspace } from '../../shared/workspace';
+import type { Group, Scope, SessionUpdates, Workspace } from '../../shared/workspace';
 import type { HarnessUpdates } from '../../shared/harness';
+
+// The one definition lives in shared/workspace.ts; re-exported so the
+// handlers keep importing the filter and its payload type from one place.
+export type { SessionUpdates } from '../../shared/workspace';
 
 /**
  * Update payloads, rebuilt from an allow-list before they reach a service.
@@ -71,38 +75,37 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
     return allowed;
 }
 
-export type SessionUpdates = Partial<
-  Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>
->;
-
 /**
- * The ones that matter most: `harnessId` — and since v6 `scopeId`, `cwd`,
- * `kind` and `workItem` — are deliberately not on the list.
+ * The ones that matter most: `harnessId` — and since v6 `scopeId`, `cwd`
+ * and `kind` — are deliberately not on the list.
  *
  * A session's harness is fixed for its lifetime — the transcript lives inside
  * that harness's config directory and `--resume` only finds it there — so a
  * rewritten `harnessId` would silently orphan the conversation rather than
- * failing where anyone could see it. The scope, working directory, kind and
- * work item are the session's identity in the same way: where it belongs,
- * where it runs, what drives it, and why it exists. `groupId` alone is
- * mutable — regrouping is an organizational act, not an identity change.
- * `id`, `workspaceId`, `instanceId` and `claudeSessionId` name the session
- * and its terminal; `createdAt` is history.
+ * failing where anyone could see it. The scope, working directory and kind
+ * are the session's identity in the same way: where it belongs, where it
+ * runs, what drives it. `groupId` and, since v7, `workItem` are mutable —
+ * regrouping and linking are acts of organisation and triage, not identity
+ * changes — and both clear by presence. `id`, `workspaceId`, `instanceId`
+ * and `claudeSessionId` name the session and its terminal; `createdAt` is
+ * history.
  */
 export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     const allowed: SessionUpdates = {};
     // These three are required on the record and none is clearable, so
     // `undefined` can only ever be a bug: absence and explicit-undefined are
-    // treated alike. Contrast groupId below, where `undefined` is a value.
+    // treated alike. Contrast groupId and workItem below, where `undefined`
+    // is a value.
     if (updates.name !== undefined) allowed.name = updates.name;
     // Optional on the record but set-only in practice: `undefined` never
     // means "clear the flag", so it is treated like the required fields.
     if (updates.nameIsUserSet !== undefined) allowed.nameIsUserSet = updates.nameIsUserSet;
     if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
     if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
-    // `undefined` IS the value here — it means "leave the group". Structured
-    // clone preserves an explicitly-undefined key, so presence is what
-    // separates "clear this" from "leave it alone".
+    // `undefined` IS the value here — "leave the group", "unlink from the
+    // item". Structured clone preserves an explicitly-undefined key, so
+    // presence is what separates "clear this" from "leave it alone".
     if ('groupId' in updates) allowed.groupId = updates.groupId;
+    if ('workItem' in updates) allowed.workItem = updates.workItem;
     return allowed;
 }

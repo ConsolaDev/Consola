@@ -221,14 +221,18 @@ describe('allowedSessionUpdates', () => {
     expect('groupId' in result).toBe(false);
   });
 
-  it('drops scopeId, cwd, kind and workItem even alongside a legitimate field', () => {
-    // The session's place, working directory, nature and origin are fixed at
+  it('drops scopeId, cwd and kind even alongside a legitimate field — but passes workItem through', () => {
+    // The session's place, working directory and nature are fixed at
     // creation, exactly like harnessId and model: immutable by omission.
+    // The work item is the one identity-adjacent field that moves: linking
+    // a session to an item after the fact is an act of triage, not a change
+    // of where or how it runs.
+    const workItem = { provider: 'github', repo: 'a/b', type: 'pr', number: 1 } as const;
     const payload = {
       scopeId: 'other-scope',
       cwd: '/somewhere/else',
       kind: 'conductor',
-      workItem: { provider: 'github', repo: 'a/b', type: 'pr', number: 1 },
+      workItem,
       name: 'Legit rename',
     } as unknown as SessionUpdates;
 
@@ -237,7 +241,19 @@ describe('allowedSessionUpdates', () => {
     expect(result).not.toHaveProperty('scopeId');
     expect(result).not.toHaveProperty('cwd');
     expect(result).not.toHaveProperty('kind');
-    expect(result).not.toHaveProperty('workItem');
+    expect(result.workItem).toEqual(workItem);
     expect(result.name).toBe('Legit rename');
+  });
+
+  it('preserves an explicit workItem: undefined as an own key, so unlinking reaches the service', () => {
+    const result = allowedSessionUpdates({ workItem: undefined });
+
+    // Same mechanism as groupId: presence separates "unlink" from "leave it".
+    expect('workItem' in result).toBe(true);
+    expect(result.workItem).toBeUndefined();
+  });
+
+  it('omits workItem entirely when the key is absent from the input', () => {
+    expect('workItem' in allowedSessionUpdates({ name: 'Renamed' })).toBe(false);
   });
 });

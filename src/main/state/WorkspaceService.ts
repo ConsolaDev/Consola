@@ -1,4 +1,12 @@
 import { JsonStateFile } from './JsonStateFile';
+import type { InboxSection } from '../../shared/inboxSections';
+import {
+  createDefaultActions,
+  createDefaultSectionDefaults,
+  validateActionsWrite,
+  type WorkItemAction,
+} from '../../shared/workItemActions';
+import { sameWorkItem } from '../../shared/workItems';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
   createGroupRecord,
@@ -12,7 +20,9 @@ import {
   type NewSessionFields,
   type Scope,
   type Session,
+  type SessionUpdates,
   type Workspace,
+  type WorkspaceProvider,
 } from '../../shared/workspace';
 
 export interface WorkspaceStateFile {
@@ -165,25 +175,67 @@ export class WorkspaceService {
   }
 
   /**
-   * Bind this workspace to a `gh` keyring account, or unbind with null.
+   * Bind this workspace to a provider account, or unbind with null.
    *
    * Unbinding removes the key entirely rather than storing null: an absent
-   * `github` is what "pure local workspace, today's behavior" means, and
-   * every reader tests for absence.
+   * `provider` is what "pure local workspace, today's behavior" means, and
+   * every reader tests for absence. Only the binding goes — actions and
+   * section defaults are the user's and survive an unbind and a rebind.
+   * Binding a workspace that has no actions yet seeds the defaults, so the
+   * Inbox has verbs to offer on first paint; one that already has some
+   * keeps them, edits included.
    */
-  public setGitHubBinding(
-    workspaceId: string,
-    binding: { accountLogin: string; org?: string } | null
-  ): void {
+  public setProviderBinding(workspaceId: string, binding: WorkspaceProvider | null): void {
     this.commit(
       this.workspaces.map((candidate) => {
         if (candidate.id !== workspaceId) return candidate;
         if (binding === null) {
-          const { github: _github, ...rest } = candidate;
+          const { provider: _provider, ...rest } = candidate;
           return { ...rest, updatedAt: Date.now() };
         }
-        return { ...candidate, github: binding, updatedAt: Date.now() };
+        const seed = candidate.actions.length === 0;
+        const actions = seed ? createDefaultActions() : candidate.actions;
+        return {
+          ...candidate,
+          provider: binding,
+          actions,
+          sectionDefaults: seed ? createDefaultSectionDefaults(actions) : candidate.sectionDefaults,
+          updatedAt: Date.now(),
+        };
       })
+    );
+  }
+
+  /**
+   * Replace a workspace's actions and section defaults in one validated
+   * write. The whole write is rejected on the first problem — the panel
+   * shows the message inline — and nothing is committed. Records are rebuilt
+   * from the allow-list of fields, updateFilters-style: this payload arrives
+   * over IPC and is persisted verbatim.
+   */
+  public setActions(
+    workspaceId: string,
+    actions: WorkItemAction[],
+    sectionDefaults: Partial<Record<InboxSection, string>>
+  ): void {
+    const verdict = validateActionsWrite({ actions, sectionDefaults });
+    if (!verdict.ok) throw new Error(verdict.message);
+    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt }) => ({
+      id,
+      name,
+      appliesTo: [...appliesTo],
+      prompt,
+    }));
+    const defaults: Partial<Record<InboxSection, string>> = {};
+    for (const [section, actionId] of Object.entries(sectionDefaults)) {
+      if (actionId !== undefined) defaults[section as InboxSection] = actionId;
+    }
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? { ...candidate, actions: records, sectionDefaults: defaults, updatedAt: Date.now() }
+          : candidate
+      )
     );
   }
 
@@ -274,22 +326,60 @@ export class WorkspaceService {
     return session;
   }
 
-  public updateSession(
-    workspaceId: string,
-    sessionId: string,
-    updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
-  ): void {
+  /**
+   * Apply an already-filtered update (see allowedSessionUpdates).
+   *
+   * Linking is the one update with rules of its own: a conductor is never
+   * about a work item, and a session already linked elsewhere must be
+   * unlinked first — silently moving it would rewrite what the session is
+   * about underneath a running agent. Re-linking to the same item is left
+   * alone rather than overwritten with a possibly differently-cased ref, but
+   * that alone never skips the whole call: any sibling field in the same
+   * payload (e.g. `{ name, workItem }`) still commits, and only a payload
+   * that has nothing left to apply is a true no-op. Unlinking always
+   * succeeds and takes the action label with it: the label described a
+   * launch this session no longer belongs to. Both clear as absence — the
+   * keys are removed, never stored as `undefined` — the way restoreGroup's
+   * persisted record never carries a null `archivedAt`.
+   */
+  public updateSession(workspaceId: string, sessionId: string, updates: SessionUpdates): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+
+    const applied: SessionUpdates = { ...updates };
+    if (session && updates.workItem !== undefined) {
+      if (session.kind === 'conductor') {
+        throw new Error('A conductor session cannot be linked to a work item.');
+      }
+      if (session.workItem) {
+        if (sameWorkItem(session.workItem, updates.workItem)) {
+          delete applied.workItem;
+        } else {
+          const { repo, type, number } = session.workItem;
+          throw new Error(`This session is already linked to ${repo} ${type} #${number}. Unlink it first.`);
+        }
+      }
+    }
+    // Nothing left to write, e.g. a same-item re-link with no sibling
+    // fields: skip the commit so onChange listeners see no-op as no-op.
+    if (Object.keys(applied).length === 0) return;
+
+    const unlinking = 'workItem' in applied && applied.workItem === undefined;
     this.commit(
-      this.workspaces.map((workspace) =>
-        workspace.id === workspaceId
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
           ? {
-              ...workspace,
-              sessions: workspace.sessions.map((session) =>
-                session.id === sessionId ? { ...session, ...updates } : session
-              ),
+              ...candidate,
+              sessions: candidate.sessions.map((existing) => {
+                if (existing.id !== sessionId) return existing;
+                const merged = { ...existing, ...applied };
+                if (!unlinking) return merged;
+                const { workItem: _workItem, workItemAction: _workItemAction, ...rest } = merged;
+                return rest;
+              }),
               updatedAt: Date.now(),
             }
-          : workspace
+          : candidate
       )
     );
   }

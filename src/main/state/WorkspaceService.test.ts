@@ -5,6 +5,7 @@ import * as path from 'path';
 import { JsonStateFile } from './JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './WorkspaceService';
 import type { Workspace } from '../../shared/workspace';
+import type { WorkItemAction } from '../../shared/workItemActions';
 
 let dir: string;
 let service: WorkspaceService;
@@ -230,6 +231,11 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].defaultHarnessId).toBe('default');
     expect(service.getAll()[0].sessions[0].harnessId).toBe('default');
     expect(service.getAll()[0].sessions[0].scopeId).toBe(service.getAll()[0].scopes[0].id);
+
+    // v7 reached through the same ladder: empty verbs for a local-only import.
+    expect(service.getAll()[0].actions).toEqual([]);
+    expect(service.getAll()[0].sectionDefaults).toEqual({});
+    expect(service.getAll()[0]).not.toHaveProperty('provider');
   });
 
   it('addScope appends a scope and persists it', () => {
@@ -333,21 +339,163 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].sessions).toEqual([]);
   });
 
-  it('setGitHubBinding sets, replaces and clears the binding', () => {
+  const pr51 = { provider: 'github' as const, repo: 'sympower/controller-app', type: 'pr' as const, number: 51 };
+  const issue87 = { provider: 'github' as const, repo: 'sympower/msa-resource-bff', type: 'issue' as const, number: 87 };
+
+  function sessionIn(workspace: Workspace, extra: Partial<Parameters<typeof service.createSession>[1]> = {}) {
+    const session = service.createSession(workspace.id, {
+      name: 'By hand',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
+      ...extra,
+    });
+    if (!session) throw new Error('fixture session was refused');
+    return session;
+  }
+
+  it('updateSession links an unlinked session and unlinks it again', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = sessionIn(workspace);
 
-    service.setGitHubBinding(workspace.id, { accountLogin: 'SymJavi', org: 'sympower' });
-    expect(service.getAll()[0].github).toEqual({ accountLogin: 'SymJavi', org: 'sympower' });
+    service.updateSession(workspace.id, session.id, { workItem: pr51 });
+    expect(service.getAll()[0].sessions[0].workItem).toEqual(pr51);
+    // Linking never records an action: the session was not started as one.
+    expect(service.getAll()[0].sessions[0]).not.toHaveProperty('workItemAction');
 
-    service.setGitHubBinding(workspace.id, { accountLogin: 'personal' });
-    expect(service.getAll()[0].github).toEqual({ accountLogin: 'personal' });
+    service.updateSession(workspace.id, session.id, { workItem: undefined });
+    // Absent on disk, not undefined-valued: JSON.stringify drops the key.
+    expect(build().getAll()[0].sessions[0]).not.toHaveProperty('workItem');
+  });
 
-    service.setGitHubBinding(workspace.id, null);
+  it('updateSession treats re-linking to the same item as a no-op success', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = sessionIn(workspace, { workItem: pr51 });
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    expect(() =>
+      service.updateSession(workspace.id, session.id, { workItem: { ...pr51, repo: 'Sympower/Controller-App' } })
+    ).not.toThrow();
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(service.getAll()[0].sessions[0].workItem).toEqual(pr51);
+  });
+
+  it('updateSession refuses to link a conductor session', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = sessionIn(workspace, { kind: 'conductor' });
+
+    expect(() => service.updateSession(workspace.id, session.id, { workItem: pr51 })).toThrow(
+      'A conductor session cannot be linked to a work item.'
+    );
+    expect(service.getAll()[0].sessions[0]).not.toHaveProperty('workItem');
+  });
+
+  it('updateSession refuses to link a session already linked to a different item', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = sessionIn(workspace, { workItem: pr51 });
+
+    expect(() => service.updateSession(workspace.id, session.id, { workItem: issue87 })).toThrow(
+      /already linked to sympower\/controller-app pr #51/
+    );
+    expect(service.getAll()[0].sessions[0].workItem).toEqual(pr51);
+  });
+
+  it('updateSession unlinking a launched session drops its action label with it', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = sessionIn(workspace, { workItem: pr51, workItemAction: 'Review' });
+
+    service.updateSession(workspace.id, session.id, { workItem: undefined });
+
+    // The label described a launch this session no longer belongs to.
+    expect(service.getAll()[0].sessions[0]).not.toHaveProperty('workItem');
+    expect(service.getAll()[0].sessions[0]).not.toHaveProperty('workItemAction');
+  });
+
+  it('setProviderBinding sets, replaces and clears the binding, seeding actions once', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    expect(workspace.actions).toEqual([]);
+
+    service.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'SymJavi', org: 'sympower' });
+    const bound = service.getAll()[0];
+    expect(bound.provider).toEqual({ id: 'github', accountLogin: 'SymJavi', org: 'sympower' });
+    // Binding is what switches the Inbox on, so it is what seeds the verbs.
+    expect(bound.actions.map((action) => action.name)).toEqual([
+      'Review', 'Address review', 'Fix CI', 'Implement', 'Triage',
+    ]);
+    expect(Object.keys(bound.sectionDefaults).sort()).toEqual([
+      'issues', 'needs-action', 'needs-team-review', 'needs-your-review', 'waiting',
+    ]);
+
+    service.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'personal' });
+    expect(service.getAll()[0].provider).toEqual({ id: 'github', accountLogin: 'personal' });
+    // Rebinding keeps the actions the user may have edited since.
+    expect(service.getAll()[0].actions).toEqual(bound.actions);
+
+    service.setProviderBinding(workspace.id, null);
     // Absent, not null: absence is what "pure local workspace" means on disk.
-    expect(service.getAll()[0]).not.toHaveProperty('github');
+    expect(service.getAll()[0]).not.toHaveProperty('provider');
+    // Unbinding clears only the binding — the actions are the user's.
+    expect(service.getAll()[0].actions).toEqual(bound.actions);
+    expect(service.getAll()[0].sectionDefaults).toEqual(bound.sectionDefaults);
 
     const reloaded = build();
-    expect(reloaded.getAll()[0]).not.toHaveProperty('github');
+    expect(reloaded.getAll()[0]).not.toHaveProperty('provider');
+    expect(reloaded.getAll()[0].actions).toEqual(bound.actions);
+  });
+
+  it('setProviderBinding does not reseed a workspace that already has actions', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const mine: WorkItemAction[] = [{ id: 'a1', name: 'Mine', appliesTo: ['pr'], prompt: 'Do the thing.' }];
+    service.setActions(workspace.id, mine, { waiting: 'a1' });
+
+    service.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'SymJavi' });
+
+    expect(service.getAll()[0].actions).toEqual(mine);
+    expect(service.getAll()[0].sectionDefaults).toEqual({ waiting: 'a1' });
+  });
+
+  it('setActions replaces actions and defaults in one write and persists them', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' },
+      { id: 'a2', name: 'Triage', appliesTo: ['issue'], prompt: 'Triage it.' },
+    ];
+
+    service.setActions(workspace.id, actions, { 'needs-your-review': 'a1', issues: 'a2' });
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.actions).toEqual(actions);
+    expect(reloaded.sectionDefaults).toEqual({ 'needs-your-review': 'a1', issues: 'a2' });
+  });
+
+  it('setActions rejects an invalid write with its message and commits nothing', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const listener = vi.fn();
+    service.onChange(listener);
+    const actions: WorkItemAction[] = [{ id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }];
+
+    expect(() => service.setActions(workspace.id, actions, { issues: 'a1' })).toThrow(
+      '"Review" cannot be the default for "issues": it does not apply to issues.'
+    );
+
+    expect(listener).not.toHaveBeenCalled();
+    expect(service.getAll()[0].actions).toEqual([]);
+  });
+
+  it('setActions keeps only the record fields — an IPC payload cannot ride extra keys in', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const payload = [
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.', extra: 'nope' },
+    ] as unknown as WorkItemAction[];
+
+    service.setActions(workspace.id, payload, {});
+
+    expect(service.getAll()[0].actions).toEqual([
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' },
+    ]);
   });
 
   it('createGroup and archiveGroup manage the group list', () => {

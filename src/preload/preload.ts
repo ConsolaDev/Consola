@@ -23,7 +23,10 @@ import {
     ConductorCreateRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { GhProbeResult, InboxSnapshot, WorkItemRef } from '../shared/github';
+import type { InboxSection } from '../shared/inboxSections';
+import type { GitProviderId, ProviderProbeResult } from '../shared/providers';
+import type { WorkItemAction } from '../shared/workItemActions';
+import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
     Group,
     NewGroupFields,
@@ -31,7 +34,9 @@ import type {
     NewSessionFields,
     Scope,
     Session,
+    SessionUpdates,
     Workspace,
+    WorkspaceProvider,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 
@@ -114,34 +119,41 @@ contextBridge.exposeInMainWorld('harnessAPI', {
     },
 });
 
-// Expose GitHub probing to the renderer. Probe only: tokens never cross this
-// bridge — they are borrowed and consumed entirely inside the main process.
-contextBridge.exposeInMainWorld('githubAPI', {
-    probe: (): Promise<GhProbeResult> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GH_PROBE);
-    },
-
+// The Inbox: main owns the cache; the renderer sends intents and listens for
+// pushes. Read-only against the provider by construction.
+contextBridge.exposeInMainWorld('inboxAPI', {
     getInbox: (workspaceId: string): Promise<InboxSnapshot | null> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_GET_INBOX, workspaceId),
+        ipcRenderer.invoke(IPC_CHANNELS.INBOX_GET, workspaceId),
 
     refreshInbox: (workspaceId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_REFRESH_INBOX, workspaceId),
+        ipcRenderer.invoke(IPC_CHANNELS.INBOX_REFRESH, workspaceId),
+
+    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) =>
+        subscribe<InboxSnapshot>(IPC_CHANNELS.INBOX_CHANGED, callback),
+});
+
+// Provider operations. Tokens never cross this bridge — they are borrowed
+// and consumed entirely inside the main process.
+contextBridge.exposeInMainWorld('providerAPI', {
+    probe: (id: GitProviderId): Promise<ProviderProbeResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_PROBE, id),
 
     resolveRepos: (workspaceId: string, repos: string[]): Promise<Record<string, string | null>> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_RESOLVE_REPOS, workspaceId, repos),
+        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS, workspaceId, repos),
 
-    launchWorkItem: (workspaceId: string, workItem: WorkItemRef): Promise<WorkItemLaunchResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_LAUNCH_WORK_ITEM, workspaceId, workItem),
+    launchWorkItem: (
+        workspaceId: string,
+        ref: WorkItemRef,
+        action: WorkItemLaunchAction
+    ): Promise<WorkItemLaunchResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM, workspaceId, ref, action),
 
     cloneRepo: (
         workspaceId: string,
         repo: string,
         destinationDir: string
     ): Promise<CloneRepoResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.GITHUB_CLONE_REPO, workspaceId, repo, destinationDir),
-
-    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) =>
-        subscribe<InboxSnapshot>(IPC_CHANNELS.GITHUB_INBOX_CHANGED, callback),
+        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_CLONE_REPO, workspaceId, repo, destinationDir),
 });
 
 // Expose workspace state to the renderer. Main owns the records; the renderer
@@ -172,11 +184,7 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     createSession: (workspaceId: string, fields: NewSessionFields): Promise<Session | undefined> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_CREATE, workspaceId, fields),
 
-    updateSession: (
-        workspaceId: string,
-        sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
-    ): Promise<void> =>
+    updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
 
     deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
@@ -195,11 +203,15 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     removeScope: (workspaceId: string, scopeId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE, workspaceId, scopeId),
 
-    setGitHubBinding: (
+    setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_PROVIDER_BINDING, workspaceId, binding),
+
+    setActions: (
         workspaceId: string,
-        binding: { accountLogin: string; org?: string } | null
+        actions: WorkItemAction[],
+        sectionDefaults: Partial<Record<InboxSection, string>>
     ): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_GITHUB_BINDING, workspaceId, binding),
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_ACTIONS, workspaceId, actions, sectionDefaults),
 
     createGroup: (workspaceId: string, fields: NewGroupFields): Promise<Group> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_CREATE, workspaceId, fields),
