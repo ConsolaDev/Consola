@@ -1,5 +1,11 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
+import {
+  DEFAULT_INBOX_FILTER,
+  isInboxUpdatedFilter,
+  type InboxFilterState,
+  type InboxUpdatedFilter,
+} from '../components/Inbox/inboxFilters';
 
 export type ThemeMode = 'light' | 'dark' | 'system';
 
@@ -25,19 +31,53 @@ interface SettingsState {
   theme: ThemeMode;
   resolvedTheme: 'light' | 'dark';
   terminalFontSize: number;
+  /** The Inbox's repository and Updated filters, per workspace id. */
+  inboxFilters: Record<string, InboxFilterState>;
   setTheme: (theme: ThemeMode) => void;
   /** Step to the next theme: light -> dark -> system -> light. */
   cycleTheme: () => void;
   setTerminalFontSize: (size: number) => void;
+  setInboxRepoFilter: (workspaceId: string, repos: string[]) => void;
+  setInboxUpdatedFilter: (workspaceId: string, updated: InboxUpdatedFilter) => void;
+  /** The saved filters, or the shared frozen default when nothing is saved. */
+  inboxFilterFor: (workspaceId: string) => InboxFilterState;
   _setResolvedTheme: (theme: 'light' | 'dark') => void;
+}
+
+/**
+ * Fold a persisted `inboxFilters` blob into a shape the Inbox can trust.
+ *
+ * Mirrors navigationStore's mergeNavigationState: zustand's default merge
+ * would spread whatever an older build or a hand-edited profile wrote
+ * straight into state, and the Inbox filters every list through this.
+ * Exported so the one place a stale profile can break the view is
+ * testable on its own.
+ */
+export function sanitizeInboxFilters(raw: unknown): Record<string, InboxFilterState> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  const result: Record<string, InboxFilterState> = {};
+  for (const [workspaceId, value] of Object.entries(raw as Record<string, unknown>)) {
+    if (!value || typeof value !== 'object') continue;
+    const candidate = value as Partial<InboxFilterState>;
+    result[workspaceId] = {
+      repos: Array.isArray(candidate.repos)
+        ? candidate.repos.filter((repo): repo is string => typeof repo === 'string')
+        : [],
+      updated: isInboxUpdatedFilter(candidate.updated)
+        ? candidate.updated
+        : DEFAULT_INBOX_FILTER.updated,
+    };
+  }
+  return result;
 }
 
 export const useSettingsStore = create<SettingsState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       theme: 'system',
       resolvedTheme: 'dark',
       terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
+      inboxFilters: {},
       setTheme: (theme) => set({ theme }),
       // Lives in the store so the keyboard shortcut and the command palette
       // can never disagree about what "next theme" means.
@@ -46,6 +86,23 @@ export const useSettingsStore = create<SettingsState>()(
           theme: THEME_CYCLE[(THEME_CYCLE.indexOf(state.theme) + 1) % THEME_CYCLE.length],
         })),
       setTerminalFontSize: (size) => set({ terminalFontSize: clampTerminalFontSize(size) }),
+      setInboxRepoFilter: (workspaceId, repos) =>
+        set((state) => ({
+          inboxFilters: {
+            ...state.inboxFilters,
+            [workspaceId]: { ...state.inboxFilterFor(workspaceId), repos },
+          },
+        })),
+      setInboxUpdatedFilter: (workspaceId, updated) =>
+        set((state) => ({
+          inboxFilters: {
+            ...state.inboxFilters,
+            [workspaceId]: { ...state.inboxFilterFor(workspaceId), updated },
+          },
+        })),
+      // The default is one frozen object, returned by reference: selectors
+      // comparing by identity stay stable, and nothing can mutate it.
+      inboxFilterFor: (workspaceId) => get().inboxFilters[workspaceId] ?? DEFAULT_INBOX_FILTER,
       _setResolvedTheme: (resolvedTheme) => set({ resolvedTheme }),
     }),
     {
@@ -54,9 +111,11 @@ export const useSettingsStore = create<SettingsState>()(
       partialize: (state) => ({
         theme: state.theme,
         terminalFontSize: state.terminalFontSize,
+        inboxFilters: state.inboxFilters,
       }),
       // A persisted size from an older build (or a hand-edited value) still has
-      // to land inside the bounds the terminal can actually lay out.
+      // to land inside the bounds the terminal can actually lay out, and a
+      // persisted filter blob has to be a shape the Inbox can filter with.
       merge: (persisted, current) => {
         const saved = persisted as Partial<SettingsState> | undefined;
         return {
@@ -65,6 +124,7 @@ export const useSettingsStore = create<SettingsState>()(
           terminalFontSize: clampTerminalFontSize(
             saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT
           ),
+          inboxFilters: sanitizeInboxFilters(saved?.inboxFilters),
         };
       },
     }

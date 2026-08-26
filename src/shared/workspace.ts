@@ -1,5 +1,14 @@
 import { BUILT_IN_HARNESS_ID } from './constants';
-import type { WorkItemRef } from './github';
+import { generateId } from './ids';
+import type { InboxSection } from './inboxSections';
+import type { GitProviderId } from './providers';
+import {
+  createDefaultActions,
+  createDefaultSectionDefaults,
+  defaultActionNameForType,
+  type WorkItemAction,
+} from './workItemActions';
+import type { WorkItemRef } from './workItems';
 
 /**
  * Workspace and session records, and the ladder that brings old ones forward.
@@ -40,8 +49,15 @@ export interface Session {
   groupId?: string;
   // What drives this session: a person, or a conductor orchestrating others.
   kind: 'interactive' | 'conductor';
-  // The remote item this session was launched from, when it was. Immutable.
+  // The remote item this session is about. Mutable since v7: a hand-made
+  // session can be linked to an item after the fact, or unlinked — the
+  // relation says why the session exists, never where it runs.
   workItem?: WorkItemRef;
+  // The action's NAME at launch — "Review", "Fix CI" — a label for the
+  // sidebar and the strip. A name rather than an id so renaming or deleting
+  // the action later never rewrites what a past session was. Absent for
+  // sessions linked by hand.
+  workItemAction?: string;
   createdAt: number;
   lastActiveAt: number;
 }
@@ -65,6 +81,13 @@ export interface Group {
   archivedAt?: number;             // Done groups collapse out of the sidebar
 }
 
+/** Which provider a workspace acts on, and as whom. */
+export interface WorkspaceProvider {
+  id: GitProviderId;
+  accountLogin: string;            // Which keyring account of the provider CLI
+  org?: string;                    // Scopes the Inbox query; absent = all repos
+}
+
 export interface Workspace {
   id: string;
   name: string;                    // From folder name
@@ -72,22 +95,20 @@ export interface Workspace {
   scopes: Scope[];                 // Replaces path + isGitRepo (state v6)
   groups: Group[];
   // Absent = pure local workspace, exactly today's behavior. Present = every
-  // session PTY in this workspace gets GH_TOKEN for this account.
-  github?: {
-    accountLogin: string;          // Which `gh` keyring account
-    org?: string;                  // Scopes the Inbox query; absent = all repos
-  };
+  // session PTY in this workspace gets the provider's token for this account.
+  provider?: WorkspaceProvider;
+  // Ordered; [] for an unbound workspace. Seeded with the defaults when a
+  // provider is bound, and edited as one validated write (set-actions).
+  actions: WorkItemAction[];
+  // Which action the Inbox pane highlights per section, by action id.
+  sectionDefaults: Partial<Record<InboxSection, string>>;
   sessions: Session[];
   createdAt: number;
   updatedAt: number;
 }
 
 /** Shape version of the persisted workspace list. */
-export const CURRENT_WORKSPACE_STATE_VERSION = 6;
-
-export function generateId(): string {
-  return Math.random().toString(36).substring(2, 15) + Date.now().toString(36);
-}
+export const CURRENT_WORKSPACE_STATE_VERSION = 7;
 
 /**
  * Terminal instance id for a new session in a workspace.
@@ -167,6 +188,8 @@ export function createWorkspaceRecord(
     defaultHarnessId,
     scopes: [createScopeRecord({ name, path, isGitRepo })],
     groups: [],
+    actions: [],
+    sectionDefaults: {},
     sessions: [],
     createdAt: now,
     updatedAt: now,
@@ -177,7 +200,7 @@ export type NewSessionFields = Pick<
   Session,
   'name' | 'workspaceId' | 'instanceId' | 'harnessId' | 'model' | 'scopeId'
 > &
-  Partial<Pick<Session, 'cwd' | 'groupId' | 'kind' | 'workItem'>>;
+  Partial<Pick<Session, 'cwd' | 'groupId' | 'kind' | 'workItem' | 'workItemAction'>>;
 
 export function createSessionRecord(fields: NewSessionFields): Session {
   const now = Date.now();
@@ -191,6 +214,20 @@ export function createSessionRecord(fields: NewSessionFields): Session {
     lastActiveAt: now,
   };
 }
+
+/**
+ * What a session update may carry across IPC.
+ *
+ * The shared definition: `src/main/state/updateFilters.ts` re-exports this
+ * one, and every other layer (the service, the API types, preload, the
+ * bridge, the store) imports it from here too — six copies had drifted apart.
+ * `workItem` is the mutable link, with presence semantics: an explicitly
+ * undefined key means unlink. Everything that fixes a session's identity
+ * (`scopeId`, `cwd`, `kind`, `harnessId`, `model`) is absent on purpose.
+ */
+export type SessionUpdates = Partial<
+  Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem'>
+>;
 
 /**
  * The workspace's first scope — what every pre-v6 flow implicitly meant by
@@ -233,7 +270,9 @@ function scopeNameFromPath(target: unknown): string | undefined {
  * v2 -> v3 removes projects and adds path to workspace;
  * v3 -> v4 gives every session a Claude session UUID;
  * v4 -> v5 binds every workspace and session to a harness;
- * v5 -> v6 folds the workspace folder into a single scope and binds sessions to it.
+ * v5 -> v6 folds the workspace folder into a single scope and binds sessions to it;
+ * v6 -> v7 turns the github binding into a provider binding, seeds actions, and
+ *          labels every work-item session with the action it amounted to.
  *
  * Exported so the migration can be exercised on its own — it is the one piece
  * of this state whose failure would cost people conversations.
@@ -334,6 +373,46 @@ export function migrateWorkspaceState(persistedState: unknown, version: number):
           kind: s.kind ?? 'interactive',
         })),
       };
+    });
+  }
+
+  if (state.workspaces && version < 7) {
+    // v6 -> v7: the GitHub-shaped binding becomes a provider binding, and a
+    // bound workspace receives the default actions so the Inbox has verbs to
+    // offer on first paint. A session launched from a work item gets the
+    // action name today's hardcoded prompt amounted to — the role it was
+    // launched under was never persisted, so the item type is the best this
+    // rung can do. A local-only workspace gains only the two empty fields,
+    // and gains them in place, so it round-trips byte-for-byte otherwise.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    state.workspaces = state.workspaces.map((ws: any) => {
+      const { github, ...rest } = ws;
+      const provider: WorkspaceProvider | undefined =
+        ws.provider ??
+        (github
+          ? {
+              id: 'github',
+              accountLogin: github.accountLogin,
+              ...(github.org ? { org: github.org } : {}),
+            }
+          : undefined);
+      const actions: WorkItemAction[] = ws.actions ?? (provider ? createDefaultActions() : []);
+      const migrated = {
+        ...rest,
+        ...(provider ? { provider } : {}),
+        actions,
+        sectionDefaults:
+          ws.sectionDefaults ?? (provider ? createDefaultSectionDefaults(actions) : {}),
+      };
+      // Set separately, after the object literal above, purely so the
+      // multi-line backfill ternary below doesn't have to live inside it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      migrated.sessions = (ws.sessions ?? []).map((s: any) =>
+        s.workItem && s.workItemAction === undefined
+          ? { ...s, workItemAction: defaultActionNameForType(s.workItem.type) }
+          : s
+      );
+      return migrated;
     });
   }
 

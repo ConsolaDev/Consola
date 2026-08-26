@@ -10,6 +10,7 @@ import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
 import './styles/global.css';
+import './styles/statusDots.css';
 
 function Root() {
   const resolvedTheme = useSettingsStore((state) => state.resolvedTheme);

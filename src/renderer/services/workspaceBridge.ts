@@ -4,6 +4,8 @@ import type {
     SessionFanOutResult,
     ScopeRepo,
 } from '../../shared/types';
+import type { InboxSection } from '../../shared/inboxSections';
+import type { WorkItemAction } from '../../shared/workItemActions';
 import type {
     Group,
     NewGroupFields,
@@ -11,7 +13,9 @@ import type {
     NewSessionFields,
     Scope,
     Session,
+    SessionUpdates,
     Workspace,
+    WorkspaceProvider,
 } from '../../shared/workspace';
 
 /**
@@ -54,11 +58,7 @@ export const workspaceBridge = {
         return window.workspaceAPI.createSession(workspaceId, fields);
     },
 
-    updateSession(
-        workspaceId: string,
-        sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId'>>
-    ): Promise<void> {
+    updateSession(workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> {
         return window.workspaceAPI.updateSession(workspaceId, sessionId, updates);
     },
 
@@ -83,11 +83,17 @@ export const workspaceBridge = {
         return window.workspaceAPI.removeScope(workspaceId, scopeId);
     },
 
-    setGitHubBinding(
+    setProviderBinding(workspaceId: string, binding: WorkspaceProvider | null): Promise<void> {
+        return window.workspaceAPI.setProviderBinding(workspaceId, binding);
+    },
+
+    /** Replaces actions and section defaults in one validated write; rejects with the message. */
+    setActions(
         workspaceId: string,
-        binding: { accountLogin: string; org?: string } | null
+        actions: WorkItemAction[],
+        sectionDefaults: Partial<Record<InboxSection, string>>
     ): Promise<void> {
-        return window.workspaceAPI.setGitHubBinding(workspaceId, binding);
+        return window.workspaceAPI.setActions(workspaceId, actions, sectionDefaults);
     },
 
     createGroup(workspaceId: string, fields: NewGroupFields): Promise<Group> {

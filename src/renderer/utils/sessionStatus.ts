@@ -33,21 +33,30 @@ const RANK: Record<SessionStatus, number> = {
   ready: 0,
 };
 
+/**
+ * The most urgent status in a set. Extracted so the Inbox row's "N sessions"
+ * dot and the workspace switcher's dot share one rule -- two rollups that
+ * disagreed about whether done outranks working would be a bug nobody
+ * could name.
+ */
+export function worstStatus(statuses: SessionStatus[]): SessionStatus {
+  let worst: SessionStatus = 'ready';
+  for (const status of statuses) {
+    if (RANK[status] > RANK[worst]) {
+      worst = status;
+    }
+  }
+  return worst;
+}
+
 /** The most urgent status among a workspace's sessions. */
 export function workspaceStatusFor(
   workspace: Workspace,
   terminals: Record<string, TerminalState>
 ): SessionStatus {
-  let worst: SessionStatus = 'ready';
-
-  for (const session of workspace.sessions) {
-    const status = sessionStatusFor(terminals[session.instanceId]);
-    if (RANK[status] > RANK[worst]) {
-      worst = status;
-    }
-  }
-
-  return worst;
+  return worstStatus(
+    workspace.sessions.map((session) => sessionStatusFor(terminals[session.instanceId]))
+  );
 }
 
 /**

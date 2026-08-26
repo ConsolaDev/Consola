@@ -3,31 +3,12 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { promisify } from 'util';
-import type { WorkItemRef } from '../shared/github';
+import type { GitProviderId } from '../shared/providers';
+import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
+import { getProviderDriver, type GitProviderDriver } from './providers';
 
 const execFileAsync = promisify(execFile);
-
-/**
- * `owner/repo` (lowercased) from a git remote URL, or null.
- *
- * Lowercased on both sides of every comparison because GitHub treats repo
- * names case-insensitively while remembering the display casing — a clone made
- * from a differently-cased URL must still resolve.
- */
-export function normalizeRemote(url: string): string | null {
-  const trimmed = url.trim().replace(/\.git$/, '');
-  if (!trimmed) return null;
-  // scp-style: git@github.com:owner/repo
-  const scp = trimmed.match(/^[^@\s/]+@[^:\s]+:(.+)$/);
-  // url-style: https://github.com/owner/repo or ssh://git@github.com/owner/repo
-  const web = trimmed.match(/^\w+:\/\/[^/]+\/(.+)$/);
-  const repoPath = (scp?.[1] ?? web?.[1])?.replace(/^\/+/, '');
-  if (!repoPath) return null;
-  const parts = repoPath.split('/').filter(Boolean);
-  if (parts.length < 2) return null;
-  return `${parts[parts.length - 2]}/${parts[parts.length - 1]}`.toLowerCase();
-}
 
 /** Spec naming: `<repo-basename>-<type>-<number>`, e.g. controller-app-pr-51. */
 export function worktreeDirName(workItem: WorkItemRef): string {
@@ -40,38 +21,62 @@ export function worktreeDirName(workItem: WorkItemRef): string {
  * remote repos to local clones.
  *
  * The mapping scans the workspace's scopes: a repo scope matches on its origin
- * remote; a container scope scans its direct children. Remote lookups are
- * cached per directory and invalidated when scopes change (wired to
- * WorkspaceService.onChange) — a `git remote get-url` per directory per scan
- * would otherwise run on every Inbox paint.
+ * remote; a container scope scans its direct children. Whether a remote URL
+ * names a repo is the provider's call (host, casing), so matching goes
+ * through the workspace's driver; the raw URL is what gets cached — per
+ * directory, invalidated when scopes change (wired to
+ * WorkspaceService.onChange) — because a `git remote get-url` per directory
+ * per scan would otherwise run on every Inbox paint, and a cached
+ * provider-derived value would go stale if the binding changed.
  */
 export class WorktreeService {
-  /** Directory -> normalized origin remote (or null for non-repos). */
+  /** Directory -> raw origin remote URL (or null for non-repos). */
   private readonly remoteCache = new Map<string, string | null>();
 
   constructor(
     private readonly root: string = process.env.CONSOLA_WORKTREES_DIR ??
       path.join(os.homedir(), '.consola', 'worktrees'),
-    private readonly ghBinary: () => Promise<string> = async () =>
-      process.env.CONSOLA_GH_PATH ?? 'gh'
+    private readonly resolveDriver: (id: GitProviderId) => GitProviderDriver = getProviderDriver
   ) {}
 
   public invalidate(): void {
     this.remoteCache.clear();
   }
 
-  /** Local clone for a remote repo, found through the workspace's scopes. */
+  /**
+   * Local clone for a remote repo, found through the workspace's scopes.
+   *
+   * An unbound workspace — or one bound to a provider this build lacks — has
+   * nothing to match against and resolves nothing; the launch path then
+   * offers the clone flow, which reports the real reason.
+   */
   public resolveRepo(workspace: Workspace, repo: string): string | null {
-    const target = repo.toLowerCase();
+    const driver = this.driverFor(workspace);
+    if (!driver) return null;
     for (const scope of workspace.scopes) {
-      if (this.originOf(scope.path) === target) return scope.path;
+      if (this.matches(driver, scope.path, repo)) return scope.path;
       if (!scope.isGitRepo) {
         for (const child of this.childDirs(scope.path)) {
-          if (this.originOf(child) === target) return child;
+          if (this.matches(driver, child, repo)) return child;
         }
       }
     }
     return null;
+  }
+
+  private driverFor(workspace: Workspace): GitProviderDriver | null {
+    const provider = workspace.provider;
+    if (!provider) return null;
+    try {
+      return this.resolveDriver(provider.id);
+    } catch {
+      return null; // A provider this build lacks: nothing can match, so nothing does.
+    }
+  }
+
+  private matches(driver: GitProviderDriver, dir: string, repo: string): boolean {
+    const origin = this.originOf(dir);
+    return origin !== null && driver.matchesRemote(origin, repo);
   }
 
   private childDirs(dir: string): string[] {
@@ -93,11 +98,11 @@ export class WorktreeService {
     if (cached !== undefined) return cached;
     let origin: string | null = null;
     try {
-      const url = execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
-        encoding: 'utf8',
-        stdio: ['ignore', 'pipe', 'pipe'],
-      });
-      origin = normalizeRemote(url);
+      origin =
+        execFileSync('git', ['-C', dir, 'remote', 'get-url', 'origin'], {
+          encoding: 'utf8',
+          stdio: ['ignore', 'pipe', 'pipe'],
+        }).trim() || null;
     } catch {
       origin = null; // Not a repo, or no origin — either way, not a match.
     }
@@ -163,9 +168,10 @@ export class WorktreeService {
    * worktree: silently doing so would point an agent's `gh` calls at the
    * wrong repository, including any review or comment it writes.
    *
-   * PRs: `git worktree add --detach` then `gh pr checkout <n>` inside it —
-   * gh owns the branch naming and the fetch, with GH_TOKEN in `env`.
-   * Issues: a `consola/issue-<n>` branch, created on first use, reused after.
+   * PRs: `git worktree add --detach`, then the provider's checkout inside it
+   * (for GitHub, `gh pr checkout <n>` — gh owns the branch naming and the
+   * fetch, with the token in `env`). Issues: a `consola/issue-<n>` branch,
+   * created on first use, reused after; there is nothing remote to fetch.
    */
   public async ensureWorktree(
     clonePath: string,
@@ -191,7 +197,7 @@ export class WorktreeService {
       // session running against the wrong commit and no error ever
       // surfacing again. Undo the add and let the original error travel up.
       try {
-        await this.run(await this.ghBinary(), dir, ['pr', 'checkout', String(workItem.number)], env);
+        await this.resolveDriver(workItem.provider).checkout(dir, workItem, env);
       } catch (error) {
         await this.removeCreatedWorktree(clonePath, dir);
         throw error;

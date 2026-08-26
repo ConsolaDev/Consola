@@ -22,7 +22,7 @@ export function MainContent() {
 
   // The Inbox takes the pane over; the active session keeps running behind it
   // ("terminals outlive their views") and returns on the next sidebar click.
-  if (isInboxOpen && workspace.github) {
+  if (isInboxOpen && workspace.provider) {
     return <InboxView workspace={workspace} />;
   }
 
