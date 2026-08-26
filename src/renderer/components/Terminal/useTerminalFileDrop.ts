@@ -43,15 +43,14 @@ export function formatDroppedPaths(paths: string[], cwd: string): string {
 /**
  * Read the on-disk paths of dropped files.
  *
- * `File.path` is an Electron addition to the web `File` type. It is empty for
- * drags that carry no file on disk — an image dragged out of a browser, say —
- * and those are skipped: there is nothing for Claude to read. Electron 29
- * replaces this with `webUtils.getPathForFile`, so an upgrade past 28 has to
- * move this lookup to the preload script.
+ * The web `File` type carries no path, so the answer comes from the preload
+ * script's `webUtils.getPathForFile`. It is empty for drags that carry no file
+ * on disk — an image dragged out of a browser, say — and those are skipped:
+ * there is nothing for Claude to read.
  */
 function readDroppedPaths(dataTransfer: DataTransfer): string[] {
     return Array.from(dataTransfer.files)
-        .map((file) => (file as File & { path?: string }).path ?? '')
+        .map((file) => terminalBridge.pathForFile(file))
         .filter((path) => path.length > 0);
 }
 

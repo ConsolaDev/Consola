@@ -43,6 +43,11 @@ export const terminalBridge = {
         window.terminalAPI.destroy(instanceId);
     },
 
+    /** The dropped file's path on disk, or `''` when the drag carried none. */
+    pathForFile(file: File): string {
+        return window.terminalAPI.pathForFile(file);
+    },
+
     onData(callback: (message: TerminalDataMessage) => void): () => void {
         return window.terminalAPI.onData(callback);
     },

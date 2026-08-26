@@ -142,6 +142,13 @@ export interface TerminalAPI {
     onExit: (callback: (message: TerminalExitMessage) => void) => () => void;
     onStatus: (callback: (message: TerminalStatusMessage) => void) => () => void;
     getStatusSnapshot: () => Promise<TerminalStatusSnapshot>;
+    /**
+     * The on-disk path of a dropped `File`, or `''` when the drag carried no
+     * file on disk. Only the preload script can answer this: Chromium's `File`
+     * has never exposed a path and Electron's own `File.path` addition was
+     * removed in Electron 32.
+     */
+    pathForFile: (file: File) => string;
 }
 
 /**

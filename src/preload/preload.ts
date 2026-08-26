@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
     TerminalCreateOptions,
     TerminalSnapshot,
@@ -99,6 +99,11 @@ contextBridge.exposeInMainWorld('terminalAPI', {
 
     onStatus: (callback: (message: TerminalStatusMessage) => void) =>
         subscribe(IPC_CHANNELS.TERMINAL_STATUS, callback),
+
+    // Drag-and-drop's one main-world question. `webUtils` is preload-only, and
+    // a `File` cannot cross the context bridge as a value -- the lookup has to
+    // happen here, against the object the renderer hands in.
+    pathForFile: (file: File): string => webUtils.getPathForFile(file),
 });
 
 // Expose harness queries to the renderer
