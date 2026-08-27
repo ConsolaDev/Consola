@@ -60,10 +60,10 @@ function SectionAddButton({
 /**
  * The workspace this window holds: Inbox · Groups · Scopes.
  *
- * A grouped session renders under its group, subtitled with the folder it
- * runs in; an ungrouped one renders under its scope. Group badges are derived from the
- * terminal status store on every render — progress is never stored. Which
- * workspace this is lives in the top bar.
+ * A grouped session renders under its group, subtitled with the scope it
+ * belongs to; an ungrouped one renders under its scope. Group badges are
+ * derived from the terminal status store on every render — progress is never
+ * stored. Which workspace this is lives in the top bar.
  *
  * Scopes and groups both fold shut, and both remember it across a relaunch;
  * the set of folded ids lives in the settings store, since it is a
@@ -150,10 +150,10 @@ export function Sidebar() {
     }
   }
 
-  // The scope a grouped session belongs to, which its row uses to say where
-  // it runs — its row no longer sits under a scope heading. The whole record
-  // goes down, not just the name: a session with a cwd of its own is
-  // subtitled by that folder instead, which needs the scope's path to compare.
+  // The scope a grouped session belongs to, which its row prints as its
+  // subtitle — it no longer sits under a scope heading to say so. The whole
+  // record goes down, not just the name: a session with a cwd of its own
+  // names that folder too, which needs the scope's path to compare.
   const scopeFor = (scopeId: string) =>
     workspace?.scopes.find((scope) => scope.id === scopeId);
 
