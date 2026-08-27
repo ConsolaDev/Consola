@@ -83,10 +83,10 @@ export function TerminalPanel({
             {/*
               * The drop zone is the frame rather than the xterm box: xterm sizes
               * itself from that box, and an overlay inside it would be measured
-              * as content. `data-file-drop-zone` is what tells the window-level
-              * guard to leave this subtree's drops alone.
+              * as content. Cancelling the dragover is what claims a file drag
+              * here, and the window-level guard swallows everything it leaves.
               */}
-            <div className="terminal-surface-frame" data-file-drop-zone {...dropProps}>
+            <div className="terminal-surface-frame" {...dropProps}>
                 <div ref={containerRef} className="terminal-surface" onClick={focus} />
 
                 {isDragging && (
