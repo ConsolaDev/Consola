@@ -275,10 +275,11 @@ test.describe('folding scopes and groups', () => {
     await expect(appScope.locator('.session-nav-item')).toHaveCount(1);
     await expect(groupRows.filter({ hasText: 'Controller boot' })).toHaveCount(1);
 
+    // Leaving sits beside the submenu, not inside it: the way out must not be
+    // filed under the list of places to go.
     const moved = rowFor(page, 'Controller boot');
     await moved.hover();
     await moved.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to group' }).click();
     await page.getByRole('menuitem', { name: 'Remove from group' }).click();
 
     await expect(groupRows).toHaveCount(1);

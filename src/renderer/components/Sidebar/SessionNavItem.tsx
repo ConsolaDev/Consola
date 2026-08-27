@@ -136,11 +136,13 @@ export function SessionNavItem({
     }
   };
 
-  // Dragging the row onto a group header moves it there; the ⋯ menu's "Move
-  // to group" does the same thing from the keyboard, so nothing is reachable
-  // only by dragging. Renaming turns it off so the pointer can select text in
-  // the input, and a conductor is never draggable — its group is the fleet it
-  // orchestrates, not a folder it happens to sit in.
+  // Dragging the row onto a group header moves it there, and dragging a
+  // grouped row back onto its own scope row takes it out again — one gesture
+  // both ways. The ⋯ menu's "Move to group" and "Remove from group" are the
+  // keyboard twins of each, so nothing is reachable only by dragging.
+  // Renaming turns it off so the pointer can select text in the input, and a
+  // conductor is never draggable — its group is the fleet it orchestrates,
+  // not a folder it happens to sit in.
   const draggable = !isRenaming && session.kind !== 'conductor';
 
   return (
@@ -152,7 +154,7 @@ export function SessionNavItem({
       onKeyDown={handleRowKeyDown}
       draggable={draggable}
       onDragStart={(event) => {
-        startSessionDrag(event, session.id);
+        startSessionDrag(event, session);
         setIsDragging(true);
       }}
       onDragEnd={() => setIsDragging(false)}
