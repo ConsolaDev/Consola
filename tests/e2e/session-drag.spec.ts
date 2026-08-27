@@ -4,11 +4,14 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { launchElectron } from './helpers/electron';
-import { SESSION_DRAG_TYPE } from '../../src/renderer/components/Sidebar/sessionDrag';
+import {
+  SESSION_DRAG_TYPE,
+  homeScopeType,
+} from '../../src/renderer/components/Sidebar/sessionDrag';
 
 /**
- * Dragging a session row onto a group header, guarded at the one point where
- * it silently broke: the window-level drop guard runs after the
+ * Dragging a session row into a group and back out again, guarded at the one
+ * point where it silently broke: the window-level drop guard runs after the
  * React tree and used to overwrite the target's `dropEffect` with `none`, which
  * makes Chromium refuse the drop without ever firing `drop` — no error, and
  * nothing on screen to say why.
@@ -17,10 +20,10 @@ import { SESSION_DRAG_TYPE } from '../../src/renderer/components/Sidebar/session
  * synthetic `drop` would prove nothing: the veto happens between `dragover` and
  * `drop`, so a hand-dispatched drop lands even when the real gesture cannot.
  * What decides the real gesture is the `dropEffect` standing at the end of the
- * `dragover`, so that is what this pins.
+ * `dragover`, so that is what these pin.
  *
- * The drag type comes from the source rather than being spelled out again: it
- * is the whole contract between the row and the target, and a copy here would
+ * The drag types come from the source rather than being spelled out again: they
+ * are the whole contract between the row and the target, and a copy here would
  * keep passing after a rename broke the app.
  */
 
@@ -70,20 +73,24 @@ async function dropEffectWrites(
   );
 }
 
-function makeFixture(): { containerDir: string; stubPath: string } {
+function makeFixture(): { containerDir: string; elsewhereDir: string; stubPath: string } {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-session-drag-'));
   const containerDir = path.join(root, 'repos');
   fs.mkdirSync(path.join(containerDir, 'repo-a', '.git'), { recursive: true });
   fs.mkdirSync(path.join(containerDir, 'repo-b', '.git'), { recursive: true });
 
+  // A second scope, so the test can watch a row that must never light up.
+  const elsewhereDir = path.join(root, 'elsewhere');
+  fs.mkdirSync(elsewhereDir, { recursive: true });
+
   const stubPath = path.join(root, 'stub-cli.sh');
   fs.writeFileSync(stubPath, "#!/bin/sh\nprintf '\\342\\235\\257 '\nsleep 300\n", {
     mode: 0o755,
   });
-  return { containerDir, stubPath };
+  return { containerDir, elsewhereDir, stubPath };
 }
 
-/** A workspace whose single scope holds a real group of two sessions. */
+/** A workspace with two scopes and a real group holding two sessions. */
 async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeFixture>) {
   await page.evaluate(
     ([binaryPath]) =>
@@ -113,6 +120,34 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
   await page.getByLabel(/Prompt/).fill('Say hello in each repo.');
   await page.getByRole('button', { name: /Create group · 2 sessions/ }).click();
   await expect(page.locator('.group-nav-header')).toBeVisible({ timeout: 15_000 });
+
+  await page.evaluate(
+    ([folder]) =>
+      window.workspaceAPI
+        .getSnapshot()
+        .then((snapshot) =>
+          window.workspaceAPI.addScope(
+            snapshot.workspaces.find((candidate) => candidate.name === 'fleet')!.id,
+            { name: 'elsewhere', path: folder as string, isGitRepo: false }
+          )
+        ),
+    [fixture.elsewhereDir] as const
+  );
+
+  const scopes = await page.evaluate(async () => {
+    const snapshot = await window.workspaceAPI.getSnapshot();
+    const workspace = snapshot.workspaces.find((candidate) => candidate.name === 'fleet')!;
+    const member = workspace.sessions.find((session) => session.groupId !== undefined)!;
+    return {
+      homeScopeId: member.scopeId,
+      otherScopeId: workspace.scopes.find((scope) => scope.id !== member.scopeId)!.id,
+    };
+  });
+
+  await expect(
+    page.locator(`[data-testid="scope-group-${scopes.otherScopeId}"] .scope-row`)
+  ).toBeVisible();
+  return scopes;
 }
 
 test('a group header keeps the move dropEffect it sets, so the drop is not vetoed', async () => {
@@ -129,6 +164,42 @@ test('a group header keeps the move dropEffect it sets, so the drop is not vetoe
 
     // The header claims the drag; nothing downstream may take it back.
     expect(writes).toEqual(['move']);
+  } finally {
+    await app.close();
+  }
+});
+
+test('only the scope a grouped session came from offers to take it back', async () => {
+  test.setTimeout(90_000);
+  const fixture = makeFixture();
+  const { app, page } = await launchElectron();
+
+  try {
+    const { homeScopeId, otherScopeId } = await seedGroupedWorkspace(page, fixture);
+    const grouped: [string, string][] = [
+      [SESSION_DRAG_TYPE, 'a-grouped-session'],
+      // Valueless, exactly as the row sets it: the meaning is in the name.
+      [homeScopeType(homeScopeId), ''],
+    ];
+
+    const home = await dropEffectWrites(
+      page,
+      `[data-testid="scope-group-${homeScopeId}"] .scope-row`,
+      grouped
+    );
+    const other = await dropEffectWrites(
+      page,
+      `[data-testid="scope-group-${otherScopeId}"] .scope-row`,
+      grouped
+    );
+
+    // Home takes it, and keeps the effect it chose.
+    expect(home).toEqual(['move']);
+    // Every other scope declines: it writes nothing at all, and the lone
+    // `none` is the window guard vetoing a drag no target claimed. A session's
+    // scope is fixed for its lifetime, so a scope row that lit up here would
+    // promise a move the record refuses to make.
+    expect(other).toEqual(['none']);
   } finally {
     await app.close();
   }

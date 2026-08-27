@@ -945,7 +945,7 @@
   }
 }
 
-/* --- Moving a session between groups ----------------------------------- */
+/* --- Moving a session in and out of a group ----------------------------- */
 
 /* The row being dragged stays legible but recedes, so the header it is headed
    for is the loudest thing on screen rather than the row leaving. */
@@ -953,10 +953,14 @@
   opacity: 0.45;
 }
 
-/* A group header ready to receive the row. Outlined rather than filled: the
-   header already uses its background for hover, and a drop target that looked
-   like a hover would say nothing about which of the two is happening. */
-.group-nav-header.drop-target {
+/* A group header ready to receive the row, and a scope row ready to take it
+   back. The same treatment for both: one gesture in either direction, so a
+   different highlight for the way out would suggest a different kind of move.
+   Outlined rather than filled: both rows already use their background for
+   hover, and a drop target that looked like a hover would say nothing about
+   which of the two is happening. */
+.group-nav-header.drop-target,
+.scope-row.drop-target {
   background: var(--color-bg-hover);
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;

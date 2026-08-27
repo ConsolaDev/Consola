@@ -1,7 +1,13 @@
+import { useState } from 'react';
 import { ChevronDown, ChevronRight, Folder, GitBranch, Plus, X } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { type Scope, type Session } from '../../stores/workspaceStore';
-import { activateSession, createQuickSession } from '../../utils/sessionActions';
+import {
+  activateSession,
+  createQuickSession,
+  moveSessionToGroup,
+} from '../../utils/sessionActions';
+import { droppedSessionId, isSessionFromScope, leftDropTarget } from './sessionDrag';
 import { SessionNavItem } from './SessionNavItem';
 
 interface ScopeNavItemProps {
@@ -23,6 +29,13 @@ interface ScopeNavItemProps {
  * both a tab switch and a relaunch, the way the sidebar's width does. A
  * folded scope keeps its session count on the row — folded, the count is the
  * only thing left saying anything is in there.
+ *
+ * The row is also where a grouped session comes home: dropping one here is the
+ * inverse of dropping it on a group header, and the only drop a scope accepts.
+ * A scope never takes a session that belongs to a different one — that would
+ * be a scope change, which the record refuses — so every other row stays inert
+ * while this one lights up, and the highlight only ever promises what the
+ * write will actually do.
  */
 export function ScopeNavItem({
   scope,
@@ -36,13 +49,43 @@ export function ScopeNavItem({
     state.collapsedSidebarSections.includes(scope.id)
   );
   const toggleSidebarSection = useSettingsStore((state) => state.toggleSidebarSection);
+  const expandSidebarSection = useSettingsStore((state) => state.expandSidebarSection);
+  const [isDropTarget, setIsDropTarget] = useState(false);
+
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDropTarget(false);
+    const sessionId = droppedSessionId(event);
+    if (!sessionId) return;
+    // Presence semantics: the key is sent, and undefined, which main reads as
+    // "leave the group" — the same single write the ⋯ menu makes.
+    void moveSessionToGroup(workspaceId, sessionId, undefined);
+    // Leaving a group reveals nothing on its own, deliberately. A drop is the
+    // exception: the pointer named this scope, and a row that vanished into a
+    // folded one would read as a drop that silently did nothing.
+    expandSidebarSection(scope.id);
+  };
 
   return (
     <div className="scope-group" data-testid={`scope-group-${scope.id}`}>
       {/* The row collapses the scope but also hosts the add and remove
           buttons, and a <button> may not contain another button — hence a
           row, exactly as a group header solves the same problem. */}
-      <div className="scope-row" title={scope.path}>
+      <div
+        className={`scope-row ${isDropTarget ? 'drop-target' : ''}`}
+        title={scope.path}
+        onDragOver={(event) => {
+          if (!isSessionFromScope(event, scope.id)) return;
+          // Without preventDefault the browser refuses the drop outright.
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setIsDropTarget(true);
+        }}
+        onDragLeave={(event) => {
+          if (leftDropTarget(event)) setIsDropTarget(false);
+        }}
+        onDrop={handleDrop}
+      >
         <button
           className="scope-row-toggle"
           aria-expanded={!collapsed}

@@ -1,6 +1,15 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Boxes, Check, Link2, MoreHorizontal, Pencil, Trash2, Unlink } from 'lucide-react';
+import {
+  Boxes,
+  Check,
+  CornerUpLeft,
+  Link2,
+  MoreHorizontal,
+  Pencil,
+  Trash2,
+  Unlink,
+} from 'lucide-react';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import type { Group, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
@@ -32,6 +41,13 @@ interface SessionActionsMenuProps {
  * are offered: an archived one hands its members back to their scopes, so
  * moving into one would look like the move had failed. A conductor is not
  * offered it either, since its group is what it orchestrates.
+ *
+ * "Remove from group" sits beside that submenu rather than inside it. Leaving
+ * is not a destination, and filed under "Move to group" it read as one more
+ * group to pick — you had to open the list of places to go to find the way
+ * out. It is also the twin of dropping a row back on its own scope row, and
+ * the only route left for a session whose scope record is gone: with no scope
+ * row on screen, there is nothing to drag it to.
  */
 export function SessionActionsMenu({ session, workspaceId, onRename, onDelete }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
@@ -141,17 +157,18 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete }:
                   <DropdownMenu.Item className="dropdown-item" onSelect={handleNewGroup}>
                     <span>New group…</span>
                   </DropdownMenu.Item>
-                  {session.groupId !== undefined && (
-                    <DropdownMenu.Item
-                      className="dropdown-item"
-                      onSelect={() => handleMove(undefined)}
-                    >
-                      <span>Remove from group</span>
-                    </DropdownMenu.Item>
-                  )}
                 </DropdownMenu.SubContent>
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
+          )}
+          {canRegroup && session.groupId !== undefined && (
+            <DropdownMenu.Item
+              className="dropdown-item"
+              onSelect={() => handleMove(undefined)}
+            >
+              <CornerUpLeft size={14} />
+              <span>Remove from group</span>
+            </DropdownMenu.Item>
           )}
           {canLink &&
             (session.workItem ? (
