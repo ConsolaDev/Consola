@@ -45,7 +45,7 @@ function seedWorkspaceState(userDataDir: string, scopeDir: string): string {
                 createdAt: now,
               },
             ],
-            groups: [],
+            groups: [{ id: 'g-reviews', name: 'PR reviews', createdAt: now }],
             provider: { id: 'github', accountLogin: 'SymJavi', org: 'sympower' },
             actions: [{ id: 'a-review', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }],
             sectionDefaults: {},
@@ -66,6 +66,7 @@ interface SeededAction {
   id?: string;
   name?: string;
   prompt?: string;
+  groupId?: string;
 }
 
 /** Read back the persisted actions list, for asserting a write actually landed. */
@@ -261,6 +262,67 @@ test('the sidebar gear opens the global modal; the workspace modal commits a ren
     await expect(confirm).toBeHidden();
     await expect(modal).toBeVisible();
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Danger zone');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('the Groups panel makes a group without leaving Settings', async () => {
+  test.setTimeout(60_000);
+  const { page, cleanup } = await launchSeeded();
+  try {
+    await holdWorkspace(page);
+    await switcherTrigger(page).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+
+    const modal = page.getByRole('dialog');
+    await modal.getByRole('button', { name: 'Groups', exact: true }).click();
+    await expect(modal.locator('.ws-row-name')).toHaveCount(1);
+
+    await modal.getByRole('button', { name: 'Add group' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New group' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Name').fill('CI fixes');
+    await dialog.getByRole('button', { name: 'Create' }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(modal.locator('.ws-row-name')).toHaveCount(2);
+    await expect(modal.locator('.ws-row-name').filter({ hasText: 'CI fixes' })).toHaveCount(1);
+  } finally {
+    await cleanup();
+  }
+});
+
+test('an action can be pointed at a group, and says so on its row', async () => {
+  test.setTimeout(60_000);
+  const { page, stateFile, cleanup } = await launchSeeded();
+  try {
+    await holdWorkspace(page);
+    await switcherTrigger(page).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+
+    const modal = page.getByRole('dialog');
+    await modal.getByRole('button', { name: 'Actions', exact: true }).click();
+    const actionsPanel = modal.getByTestId('actions-panel');
+    // Nothing is routed to start with, so no row says where it lands.
+    await expect(actionsPanel.locator('.ws-action-group')).toHaveCount(0);
+
+    await actionsPanel.getByRole('button', { name: 'Edit Review', exact: true }).click();
+    await actionsPanel
+      .getByLabel('Group this action lands sessions in')
+      .selectOption({ label: 'PR reviews' });
+    await actionsPanel.getByRole('button', { name: 'Save', exact: true }).click();
+
+    await expect(actionsPanel.locator('.ws-action-group')).toHaveText('→ PR reviews');
+    await expect
+      .poll(() => actionsIn(stateFile).find((action) => action.id === 'a-review')?.groupId, {
+        timeout: 10_000,
+      })
+      .toBe('g-reviews');
+
+    // The group side says the same thing from the other direction.
+    await modal.getByRole('button', { name: 'Groups', exact: true }).click();
+    await expect(modal.locator('.ws-action-group')).toHaveText('← Review');
   } finally {
     await cleanup();
   }

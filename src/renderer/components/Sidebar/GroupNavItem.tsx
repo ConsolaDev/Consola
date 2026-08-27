@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Archive, Boxes, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
@@ -6,7 +7,8 @@ import { useWorkspaceStore, type Scope, type Session } from '../../stores/worksp
 import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
 import { formatGroupBadge, groupCountsFor } from '../../utils/groupCounts';
-import { activateSession } from '../../utils/sessionActions';
+import { activateSession, moveSessionToGroup } from '../../utils/sessionActions';
+import { droppedSessionId, isSessionDrag, leftDropTarget } from './sessionDrag';
 import { SessionNavItem } from './SessionNavItem';
 
 interface GroupNavItemProps {
@@ -26,6 +28,11 @@ interface GroupNavItemProps {
  * is derived, never stored (see groupCounts.ts). Folded state, by contrast,
  * is a preference: it lives in the settings store keyed by group id, in the
  * same set the scope rows use, so a fold outlives a relaunch.
+ *
+ * The header is also the sidebar's only drop target: dropping a session row
+ * on it moves that session here. Scope rows deliberately accept nothing, since
+ * a session's scope is fixed for its lifetime and a scope that lit up on hover
+ * would promise a move the record refuses to make.
  */
 export function GroupNavItem({
   group,
@@ -40,6 +47,7 @@ export function GroupNavItem({
   const toggleSidebarSection = useSettingsStore((state) => state.toggleSidebarSection);
   const terminals = useTerminalStore((state) => state.terminals);
   const counts = groupCountsFor(sessions, terminals);
+  const [isDropTarget, setIsDropTarget] = useState(false);
 
   // The conductor sits at the head of its group's member list — the brain
   // above its workers — while the workers keep their existing relative order.
@@ -74,11 +82,35 @@ export function GroupNavItem({
     }
   };
 
+  const handleDrop = (event: React.DragEvent) => {
+    event.preventDefault();
+    setIsDropTarget(false);
+    const sessionId = droppedSessionId(event);
+    if (!sessionId) return;
+    // Dropping a row back where it started should cost nothing, rather than a
+    // write whose only effect is a re-render.
+    if (sessions.some((member) => member.id === sessionId)) return;
+    void moveSessionToGroup(workspaceId, sessionId, group.id);
+  };
+
   return (
     <div className="group-nav-item">
       {/* The header collapses the group but also hosts the actions trigger,
           and a <button> may not contain another button — hence a row. */}
-      <div className="group-nav-header">
+      <div
+        className={`group-nav-header ${isDropTarget ? 'drop-target' : ''}`}
+        onDragOver={(event) => {
+          if (!isSessionDrag(event)) return;
+          // Without preventDefault the browser refuses the drop outright.
+          event.preventDefault();
+          event.dataTransfer.dropEffect = 'move';
+          setIsDropTarget(true);
+        }}
+        onDragLeave={(event) => {
+          if (leftDropTarget(event)) setIsDropTarget(false);
+        }}
+        onDrop={handleDrop}
+      >
         <button
           className="group-nav-toggle"
           aria-expanded={!collapsed}

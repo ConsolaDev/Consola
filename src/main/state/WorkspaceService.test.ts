@@ -498,6 +498,54 @@ describe('WorkspaceService', () => {
     ]);
   });
 
+  it('setActions persists an action pointed at one of the workspace\'s groups', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const group = service.createGroup(workspace.id, { name: 'PR reviews' });
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.', groupId: group.id },
+    ];
+
+    service.setActions(workspace.id, actions, {});
+
+    expect(build().getAll()[0].actions).toEqual(actions);
+  });
+
+  it('setActions rejects an action pointed at a group the workspace does not have', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.', groupId: 'g-gone' },
+    ];
+
+    expect(() => service.setActions(workspace.id, actions, {})).toThrow(
+      '"Review" lands in a group that does not exist.'
+    );
+    expect(service.getAll()[0].actions).toEqual([]);
+  });
+
+  it('setActions accepts an archived group as a target — launching there restores it', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const group = service.createGroup(workspace.id, { name: 'PR reviews' });
+    service.archiveGroup(workspace.id, group.id);
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.', groupId: group.id },
+    ];
+
+    service.setActions(workspace.id, actions, {});
+
+    expect(service.getAll()[0].actions[0].groupId).toBe(group.id);
+  });
+
+  it('setActions leaves an unrouted action without a groupId key, so it round-trips as before', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    service.setActions(
+      workspace.id,
+      [{ id: 'a1', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' }],
+      {}
+    );
+
+    expect(service.getAll()[0].actions[0]).not.toHaveProperty('groupId');
+  });
+
   it('createGroup and archiveGroup manage the group list', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
 

@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Inbox as InboxIcon, Plus, Settings } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -10,10 +10,52 @@ import { useSettings } from '../../contexts/SettingsContext';
 import { SessionNavItem } from './SessionNavItem';
 import { GroupNavItem } from './GroupNavItem';
 import { ScopeNavItem } from './ScopeNavItem';
+import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { sidebarSectionForSession } from './sidebarSections';
 import { activateSession } from '../../utils/sessionActions';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import './styles.css';
+
+/**
+ * The ＋ at the right of a section heading.
+ *
+ * Extracted because Groups and Scopes both have one and the tooltip
+ * boilerplate is four nested elements — written twice, the two would drift on
+ * placement or delay, and the sidebar's two headings would stop looking like
+ * the same kind of thing.
+ */
+function SectionAddButton({
+  label,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip.Provider delayDuration={200}>
+      <Tooltip.Root>
+        <Tooltip.Trigger asChild>
+          <button
+            className="sidebar-section-button"
+            onClick={onClick}
+            disabled={disabled}
+            aria-label={label}
+          >
+            <Plus size={14} />
+          </button>
+        </Tooltip.Trigger>
+        <Tooltip.Portal>
+          <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
+            {label}
+            <Tooltip.Arrow className="tooltip-arrow" />
+          </Tooltip.Content>
+        </Tooltip.Portal>
+      </Tooltip.Root>
+    </Tooltip.Provider>
+  );
+}
 
 /**
  * The workspace this window holds: Inbox · Groups · Scopes.
@@ -26,6 +68,10 @@ import './styles.css';
  * Scopes and groups both fold shut, and both remember it across a relaunch;
  * the set of folded ids lives in the settings store, since it is a
  * preference rather than anything the workspace record owns.
+ *
+ * The Groups heading is drawn even with no groups under it, so its ＋ is
+ * there to make the first one — a heading that only appeared once you had a
+ * group could never be the place you went to create one.
  */
 export function Sidebar() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -36,6 +82,7 @@ export function Sidebar() {
   const { openSettings } = useSettings();
 
   const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId) ?? null;
+  const [isCreatingGroup, setIsCreatingGroup] = useState(false);
 
   const isInboxOpen = useNavigationStore((state) => state.isInboxOpen);
   const openInbox = useNavigationStore((state) => state.openInbox);
@@ -139,16 +186,6 @@ export function Sidebar() {
     }
   };
 
-  const addScopeButton = (
-    <button
-      className="sidebar-section-button"
-      onClick={() => void handleAddScope()}
-      disabled={!workspace}
-    >
-      <Plus size={14} />
-    </button>
-  );
-
   return (
     <aside className="sidebar">
       {workspace?.provider && (
@@ -163,10 +200,11 @@ export function Sidebar() {
           </button>
         </div>
       )}
-      {workspace && groups.length > 0 && (
+      {workspace && (
         <div className="sidebar-section sidebar-section-groups">
           <div className="sidebar-section-header">
             <span className="sidebar-section-title">Groups</span>
+            <SectionAddButton label="Add group" onClick={() => setIsCreatingGroup(true)} />
           </div>
           <nav className="session-list">
             {groups.map((group) => (
@@ -185,17 +223,11 @@ export function Sidebar() {
       <div className="sidebar-section">
         <div className="sidebar-section-header">
           <span className="sidebar-section-title">Scopes</span>
-          <Tooltip.Provider delayDuration={200}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>{addScopeButton}</Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
-                  Add scope
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
+          <SectionAddButton
+            label="Add scope"
+            onClick={() => void handleAddScope()}
+            disabled={!workspace}
+          />
         </div>
         <nav className="session-list">
           {workspace &&
@@ -230,6 +262,10 @@ export function Sidebar() {
             ))}
         </nav>
       </div>
+
+      {workspace && isCreatingGroup && (
+        <NewGroupDialog workspaceId={workspace.id} onClose={() => setIsCreatingGroup(false)} />
+      )}
 
       <div className="sidebar-footer">
         <button className="sidebar-settings-button" onClick={openSettings}>

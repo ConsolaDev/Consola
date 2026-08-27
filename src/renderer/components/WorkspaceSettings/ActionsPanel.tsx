@@ -23,6 +23,8 @@ interface Draft {
   name: string;
   appliesTo: ItemType[];
   prompt: string;
+  /** '' is "no group" — a <select> has no way to hold undefined. */
+  groupId: string;
 }
 
 interface Editing {
@@ -37,6 +39,28 @@ const APPLIES_LABELS: Record<ItemType, string> = { pr: 'Pull requests', issue: '
 
 function appliesSummary(appliesTo: ItemType[]): string {
   return appliesTo.map((type) => (type === 'pr' ? 'PRs' : 'Issues')).join(' · ');
+}
+
+/**
+ * The groups an action may be pointed at: the live ones, plus the archived
+ * group this action already targets.
+ *
+ * That last one matters. Archived groups are valid targets — launching into
+ * one restores it — so listing only live groups would leave the select with
+ * a value it has no option for, and the next save of an unrelated field
+ * would silently drop the routing. Showing it, labelled, keeps the edit
+ * honest without offering archived groups to anyone else.
+ */
+function groupOptionsFor(
+  groups: Workspace['groups'],
+  selectedId: string
+): Array<{ id: string; label: string }> {
+  return groups
+    .filter((group) => !group.archivedAt || group.id === selectedId)
+    .map((group) => ({
+      id: group.id,
+      label: group.archivedAt ? `${group.name} (archived)` : group.name,
+    }));
 }
 
 /** What is wrong with a draft, or null when it can be saved. Mirrors main's rules. */
@@ -96,6 +120,10 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
   const actions = workspace.actions;
   const defaults = workspace.sectionDefaults;
 
+  /** The name of the group an action lands in, or undefined when it lands in none. */
+  const landingName = (action: WorkItemAction): string | undefined =>
+    workspace.groups.find((group) => group.id === action.groupId)?.name;
+
   // Returns the rejection message, or null on success. A plain return value
   // rather than thrown/caught state: restoreDefaults needs the message
   // synchronously, in the same tick, to decide whether to throw it onward to
@@ -128,14 +156,19 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
   const startEdit = (action: WorkItemAction) =>
     setEditing({
       id: action.id,
-      draft: { name: action.name, appliesTo: [...action.appliesTo], prompt: action.prompt },
+      draft: {
+        name: action.name,
+        appliesTo: [...action.appliesTo],
+        prompt: action.prompt,
+        groupId: action.groupId ?? '',
+      },
       isNew: false,
     });
 
   const startAdd = () =>
     setEditing({
       id: generateId(),
-      draft: { name: '', appliesTo: ['pr'], prompt: '' },
+      draft: { name: '', appliesTo: ['pr'], prompt: '', groupId: '' },
       isNew: true,
     });
 
@@ -164,6 +197,9 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
       name: editing.draft.name.trim(),
       appliesTo: editing.draft.appliesTo,
       prompt: editing.draft.prompt,
+      // Omitted rather than set to '': main persists the key verbatim, and
+      // an empty string is not a group id.
+      ...(editing.draft.groupId ? { groupId: editing.draft.groupId } : {}),
     };
     const nextActions = editing.isNew
       ? [...actions, record]
@@ -225,6 +261,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
 
   const renderEditor = (current: Editing) => {
     const headerType: ItemType = current.draft.appliesTo.includes('pr') ? 'pr' : 'issue';
+    const groupOptions = groupOptionsFor(workspace.groups, current.draft.groupId);
     return (
       <div className="ws-action-edit" key={current.id} data-action-id={current.id}>
         <div className="ws-field">
@@ -258,6 +295,32 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
               );
             })}
           </div>
+        </div>
+        <div className="ws-field">
+          <label className="ws-field-label" htmlFor={`action-group-${current.id}`}>
+            Lands in
+          </label>
+          {groupOptions.length === 0 ? (
+            <p className="ws-panel-hint">
+              No groups yet — add one in the Groups section, then sessions started by this action
+              can land in it.
+            </p>
+          ) : (
+            <select
+              id={`action-group-${current.id}`}
+              className="ws-select"
+              aria-label="Group this action lands sessions in"
+              value={current.draft.groupId}
+              onChange={(event) => updateDraft({ groupId: event.target.value })}
+            >
+              <option value="">No group — its scope</option>
+              {groupOptions.map((option) => (
+                <option key={option.id} value={option.id}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+          )}
         </div>
         <div className="ws-field">
           <span className="ws-field-label">Context header · sent first by {providerName}</span>
@@ -341,12 +404,14 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
       </div>
       <p className="ws-panel-hint">
         What you can start on an Inbox item. The section default is the highlighted button in the
-        detail pane; drag to reorder. Placeholders: <code>{PLACEHOLDERS}</code>.
+        detail pane; drag to reorder. An action can land its sessions in a group, so they arrive
+        together instead of among everything else. Placeholders: <code>{PLACEHOLDERS}</code>.
       </p>
 
       <div className="ws-row-list">
         {actions.map((action, index) => {
           if (editing && !editing.isNew && editing.id === action.id) return renderEditor(editing);
+          const landsIn = landingName(action);
           return (
             <div
               key={action.id}
@@ -380,6 +445,11 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
               </span>
               <span className="ws-row-name ws-action-name">{action.name}</span>
               <span className="ws-row-chip">{appliesSummary(action.appliesTo)}</span>
+              {landsIn && (
+                <span className="ws-row-chip ws-action-group" title="Sessions land in this group">
+                  → {landsIn}
+                </span>
+              )}
               <span className="ws-row-path ws-action-preview" title={action.prompt}>
                 {action.prompt}
               </span>

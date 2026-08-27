@@ -72,6 +72,7 @@ function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
 
 function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> = {}) {
   const created: NewSessionFields[] = [];
+  const restored: string[] = [];
   let minted = 0;
   const deps: WorkItemLaunchDeps = {
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
@@ -92,9 +93,12 @@ function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> =
     ensureWorktree: vi.fn(async () => '/worktrees/controller-app-pr-51'),
     composeEnv: vi.fn(async () => ({ STUB_TOKEN: 'gho_test' })),
     findItem: () => item51,
+    restoreGroup: (_workspaceId, groupId) => {
+      restored.push(groupId);
+    },
     ...overrides,
   };
-  return { deps, created };
+  return { deps, created, restored };
 }
 
 describe('launchWorkItem', () => {
@@ -316,6 +320,70 @@ describe('launchWorkItem', () => {
     if (!result1.ok || !result2.ok) return;
     expect(result2.session.id).not.toBe(result1.session.id);
     expect(created[0].cwd).toBe(created[1].cwd);
+  });
+});
+
+describe('launchWorkItem — the group an action lands in', () => {
+  const reviews = { id: 'g-reviews', name: 'PR reviews', createdAt: 1 };
+  const routed = { ...review, groupId: reviews.id };
+
+  it('lands the session in the action\'s group', async () => {
+    const { deps, created, restored } = makeDeps(
+      makeWorkspace({ actions: [routed], groups: [reviews] })
+    );
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
+    expect(result.ok).toBe(true);
+    expect(created[0].groupId).toBe('g-reviews');
+    expect(restored).toEqual([]);
+  });
+
+  it('leaves an unrouted action landing under its scope, with no groupId key at all', async () => {
+    const { deps, created } = makeDeps(makeWorkspace({ groups: [reviews] }));
+    await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    expect(created[0]).not.toHaveProperty('groupId');
+  });
+
+  it('restores an archived target so the arrival is visible under its heading', async () => {
+    const archived = { ...reviews, archivedAt: 1_700_000_000_000 };
+    const { deps, created, restored } = makeDeps(
+      makeWorkspace({ actions: [routed], groups: [archived] })
+    );
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
+    expect(result.ok).toBe(true);
+    expect(restored).toEqual(['g-reviews']);
+    expect(created[0].groupId).toBe('g-reviews');
+  });
+
+  it('still launches, ungrouped, when the target group is gone', async () => {
+    const { deps, created, restored } = makeDeps(makeWorkspace({ actions: [routed], groups: [] }));
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
+    expect(result.ok).toBe(true);
+    expect(created[0]).not.toHaveProperty('groupId');
+    expect(restored).toEqual([]);
+  });
+
+  it('never restores a group when the launch fails before the record is made', async () => {
+    const archived = { ...reviews, archivedAt: 1_700_000_000_000 };
+    const { deps, created, restored } = makeDeps(
+      makeWorkspace({ actions: [routed], groups: [archived] }),
+      {
+        ensureWorktree: vi.fn(async () => {
+          throw new Error('git said no');
+        }),
+      }
+    );
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
+    expect(result).toEqual({ ok: false, reason: 'error', message: 'git said no' });
+    expect(created).toHaveLength(0);
+    expect(restored).toEqual([]);
+  });
+
+  it('lands a custom prompt ungrouped — it is nobody\'s configured verb', async () => {
+    const { deps, created } = makeDeps(makeWorkspace({ actions: [routed], groups: [reviews] }));
+    const result = await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: 'Just look at it.' });
+    expect(result.ok).toBe(true);
+    expect(created[0].workItemAction).toBe('Custom prompt');
+    expect(created[0]).not.toHaveProperty('groupId');
   });
 });
 
