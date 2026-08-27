@@ -1,15 +1,22 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import type { Group } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import './styles.css';
 
 interface NewGroupDialogProps {
   workspaceId: string;
   onClose: () => void;
+  /**
+   * The group just created, before the dialog closes. Lets a caller that
+   * opened this to reach a group it does not have yet — "Move to group ▸ New
+   * group…" — use it, instead of creating one and leaving the session behind.
+   */
+  onCreated?: (group: Group) => void | Promise<void>;
 }
 
 /** Name it, and that is all: a group is a folder for humans. */
-export function NewGroupDialog({ workspaceId, onClose }: NewGroupDialogProps) {
+export function NewGroupDialog({ workspaceId, onClose, onCreated }: NewGroupDialogProps) {
   const [name, setName] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -20,7 +27,10 @@ export function NewGroupDialog({ workspaceId, onClose }: NewGroupDialogProps) {
     setError(null);
     setSubmitting(true);
     try {
-      await useWorkspaceStore.getState().createGroup(workspaceId, { name: trimmed });
+      const group = await useWorkspaceStore.getState().createGroup(workspaceId, { name: trimmed });
+      // Inside the try on purpose: a callback that fails leaves the dialog
+      // open with its message, rather than closing over a half-done move.
+      await onCreated?.(group);
       onClose();
     } catch (err) {
       // Keep the dialog open so the name is not lost, and say what happened

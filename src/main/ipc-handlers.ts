@@ -437,6 +437,7 @@ export function setupIpcHandlers(): boolean {
         ensureWorktree: (clonePath, item, env) => worktrees.ensureWorktree(clonePath, item, env),
         composeEnv: composeProviderEnv,
         findItem: (id, ref) => inbox.findItem(id, ref),
+        restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
     };
     // Coalesced (not just called directly) so two overlapping launches of the
     // same item and action can never mint two sessions for it — see

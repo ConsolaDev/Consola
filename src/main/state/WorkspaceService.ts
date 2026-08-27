@@ -212,19 +212,29 @@ export class WorkspaceService {
    * shows the message inline — and nothing is committed. Records are rebuilt
    * from the allow-list of fields, updateFilters-style: this payload arrives
    * over IPC and is persisted verbatim.
+   *
+   * The workspace is looked up before validating rather than only at commit
+   * time, because an action's `groupId` can only be checked against the
+   * groups this workspace actually has.
    */
   public setActions(
     workspaceId: string,
     actions: WorkItemAction[],
     sectionDefaults: Partial<Record<InboxSection, string>>
   ): void {
-    const verdict = validateActionsWrite({ actions, sectionDefaults });
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace) throw new Error(`No workspace ${workspaceId}`);
+    const knownGroupIds = new Set(workspace.groups.map((group) => group.id));
+    const verdict = validateActionsWrite({ actions, sectionDefaults }, knownGroupIds);
     if (!verdict.ok) throw new Error(verdict.message);
-    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt }) => ({
+    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId }) => ({
       id,
       name,
       appliesTo: [...appliesTo],
       prompt,
+      // Presence-preserving: an unrouted action must persist without the
+      // key at all, so it round-trips byte-for-byte as it did before.
+      ...(groupId !== undefined ? { groupId } : {}),
     }));
     const defaults: Partial<Record<InboxSection, string>> = {};
     for (const [section, actionId] of Object.entries(sectionDefaults)) {

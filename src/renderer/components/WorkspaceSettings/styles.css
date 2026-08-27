@@ -176,6 +176,18 @@
   white-space: nowrap;
 }
 
+/* The routing chip — "→ PR reviews" on an action, "← Review" on a group.
+   Tinted rather than outlined like its neighbours, because it is the one
+   chip that names a relationship to something else on screen rather than a
+   property of the row it sits on. */
+.ws-row-chip.ws-action-group {
+  border-color: color-mix(in srgb, var(--color-accent) 35%, transparent);
+  color: var(--color-accent);
+  max-width: 16ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .ws-row-action {
   display: flex;
   align-items: center;

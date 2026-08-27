@@ -231,6 +231,79 @@ test.describe('folding scopes and groups', () => {
     await expect(page.locator('.group-nav-count')).toHaveText('1');
   });
 
+  /** A sidebar row, by the name it renders. */
+  const rowFor = (target: Page, name: string) =>
+    target.locator('.session-nav-item').filter({ hasText: name });
+
+  test('the Groups heading makes a group, the way the Scopes heading adds a scope', async () => {
+    await expect(page.locator('.group-nav-item')).toHaveCount(1);
+
+    await page.getByRole('button', { name: 'Add group' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New group' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Name').fill('PR reviews');
+    await dialog.getByRole('button', { name: 'Create' }).click();
+
+    await expect(dialog).toBeHidden();
+    await expect(page.locator('.group-nav-item')).toHaveCount(2);
+    await expect(page.locator('.group-nav-name').filter({ hasText: 'PR reviews' })).toHaveCount(1);
+  });
+
+  test('the ⋯ menu moves a session into a group and back out again', async () => {
+    const appScope = scopeGroup(page, 'scope-app');
+    const groupRows = page.locator('.group-nav-item .session-nav-item');
+
+    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
+    await expect(groupRows).toHaveCount(1);
+
+    // Folded first: a move into a group nobody can see must unfold it, or the
+    // row would appear to have been deleted rather than moved.
+    const groupToggle = page.locator('.group-nav-toggle');
+    await groupToggle.click();
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
+
+    const row = rowFor(page, 'Controller boot');
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Move to group' }).click();
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+
+    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
+    // The group owns the row now, so the scope it still runs in stops
+    // drawing it — the partition keeps a session on exactly one row.
+    await expect(groupRows).toHaveCount(2);
+    await expect(appScope.locator('.session-nav-item')).toHaveCount(1);
+    await expect(groupRows.filter({ hasText: 'Controller boot' })).toHaveCount(1);
+
+    const moved = rowFor(page, 'Controller boot');
+    await moved.hover();
+    await moved.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Move to group' }).click();
+    await page.getByRole('menuitem', { name: 'Remove from group' }).click();
+
+    await expect(groupRows).toHaveCount(1);
+    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
+  });
+
+  test('a move survives a relaunch — it is a record, not a view preference', async () => {
+    test.setTimeout(60_000);
+    const row = rowFor(page, 'Bump deps');
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Move to group' }).click();
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(2);
+
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+
+    await expect(
+      page.locator('.group-nav-item .session-nav-item').filter({ hasText: 'Bump deps' })
+    ).toHaveCount(1);
+    await expect(scopeGroup(page, 'scope-lib').locator('.session-nav-item')).toHaveCount(0);
+  });
+
   test('a fold survives a relaunch', async () => {
     test.setTimeout(60_000);
     await scopeGroup(page, 'scope-app').locator('.scope-row-toggle').click();

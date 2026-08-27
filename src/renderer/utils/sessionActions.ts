@@ -1,4 +1,5 @@
 import { useNavigationStore } from '../stores/navigationStore';
+import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { terminalBridge } from '../services/terminalBridge';
@@ -150,6 +151,42 @@ export async function deleteSessionCompletely(
 export function restartSession(instanceId: string): void {
   terminalBridge.restart(instanceId);
   useTerminalStore.getState().setState(instanceId, { hasExited: false });
+}
+
+/**
+ * Move a session into a group, or out of every group with `undefined`.
+ *
+ * One write either way. `groupId` clears by presence — the key is sent and
+ * explicitly undefined, which is what main reads as "leave the group" — so
+ * this must not be shortened to an object built by spreading a defined value
+ * in, or removal would silently become a no-op.
+ *
+ * The destination is unfolded on success, for the same reason activating a
+ * session reveals its section: a row that moved into a folded group would
+ * vanish from the sidebar, and a move that looks like a delete is worse than
+ * no move at all.
+ *
+ * Shared by the ⋯ menu and the sidebar's drag-and-drop so the two cannot
+ * drift on what moving a session means.
+ */
+export async function moveSessionToGroup(
+  workspaceId: string,
+  sessionId: string,
+  groupId: string | undefined
+): Promise<void> {
+  try {
+    await useWorkspaceStore.getState().updateSession(workspaceId, sessionId, { groupId });
+  } catch (error) {
+    // The row visibly staying where it was is the signal, as it is for the
+    // menu's other writes.
+    console.error('Failed to move session to group', error);
+    return;
+  }
+  // Leaving a group needs no reveal: the scope the row falls back to is
+  // unfolded by the same gesture only if the user folded it themselves, and
+  // prising that open would undo a choice they made about a section this
+  // move never touched.
+  if (groupId) useSettingsStore.getState().expandSidebarSection(groupId);
 }
 
 /** Rename a session, ignoring a blank or unchanged name. */
