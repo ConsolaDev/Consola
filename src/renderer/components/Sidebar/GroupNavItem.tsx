@@ -15,14 +15,14 @@ interface GroupNavItemProps {
   group: Group;
   sessions: Session[];
   workspaceId: string;
-  /** The scope a member session runs under, for its subtitle. */
+  /** The scope a member session belongs to, for its subtitle. */
   scopeFor: (scopeId: string) => Scope | undefined;
   activeSessionId: string | null;
 }
 
 /**
  * One group in the sidebar: a collapsible header with a derived badge, and
- * its member sessions beneath, each subtitled with where it runs.
+ * its member sessions beneath, each subtitled with the scope it belongs to.
  *
  * The badge is recomputed from the terminal store on every render — progress
  * is derived, never stored (see groupCounts.ts). Folded state, by contrast,
@@ -56,19 +56,19 @@ export function GroupNavItem({
     ? [conductor, ...sessions.filter((session) => session !== conductor)]
     : sessions;
 
-  // Where a member runs, which is not always its scope: a fan-out member
-  // runs in one repo inside the scope, and auto-naming overwrites the repo
-  // name it launched with on its first pane mount. Naming the folder keeps
-  // that identity on the row; a session that runs in the scope's own folder
-  // has nothing to add, so it says the scope.
+  // Which scope a member belongs to — the thing its row can no longer say by
+  // sitting under a scope heading. A fan-out member runs in one repo inside
+  // the scope rather than the scope's own folder, so that folder is named
+  // after the scope: "which scope" is answered for every row either way.
+  //
+  // Both halves are optional. A scope whose record is gone still leaves the
+  // folder, which is the truth, and a session in the scope's own folder has
+  // no folder to add.
   const subtitleFor = (session: Session): string | undefined => {
     const scope = scopeFor(session.scopeId);
-    const runsIn =
-      session.cwd && session.cwd !== scope?.path ? basename(session.cwd) : scope?.name;
-    // A fan-out member launches named for its folder and is renamed on its
-    // first pane mount. Until then the name already says where it runs, and a
-    // row that prints the same word twice says nothing the first one did not.
-    return runsIn === session.name ? undefined : runsIn;
+    const folder =
+      session.cwd && session.cwd !== scope?.path ? basename(session.cwd) : undefined;
+    return [scope?.name, folder].filter(Boolean).join(' · ') || undefined;
   };
 
   // Archiving is how a group ends: the record outlives it so member sessions
