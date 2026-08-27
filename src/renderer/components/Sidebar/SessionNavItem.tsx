@@ -12,7 +12,10 @@ interface SessionNavItemProps {
   workspaceId: string;
   isActive: boolean;
   onClick: () => void;
-  /** Rendered under the name — the scope a grouped session belongs to. */
+  /**
+   * Rendered under the name *instead of* the session's own name — the scope a
+   * grouped session belongs to.
+   */
   subtitle?: string;
 }
 
@@ -67,9 +70,13 @@ export function SessionNavItem({
   const statusWord = STATUS_WORDS[displayStatus];
   // The row reads the derived label — "PR #4118 · Review", "⑂ name" — and
   // shows `name` underneath only when the label stopped saying it. A group
-  // member's runs-in subtitle joins it rather than replacing it.
+  // member replaces it with where it belongs: its row sits under a group
+  // heading rather than a scope, so the scope is the one fact the row is
+  // otherwise missing. It replaces rather than joins because `name` is the
+  // seed prompt until the CLI summary lands, long enough to truncate the
+  // scope off the end of a shared line.
   const label = sessionLabel(session);
-  const subtitleText = [sessionSubtitle(session), subtitle].filter(Boolean).join(' · ');
+  const subtitleText = subtitle ?? sessionSubtitle(session);
   const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}`;
 
   useEffect(() => {
