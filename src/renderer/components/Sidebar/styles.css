@@ -944,3 +944,20 @@
     animation: none;
   }
 }
+
+/* --- Moving a session between groups ----------------------------------- */
+
+/* The row being dragged stays legible but recedes, so the header it is headed
+   for is the loudest thing on screen rather than the row leaving. */
+.session-nav-item.dragging {
+  opacity: 0.45;
+}
+
+/* A group header ready to receive the row. Outlined rather than filled: the
+   header already uses its background for hover, and a drop target that looked
+   like a hover would say nothing about which of the two is happening. */
+.group-nav-header.drop-target {
+  background: var(--color-bg-hover);
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}

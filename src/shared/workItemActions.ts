@@ -16,6 +16,18 @@ export interface WorkItemAction {
   appliesTo: Array<'pr' | 'issue'>;
   /** Body only, non-empty; the header is the provider's. */
   prompt: string;
+  /**
+   * Where a session launched from this action lands, by group id. Absent —
+   * the default, and every pre-existing action — leaves it under the scope
+   * it runs in, exactly as before.
+   *
+   * An id rather than a name, so `validateActionsWrite` can refuse a target
+   * that does not exist and a renamed group keeps its arrivals. Contrast the
+   * name snapshot a launched *session* keeps in `workItemAction`: that one
+   * exists to survive the action being renamed or deleted, which is the
+   * opposite requirement.
+   */
+  groupId?: string;
 }
 
 const DEFAULT_ACTION_TEMPLATES: ReadonlyArray<Omit<WorkItemAction, 'id'>> = [
@@ -132,12 +144,20 @@ export function defaultActionFor(
 /**
  * Pure validation for workspace:set-actions: unique ids, a name, non-empty
  * appliesTo and prompt per action, every default pointing at an existing
- * action of a matching type. Shape checks come first because this runs on an
+ * action of a matching type, and every `groupId` naming a group the
+ * workspace actually has. Shape checks come first because this runs on an
  * IPC payload, where TypeScript's types are long gone. Side-effect-free so
  * it is unit-testable without a running WorkspaceService; the whole write is
  * rejected on the first failure and the message is shown inline.
+ *
+ * `knownGroupIds` is required rather than defaulted: an omitted set would
+ * silently reject every routed action, and there is exactly one production
+ * caller to pass it.
  */
-export function validateActionsWrite(write: ActionsWrite): ActionsValidationResult {
+export function validateActionsWrite(
+  write: ActionsWrite,
+  knownGroupIds: ReadonlySet<string>
+): ActionsValidationResult {
   if (!Array.isArray(write.actions)) return { ok: false, message: 'Actions must be a list.' };
   if (typeof write.sectionDefaults !== 'object' || write.sectionDefaults === null) {
     return { ok: false, message: 'Section defaults must be an object.' };
@@ -161,6 +181,11 @@ export function validateActionsWrite(write: ActionsWrite): ActionsValidationResu
     }
     if (typeof action.prompt !== 'string' || action.prompt.trim() === '') {
       return { ok: false, message: `"${action.name}" needs a prompt.` };
+    }
+    // Archived groups are deliberately still valid targets: a group is
+    // archived, never deleted, and launchWorkItem restores one on arrival.
+    if (action.groupId !== undefined && !knownGroupIds.has(action.groupId)) {
+      return { ok: false, message: `"${action.name}" lands in a group that does not exist.` };
     }
   }
 

@@ -24,6 +24,8 @@ export interface WorkItemLaunchDeps {
   /** Login env plus the provider's token var for this account. Composed main-side only. */
   composeEnv(driver: GitProviderDriver, accountLogin: string): Promise<NodeJS.ProcessEnv>;
   findItem(workspaceId: string, ref: WorkItemRef): InboxItem | undefined;
+  /** Un-archives an action's target group so its arrivals are visible. */
+  restoreGroup(workspaceId: string, groupId: string): void;
 }
 
 /** The deepest scope whose path contains the clone — its home in the sidebar. */
@@ -37,9 +39,11 @@ function scopeIdForPath(workspace: Workspace, clonePath: string): string {
 }
 
 /**
- * The action's name snapshot and raw body. A stored action is looked up by
- * id; a custom prompt is named 'Custom prompt' so the sidebar and strip
- * still have a label, and its body is never persisted anywhere.
+ * The action's name snapshot, raw body, and the group it lands sessions in.
+ * A stored action is looked up by id; a custom prompt is named 'Custom
+ * prompt' so the sidebar and strip still have a label, its body is never
+ * persisted anywhere, and it has no group — an ad-hoc prompt is not one of
+ * the workspace's configured verbs, so it has nowhere it routinely belongs.
  *
  * Discriminates on `'id' in action`, matching the IPC door's shape check and
  * `workItemActionKey` — the same three sites must agree on which variant a
@@ -49,12 +53,40 @@ function scopeIdForPath(workspace: Workspace, clonePath: string): string {
 function resolveAction(
   workspace: Workspace,
   action: WorkItemLaunchAction
-): { name: string; body: string } | undefined {
+): { name: string; body: string; groupId?: string } | undefined {
   if ('id' in action) {
     const stored = workspace.actions.find((candidate) => candidate.id === action.id);
-    return stored ? { name: stored.name, body: stored.prompt } : undefined;
+    if (!stored) return undefined;
+    return {
+      name: stored.name,
+      body: stored.prompt,
+      ...(stored.groupId !== undefined ? { groupId: stored.groupId } : {}),
+    };
   }
   return { name: 'Custom prompt', body: action.customPrompt };
+}
+
+/**
+ * The group a session should land in, readied for arrivals.
+ *
+ * Two things can go wrong with a stored target and neither may cost anyone a
+ * launch. A group that no longer exists is dropped, so the session lands
+ * under its scope the way an unrouted one does — losing the grouping is a
+ * far smaller failure than refusing to start the work. A group that is
+ * merely archived is restored: the user pointed this action here on purpose,
+ * and an archived group hands its members back to their scopes, so a session
+ * arriving into one would be invisible under the heading it was routed to.
+ */
+function readyGroup(
+  deps: WorkItemLaunchDeps,
+  workspace: Workspace,
+  groupId: string | undefined
+): string | undefined {
+  if (groupId === undefined) return undefined;
+  const group = workspace.groups.find((candidate) => candidate.id === groupId);
+  if (!group) return undefined;
+  if (group.archivedAt) deps.restoreGroup(workspace.id, group.id);
+  return group.id;
 }
 
 /**
@@ -156,6 +188,10 @@ export async function launchWorkItem(
       deps.ensureWorktree(clonePath, ref, env)
     );
 
+    // Last, so a failed worktree step never leaves a group restored for a
+    // session that was never created.
+    const groupId = readyGroup(deps, workspace, resolved.groupId);
+
     session = deps.createSession(workspaceId, {
       name: item?.title ?? fallbackWorkItemTitle(ref),
       workspaceId,
@@ -166,6 +202,7 @@ export async function launchWorkItem(
       kind: 'interactive',
       workItem: ref,
       workItemAction: resolved.name,
+      ...(groupId !== undefined ? { groupId } : {}),
     });
   } catch (error) {
     return { ok: false, reason: 'error', message: describeError(error) };

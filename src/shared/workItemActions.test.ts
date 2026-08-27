@@ -82,18 +82,20 @@ describe('defaultActionNameForType', () => {
 describe('validateActionsWrite', () => {
   const actions = createDefaultActions();
   const sectionDefaults = createDefaultSectionDefaults(actions);
+  /** No groups exist — the shape every case here but the routing ones needs. */
+  const NO_GROUPS: ReadonlySet<string> = new Set();
 
   it('accepts the seeded defaults', () => {
-    expect(validateActionsWrite({ actions, sectionDefaults })).toEqual({ ok: true });
+    expect(validateActionsWrite({ actions, sectionDefaults }, NO_GROUPS)).toEqual({ ok: true });
   });
 
   it('accepts an empty list with no defaults — an unbound workspace', () => {
-    expect(validateActionsWrite({ actions: [], sectionDefaults: {} })).toEqual({ ok: true });
+    expect(validateActionsWrite({ actions: [], sectionDefaults: {} }, NO_GROUPS)).toEqual({ ok: true });
   });
 
   it('rejects duplicate ids', () => {
     const duplicated = [...actions, { ...actions[0], name: 'Review again' }];
-    expect(validateActionsWrite({ actions: duplicated, sectionDefaults })).toEqual({
+    expect(validateActionsWrite({ actions: duplicated, sectionDefaults }, NO_GROUPS)).toEqual({
       ok: false,
       message: `Duplicate action id: ${actions[0].id}`,
     });
@@ -101,7 +103,7 @@ describe('validateActionsWrite', () => {
 
   it('rejects an action that applies to nothing', () => {
     const write = { actions: [{ ...actions[0], appliesTo: [] }], sectionDefaults: {} };
-    expect(validateActionsWrite(write)).toEqual({
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({
       ok: false,
       message: '"Review" must apply to pull requests, issues, or both.',
     });
@@ -112,7 +114,7 @@ describe('validateActionsWrite', () => {
       actions: [{ ...actions[0], appliesTo: ['pull'] as unknown as WorkItemAction['appliesTo'] }],
       sectionDefaults: {},
     };
-    expect(validateActionsWrite(write)).toEqual({
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({
       ok: false,
       message: '"Review" applies to an unknown item type.',
     });
@@ -120,17 +122,17 @@ describe('validateActionsWrite', () => {
 
   it('rejects an empty prompt — whitespace counts as empty', () => {
     const write = { actions: [{ ...actions[0], prompt: '   ' }], sectionDefaults: {} };
-    expect(validateActionsWrite(write)).toEqual({ ok: false, message: '"Review" needs a prompt.' });
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({ ok: false, message: '"Review" needs a prompt.' });
   });
 
   it('rejects an empty name', () => {
     const write = { actions: [{ ...actions[0], name: ' ' }], sectionDefaults: {} };
-    expect(validateActionsWrite(write)).toEqual({ ok: false, message: 'Every action needs a name.' });
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({ ok: false, message: 'Every action needs a name.' });
   });
 
   it('rejects a default pointing at an action that does not exist', () => {
     expect(
-      validateActionsWrite({ actions, sectionDefaults: { issues: 'gone' } })
+      validateActionsWrite({ actions, sectionDefaults: { issues: 'gone' } }, NO_GROUPS)
     ).toEqual({
       ok: false,
       message: 'The default for "issues" points at an action that does not exist.',
@@ -139,13 +141,13 @@ describe('validateActionsWrite', () => {
 
   it('rejects a default whose action does not apply to the section item type', () => {
     expect(
-      validateActionsWrite({ actions, sectionDefaults: { issues: idOf(actions, 'Review') } })
+      validateActionsWrite({ actions, sectionDefaults: { issues: idOf(actions, 'Review') } }, NO_GROUPS)
     ).toEqual({
       ok: false,
       message: '"Review" cannot be the default for "issues": it does not apply to issues.',
     });
     expect(
-      validateActionsWrite({ actions, sectionDefaults: { waiting: idOf(actions, 'Implement') } })
+      validateActionsWrite({ actions, sectionDefaults: { waiting: idOf(actions, 'Implement') } }, NO_GROUPS)
     ).toEqual({
       ok: false,
       message: '"Implement" cannot be the default for "waiting": it does not apply to pull requests.',
@@ -157,15 +159,36 @@ describe('validateActionsWrite', () => {
       actions,
       sectionDefaults: { merged: idOf(actions, 'Review') } as unknown as typeof sectionDefaults,
     };
-    expect(validateActionsWrite(write)).toEqual({ ok: false, message: 'Unknown inbox section: merged' });
+    expect(validateActionsWrite(write, NO_GROUPS)).toEqual({ ok: false, message: 'Unknown inbox section: merged' });
+  });
+
+  it('accepts an action pointed at a group the workspace has', () => {
+    const routed = [{ ...actions[0], groupId: 'g-reviews' }, ...actions.slice(1)];
+    expect(
+      validateActionsWrite({ actions: routed, sectionDefaults }, new Set(['g-reviews']))
+    ).toEqual({ ok: true });
+  });
+
+  it('rejects an action pointed at a group that does not exist', () => {
+    const routed = [{ ...actions[0], groupId: 'g-gone' }, ...actions.slice(1)];
+    expect(validateActionsWrite({ actions: routed, sectionDefaults }, new Set(['g-reviews']))).toEqual(
+      { ok: false, message: '"Review" lands in a group that does not exist.' }
+    );
+  });
+
+  it('accepts an action with no group at all — the pre-routing shape', () => {
+    expect(actions[0]).not.toHaveProperty('groupId');
+    expect(validateActionsWrite({ actions, sectionDefaults }, new Set(['g-reviews']))).toEqual({
+      ok: true,
+    });
   });
 
   it('rejects payloads that are not a list and an object — what IPC can deliver', () => {
     expect(
-      validateActionsWrite({ actions: 'nope' as unknown as WorkItemAction[], sectionDefaults: {} })
+      validateActionsWrite({ actions: 'nope' as unknown as WorkItemAction[], sectionDefaults: {} }, NO_GROUPS)
     ).toEqual({ ok: false, message: 'Actions must be a list.' });
     expect(
-      validateActionsWrite({ actions: [], sectionDefaults: null as unknown as typeof sectionDefaults })
+      validateActionsWrite({ actions: [], sectionDefaults: null as unknown as typeof sectionDefaults }, NO_GROUPS)
     ).toEqual({ ok: false, message: 'Section defaults must be an object.' });
   });
 });

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { Archive, ArchiveRestore, Boxes, Pencil } from 'lucide-react';
+import { Archive, ArchiveRestore, Boxes, Pencil, Plus } from 'lucide-react';
 import { useWorkspaceStore, type Group, type Workspace } from '../../stores/workspaceStore';
+import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { InlineRename } from './InlineRename';
 
 interface GroupsPanelProps {
@@ -11,6 +12,11 @@ interface GroupsPanelProps {
  * The workspace's groups: live ones renamable and archivable, archived ones
  * restorable. Restoring is metadata-only — member sessions kept their groupId
  * the whole time, so the sidebar picks the group straight back up.
+ *
+ * A live group also says which actions land sessions in it. Routing is
+ * configured from the Actions panel, but it is the group side that raises
+ * the question — "why do these keep appearing here?" — so the answer is
+ * shown where it gets asked.
  */
 export function GroupsPanel({ workspace }: GroupsPanelProps) {
   const updateGroup = useWorkspaceStore((state) => state.updateGroup);
@@ -18,12 +24,16 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
   const restoreGroup = useWorkspaceStore((state) => state.restoreGroup);
 
   const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
 
   const live = workspace.groups.filter((group) => !group.archivedAt);
   const archived = workspace.groups.filter((group) => group.archivedAt);
 
   const memberCountFor = (groupId: string) =>
     workspace.sessions.filter((session) => session.groupId === groupId).length;
+
+  const landingActionsFor = (groupId: string) =>
+    workspace.actions.filter((action) => action.groupId === groupId).map((action) => action.name);
 
   const renderName = (group: Group) =>
     renamingId === group.id ? (
@@ -41,15 +51,27 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
     <section className="ws-panel">
       <div className="ws-panel-header">
         <h3 className="ws-panel-title">Groups</h3>
+        <button
+          type="button"
+          className="dialog-button-secondary ws-panel-action"
+          onClick={() => setCreating(true)}
+        >
+          <Plus size={14} />
+          Add group
+        </button>
       </div>
       {workspace.groups.length === 0 ? (
-        <p className="ws-panel-hint">No groups yet. Create one from the ＋ New menu.</p>
+        <p className="ws-panel-hint">
+          No groups yet. A group gathers sessions that belong together — and an action can land
+          its sessions in one, so they arrive under a heading of their own.
+        </p>
       ) : (
         <>
           {live.length > 0 && (
             <div className="ws-row-list">
               {live.map((group) => {
                 const members = memberCountFor(group.id);
+                const landing = landingActionsFor(group.id);
                 return (
                   <div key={group.id} className="ws-row">
                     <span className="ws-row-icon">
@@ -61,6 +83,14 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
                         {members > 0 && (
                           <span className="ws-row-chip">
                             {members} session{members === 1 ? '' : 's'}
+                          </span>
+                        )}
+                        {landing.length > 0 && (
+                          <span
+                            className="ws-row-chip ws-action-group"
+                            title="Sessions started by these actions land here"
+                          >
+                            ← {landing.join(', ')}
                           </span>
                         )}
                         <button
@@ -118,6 +148,9 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
             </>
           )}
         </>
+      )}
+      {creating && (
+        <NewGroupDialog workspaceId={workspace.id} onClose={() => setCreating(false)} />
       )}
     </section>
   );

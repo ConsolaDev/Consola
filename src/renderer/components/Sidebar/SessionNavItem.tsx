@@ -3,6 +3,7 @@ import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
+import { startSessionDrag } from './sessionDrag';
 import { deleteSessionCompletely } from '../../utils/sessionActions';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
 
@@ -41,6 +42,7 @@ export function SessionNavItem({
   subtitle,
 }: SessionNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -127,13 +129,26 @@ export function SessionNavItem({
     }
   };
 
+  // Dragging the row onto a group header moves it there; the ⋯ menu's "Move
+  // to group" does the same thing from the keyboard, so nothing is reachable
+  // only by dragging. Renaming turns it off so the pointer can select text in
+  // the input, and a conductor is never draggable — its group is the fleet it
+  // orchestrates, not a folder it happens to sit in.
+  const draggable = !isRenaming && session.kind !== 'conductor';
+
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`session-nav-item ${isActive ? 'active' : ''}`}
+      className={`session-nav-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
+      draggable={draggable}
+      onDragStart={(event) => {
+        startSessionDrag(event, session.id);
+        setIsDragging(true);
+      }}
+      onDragEnd={() => setIsDragging(false)}
       title={accessibleName}
       aria-label={accessibleName}
     >
