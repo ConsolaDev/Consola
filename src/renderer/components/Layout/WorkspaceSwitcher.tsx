@@ -72,7 +72,7 @@ export function WorkspaceSwitcher() {
           }
         >
           <span className="workspace-switcher-icon">
-            <WorkspaceIcon icon={active?.icon} size={14} />
+            <WorkspaceIcon icon={active?.icon} name={active?.name} size={14} />
           </span>
           <span className="workspace-switcher-name">{active?.name ?? 'Select workspace'}</span>
           {/* Decorative: the button's own aria-label already carries this state.
@@ -105,7 +105,7 @@ export function WorkspaceSwitcher() {
                 onSelect={() => void setActiveWorkspace(workspace.id)}
               >
                 <span className="workspace-switcher-item-icon">
-                  <WorkspaceIcon icon={workspace.icon} size={14} />
+                  <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={14} />
                 </span>
                 <span className="workspace-switcher-item-name">{workspace.name}</span>
                 {status && (

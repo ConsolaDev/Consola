@@ -30,7 +30,7 @@ function RowIcon({ item }: { item: PaletteItem }) {
     return <MessageSquare size={15} className="command-palette-row-icon" />;
   }
   if (item.kind === 'workspace') {
-    return <WorkspaceIcon icon={item.icon} size={15} className="command-palette-row-icon" />;
+    return <WorkspaceIcon icon={item.icon} name={item.label} size={15} className="command-palette-row-icon" />;
   }
   if (item.kind === 'harness') {
     return (
