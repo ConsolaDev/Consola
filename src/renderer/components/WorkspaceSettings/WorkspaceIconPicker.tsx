@@ -76,7 +76,7 @@ export function WorkspaceIconPicker({ workspace }: { workspace: Workspace }) {
       }}>
         <Dialog.Trigger asChild>
           <button type="button" className="ws-icon-trigger" aria-label="Change workspace icon" title="Change workspace icon">
-            <WorkspaceIcon icon={workspace.icon} size={28} />
+            <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={28} />
           </button>
         </Dialog.Trigger>
         <Dialog.Content className="ws-icon-picker" aria-describedby={undefined}>
@@ -105,7 +105,7 @@ export function WorkspaceIconPicker({ workspace }: { workspace: Workspace }) {
                       <button
                         type="button" key={id} className="ws-icon-choice"
                         aria-label={label} title={label}
-                        aria-pressed={(workspace.icon ?? 'layout') === id}
+                        aria-pressed={workspace.icon === id}
                         disabled={busy} onClick={() => void choose(id)}
                       >
                         <WorkspaceIcon icon={id} size={22} />
@@ -118,7 +118,7 @@ export function WorkspaceIconPicker({ workspace }: { workspace: Workspace }) {
             })}
             <Tabs.Content value="upload" className="ws-icon-upload">
               <div className="ws-icon-upload-preview" aria-label="Image preview">
-                <WorkspaceIcon icon={draftImage ?? workspace.icon} size={64} />
+                <WorkspaceIcon icon={draftImage ?? workspace.icon} name={workspace.name} size={64} />
               </div>
               <p className="ws-panel-hint">
                 Upload your own logo or image. PNG, JPG, WebP, or GIF, up to 5 MB.

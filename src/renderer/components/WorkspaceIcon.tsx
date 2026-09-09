@@ -20,8 +20,8 @@ const SYMBOLS: Record<WorkspaceSymbolId, LucideIcon> = {
 
 /** A workspace's identity, independent of its scopes and their repository status. */
 export function WorkspaceIcon({
-  icon, size = 16, className,
-}: { icon?: WorkspaceIconValue; size?: number; className?: string }) {
+  icon, name, size = 16, className,
+}: { icon?: WorkspaceIconValue; name?: string; size?: number; className?: string }) {
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const image = isWorkspaceImageIcon(icon) && icon.dataUrl !== failedImage ? icon : undefined;
   const emoji = WORKSPACE_EMOJIS.find(([id]) => id === icon)?.[2];
@@ -29,19 +29,29 @@ export function WorkspaceIcon({
   const Symbol = hasSymbol
     ? SYMBOLS[icon as WorkspaceSymbolId]
     : PanelsTopLeft;
+  const initial = Array.from(name?.trim() || 'Workspace')[0].toLocaleUpperCase();
+  const isInitial = !image && !emoji && !hasSymbol;
+  const avatarSize = isInitial ? Math.max(20, size) : size;
   return (
     <span
       className={className}
       aria-hidden="true"
-      data-workspace-icon={image ? 'image' : emoji || hasSymbol ? String(icon) : 'layout'}
+      data-workspace-icon={image ? 'image' : emoji || hasSymbol ? String(icon) : 'initial'}
       style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-        flexShrink: 0, width: size, height: size, fontSize: size, lineHeight: 1 }}
+        flexShrink: 0, width: avatarSize, height: avatarSize,
+        fontSize: isInitial ? avatarSize * 0.65 : size, lineHeight: 1,
+        ...(isInitial ? {
+          background: 'var(--color-bg-hover)',
+          color: 'var(--color-text-primary)',
+          borderRadius: Math.max(3, avatarSize / 5),
+        } : {}),
+      }}
     >
       {image ? (
         <img src={image.dataUrl} alt="" draggable={false}
           onError={() => setFailedImage(image.dataUrl)}
           style={{ width: size, height: size, objectFit: 'contain', borderRadius: Math.min(4, size / 8) }} />
-      ) : emoji ?? <Symbol size={size} />}
+      ) : emoji ?? (hasSymbol ? <Symbol size={size} /> : <span style={{ fontWeight: 600 }}>{initial}</span>)}
     </span>
   );
 }

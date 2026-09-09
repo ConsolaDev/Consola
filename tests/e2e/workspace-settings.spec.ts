@@ -123,7 +123,8 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'layout');
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveText('S');
     const openSettings = async () => {
       await switcherTrigger(page).click();
       await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
@@ -171,7 +172,8 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
     await expect(page.getByRole('dialog', { name: 'Sympower', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workspace icon' })).toBeFocused();
     await page.getByRole('dialog', { name: 'Sympower', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'layout');
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveText('S');
   } finally {
     await cleanup();
   }
@@ -263,7 +265,7 @@ test('custom workspace images preview, persist without the source file, and can 
 async function holdWorkspace(page: Page): Promise<void> {
   await switcherTrigger(page).click();
   await page.getByRole('menuitem', { name: /Sympower/ }).click();
-  await expect(switcherTrigger(page)).toHaveText('Sympower');
+  await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('Sympower');
 }
 
 test('the workspace menu opens a modal titled by the workspace; the global modal only points at it', async () => {
@@ -359,7 +361,7 @@ test('the sidebar gear opens the global modal; the workspace modal commits a ren
     // accessibility tree while a dialog is open.
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
-    await expect(switcherTrigger(page)).toHaveText('Sympower Renamed');
+    await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('Sympower Renamed');
     await switcherTrigger(page).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await expect(modal).toBeVisible();

@@ -315,6 +315,9 @@
 
 .settings-modal-body {
   flex: 1;
+  min-width: 0;
+  /* Keep the scroll viewport below the close button in both settings dialogs. */
+  margin-top: calc(var(--space-3) + 28px);
   padding: var(--space-5);
   overflow-y: auto;
 }
