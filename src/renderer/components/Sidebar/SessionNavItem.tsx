@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { useSessionModel } from '../../hooks/useSessionModel';
+import { SessionHarnessIcon } from './SessionHarnessIcon';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
 import { startSessionDrag } from './sessionDrag';
@@ -48,6 +51,9 @@ export function SessionNavItem({
   const [isDragging, setIsDragging] = useState(false);
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const showModel = useSettingsStore((state) => state.showSidebarModel);
+  const showHarness = useSettingsStore((state) => state.showSidebarHarness);
+  const model = useSessionModel(session, showModel);
 
   const sessionStatus = useTerminalStore((state) =>
     sessionStatusFor(state.terminals[session.instanceId])
@@ -77,7 +83,7 @@ export function SessionNavItem({
   // scope off the end of a shared line.
   const label = sessionLabel(session);
   const subtitleText = subtitle ?? sessionSubtitle(session);
-  const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}`;
+  const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}${showModel && model ? ` — ${model}` : ''}`;
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -136,11 +142,13 @@ export function SessionNavItem({
     }
   };
 
-  // Dragging the row onto a group header moves it there; the ⋯ menu's "Move
-  // to group" does the same thing from the keyboard, so nothing is reachable
-  // only by dragging. Renaming turns it off so the pointer can select text in
-  // the input, and a conductor is never draggable — its group is the fleet it
-  // orchestrates, not a folder it happens to sit in.
+  // Dragging the row onto a group header moves it there, and dragging a
+  // grouped row back onto its own scope row takes it out again — one gesture
+  // both ways. The ⋯ menu's "Move to group" and "Remove from group" are the
+  // keyboard twins of each, so nothing is reachable only by dragging.
+  // Renaming turns it off so the pointer can select text in the input, and a
+  // conductor is never draggable — its group is the fleet it orchestrates,
+  // not a folder it happens to sit in.
   const draggable = !isRenaming && session.kind !== 'conductor';
 
   return (
@@ -152,7 +160,7 @@ export function SessionNavItem({
       onKeyDown={handleRowKeyDown}
       draggable={draggable}
       onDragStart={(event) => {
-        startSessionDrag(event, session.id);
+        startSessionDrag(event, session);
         setIsDragging(true);
       }}
       onDragEnd={() => setIsDragging(false)}
@@ -171,6 +179,7 @@ export function SessionNavItem({
           🧠
         </span>
       )}
+      {showHarness && <SessionHarnessIcon harnessId={session.harnessId} />}
       {isRenaming ? (
         <input
           ref={inputRef}
@@ -186,6 +195,7 @@ export function SessionNavItem({
         <span className="session-nav-item-text">
           <span className="session-nav-item-name">{label}</span>
           {subtitleText && <span className="session-nav-item-subtitle">{subtitleText}</span>}
+          {showModel && model && <span className="session-nav-item-model" title={model}>{model}</span>}
         </span>
       )}
       {!isRenaming && statusWord && (

@@ -7,6 +7,12 @@ import {
   useSettingsStore,
 } from './settingsStore';
 
+describe('sidebar model visibility', () => {
+  it('shows models by default', () => {
+    expect(useSettingsStore.getInitialState().showSidebarModel).toBe(true);
+  });
+});
+
 describe('sanitizeInboxFilters', () => {
   it('answers an empty map for anything that is not a plain object', () => {
     expect(sanitizeInboxFilters(undefined)).toEqual({});

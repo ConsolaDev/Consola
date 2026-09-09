@@ -1,0 +1,20 @@
+.harness-driver-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-secondary);
+}
+
+.harness-driver-icon > svg {
+  display: block;
+  flex: none;
+  width: 14px;
+  height: 14px;
+}
+
+.harness-driver-icon--claude {
+  color: #c97858;
+}

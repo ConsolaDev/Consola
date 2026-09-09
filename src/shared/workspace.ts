@@ -1,3 +1,4 @@
+import type { WorkspaceIconValue } from './workspaceIcons';
 import { BUILT_IN_HARNESS_ID } from './constants';
 import { generateId } from './ids';
 import type { InboxSection } from './inboxSections';
@@ -89,6 +90,8 @@ export interface WorkspaceProvider {
 }
 
 export interface Workspace {
+  /** Absent uses the neutral workspace icon, including on older records. */
+  icon?: WorkspaceIconValue;
   id: string;
   name: string;                    // From folder name
   defaultHarnessId: string;        // Preselected when starting a conversation here

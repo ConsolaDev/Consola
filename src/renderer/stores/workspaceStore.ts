@@ -27,7 +27,7 @@ interface WorkspaceState {
   deleteWorkspace: (id: string) => Promise<void>;
   updateWorkspace: (
     id: string,
-    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
   ) => Promise<void>;
   getWorkspace: (id: string) => Workspace | undefined;
   createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;

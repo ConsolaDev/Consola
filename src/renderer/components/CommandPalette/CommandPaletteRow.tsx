@@ -1,5 +1,6 @@
 import { memo } from 'react';
-import { ChevronRight, Folder, GitBranch, MessageSquare } from 'lucide-react';
+import { ChevronRight, MessageSquare } from 'lucide-react';
+import { WorkspaceIcon } from '../WorkspaceIcon';
 import { FileIcon } from '../FileExplorer/FileIcon';
 import { STATUS_LABELS } from '../FileExplorer/GitChangesItem';
 import { HighlightMatch } from '../HighlightMatch';
@@ -29,8 +30,7 @@ function RowIcon({ item }: { item: PaletteItem }) {
     return <MessageSquare size={15} className="command-palette-row-icon" />;
   }
   if (item.kind === 'workspace') {
-    const Icon = item.isGitRepo ? GitBranch : Folder;
-    return <Icon size={15} className="command-palette-row-icon" />;
+    return <WorkspaceIcon icon={item.icon} size={15} className="command-palette-row-icon" />;
   }
   if (item.kind === 'harness') {
     return (

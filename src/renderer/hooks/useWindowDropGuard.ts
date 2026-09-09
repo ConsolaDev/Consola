@@ -1,25 +1,28 @@
 import { useEffect } from 'react';
 
-/** Elements that accept file drops mark themselves with this attribute. */
-const DROP_ZONE_SELECTOR = '[data-file-drop-zone]';
-
 /**
- * Stop a file dropped outside a drop zone from replacing the app.
+ * Stop a drag nothing in the app handles from replacing the window.
  *
  * A window that does not handle a drop lets Chromium navigate to the dropped
- * file, which unloads the whole renderer — the UI simply disappears. These
- * listeners run after the React tree has had the event, so a drop zone still
- * sees its own drop; everything else is swallowed. Outside a zone the cursor
- * shows "no drop", so the window never invites a gesture it ignores.
+ * file or link, which unloads the whole renderer — the UI simply disappears.
+ * These listeners run after the React tree has had the event, so a target that
+ * wants the drag has already cancelled it; everything else is swallowed, and
+ * shows "no drop" rather than inviting a gesture the window ignores.
+ *
+ * Cancelling is the whole signal, and it has to be. Vetoing by elimination —
+ * "anything outside the elements I know about" — silently vetoes the next drop
+ * target added, because `dropEffect` is last-write-wins and this runs last: the
+ * target sets `move`, the guard overwrites it with `none`, and Chromium refuses
+ * the drop without ever firing `drop`. There is no error and nothing on screen,
+ * which is exactly how it hid in the sidebar's group headers.
  */
 export function useWindowDropGuard(): void {
   useEffect(() => {
-    const isInsideDropZone = (target: EventTarget | null) =>
-      target instanceof Element && target.closest(DROP_ZONE_SELECTOR) !== null;
-
     const handleDragOver = (event: DragEvent) => {
+      // Claimed by a drop target on the way up; its dropEffect is the answer.
+      if (event.defaultPrevented) return;
       event.preventDefault();
-      if (event.dataTransfer && !isInsideDropZone(event.target)) {
+      if (event.dataTransfer) {
         event.dataTransfer.dropEffect = 'none';
       }
     };

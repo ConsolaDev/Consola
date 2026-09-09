@@ -3,7 +3,7 @@ import {
   boundsAreVisible,
   dedupeByWorkspace,
   isStoredWindow,
-  resolveWindowContext,
+  resolveWorkspaceId,
 } from './window-manager';
 
 describe('dedupeByWorkspace', () => {
@@ -85,29 +85,17 @@ describe('boundsAreVisible', () => {
   });
 });
 
-describe('resolveWindowContext', () => {
-  it('keeps a workspace that still exists, and the session inside it', () => {
-    const context = { workspaceId: 'a', activeSessionId: 's1' };
-
-    expect(resolveWindowContext(context, new Set(['a']))).toEqual(context);
+describe('resolveWorkspaceId', () => {
+  it('keeps a workspace that still exists', () => {
+    expect(resolveWorkspaceId('a', new Set(['a']))).toBe('a');
   });
 
   it('drops a workspace that has since been deleted — a window never holds a dead id', () => {
-    const context = { workspaceId: 'gone', activeSessionId: 's1' };
-
-    expect(resolveWindowContext(context, new Set(['a']))).toEqual({
-      workspaceId: null,
-      activeSessionId: null,
-    });
+    expect(resolveWorkspaceId('gone', new Set(['a']))).toBe(null);
   });
 
-  it('drops the session along with the workspace, since it named one inside it', () => {
-    const context = { workspaceId: null, activeSessionId: 's1' };
-
-    expect(resolveWindowContext(context, new Set(['a']))).toEqual({
-      workspaceId: null,
-      activeSessionId: null,
-    });
+  it('passes a Home window through as Home', () => {
+    expect(resolveWorkspaceId(null, new Set(['a']))).toBe(null);
   });
 });
 
@@ -115,15 +103,21 @@ describe('isStoredWindow', () => {
   const bounds = { x: 0, y: 0, width: 1000, height: 700 };
 
   it('accepts an entry in the shape we write', () => {
+    expect(isStoredWindow({ workspaceId: 'a', bounds })).toBe(true);
+  });
+
+  it('accepts a Home window', () => {
+    expect(isStoredWindow({ workspaceId: null, bounds })).toBe(true);
+  });
+
+  it('accepts an entry from a build that still recorded a session per window', () => {
+    // The key is ignored rather than rejected: the view now comes from the
+    // view memory, which is seeded from exactly these values on upgrade.
     expect(isStoredWindow({ workspaceId: 'a', activeSessionId: 's1', bounds })).toBe(true);
   });
 
-  it('accepts a Home window with no session', () => {
-    expect(isStoredWindow({ workspaceId: null, activeSessionId: null, bounds })).toBe(true);
-  });
-
   it('rejects an entry with no bounds — reading bounds.x off it used to take down the restore', () => {
-    expect(isStoredWindow({ workspaceId: 'a', activeSessionId: null })).toBe(false);
+    expect(isStoredWindow({ workspaceId: 'a' })).toBe(false);
   });
 
   it('rejects bounds whose sides are not numbers', () => {
@@ -134,7 +128,7 @@ describe('isStoredWindow', () => {
   });
 
   it('rejects a workspace id that is not a string', () => {
-    expect(isStoredWindow({ workspaceId: 7, activeSessionId: null, bounds })).toBe(false);
+    expect(isStoredWindow({ workspaceId: 7, bounds })).toBe(false);
   });
 
   it('rejects anything that is not an object, including the array itself being wrong', () => {

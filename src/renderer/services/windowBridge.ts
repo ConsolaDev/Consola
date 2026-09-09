@@ -1,4 +1,4 @@
-import type { ActivateWorkspaceResult, WindowContext } from '../../shared/types';
+import type { ActivateWorkspaceResult, WindowContext, WorkspaceView } from '../../shared/types';
 
 /**
  * Bridge to this window's identity.
@@ -20,9 +20,15 @@ export const windowBridge = {
         return window.windowAPI.openWindow(workspaceId);
     },
 
-    /** Remembered by main so a relaunch reopens on the same session. */
-    setActiveSession(sessionId: string | null): void {
-        window.windowAPI.setActiveSession(sessionId);
+    /**
+     * Report what this window is showing.
+     *
+     * Remembered by main against the workspace, so switching away and back —
+     * or relaunching — returns to it. The pair travels together because the
+     * Inbox overlays the pane without clearing the session behind it.
+     */
+    setView(workspaceId: string | null, view: WorkspaceView): void {
+        window.windowAPI.setView(workspaceId, view);
     },
 
     onWorkspaceChanged(callback: (workspaceId: string | null) => void): () => void {

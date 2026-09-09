@@ -1,15 +1,17 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'os';
 
-const { spawnMock } = vi.hoisted(() => ({ spawnMock: vi.fn() }));
+const { spawnMock, buildArgsMock } = vi.hoisted(() => ({ spawnMock: vi.fn(), buildArgsMock: vi.fn() }));
 
 vi.mock('node-pty', () => ({ spawn: spawnMock }));
 vi.mock('./LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: '/usr/bin' }) }));
 vi.mock('./drivers', () => ({
-    getDriver: () => ({
-        id: 'claude',
+    getDriver: (id = 'claude') => ({
+        id,
+        initialPromptViaArgs: id === 'codex',
+        retryResumeAsFresh: id !== 'codex',
         resolveBinary: () => 'claude-stub',
-        buildSessionArgs: () => [],
+        buildSessionArgs: buildArgsMock,
         composeEnv: (_harness: unknown, env: Record<string, string | undefined>) => env,
     }),
     toHarnessConfig: (options: unknown) => options,
@@ -67,7 +69,91 @@ const SETTLE_MS = 501;
 beforeEach(() => {
     vi.useFakeTimers();
     spawnMock.mockReset();
+    buildArgsMock.mockReset().mockReturnValue([]);
     return () => vi.useRealTimers();
+});
+
+describe('TerminalService Codex launch', () => {
+    it('shows asynchronous preparation failures in the terminal', async () => {
+        installFakePty();
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+        buildArgsMock.mockRejectedValue(new Error('Codex preparation failed'));
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: false, driverId: 'codex',
+        });
+        const output: string[] = [];
+        service.on('data', data => output.push(data));
+        service.start();
+        await vi.advanceTimersByTimeAsync(1);
+        expect(output.join('')).toContain('Codex preparation failed');
+        expect(service.hasClaudeExited()).toBe(true);
+        expect(spawnMock).not.toHaveBeenCalled();
+        service.destroy();
+        log.mockRestore();
+    });
+
+    it('awaits launch preparation and passes the opening prompt exactly once via argv', async () => {
+        const pty = installFakePty();
+        buildArgsMock.mockResolvedValue(['resume', 'native-id', '--', 'opening prompt']);
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: false,
+            driverId: 'codex', initialPrompt: 'opening prompt',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock.mock.calls[0][1]).toEqual(['resume', 'native-id', '--', 'opening prompt']);
+        expect(buildArgsMock.mock.calls[0][1]).toMatchObject({ cwd: os.tmpdir(), initialPrompt: 'opening prompt' });
+        pty.feed('› ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual([]);
+        pty.exit(0);
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls[1][1].initialPrompt).toBeUndefined();
+        service.destroy();
+    });
+
+    it('does not replace a failed Codex resume with a fresh conversation', async () => {
+        const pty = installFakePty();
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: true, driverId: 'codex',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.feed('No conversation found');
+        pty.exit(1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).toHaveBeenCalledTimes(1);
+        service.destroy();
+    });
+
+    it('does not spawn after a tab is destroyed during async launch preparation', async () => {
+        installFakePty();
+        let ready!: (args: string[]) => void;
+        buildArgsMock.mockReturnValue(new Promise<string[]>(resolve => { ready = resolve; }));
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: false, driverId: 'codex',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        service.destroy();
+        ready(['resume', 'native-id']);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).not.toHaveBeenCalled();
+    });
+
+    it('delivers queued prompts to a Codex composer after a trust menu clears', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        service.queuePrompt('follow up');
+        pty.feed('Do you trust the contents of this directory?\r\n› ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual([]);
+        pty.feed('\x1b[2J\x1b[3J\x1b[H› ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual(pasted('follow up'));
+        service.destroy();
+    });
 });
 
 describe('TerminalService prompt FIFO', () => {

@@ -6,7 +6,12 @@ import {
     restoreWindowLayout,
     saveWindowLayout,
 } from './window-manager';
-import { setupIpcHandlers, cleanupIpcHandlers, getKnownWorkspaceIds } from './ipc-handlers';
+import {
+    setupIpcHandlers,
+    cleanupIpcHandlers,
+    getKnownWorkspaceIds,
+    viewMemoryPort,
+} from './ipc-handlers';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 try {
@@ -65,7 +70,7 @@ app.whenReady().then(() => {
     // getKnownWorkspaceIds() has to run after setupIpcHandlers() returned true:
     // that's the call that loads workspaceService, and before it every saved
     // workspace id would look dead and every window would fall back to Home.
-    restoreWindowLayout(getKnownWorkspaceIds());
+    restoreWindowLayout(getKnownWorkspaceIds(), viewMemoryPort());
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {
@@ -74,7 +79,7 @@ app.whenReady().then(() => {
             // only written at quit, so the last workspace a window held is all
             // that survives — and it is the affordance that makes "the sessions
             // are still running" visible rather than merely true.
-            createWindow(contextToReopen(getKnownWorkspaceIds()));
+            createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
         }
     });
 });

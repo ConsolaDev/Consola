@@ -66,7 +66,7 @@ export function IdentityFields({
           className="dialog-input"
           value={draft.id}
           onChange={(event) => onChange({ id: event.target.value })}
-          placeholder="claude-work"
+          placeholder={`${draft.driverId}-work`}
           disabled={!idEditable}
         />
         <span className={`harness-field-hint ${idError ? 'harness-field-error' : ''}`}>
@@ -174,7 +174,7 @@ export function ConfigFields({
           className="dialog-input"
           value={draft.launchArgs}
           onChange={(event) => onChange({ launchArgs: event.target.value })}
-          placeholder="e.g. --permission-mode plan"
+          placeholder={draft.driverId === 'codex' ? 'e.g. --sandbox read-only' : 'e.g. --permission-mode plan'}
         />
         <span className="harness-field-hint">
           Passed to every session this harness starts.

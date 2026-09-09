@@ -13,6 +13,10 @@ import type {
  * and report back what the CLI itself says.
  */
 export const harnessBridge = {
+    getSessionModel(sessionId: string, fields: HarnessLaunchFields): Promise<string | null> {
+        return window.harnessAPI.getSessionModel(sessionId, fields);
+    },
+
     /** Binary availability, version, and signed-in account for a harness. */
     probe(fields: HarnessLaunchFields): Promise<HarnessProbeResult> {
         return window.harnessAPI.probe(fields);
