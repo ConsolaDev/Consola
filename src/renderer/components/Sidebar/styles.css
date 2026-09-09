@@ -8,6 +8,10 @@
    */
   --sidebar-font-size: 13px;
   --sidebar-font-size-small: 12px;
+  /* GROUPS / SCOPES. Uppercase and letter-spaced, they read as loud as body
+     text at the same size, and they label the list rather than belonging to
+     it — so they run a step under even the metadata. */
+  --sidebar-font-size-label: 11px;
   --sidebar-row-padding-y: 4px;
   /* Every nav row — inbox, scope, session, settings — locks to one height.
      Content differs per row (icons, dots, hover triggers), so the min-height
@@ -113,7 +117,11 @@
      should pan to. Without this, overflow-y: auto forces overflow-x to auto
      and a stray wide row summons a horizontal scrollbar. */
   overflow-x: hidden;
-  padding: var(--space-2);
+  /* Vertical padding stacks with the next section's at every boundary, and
+     with the heading's own on top of that — a full step each made the seam
+     between two sections the widest space in the list. Horizontal is what
+     insets the rows, so it keeps the full step. */
+  padding: var(--space-1) var(--space-2);
 }
 
 /* Groups sizes to its contents instead of claiming half the sidebar: two
@@ -133,11 +141,14 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: var(--space-2) var(--space-2);
+  /* Tight to the list it heads. The full row's worth of padding it used to
+     carry stacked with the section's own, pushing each heading a clear step
+     away from everything it names. */
+  padding: var(--space-1) var(--space-2);
 }
 
 .sidebar-section-title {
-  font-size: var(--sidebar-font-size-small);
+  font-size: var(--sidebar-font-size-label);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-secondary);
   text-transform: uppercase;
@@ -166,7 +177,7 @@
 /* Sidebar footer */
 .sidebar-footer {
   display: flex;
-  flex-direction: column;
+  align-items: center;
   gap: var(--space-1);
   padding: var(--space-2);
   border-top: 1px solid var(--color-border);
@@ -174,6 +185,8 @@
 
 .sidebar-settings-button {
   display: flex;
+  flex: 1;
+  min-width: 0;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
@@ -201,6 +214,47 @@
   font-size: var(--sidebar-font-size-small);
   color: var(--color-text-secondary);
   font-family: var(--font-mono);
+}
+
+.sidebar-navigation-settings {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.sidebar-navigation-settings:hover,
+.sidebar-navigation-settings[data-state='open'] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.navigation-settings-check {
+  display: flex;
+  width: 14px;
+}
+
+.navigation-settings-label {
+  padding: var(--space-2) var(--space-3);
+  color: var(--color-text-tertiary);
+  font-size: var(--sidebar-font-size-small);
+}
+
+.session-nav-item-model {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  font-size: var(--sidebar-font-size-small);
 }
 
 /* Sidebar toggle */
@@ -616,6 +670,16 @@
   border: 1px solid var(--color-error);
 }
 
+.harness-driver-icon.session-nav-item-harness {
+  width: 12px;
+  height: 12px;
+}
+
+.harness-driver-icon.session-nav-item-harness > svg {
+  width: 10px;
+  height: 10px;
+}
+
 .session-conductor-glyph {
   font-size: 12px;
   flex: none;
@@ -634,7 +698,6 @@
 .session-list {
   display: flex;
   flex-direction: column;
-  padding: var(--space-1) 0;
 }
 
 /* Project collapsible styles */
@@ -738,8 +801,11 @@
   row-gap: 2px;
 }
 
+/* Enough to part one scope from the next without reading as a section break:
+   at a full step these gaps were larger than the section headings' own, so a
+   list of scopes looked like several lists. */
 .scope-group + .scope-group {
-  margin-top: var(--space-4);
+  margin-top: var(--space-2);
 }
 
 /* The scope row is its group's title: it runs at the same size as its
@@ -855,8 +921,9 @@
   row-gap: 2px;
 }
 
+/* The same gap the scopes keep between theirs, for the same reason. */
 .group-nav-item + .group-nav-item {
-  margin-top: var(--space-4);
+  margin-top: var(--space-2);
 }
 
 /* The header is its group's title, its collapse control and its actions menu

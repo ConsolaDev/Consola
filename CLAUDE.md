@@ -90,6 +90,38 @@ reconstruct the current screen exactly. Do not try to reason about a TUI from
 the raw byte stream: Claude paints with cursor movement and overwrites in
 place, so recent bytes are not the current screen. Ask the `ScreenModel`.
 
+### Each Workspace Remembers Where It Was Left
+
+Switching workspaces returns to the view that workspace was last on, rather
+than the blank composer. A "view" is the pair `(activeSessionId, isInboxOpen)`
+— exactly what `MainContent` routes on. Both travel together because opening
+the Inbox does not clear the session: it overlays the pane while the session
+keeps running behind it, so remembering one without the other loses half the
+answer.
+
+`ViewMemoryService` (`state/ViewMemoryService.ts`) owns this, keyed by
+workspace and persisted to `view-memory.json`. Keyed by workspace rather than
+by window because a workspace outlives the window showing it, and main already
+guarantees at most one window holds a workspace — so an entry has one writer.
+
+Three things are load-bearing:
+
+- **Not a field on the `Workspace` record.** Every `WorkspaceService` write is a
+  synchronous fsync of the whole list plus a full snapshot pushed to every
+  window. That is right for renaming a workspace and absurd for clicking a
+  session, which is why navigation has its own small file that nobody
+  subscribes to.
+- **Resolution happens on read**, in `resolveRememberedView` — a dangling
+  session id becomes `null`, and the Inbox closes for a workspace whose
+  provider was unbound. Because every read goes through it, nothing upstream
+  has to eagerly clean up after a delete. A dangling id never resolves to a
+  *substitute* session: mounting one spawns a PTY the user never asked for.
+- **"No session" is a remembered state**, not an absence of one. Backing out to
+  the composer on purpose is written through, so returning does not resurrect
+  the session. For the same reason, anything that means "start something new"
+  — `openNewSessionComposer` — must not route through `setActiveWorkspace`,
+  which restores the remembered view.
+
 ### Session Identity
 
 Consola assigns each tab a UUID and launches `claude --session-id <uuid>` the
@@ -195,3 +227,6 @@ Architecture decisions are documented in `research/`:
 - `2026-02-05-esm-commonjs-interop-claude-agent-sdk.md` - SDK integration
 - `2026-02-05-git-status-file-explorer.md` - Git feature design
 - `2026-02-03-workspace-feature-architecture.md` - Workspace system
+
+Direction (where the product is heading, not a spec) lives in `docs/north-star/`:
+- `docs/north-star/consola-factories.md` - Local + cloud automations ("factories"): the invariants and decisions to consult before designing anything that touches sessions-as-runs, actions, triggers, spec files, the cloud, or identity

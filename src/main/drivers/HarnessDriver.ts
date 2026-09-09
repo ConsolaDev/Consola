@@ -33,7 +33,13 @@ export interface HarnessDriver {
     resolveBinary(config: HarnessConfig): string;
 
     /** argv for an interactive session, including the harness's extra args. */
-    buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[];
+    buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] | Promise<string[]>;
+
+    /** Deliver the opening prompt through argv instead of waiting on the TUI. */
+    readonly initialPromptViaArgs?: boolean;
+
+    /** False when retrying a failed resume would risk replacing a conversation. */
+    readonly retryResumeAsFresh?: boolean;
 
     /** The ambient environment plus this harness's own variables. */
     composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
@@ -49,6 +55,9 @@ export interface HarnessDriver {
      * check for its absence rather than polling an answer that never comes.
      */
     getSessionDisplayName?(config: HarnessConfig, sessionId: string): SessionNameResult | null;
+
+    /** Latest model reported by this conversation, when a transcript exists. */
+    getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
 
     /**
      * The commands, agents and models this CLI offers, asked of the CLI itself.
@@ -76,6 +85,8 @@ export interface HarnessDriver {
  */
 export interface SessionLaunch {
     sessionId: string;
+    cwd?: string;
+    initialPrompt?: string;
     /** Resume the existing conversation instead of starting one. */
     resume: boolean;
     /** Model selector to pin, when the session chose one. */
