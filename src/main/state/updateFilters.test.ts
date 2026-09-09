@@ -60,6 +60,33 @@ describe('allowedHarnessUpdates', () => {
 });
 
 describe('allowedWorkspaceUpdates', () => {
+  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+
+  it('accepts embedded images and strips extra uploaded fields', () => {
+    const icon = { type: 'image' as const, dataUrl: png, sourcePath: '/private/logo.png' };
+    expect(allowedWorkspaceUpdates({ icon })).toEqual({ icon: { type: 'image', dataUrl: png } });
+  });
+
+  it.each([
+    'file:///private/logo.png', 'https://example.com/logo.png',
+    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', 'data:image/png;base64,invalid',
+    `data:image/png;base64,iVBORw0KGgo${'A'.repeat(100_000)}`,
+  ])('rejects non-PNG or oversized embedded images', (dataUrl) => {
+    expect(() => allowedWorkspaceUpdates({ icon: { type: 'image', dataUrl } })).toThrow();
+  });
+
+  it('accepts icons and preserves reset intent without resetting on unrelated edits', () => {
+    expect(allowedWorkspaceUpdates({ icon: 'emoji-rocket' })).toEqual({ icon: 'emoji-rocket' });
+    expect(allowedWorkspaceUpdates({ icon: 'briefcase' })).toEqual({ icon: 'briefcase' });
+    expect(allowedWorkspaceUpdates({ icon: undefined })).toHaveProperty('icon', undefined);
+    expect(allowedWorkspaceUpdates({ name: 'Renamed' })).not.toHaveProperty('icon');
+  });
+
+  it.each(['unknown', '', null, 42, { id: 'rocket' }])('rejects invalid icon payload %j', (icon) => {
+    const payload = { icon } as unknown as Parameters<typeof allowedWorkspaceUpdates>[0];
+    expect(() => allowedWorkspaceUpdates(payload)).toThrow('Choose a valid workspace icon.');
+  });
+
   it('drops forbidden fields', () => {
     const payload = {
       id: 'attacker-controlled',

@@ -88,11 +88,11 @@ test('a workspace open in one window is focused, not duplicated, from another', 
   // The verdict is main's opinion; the two assertions below it are the fact.
   // A regression that quietly double-assigned the workspace while still
   // returning this same string would pass on the verdict alone.
-  const verdict = await second.evaluate(
+  const result = await second.evaluate(
     (id) => window.windowAPI.activateWorkspace(id),
     workspaceId
   );
-  expect(verdict).toBe('focused-elsewhere');
+  expect(result.verdict).toBe('focused-elsewhere');
   expect(app.windows()).toHaveLength(2);
 
   // Window 1 is still the holder -- requesting it from elsewhere must not
@@ -203,4 +203,158 @@ test('closing a window leaves its session running', async () => {
   );
 
   expect(snapshot.replay.length).toBeGreaterThan(0);
+});
+
+/**
+ * Create a session through the real API, in the workspace's own first scope.
+ *
+ * A session must name a scope that exists — `createSession` refuses quietly
+ * otherwise — and the scope id is minted by main when the workspace is
+ * created, so it has to be read back rather than guessed.
+ */
+async function seedSession(target: Page, workspaceId: string, name: string): Promise<string> {
+  return target.evaluate(
+    async ([id, sessionName]) => {
+      const { workspaces } = await window.workspaceAPI.getSnapshot();
+      const workspace = workspaces.find((candidate) => candidate.id === id)!;
+      const session = await window.workspaceAPI.createSession(id, {
+        name: sessionName,
+        workspaceId: id,
+        instanceId: `workspace-${id}-session-${sessionName.replace(/\s/g, '-')}`,
+        harnessId: workspace.defaultHarnessId,
+        scopeId: workspace.scopes[0]!.id,
+      });
+      return session!.id;
+    },
+    [workspaceId, name] as const
+  );
+}
+
+test('a workspace reopens on the session it was left on, not the blank composer', async () => {
+  const alpha = await seedWorkspace(page, 'alpha', '/tmp/alpha');
+  const beta = await seedWorkspace(page, 'beta', '/tmp/beta');
+  await page.evaluate((id) => window.windowAPI.activateWorkspace(id), alpha);
+  const sessionId = await seedSession(page, alpha, 'left here');
+
+  // Driven through the real IPC surface rather than the sidebar: selecting a
+  // session in the UI mounts its pane and spawns a CLI, which this test has no
+  // reason to pay for. What it does exercise is the whole path that matters --
+  // renderer report, main's registry lookup, the view memory, and the resolved
+  // view coming back on the next claim.
+  const back = await page.evaluate(
+    async ([held, other, session]) => {
+      window.windowAPI.setView(session, false);
+      await window.windowAPI.activateWorkspace(other);
+      return window.windowAPI.activateWorkspace(held);
+    },
+    [alpha, beta, sessionId] as const
+  );
+
+  expect(back).toEqual({
+    verdict: 'took',
+    view: { activeSessionId: sessionId, isInboxOpen: false },
+  });
+});
+
+test('a workspace remembers being left on the blank composer', async () => {
+  const alpha = await seedWorkspace(page, 'alpha', '/tmp/alpha');
+  const beta = await seedWorkspace(page, 'beta', '/tmp/beta');
+  await page.evaluate((id) => window.windowAPI.activateWorkspace(id), alpha);
+  const sessionId = await seedSession(page, alpha, 'backed out of');
+
+  const back = await page.evaluate(
+    async ([held, other, session]) => {
+      window.windowAPI.setView(session, false);
+      // Deliberately backing out, the way the New Session shortcut does.
+      window.windowAPI.setView(null, false);
+      await window.windowAPI.activateWorkspace(other);
+      return window.windowAPI.activateWorkspace(held);
+    },
+    [alpha, beta, sessionId] as const
+  );
+
+  // Not resurrected: choosing the composer is a state worth returning to.
+  expect(back).toEqual({
+    verdict: 'took',
+    view: { activeSessionId: null, isInboxOpen: false },
+  });
+});
+
+test('a workspace whose remembered session was deleted falls back to the composer', async () => {
+  const workspaceId = await seedWorkspace(page, 'alpha', '/tmp/alpha');
+  await page.evaluate((id) => window.windowAPI.activateWorkspace(id), workspaceId);
+  const sessionId = await seedSession(page, workspaceId, 'doomed');
+
+  const result = await page.evaluate(
+    async ([id, session]) => {
+      window.windowAPI.setView(session, false);
+      await window.workspaceAPI.deleteSession(id, session);
+      // Back out to Home and claim it again, so the view is resolved fresh.
+      await window.windowAPI.activateWorkspace(null);
+      return window.windowAPI.activateWorkspace(id);
+    },
+    [workspaceId, sessionId] as const
+  );
+
+  // Never a substitute session: mounting one would spawn a CLI nobody asked for.
+  expect(result).toEqual({
+    verdict: 'took',
+    view: { activeSessionId: null, isInboxOpen: false },
+  });
+});
+
+test('the remembered session survives a relaunch', async () => {
+  const { app: first, page: firstPage, userDataDir } = await launchElectron();
+  const workspaceId = await seedWorkspace(firstPage, 'persisted', '/tmp/persisted');
+  await firstPage.evaluate((id) => window.windowAPI.activateWorkspace(id), workspaceId);
+  const sessionId = await seedSession(firstPage, workspaceId, 'still here');
+  await firstPage.evaluate((session) => window.windowAPI.setView(session, false), sessionId);
+  await first.close();
+
+  const { app: second, page: secondPage } = await launchElectron({ userDataDir });
+  const restored = await secondPage.evaluate(
+    (id) => window.windowAPI.activateWorkspace(id),
+    workspaceId
+  );
+  await second.close();
+
+  // Written on the click, not at quit: this is the record of where the user
+  // was, and a force-quit is exactly when it has to have survived.
+  expect(restored).toEqual({
+    verdict: 'took',
+    view: { activeSessionId: sessionId, isInboxOpen: false },
+  });
+});
+
+test('a view reported against a workspace this window no longer holds is refused', async () => {
+  const alpha = await seedWorkspace(page, 'alpha', '/tmp/alpha');
+  const beta = await seedWorkspace(page, 'beta', '/tmp/beta');
+  await page.evaluate((id) => window.windowAPI.activateWorkspace(id), alpha);
+  const alphaSession = await seedSession(page, alpha, 'in alpha');
+
+  const betaView = await page.evaluate(
+    async ([held, other, strayFromOther]) => {
+      // Establish something worth losing in the workspace being switched to.
+      await window.windowAPI.activateWorkspace(held);
+      window.windowAPI.setView(held, { activeSessionId: null, isInboxOpen: false });
+
+      // The shape of a click that raced a switch: composed against the old
+      // workspace, arriving after the window has taken the new one.
+      window.windowAPI.setView(other, {
+        activeSessionId: strayFromOther,
+        isInboxOpen: false,
+      });
+
+      await window.windowAPI.activateWorkspace(null);
+      return window.windowAPI.activateWorkspace(held);
+    },
+    [beta, alpha, alphaSession] as const
+  );
+
+  // Filed under beta, the stray id would resolve to null on read and beta
+  // would silently lose the view it legitimately had.
+  expect(betaView).toEqual({
+    verdict: 'took',
+    view: { activeSessionId: null, isInboxOpen: false },
+  });
 });

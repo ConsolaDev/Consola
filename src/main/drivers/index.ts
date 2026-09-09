@@ -1,6 +1,7 @@
 import type { HarnessDriverId } from '../../shared/types';
 import type { HarnessDriver } from './HarnessDriver';
 import { ClaudeDriver } from './ClaudeDriver';
+import { CodexDriver } from './CodexDriver';
 
 /**
  * The agent CLIs Consola can drive.
@@ -10,6 +11,7 @@ import { ClaudeDriver } from './ClaudeDriver';
  */
 const DRIVERS: Record<HarnessDriverId, HarnessDriver> = {
     claude: new ClaudeDriver(),
+    codex: new CodexDriver(),
 };
 
 export const DEFAULT_DRIVER_ID: HarnessDriverId = 'claude';

@@ -1,3 +1,4 @@
+import type { WorkspaceIconValue } from '../../../shared/workspaceIcons';
 import type { LucideIcon } from 'lucide-react';
 import type { GitFileStatus } from '../../types/electron';
 import type { SessionStatus } from '../../utils/sessionStatus';
@@ -103,7 +104,7 @@ export interface WorkspacePaletteItem extends PaletteItemBase {
   kind: 'workspace';
   section: 'workspaces';
   workspaceId: string;
-  isGitRepo: boolean;
+  icon?: WorkspaceIconValue;
   status: SessionStatus;
 }
 

@@ -8,6 +8,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { itemsForView } from '../../../shared/inboxViews';
 import { useSettings } from '../../contexts/SettingsContext';
 import { SessionNavItem } from './SessionNavItem';
+import { NavigationSettings } from './NavigationSettings';
 import { GroupNavItem } from './GroupNavItem';
 import { ScopeNavItem } from './ScopeNavItem';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
@@ -273,6 +274,7 @@ export function Sidebar() {
           <span>Settings</span>
           <span className="sidebar-settings-shortcut">⌘,</span>
         </button>
+        <NavigationSettings />
       </div>
     </aside>
   );

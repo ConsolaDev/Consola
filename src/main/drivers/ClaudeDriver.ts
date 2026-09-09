@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { getLoginEnv } from '../LoginEnvironment';
-import { getDisplayName } from '../ClaudeSessionIndex';
+import { readSessionModel } from './sessionModel';
+import { findSessionFile, getDisplayName } from '../ClaudeSessionIndex';
 import { probeClaudeCapabilities } from './claudeCapabilities';
 import type {
     HarnessAccount,
@@ -128,6 +129,12 @@ export class ClaudeDriver implements HarnessDriver {
      * was configured for; failing at spawn, and reporting it from the health
      * probe, is the honest outcome.
      */
+    public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
+        if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
+        const file = findSessionFile(sessionId, config.configDir);
+        return file ? readSessionModel(file, 'claude') : null;
+    }
+
     public resolveBinary(config: HarnessConfig): string {
         if (config.binaryPath) return config.binaryPath;
 

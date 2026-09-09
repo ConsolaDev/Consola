@@ -31,6 +31,10 @@ interface SettingsState {
   theme: ThemeMode;
   resolvedTheme: 'light' | 'dark';
   terminalFontSize: number;
+  showSidebarModel: boolean;
+  setShowSidebarModel: (show: boolean) => void;
+  showSidebarHarness: boolean;
+  setShowSidebarHarness: (show: boolean) => void;
   /** The Inbox's repository and Updated filters, per workspace id. */
   inboxFilters: Record<string, InboxFilterState>;
   /**
@@ -108,6 +112,10 @@ export const useSettingsStore = create<SettingsState>()(
       theme: 'system',
       resolvedTheme: 'dark',
       terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
+      showSidebarModel: true,
+      setShowSidebarModel: (showSidebarModel) => set({ showSidebarModel }),
+      showSidebarHarness: true,
+      setShowSidebarHarness: (showSidebarHarness) => set({ showSidebarHarness }),
       inboxFilters: {},
       collapsedSidebarSections: [],
       setTheme: (theme) => set({ theme }),
@@ -159,6 +167,8 @@ export const useSettingsStore = create<SettingsState>()(
       storage: createJSONStorage(() => localStorage),
       partialize: (state) => ({
         theme: state.theme,
+        showSidebarModel: state.showSidebarModel,
+        showSidebarHarness: state.showSidebarHarness,
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
         collapsedSidebarSections: state.collapsedSidebarSections,
@@ -171,6 +181,8 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           ...saved,
+          showSidebarModel: typeof saved?.showSidebarModel === 'boolean' ? saved.showSidebarModel : true,
+          showSidebarHarness: typeof saved?.showSidebarHarness === 'boolean' ? saved.showSidebarHarness : true,
           terminalFontSize: clampTerminalFontSize(
             saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT
           ),

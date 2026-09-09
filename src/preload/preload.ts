@@ -14,6 +14,7 @@ import {
     SessionNameResult,
     WorkspaceSnapshot,
     WindowContext,
+    WorkspaceView,
     ActivateWorkspaceResult,
     WorkItemLaunchResult,
     CloneRepoResult,
@@ -108,6 +109,9 @@ contextBridge.exposeInMainWorld('terminalAPI', {
 
 // Expose harness queries to the renderer
 contextBridge.exposeInMainWorld('harnessAPI', {
+    getSessionModel: (sessionId: string, fields: HarnessLaunchFields): Promise<string | null> =>
+        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_MODEL, sessionId, fields),
+
     probe: (fields: HarnessLaunchFields): Promise<HarnessProbeResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_PROBE, fields);
     },
@@ -180,7 +184,7 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
     updateWorkspace: (
         id: string,
-        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
     ): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE, id, updates),
 
     deleteWorkspace: (id: string): Promise<void> =>
@@ -363,11 +367,12 @@ contextBridge.exposeInMainWorld('gitAPI', {
 function readWindowContext(): WindowContext {
     const prefix = '--consola-window=';
     const arg = process.argv.find((value) => value.startsWith(prefix));
-    if (!arg) return { workspaceId: null, activeSessionId: null };
+    const empty: WindowContext = { workspaceId: null, activeSessionId: null, isInboxOpen: false };
+    if (!arg) return empty;
     try {
         return JSON.parse(arg.slice(prefix.length)) as WindowContext;
     } catch {
-        return { workspaceId: null, activeSessionId: null };
+        return empty;
     }
 }
 
@@ -380,8 +385,8 @@ contextBridge.exposeInMainWorld('windowAPI', {
     openWindow: (workspaceId: string | null): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN, workspaceId),
 
-    setActiveSession: (sessionId: string | null): void => {
-        ipcRenderer.send(IPC_CHANNELS.WINDOW_SET_ACTIVE_SESSION, sessionId);
+    setView: (workspaceId: string | null, view: WorkspaceView): void => {
+        ipcRenderer.send(IPC_CHANNELS.WINDOW_SET_VIEW, workspaceId, view);
     },
 
     onWorkspaceChanged: (callback: (workspaceId: string | null) => void) =>

@@ -21,9 +21,12 @@ export { generateSessionInstanceId };
  * Select a session within the workspace this window already holds.
  *
  * Written as a single `setState` rather than `setActiveWorkspace` followed by
- * `setActiveSession`, because `setActiveWorkspace` clears `activeSessionId` as
- * a side effect — doing it in two calls selects the session and then
- * immediately deselects it.
+ * `setActiveSession`. `setActiveWorkspace` asks main for the workspace and
+ * adopts the view it was last left on, so in two calls the pane would paint
+ * the remembered session and only then correct to the named one — and on a
+ * `focused-elsewhere` verdict, where this window did not get the workspace at
+ * all, the follow-up call would still fire and point it at a session it is
+ * not showing.
  *
  * Deliberately does not go through main: callers here are the sidebar and
  * other places that only ever name a session in the workspace already on
@@ -38,7 +41,7 @@ export function activateSession(workspaceId: string, sessionId: string): void {
     activeSessionId: sessionId,
     isInboxOpen: false,
   });
-  windowBridge.setActiveSession(sessionId);
+  windowBridge.setView(workspaceId, { activeSessionId: sessionId, isInboxOpen: false });
 }
 
 /**
@@ -58,8 +61,10 @@ export async function activateSessionAnywhere(
     return;
   }
 
-  const verdict = await windowBridge.activateWorkspace(workspaceId);
-  if (verdict === 'took') {
+  const result = await windowBridge.activateWorkspace(workspaceId);
+  if (result.verdict === 'took') {
+    // The remembered view is deliberately discarded: the caller named a
+    // session, and that choice replaces whatever the workspace was left on.
     activateSession(workspaceId, sessionId);
   }
 }
@@ -105,9 +110,23 @@ export async function createQuickSession(
  * No session exists until a prompt is submitted, so backing out of the
  * composer leaves nothing behind — which is why the palette starts sessions
  * this way rather than by creating one up front.
+ *
+ * Deliberately not `setActiveWorkspace`, which restores whatever the target
+ * workspace was last showing: asking for a new session and being handed an
+ * existing one is the opposite of what was asked. The composer is written
+ * through as the workspace's view for the same reason it is anywhere else —
+ * choosing it is a state worth coming back to.
  */
-export function openNewSessionComposer(workspaceId: string): Promise<void> {
-  return useNavigationStore.getState().setActiveWorkspace(workspaceId);
+export async function openNewSessionComposer(workspaceId: string): Promise<void> {
+  const result = await windowBridge.activateWorkspace(workspaceId);
+  if (result.verdict !== 'took') return;
+
+  useNavigationStore.setState({
+    activeWorkspaceId: workspaceId,
+    activeSessionId: null,
+    isInboxOpen: false,
+  });
+  windowBridge.setView(workspaceId, { activeSessionId: null, isInboxOpen: false });
 }
 
 /**

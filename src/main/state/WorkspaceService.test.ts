@@ -27,6 +27,31 @@ afterEach(() => {
 });
 
 describe('WorkspaceService', () => {
+  it('persists and broadcasts icon changes independently of scopes, then resets across reloads', () => {
+    const workspace = service.createWorkspace('Work', '/code/work', true);
+    const other = service.createWorkspace('Personal', '/code/personal', false);
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    service.updateWorkspace(workspace.id, { icon: 'emoji-rocket' });
+    expect(listener.mock.calls[0][0][0].icon).toBe('emoji-rocket');
+    service.updateWorkspace(workspace.id, { name: 'Renamed' });
+    const reloaded = build();
+    expect(reloaded.getAll()[0]).toMatchObject({ icon: 'emoji-rocket', scopes: workspace.scopes });
+    expect(reloaded.getAll()[1]).toEqual(other);
+
+    reloaded.updateWorkspace(workspace.id, { icon: 'briefcase' });
+    expect(build().getAll()[0].icon).toBe('briefcase');
+    const image = {
+      type: 'image' as const,
+      dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=',
+    };
+    reloaded.updateWorkspace(workspace.id, { icon: image });
+    expect(build().getAll()[0].icon).toEqual(image);
+    reloaded.updateWorkspace(workspace.id, { icon: undefined });
+    expect(build().getAll()[0]).not.toHaveProperty('icon');
+  });
+
   it('starts empty and reports that nothing has been imported yet', () => {
     expect(service.hasState()).toBe(false);
     expect(service.getAll()).toEqual([]);

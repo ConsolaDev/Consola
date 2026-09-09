@@ -96,7 +96,7 @@ export class WorkspaceService {
 
   public updateWorkspace(
     id: string,
-    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
   ): void {
     this.commit(
       this.workspaces.map((workspace) =>
