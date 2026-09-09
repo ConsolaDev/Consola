@@ -30,7 +30,7 @@ interface HarnessState {
     /** Launch fields for a session's harness, falling back to the built-in. */
     getLaunchFields: (harnessId: string | undefined) => HarnessLaunchFields;
 
-    probeHarness: (id: string) => Promise<void>;
+    probeHarness: (target: string | Harness) => Promise<void>;
     probeAll: () => Promise<void>;
 }
 
@@ -107,9 +107,11 @@ export const useHarnessStore = create<HarnessState>()((set, get) => ({
         return harness ? toLaunchFields(harness) : {};
     },
 
-    probeHarness: async (id) => {
-        const harness = get().getHarness(id);
+    probeHarness: async (target) => {
+        // A just-saved record may arrive before main's state broadcast.
+        const harness = typeof target === 'string' ? get().getHarness(target) : target;
         if (!harness) return;
+        const { id } = harness;
 
         set((state) => ({
             statuses: {

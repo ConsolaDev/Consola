@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
 import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useSettingsStore } from '../../stores/settingsStore';
+import { useSessionModel } from '../../hooks/useSessionModel';
+import { SessionHarnessIcon } from './SessionHarnessIcon';
 import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
 import { startSessionDrag } from './sessionDrag';
@@ -48,6 +51,9 @@ export function SessionNavItem({
   const [isDragging, setIsDragging] = useState(false);
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
+  const showModel = useSettingsStore((state) => state.showSidebarModel);
+  const showHarness = useSettingsStore((state) => state.showSidebarHarness);
+  const model = useSessionModel(session, showModel);
 
   const sessionStatus = useTerminalStore((state) =>
     sessionStatusFor(state.terminals[session.instanceId])
@@ -77,7 +83,7 @@ export function SessionNavItem({
   // scope off the end of a shared line.
   const label = sessionLabel(session);
   const subtitleText = subtitle ?? sessionSubtitle(session);
-  const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}`;
+  const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}${showModel && model ? ` — ${model}` : ''}`;
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -173,6 +179,7 @@ export function SessionNavItem({
           🧠
         </span>
       )}
+      {showHarness && <SessionHarnessIcon harnessId={session.harnessId} />}
       {isRenaming ? (
         <input
           ref={inputRef}
@@ -188,6 +195,7 @@ export function SessionNavItem({
         <span className="session-nav-item-text">
           <span className="session-nav-item-name">{label}</span>
           {subtitleText && <span className="session-nav-item-subtitle">{subtitleText}</span>}
+          {showModel && model && <span className="session-nav-item-model" title={model}>{model}</span>}
         </span>
       )}
       {!isRenaming && statusWord && (

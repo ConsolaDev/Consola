@@ -118,6 +118,147 @@ function switcherTrigger(page: Page) {
   return page.getByRole('button', { name: /^Switch workspace/ });
 }
 
+test('workspace icons can be searched, selected, reloaded and reset', async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  const { page, stateFile, cleanup } = await launchSeeded();
+  try {
+    await holdWorkspace(page);
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'layout');
+    const openSettings = async () => {
+      await switcherTrigger(page).click();
+      await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+      await page.getByRole('button', { name: 'Change workspace icon' }).click();
+    };
+    await openSettings();
+    const picker = page.getByRole('dialog', { name: 'Workspace icon', exact: true });
+    await picker.getByRole('tab', { name: 'Emojis', exact: true }).click();
+    await page.screenshot({ path: testInfo.outputPath('workspace-icon-picker.png') });
+    await picker.getByRole('searchbox').fill('rocket');
+    await expect(picker.getByRole('group', { name: 'Emojis' }).getByRole('button')).toHaveCount(1);
+    await picker.getByRole('button', { name: 'Rocket', exact: true }).click();
+    await expect(picker).toBeHidden();
+    await expect.poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBe('emoji-rocket');
+    await page.getByRole('dialog', { name: 'Sympower', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+
+    await page.reload();
+    await switcherTrigger(page).click();
+    await expect(page.getByRole('menuitem', { name: /Sympower/ }).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await page.getByRole('menuitem', { name: /Sympower/ }).click();
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await page.keyboard.press(commandPaletteChord());
+    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
+    await palette.getByRole('combobox').fill('# Sympower');
+    await expect(palette.getByRole('option', { name: /Sympower/ }).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    // Escape first leaves the workspace search scope, then closes the palette.
+    await page.keyboard.press('Escape');
+    await page.keyboard.press('Escape');
+    await expect(palette).toBeHidden();
+
+    await openSettings();
+    await picker.getByRole('tab', { name: 'Icons', exact: true }).click();
+    await picker.getByRole('searchbox').fill('no matching icon');
+    await expect(picker.getByText('No icons found.')).toBeVisible();
+    await picker.getByRole('searchbox').fill('briefcase');
+    await picker.getByRole('button', { name: 'Briefcase', exact: true }).click();
+    await page.getByRole('button', { name: 'Change workspace icon' }).click();
+    await expect(picker.getByRole('button', { name: 'Briefcase', exact: true })).toHaveAttribute('aria-pressed', 'true');
+    await picker.getByRole('button', { name: 'Reset to default' }).click();
+    await expect.poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBeUndefined();
+    await page.getByRole('button', { name: 'Change workspace icon' }).click();
+    await picker.getByRole('searchbox').press('Escape');
+    await expect(picker).toBeHidden();
+    await expect(page.getByRole('dialog', { name: 'Sympower', exact: true })).toBeVisible();
+    await expect(page.getByRole('button', { name: 'Change workspace icon' })).toBeFocused();
+    await page.getByRole('dialog', { name: 'Sympower', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'layout');
+  } finally {
+    await cleanup();
+  }
+});
+
+test('custom workspace images preview, persist without the source file, and can be replaced or removed', async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  const { page, stateFile, cleanup } = await launchSeeded();
+  const imageDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-icon-upload-'));
+  try {
+    await holdWorkspace(page);
+    // A wide image exercises fitting and transparency, not just a square copy.
+    const source = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = 300; canvas.height = 150;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#159957'; context.fillRect(0, 0, 300, 150);
+      return canvas.toDataURL('image/png').split(',')[1];
+    });
+    const sourceFile = path.join(imageDir, 'my-logo.png');
+    fs.writeFileSync(sourceFile, Buffer.from(source, 'base64'));
+    await switcherTrigger(page).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    await page.getByRole('button', { name: 'Change workspace icon' }).click();
+    const picker = page.getByRole('dialog', { name: 'Workspace icon', exact: true });
+    await picker.getByRole('tab', { name: 'Upload', exact: true }).click();
+    const input = picker.getByLabel('Upload workspace image');
+    await input.setInputFiles(sourceFile);
+    await expect(picker.getByRole('button', { name: 'Use image', exact: true })).toBeEnabled();
+    const preview = picker.locator('.ws-icon-upload-preview img');
+    await expect.poll(() => preview.evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
+    const pixels = await preview.evaluate((img: HTMLImageElement) => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 128;
+      const context = canvas.getContext('2d')!;
+      context.drawImage(img, 0, 0);
+      return {
+        cornerAlpha: context.getImageData(0, 0, 1, 1).data[3],
+        center: Array.from(context.getImageData(64, 64, 1, 1).data),
+      };
+    });
+    expect(pixels).toEqual({ cornerAlpha: 0, center: [21, 153, 87, 255] });
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBeUndefined();
+    await page.screenshot({ path: testInfo.outputPath('custom-workspace-icon.png') });
+    await picker.getByRole('button', { name: 'Use image', exact: true }).click();
+    await expect(picker).toBeHidden();
+    const storedIcon = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon;
+    expect(storedIcon).toMatchObject({ type: 'image', dataUrl: expect.stringMatching(/^data:image\/png;base64,/) });
+    fs.unlinkSync(sourceFile);
+    await page.reload();
+    await switcherTrigger(page).click();
+    await page.getByRole('menuitem', { name: /Sympower/ }).click();
+    await expect.poll(() => switcherTrigger(page).locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
+    await switcherTrigger(page).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    await page.getByRole('button', { name: 'Change workspace icon' }).click();
+    await expect(picker.getByRole('tab', { name: 'Upload', exact: true })).toHaveAttribute('aria-selected', 'true');
+
+    // Bad uploads leave the saved image intact and allow another attempt.
+    await input.setInputFiles({ name: 'broken.png', mimeType: 'image/png', buffer: Buffer.from('broken') });
+    await expect(picker.getByRole('alert')).toHaveText('This image could not be opened. Try another file.');
+    await input.setInputFiles({ name: 'large.png', mimeType: 'image/png', buffer: Buffer.alloc(5 * 1024 * 1024 + 1) });
+    await expect(picker.getByRole('alert')).toHaveText('Choose an image smaller than 5 MB.');
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toEqual(storedIcon);
+
+    const replacement = await page.evaluate(() => {
+      const canvas = document.createElement('canvas');
+      canvas.width = canvas.height = 64;
+      const context = canvas.getContext('2d')!;
+      context.fillStyle = '#cc2244'; context.fillRect(0, 0, 64, 64);
+      return canvas.toDataURL('image/jpeg').split(',')[1];
+    });
+    await input.setInputFiles({ name: 'replacement.jpg', mimeType: 'image/jpeg', buffer: Buffer.from(replacement, 'base64') });
+    await expect(picker.getByRole('button', { name: 'Use image', exact: true })).toBeEnabled();
+    await picker.getByRole('button', { name: 'Use image', exact: true }).click();
+    await expect(picker).toBeHidden();
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon.dataUrl).not.toBe(storedIcon.dataUrl);
+    await page.getByRole('button', { name: 'Change workspace icon' }).click();
+    await picker.getByRole('button', { name: 'Reset to default' }).click();
+    await expect(picker).toBeHidden();
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBeUndefined();
+  } finally {
+    await cleanup();
+    fs.rmSync(imageDir, { recursive: true, force: true });
+  }
+});
+
 /** Hold the seeded workspace through the real switcher UI (windows.spec.ts precedent). */
 async function holdWorkspace(page: Page): Promise<void> {
   await switcherTrigger(page).click();

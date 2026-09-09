@@ -2,6 +2,7 @@ import { Pencil, RefreshCw, RotateCcw, Trash2 } from 'lucide-react';
 import { useHarnessStore, type Harness } from '../../stores/harnessStore';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { describeHarnessStatus, HarnessStatusDot } from './HarnessStatusBadge';
+import { HarnessIcon } from '../HarnessIcon';
 import './styles.css';
 
 /**
@@ -46,6 +47,7 @@ export function HarnessCard({
         <div className="harness-card-details">
           <div className="harness-card-heading">
             <HarnessStatusDot status={status} />
+            <HarnessIcon driverId={harness.driverId} />
             <span className="harness-card-name">{harness.name}</span>
             {!harness.isBuiltIn && <code className="harness-card-id">{harness.id}</code>}
             {status?.version && (

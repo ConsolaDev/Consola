@@ -360,7 +360,7 @@ export function buildWorkspaceItems(
     label: workspace.name,
     context: primaryScope(workspace)?.path ?? '',
     workspaceId: workspace.id,
-    isGitRepo: primaryScope(workspace)?.isGitRepo ?? false,
+    icon: workspace.icon,
     status: workspaceStatusFor(workspace, terminals),
   }));
 }

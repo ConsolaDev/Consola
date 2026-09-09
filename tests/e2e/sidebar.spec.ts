@@ -4,6 +4,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { createProfileDir, launchElectron } from './helpers/electron';
+import { createBuiltInHarness } from '../../src/shared/harness';
 
 let app: ElectronApplication;
 let page: Page;
@@ -107,6 +108,14 @@ function seedScopes(profileDir: string, scopeDir: string): void {
   const effective = `${profileDir} Test`;
   fs.mkdirSync(effective, { recursive: true });
   const now = Date.now();
+  const builtIn = { ...createBuiltInHarness(), configDir: path.join(scopeDir, 'claude-profile') };
+  fs.writeFileSync(path.join(effective, 'harnesses.json'), JSON.stringify({
+    version: 1,
+    harnesses: [builtIn, {
+      ...builtIn, id: 'codex-test', driverId: 'codex', name: 'Codex archived',
+      isBuiltIn: false, archived: true, configDir: path.join(scopeDir, 'codex-profile'),
+    }],
+  }));
   const session = (id: string, name: string, scopeId: string, groupId?: string) => ({
     id,
     name,
@@ -114,7 +123,8 @@ function seedScopes(profileDir: string, scopeDir: string): void {
     instanceId: `inst-${id}`,
     claudeSessionId: `claude-${id}`,
     hasStarted: false,
-    harnessId: 'default',
+    harnessId: id === 's3' ? 'codex-test' : 'default',
+    ...(id === 's1' || id === 's4' ? { model: 'claude-opus-4-6' } : {}),
     scopeId,
     kind: 'interactive',
     ...(groupId ? { groupId } : {}),
@@ -185,6 +195,51 @@ test.describe('folding scopes and groups', () => {
 
   const scopeGroup = (target: Page, scopeId: string) =>
     target.locator(`[data-testid="scope-group-${scopeId}"]`);
+
+  test('model and harness metadata toggle independently and stay hidden after relaunch', async () => {
+    test.setTimeout(60_000);
+    await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
+    await expect(page.locator('.session-nav-item-model').first()).toHaveText('claude-opus-4-6');
+    await expect(page.locator('[data-harness-type="claude"]')).toHaveCount(3);
+    await expect(page.locator('[data-harness-type="codex"]')).toHaveCount(1);
+    await expect(page.locator('[data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
+    await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
+    const toggle = page.getByRole('menuitemcheckbox', { name: 'Model', exact: true });
+    const harnessToggle = page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true });
+    await expect(harnessToggle).toBeChecked();
+    await expect(toggle).toBeChecked();
+    await toggle.click();
+    await expect(toggle).not.toBeChecked();
+    await expect(page.locator('.session-nav-item-model')).toHaveCount(0);
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(4);
+    await harnessToggle.click();
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
+    await page.keyboard.press('Escape');
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+    await expect(page.locator('.session-nav-item-model')).toHaveCount(0);
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
+    await expect(page.getByRole('menuitemcheckbox', { name: 'Model', exact: true })).not.toBeChecked();
+    await page.getByRole('menuitemcheckbox', { name: 'Model', exact: true }).click();
+    await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
+    await page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true }).click();
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(4);
+  });
+
+  test('the row follows runtime model changes without replacing the pinned launch model', async () => {
+    const transcript = path.join(scopeDir, 'claude-profile', 'projects', 'repo', 'claude-s1.jsonl');
+    fs.mkdirSync(path.dirname(transcript), { recursive: true });
+    fs.writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-4-6' } }) + '\n');
+    const row = page.locator('.session-nav-item').filter({ hasText: 'Controller boot' });
+    await expect(row.locator('.session-nav-item-model')).toHaveText('claude-sonnet-4-6', { timeout: 10_000 });
+    fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-opus-4-6' } }) + '\n');
+    await expect(row.locator('.session-nav-item-model')).toHaveText('claude-opus-4-6', { timeout: 10_000 });
+    const stored = JSON.parse(fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'));
+    expect(stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model).toBe('claude-opus-4-6');
+  });
 
   test('a scope starts open and folds its sessions away behind a count', async () => {
     const appScope = scopeGroup(page, 'scope-app');

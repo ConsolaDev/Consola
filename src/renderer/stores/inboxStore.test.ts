@@ -19,16 +19,16 @@ vi.mock('../services/providerBridge', () => ({
 }));
 
 // navigationStore reads windowBridge.context at store-creation time, and
-// sessionActions.activateSession calls windowBridge.setActiveSession — both
+// sessionActions.activateSession calls windowBridge.setView — both
 // reach through `window.windowAPI`, a global this suite's node environment
 // doesn't have. Same workaround as navigationStore.test.ts: mock the module
 // (hoisted above the import below) so the real stores load without a DOM.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
-    context: { workspaceId: null, activeSessionId: null },
+    context: { workspaceId: null, activeSessionId: null, isInboxOpen: false },
     activateWorkspace: vi.fn(),
     openWindow: vi.fn(),
-    setActiveSession: vi.fn(),
+    setView: vi.fn(),
     onWorkspaceChanged: vi.fn(() => () => {}),
   },
 }));

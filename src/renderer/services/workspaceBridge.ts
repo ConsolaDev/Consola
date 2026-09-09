@@ -45,7 +45,7 @@ export const workspaceBridge = {
 
     updateWorkspace(
         id: string,
-        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
     ): Promise<void> {
         return window.workspaceAPI.updateWorkspace(id, updates);
     },
