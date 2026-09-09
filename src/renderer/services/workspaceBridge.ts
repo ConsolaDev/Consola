@@ -1,3 +1,4 @@
+import type { SessionCheckout } from '../../shared/sessionCheckout';
 import type {
     WorkspaceSnapshot,
     SessionFanOutIntent,
@@ -54,8 +55,8 @@ export const workspaceBridge = {
         return window.workspaceAPI.deleteWorkspace(id);
     },
 
-    createSession(workspaceId: string, fields: NewSessionFields): Promise<Session | undefined> {
-        return window.workspaceAPI.createSession(workspaceId, fields);
+    createSession(workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout): Promise<Session | undefined> {
+        return window.workspaceAPI.createSession(workspaceId, fields, checkout);
     },
 
     updateSession(workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> {

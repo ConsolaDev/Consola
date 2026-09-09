@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import { Send } from 'lucide-react';
+import { ArrowUp, Loader2 } from 'lucide-react';
 import type { Harness } from '../../../shared/harness';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import {
@@ -21,6 +21,8 @@ interface PromptComposerProps {
     placeholder?: string;
     disabled?: boolean;
     autoFocus?: boolean;
+    controls?: React.ReactNode;
+    submitting?: boolean;
 }
 
 /**
@@ -51,6 +53,8 @@ export function PromptComposer({
     placeholder = 'Ask anything...',
     disabled,
     autoFocus,
+    controls,
+    submitting,
 }: PromptComposerProps) {
     const textareaRef = useRef<HTMLTextAreaElement>(null);
     // Set when a selection moves the caret, applied once React has rendered
@@ -126,6 +130,7 @@ export function PromptComposer({
     };
 
     const handleKeyDown = (event: React.KeyboardEvent) => {
+        if (event.nativeEvent.isComposing || disabled) return;
         // The menu gets first refusal on the keys it shares with the composer.
         // It declines Enter whenever it has nothing to select, so a `/` typed
         // with no match never stops a message being sent.
@@ -151,7 +156,7 @@ export function PromptComposer({
         <TypeaheadPopover
             open={open}
             anchor={
-                <div className="prompt-composer">
+                <div className={`prompt-composer ${controls ? 'prompt-composer--with-controls' : ''}`}>
                     <textarea
                         ref={textareaRef}
                         className="prompt-composer-input"
@@ -167,6 +172,7 @@ export function PromptComposer({
                         placeholder={placeholder}
                         rows={1}
                         disabled={disabled}
+                        aria-label="Message"
                         role="combobox"
                         aria-expanded={open}
                         aria-autocomplete="list"
@@ -174,14 +180,17 @@ export function PromptComposer({
                             activeItemId ? rowElementId(activeItemId) : undefined
                         }
                     />
-                    <button
-                        className="prompt-composer-submit"
-                        onClick={onSubmit}
-                        disabled={!value.trim() || disabled}
-                        aria-label="Send message"
-                    >
-                        <Send size={18} />
-                    </button>
+                    <div className="prompt-composer-toolbar">
+                        {controls && <div className="prompt-composer-controls">{controls}</div>}
+                        <button
+                            className="prompt-composer-submit"
+                            onClick={onSubmit}
+                            disabled={!value.trim() || disabled}
+                            aria-label="Send message"
+                        >
+                            {submitting ? <Loader2 size={18} className="composer-spinner" /> : <ArrowUp size={18} />}
+                        </button>
+                    </div>
                 </div>
             }
             items={typeahead.items}

@@ -1,3 +1,4 @@
+import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
     Group,
     NewGroupFields,
@@ -348,6 +349,7 @@ export interface ProviderAPI {
  * renderer sends intents and listens for the result.
  */
 export interface WorkspaceAPI {
+    checkoutContext: (workspaceId: string, scopeId: string) => Promise<CheckoutContext>;
     getSnapshot: () => Promise<WorkspaceSnapshot>;
     importState: (workspaces: Workspace[], version: number) => Promise<boolean>;
     createWorkspace: (
@@ -361,7 +363,7 @@ export interface WorkspaceAPI {
         updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
     ) => Promise<void>;
     deleteWorkspace: (id: string) => Promise<void>;
-    createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
+    createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
     updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
     addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;

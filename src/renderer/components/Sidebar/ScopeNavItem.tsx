@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import * as ContextMenu from '@radix-ui/react-context-menu';
 import { ChevronDown, ChevronRight, Folder, GitBranch, Plus, X } from 'lucide-react';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { type Scope, type Session } from '../../stores/workspaceStore';
@@ -71,62 +72,86 @@ export function ScopeNavItem({
       {/* The row collapses the scope but also hosts the add and remove
           buttons, and a <button> may not contain another button — hence a
           row, exactly as a group header solves the same problem. */}
-      <div
-        className={`scope-row ${isDropTarget ? 'drop-target' : ''}`}
-        title={scope.path}
-        onDragOver={(event) => {
-          if (!isSessionFromScope(event, scope.id)) return;
-          // Without preventDefault the browser refuses the drop outright.
-          event.preventDefault();
-          event.dataTransfer.dropEffect = 'move';
-          setIsDropTarget(true);
-        }}
-        onDragLeave={(event) => {
-          if (leftDropTarget(event)) setIsDropTarget(false);
-        }}
-        onDrop={handleDrop}
-      >
-        <button
-          className="scope-row-toggle"
-          aria-expanded={!collapsed}
-          onClick={() => toggleSidebarSection(scope.id)}
-        >
-          {collapsed ? (
-            <ChevronRight size={12} aria-hidden="true" />
-          ) : (
-            <ChevronDown size={12} aria-hidden="true" />
-          )}
-          {/* Decorative: the folder glyph repeats what the name already says,
-              and the button computes its accessible name from this subtree. */}
-          <span className="scope-row-icon" aria-hidden="true">
-            {scope.isGitRepo ? <GitBranch size={13} /> : <Folder size={13} />}
-          </span>
-          <span className="scope-row-name">{scope.name}</span>
-          {collapsed && sessions.length > 0 && (
-            <span className="scope-row-count">
-              {sessions.length}
-              {/* A bare numeral reads as part of the name when spoken. */}
-              <span className="sr-only"> {sessions.length === 1 ? 'session' : 'sessions'}</span>
-            </span>
-          )}
-        </button>
-        <button
-          className="scope-row-action"
-          onClick={() => void createQuickSession(workspaceId, scope.id)}
-          aria-label={`New session in ${scope.name}`}
-        >
-          <Plus size={12} />
-        </button>
-        {removable && (
-          <button
-            className="scope-row-action"
-            onClick={() => onRemove(scope)}
-            aria-label={`Remove scope ${scope.name}`}
+      <ContextMenu.Root>
+        <ContextMenu.Trigger asChild>
+          <div
+            className={`scope-row ${isDropTarget ? 'drop-target' : ''}`}
+            title={scope.path}
+            onDragOver={(event) => {
+              if (!isSessionFromScope(event, scope.id)) return;
+              // Without preventDefault the browser refuses the drop outright.
+              event.preventDefault();
+              event.dataTransfer.dropEffect = 'move';
+              setIsDropTarget(true);
+            }}
+            onDragLeave={(event) => {
+              if (leftDropTarget(event)) setIsDropTarget(false);
+            }}
+            onDrop={handleDrop}
           >
-            <X size={12} />
-          </button>
-        )}
-      </div>
+            <button
+              className="scope-row-toggle"
+              aria-expanded={!collapsed}
+              onClick={() => toggleSidebarSection(scope.id)}
+            >
+              {collapsed ? (
+                <ChevronRight size={12} aria-hidden="true" />
+              ) : (
+                <ChevronDown size={12} aria-hidden="true" />
+              )}
+              {/* Decorative: the folder glyph repeats what the name already says,
+                  and the button computes its accessible name from this subtree. */}
+              <span className="scope-row-icon" aria-hidden="true">
+                {scope.isGitRepo ? <GitBranch size={13} /> : <Folder size={13} />}
+              </span>
+              <span className="scope-row-name">{scope.name}</span>
+              {collapsed && sessions.length > 0 && (
+                <span className="scope-row-count">
+                  {sessions.length}
+                  {/* A bare numeral reads as part of the name when spoken. */}
+                  <span className="sr-only"> {sessions.length === 1 ? 'session' : 'sessions'}</span>
+                </span>
+              )}
+            </button>
+            <button
+              className="scope-row-action"
+              onClick={() => void createQuickSession(workspaceId, scope.id)}
+              aria-label={`New session in ${scope.name}`}
+            >
+              <Plus size={12} />
+            </button>
+            {removable && (
+              <button
+                className="scope-row-action"
+                onClick={() => onRemove(scope)}
+                aria-label={`Remove scope ${scope.name}`}
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
+        </ContextMenu.Trigger>
+        <ContextMenu.Portal>
+          <ContextMenu.Content className="dropdown-content">
+            <ContextMenu.Item
+              className="dropdown-item"
+              onSelect={() => void createQuickSession(workspaceId, scope.id)}
+            >
+              <Plus size={14} />
+              <span>New session</span>
+            </ContextMenu.Item>
+            {removable && (
+              <ContextMenu.Item
+                className="dropdown-item dropdown-item-destructive"
+                onSelect={() => onRemove(scope)}
+              >
+                <X size={14} />
+                <span>Remove scope</span>
+              </ContextMenu.Item>
+            )}
+          </ContextMenu.Content>
+        </ContextMenu.Portal>
+      </ContextMenu.Root>
       {!collapsed &&
         sessions.map((session) => (
           <SessionNavItem

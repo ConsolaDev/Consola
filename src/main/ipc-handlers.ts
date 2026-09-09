@@ -1,3 +1,5 @@
+import { SessionCheckoutService } from './SessionCheckoutService';
+import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -215,10 +217,26 @@ export function setupIpcHandlers(): boolean {
         doomed?.sessions.forEach((session) => conductorControl.unregister(session.id));
     });
 
+    const sessionCheckouts = new SessionCheckoutService();
+    const checkoutScope = (workspaceId: string, scopeId?: string) => {
+        const workspace = workspaces.getAll().find(candidate => candidate.id === workspaceId);
+        const scope = workspace?.scopes.find(candidate => candidate.id === scopeId);
+        if (!scope) throw new Error('The selected workspace folder is no longer available.');
+        return scope;
+    };
+    ipcMain.handle(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT,
+        (_event, workspaceId: string, scopeId: string) =>
+            sessionCheckouts.list(checkoutScope(workspaceId, scopeId).path));
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
-        (_event, workspaceId: string, fields: NewSessionFields) =>
-            workspaces.createSession(workspaceId, fields)
+        async (_event, workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => {
+            if (!checkout) return workspaces.createSession(workspaceId, fields);
+            const scope = checkoutScope(workspaceId, fields.scopeId);
+            const cwd = await sessionCheckouts.prepare(scope.path, checkout);
+            // A failed record write leaves a usable checkout, discoverable on retry.
+            checkoutScope(workspaceId, fields.scopeId);
+            return workspaces.createSession(workspaceId, { ...fields, cwd });
+        }
     );
 
     ipcMain.handle(
@@ -1375,6 +1393,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);

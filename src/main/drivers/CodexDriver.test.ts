@@ -7,6 +7,7 @@ import type { HarnessDriverId } from '../../shared/types';
 import { getDriverDescriptor } from '../../shared/constants';
 import { CodexDriver } from './CodexDriver';
 import { createCodexThread } from './codexAppServer';
+import { listCodexModels, codexModelConfigArgs } from './codexModels';
 
 vi.mock('../LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: process.env.PATH }) }));
 
@@ -129,5 +130,41 @@ describe('Codex preparation failures', () => {
     await expect(createCodexThread(binaryPath, configDir, {
       PATH: process.env.PATH, CODEX_HOME: configDir, CONSOLA_CODEX_FIXTURE_MODE: mode,
     }, 'Test', 1000)).rejects.toThrow(message);
+  });
+});
+
+
+describe('Codex model discovery', () => {
+  it('enables discovery, reads every page, excludes hidden models, and creates no conversation', async () => {
+    expect(getDriverDescriptor('codex').supportsCapabilities).toBe(true);
+    const capabilities = await driver().probeCapabilities!(config());
+    expect(capabilities.models.map(model => model.value)).toEqual(['fixture-model-a', 'fixture-model-b']);
+    expect(capabilities.models[0]).toMatchObject({ supportsEffort: true, supportedEffortLevels: ['high'] });
+    expect(fs.readdirSync(configDir)).toEqual([]);
+  });
+
+  it('forwards provider config flags without forwarding interactive-only flags', () => {
+    expect(codexModelConfigArgs(['--sandbox', 'read-only', '-c', 'model_provider="custom"', '--config=model="example"', '--enable', 'feature', '--model', 'other'])).toEqual([
+      '-c', 'model_provider="custom"', '--config=model="example"', '--enable', 'feature',
+    ]);
+  });
+
+  it.each([
+    ['invalid', 'Invalid model response'],
+    ['reject', 'could not list models'],
+    ['exit', 'exited before'],
+    ['hang', 'timed out'],
+  ])('handles %s discovery failures without exposing raw diagnostics', async (mode, message) => {
+    const result = listCodexModels(binaryPath, configDir, {
+      PATH: process.env.PATH, CODEX_HOME: configDir, CONSOLA_CODEX_FIXTURE_MODE: mode,
+    }, [], 1000);
+    await expect(result).rejects.toThrow(message);
+    await expect(result).rejects.not.toThrow('fixture-private-key-fragment');
+  });
+
+  it.each(['malformed', 'cycle'])('rejects %s model pages instead of showing a misleading list', async mode => {
+    await expect(listCodexModels(binaryPath, configDir, {
+      PATH: process.env.PATH, CODEX_HOME: configDir, CONSOLA_CODEX_MODELS_FIXTURE: mode,
+    })).rejects.toThrow('Invalid model response');
   });
 });

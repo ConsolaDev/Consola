@@ -1,3 +1,4 @@
+import type { SessionCheckout, CheckoutContext } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
     TerminalCreateOptions,
@@ -190,8 +191,11 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     deleteWorkspace: (id: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_DELETE, id),
 
-    createSession: (workspaceId: string, fields: NewSessionFields): Promise<Session | undefined> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_CREATE, workspaceId, fields),
+    checkoutContext: (workspaceId: string, scopeId: string): Promise<CheckoutContext> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT, workspaceId, scopeId),
+
+    createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout): Promise<Session | undefined> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_CREATE, workspaceId, fields, checkout),
 
     updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
