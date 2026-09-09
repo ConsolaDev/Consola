@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { WorkspaceIconPicker } from './WorkspaceIconPicker';
 import { PROVIDER_META } from '../../../shared/providers';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -53,6 +54,7 @@ export function ManifestHeader({ workspace }: ManifestHeaderProps) {
   return (
     <div className="ws-manifest">
       <div className="ws-manifest-name-row">
+        <WorkspaceIconPicker workspace={workspace} />
         <input
           type="text"
           className="ws-manifest-name-input"

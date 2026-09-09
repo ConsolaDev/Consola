@@ -15,6 +15,7 @@ Consola is an Electron desktop application that enhances Claude Code with a stru
 - **Multi-workspace Support** - Organize projects into workspaces for better context management
 - **Tab-based Interface** - Work on multiple projects simultaneously
 - **Claude Code Integration** - Runs the `claude` CLI itself, so every feature it ships is available as-is
+- **Codex Harness** - Add OpenAI's Codex CLI in Settings → Harnesses and select it for new sessions
 - **Resumable Sessions** - Each tab keeps its conversation across restarts
 - **Issue Tracker Integration** - Native sync with Linear and other project management tools
 - **File Explorer & Git Review** - Browse files, review diffs, and stage and commit alongside the session
@@ -51,6 +52,23 @@ npm run build
 # Start the production app
 npm start
 ```
+
+### Using Codex
+
+Install and sign in to the Codex CLI, then open **Settings → Harnesses → Add
+harness** and select **Codex**. Give it a name and leave the configuration fields
+blank to use your normal installation and login. You can also set an explicit
+binary path or a separate `CODEX_HOME` directory for another profile.
+
+Select the harness when creating a session or set it as the workspace default.
+Conversations resume across app restarts. Use Codex's `/model` menu or a harness
+launch argument such as `--model <model>` to choose a model. Codex autocomplete
+and automatic tab naming are not yet available in Consola's composer.
+
+The integration requires a CLI supporting `app-server`, `thread/start`,
+`thread/name/set`, and `thread/resume`. Update Codex if your CLI lacks these
+methods. Consola keeps conversation ID mappings in `CODEX_HOME/consola/sessions`;
+retain that folder alongside the profile's history when moving a profile.
 
 ## Development
 

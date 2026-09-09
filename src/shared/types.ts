@@ -17,7 +17,7 @@ import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from './workIte
 import type { TerminalStatus } from './terminalStatus';
 
 /** Agent CLI a harness drives. One driver per supported CLI. */
-export type HarnessDriverId = 'claude';
+export type HarnessDriverId = 'claude' | 'codex';
 
 /**
  * How a session's harness is described across the IPC boundary.
@@ -262,6 +262,7 @@ export interface SessionNameResult {
 }
 
 export interface HarnessAPI {
+    getSessionModel: (sessionId: string, fields: HarnessLaunchFields) => Promise<string | null>;
     probe: (fields: HarnessLaunchFields) => Promise<HarnessProbeResult>;
     getSessionName: (
         sessionId: string,
@@ -357,7 +358,7 @@ export interface WorkspaceAPI {
     ) => Promise<Workspace>;
     updateWorkspace: (
         id: string,
-        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
+        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
     ) => Promise<void>;
     deleteWorkspace: (id: string) => Promise<void>;
     createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
@@ -436,19 +437,40 @@ declare global {
 }
 
 /**
+ * What a workspace is showing.
+ *
+ * Exactly the pair MainContent routes on. The two travel together because
+ * opening the Inbox does not clear the session — it overlays the pane while
+ * the session keeps running behind it — so remembering one without the other
+ * would silently drop half the answer to "where was I?".
+ */
+export interface WorkspaceView {
+    activeSessionId: string | null;
+    isInboxOpen: boolean;
+}
+
+/**
  * What a window is looking at.
  *
  * Injected at construction through `additionalArguments`, so the first paint
- * already knows its workspace and no frame is spent on an empty shell. Changes
- * afterwards arrive on WINDOW_WORKSPACE_CHANGED.
+ * already knows its workspace and what that workspace was showing, and no
+ * frame is spent on an empty shell. Changes afterwards arrive on
+ * WINDOW_WORKSPACE_CHANGED.
  */
-export interface WindowContext {
+export interface WindowContext extends WorkspaceView {
     workspaceId: string | null;
-    activeSessionId: string | null;
 }
 
-/** Verdict from asking main to point this window at a workspace. */
-export type ActivateWorkspaceResult = 'took' | 'focused-elsewhere';
+/**
+ * Verdict from asking main to point this window at a workspace.
+ *
+ * Carries the view on success so the switch costs one round trip: a second
+ * call to ask "and what was this workspace showing?" would paint the blank
+ * composer first and correct it a frame later.
+ */
+export type ActivateWorkspaceResult =
+    | { verdict: 'took'; view: WorkspaceView }
+    | { verdict: 'focused-elsewhere' };
 
 /**
  * This window's identity, exposed by preload. Main arbitrates every change:
@@ -459,7 +481,14 @@ export interface WindowAPI {
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;
-    setActiveSession: (sessionId: string | null) => void;
+    /**
+     * Report what this window is showing, for main to remember.
+     *
+     * Carries the workspace it was composed against so main can refuse a
+     * report that raced a switch, rather than filing it under whichever
+     * workspace the window happens to hold by the time it arrives.
+     */
+    setView: (workspaceId: string | null, view: WorkspaceView) => void;
     onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
     /** A notification click chose a session; this window should show it. */
     onActivateSession: (callback: (sessionId: string) => void) => () => void;

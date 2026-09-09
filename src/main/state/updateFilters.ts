@@ -1,4 +1,5 @@
 import type { Group, Scope, SessionUpdates, Workspace } from '../../shared/workspace';
+import { isWorkspaceIconId, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
 import type { HarnessUpdates } from '../../shared/harness';
 
 // The one definition lives in shared/workspace.ts; re-exported so the
@@ -19,13 +20,22 @@ export type { SessionUpdates } from '../../shared/workspace';
  */
 
 export function allowedWorkspaceUpdates(
-    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>
-): Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>> {
-    const allowed: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>> = {};
+    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
+): Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>> {
+    const allowed: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>> = {};
     // Both keys are required on the record: `undefined` can only ever be a bug,
     // never an intent, so absence and explicit-undefined are treated alike.
     if (updates.name !== undefined) allowed.name = updates.name;
     if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
+    // Presence distinguishes resetting the icon from leaving it unchanged.
+    if ('icon' in updates) {
+        if (updates.icon !== undefined && !isWorkspaceIconId(updates.icon) && !isWorkspaceImageIcon(updates.icon)) {
+            throw new Error('Choose a valid workspace icon.');
+        }
+        allowed.icon = isWorkspaceImageIcon(updates.icon)
+            ? { type: 'image', dataUrl: updates.icon.dataUrl }
+            : updates.icon;
+    }
     return allowed;
 }
 

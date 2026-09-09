@@ -1,6 +1,6 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
-import type { WindowContext } from '../shared/types';
+import type { WindowContext, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 
@@ -11,21 +11,44 @@ import { IPC_CHANNELS } from '../shared/constants';
  * than in a renderer because two windows could otherwise claim the same
  * workspace in the same tick, and the loser would render a second live view of
  * a PTY that only expects one.
+ *
+ * Only the workspace is tracked. What that workspace is *showing* is keyed by
+ * workspace, not by window, and lives in the view memory this module is handed
+ * — keeping a second copy here would be one fact recorded twice, on two
+ * schedules, free to disagree.
  */
-const contexts = new Map<number, WindowContext>();
+const contexts = new Map<number, { workspaceId: string | null }>();
 
-const EMPTY_CONTEXT: WindowContext = { workspaceId: null, activeSessionId: null };
+const EMPTY_CONTEXT: WindowContext = {
+    workspaceId: null,
+    activeSessionId: null,
+    isInboxOpen: false,
+};
 
 /**
- * Where the last window that held a workspace was pointing when it closed.
+ * The view memory, as this module needs it.
  *
- * `contexts` is emptied as each window closes and the layout file is only
- * written at quit, so on macOS — where closing every window leaves the app and
- * its PTYs running — this is the only surviving record of where the user was.
- * Without it the dock icon reopens an empty Home window and the sessions that
- * are still running become invisible.
+ * A port rather than the service itself, for the same reason
+ * `restoreWindowLayout` takes a set of ids rather than reaching for
+ * WorkspaceService: this file stays free of the record shapes, and every
+ * function below can be exercised with a plain object.
  */
-let lastHeldContext: WindowContext | null = null;
+export interface ViewMemoryAccess {
+    get(workspaceId: string): WorkspaceView;
+    set(workspaceId: string, view: WorkspaceView): void;
+}
+
+/**
+ * The workspace the last window to hold one was showing when it closed.
+ *
+ * `contexts` is emptied as each window closes, so on macOS — where closing
+ * every window leaves the app and its PTYs running — this is the only
+ * surviving record of where the user was. Without it the dock icon reopens an
+ * empty Home window and the sessions that are still running become invisible.
+ * What that workspace was showing does not need remembering here: the view
+ * memory is keyed by workspace and outlives the window.
+ */
+let lastHeldWorkspaceId: string | null = null;
 
 export function createWindow(
     context: WindowContext = EMPTY_CONTEXT,
@@ -75,7 +98,7 @@ export function createWindow(
     // destroyed webContents, and reading .id off it throws — silently, because
     // native event dispatch swallows it. The entry would leak forever.
     const windowId = window.webContents.id;
-    contexts.set(windowId, { ...context });
+    contexts.set(windowId, { workspaceId: context.workspaceId });
 
     if (isDev) {
         window.loadURL('http://localhost:5173');
@@ -90,18 +113,19 @@ export function createWindow(
         const closing = contexts.get(windowId);
         // A Home window is worth nothing to remember: reopening into one is
         // already what happens with nothing remembered at all.
-        if (closing?.workspaceId) lastHeldContext = { ...closing };
+        if (closing?.workspaceId) lastHeldWorkspaceId = closing.workspaceId;
         contexts.delete(windowId);
     });
 
     return window;
 }
 
-export function getContextFor(window: BrowserWindow): WindowContext | undefined {
+/** Which workspace a window holds, or undefined if it is not in the registry. */
+export function getWorkspaceFor(window: BrowserWindow): string | null | undefined {
     // A caller can be holding a reference past the point the window closed;
     // webContents.id throws on a destroyed window, so check before reading it.
     if (window.isDestroyed()) return undefined;
-    return contexts.get(window.webContents.id);
+    return contexts.get(window.webContents.id)?.workspaceId;
 }
 
 export function findWindowForWorkspace(workspaceId: string): BrowserWindow | null {
@@ -126,43 +150,47 @@ export function assignWorkspace(window: BrowserWindow, workspaceId: string | nul
     // Guard against a caller racing a window's own close: webContents.id
     // throws once it's destroyed, and there is nothing useful left to assign.
     if (window.isDestroyed()) return false;
-    // Switching workspaces drops the session with it: an id from the old
-    // workspace would name a session this window is no longer showing.
-    contexts.set(window.webContents.id, { workspaceId, activeSessionId: null });
+    // No session to clear alongside it: the registry tracks the workspace and
+    // nothing else, and what each workspace shows is remembered per workspace.
+    contexts.set(window.webContents.id, { workspaceId });
     return true;
 }
 
-export function setActiveSession(window: BrowserWindow, sessionId: string | null): void {
-    if (window.isDestroyed()) return;
-    const existing = contexts.get(window.webContents.id);
-    if (!existing) return;
-    contexts.set(window.webContents.id, { ...existing, activeSessionId: sessionId });
-}
-
 /**
- * Focus the window already holding a workspace, or open one for it —
- * optionally landing on a specific session, which is how a notification
- * click reaches the right pane.
+ * Focus the window already holding a workspace, or open one for it.
+ *
+ * `forcedSessionId` names a session to land on regardless of what the
+ * workspace was showing — how a notification click reaches the right pane.
+ * It is written into the memory as well as applied, because a click is a
+ * choice: it is where the user now wants to be when they next come back.
+ * Without one, the remembered view is read and never written; merely opening
+ * a window is navigation, not a new decision.
  */
 export function focusOrCreate(
     workspaceId: string,
-    activeSessionId: string | null = null
+    viewMemory: ViewMemoryAccess,
+    forcedSessionId?: string
 ): BrowserWindow {
+    let view = viewMemory.get(workspaceId);
+    if (forcedSessionId) {
+        view = { activeSessionId: forcedSessionId, isInboxOpen: false };
+        viewMemory.set(workspaceId, view);
+    }
+
     const existing = findWindowForWorkspace(workspaceId);
     if (existing) {
         if (existing.isMinimized()) existing.restore();
         existing.focus();
-        if (activeSessionId) {
-            // Recorded in the registry (for relaunch) and pushed to the
-            // renderer (for right now) — the two views of one fact.
-            setActiveSession(existing, activeSessionId);
-            existing.webContents.send(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, activeSessionId);
+        if (forcedSessionId) {
+            // Pushed to the renderer for right now; the memory above is what
+            // makes it survive — the two views of one fact.
+            existing.webContents.send(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, forcedSessionId);
         }
         return existing;
     }
-    // A fresh window learns its session the way every restored window does:
+    // A fresh window learns its view the way every restored window does:
     // through the context injected at construction.
-    return createWindow({ workspaceId, activeSessionId });
+    return createWindow({ workspaceId, ...view });
 }
 
 export function getAnyWindow(): BrowserWindow | null {
@@ -172,46 +200,95 @@ export function getAnyWindow(): BrowserWindow | null {
 /**
  * Strip a workspace id that no longer names anything.
  *
- * A window never holds a dead id. The session id goes with it rather than
- * being kept: it names a session inside the workspace that is gone.
+ * A window never holds a dead id.
  *
  * Pure and exported so both restore paths can be exercised without a window.
  */
-export function resolveWindowContext(
-    context: WindowContext,
+export function resolveWorkspaceId(
+    workspaceId: string | null,
     knownWorkspaceIds: Set<string>
+): string | null {
+    return workspaceId && knownWorkspaceIds.has(workspaceId) ? workspaceId : null;
+}
+
+/**
+ * The full context to open a window on, workspace and view together.
+ *
+ * The view is read only once the workspace has survived resolution: a view
+ * remembered for a workspace that no longer exists names nothing.
+ */
+function contextFor(
+    workspaceId: string | null,
+    knownWorkspaceIds: Set<string>,
+    viewMemory: ViewMemoryAccess
 ): WindowContext {
-    const workspaceId =
-        context.workspaceId && knownWorkspaceIds.has(context.workspaceId)
-            ? context.workspaceId
-            : null;
-    // Normalised to null rather than passed through: a stored entry can omit
-    // the key, and this context is JSON-serialised into the renderer's argv.
-    return { workspaceId, activeSessionId: workspaceId ? context.activeSessionId ?? null : null };
+    const resolved = resolveWorkspaceId(workspaceId, knownWorkspaceIds);
+    if (!resolved) return EMPTY_CONTEXT;
+    return { workspaceId: resolved, ...viewMemory.get(resolved) };
 }
 
 /** Where to reopen when the dock icon is clicked with no windows left. */
-export function contextToReopen(knownWorkspaceIds: Set<string>): WindowContext {
-    if (!lastHeldContext) return EMPTY_CONTEXT;
-    return resolveWindowContext(lastHeldContext, knownWorkspaceIds);
+export function contextToReopen(
+    knownWorkspaceIds: Set<string>,
+    viewMemory: ViewMemoryAccess
+): WindowContext {
+    return contextFor(lastHeldWorkspaceId, knownWorkspaceIds, viewMemory);
 }
 
-/** Every open window's context and geometry, for restoring on next launch. */
-export function listContexts(): Array<WindowContext & { bounds: Electron.Rectangle }> {
+type StoredWindow = { workspaceId: string | null; bounds: Electron.Rectangle };
+
+/** Every open window's workspace and geometry, for restoring on next launch. */
+export function listContexts(): StoredWindow[] {
     return BrowserWindow.getAllWindows()
         .map((window) => {
             const context = contexts.get(window.webContents.id);
-            return context ? { ...context, bounds: window.getBounds() } : null;
+            return context ? { workspaceId: context.workspaceId, bounds: window.getBounds() } : null;
         })
-        .filter((entry): entry is WindowContext & { bounds: Electron.Rectangle } => entry !== null);
+        .filter((entry): entry is StoredWindow => entry !== null);
 }
 
 interface WindowLayoutFile {
-    windows: Array<WindowContext & { bounds: Electron.Rectangle }>;
+    windows: StoredWindow[];
 }
 
 function layoutFile(): JsonStateFile<WindowLayoutFile> {
     return new JsonStateFile<WindowLayoutFile>(path.join(app.getPath('userData'), 'windows.json'));
+}
+
+/**
+ * The views implied by a layout file written before view memory existed.
+ *
+ * Builds up to this one recorded the active session per *window*, which for
+ * the window that held a workspace is the same fact this feature keys by
+ * workspace. Reading it once, on the launch that first creates the view
+ * memory, is what keeps the upgrade invisible: without it everyone's first
+ * switch afterwards would land on the blank composer even though the previous
+ * build knew exactly where they were.
+ *
+ * Reads raw rather than through `isStoredWindow`, which no longer looks at the
+ * key at all.
+ */
+export function viewsFromStoredLayout(): Record<string, WorkspaceView> {
+    const views: Record<string, WorkspaceView> = {};
+    let stored: { windows?: unknown } | null = null;
+    try {
+        stored = layoutFile().read() as { windows?: unknown } | null;
+    } catch {
+        // No layout to carry over is the same as nothing to remember.
+        return views;
+    }
+
+    if (!Array.isArray(stored?.windows)) return views;
+
+    for (const entry of stored.windows) {
+        if (typeof entry !== 'object' || entry === null) continue;
+        const { workspaceId, activeSessionId } = entry as Record<string, unknown>;
+        if (typeof workspaceId !== 'string' || typeof activeSessionId !== 'string') continue;
+        // The Inbox was never recorded per window, so it starts closed —
+        // the one detail an upgrade cannot carry over.
+        views[workspaceId] = { activeSessionId, isInboxOpen: false };
+    }
+    return views;
 }
 
 export function saveWindowLayout(): void {
@@ -264,8 +341,6 @@ export function boundsAreVisible(
     });
 }
 
-type StoredWindow = WindowContext & { bounds: Electron.Rectangle };
-
 /**
  * Whether a stored entry is shaped the way we wrote it.
  *
@@ -275,17 +350,18 @@ type StoredWindow = WindowContext & { bounds: Electron.Rectangle };
  * inside `whenReady().then()`, an unhandled rejection with no window, no
  * dialog and no message at all.
  *
- * `activeSessionId` is accepted as absent because a window with no session is
- * an ordinary state, not a corrupt entry.
+ * A file written by a build that still recorded `activeSessionId` per window
+ * carries an extra key, which is ignored rather than rejected — the view now
+ * comes from the view memory, seeded from exactly those values on the first
+ * launch after the upgrade.
  *
  * Pure and exported so the malformed cases can be exercised without a window.
  */
 export function isStoredWindow(entry: unknown): entry is StoredWindow {
     if (typeof entry !== 'object' || entry === null) return false;
-    const { workspaceId, activeSessionId, bounds } = entry as Record<string, unknown>;
+    const { workspaceId, bounds } = entry as Record<string, unknown>;
 
     if (workspaceId != null && typeof workspaceId !== 'string') return false;
-    if (activeSessionId != null && typeof activeSessionId !== 'string') return false;
     if (typeof bounds !== 'object' || bounds === null) return false;
 
     const rectangle = bounds as Record<string, unknown>;
@@ -306,9 +382,12 @@ export function isStoredWindow(entry: unknown): entry is StoredWindow {
  * escapes is an unhandled rejection and the user gets a running app with no
  * window and no explanation.
  */
-export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
+export function restoreWindowLayout(
+    knownWorkspaceIds: Set<string>,
+    viewMemory: ViewMemoryAccess
+): void {
     try {
-        openStoredWindows(knownWorkspaceIds);
+        openStoredWindows(knownWorkspaceIds, viewMemory);
     } catch {
         // Fall through to the default window below.
     }
@@ -321,7 +400,7 @@ export function restoreWindowLayout(knownWorkspaceIds: Set<string>): void {
     }
 }
 
-function openStoredWindows(knownWorkspaceIds: Set<string>): void {
+function openStoredWindows(knownWorkspaceIds: Set<string>, viewMemory: ViewMemoryAccess): void {
     // Read back as `unknown`: the declared type describes what we write, not
     // what a hand-edited or truncated file actually holds.
     const stored = layoutFile().read() as { windows?: unknown } | null;
@@ -339,7 +418,7 @@ function openStoredWindows(knownWorkspaceIds: Set<string>): void {
     // both point at a since-deleted workspace are two ordinary Home windows,
     // not a duplicate worth collapsing.
     const resolved = windows.map((entry) => ({
-        ...resolveWindowContext(entry, knownWorkspaceIds),
+        ...contextFor(entry.workspaceId, knownWorkspaceIds, viewMemory),
         // A rectangle that lands on no attached display is worth nothing:
         // restoring it would create a window that runs, badges, and can never
         // be seen. Dropping it here — not clamping — falls back to
@@ -349,9 +428,7 @@ function openStoredWindows(knownWorkspaceIds: Set<string>): void {
     }));
 
     for (const entry of dedupeByWorkspace(resolved)) {
-        createWindow(
-            { workspaceId: entry.workspaceId, activeSessionId: entry.activeSessionId },
-            entry.bounds
-        );
+        const { bounds, ...context } = entry;
+        createWindow(context, bounds);
     }
 }

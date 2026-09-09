@@ -10,6 +10,7 @@ import {
   useHarnessStore,
 } from '../../stores/harnessStore';
 import { ConfigFields, IdentityFields, type HarnessDraft } from './harnessFields';
+import { HarnessIcon } from '../HarnessIcon';
 import './styles.css';
 
 const STEPS = ['Driver', 'Identity', 'Config'] as const;
@@ -93,7 +94,7 @@ export function AddHarnessWizard({
       configDir: draft.configDir.trim() || undefined,
       extraArgs: parseLaunchArgs(draft.launchArgs),
     });
-    void probeHarness(harness.id);
+    void probeHarness(harness);
     close();
   };
 
@@ -138,6 +139,7 @@ export function AddHarnessWizard({
                     onClick={() => change({ driverId: driver.id as HarnessDriverId })}
                   >
                     <span className="harness-driver-option-label">
+                      <HarnessIcon driverId={driver.id} decorative />
                       {driver.label}
                       {!driver.available && (
                         <span className="harness-driver-badge">Coming soon</span>

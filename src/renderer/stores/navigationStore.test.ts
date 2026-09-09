@@ -7,10 +7,10 @@ import { describe, it, expect, vi } from 'vitest';
 // import below) lets the store module load without a DOM.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
-    context: { workspaceId: null, activeSessionId: null },
+    context: { workspaceId: null, activeSessionId: null, isInboxOpen: false },
     activateWorkspace: vi.fn(),
     openWindow: vi.fn(),
-    setActiveSession: vi.fn(),
+    setView: vi.fn(),
     onWorkspaceChanged: vi.fn(() => () => {}),
     onActivateSession: vi.fn(() => () => {}),
   },
@@ -196,5 +196,117 @@ describe('sidebar width', () => {
     useNavigationStore.getState().toggleSidebar();
     expect(useNavigationStore.getState().isSidebarHidden).toBe(false);
     expect(useNavigationStore.getState().sidebarWidth).toBe(300);
+  });
+});
+
+describe('remembering where each workspace was left', () => {
+  it('lands on the session main remembers for the workspace, not the blank composer', async () => {
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: 'session-9', isInboxOpen: false },
+    });
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-9');
+    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+  });
+
+  it('restores the Inbox, and the session still running behind it', async () => {
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: 'session-9', isInboxOpen: true },
+    });
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(useNavigationStore.getState().isInboxOpen).toBe(true);
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-9');
+  });
+
+  it('lands on the composer when that is what the workspace was left on', async () => {
+    useNavigationStore.setState({ activeSessionId: 'session-1', isInboxOpen: true });
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, isInboxOpen: false },
+    });
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(useNavigationStore.getState().activeSessionId).toBe(null);
+    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+  });
+
+  it('does not echo the view back to main, which is where it just came from', async () => {
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: 'session-9', isInboxOpen: false },
+    });
+    vi.mocked(windowBridge.setView).mockClear();
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(windowBridge.setView).not.toHaveBeenCalled();
+  });
+
+  it('changes nothing when another window already holds the workspace', async () => {
+    useNavigationStore.setState({
+      activeWorkspaceId: 'workspace-1',
+      activeSessionId: 'session-1',
+      isInboxOpen: false,
+    });
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'focused-elsewhere',
+    });
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-1');
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-1');
+  });
+
+  it('reports a selected session so it can be returned to', () => {
+    vi.mocked(windowBridge.setView).mockClear();
+
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1' });
+
+    useNavigationStore.getState().setActiveSession('session-3');
+
+    expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
+      activeSessionId: 'session-3',
+      isInboxOpen: false,
+    });
+  });
+
+  it('reports backing out to the composer, rather than treating it as nothing', () => {
+    // Deliberately opening the composer is a state worth returning to; if this
+    // write were skipped, leaving and coming back would resurrect the session.
+    vi.mocked(windowBridge.setView).mockClear();
+
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1' });
+
+    useNavigationStore.getState().setActiveSession(null);
+
+    expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
+      activeSessionId: null,
+      isInboxOpen: false,
+    });
+  });
+
+  it('reports the session underneath the Inbox, not just that the Inbox is open', () => {
+    useNavigationStore.setState({
+      activeWorkspaceId: 'workspace-1',
+      activeSessionId: 'session-4',
+      isInboxOpen: false,
+    });
+    vi.mocked(windowBridge.setView).mockClear();
+
+    useNavigationStore.getState().openInbox();
+
+    expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
+      activeSessionId: 'session-4',
+      isInboxOpen: true,
+    });
   });
 });

@@ -43,7 +43,7 @@ const CONFIRMATION_MARKERS = [
  * requiring the composer to be *empty* means it can never clobber text the user
  * has already begun typing.
  */
-const COMPOSER_READY_PATTERN = /^\s*[❯>]\s*$/;
+const COMPOSER_READY_PATTERN = /^\s*[❯>›]\s*$/;
 
 /** Erase the display and scrollback, then home the cursor. */
 const CLEAR_SCREEN = '\x1b[2J\x1b[3J\x1b[H';
@@ -107,6 +107,8 @@ export class TerminalService extends EventEmitter {
     private promptQueue: string[] = [];
     private isAwaitingConfirmation = false;
     private isDestroyed = false;
+    private isLaunching = false;
+    private initialPromptArgument: string | undefined;
     private lastStatus: TerminalStatus | null = null;
 
     constructor(options: TerminalServiceOptions) {
@@ -121,7 +123,11 @@ export class TerminalService extends EventEmitter {
         // failure would be indistinguishable from a missing conversation.
         this.driver = getDriver(options.driverId);
         this.harness = toHarnessConfig(options);
-        this.promptQueue = options.initialPrompt != null ? [options.initialPrompt] : [];
+        if (this.driver.initialPromptViaArgs) {
+            this.initialPromptArgument = options.initialPrompt;
+        } else {
+            this.promptQueue = options.initialPrompt != null ? [options.initialPrompt] : [];
+        }
     }
 
     public start(): void {
@@ -210,7 +216,7 @@ export class TerminalService extends EventEmitter {
     }
 
     private async initClaude(resume: boolean): Promise<void> {
-        if (this.claudePty) return;
+        if (this.claudePty || this.isLaunching || this.isDestroyed) return;
 
         // Checked before the spawn, not after: a directory Consola cannot enter
         // fails inside the PTY child, where the failure is silent (see
@@ -225,23 +231,28 @@ export class TerminalService extends EventEmitter {
             return;
         }
 
-        const borrowed = await this.borrowProviderToken();
-        // The await yields; the session may have been closed or restarted in
-        // the meantime, and spawning now would leak an untracked PTY.
-        if (this.isDestroyed || this.claudePty) return;
-
-        const binary = this.driver.resolveBinary(this.harness);
-        // Read from `options` on every launch rather than captured once, so a
-        // pinned model survives a resume, a restart, and the retry-as-fresh
-        // path below without any of them having to remember it.
-        const args = this.driver.buildSessionArgs(this.harness, {
-            sessionId: this.options.claudeSessionId,
-            resume,
-            model: this.options.model,
-            mcpConfigPath: this.options.mcpConfigPath,
-        });
-
+        this.isLaunching = true;
         try {
+            const borrowed = await this.borrowProviderToken();
+            // The await yields; the session may have been closed or restarted in
+            // the meantime, and spawning now would leak an untracked PTY.
+            if (this.isDestroyed || this.claudePty) return;
+
+            const binary = this.driver.resolveBinary(this.harness);
+            // Read from `options` on every launch rather than captured once, so a
+            // pinned model survives a resume, a restart, and the retry-as-fresh
+            // path below without any of them having to remember it.
+            const launchArgs = this.driver.buildSessionArgs(this.harness, {
+                sessionId: this.options.claudeSessionId,
+                cwd: this.options.cwd,
+                resume,
+                model: this.options.model,
+                mcpConfigPath: this.options.mcpConfigPath,
+                initialPrompt: this.initialPromptArgument,
+            });
+            const args = Array.isArray(launchArgs) ? launchArgs : await launchArgs;
+            if (this.isDestroyed || this.claudePty) return;
+
             this.claudeProducedOutput = false;
             this.claudePty = pty.spawn(binary, args, {
                 name: 'xterm-256color',
@@ -254,6 +265,7 @@ export class TerminalService extends EventEmitter {
                     borrowed?.token ?? null
                 ) as { [key: string]: string },
             });
+            this.initialPromptArgument = undefined;
             this.claudeExited = false;
             this.emitStatus();
 
@@ -268,7 +280,7 @@ export class TerminalService extends EventEmitter {
                 // immediately; retry once as a new conversation so the tab
                 // stays usable. Wipe the failed attempt's output first so its
                 // error message does not sit above the fresh session.
-                if (resume && exitCode !== 0) {
+                if (resume && exitCode !== 0 && this.driver.retryResumeAsFresh !== false) {
                     this.disposeScreen();
                     this.emit('data', CLEAR_SCREEN);
                     void this.initClaude(false);
@@ -289,10 +301,14 @@ export class TerminalService extends EventEmitter {
                 this.emit('exit', { exitCode } as TerminalExitInfo);
             });
         } catch (error) {
+            if (this.isDestroyed) return;
             console.error(`Error spawning ${this.driver.id}:`, error);
+            this.writeNotice(error instanceof Error ? error.message : `Could not start ${this.driver.id}.`);
             this.claudeExited = true;
             this.emitStatus();
             this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
+        } finally {
+            this.isLaunching = false;
         }
     }
 
