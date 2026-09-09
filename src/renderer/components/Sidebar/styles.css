@@ -603,14 +603,35 @@
    the same at rest and under hover, or the whole list shudders as the cursor
    travels it. visibility (not opacity) also keeps the hidden button out of
    the tab order and away from stray clicks. */
-.session-actions-trigger {
+.nav-row-actions {
   display: flex;
   visibility: hidden;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sidebar);
+}
+
+.session-nav-item:hover .nav-row-actions,
+.session-nav-item:focus-within .nav-row-actions,
+.group-nav-header:hover .nav-row-actions,
+.group-nav-header:focus-within .nav-row-actions,
+.scope-row:hover .nav-row-actions,
+.scope-row:focus-within .nav-row-actions,
+.nav-row-actions[data-open='true'] {
+  visibility: visible;
+}
+
+.nav-row-action {
+  display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
   width: 18px;
   height: 18px;
+  padding: 0;
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -619,20 +640,19 @@
   transition: background var(--transition-fast), color var(--transition-fast);
 }
 
-.session-nav-item:hover .session-actions-trigger,
-.session-nav-item:focus-within .session-actions-trigger {
-  visibility: visible;
-}
-
-.session-actions-trigger:hover {
+.nav-row-action:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 
-.session-actions-trigger[data-state='open'] {
-  visibility: visible;
+.nav-row-action[data-state='open'] {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
+}
+
+.nav-row-action:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
 }
 
 /* Session status indicator.
@@ -875,33 +895,6 @@
   color: var(--color-text-secondary);
 }
 
-.scope-row-action {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-  padding: 2px;
-  border-radius: var(--radius-sm);
-  opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
-}
-
-.scope-row:hover .scope-row-action {
-  opacity: 1;
-}
-
-.scope-row:focus-within .scope-row-action {
-  opacity: 1;
-}
-
-.scope-row-action:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
 /* Sessions sit one step in from their scope's label. The indent is padding,
    not margin: the row itself stays full-width, so its hover and active
    backgrounds run edge to edge and meet the accent bar instead of floating
@@ -965,12 +958,6 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-}
-
-/* Same hover-reveal the session rows give their ⋯ trigger. */
-.group-nav-header:hover .session-actions-trigger,
-.group-nav-header:focus-within .session-actions-trigger {
-  visibility: visible;
 }
 
 .group-nav-name {

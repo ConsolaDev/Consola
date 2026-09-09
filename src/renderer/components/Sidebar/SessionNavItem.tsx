@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { X } from 'lucide-react';
 import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
@@ -123,7 +124,9 @@ export function SessionNavItem({
   };
 
   const handleDelete = () => {
-    void deleteSessionCompletely(workspaceId, session);
+    if (window.confirm(`Delete session "${label}"? This will remove the session and its chat history.`)) {
+      void deleteSessionCompletely(workspaceId, session);
+    }
   };
 
   const handleStartRename = () => {
@@ -211,14 +214,28 @@ export function SessionNavItem({
         </span>
       )}
       {!isRenaming && (
-        <SessionActionsMenu
-          open={actionsOpen}
-          onOpenChange={setActionsOpen}
-          session={session}
-          workspaceId={workspaceId}
-          onRename={handleStartRename}
-          onDelete={handleDelete}
-        />
+        <div className="nav-row-actions" data-open={actionsOpen || undefined}>
+          <SessionActionsMenu
+            open={actionsOpen}
+            onOpenChange={setActionsOpen}
+            session={session}
+            workspaceId={workspaceId}
+            onRename={handleStartRename}
+            onDelete={handleDelete}
+          />
+          <button
+            type="button"
+            className="nav-row-action"
+            aria-label={`Delete session ${label}`}
+            title="Delete session"
+            onClick={(event) => {
+              event.stopPropagation();
+              handleDelete();
+            }}
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        </div>
       )}
     </div>
   );

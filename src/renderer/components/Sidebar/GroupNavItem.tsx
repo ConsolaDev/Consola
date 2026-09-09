@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Archive, Boxes, ChevronDown, ChevronRight, MoreHorizontal } from 'lucide-react';
+import { Archive, Boxes, ChevronDown, ChevronRight, MoreVertical, X } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
@@ -133,28 +133,40 @@ export function GroupNavItem({
           <span className="group-nav-name">{group.name}</span>
           <span className="group-nav-count">{formatGroupBadge(counts)}</span>
         </button>
-        <DropdownMenu.Root open={actionsOpen} onOpenChange={setActionsOpen}>
-          <DropdownMenu.Trigger asChild>
-            <button
-              className="session-actions-trigger"
-              onClick={(e) => e.stopPropagation()}
-              aria-label={`Group actions for ${group.name}`}
-            >
-              <MoreHorizontal size={14} />
-            </button>
-          </DropdownMenu.Trigger>
-          <DropdownMenu.Portal>
-            <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
-              <DropdownMenu.Item
-                className="dropdown-item dropdown-item-destructive"
-                onSelect={() => void handleArchive()}
+        <div className="nav-row-actions" data-open={actionsOpen || undefined}>
+          <DropdownMenu.Root open={actionsOpen} onOpenChange={setActionsOpen}>
+            <DropdownMenu.Trigger asChild>
+              <button
+                className="nav-row-action session-actions-trigger"
+                onClick={(e) => e.stopPropagation()}
+                aria-label={`Group actions for ${group.name}`}
+                title="Group actions"
               >
-                <Archive size={14} />
-                <span>Archive group</span>
-              </DropdownMenu.Item>
-            </DropdownMenu.Content>
-          </DropdownMenu.Portal>
-        </DropdownMenu.Root>
+                <MoreVertical size={12} aria-hidden="true" />
+              </button>
+            </DropdownMenu.Trigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
+                <DropdownMenu.Item
+                  className="dropdown-item dropdown-item-destructive"
+                  onSelect={() => void handleArchive()}
+                >
+                  <Archive size={14} />
+                  <span>Archive group</span>
+                </DropdownMenu.Item>
+              </DropdownMenu.Content>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Root>
+          <button
+            type="button"
+            className="nav-row-action"
+            aria-label={`Archive group ${group.name}`}
+            title="Archive group"
+            onClick={() => void handleArchive()}
+          >
+            <X size={12} aria-hidden="true" />
+          </button>
+        </div>
       </div>
       {!collapsed &&
         orderedSessions.map((session) => (

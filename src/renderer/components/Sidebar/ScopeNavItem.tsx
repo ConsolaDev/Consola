@@ -113,22 +113,26 @@ export function ScopeNavItem({
                 </span>
               )}
             </button>
-            <button
-              className="scope-row-action"
-              onClick={() => void createQuickSession(workspaceId, scope.id)}
-              aria-label={`New session in ${scope.name}`}
-            >
-              <Plus size={12} />
-            </button>
-            {removable && (
+            <div className="nav-row-actions">
               <button
-                className="scope-row-action"
-                onClick={() => onRemove(scope)}
-                aria-label={`Remove scope ${scope.name}`}
+                className="nav-row-action"
+                onClick={() => void createQuickSession(workspaceId, scope.id)}
+                aria-label={`New session in ${scope.name}`}
+                title="New session"
               >
-                <X size={12} />
+                <Plus size={12} aria-hidden="true" />
               </button>
-            )}
+              {removable && (
+                <button
+                  className="nav-row-action"
+                  onClick={() => onRemove(scope)}
+                  aria-label={`Remove scope ${scope.name}`}
+                  title="Remove scope"
+                >
+                  <X size={12} aria-hidden="true" />
+                </button>
+              )}
+            </div>
           </div>
         </ContextMenu.Trigger>
         <ContextMenu.Portal>
