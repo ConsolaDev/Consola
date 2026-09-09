@@ -5,12 +5,11 @@ import {
   Check,
   CornerUpLeft,
   Link2,
-  MoreHorizontal,
+  MoreVertical,
   Pencil,
   Trash2,
   Unlink,
 } from 'lucide-react';
-import { sessionLabel } from '../../../shared/sessionLabel';
 import type { Group, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -69,16 +68,6 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
   // has the same guard for Delete).
   const openingDialog = useRef(false);
 
-  const handleDelete = () => {
-    if (
-      window.confirm(
-        `Delete session "${sessionLabel(session)}"? This will remove the session and its chat history.`
-      )
-    ) {
-      onDelete();
-    }
-  };
-
   const handleLink = () => {
     openingDialog.current = true;
     useLinkSessionDialogStore.getState().open({ kind: 'pick-item', workspaceId, session });
@@ -110,11 +99,12 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
         <button
-          className="session-actions-trigger"
+          className="nav-row-action session-actions-trigger"
           onClick={(e) => e.stopPropagation()}
           aria-label="Session actions"
+          title="Session actions"
         >
-          <MoreHorizontal size={14} />
+          <MoreVertical size={12} aria-hidden="true" />
         </button>
       </DropdownMenu.Trigger>
 
@@ -187,7 +177,7 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
           <DropdownMenu.Separator className="dropdown-separator" />
           <DropdownMenu.Item
             className="dropdown-item dropdown-item-destructive"
-            onSelect={handleDelete}
+            onSelect={onDelete}
           >
             <Trash2 size={14} />
             <span>Delete</span>
