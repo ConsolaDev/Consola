@@ -37,7 +37,10 @@ export interface NavigationState {
   isExplorerVisible: boolean;
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
-  /** The Inbox view is showing instead of a session. Per-window, not persisted. */
+  /**
+   * The Inbox view is showing over the pane; the session below stays active.
+   * Per-window like the session, and remembered by main against the workspace.
+   */
   isInboxOpen: boolean;
   toggleSidebar: () => void;
   setSidebarHidden: (hidden: boolean) => void;
@@ -85,13 +88,15 @@ export function mergeNavigationState(
 
 export const useNavigationStore = create<NavigationState>()(
   persist(
-    (set) => ({
+    (set, get) => ({
       isSidebarHidden: false,
       sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
       isExplorerVisible: false,
       activeWorkspaceId: windowBridge.context.workspaceId,
+      // Both arrive with the window, so the first paint already shows what
+      // this workspace was left on rather than a composer it corrects later.
       activeSessionId: windowBridge.context.activeSessionId,
-      isInboxOpen: false,
+      isInboxOpen: windowBridge.context.isInboxOpen,
 
       toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
       setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
@@ -100,21 +105,39 @@ export const useNavigationStore = create<NavigationState>()(
       setExplorerVisible: (visible) => set({ isExplorerVisible: visible }),
 
       setActiveWorkspace: async (id) => {
-        const verdict = await windowBridge.activateWorkspace(id);
+        const result = await windowBridge.activateWorkspace(id);
         // 'focused-elsewhere' means another window already holds it and has
         // been brought forward. This window keeps showing what it was showing.
-        if (verdict === 'took') {
-          set({ activeWorkspaceId: id, activeSessionId: null, isInboxOpen: false });
-          windowBridge.setActiveSession(null);
-        }
+        if (result.verdict !== 'took') return;
+        // Adopted, not cleared: main answered with what this workspace was
+        // last showing, already narrowed to what it can still show. Nothing is
+        // reported back — main is where this just came from.
+        set({
+          activeWorkspaceId: id,
+          activeSessionId: result.view.activeSessionId,
+          isInboxOpen: result.view.isInboxOpen,
+        });
       },
 
       setActiveSession: (id) => {
         set({ activeSessionId: id, isInboxOpen: false });
-        windowBridge.setActiveSession(id);
+        // Reported even when `id` is null: backing out to the composer on
+        // purpose is a state worth returning to, not an absence of one.
+        windowBridge.setView(get().activeWorkspaceId, {
+          activeSessionId: id,
+          isInboxOpen: false,
+        });
       },
 
-      openInbox: () => set({ isInboxOpen: true }),
+      openInbox: () => {
+        set({ isInboxOpen: true });
+        // The session stays active behind the Inbox, so it travels with it —
+        // dropping it here would lose the pane this window returns to.
+        windowBridge.setView(get().activeWorkspaceId, {
+          activeSessionId: get().activeSessionId,
+          isInboxOpen: true,
+        });
+      },
     }),
     {
       name: 'consola-navigation',
@@ -148,8 +171,8 @@ export function subscribeToWindowWorkspace(): () => void {
 
 /**
  * React to main pointing this window at a session — an OS notification click.
- * Main already recorded the session on the window's registry entry, so only
- * the store moves here; echoing setActiveSession back would be a loop.
+ * Main already wrote the session into the workspace's view memory, so only the
+ * store moves here; echoing it back would be a loop.
  *
  * The Inbox closes with it, the same way it does for every other route into a
  * session: a window showing the Inbox would otherwise swallow the click and

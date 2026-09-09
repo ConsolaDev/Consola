@@ -63,13 +63,23 @@ import {
     createWindow,
     findWindowForWorkspace,
     focusOrCreate,
-    getContextFor,
-    setActiveSession,
+    getWorkspaceFor,
+    viewsFromStoredLayout,
+    type ViewMemoryAccess,
 } from './window-manager';
-import type { ActivateWorkspaceResult } from '../shared/types';
+import {
+    EMPTY_VIEW,
+    ViewMemoryService,
+    resolveRememberedView,
+    type ViewMemoryStateFile,
+} from './state/ViewMemoryService';
+import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
+
+// Where each workspace was left, so returning to one lands where you were.
+let viewMemoryService: ViewMemoryService | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
@@ -117,18 +127,37 @@ export function setupIpcHandlers(): boolean {
     if (!loadOrExit(() => workspaces.load(), 'workspaces')) return false;
     workspaceService = workspaces;
 
+    // Not loaded through loadOrExit: an unreadable view memory costs every
+    // workspace its remembered view, which is exactly what a workspace with no
+    // memory already does. Halting the app over it would be the larger bug.
+    const viewMemory = new ViewMemoryService(
+        new JsonStateFile<ViewMemoryStateFile>(
+            path.join(app.getPath('userData'), 'view-memory.json')
+        )
+    );
+    viewMemory.load();
+    // The first launch after the upgrade: carry over the sessions the previous
+    // build recorded per window, so nobody's switch lands on a blank composer
+    // for a workspace main already knew the answer for.
+    if (viewMemory.isEmpty()) viewMemory.seed(viewsFromStoredLayout());
+    viewMemoryService = viewMemory;
+
     // Every window renders the same records, so a change goes to all of them
     // rather than to whoever asked for it. A deleted workspace also has to be
     // dropped from any window still holding it, or that window would keep
     // pointing at an id nothing can resume.
     workspaces.onChange((all) => {
         const liveIds = new Set(all.map((workspace) => workspace.id));
+        // A deleted workspace's remembered view names nothing. Resolution
+        // already refuses to surface it, so this is housekeeping rather than
+        // correctness — it stops the file growing forever.
+        viewMemory.prune(liveIds);
 
         for (const window of BrowserWindow.getAllWindows()) {
             if (window.isDestroyed()) continue;
             window.webContents.send(IPC_CHANNELS.WORKSPACE_CHANGED, all);
 
-            const held = getContextFor(window)?.workspaceId;
+            const held = getWorkspaceFor(window);
             if (held && !liveIds.has(held)) {
                 assignWorkspace(window, null);
                 window.webContents.send(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, null);
@@ -154,7 +183,7 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_UPDATE,
-        (_event, id: string, updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId'>>) => {
+        (_event, id: string, updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>) => {
             // Filtering lives in updateFilters.ts, tested there: TypeScript's
             // `Pick<>` is gone by the time a payload crosses IPC.
             workspaces.updateWorkspace(id, allowedWorkspaceUpdates(updates));
@@ -525,7 +554,7 @@ export function setupIpcHandlers(): boolean {
             body: 'Click to open it in Consola.',
         });
         notification.on('click', () => {
-            focusOrCreate(located.workspace.id, located.session.id);
+            focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
         });
         notification.show();
     };
@@ -689,6 +718,12 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT, () => manager.statusSnapshot());
 
     // === Harness queries ===
+
+    ipcMain.handle(
+        IPC_CHANNELS.HARNESS_SESSION_MODEL,
+        (_event, sessionId: string, fields: HarnessLaunchFields) =>
+            getDriver(fields?.driverId).getSessionModel?.(toHarnessConfig(fields), sessionId) ?? null
+    );
 
     // Is this harness's binary present, and who is it signed in as?
     ipcMain.handle(IPC_CHANNELS.HARNESS_PROBE, (_event, fields: HarnessLaunchFields) => {
@@ -1226,10 +1261,14 @@ ${truncatedDiff}`;
         IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE,
         (event, workspaceId: string | null): ActivateWorkspaceResult => {
             const requesting = BrowserWindow.fromWebContents(event.sender);
-            if (!requesting) return 'focused-elsewhere';
+            if (!requesting) return { verdict: 'focused-elsewhere' };
 
             if (workspaceId === null) {
-                return assignWorkspace(requesting, null) ? 'took' : 'focused-elsewhere';
+                // Home shows no workspace, so there is nothing remembered to
+                // hand back — but the window did take the change.
+                return assignWorkspace(requesting, null)
+                    ? { verdict: 'took', view: EMPTY_VIEW }
+                    : { verdict: 'focused-elsewhere' };
             }
 
             // A dropdown rendered before another window deleted this workspace
@@ -1238,32 +1277,51 @@ ${truncatedDiff}`;
             // 'focused-elsewhere' is already the renderer's "you did not get it,
             // change nothing" path, so no renderer knows this case exists.
             if (!workspaces.getAll().some((workspace) => workspace.id === workspaceId)) {
-                return 'focused-elsewhere';
+                return { verdict: 'focused-elsewhere' };
             }
 
             const holder = findWindowForWorkspace(workspaceId);
             if (holder && holder !== requesting) {
                 if (holder.isMinimized()) holder.restore();
                 holder.focus();
-                return 'focused-elsewhere';
+                return { verdict: 'focused-elsewhere' };
             }
 
-            return assignWorkspace(requesting, workspaceId) ? 'took' : 'focused-elsewhere';
+            if (!assignWorkspace(requesting, workspaceId)) {
+                return { verdict: 'focused-elsewhere' };
+            }
+            // Answered in the same round trip the claim rides on: asking
+            // separately would paint the blank composer and correct it a
+            // frame later, on every switch.
+            return { verdict: 'took', view: rememberedView(workspaceId) };
         }
     );
 
     ipcMain.handle(IPC_CHANNELS.WINDOW_OPEN, (_event, workspaceId: string | null) => {
         if (workspaceId) {
-            focusOrCreate(workspaceId);
+            focusOrCreate(workspaceId, viewMemoryPort());
         } else {
             createWindow();
         }
     });
 
-    ipcMain.on(IPC_CHANNELS.WINDOW_SET_ACTIVE_SESSION, (event, sessionId: string | null) => {
-        const window = BrowserWindow.fromWebContents(event.sender);
-        if (window) setActiveSession(window, sessionId);
-    });
+    ipcMain.on(
+        IPC_CHANNELS.WINDOW_SET_VIEW,
+        (event, workspaceId: string | null, view: WorkspaceView) => {
+            const window = BrowserWindow.fromWebContents(event.sender);
+            const held = window ? getWorkspaceFor(window) : undefined;
+            // A window on Home has no workspace to remember this against.
+            if (!workspaceId) return;
+            // Checked against the registry rather than trusted, because a
+            // report is composed in the renderer and delivered a round trip
+            // later. One that raced a workspace switch still names the
+            // workspace it was composed against; filing it under the one this
+            // window now holds would overwrite that workspace's memory with a
+            // session from the old one, and silently cost it its real view.
+            if (workspaceId !== held) return;
+            viewMemory.set(workspaceId, view);
+        }
+    );
 
     return true;
 }
@@ -1279,8 +1337,39 @@ export function getKnownWorkspaceIds(): Set<string> {
     return new Set((workspaceService?.getAll() ?? []).map((workspace) => workspace.id));
 }
 
+/**
+ * What a workspace should show, narrowed to what it can actually show.
+ *
+ * The one read path. Resolving here rather than at write time is what lets
+ * every other path stay simple: a session deleted from another window, a
+ * provider unbound, a workspace removed — none needs to reach into the memory,
+ * because the next read catches it.
+ */
+function rememberedView(workspaceId: string): WorkspaceView {
+    if (!viewMemoryService) return EMPTY_VIEW;
+    const workspace = workspaceService?.getAll().find((entry) => entry.id === workspaceId);
+    return resolveRememberedView(viewMemoryService.get(workspaceId), workspace);
+}
+
+/**
+ * The view memory as window-manager needs it, resolved on the way out.
+ *
+ * Handed to the window manager rather than the service itself so that file
+ * keeps knowing nothing about workspace records — the same reason
+ * restoreWindowLayout takes a set of ids instead of a WorkspaceService.
+ */
+export function viewMemoryPort(): ViewMemoryAccess {
+    return {
+        get: rememberedView,
+        set: (workspaceId, view) => viewMemoryService?.set(workspaceId, view),
+    };
+}
+
 export function cleanupIpcHandlers(): void {
     workspaceService = null;
+    // Every view reached disk as it was set, so there is nothing to flush —
+    // only the reference to drop, alongside the other services.
+    viewMemoryService = null;
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_IMPORT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);
@@ -1341,6 +1430,7 @@ export function cleanupIpcHandlers(): void {
     // Remove Claude CLI query handlers
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
+    ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_MODEL);
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_CAPABILITIES);
 
     // Remove dialog IPC handlers
@@ -1363,5 +1453,5 @@ export function cleanupIpcHandlers(): void {
     // Remove window identity IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE);
     ipcMain.removeHandler(IPC_CHANNELS.WINDOW_OPEN);
-    ipcMain.removeAllListeners(IPC_CHANNELS.WINDOW_SET_ACTIVE_SESSION);
+    ipcMain.removeAllListeners(IPC_CHANNELS.WINDOW_SET_VIEW);
 }

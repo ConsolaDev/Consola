@@ -7,7 +7,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { PromptComposer } from '../PromptComposer';
-import { generateSessionInstanceId } from '../../utils/sessionActions';
+import { generateSessionInstanceId, openNewSessionComposer } from '../../utils/sessionActions';
 import { primaryScope } from '../../../shared/workspace';
 import './styles.css';
 
@@ -22,7 +22,6 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const createSession = useWorkspaceStore((state) => state.createSession);
 
-  const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
   const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
   const setPendingPrompt = useTerminalStore((state) => state.setPendingPrompt);
@@ -70,7 +69,10 @@ export function NewSessionView({ workspace }: NewSessionViewProps) {
   }, [workspace.id]);
 
   const handleWorkspaceChange = (workspaceId: string) => {
-    setActiveWorkspace(workspaceId);
+    // Stays on the composer rather than restoring what the target workspace
+    // was last showing: this dropdown is choosing where the session being
+    // composed will run, not navigating away from it.
+    void openNewSessionComposer(workspaceId);
   };
 
   const handleSubmit = async () => {

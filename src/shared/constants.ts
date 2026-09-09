@@ -22,6 +22,7 @@ export const IPC_CHANNELS = {
     // Harness queries (renderer -> main)
     HARNESS_PROBE: 'harness:probe',               // Binary, version and signed-in account
     HARNESS_SESSION_NAME: 'harness:session-name', // Name from the driver's own transcripts
+    HARNESS_SESSION_MODEL: 'harness:session-model',
     HARNESS_CAPABILITIES: 'harness:capabilities', // Slash commands, agents and models it offers
 
     // Workspace state (renderer -> main; main owns the records)
@@ -100,7 +101,7 @@ export const IPC_CHANNELS = {
     // Window identity (renderer -> main)
     WINDOW_ACTIVATE_WORKSPACE: 'window:activate-workspace', // Claim a workspace, or be told who holds it
     WINDOW_OPEN: 'window:open',                             // Open another window
-    WINDOW_SET_ACTIVE_SESSION: 'window:set-active-session',  // Remember it for relaunch
+    WINDOW_SET_VIEW: 'window:set-view',                     // Remember what this workspace is showing
 
     // Window identity (main -> one renderer)
     WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
@@ -161,6 +162,17 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
         defaultConfigDir: '~/.claude',
         supportsSessionNaming: true,
         supportsCapabilities: true,
+    },
+    {
+        id: 'codex',
+        label: 'Codex',
+        description: "OpenAI's Codex CLI.",
+        available: true,
+        binaryName: 'codex',
+        configDirEnvVar: 'CODEX_HOME',
+        defaultConfigDir: '~/.codex',
+        supportsSessionNaming: false,
+        supportsCapabilities: false,
     },
 ];
 
