@@ -78,7 +78,7 @@ test('a workspace open in one window is focused, not duplicated, from another', 
   // UI-side cause.
   await switcherTrigger(page).click();
   await page.getByRole('menuitem', { name: /alpha/ }).click();
-  await expect(switcherTrigger(page)).toHaveText('alpha');
+  await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('alpha');
 
   const opened = app.waitForEvent('window');
   await page.keyboard.press(newWindowChord());
@@ -97,7 +97,7 @@ test('a workspace open in one window is focused, not duplicated, from another', 
 
   // Window 1 is still the holder -- requesting it from elsewhere must not
   // have evicted it.
-  await expect(switcherTrigger(page)).toHaveText('alpha');
+  await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('alpha');
 
   // Window 2 did not also become a holder. This attempt goes through the
   // same real UI path as window 1's did above (not a second raw IPC call),
@@ -106,7 +106,7 @@ test('a workspace open in one window is focused, not duplicated, from another', 
   // never reaches it left nothing to update.
   await switcherTrigger(second).click();
   await second.getByRole('menuitem', { name: /alpha/ }).click();
-  await expect(switcherTrigger(second)).toHaveText('Select workspace');
+  await expect(switcherTrigger(second).locator('.workspace-switcher-name')).toHaveText('Select workspace');
 });
 
 test('workspaces survive a relaunch through the state file, not localStorage', async () => {
