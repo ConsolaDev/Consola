@@ -4,7 +4,7 @@ import * as Tooltip from '@radix-ui/react-tooltip';
 import { Plus } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { createQuickSession } from '../../utils/sessionActions';
+import { openNewSessionComposer } from '../../utils/sessionActions';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { FanOutDialog } from '../Dialogs/FanOutDialog';
 import { OrchestrationDialog } from '../Dialogs/OrchestrationDialog';
@@ -43,7 +43,7 @@ export function NewMenu() {
           >
             <DropdownMenu.Item
               className="dropdown-item"
-              onSelect={() => void createQuickSession(activeWorkspaceId)}
+              onSelect={() => void openNewSessionComposer(activeWorkspaceId)}
             >
               <span>New session…</span>
               <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>⌘N</span>

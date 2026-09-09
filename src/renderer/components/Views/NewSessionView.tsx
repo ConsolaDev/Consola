@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react';
-import { ChevronDown, Folder, GitBranch } from 'lucide-react';
+import { useState, useEffect, useRef, type ReactNode } from 'react';
+import { ChevronDown, Folder, Check, AlertCircle } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -7,277 +7,109 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { PromptComposer } from '../PromptComposer';
+import { HarnessIcon } from '../HarnessIcon';
+import { CheckoutPicker } from '../CheckoutPicker/CheckoutPicker';
 import { generateSessionInstanceId, openNewSessionComposer } from '../../utils/sessionActions';
 import { primaryScope } from '../../../shared/workspace';
+import type { SessionCheckout } from '../../../shared/sessionCheckout';
 import './styles.css';
+import './new-session.css';
 
-interface NewSessionViewProps {
-  workspace: Workspace;
+function Picker({ label, children, options, disabled, notice, className = '' }: {
+  label: string; children: ReactNode; disabled?: boolean; notice?: string; className?: string;
+  options: { id: string; label: string; selected: boolean; onSelect: () => void; detail?: string; icon?: ReactNode }[];
+}) {
+  return <DropdownMenu.Root>
+    <DropdownMenu.Trigger asChild><button className={`composer-control ${className}`} aria-label={label} disabled={disabled}>{children}<ChevronDown size={12} /></button></DropdownMenu.Trigger>
+    <DropdownMenu.Portal><DropdownMenu.Content className="dropdown-content conversation-picker-menu" side="bottom" align="start" sideOffset={8}>
+      <DropdownMenu.Label className="conversation-picker-label">{label}</DropdownMenu.Label>
+      {notice && <div className="conversation-picker-notice" role="status">{notice}</div>}
+      {options.map(option => <DropdownMenu.Item key={option.id} className="dropdown-item" onSelect={option.onSelect} title={option.detail}>
+        <span className="conversation-picker-option-label">{option.icon}{option.label}</span>{option.selected && <Check size={14} />}
+      </DropdownMenu.Item>)}
+    </DropdownMenu.Content></DropdownMenu.Portal>
+  </DropdownMenu.Root>;
 }
 
-export function NewSessionView({ workspace }: NewSessionViewProps) {
+export function NewSessionView({ workspace }: { workspace: Workspace }) {
   const [prompt, setPrompt] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-
-  const workspaces = useWorkspaceStore((state) => state.workspaces);
-  const createSession = useWorkspaceStore((state) => state.createSession);
-
-  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
-
-  const setPendingPrompt = useTerminalStore((state) => state.setPendingPrompt);
-
-  const harnesses = useHarnessStore((state) => state.harnesses);
-  // Archived and disabled harnesses stay out of the picker, but a workspace
-  // may still name one as its default, so fall back to something selectable.
+  const submittingRef = useRef(false);
+  const [error, setError] = useState('');
+  const [checkout, setCheckout] = useState<SessionCheckout>({ mode: 'current' });
+  const workspaces = useWorkspaceStore(state => state.workspaces);
+  const createSession = useWorkspaceStore(state => state.createSession);
+  const setActiveSession = useNavigationStore(state => state.setActiveSession);
+  const setPendingPrompt = useTerminalStore(state => state.setPendingPrompt);
+  const harnesses = useHarnessStore(state => state.harnesses);
   const selectableHarnesses = harnesses.filter(isSelectableHarness);
   const [selectedHarnessId, setSelectedHarnessId] = useState(workspace.defaultHarnessId);
-  const selectedHarness =
-    selectableHarnesses.find((harness) => harness.id === selectedHarnessId) ??
-    selectableHarnesses[0];
-
-  // Which model this conversation will be pinned to. Undefined means no
-  // `--model` flag at all, leaving the CLI on its own default.
-  const [selectedModel, setSelectedModel] = useState<string | undefined>(undefined);
-
-  // The composer probes for these too; both read the same cached answer, so
-  // naming the models here costs nothing extra.
-  const { capabilities } = useHarnessCapabilities(selectedHarness, true);
+  const selectedHarness = selectableHarnesses.find(harness => harness.id === selectedHarnessId) ?? selectableHarnesses[0];
+  const [selectedModel, setSelectedModel] = useState<string>();
+  const { capabilities, loading: modelsLoading, unavailable: modelsError, retry: retryModels } = useHarnessCapabilities(selectedHarness, true);
   const models = capabilities?.models ?? [];
-  const selectedModelInfo = models.find((model) => model.value === selectedModel);
+  const selectedModelInfo = models.find(model => model.value === selectedModel);
+  const [selectedScopeId, setSelectedScopeId] = useState(primaryScope(workspace)?.id);
+  const selectedScope = workspace.scopes.find(scope => scope.id === selectedScopeId) ?? primaryScope(workspace);
 
-  // Follow the workspace's own default whenever the workspace changes.
-  useEffect(() => {
-    setSelectedHarnessId(workspace.defaultHarnessId);
-  }, [workspace.id, workspace.defaultHarnessId]);
-
-  // A model belongs to the harness that offers it, so a different harness
-  // starts from its default again rather than keeping a value it may not have.
-  useEffect(() => {
-    setSelectedModel(undefined);
-  }, [selectedHarness?.id]);
-
-  // Which scope this conversation will run in. Follows the workspace's
-  // primary scope whenever the workspace changes, like the harness default.
-  const [selectedScopeId, setSelectedScopeId] = useState<string | undefined>(
-    primaryScope(workspace)?.id
-  );
-  const selectedScope =
-    workspace.scopes.find((scope) => scope.id === selectedScopeId) ?? primaryScope(workspace);
-
-  useEffect(() => {
-    setSelectedScopeId(primaryScope(workspace)?.id);
-  }, [workspace.id]);
-
-  const handleWorkspaceChange = (workspaceId: string) => {
-    // Stays on the composer rather than restoring what the target workspace
-    // was last showing: this dropdown is choosing where the session being
-    // composed will run, not navigating away from it.
-    void openNewSessionComposer(workspaceId);
-  };
+  useEffect(() => { setSelectedHarnessId(workspace.defaultHarnessId); }, [workspace.id, workspace.defaultHarnessId]);
+  useEffect(() => { setSelectedModel(undefined); }, [selectedHarness?.id]);
+  useEffect(() => { setSelectedScopeId(primaryScope(workspace)?.id); }, [workspace.id]);
+  useEffect(() => { setCheckout({ mode: 'current' }); setError(''); }, [workspace.id, selectedScope?.id]);
 
   const handleSubmit = async () => {
     const trimmedPrompt = prompt.trim();
-    if (!trimmedPrompt || isSubmitting) return;
-    if (!selectedScope) return;
-
+    if (!trimmedPrompt || submittingRef.current || !selectedScope || !selectedHarness) return;
+    submittingRef.current = true;
     setIsSubmitting(true);
-
+    setError('');
     try {
-      // Placeholder name until Claude writes a summary for the conversation,
-      // which ContentView then adopts.
       const instanceId = generateSessionInstanceId(workspace.id);
       const session = await createSession(workspace.id, {
-        name: 'New Session',
-        workspaceId: workspace.id,
-        instanceId,
-        // Fixed now and never changed: the conversation's transcript will live
-        // in this harness's config directory, and resuming reads it back.
-        harnessId: selectedHarness?.id ?? workspace.defaultHarnessId,
-        // Fixed now for the same reason as the harness: every later launch,
-        // including a resume, replays it.
-        model: selectedModel,
-        // Fixed now like the harness and model: the scope is the session's
-        // home in the sidebar and its default working directory.
-        scopeId: selectedScope.id,
-      });
-
-      if (!session) {
-        setIsSubmitting(false);
-        return;
-      }
-
-      // Hand the prompt to the terminal, which delivers it once the CLI has
-      // finished starting up.
+        name: 'New Session', workspaceId: workspace.id, instanceId,
+        harnessId: selectedHarness.id, model: selectedModel, scopeId: selectedScope.id,
+      }, checkout);
+      if (!session) throw new Error('The conversation could not be created. Please try again.');
       setPendingPrompt(instanceId, trimmedPrompt);
-
-      // Set as active immediately
-      setActiveSession(session.id);
-
-      // Clear the input
+      if (useNavigationStore.getState().activeWorkspaceId === workspace.id) {
+        setActiveSession(session.id);
+      }
       setPrompt('');
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason));
     } finally {
+      submittingRef.current = false;
       setIsSubmitting(false);
     }
   };
 
-  return (
-    <div className="new-session-view">
-      <div className="new-session-content">
-        <div className="new-session-header">
-          <span>Start new conversation in</span>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button className="workspace-dropdown-trigger">
-                <span>{workspace.name}</span>
-                <ChevronDown size={14} />
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content className="dropdown-content workspace-dropdown-content" sideOffset={4}>
-                {workspaces.map((ws) => (
-                  <DropdownMenu.Item
-                    key={ws.id}
-                    className={`dropdown-item ${ws.id === workspace.id ? 'active' : ''}`}
-                    onSelect={() => handleWorkspaceChange(ws.id)}
-                  >
-                    {ws.name}
-                  </DropdownMenu.Item>
-                ))}
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-
-          {workspace.scopes.length > 1 && selectedScope && (
-            <>
-              <span>in</span>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="workspace-dropdown-trigger">
-                    {selectedScope.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
-                    <span>{selectedScope.name}</span>
-                    <ChevronDown size={14} />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="dropdown-content workspace-dropdown-content"
-                    sideOffset={4}
-                  >
-                    {workspace.scopes.map((scope) => (
-                      <DropdownMenu.Item
-                        key={scope.id}
-                        className={`dropdown-item ${
-                          scope.id === selectedScope.id ? 'active' : ''
-                        }`}
-                        onSelect={() => setSelectedScopeId(scope.id)}
-                        title={scope.path}
-                      >
-                        {scope.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}
-                        {scope.name}
-                      </DropdownMenu.Item>
-                    ))}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </>
-          )}
-
-          {selectableHarnesses.length > 1 && selectedHarness && (
-            <>
-              <span>using</span>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="workspace-dropdown-trigger">
-                    <span
-                      className="new-session-harness-dot"
-                      style={{ background: selectedHarness.accentColor }}
-                    />
-                    <span>{selectedHarness.name}</span>
-                    <ChevronDown size={14} />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="dropdown-content workspace-dropdown-content"
-                    sideOffset={4}
-                  >
-                    {selectableHarnesses.map((harness) => (
-                      <DropdownMenu.Item
-                        key={harness.id}
-                        className={`dropdown-item ${
-                          harness.id === selectedHarness.id ? 'active' : ''
-                        }`}
-                        onSelect={() => setSelectedHarnessId(harness.id)}
-                      >
-                        <span
-                          className="new-session-harness-dot"
-                          style={{ background: harness.accentColor }}
-                        />
-                        {harness.name}
-                      </DropdownMenu.Item>
-                    ))}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </>
-          )}
-
-          {models.length > 0 && (
-            <>
-              <span>on</span>
-              <DropdownMenu.Root>
-                <DropdownMenu.Trigger asChild>
-                  <button className="workspace-dropdown-trigger">
-                    <span>{selectedModelInfo?.displayName ?? 'Default model'}</span>
-                    <ChevronDown size={14} />
-                  </button>
-                </DropdownMenu.Trigger>
-                <DropdownMenu.Portal>
-                  <DropdownMenu.Content
-                    className="dropdown-content workspace-dropdown-content"
-                    sideOffset={4}
-                  >
-                    {/* Leaving the model unset is a real choice, not an empty
-                        one: it is what lets the CLI's own default apply, and
-                        keep applying as that default changes. */}
-                    <DropdownMenu.Item
-                      className={`dropdown-item ${selectedModel === undefined ? 'active' : ''}`}
-                      onSelect={() => setSelectedModel(undefined)}
-                    >
-                      Default model
-                    </DropdownMenu.Item>
-                    {models.map((model) => (
-                      <DropdownMenu.Item
-                        key={model.value}
-                        className={`dropdown-item ${
-                          model.value === selectedModel ? 'active' : ''
-                        }`}
-                        onSelect={() => setSelectedModel(model.value)}
-                        title={model.description}
-                      >
-                        {model.displayName}
-                      </DropdownMenu.Item>
-                    ))}
-                  </DropdownMenu.Content>
-                </DropdownMenu.Portal>
-              </DropdownMenu.Root>
-            </>
-          )}
-        </div>
-
-        <PromptComposer
-          value={prompt}
-          onChange={setPrompt}
-          onSubmit={handleSubmit}
-          harness={selectedHarness}
-          disabled={isSubmitting}
-          autoFocus
-        />
-
-        <div className="new-session-hint">
-          Press <kbd>Enter</kbd> to send, <kbd>Shift + Enter</kbd> for new line
-        </div>
+  return <div className="new-session-view">
+    <div className="new-session-content">
+      <h1 className="conversation-heading">What should we build in{' '}
+        <Picker label="Choose workspace" className="conversation-workspace" disabled={isSubmitting} options={workspaces.map(ws => ({ id: ws.id, label: ws.name, selected: ws.id === workspace.id, onSelect: () => { void openNewSessionComposer(ws.id); } }))}>{workspace.name}</Picker><span>?</span>
+      </h1>
+      <div className="conversation-compose-area" aria-busy={isSubmitting}>
+        <PromptComposer value={prompt} onChange={setPrompt} onSubmit={handleSubmit} harness={selectedHarness}
+          placeholder="Describe a task, ask a question, or explore an idea…" disabled={isSubmitting || !selectedHarness || !selectedScope} submitting={isSubmitting} autoFocus
+          controls={<>
+            <Picker label="Choose agent" disabled={isSubmitting || !selectableHarnesses.length} options={selectableHarnesses.map(harness => ({ id: harness.id, label: harness.name, icon: <HarnessIcon driverId={harness.driverId} decorative />, selected: harness.id === selectedHarness?.id, onSelect: () => setSelectedHarnessId(harness.id) }))}>
+              {selectedHarness && <HarnessIcon driverId={selectedHarness.driverId} decorative />}<span>{selectedHarness?.name ?? 'No agents available'}</span>
+            </Picker>
+            <span className="composer-divider" />
+            <Picker label="Choose model" disabled={isSubmitting || modelsLoading} notice={modelsError ?? (capabilities && !models.length ? 'This agent returned no models. You can still use its default.' : undefined)} options={[
+              { id: 'default', label: 'Default model', selected: selectedModel === undefined, onSelect: () => setSelectedModel(undefined) },
+              ...models.map(model => ({ id: model.value, label: model.displayName, selected: model.value === selectedModel, detail: model.description, onSelect: () => setSelectedModel(model.value) })),
+              ...(modelsError ? [{ id: 'retry-models', label: 'Retry loading models', selected: false, onSelect: retryModels }] : []),
+            ]}><span>{selectedModelInfo?.displayName ?? (modelsLoading ? 'Loading models…' : modelsError ? 'Models unavailable' : 'Default model')}</span></Picker>
+            {workspace.scopes.length > 1 && selectedScope && <>
+              <span className="composer-divider" />
+              <Picker label="Choose folder" disabled={isSubmitting} options={workspace.scopes.map(scope => ({ id: scope.id, label: scope.name, detail: scope.path, selected: scope.id === selectedScope.id, onSelect: () => setSelectedScopeId(scope.id) }))}><Folder size={14} /><span>{selectedScope.name}</span></Picker>
+            </>}
+          </>} />
+        {selectedScope && <CheckoutPicker key={`${workspace.id}:${selectedScope.id}`} workspaceId={workspace.id} scope={selectedScope} value={checkout} onChange={next => { setCheckout(next); setError(''); }} disabled={isSubmitting} />}
       </div>
+      {(error || !selectedScope || !selectedHarness) && <div className="conversation-error" role="alert"><AlertCircle size={16} /><span>{error || (!selectedScope ? 'Add a folder to this workspace to start a conversation.' : 'Enable an agent in Settings to start a conversation.')}</span></div>}
+      <div className="new-session-hint">{isSubmitting ? (checkout.mode === 'new' ? 'Preparing your worktree…' : 'Starting your conversation…') : <><span><kbd>↵</kbd> Send</span><span><kbd>⇧ ↵</kbd> New line</span><span><kbd>/</kbd> Commands <span className="hint-dot">·</span> <kbd>@</kbd> Agents</span></>}</div>
     </div>
-  );
+  </div>;
 }

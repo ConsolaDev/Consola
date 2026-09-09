@@ -1,3 +1,4 @@
+import type { SessionCheckout } from '../../shared/sessionCheckout';
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
 import type { InboxSection } from '../../shared/inboxSections';
@@ -30,7 +31,7 @@ interface WorkspaceState {
     updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
   ) => Promise<void>;
   getWorkspace: (id: string) => Workspace | undefined;
-  createSession: (workspaceId: string, fields: NewSessionFields) => Promise<Session | undefined>;
+  createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
   deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;
@@ -82,7 +83,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
 
   getWorkspace: (id) => get().workspaces.find((workspace) => workspace.id === id),
 
-  createSession: (workspaceId, fields) => workspaceBridge.createSession(workspaceId, fields),
+  createSession: (workspaceId, fields, checkout) => workspaceBridge.createSession(workspaceId, fields, checkout),
 
   updateSession: (workspaceId, sessionId, updates) =>
     workspaceBridge.updateSession(workspaceId, sessionId, updates),

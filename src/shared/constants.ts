@@ -31,6 +31,7 @@ export const IPC_CHANNELS = {
     WORKSPACE_CREATE: 'workspace:create',
     WORKSPACE_UPDATE: 'workspace:update',
     WORKSPACE_DELETE: 'workspace:delete',
+    WORKSPACE_CHECKOUT_CONTEXT: 'workspace:checkout-context',
     WORKSPACE_SESSION_CREATE: 'workspace:session-create',
     WORKSPACE_SESSION_UPDATE: 'workspace:session-update',
     WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
@@ -172,7 +173,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
         configDirEnvVar: 'CODEX_HOME',
         defaultConfigDir: '~/.codex',
         supportsSessionNaming: false,
-        supportsCapabilities: false,
+        supportsCapabilities: true,
     },
 ];
 

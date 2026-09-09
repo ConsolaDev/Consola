@@ -48,6 +48,7 @@ export function GroupNavItem({
   const terminals = useTerminalStore((state) => state.terminals);
   const counts = groupCountsFor(sessions, terminals);
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
 
   // The conductor sits at the head of its group's member list — the brain
   // above its workers — while the workers keep their existing relative order.
@@ -99,6 +100,11 @@ export function GroupNavItem({
           and a <button> may not contain another button — hence a row. */}
       <div
         className={`group-nav-header ${isDropTarget ? 'drop-target' : ''}`}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          setActionsOpen(true);
+        }}
         onDragOver={(event) => {
           if (!isSessionDrag(event)) return;
           // Without preventDefault the browser refuses the drop outright.
@@ -127,7 +133,7 @@ export function GroupNavItem({
           <span className="group-nav-name">{group.name}</span>
           <span className="group-nav-count">{formatGroupBadge(counts)}</span>
         </button>
-        <DropdownMenu.Root>
+        <DropdownMenu.Root open={actionsOpen} onOpenChange={setActionsOpen}>
           <DropdownMenu.Trigger asChild>
             <button
               className="session-actions-trigger"

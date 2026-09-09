@@ -1,25 +1,20 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
-  Boxes,
   Check,
   ChevronDown,
-  ChevronRight,
   Plus,
   Settings,
   SquareArrowOutUpRight,
-  Trash2,
 } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { dialogBridge } from '../../services/dialogBridge';
 import { windowBridge } from '../../services/windowBridge';
 import { anyOtherWorkspaceNeedsAttention, workspaceStatusFor } from '../../utils/sessionStatus';
-import { DeleteWorkspaceDialog } from '../Dialogs/DeleteWorkspaceDialog';
 
 /**
  * The workspace this window holds, and the way to change it.
@@ -33,15 +28,11 @@ export function WorkspaceSwitcher() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
   const terminals = useTerminalStore((state) => state.terminals);
-  const harnesses = useHarnessStore((state) => state.harnesses);
-  const updateWorkspace = useWorkspaceStore((state) => state.updateWorkspace);
 
   const active = workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null;
   const elsewhere = anyOtherWorkspaceNeedsAttention(workspaces, activeWorkspaceId, terminals);
-  const selectableHarnesses = harnesses.filter(isSelectableHarness);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
   const { openWorkspaceSettings } = useWorkspaceSettings();
-  // One-shot, like confirmingDelete: set as the item is chosen, read as the
+  // One-shot: set as the item is chosen, read as the
   // menu closes, cleared on the next open so an ordinary dismissal refocuses
   // the trigger again.
   const [openingSettings, setOpeningSettings] = useState(false);
@@ -56,7 +47,6 @@ export function WorkspaceSwitcher() {
   };
 
   return (
-    <>
     <DropdownMenu.Root
       onOpenChange={(open) => {
         if (open) setOpeningSettings(false);
@@ -89,11 +79,11 @@ export function WorkspaceSwitcher() {
           className="dropdown-content"
           sideOffset={6}
           align="start"
-          // Selecting Delete or Workspace settings opens a dialog; the menu
+          // Selecting Workspace settings opens a dialog; the menu
           // refocusing its trigger would race the dialog's own focus grab
           // (see NewMenu).
           onCloseAutoFocus={(event) => {
-            if (confirmingDelete || openingSettings) event.preventDefault();
+            if (openingSettings) event.preventDefault();
           }}
         >
           {workspaces.map((workspace) => {
@@ -147,58 +137,8 @@ export function WorkspaceSwitcher() {
             <span>Add workspace…</span>
           </DropdownMenu.Item>
 
-          {active && selectableHarnesses.length > 1 && (
-            <DropdownMenu.Sub>
-              <DropdownMenu.SubTrigger className="dropdown-item">
-                <Boxes size={14} />
-                <span>Default harness</span>
-                <ChevronRight size={14} style={{ marginLeft: 'auto' }} />
-              </DropdownMenu.SubTrigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.SubContent className="dropdown-content" sideOffset={4}>
-                  {selectableHarnesses.map((harness) => (
-                    <DropdownMenu.Item
-                      key={harness.id}
-                      className="dropdown-item"
-                      onSelect={() =>
-                        void updateWorkspace(active.id, { defaultHarnessId: harness.id })
-                      }
-                    >
-                      <span
-                        className="workspace-harness-dot"
-                        style={{ background: harness.accentColor }}
-                      />
-                      <span>{harness.name}</span>
-                      {harness.id === active.defaultHarnessId && (
-                        <Check size={14} style={{ marginLeft: 'auto' }} />
-                      )}
-                    </DropdownMenu.Item>
-                  ))}
-                </DropdownMenu.SubContent>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Sub>
-          )}
-
-          {active && (
-            <DropdownMenu.Item
-              className="dropdown-item dropdown-item-destructive"
-              onSelect={() => setConfirmingDelete(true)}
-            >
-              <Trash2 size={14} />
-              <span>Delete workspace</span>
-            </DropdownMenu.Item>
-          )}
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
     </DropdownMenu.Root>
-
-    {active && (
-      <DeleteWorkspaceDialog
-        workspace={active}
-        open={confirmingDelete}
-        onOpenChange={setConfirmingDelete}
-      />
-    )}
-    </>
   );
 }
