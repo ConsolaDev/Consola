@@ -290,6 +290,52 @@ test.describe('folding scopes and groups', () => {
   const rowFor = (target: Page, name: string) =>
     target.locator('.session-nav-item').filter({ hasText: name });
 
+  test('the session × and menu share confirmation without activating the row', async () => {
+    const row = rowFor(page, 'Controller boot');
+    const close = row.getByRole('button', { name: 'Delete session Controller boot', exact: true });
+    const confirmation = 'Delete session "Controller boot"? This will remove the session and its chat history.';
+    // Stub the native dialog so both cancellation and acceptance are exercised
+    // without relying on platform-specific Electron dialog automation.
+    await page.evaluate(() => {
+      window.confirm = (message) => {
+        (window as any).__deleteConfirmation = message;
+        return false;
+      };
+    });
+    const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
+    await row.hover();
+    await expect(close).toBeVisible();
+    await close.click();
+    expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
+    await expect(row).toHaveCount(1);
+    expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
+
+    await page.evaluate(() => { (window as any).__deleteConfirmation = undefined; });
+    await row.getByRole('button', { name: 'Session actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+    expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
+    await expect(row).toHaveCount(1);
+
+    await page.evaluate(() => { window.confirm = () => true; });
+    await row.focus();
+    await page.keyboard.press('Tab');
+    await expect(row.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
+    await page.keyboard.press('Tab');
+    await expect(close).toBeFocused();
+    await page.keyboard.press('Enter');
+    await expect(row).toHaveCount(0);
+    await expect(page.locator('.session-nav-item')).toHaveCount(3);
+  });
+
+  test('the group × archives the group and returns its sessions to their scope', async () => {
+    const header = page.locator('.group-nav-header');
+    await header.hover();
+    await header.getByRole('button', { name: 'Archive group Fan out', exact: true }).click();
+    await expect(page.locator('.group-nav-item')).toHaveCount(0);
+    await expect(scopeGroup(page, 'scope-app').locator('.session-nav-item')).toHaveCount(3);
+    await expect(rowFor(page, 'Fan member')).toHaveCount(1);
+  });
+
   test('the Groups heading makes a group, the way the Scopes heading adds a scope', async () => {
     await expect(page.locator('.group-nav-item')).toHaveCount(1);
 
