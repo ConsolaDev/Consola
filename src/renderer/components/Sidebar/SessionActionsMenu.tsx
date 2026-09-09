@@ -21,6 +21,8 @@ import { moveSessionToGroup } from '../../utils/sessionActions';
 const EMPTY_GROUPS: Group[] = [];
 
 interface SessionActionsMenuProps {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   session: Session;
   workspaceId: string;
   onRename: () => void;
@@ -49,7 +51,7 @@ interface SessionActionsMenuProps {
  * the only route left for a session whose scope record is gone: with no scope
  * row on screen, there is nothing to drag it to.
  */
-export function SessionActionsMenu({ session, workspaceId, onRename, onDelete }: SessionActionsMenuProps) {
+export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
   );
@@ -105,7 +107,7 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete }:
   const canRegroup = session.kind !== 'conductor';
 
   return (
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
         <button
           className="session-actions-trigger"

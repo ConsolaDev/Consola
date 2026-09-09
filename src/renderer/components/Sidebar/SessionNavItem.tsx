@@ -48,6 +48,7 @@ export function SessionNavItem({
   subtitle,
 }: SessionNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
+  const [actionsOpen, setActionsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -158,6 +159,12 @@ export function SessionNavItem({
       className={`session-nav-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
+      onContextMenu={(event) => {
+        if (isRenaming) return;
+        event.preventDefault();
+        event.stopPropagation();
+        setActionsOpen(true);
+      }}
       draggable={draggable}
       onDragStart={(event) => {
         startSessionDrag(event, session);
@@ -205,6 +212,8 @@ export function SessionNavItem({
       )}
       {!isRenaming && (
         <SessionActionsMenu
+          open={actionsOpen}
+          onOpenChange={setActionsOpen}
           session={session}
           workspaceId={workspaceId}
           onRename={handleStartRename}

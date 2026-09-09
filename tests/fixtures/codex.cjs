@@ -40,7 +40,17 @@ if (args.includes('--version')) {
       return;
     }
     let result = {};
-    if (method === 'thread/start') {
+    if (method === 'model/list') {
+      const model = (name, extra = {}) => ({ model: name, displayName: name, description: 'Fixture model', ...extra });
+      const fixtureMode = process.env.CONSOLA_CODEX_MODELS_FIXTURE;
+      if (fixtureMode === 'malformed') result = { data: [{ id: 'missing-model-value' }] };
+      else if (fixtureMode === 'cycle') result = { data: [], nextCursor: 'same-cursor' };
+      else if (params.cursor) result = { data: [model('fixture-model-b')], nextCursor: null };
+      else result = {
+        data: [model('fixture-model-a', { supportedReasoningEfforts: [{ reasoningEffort: 'high' }] }), model('fixture-hidden', { hidden: true })],
+        nextCursor: 'page-two',
+      };
+    } else if (method === 'thread/start') {
       result = { thread: { id: crypto.randomUUID() } };
     } else if (method === 'thread/name/set') {
       savedThread = params;

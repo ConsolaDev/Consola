@@ -3,12 +3,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { z } from 'zod';
-import type { HarnessProbeResult } from '../../shared/types';
+import type { HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
 import { getLoginEnv } from '../LoginEnvironment';
 import { JsonStateFile } from '../state/JsonStateFile';
 import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
 import { findCodexRollout, readSessionModel } from './sessionModel';
 import { createCodexThread } from './codexAppServer';
+import { listCodexModels } from './codexModels';
 
 function isExecutable(candidate: string): boolean {
     try {
@@ -131,6 +132,14 @@ export class CodexDriver implements HarnessDriver {
         }
         try { return await pending; }
         finally { this.preparing.delete(filePath); }
+    }
+
+    public async probeCapabilities(config: HarnessConfig): Promise<HarnessCapabilities> {
+        const models = await listCodexModels(
+            this.resolveBinary(config), os.homedir(),
+            this.composeEnv(config, getLoginEnv()), config.extraArgs
+        );
+        return { commands: [], agents: [], outputStyles: [], models };
     }
 
     public async probeHealth(config: HarnessConfig): Promise<HarnessProbeResult> {
