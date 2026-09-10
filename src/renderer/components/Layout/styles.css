@@ -1,5 +1,6 @@
 /* Main layout container */
 .layout {
+  --workspace-rail-width: 56px;
   display: flex;
   flex-direction: column;
   height: 100vh;
@@ -30,8 +31,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  width: calc(var(--sidebar-width) + 56px);
-  min-width: calc(var(--sidebar-width) + 56px);
+  width: calc(var(--sidebar-width) + 56px + var(--workspace-rail-width));
+  min-width: calc(var(--sidebar-width) + 56px + var(--workspace-rail-width));
   padding: var(--space-2) var(--space-3);
   padding-left: 72px; /* Always position right next to macOS traffic light buttons */
 }
@@ -89,74 +90,153 @@
   pointer-events: auto;
 }
 
-/* Workspace switcher */
-.workspace-switcher {
+/* Workspace icons occupy their own rail, beside the Home / Inbox navigation. */
+.workspace-rail {
+  display: flex;
+  flex: 0 0 var(--workspace-rail-width);
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-1);
+  overflow-y: auto;
+  scrollbar-width: none;
+  border-right: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+.workspace-rail-item,
+.workspace-rail-add {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 34px;
+  height: 34px;
+  padding: 4px;
+  border: 1px solid transparent;
+  border-radius: 10px;
+  background: var(--color-bg-secondary);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.workspace-rail-item:hover,
+.workspace-rail-add:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.workspace-rail-item[aria-current='true'] { outline: 2px solid var(--color-text-primary); outline-offset: 2px; }
+.workspace-rail-item:focus-visible,
+.workspace-rail-add:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.workspace-rail-add { background: transparent; }
+.workspace-rail-attention {
+  position: absolute;
+  top: -3px;
+  right: -3px;
+  width: 6px;
+  height: 10px;
+  border-radius: 2px;
+  background: var(--color-warning);
+  box-shadow: 0 0 0 2px var(--color-bg-primary);
+}
+
+.workspace-tooltip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  max-width: min(300px, calc(100vw - 24px));
+  padding: 6px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-elevation-2);
+  z-index: var(--z-tooltip);
+}
+
+.workspace-tooltip-details { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.workspace-tooltip-name { font-size: 12px; font-weight: 600; overflow-wrap: anywhere; }
+.workspace-tooltip-attention { font-size: 11px; color: var(--color-warning); }
+.workspace-tooltip-shortcut { display: flex; flex-shrink: 0; gap: 4px; }
+.workspace-tooltip-shortcut kbd {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 22px;
+  padding: 0 5px;
+  border-radius: 5px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+}
+.workspace-tooltip-arrow { fill: var(--color-bg-tertiary); }
+
+.workspace-menu-trigger {
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  height: 100%;
+  min-width: 0;
+  height: 28px;
   padding: 0 var(--space-2);
-  border: none;
-  border-radius: var(--radius-2);
+  border: 0;
+  border-radius: var(--radius-md);
   background: transparent;
   color: var(--color-text-primary);
-  font-size: var(--font-size-1);
-  font-weight: 500;
+  font-size: 13px;
+  font-weight: 600;
   cursor: pointer;
-  /* The header is a drag region; the button has to opt back out of it. */
   -webkit-app-region: no-drag;
 }
 
-.workspace-switcher:hover {
+.workspace-menu-trigger:hover,
+.workspace-menu-trigger[data-state='open'] {
   background: var(--color-bg-hover);
 }
 
-.workspace-switcher-icon {
+.workspace-menu-trigger > svg { flex-shrink: 0; }
+.workspace-menu-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.workspace-menu-placeholder { padding: 0 var(--space-2); color: var(--color-text-tertiary); font-size: 13px; }
+
+.workspace-menu-content {
+  width: 320px;
+  max-width: calc(100vw - 16px);
+  max-height: var(--radix-dropdown-menu-content-available-height);
+  overflow-y: auto;
+  padding: var(--space-2) 0;
+  border-radius: 8px;
+}
+
+.workspace-menu-identity {
   display: flex;
-  color: var(--color-text-secondary);
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-5);
 }
 
-.workspace-switcher-name {
-  max-width: 220px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/*
- * The one signal the sidebar tree used to carry: something elsewhere wants
- * you. Reuses the same variable as .session-status-indicator--needs-attention
- * (there is no --color-status-attention token) so the two dots cannot drift
- * apart.
- */
-.workspace-switcher-elsewhere {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--color-warning);
-}
-
-.workspace-switcher-chevron {
-  color: var(--color-text-tertiary);
-}
-
-.workspace-switcher-item-icon {
+.workspace-menu-avatar {
   display: flex;
-  color: var(--color-text-secondary);
-}
-
-.workspace-switcher-item-name {
-  flex: 1;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--color-border);
+  border-radius: 10px;
+  background: var(--color-bg-primary);
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.workspace-switcher-item-count {
-  color: var(--color-text-tertiary);
-  font-size: var(--font-size-1);
-  font-variant-numeric: tabular-nums;
-}
+.workspace-menu-details { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
+.workspace-menu-title { color: var(--color-text-primary); font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.workspace-menu-summary { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
+.workspace-menu-content .dropdown-separator { margin: var(--space-2) 0; }
+.workspace-menu-content .dropdown-item { min-height: 36px; padding: var(--space-2) var(--space-5); border-radius: 0; color: var(--color-text-primary); }
+.workspace-menu-tools { justify-content: space-between; }
+.workspace-menu-tools[data-state='open'] { background: var(--color-bg-hover); }
+.workspace-tools-content { min-width: 200px; }
+.workspace-tools-content .dropdown-item[data-highlighted] { background: var(--color-bg-hover); color: var(--color-text-primary); }
+
+.app-header-content > .workspace-menu-trigger { max-width: 240px; margin-left: var(--space-2); }
 
 /* New menu trigger */
 .new-menu-trigger {

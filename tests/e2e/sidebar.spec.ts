@@ -58,7 +58,7 @@ test.describe('resizing', () => {
     await dragSidebarEdge(page, 80);
 
     expect(await sidebarWidth(page)).toBe(DEFAULT_WIDTH + 80);
-    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80 + 56);
+    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80 + 112);
   });
 
   test('the width stops at its bounds instead of hiding the sidebar', async () => {
@@ -162,17 +162,11 @@ function seedScopes(profileDir: string, scopeDir: string): void {
   );
 }
 
-function switcherTrigger(target: Page) {
-  return target.getByRole('button', { name: /^Switch workspace/ });
-}
-
-/** Hold the seeded workspace, unless a restored window already holds it. */
+/** Hold the seeded workspace through its rail button. */
 async function holdWorkspace(target: Page): Promise<void> {
-  const trigger = switcherTrigger(target);
-  if ((await trigger.locator('.workspace-switcher-name').textContent())?.trim() === WORKSPACE_NAME) return;
-  await trigger.click();
-  await target.getByRole('menuitem', { name: WORKSPACE_NAME }).click();
-  await expect(trigger.locator('.workspace-switcher-name')).toHaveText(WORKSPACE_NAME);
+  const button = target.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: WORKSPACE_NAME, exact: true });
+  await button.click();
+  await expect(button).toHaveAttribute('aria-current', 'true');
 }
 
 test.describe('Home scopes and groups', () => {

@@ -51,8 +51,7 @@ test('fan-out of two stub sessions shows a group with counts', async () => {
     );
 
     // Point this window at the workspace through the real switcher UI.
-    await page.getByRole('button', { name: /^Switch workspace/ }).click();
-    await page.getByRole('menuitem', { name: /fleet/ }).click();
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
 
     // + New -> Fan-out... (exact: a sidebar scope row also has a "New session
     // in fleet" button, and Playwright's default name match is substring.)

@@ -24,15 +24,8 @@ async function seedWorkspace(target: Page, name: string, folder: string): Promis
   );
 }
 
-/**
- * The switcher trigger's accessible name is always "Switch workspace" (plus a
- * suffix when another workspace wants attention) -- it never names the held
- * workspace. What names the held workspace is the trigger's own *text*, which
- * this locator's caller reads separately: the workspace's name when this
- * window holds one, "Select workspace" when it holds none.
- */
-function switcherTrigger(target: Page) {
-  return target.getByRole('button', { name: /^Switch workspace/ });
+function workspaceButton(target: Page) {
+  return target.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'alpha', exact: true });
 }
 
 test('the new-window chord opens a second window', async () => {
@@ -52,17 +45,8 @@ test('a workspace created in one window appears in the other', async () => {
 
   await seedWorkspace(page, 'alpha', '/tmp/alpha');
 
-  // Radix does not mount the dropdown's content into the DOM until it opens,
-  // so the workspace name is not in the tree until the switcher is open.
-  // Asserting through the real path -- main's broadcast, the renderer's
-  // store, the rendered list -- is the point of this test; querying main
-  // directly (workspaceAPI.getSnapshot()) would pass even if the broadcast
-  // never reached the renderer.
-  await second.getByRole('button', { name: /^Switch workspace/ }).click();
-
-  await expect
-    .poll(() => second.getByRole('menuitem', { name: /alpha/ }).count())
-    .toBeGreaterThan(0);
+  // The rail reflects main's broadcast without opening a picker.
+  await expect(workspaceButton(second)).toBeVisible();
 });
 
 test('a workspace open in one window is focused, not duplicated, from another', async () => {
@@ -76,9 +60,8 @@ test('a workspace open in one window is focused, not duplicated, from another', 
   // hand: an identical raw call here left the trigger reading "Select
   // workspace" despite main returning 'took'). A UI-side assertion needs a
   // UI-side cause.
-  await switcherTrigger(page).click();
-  await page.getByRole('menuitem', { name: /alpha/ }).click();
-  await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('alpha');
+  await workspaceButton(page).click();
+  await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
 
   const opened = app.waitForEvent('window');
   await page.keyboard.press(newWindowChord());
@@ -97,16 +80,15 @@ test('a workspace open in one window is focused, not duplicated, from another', 
 
   // Window 1 is still the holder -- requesting it from elsewhere must not
   // have evicted it.
-  await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('alpha');
+  await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
 
   // Window 2 did not also become a holder. This attempt goes through the
   // same real UI path as window 1's did above (not a second raw IPC call),
   // so the assertion actually exercises the renderer's own
   // `if (verdict === 'took')` gate rather than trusting that a call which
   // never reaches it left nothing to update.
-  await switcherTrigger(second).click();
-  await second.getByRole('menuitem', { name: /alpha/ }).click();
-  await expect(switcherTrigger(second).locator('.workspace-switcher-name')).toHaveText('Select workspace');
+  await workspaceButton(second).click();
+  await expect(workspaceButton(second)).not.toHaveAttribute('aria-current', 'true');
 });
 
 test('workspaces survive a relaunch through the state file, not localStorage', async () => {

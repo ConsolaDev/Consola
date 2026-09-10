@@ -325,8 +325,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     // "Bind" is a seeded bound workspace, held through the real switcher UI
     // (windows.spec.ts precedent: a raw IPC call would not update what the
     // window renders).
-    await page.getByRole('button', { name: /^Switch workspace/ }).click();
-    await page.getByRole('menuitem', { name: /Sympower/ }).click();
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sympower/ }).click();
 
     const inboxRow = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^Inbox/ });
     await expect(inboxRow).toBeVisible({ timeout: 10_000 });
@@ -509,7 +508,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     // --- Rename an action in Workspace Settings (top-bar menu door). The
     // pane's button follows the record; the launched session keeps the name
     // it was started under, because workItemAction is a snapshot.
-    await page.getByRole('button', { name: /^Switch workspace/ }).click();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     const settings = page.getByRole('dialog', { name: 'Sympower' });
     await expect(settings).toBeVisible();

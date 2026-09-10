@@ -108,8 +108,7 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
     ['fleet', fixture.containerDir] as const
   );
 
-  await page.getByRole('button', { name: /^Switch workspace/ }).click();
-  await page.getByRole('menuitem', { name: /fleet/ }).click();
+  await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
 
   // A real group, built the way the app builds one.
   await page.getByRole('button', { name: 'New', exact: true }).click();

@@ -41,8 +41,7 @@ test('adds a Codex harness in settings, launches a prompt, and resumes after an 
     await settings.getByRole('button', { name: 'Close', exact: true }).click();
 
     await page.evaluate(folder => window.workspaceAPI.createWorkspace('Codex workspace', folder, false, 'codex-test'), root);
-    await page.getByRole('button', { name: /^Switch workspace/ }).click();
-    await page.getByRole('menuitem', { name: /Codex workspace/ }).click();
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Codex workspace/ }).click();
     await expect(page.getByRole('button', { name: 'Choose agent', exact: true })).toHaveText('Codex test');
     await expect(page.getByRole('button', { name: 'Choose model' })).toBeEnabled();
     await page.getByRole('button', { name: 'Choose model' }).click();
@@ -77,8 +76,7 @@ test('adds a Codex harness in settings, launches a prompt, and resumes after an 
     await running.app.close();
     running = await launchElectron({ userDataDir });
     // Restore through the sidebar as well as the persisted workspace view.
-    await running.page.getByRole('button', { name: /^Switch workspace/ }).click();
-    await running.page.getByRole('menuitem', { name: /Codex workspace/ }).click();
+    await running.page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Codex workspace/ }).click();
     await running.page.locator('.sidebar').getByText('New Session', { exact: true }).click();
     await expect.poll(() => launches().length).toBe(2);
     expect(launches()[1].args.slice(0, 2)).toEqual(['resume', activeThread]);
