@@ -1,3 +1,4 @@
+import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -50,6 +51,13 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
 }
+
+contextBridge.exposeInMainWorld('appUpdateAPI', {
+    getState: () => ipcRenderer.invoke(UPDATE_CHANNELS.GET),
+    check: () => ipcRenderer.invoke(UPDATE_CHANNELS.CHECK),
+    install: () => ipcRenderer.invoke(UPDATE_CHANNELS.INSTALL),
+    onChanged: callback => subscribe(UPDATE_CHANNELS.CHANGED, callback),
+} satisfies AppUpdateAPI);
 
 contextBridge.exposeInMainWorld('shellAPI', {
     attach: options => ipcRenderer.invoke(IPC_CHANNELS.SHELL_ATTACH, options),

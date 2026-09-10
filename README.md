@@ -39,6 +39,7 @@ Consola is an Electron desktop application for working with Claude Code and Code
 - **Issue Tracker Integration** - Native sync with Linear and other project management tools
 - **File Explorer & Git Review** - Browse files, review diffs, and stage and commit alongside the session
 - **Dark/Light Themes** - Automatic system theme detection with manual override
+- **Desktop Updates** - Signed macOS distributions download new releases and let you choose when to restart; check manually in Settings → Updates
 
 ## Getting Started
 
@@ -71,6 +72,9 @@ npm run build
 # Start the production app
 npm start
 ```
+
+For signed installers and publishing updates to installed apps, see the
+[desktop release guide](docs/desktop-updates.md).
 
 ### Using Codex
 
