@@ -13,7 +13,7 @@ import { NavigationSettings } from './NavigationSettings';
 import { GroupNavItem } from './GroupNavItem';
 import { ScopeSelector } from './ScopeSelector';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
-import { WorkspaceSwitcher } from '../Layout/WorkspaceSwitcher';
+import { WorkspaceMenu } from '../Layout/WorkspaceMenu';
 import { NewMenu } from '../Layout/NewMenu';
 import { activateSession, moveSessionToGroup, openNewSessionComposer } from '../../utils/sessionActions';
 import { droppedSessionId, isSessionFromScope, leftDropTarget } from './sessionDrag';
@@ -75,7 +75,7 @@ export function Sidebar() {
       <button className="app-navigation-item app-navigation-settings" onClick={openSettings} aria-label="Settings"><Settings size={18} /></button>
     </nav>
     <aside className="sidebar" aria-label="Home sidebar">
-      <div className="sidebar-workspace"><WorkspaceSwitcher /><NavigationSettings /><NewMenu /></div>
+      <div className="sidebar-workspace"><WorkspaceMenu /><NavigationSettings /><NewMenu /></div>
       {workspace && <>
         <Tabs.Root className="home-navigation" value={tab} onValueChange={value => useHomeStore.getState().selectTab(workspace.id, value as 'home' | 'all')}>
           <Tabs.List className="home-tabs" aria-label="Session views">
