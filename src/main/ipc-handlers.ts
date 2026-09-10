@@ -1,3 +1,6 @@
+import { ShellManager } from './ShellManager';
+import type { ShellOptions } from '../shared/shell';
+import { scopeForSession } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification } from 'electron';
@@ -79,6 +82,7 @@ import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
+let shellManager: ShellManager | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
@@ -209,6 +213,7 @@ export function setupIpcHandlers(): boolean {
         // badge close together.
         for (const instanceId of stranded) {
             terminalManager?.destroy(instanceId);
+            shellManager?.destroy(instanceId);
         }
 
         // Same reasoning one layer down: a conductor's endpoint would outlive
@@ -268,7 +273,9 @@ export function setupIpcHandlers(): boolean {
             // that never had an endpoint, and the only chance a conductor gets
             // to have its socket closed and its config file removed.
             conductorControl.unregister(sessionId);
+            const session = workspaces.getAll().find(w => w.id === workspaceId)?.sessions.find(s => s.id === sessionId);
             workspaces.deleteSession(workspaceId, sessionId);
+            if (session) shellManager?.destroy(session.instanceId);
         }
     );
 
@@ -543,6 +550,21 @@ export function setupIpcHandlers(): boolean {
 
     terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
     const manager = terminalManager;
+    shellManager = new ShellManager();
+    const shells = shellManager;
+    const shellCwd = (instanceId: string): string => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (!located) throw new Error('Session no longer exists.');
+        const cwd = located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path;
+        if (!cwd) throw new Error('Session has no working directory.');
+        return cwd;
+    };
+    ipcMain.handle(IPC_CHANNELS.SHELL_ATTACH, (event, options: ShellOptions) =>
+        shells.attach(options, shellCwd(options.instanceId), event.sender));
+    ipcMain.handle(IPC_CHANNELS.SHELL_RESTART, (event, options: ShellOptions) =>
+        shells.restart(options, shellCwd(options.instanceId), event.sender));
+    ipcMain.on(IPC_CHANNELS.SHELL_INPUT, (event, id: string, data: string) => shells.input(id, data, event.sender));
+    ipcMain.on(IPC_CHANNELS.SHELL_RESIZE, (event, id: string, cols: number, rows: number) => shells.resize(id, cols, rows, event.sender));
 
     // With no windows open on macOS the app is still alive and sessions are
     // still running. The badge is the only thing that says so.
@@ -1430,6 +1452,12 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
 
     // Clean up all terminal services
+    ipcMain.removeHandler(IPC_CHANNELS.SHELL_ATTACH);
+    ipcMain.removeHandler(IPC_CHANNELS.SHELL_RESTART);
+    ipcMain.removeAllListeners(IPC_CHANNELS.SHELL_INPUT);
+    ipcMain.removeAllListeners(IPC_CHANNELS.SHELL_RESIZE);
+    shellManager?.destroyAll();
+    shellManager = null;
     terminalManager?.destroyAll();
     terminalManager = null;
 

@@ -1,3 +1,5 @@
+import { useShellStore } from '../../stores/shellStore';
+import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { driverSupportsSessionNaming } from '../../../shared/constants';
@@ -49,6 +51,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
 
   // Determine instanceId and cwd from workspace
   const instanceId = session?.instanceId ?? '';
+  const isTerminalVisible = useShellStore(state => state.open[instanceId] ?? false);
+  const toggleTerminal = useShellStore(state => state.toggle);
   // The session's home scope decides where it runs, unless the session
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
@@ -177,6 +181,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             showExplorerToggle
             isExplorerVisible={isExplorerVisible}
             onToggleExplorer={toggleExplorer}
+            isTerminalVisible={isTerminalVisible}
+            onToggleTerminal={() => toggleTerminal(instanceId)}
           />
         )}
       </div>
@@ -200,18 +206,20 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </>
           )}
           <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
-            <TerminalPanel
-              instanceId={instanceId}
-              workspaceId={workspaceId}
-              cwd={cwd}
-              claudeSessionId={session.claudeSessionId}
-              resume={session.hasStarted}
-              harness={launchFields}
-              // Read from the session record rather than re-resolved: unlike
-              // the harness's launch fields, this was chosen once for this
-              // conversation and must not drift.
-              model={session.model}
-            />
+            <SessionTerminalLayout instanceId={instanceId}>
+              <TerminalPanel
+                instanceId={instanceId}
+                workspaceId={workspaceId}
+                cwd={cwd}
+                claudeSessionId={session.claudeSessionId}
+                resume={session.hasStarted}
+                harness={launchFields}
+                // Read from the session record rather than re-resolved: unlike
+                // the harness's launch fields, this was chosen once for this
+                // conversation and must not drift.
+                model={session.model}
+              />
+            </SessionTerminalLayout>
           </Panel>
           {hasOpenTabs && (
             <>

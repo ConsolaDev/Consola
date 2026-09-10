@@ -1,3 +1,6 @@
+import { isShellShortcut } from '../utils/shellShortcut';
+import { useShellStore } from '../stores/shellStore';
+import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -42,6 +45,18 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (scope) {
         event.preventDefault();
         onOpenScopedPalette?.(scope);
+        return;
+      }
+
+      if (isShellShortcut(event)) {
+        const { activeWorkspaceId, activeSessionId, isInboxOpen } = useNavigationStore.getState();
+        if (activeWorkspaceId && activeSessionId && !isInboxOpen) {
+          const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
+          if (session) {
+            event.preventDefault();
+            if (!event.repeat) useShellStore.getState().toggle(session.instanceId);
+          }
+        }
         return;
       }
 

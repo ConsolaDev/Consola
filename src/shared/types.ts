@@ -427,6 +427,7 @@ export interface HarnessStateAPI {
 
 declare global {
     interface Window {
+        shellAPI: import('./shell').ShellAPI;
         terminalAPI: TerminalAPI;
         harnessAPI: HarnessAPI;
         inboxAPI: InboxAPI;

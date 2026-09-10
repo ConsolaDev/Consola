@@ -1,5 +1,6 @@
+import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw, GitBranch, GitPullRequestDraft } from 'lucide-react';
+import { FolderTree, RotateCw, GitBranch, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { isMac } from '../../utils/platform';
@@ -10,6 +11,8 @@ interface PathDisplayProps {
   showExplorerToggle?: boolean;
   isExplorerVisible?: boolean;
   onToggleExplorer?: () => void;
+  isTerminalVisible?: boolean;
+  onToggleTerminal?: () => void;
 }
 
 const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
@@ -47,7 +50,9 @@ export function PathDisplay({
   className,
   showExplorerToggle = false,
   isExplorerVisible = false,
-  onToggleExplorer
+  onToggleExplorer,
+  isTerminalVisible = false,
+  onToggleTerminal,
 }: PathDisplayProps) {
   // Use granular selectors to prevent unnecessary re-renders
   const stats = useGitStatusStore((state) => state.stats);
@@ -165,6 +170,30 @@ export function PathDisplay({
               <Tooltip.Portal>
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
                   {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} ({explorerShortcut})
+                  <Tooltip.Arrow className="tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
+        )}
+        {onToggleTerminal && (
+          <Tooltip.Provider delayDuration={300}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  type="button"
+                  className={`path-display-toggle ${isTerminalVisible ? 'active' : ''}`}
+                  onClick={onToggleTerminal}
+                  aria-label={isTerminalVisible ? 'Hide terminal' : 'Show terminal'}
+                  aria-pressed={isTerminalVisible}
+                  aria-keyshortcuts="Control+`"
+                >
+                  <TerminalSquare size={14} />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                  {isTerminalVisible ? 'Hide terminal' : 'Show terminal'} ({SHELL_SHORTCUT_LABEL})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>
