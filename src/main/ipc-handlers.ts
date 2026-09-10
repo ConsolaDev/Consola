@@ -196,6 +196,10 @@ export function setupIpcHandlers(): boolean {
         }
     );
 
+    ipcMain.handle(IPC_CHANNELS.WORKSPACE_MOVE, (_event, id: string, beforeId: string | null) => {
+        workspaces.moveWorkspace(id, beforeId);
+    });
+
     ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
         // Read the sessions while the record still exists. Once it is gone
         // nothing can name these terminals again: their PTYs would run untended
@@ -1415,6 +1419,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_MOVE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);

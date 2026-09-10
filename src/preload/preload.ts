@@ -209,6 +209,9 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     deleteWorkspace: (id: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_DELETE, id),
 
+    moveWorkspace: (id: string, beforeId: string | null): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_MOVE, id, beforeId),
+
     checkoutContext: (workspaceId: string, scopeId: string): Promise<CheckoutContext> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT, workspaceId, scopeId),
 
