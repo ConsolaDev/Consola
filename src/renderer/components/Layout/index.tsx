@@ -1,3 +1,4 @@
+import { AppUpdateNotice } from '../AppUpdates';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
 import { SidebarResizeHandle } from '../Sidebar/SidebarResizeHandle';
@@ -65,6 +66,7 @@ export function Layout() {
   return (
     <div ref={layoutRef} className="layout" style={layoutStyle}>
       <AppHeader />
+      <AppUpdateNotice />
       <div className="layout-body">
         <Sidebar />
         {!isSidebarHidden && <SidebarResizeHandle layoutRef={layoutRef} />}

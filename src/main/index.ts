@@ -1,4 +1,5 @@
 import { BrowserWindow, app } from 'electron';
+import { setupAppUpdates } from './appUpdates';
 import {
     contextToReopen,
     createWindow,
@@ -52,6 +53,8 @@ if (!app.requestSingleInstanceLock()) {
     });
 }
 
+let cleanupAppUpdates: (() => void) | undefined;
+
 app.whenReady().then(() => {
     // The hidden test window still registers an app that bounces in the Dock and
     // takes focus on launch. Tests need neither.
@@ -67,6 +70,7 @@ app.whenReady().then(() => {
     // rest of this synchronous tick, so without this guard a window would still
     // open on top of an app that's already tearing itself down.
     if (!setupIpcHandlers()) return;
+    cleanupAppUpdates = setupAppUpdates();
     // getKnownWorkspaceIds() has to run after setupIpcHandlers() returned true:
     // that's the call that loads workspaceService, and before it every saved
     // workspace id would look dead and every window would fall back to Home.
@@ -103,4 +107,5 @@ app.on('before-quit', () => {
         // destroyAll(), and give up the one chance at a graceful shutdown.
     }
     cleanupIpcHandlers();
+    cleanupAppUpdates?.();
 });

@@ -1,3 +1,4 @@
+import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -15,7 +16,7 @@ import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import './styles.css';
 
-type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts';
+type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts' | 'updates';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -27,6 +28,7 @@ interface SettingsSectionConfig {
 // name, harness, scopes, provider, actions, groups, deletion — has a modal of
 // its own, opened from the workspace menu.
 const sections: SettingsSectionConfig[] = [
+  { id: 'updates', label: 'Updates', icon: Monitor },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'harnesses', label: 'Harnesses', icon: Boxes },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
@@ -100,6 +102,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
             )}
             {activeSection === 'harnesses' && <HarnessesSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
+            {activeSection === 'updates' && <AppUpdatesSection />}
           </div>
 
           <Dialog.Close asChild>

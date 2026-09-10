@@ -1,3 +1,4 @@
+import type { AppUpdateAPI } from '../../shared/appUpdates';
 export interface FolderInfo {
   path: string;
   name: string;
@@ -59,6 +60,7 @@ export interface GitAPI {
 
 declare global {
   interface Window {
+    appUpdateAPI?: AppUpdateAPI;
     dialogAPI: DialogAPI;
     fileAPI: FileAPI;
     gitAPI: GitAPI;

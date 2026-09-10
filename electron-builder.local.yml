@@ -1,0 +1,6 @@
+extends: ./electron-builder.yml
+mac:
+  identity: null
+  target:
+    - target: dir
+      arch: arm64
