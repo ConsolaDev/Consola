@@ -82,7 +82,7 @@ export function Sidebar() {
             <Tabs.Trigger className="home-tab" value="home">Home</Tabs.Trigger>
             <Tabs.Trigger className="home-tab" value="all">All your sessions</Tabs.Trigger>
           </Tabs.List>
-          <div className="sidebar-scope-picker"><ScopeSelector workspace={workspace} /></div>
+          {tab === 'home' && <div className="sidebar-scope-picker"><ScopeSelector workspace={workspace} /></div>}
           <Tabs.Content className="home-session-panel" value="home">
             <div className="sidebar-section">
               <div className="sidebar-section-header"><span className="sidebar-section-title">Your groups</span><button className="sidebar-section-button" aria-label="Add group" onClick={() => setIsCreatingGroup(true)}><Plus size={14} /></button></div>
