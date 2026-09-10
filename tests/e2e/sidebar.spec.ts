@@ -169,10 +169,10 @@ function switcherTrigger(target: Page) {
 /** Hold the seeded workspace, unless a restored window already holds it. */
 async function holdWorkspace(target: Page): Promise<void> {
   const trigger = switcherTrigger(target);
-  if ((await trigger.textContent())?.trim() === WORKSPACE_NAME) return;
+  if ((await trigger.locator('.workspace-switcher-name').textContent())?.trim() === WORKSPACE_NAME) return;
   await trigger.click();
   await target.getByRole('menuitem', { name: WORKSPACE_NAME }).click();
-  await expect(trigger).toHaveText(WORKSPACE_NAME);
+  await expect(trigger.locator('.workspace-switcher-name')).toHaveText(WORKSPACE_NAME);
 }
 
 test.describe('folding scopes and groups', () => {
@@ -195,6 +195,40 @@ test.describe('folding scopes and groups', () => {
 
   const scopeGroup = (target: Page, scopeId: string) =>
     target.locator(`[data-testid="scope-group-${scopeId}"]`);
+
+  test('explorer width survives hiding, switching sessions and relaunching', async () => {
+    test.setTimeout(60_000);
+    await page.locator('.session-nav-item').filter({ hasText: 'Controller boot' }).click();
+    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
+    const explorer = () => page.getByTestId('explorer');
+    const width = async () => (await explorer().boundingBox())!.width;
+    await expect(explorer()).toBeVisible();
+    await expect.poll(width).toBeCloseTo(240, 0);
+    const handle = page.locator('.workspace-view-content .resize-handle').first();
+    const box = (await handle.boundingBox())!;
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2 - 60, box.y + box.height / 2, { steps: 5 });
+    await page.mouse.up();
+    await expect.poll(width).toBeCloseTo(180, 0);
+    const preferred = await width();
+
+    await page.getByRole('button', { name: 'Hide file explorer', exact: true }).click();
+    await expect(explorer()).toHaveCount(0);
+    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
+    await expect.poll(width).toBeCloseTo(preferred, 0);
+    await page.locator('.session-nav-item').filter({ hasText: 'Fix flaky test' }).click();
+    await expect.poll(width).toBeCloseTo(preferred, 0);
+
+    // Relaunch while hidden: the agent-only layout must not erase the width.
+    await page.getByRole('button', { name: 'Hide file explorer', exact: true }).click();
+    await expect(explorer()).toHaveCount(0);
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+    await page.getByRole('button', { name: 'Show file explorer', exact: true }).click();
+    await expect.poll(width).toBeCloseTo(preferred, 0);
+  });
 
   test('model and harness metadata toggle independently and stay hidden after relaunch', async () => {
     test.setTimeout(60_000);
