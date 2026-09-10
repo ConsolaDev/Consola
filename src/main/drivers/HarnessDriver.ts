@@ -57,7 +57,7 @@ export interface HarnessDriver {
      * omits it, and sessions keep whatever name they were given. Callers must
      * check for its absence rather than polling an answer that never comes.
      */
-    getSessionDisplayName?(config: HarnessConfig, sessionId: string): SessionNameResult | null;
+    getSessionDisplayName?(config: HarnessConfig, sessionId: string): SessionNameResult | null | Promise<SessionNameResult | null>;
 
     /** Latest model reported by this conversation, when a transcript exists. */
     getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;

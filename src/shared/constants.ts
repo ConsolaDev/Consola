@@ -172,7 +172,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
         binaryName: 'codex',
         configDirEnvVar: 'CODEX_HOME',
         defaultConfigDir: '~/.codex',
-        supportsSessionNaming: false,
+        supportsSessionNaming: true,
         supportsCapabilities: true,
     },
 ];
