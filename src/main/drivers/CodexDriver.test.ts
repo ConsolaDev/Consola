@@ -21,6 +21,56 @@ const config = () => ({ binaryPath, configDir, extraArgs: [] as string[] });
 const launch = (resume = false) => ({ sessionId, resume, cwd: configDir });
 
 describe('Codex harness', () => {
+  it('names existing sessions from the first real prompt and adopts later native renames', async () => {
+    expect(getDriverDescriptor('codex').supportsSessionNaming).toBe(true);
+    const codex = new CodexDriver();
+    const [, threadId] = await codex.buildSessionArgs(config(), launch());
+    const directory = path.join(configDir, 'sessions', '2026', '09', '10');
+    fs.mkdirSync(directory, { recursive: true });
+    const rollout = path.join(directory, `rollout-date-${threadId}.jsonl`);
+    const index = path.join(configDir, 'session_index.jsonl');
+    fs.writeFileSync(index, JSON.stringify({ id: threadId, thread_name: `Consola ${sessionId}` }) + '\n');
+    fs.writeFileSync(rollout, [
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [
+        { type: 'input_text', text: '# AGENTS.md instructions for project' },
+        { type: 'input_text', text: '<environment_context>context</environment_context>' },
+      ] } },
+      { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [
+        { type: 'input_text', text: 'Not the prompt' },
+      ] } },
+      { type: 'response_item', payload: { type: 'message', role: 'user', content: [
+        { type: 'input_image', image_url: 'unused' },
+        { type: 'input_text', text: 'Fix the\n session names' },
+      ] } },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n{"partial":');
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({ name: 'Fix the session names', source: 'prompt' });
+    fs.appendFileSync(index, [
+      { id: threadId, thread_name: 'Earlier title' },
+      { id: threadId, thread_name: 'Session naming fix' },
+      { id: 'another-thread', thread_name: 'Wrong conversation' },
+    ].map(record => JSON.stringify(record)).join('\n') + '\n{"partial":');
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({ name: 'Session naming fix', source: 'summary' });
+  });
+
+  it('retries missing transcripts and follows conversation switches into archived rollouts', async () => {
+    const codex = new CodexDriver();
+    await codex.buildSessionArgs(config(), launch());
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toBeNull();
+    const next = '33333333-3333-4333-8333-333333333333';
+    codex.createOutputObserver(config(), sessionId)(`\x1b]0;${next.slice(0, 29)}...\x07`);
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toBeNull();
+    const directory = path.join(configDir, 'archived_sessions');
+    fs.mkdirSync(directory);
+    fs.writeFileSync(path.join(directory, `rollout-date-${next}.jsonl`), JSON.stringify({
+      type: 'event_msg', payload: { type: 'user_message', message: 'Investigate ' + 'a'.repeat(100) },
+    }) + '\n');
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({
+      name: 'Investigate ' + 'a'.repeat(47) + '…', source: 'prompt',
+    });
+    expect(await codex.getSessionDisplayName(config(), '../invalid')).toBeNull();
+    expect(await codex.getSessionDisplayName({ ...config(), configDir: path.join(configDir, 'other-profile') }, sessionId)).toBeNull();
+  });
+
   it('is available in settings and routes to its own driver', () => {
     expect(getDriverDescriptor('codex' as HarnessDriverId)).toMatchObject({
       id: 'codex', available: true, configDirEnvVar: 'CODEX_HOME',

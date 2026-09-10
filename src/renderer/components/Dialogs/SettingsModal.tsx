@@ -52,7 +52,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Overlay className="dialog-overlay settings-modal-overlay" />
         <Dialog.Content className="settings-modal-content">
           <Dialog.Title className="sr-only">Settings</Dialog.Title>
 

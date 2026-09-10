@@ -1,10 +1,28 @@
-# Consola
+<p align="center">
+  <img src="src/renderer/public/icon.svg" alt="Consola app icon" width="112" height="112">
+</p>
 
-Your command center for AI-assisted development. Built on top of Claude Code, Consola brings structure to AI coding through the **RPI methodology** (Research, Plan, Implement) with native integration to your issue trackers for seamless project management.
+<h1 align="center">Consola</h1>
+
+<p align="center"><strong>Big ideas. One command center.</strong></p>
+
+<p align="center">
+  A home for your coding agents. Bring Claude Code, Codex, projects, and Git review together in one desktop app.
+</p>
+
+<p align="center">
+  <a href="#getting-started">Getting started</a> ·
+  <a href="#features">Features</a> ·
+  <a href="#development">Development</a>
+</p>
+
+![Consola desktop app showing the workspace sidebar and a new conversation ready to start](docs/assets/consola-screenshot.png)
+
+<p align="center"><sub>A new conversation in Consola, with agent selection and Git checkout controls.</sub></p>
 
 ## What is Consola?
 
-Consola is an Electron desktop application that enhances Claude Code with a structured development workflow. Instead of ad-hoc AI conversations, Consola guides you through three phases:
+Consola is an Electron desktop application for working with Claude Code and Codex. Organize projects into workspaces, keep resumable agent sessions together, and review code alongside your conversations. For structured development, Consola supports the **RPI methodology** (Research, Plan, Implement):
 
 1. **Research** - Explore your codebase, understand existing patterns, and document findings
 2. **Plan** - Create detailed implementation plans with clear success criteria
@@ -33,8 +51,8 @@ Consola is an Electron desktop application that enhances Claude Code with a stru
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/consola.git
-cd consola
+git clone https://github.com/ConsolaDev/Consola.git
+cd Consola
 
 # Install dependencies
 npm install
