@@ -28,7 +28,7 @@ export function MainContent() {
 
   // Workspace selected, no session - show centered input
   if (!activeSessionId) {
-    return <NewSessionView workspace={workspace} />;
+    return <NewSessionView key={workspace.id} workspace={workspace} />;
   }
 
   // Session active - show conversation view

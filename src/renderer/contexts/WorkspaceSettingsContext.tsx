@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import { WorkspaceSettingsModal } from '../components/WorkspaceSettings';
+import type { WorkspaceSettingsSectionId } from '../components/WorkspaceSettings/WorkspaceSettingsModal';
 import { useNavigationStore } from '../stores/navigationStore';
 
 interface WorkspaceSettingsContextType {
@@ -15,7 +16,7 @@ interface WorkspaceSettingsContextType {
    * Opens for one workspace, or the window's active workspace when omitted.
    * A no-op if neither resolves to a workspace — there is nothing to edit.
    */
-  openWorkspaceSettings: (workspaceId?: string) => void;
+  openWorkspaceSettings: (workspaceId?: string, section?: WorkspaceSettingsSectionId) => void;
   closeWorkspaceSettings: () => void;
 }
 
@@ -31,12 +32,14 @@ const WorkspaceSettingsContext = createContext<WorkspaceSettingsContextType | nu
  */
 export function WorkspaceSettingsProvider({ children }: { children: ReactNode }) {
   const [openForWorkspaceId, setOpenForWorkspaceId] = useState<string | null>(null);
+  const [initialSection, setInitialSection] = useState<WorkspaceSettingsSectionId>('general');
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
 
-  const openWorkspaceSettings = useCallback((workspaceId?: string) => {
+  const openWorkspaceSettings = useCallback((workspaceId?: string, section: WorkspaceSettingsSectionId = 'general') => {
     const target = workspaceId ?? useNavigationStore.getState().activeWorkspaceId;
     if (!target) return;
+    setInitialSection(section);
     setOpenForWorkspaceId(target);
   }, []);
 
@@ -71,7 +74,7 @@ export function WorkspaceSettingsProvider({ children }: { children: ReactNode })
   return (
     <WorkspaceSettingsContext.Provider value={value}>
       {children}
-      <WorkspaceSettingsModal workspaceId={openForWorkspaceId} onOpenChange={handleOpenChange} />
+      <WorkspaceSettingsModal initialSection={initialSection} workspaceId={openForWorkspaceId} onOpenChange={handleOpenChange} />
     </WorkspaceSettingsContext.Provider>
   );
 }

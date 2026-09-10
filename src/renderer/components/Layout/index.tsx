@@ -1,3 +1,4 @@
+import { openNewSessionComposer } from '../../utils/sessionActions';
 import { AppUpdateNotice } from '../AppUpdates';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
@@ -22,7 +23,6 @@ export function Layout() {
   const { openSettings } = useSettings();
   const { togglePalette, openPalette } = useCommandPalette();
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
-  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
   const sidebarWidth = useNavigationStore((state) => state.sidebarWidth);
   const layoutRef = useRef<HTMLDivElement>(null);
@@ -30,7 +30,7 @@ export function Layout() {
   const handleNewSession = () => {
     // Only enter new session view if a workspace is selected
     if (activeWorkspaceId) {
-      setActiveSession(null);
+      void openNewSessionComposer(activeWorkspaceId);
     }
   };
 

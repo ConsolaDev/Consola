@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { conductorBridge } from '../../services/conductorBridge';
 import './styles.css';
@@ -30,7 +31,7 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
 
   const [name, setName] = useState('');
   const [kickoff, setKickoff] = useState('');
-  const [scopeId, setScopeId] = useState<string | undefined>(scopes[0]?.id);
+  const [scopeId, setScopeId] = useState<string | undefined>(() => workspace ? homeScope(workspace, useHomeStore.getState().scopeIds[workspaceId])?.id : undefined);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 

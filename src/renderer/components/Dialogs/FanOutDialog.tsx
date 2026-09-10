@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
+import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { workspaceBridge } from '../../services/workspaceBridge';
 import type { ScopeRepo } from '../../../shared/types';
@@ -22,7 +23,7 @@ export function FanOutDialog({ workspaceId, onClose }: FanOutDialogProps) {
   );
   const scopes = workspace?.scopes ?? [];
 
-  const [scopeId, setScopeId] = useState<string | undefined>(scopes[0]?.id);
+  const [scopeId, setScopeId] = useState<string | undefined>(() => workspace ? homeScope(workspace, useHomeStore.getState().scopeIds[workspaceId])?.id : undefined);
   const [repos, setRepos] = useState<ScopeRepo[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [groupName, setGroupName] = useState('');
