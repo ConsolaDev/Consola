@@ -37,6 +37,7 @@ export const IPC_CHANNELS = {
     WORKSPACE_CREATE: 'workspace:create',
     WORKSPACE_UPDATE: 'workspace:update',
     WORKSPACE_DELETE: 'workspace:delete',
+    WORKSPACE_MOVE: 'workspace:move',
     WORKSPACE_CHECKOUT_CONTEXT: 'workspace:checkout-context',
     WORKSPACE_SESSION_CREATE: 'workspace:session-create',
     WORKSPACE_SESSION_UPDATE: 'workspace:session-update',

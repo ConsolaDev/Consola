@@ -94,6 +94,22 @@ export class WorkspaceService {
     this.commit(this.workspaces.filter((workspace) => workspace.id !== id));
   }
 
+  /** Move one record relative to another without overwriting a stale window's snapshot. */
+  public moveWorkspace(id: string, beforeId: string | null): void {
+    if (typeof id !== 'string' || (beforeId !== null && typeof beforeId !== 'string')) {
+      throw new Error('Invalid workspace move.');
+    }
+    const workspace = this.workspaces.find(candidate => candidate.id === id);
+    // Another window may have removed either record during the drag.
+    if (!workspace || id === beforeId ||
+        (beforeId !== null && !this.workspaces.some(candidate => candidate.id === beforeId))) return;
+    const next = this.workspaces.filter(candidate => candidate.id !== id);
+    const index = beforeId === null ? next.length : next.findIndex(candidate => candidate.id === beforeId);
+    next.splice(index, 0, workspace);
+    if (next.every((candidate, position) => candidate === this.workspaces[position])) return;
+    this.commit(next);
+  }
+
   public updateWorkspace(
     id: string,
     updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>

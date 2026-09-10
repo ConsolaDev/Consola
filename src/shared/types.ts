@@ -363,6 +363,7 @@ export interface WorkspaceAPI {
         updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
     ) => Promise<void>;
     deleteWorkspace: (id: string) => Promise<void>;
+    moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;
     createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
     updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;

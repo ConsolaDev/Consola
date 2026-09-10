@@ -27,6 +27,62 @@ afterEach(() => {
 });
 
 describe('WorkspaceService', () => {
+  it('moves workspaces in both directions and persists and broadcasts their order without changing records', () => {
+    const a = service.createWorkspace('A', '/a', false);
+    const b = service.createWorkspace('B', '/b', false);
+    const c = service.createWorkspace('C', '/c', false);
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    service.moveWorkspace(c.id, a.id);
+    expect(service.getAll()).toEqual([c, a, b]);
+    expect(listener).toHaveBeenLastCalledWith([c, a, b]);
+    expect(build().getAll()).toEqual([c, a, b]);
+    service.moveWorkspace(c.id, null);
+    expect(build().getAll()).toEqual([a, b, c]);
+  });
+
+  it('applies a move to current records, retaining workspaces created or renamed by other windows', () => {
+    const a = service.createWorkspace('A', '/a', false);
+    const b = service.createWorkspace('B', '/b', false);
+    const c = service.createWorkspace('Added while dragging', '/c', false);
+    service.updateWorkspace(a.id, { name: 'Renamed while dragging' });
+    service.moveWorkspace(b.id, a.id);
+    expect(service.getAll().map(workspace => workspace.id)).toEqual([b.id, a.id, c.id]);
+    expect(service.getAll()[1].name).toBe('Renamed while dragging');
+  });
+
+  it('ignores unchanged moves and records deleted while dragging; rejects malformed moves', () => {
+    const a = service.createWorkspace('A', '/a', false);
+    const b = service.createWorkspace('B', '/b', false);
+    const listener = vi.fn();
+    service.onChange(listener);
+    service.moveWorkspace(a.id, a.id);
+    service.moveWorkspace(a.id, b.id);
+    service.moveWorkspace(b.id, null);
+    service.moveWorkspace('deleted', a.id);
+    service.moveWorkspace(a.id, 'deleted');
+    expect(() => service.moveWorkspace(a.id, undefined as unknown as null)).toThrow('Invalid workspace move');
+    expect(listener).not.toHaveBeenCalled();
+    expect(build().getAll()).toEqual([a, b]);
+  });
+
+  it('does not adopt or broadcast a reordered list when saving fails', () => {
+    const a = service.createWorkspace('A', '/a', false);
+    const b = service.createWorkspace('B', '/b', false);
+    const listener = vi.fn();
+    service.onChange(listener);
+    const write = vi.spyOn(JsonStateFile.prototype, 'write').mockImplementation(() => { throw new Error('Disk full'); });
+    try {
+      expect(() => service.moveWorkspace(b.id, a.id)).toThrow('Disk full');
+      expect(service.getAll()).toEqual([a, b]);
+      expect(listener).not.toHaveBeenCalled();
+    } finally {
+      write.mockRestore();
+    }
+    expect(build().getAll()).toEqual([a, b]);
+  });
+
   it('persists and broadcasts icon changes independently of scopes, then resets across reloads', () => {
     const workspace = service.createWorkspace('Work', '/code/work', true);
     const other = service.createWorkspace('Personal', '/code/personal', false);
