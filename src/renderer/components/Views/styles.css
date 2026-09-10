@@ -286,7 +286,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
@@ -312,7 +312,7 @@
 }
 
 .git-branch-icon {
-  color: var(--color-text-tertiary);
+  color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
   flex-shrink: 0;
 }
 
@@ -352,7 +352,7 @@
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-tertiary);
+  color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
   cursor: pointer;
   transition: background var(--transition-fast), color var(--transition-fast);
 }
