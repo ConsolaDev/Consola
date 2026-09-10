@@ -20,8 +20,8 @@ const SYMBOLS: Record<WorkspaceSymbolId, LucideIcon> = {
 
 /** A workspace's identity, independent of its scopes and their repository status. */
 export function WorkspaceIcon({
-  icon, name, size = 16, className,
-}: { icon?: WorkspaceIconValue; name?: string; size?: number; className?: string }) {
+  icon, name, size = 16, className, borderRadius,
+}: { icon?: WorkspaceIconValue; name?: string; size?: number; className?: string; borderRadius?: number }) {
   const [failedImage, setFailedImage] = useState<string | null>(null);
   const image = isWorkspaceImageIcon(icon) && icon.dataUrl !== failedImage ? icon : undefined;
   const emoji = WORKSPACE_EMOJIS.find(([id]) => id === icon)?.[2];
@@ -43,14 +43,14 @@ export function WorkspaceIcon({
         ...(isInitial ? {
           background: 'var(--color-bg-hover)',
           color: 'var(--color-text-primary)',
-          borderRadius: Math.max(3, avatarSize / 5),
+          borderRadius: borderRadius ?? Math.max(3, avatarSize / 5),
         } : {}),
       }}
     >
       {image ? (
         <img src={image.dataUrl} alt="" draggable={false}
           onError={() => setFailedImage(image.dataUrl)}
-          style={{ width: size, height: size, objectFit: 'contain', borderRadius: Math.min(4, size / 8) }} />
+          style={{ width: size, height: size, objectFit: 'contain', borderRadius: borderRadius ?? Math.min(4, size / 8) }} />
       ) : emoji ?? (hasSymbol ? <Symbol size={size} /> : <span style={{ fontWeight: 600 }}>{initial}</span>)}
     </span>
   );

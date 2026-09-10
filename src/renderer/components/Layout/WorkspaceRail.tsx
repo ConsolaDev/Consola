@@ -40,7 +40,7 @@ export function WorkspaceRail() {
                   aria-keyshortcuts={shortcut ? `${isMac ? 'Meta' : 'Control'}+${shortcut}` : undefined}
                   onClick={() => void setActiveWorkspace(workspace.id)}
                 >
-                  <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={24} />
+                  <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={32} borderRadius={8} />
                   {needsAttention && <span className="workspace-rail-attention" aria-hidden="true" />}
                 </button>
               </Tooltip.Trigger>
