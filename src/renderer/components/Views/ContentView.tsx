@@ -39,11 +39,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const hasOpenTabs = usePreviewTabStore((state) => state.tabs.length > 0);
   const activePreviewTabId = usePreviewTabStore((state) => state.activeTabId);
 
-  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: 'content-view-split',
-    storage: localStorage,
-  });
-
   const workspace = getWorkspace(workspaceId);
 
   // Get active session
@@ -57,6 +52,20 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
   const cwd = session?.cwd ?? scope?.path ?? '';
+
+  // Conditional panels must have separate saved layouts: hiding the explorer
+  // must not overwrite the layout that remembers its width.
+  const panelIds = [
+    ...(isExplorerVisible && cwd ? ['explorer'] : []),
+    'agent',
+    ...(hasOpenTabs ? ['preview'] : []),
+    ...(isGitReviewOpen ? ['git-review'] : []),
+  ];
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: 'content-view-split',
+    panelIds,
+    storage: localStorage,
+  });
 
   const nameIsUserSet = session?.nameIsUserSet;
   const claudeSessionId = session?.claudeSessionId;
@@ -195,7 +204,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
         >
           {isExplorerVisible && cwd && (
             <>
-              <Panel id="explorer" defaultSize="20%" minSize="15%" maxSize="40%">
+              <Panel id="explorer" defaultSize="240px" minSize="160px" maxSize="40%">
                 <FileExplorer
                   rootPath={cwd}
                   selectedPath={activePreviewTabId}
@@ -205,7 +214,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <Separator className="resize-handle" />
             </>
           )}
-          <Panel id="agent" defaultSize={isExplorerVisible ? "45%" : "60%"} minSize="20%">
+          <Panel id="agent" minSize="20%">
             <SessionTerminalLayout instanceId={instanceId}>
               <TerminalPanel
                 instanceId={instanceId}
