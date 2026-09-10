@@ -11,6 +11,31 @@ import { findCodexRollout, readSessionModel } from './sessionModel';
 import { createCodexThread } from './codexAppServer';
 import { listCodexModels } from './codexModels';
 
+interface CodexMapping { threadId: string; pendingThreadPrefix?: string }
+
+/** Resolve only a unique native UUID prefix, never the latest thread in a cwd. */
+function threadForPrefix(home: string, prefix: string): string | undefined {
+    const ids = new Set<string>();
+    const visit = (directory: string) => {
+        let entries: fs.Dirent[];
+        try { entries = fs.readdirSync(directory, { withFileTypes: true }); }
+        catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+            throw error;
+        }
+        for (const entry of entries) {
+            if (entry.isDirectory()) visit(path.join(directory, entry.name));
+            else if (entry.isFile()) {
+                const id = /-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\.jsonl$/i.exec(entry.name)?.[1];
+                if (id?.startsWith(prefix)) ids.add(id);
+            }
+        }
+    };
+    visit(path.join(home, 'sessions'));
+    visit(path.join(home, 'archived_sessions'));
+    return ids.size === 1 ? [...ids][0] : undefined;
+}
+
 function isExecutable(candidate: string): boolean {
     try {
         fs.accessSync(candidate, fs.constants.X_OK);
@@ -98,8 +123,66 @@ export class CodexDriver implements HarnessDriver {
             ...(launch.model ? ['--model', launch.model] : []),
             ...config.extraArgs,
             ...mcp,
+            // OSC title updates follow /new, /clear and /resume in this PTY.
+            // Keep this after profile overrides: it is our session identity channel.
+            '-c', 'tui.terminal_title=["thread-id"]',
             ...(launch.initialPrompt ? ['--', launch.initialPrompt] : []),
         ];
+    }
+
+    public createOutputObserver(config: HarnessConfig, sessionId: string): (data: string) => void {
+        if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) throw new Error('Invalid Consola session ID.');
+        const home = this.composeEnv(config, getLoginEnv()).CODEX_HOME || path.join(os.homedir(), '.codex');
+        const file = new JsonStateFile<CodexMapping>(path.join(home, 'consola', 'sessions', `${sessionId}.json`));
+        let mapping = file.read();
+        let pending = '';
+        let nextLookup = 0;
+        return data => {
+            // Parse only OSC 0/2 titles, never UUIDs in model output or resume hints.
+            // A sequence can arrive split anywhere across PTY chunks.
+            pending += data;
+            while (pending) {
+                const start = pending.indexOf('\x1b]');
+                if (start < 0) {
+                    pending = pending.endsWith('\x1b') ? '\x1b' : '';
+                    break;
+                }
+                pending = pending.slice(start);
+                const end = /\x07|\x1b\\/.exec(pending);
+                if (!end) {
+                    if (pending.length > 1024) pending = '';
+                    break;
+                }
+                const title = pending.slice(2, end.index);
+                pending = pending.slice(end.index + end[0].length);
+                const match = /^[02];([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i.exec(title);
+                if (match && (match[1] !== mapping?.threadId || mapping.pendingThreadPrefix)) {
+                    file.write({ threadId: match[1] });
+                    mapping = { threadId: match[1] };
+                }
+                // Codex 0.153 shortens a title item to 29 characters plus "...".
+                const shortened = /^[02];([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{5})\.\.\.$/i.exec(title);
+                if (shortened && mapping && !mapping.threadId.startsWith(shortened[1])) {
+                    if (mapping.pendingThreadPrefix !== shortened[1]) {
+                        mapping = { threadId: mapping.threadId, pendingThreadPrefix: shortened[1] };
+                        // Persist before the lazy rollout appears, including across app exit.
+                        file.write(mapping);
+                        nextLookup = 0;
+                    }
+                } else if (shortened && mapping?.pendingThreadPrefix && mapping.threadId.startsWith(shortened[1])) {
+                    mapping = { threadId: mapping.threadId };
+                    file.write(mapping);
+                }
+            }
+            if (mapping?.pendingThreadPrefix && Date.now() >= nextLookup) {
+                nextLookup = Date.now() + 1000;
+                const id = threadForPrefix(home, mapping.pendingThreadPrefix);
+                if (id) {
+                    mapping = { threadId: id };
+                    file.write(mapping);
+                }
+            }
+        };
     }
 
     private async resolveThread(config: HarnessConfig, launch: SessionLaunch): Promise<string> {
@@ -107,9 +190,16 @@ export class CodexDriver implements HarnessDriver {
         const env = this.composeEnv(config, getLoginEnv());
         const home = env.CODEX_HOME || path.join(os.homedir(), '.codex');
         const filePath = path.join(home, 'consola', 'sessions', `${launch.sessionId}.json`);
-        const file = new JsonStateFile<{ threadId: string }>(filePath);
+        const file = new JsonStateFile<CodexMapping>(filePath);
         const stored = file.read();
         if (stored) {
+            if (stored.pendingThreadPrefix) {
+                const id = /^[0-9a-f-]{29}$/i.test(stored.pendingThreadPrefix)
+                    ? threadForPrefix(home, stored.pendingThreadPrefix) : undefined;
+                if (!id) throw new Error('Could not uniquely locate the active Codex conversation. Resume it in Codex before reopening this tab.');
+                file.write({ threadId: id });
+                return id;
+            }
             if (typeof stored.threadId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(stored.threadId)) {
                 throw new Error('Invalid saved Codex conversation ID.');
             }

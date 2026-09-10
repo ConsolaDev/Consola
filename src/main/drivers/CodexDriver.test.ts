@@ -102,8 +102,63 @@ describe('Codex harness', () => {
       ...launch(), model: 'chosen-model', initialPrompt: '-Explain this\nwith examples',
     });
     expect(args.slice(2)).toEqual([
-      '--model', 'chosen-model', '--sandbox', 'read-only', '--', '-Explain this\nwith examples',
+      '--model', 'chosen-model', '--sandbox', 'read-only',
+      '-c', 'tui.terminal_title=["thread-id"]', '--', '-Explain this\nwith examples',
     ]);
+  });
+
+  it('resumes the active thread after an in-terminal switch and app restart', async () => {
+    const first = await driver().buildSessionArgs(config(), launch());
+    const observe = driver().createOutputObserver!(config(), sessionId);
+    const next = '33333333-3333-4333-8333-333333333333';
+    // Initial title, then a /new title split at arbitrary byte boundaries.
+    observe(`\x1b]0;${first[1]}\x07`);
+    for (const byte of `\x1b]0;${next}\x07`) observe(byte);
+    expect((await new CodexDriver().buildSessionArgs(config(), launch(true)))[1]).toBe(next);
+    expect(JSON.parse(fs.readFileSync(path.join(configDir, 'consola', 'sessions', sessionId + '.json.bak'), 'utf8')).threadId).toBe(first[1]);
+  });
+
+  it('ignores transcript IDs, other OSCs, empty titles and malformed titles', async () => {
+    const first = await driver().buildSessionArgs(config(), launch());
+    const observe = driver().createOutputObserver!(config(), sessionId);
+    const other = '33333333-3333-4333-8333-333333333333';
+    observe(`To continue, run codex resume ${other}\r\n\x1b]0;\x07\x1b]0;Project ${other}\x07\x1b]7;${other}\x07`);
+    observe('\x1b]0;' + 'x'.repeat(2048));
+    expect((await new CodexDriver().buildSessionArgs(config(), launch(true)))[1]).toBe(first[1]);
+    observe(`\x1b]2;${other}\x1b`);
+    observe('\\');
+    expect((await new CodexDriver().buildSessionArgs(config(), launch(true)))[1]).toBe(other);
+  });
+
+  it('keeps output observers isolated between tabs in the same folder', async () => {
+    const secondId = '22222222-2222-4222-8222-222222222222';
+    await driver().buildSessionArgs(config(), launch());
+    const second = await driver().buildSessionArgs(config(), { ...launch(), sessionId: secondId });
+    const observe = driver().createOutputObserver!(config(), sessionId);
+    observe('\x1b]0;33333333-3333-4333-8333-333333333333\x07');
+    expect((await new CodexDriver().buildSessionArgs(config(), { ...launch(true), sessionId: secondId }))[1]).toBe(second[1]);
+  });
+
+  it('persists shortened titles before the lazy rollout exists and resolves them on restart', async () => {
+    await driver().buildSessionArgs(config(), launch());
+    const next = '33333333-3333-4333-8333-333333333333';
+    driver().createOutputObserver!(config(), sessionId)(`\x1b]0;${next.slice(0, 29)}...\x07`);
+    await expect(new CodexDriver().buildSessionArgs(config(), launch(true))).rejects.toThrow('uniquely locate');
+    const directory = path.join(configDir, 'sessions', '2026', '09', '10');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(path.join(directory, `rollout-date-${next}.jsonl`), '');
+    expect((await new CodexDriver().buildSessionArgs(config(), launch(true)))[1]).toBe(next);
+  });
+
+  it('refuses ambiguous shortened IDs instead of choosing another conversation', async () => {
+    await driver().buildSessionArgs(config(), launch());
+    const directory = path.join(configDir, 'sessions');
+    fs.mkdirSync(directory);
+    for (const id of ['33333333-3333-4333-8333-333333333333', '33333333-3333-4333-8333-333334444444']) {
+      fs.writeFileSync(path.join(directory, `rollout-date-${id}.jsonl`), '');
+    }
+    driver().createOutputObserver!(config(), sessionId)('\x1b]0;33333333-3333-4333-8333-33333...\x07');
+    await expect(new CodexDriver().buildSessionArgs(config(), launch(true))).rejects.toThrow('uniquely locate');
   });
 
   it('translates conductor stdio MCP configuration into Codex TOML overrides', async () => {

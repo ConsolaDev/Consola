@@ -59,6 +59,21 @@ test('adds a Codex harness in settings, launches a prompt, and resumes after an 
     expect(first.home).toBe(codexHome);
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 
+    // A tab can change conversations without restarting its PTY.
+    const input = page.getByRole('textbox', { name: 'Terminal input' });
+    await input.focus();
+    await page.keyboard.type('/new');
+    await page.keyboard.press('Enter');
+    const activePath = path.join(codexHome, 'active-thread');
+    await expect.poll(() => fs.existsSync(activePath)).toBe(true);
+    const activeThread = fs.readFileSync(activePath, 'utf8');
+    expect(activeThread).not.toBe(first.args[1]);
+    await expect.poll(() => {
+      const mappings = path.join(codexHome, 'consola', 'sessions');
+      return fs.readdirSync(mappings).filter(file => file.endsWith('.json'))
+        .map(file => JSON.parse(fs.readFileSync(path.join(mappings, file), 'utf8')).threadId);
+    }).toContain(activeThread);
+
     await running.app.close();
     running = await launchElectron({ userDataDir });
     // Restore through the sidebar as well as the persisted workspace view.
@@ -66,7 +81,7 @@ test('adds a Codex harness in settings, launches a prompt, and resumes after an 
     await running.page.getByRole('menuitem', { name: /Codex workspace/ }).click();
     await running.page.locator('.sidebar').getByText('New Session', { exact: true }).click();
     await expect.poll(() => launches().length).toBe(2);
-    expect(launches()[1].args.slice(0, 2)).toEqual(first.args.slice(0, 2));
+    expect(launches()[1].args.slice(0, 2)).toEqual(['resume', activeThread]);
     expect(launches()[1].args).not.toContain('Explain the project');
   } finally {
     await running.app.close().catch(() => {});

@@ -21,6 +21,15 @@ terminal UI and leaves authentication and approvals to Codex.
 - The interactive process uses `codex resume <native-id>`, including on its
   first attachment. Relaunches read the stored mapping; concurrent tabs get
   separate IDs. A failed resume leaves the error visible and retains the mapping.
+- The TUI title is configured as `thread-id`. Each PTY observes its OSC 0/2
+  title updates and atomically saves conversation switches to its own mapping,
+  so an in-terminal `/new`, `/clear`, or `/resume` survives an app restart.
+  Transcript text and resume hints are never used to choose a conversation.
+  Shortened title IDs resolve only against unique native rollout filenames;
+  unresolved prefixes are persisted and block resume rather than reverting to
+  the previous conversation while a new rollout is still being materialized.
+  This requires a Codex version supporting `tui.terminal_title` with `thread-id`
+  (verified with 0.153.4). Older versions retain the launch-time mapping.
 - Opening prompts use Codex's positional prompt argument. Later queued prompts
   can be delivered when an empty `›` composer is visible and no confirmation
   menu is present. Existing Claude prompt delivery remains supported.

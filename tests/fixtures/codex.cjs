@@ -66,7 +66,20 @@ if (args.includes('--version')) {
     process.exit(1);
   }
   fs.appendFileSync(path.join(home, 'launches.jsonl'), JSON.stringify({ args, home }) + '\n');
+  process.stdout.write(`\x1b]0;${args[1]}\x07`);
   process.stdout.write('Codex fixture ready\r\n› ');
+  let input = '';
+  process.stdin.on('data', chunk => {
+    input += chunk.toString();
+    if (!/\/new[\r\n]/.test(input)) return;
+    input = '';
+    const threadId = crypto.randomUUID();
+    fs.writeFileSync(path.join(home, threadId + '.json'), JSON.stringify({ threadId }));
+    fs.mkdirSync(path.join(home, 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(home, 'sessions', `rollout-date-${threadId}.jsonl`), '');
+    fs.writeFileSync(path.join(home, 'active-thread'), threadId);
+    process.stdout.write(`\x1b]0;${threadId.slice(0, 29)}...\x07New conversation\r\n› `);
+  });
   process.stdin.resume();
 } else {
   console.error('Unsupported Codex arguments');

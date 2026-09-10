@@ -1,0 +1,6 @@
+.DS_Store
+.env*
+*.tar.gz
+# This site's dist directory contains authored static source.
+!dist/
+!dist/**

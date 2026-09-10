@@ -41,6 +41,9 @@ export interface HarnessDriver {
     /** False when retrying a failed resume would risk replacing a conversation. */
     readonly retryResumeAsFresh?: boolean;
 
+    /** Observe one PTY's output to persist native conversation switches. */
+    createOutputObserver?(config: HarnessConfig, sessionId: string): (data: string) => void;
+
     /** The ambient environment plus this harness's own variables. */
     composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 
