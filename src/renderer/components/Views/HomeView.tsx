@@ -1,4 +1,4 @@
-import { Plus, Sparkles } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { dialogBridge } from '../../services/dialogBridge';
@@ -21,7 +21,7 @@ export function HomeView() {
     <div className="home-view">
       <div className="home-view-content">
         <div className="home-view-icon">
-          <Sparkles size={48} strokeWidth={1.5} />
+          <img src="./icon.svg" width={96} height={96} alt="" />
         </div>
         <h1 className="home-view-title">Welcome to Consola</h1>
         <p className="home-view-description">

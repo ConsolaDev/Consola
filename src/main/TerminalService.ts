@@ -269,7 +269,15 @@ export class TerminalService extends EventEmitter {
             this.claudeExited = false;
             this.emitStatus();
 
-            this.claudePty.onData((data) => this.handleData(data));
+            const observeOutput = this.driver.createOutputObserver?.(this.harness, this.options.claudeSessionId);
+            this.claudePty.onData((data) => {
+                try { observeOutput?.(data); }
+                catch (error) {
+                    console.error('Could not save the active conversation:', error);
+                    this.writeNotice('Could not save the active conversation. Check available disk space before restarting.');
+                }
+                this.handleData(data);
+            });
 
             this.claudePty.onExit(({ exitCode }) => {
                 this.claudePty = null;
