@@ -1,4 +1,4 @@
-import { execFileSync } from 'child_process';
+import { execFileSync, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
 import * as os from 'os';
 
 /**
@@ -72,11 +72,17 @@ export function getLoginEnv(): NodeJS.ProcessEnv {
 
     try {
         // NUL-separated output so values containing newlines survive parsing.
-        const raw = execFileSync(getLoginShell(), ['-ilc', 'env -0'], {
+        // Node supports detached for synchronous spawns; our Node typings omit it.
+        const probeOptions: ExecFileSyncOptionsWithStringEncoding & { detached: boolean } = {
             encoding: 'utf8',
             timeout: PROBE_TIMEOUT_MS,
             stdio: ['ignore', 'pipe', 'ignore'],
-        });
+            // An interactive zsh can open /dev/tty even with stdin ignored,
+            // take the parent's foreground process group, and leave Ctrl+C
+            // targeting its dead group. A new session has no controlling tty.
+            detached: true,
+        };
+        const raw = execFileSync(getLoginShell(), ['-ilc', 'env -0'], probeOptions);
 
         const parsed: NodeJS.ProcessEnv = {};
         for (const entry of raw.split('\0')) {
