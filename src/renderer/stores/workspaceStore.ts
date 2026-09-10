@@ -26,6 +26,7 @@ interface WorkspaceState {
     defaultHarnessId?: string
   ) => Promise<Workspace>;
   deleteWorkspace: (id: string) => Promise<void>;
+  moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;
   updateWorkspace: (
     id: string,
     updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
@@ -78,6 +79,7 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
     workspaceBridge.createWorkspace(name, path, isGitRepo, defaultHarnessId),
 
   deleteWorkspace: (id) => workspaceBridge.deleteWorkspace(id),
+  moveWorkspace: (id, beforeId) => workspaceBridge.moveWorkspace(id, beforeId),
 
   updateWorkspace: (id, updates) => workspaceBridge.updateWorkspace(id, updates),
 

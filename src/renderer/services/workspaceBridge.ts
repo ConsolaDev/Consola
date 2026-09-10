@@ -55,6 +55,10 @@ export const workspaceBridge = {
         return window.workspaceAPI.deleteWorkspace(id);
     },
 
+    moveWorkspace(id: string, beforeId: string | null): Promise<void> {
+        return window.workspaceAPI.moveWorkspace(id, beforeId);
+    },
+
     createSession(workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout): Promise<Session | undefined> {
         return window.workspaceAPI.createSession(workspaceId, fields, checkout);
     },
