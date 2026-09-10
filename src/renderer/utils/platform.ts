@@ -14,6 +14,14 @@ export function hasPlatformModifier(event: KeyboardEvent): boolean {
   return isMac ? event.metaKey : event.ctrlKey;
 }
 
+/** Cmd/Ctrl + 1–9 follows the workspace rail's order. */
+export function matchWorkspaceShortcut(event: KeyboardEvent): number | null {
+  if (!hasPlatformModifier(event) || (isMac ? event.ctrlKey : event.metaKey) ||
+      event.altKey || event.shiftKey || event.isComposing) return null;
+  const digit = /^Digit[1-9]$/.test(event.code) ? event.code.slice(5) : event.key;
+  return /^[1-9]$/.test(digit) ? Number(digit) - 1 : null;
+}
+
 /**
  * The command palette chord: Cmd+K on macOS, Ctrl+Shift+P everywhere else.
  *

@@ -1065,8 +1065,7 @@
   min-height: 40px;
   padding: var(--space-1) var(--space-2);
 }
-.sidebar-workspace .workspace-switcher { flex: 1; min-width: 0; height: 28px; padding: 0 var(--space-2); font-size: 13px; }
-.sidebar-workspace .workspace-switcher-name { text-align: left; }
+.sidebar-workspace .workspace-menu-trigger { flex: 1; }
 .sidebar-workspace .new-menu-trigger { flex-shrink: 0; }
 .home-navigation { display: flex; flex: 1; min-height: 0; flex-direction: column; }
 .home-tabs { display: flex; gap: var(--space-3); padding: 0 var(--space-4); }

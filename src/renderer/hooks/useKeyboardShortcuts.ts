@@ -4,7 +4,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { isCommandPaletteShortcut, matchScopeShortcut } from '../utils/platform';
+import { isCommandPaletteShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
 import { windowBridge } from '../services/windowBridge';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
@@ -31,6 +31,16 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const workspaceIndex = matchWorkspaceShortcut(event);
+      if (workspaceIndex !== null) {
+        const workspace = useWorkspaceStore.getState().workspaces[workspaceIndex];
+        if (workspace) {
+          event.preventDefault();
+          if (!event.repeat) void useNavigationStore.getState().setActiveWorkspace(workspace.id);
+        }
+        return;
+      }
+
       // Checked first, and via its own predicate: the palette chord differs
       // per platform because a bare Ctrl+letter would reach the PTY instead.
       if (isCommandPaletteShortcut(event)) {

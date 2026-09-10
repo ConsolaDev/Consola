@@ -28,8 +28,7 @@ test('session shells retain state across hiding and switching, and restart indep
       });
       return { workspaceId: workspace.id, sessionId: a!.id };
     }, { root, checkout, stub });
-    await page.getByRole('button', { name: /^Switch workspace/ }).click();
-    await page.getByRole('menuitem', { name: /Shell test/ }).click();
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Shell test/ }).click();
     await page.locator('.session-nav-item').filter({ hasText: 'Session A' }).click();
     await expect(page.getByTestId('session-shell')).toHaveCount(0);
     await page.locator('.terminal-surface textarea').focus();

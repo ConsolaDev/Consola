@@ -24,8 +24,7 @@ test('new conversation creates and reuses worktrees, with searchable refs and re
       await window.harnessStateAPI.addHarness({ id: 'fixture', name: 'Development agent', driverId: 'codex', accentColor: '#da9775', binaryPath: binary, configDir: profile });
       await window.workspaceAPI.createWorkspace('console-1', repo, true, 'fixture');
     }, { repo, profile, binary: path.resolve('tests/fixtures/codex.cjs') });
-    await page.getByRole('button', { name: /^Switch workspace/ }).click();
-    await page.getByRole('menuitem', { name: /console-1/ }).click();
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /console-1/ }).click();
     await expect(page.getByRole('heading', { name: /What should we build in/ })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Send message' })).toBeDisabled();
     await expect(page.getByRole('button', { name: 'Choose branch or worktree' })).toContainText('main');

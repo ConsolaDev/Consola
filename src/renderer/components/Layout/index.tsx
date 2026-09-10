@@ -4,6 +4,7 @@ import { useEffect, useRef, type CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
 import { SidebarResizeHandle } from '../Sidebar/SidebarResizeHandle';
 import { AppHeader } from './AppHeader';
+import { WorkspaceRail } from './WorkspaceRail';
 import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
 import { useTheme } from '../../hooks/useTheme';
@@ -68,6 +69,7 @@ export function Layout() {
       <AppHeader />
       <AppUpdateNotice />
       <div className="layout-body">
+        <WorkspaceRail />
         <Sidebar />
         {!isSidebarHidden && <SidebarResizeHandle layoutRef={layoutRef} />}
         <main className="content-area">

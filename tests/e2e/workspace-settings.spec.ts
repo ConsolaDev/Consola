@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { Page } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -86,6 +86,7 @@ function actionsIn(stateFile: string): SeededAction[] {
  */
 async function launchSeeded(): Promise<{
   page: Page;
+  app: ElectronApplication;
   /** workspaces.json for this run — asserting a write actually persisted. */
   stateFile: string;
   cleanup: () => Promise<void>;
@@ -110,12 +111,12 @@ async function launchSeeded(): Promise<{
     fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
     fs.rmSync(scopeDir, { recursive: true, force: true });
   };
-  return { page, stateFile, cleanup };
+  return { page, app, stateFile, cleanup };
 }
 
-/** The switcher trigger; its accessible name never includes the workspace. */
-function switcherTrigger(page: Page) {
-  return page.getByRole('button', { name: /^Switch workspace/ });
+/** The seeded workspace stays available in the rail, including after a rename. */
+function workspaceButton(page: Page) {
+  return page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /^Sympower/ });
 }
 
 test('workspace icons can be searched, selected, reloaded and reset', async ({}, testInfo) => {
@@ -123,10 +124,10 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveText('S');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveText('S');
     const openSettings = async () => {
-      await switcherTrigger(page).click();
+      await page.getByRole('button', { name: / workspace menu$/ }).click();
       await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
       await page.getByRole('button', { name: 'Change workspace icon' }).click();
     };
@@ -140,13 +141,11 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
     await expect(picker).toBeHidden();
     await expect.poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon).toBe('emoji-rocket');
     await page.getByRole('dialog', { name: 'Sympower', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
 
     await page.reload();
-    await switcherTrigger(page).click();
-    await expect(page.getByRole('menuitem', { name: /Sympower/ }).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
-    await page.getByRole('menuitem', { name: /Sympower/ }).click();
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
+    await workspaceButton(page).click();
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'emoji-rocket');
     await page.keyboard.press(commandPaletteChord());
     const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
     await palette.getByRole('combobox').fill('# Sympower');
@@ -172,8 +171,8 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
     await expect(page.getByRole('dialog', { name: 'Sympower', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workspace icon' })).toBeFocused();
     await page.getByRole('dialog', { name: 'Sympower', exact: true }).getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
-    await expect(switcherTrigger(page).locator('[data-workspace-icon]')).toHaveText('S');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute('data-workspace-icon', 'initial');
+    await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveText('S');
   } finally {
     await cleanup();
   }
@@ -195,7 +194,7 @@ test('custom workspace images preview, persist without the source file, and can 
     });
     const sourceFile = path.join(imageDir, 'my-logo.png');
     fs.writeFileSync(sourceFile, Buffer.from(source, 'base64'));
-    await switcherTrigger(page).click();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
     const picker = page.getByRole('dialog', { name: 'Workspace icon', exact: true });
@@ -224,10 +223,9 @@ test('custom workspace images preview, persist without the source file, and can 
     expect(storedIcon).toMatchObject({ type: 'image', dataUrl: expect.stringMatching(/^data:image\/png;base64,/) });
     fs.unlinkSync(sourceFile);
     await page.reload();
-    await switcherTrigger(page).click();
-    await page.getByRole('menuitem', { name: /Sympower/ }).click();
-    await expect.poll(() => switcherTrigger(page).locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
-    await switcherTrigger(page).click();
+    await workspaceButton(page).click();
+    await expect.poll(() => workspaceButton(page).locator('img').evaluate((img: HTMLImageElement) => img.naturalWidth)).toBe(128);
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
     await expect(picker.getByRole('tab', { name: 'Upload', exact: true })).toHaveAttribute('aria-selected', 'true');
@@ -263,10 +261,101 @@ test('custom workspace images preview, persist without the source file, and can 
 
 /** Hold the seeded workspace through the real switcher UI (windows.spec.ts precedent). */
 async function holdWorkspace(page: Page): Promise<void> {
-  await switcherTrigger(page).click();
-  await page.getByRole('menuitem', { name: /Sympower/ }).click();
-  await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('Sympower');
+  await workspaceButton(page).click();
+  await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
 }
+
+test('the workspace rail sits beside Home, adds workspaces, and stays available with the sidebar hidden', async ({}, testInfo) => {
+  const { app, page, cleanup } = await launchSeeded();
+  const addedFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-added-workspace-'));
+  const addedName = path.basename(addedFolder);
+  try {
+    await holdWorkspace(page);
+    const rail = page.getByRole('navigation', { name: 'Workspaces', exact: true });
+    const home = page.getByRole('navigation', { name: 'Main navigation', exact: true });
+    const railBox = (await rail.boundingBox())!;
+    const homeBox = (await home.boundingBox())!;
+    expect(railBox.x + railBox.width).toBeLessThanOrEqual(homeBox.x);
+    expect(railBox.y).toBe(homeBox.y);
+    await expect(home.locator('[data-workspace-icon]')).toHaveCount(0);
+    const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
+    const modifierLabel = process.platform === 'darwin' ? '⌘' : 'Ctrl';
+    await page.mouse.move(500, 400);
+    await workspaceButton(page).hover();
+    await expect(page.getByRole('tooltip')).toContainText('Sympower');
+    await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd')).toHaveText([modifierLabel, '1']);
+    await expect(workspaceButton(page)).toHaveAttribute('aria-keyshortcuts', `${modifier}+1`);
+    await page.screenshot({ path: testInfo.outputPath('workspace-tooltip.png'), animations: 'disabled' });
+    await page.mouse.move(500, 400);
+
+    // Drive the + button through the real folder-selection and creation flow.
+    await app.evaluate(({ dialog }, folder) => {
+      dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
+    }, addedFolder);
+    await rail.getByRole('button', { name: 'Add workspace', exact: true }).click();
+    const added = rail.getByRole('button', { name: addedName, exact: true });
+    await expect(added).toHaveAttribute('aria-current', 'true');
+    await expect(rail.getByRole('button')).toHaveCount(3);
+    await expect(added).toHaveAttribute('aria-keyshortcuts', `${modifier}+2`);
+    await added.hover();
+    await expect(page.getByRole('tooltip')).toContainText(addedName);
+    await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd')).toHaveText([modifierLabel, '2']);
+    await page.mouse.move(500, 400);
+    const addedBox = (await added.boundingBox())!;
+    const plusBox = (await rail.getByRole('button', { name: 'Add workspace' }).boundingBox())!;
+    expect(plusBox.y).toBeGreaterThan(addedBox.y + addedBox.height);
+    await page.getByRole('button', { name: `${addedName} workspace menu`, exact: true }).click();
+    await expect(page.locator('.workspace-menu-title')).toHaveText(addedName);
+    await page.keyboard.press('Escape');
+
+    // Switch while the composer has focus, without inserting shortcut text.
+    const composer = page.getByRole('combobox', { name: 'Message' });
+    await composer.fill('Keep this draft');
+    await page.keyboard.press(`${modifier}+Digit2`);
+    await expect(composer).toHaveValue('Keep this draft');
+    await page.keyboard.press(`${modifier}+Digit1`);
+    await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
+    await expect(added).not.toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press(`${modifier}+Shift+Digit2`);
+    await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press(`${modifier}+Digit9`);
+    await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press(`${modifier}+Digit2`);
+    await expect(added).toHaveAttribute('aria-current', 'true');
+    await page.keyboard.press(`${modifier}+Digit1`);
+    const menuButton = page.getByRole('button', { name: 'Sympower workspace menu', exact: true });
+    await menuButton.click();
+    await expect(page.locator('.workspace-menu-title')).toHaveText('Sympower');
+    await expect(page.locator('.workspace-menu-summary')).toHaveText('1 scope · 0 sessions');
+    await page.screenshot({ path: testInfo.outputPath('workspace-menu.png'), animations: 'disabled' });
+    await page.keyboard.press('Escape');
+    await expect(menuButton).toBeFocused();
+
+    await menuButton.press('Enter');
+    await page.getByRole('menuitem', { name: 'Tools', exact: true }).focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menuitem', { name: 'Actions…', exact: true }).click();
+    const modal = page.getByRole('dialog', { name: 'Sympower', exact: true });
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Actions');
+    await expect.poll(() => modal.evaluate(element => element.contains(document.activeElement))).toBe(true);
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
+
+    await page.locator('.sidebar-toggle').click();
+    await expect(page.locator('.sidebar')).toHaveCount(0);
+    await expect(rail).toBeVisible();
+    await menuButton.click();
+    await page.getByRole('menuitem', { name: 'Manage scopes…', exact: true }).click();
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Scopes');
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
+    await page.keyboard.press(`${modifier}+Digit2`);
+    await expect(added).toHaveAttribute('aria-current', 'true');
+    await page.locator('.sidebar-toggle').click();
+    await page.screenshot({ path: testInfo.outputPath('workspace-rail.png'), animations: 'disabled' });
+  } finally {
+    await cleanup();
+    fs.rmSync(addedFolder, { recursive: true, force: true });
+  }
+});
 
 test('the workspace menu opens a modal titled by the workspace; the global modal only points at it', async () => {
   test.setTimeout(60_000);
@@ -275,7 +364,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await holdWorkspace(page);
 
     // The front door: the workspace menu.
-    await switcherTrigger(page).click();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
     const modal = page.getByRole('dialog', { name: 'Sympower', exact: true });
@@ -341,7 +430,7 @@ test('the sidebar gear opens the global modal; the workspace modal commits a ren
     await expect(global).toBeHidden();
 
     await holdWorkspace(page);
-    await switcherTrigger(page).click();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
     // Named generically from here: General's rename changes the dialog's own
@@ -362,8 +451,9 @@ test('the sidebar gear opens the global modal; the workspace modal commits a ren
     // accessibility tree while a dialog is open.
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
-    await expect(switcherTrigger(page).locator('.workspace-switcher-name')).toHaveText('Sympower Renamed');
-    await switcherTrigger(page).click();
+    await expect(workspaceButton(page)).toHaveAccessibleName('Sympower Renamed');
+    await expect(page.getByRole('button', { name: 'Sympower Renamed workspace menu', exact: true })).toBeVisible();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
     await expect(modal).toBeVisible();
 
@@ -416,7 +506,7 @@ test('the Groups panel makes a group without leaving Settings', async () => {
   const { page, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
-    await switcherTrigger(page).click();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
     const modal = page.getByRole('dialog');
@@ -442,7 +532,7 @@ test('an action can be pointed at a group, and says so on its row', async () => 
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
-    await switcherTrigger(page).click();
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
     const modal = page.getByRole('dialog');

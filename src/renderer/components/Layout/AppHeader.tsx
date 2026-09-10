@@ -1,6 +1,6 @@
 import { useNavigationStore } from '../../stores/navigationStore';
 import { SidebarToggle } from '../Sidebar/SidebarToggle';
-import { WorkspaceSwitcher } from './WorkspaceSwitcher';
+import { WorkspaceMenu } from './WorkspaceMenu';
 import { NewMenu } from './NewMenu';
 
 export function AppHeader() {
@@ -13,7 +13,7 @@ export function AppHeader() {
         <SidebarToggle />
       </div>
       <div className={`app-header-content ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
-        {isSidebarHidden && <><WorkspaceSwitcher /><NewMenu /></>}
+        {isSidebarHidden && <><WorkspaceMenu /><NewMenu /></>}
       </div>
     </header>
   );
