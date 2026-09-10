@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#0b0c0e">
+  <meta name="theme-color" content="#f8f9fb">
   <meta name="description" content="A home for your coding agents. Consola brings Claude Code, Codex, workspaces, and Git review together in one desktop app.">
   <meta property="og:title" content="Consola — Big ideas. One command center.">
   <meta property="og:description" content="Your agents, projects, and code. Finally in the same place. Meet the desktop workspace for Claude Code and Codex.">
@@ -27,19 +27,24 @@
     <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
   </defs></svg>
   <a class="skip-link" href="#main">Skip to content</a>
+  <div class="announcement"><span class="announcement-dot"></span> Your agents. A little more in sync. <a href="#workspace">Meet Consola <span aria-hidden="true">→</span></a></div>
   <header class="header wrap">
     <a class="brand" href="#" aria-label="Consola home"><img src="assets/consola.svg" width="38" height="38" alt=""><span>consola</span></a>
-    <nav aria-label="Main navigation"><a class="nav-text" href="#workspace">The workspace</a><a class="nav-text" href="https://github.com/ConsolaDev/Consola">GitHub <span aria-hidden="true">↗</span></a><a class="button button-small" href="#download" data-download-link>Download <svg class="icon"><use href="#i-down"/></svg></a></nav>
+    <nav aria-label="Main navigation"><a class="nav-text" href="#workspace">Workspace</a><a class="nav-text" href="#features">Features</a><a class="nav-text" href="https://github.com/ConsolaDev/Consola">GitHub <span aria-hidden="true">↗</span></a><a class="button button-small" href="#download" data-download-link>Download <svg class="icon"><use href="#i-down"/></svg></a></nav>
   </header>
   <main id="main">
     <section class="hero wrap" aria-labelledby="hero-title">
-      <div class="eyebrow"><span class="eyebrow-line"></span>A HOME FOR YOUR CODING AGENTS</div>
-      <h1 id="hero-title">Big ideas.<br><span>One command center.</span></h1>
-      <p class="hero-copy">Your agents, projects, and code. Finally in the same place.<br class="desktop-break"> Meet the desktop workspace for Claude Code and Codex.</p>
+      <div class="hero-badge"><span class="badge-icons" aria-hidden="true"><span>✳</span><span>›_</span></span> A home for your coding agents <svg class="icon"><use href="#i-arrow"/></svg></div>
+      <h1 id="hero-title">Less switching.<br><span>More building.</span></h1>
+      <p class="hero-copy">Bring Claude Code, Codex, and your projects together.<br class="desktop-break"> One thoughtful workspace. From first idea to final diff.</p>
       <div class="hero-actions"><a class="button button-primary" href="#download" data-download-link><svg class="icon"><use href="#i-down"/></svg><span data-download-label>Download for macOS</span></a><a class="text-link" href="#workspace">Take a look inside <svg class="icon"><use href="#i-arrow"/></svg></a></div>
       <p class="availability" data-availability>macOS · Apple silicon · Installer coming soon</p>
+      </section>
+    <section class="tools-strip wrap" aria-label="Supported coding agents"><span>Built around the tools<br>you already love.</span><div><span class="claude-mark" aria-hidden="true">✳</span>Claude Code</div><div><svg class="icon codex-mark"><use href="#i-terminal"/></svg>Codex</div><div><svg class="icon codex-mark"><use href="#i-branch"/></svg>Git worktrees</div><span class="tools-note">Your setup.<br>Your way.</span></section>
+    <section class="workspace-section wrap" aria-label="Explore Consola">
       <div class="product-stage" id="workspace">
-        <div class="stage-label"><span>LESS TAB HOPPING. MORE BUILDING.</span><span class="stage-index">CONSOLA / WORKSPACE 001</span></div>
+        <div class="demo-heading"><div><span class="section-kicker">The Consola workspace</span><h2>Everything in context.<br>Nothing in your way.</h2></div><p>Your terminal, agents, and changes.<br>Finally working together.</p></div>
+        <div class="stage-label"><span><i class="live-dot"></i> YOUR NEXT GREAT IDEA, IN PROGRESS</span><span class="stage-index">INTERACTIVE PREVIEW</span></div>
         <div class="app-window" aria-label="Illustrative Consola workspace preview">
           <div class="app-titlebar"><div class="traffic-lights" aria-hidden="true"><i></i><i></i><i></i></div><span><img src="assets/consola.svg" width="18" height="18" alt="">Consola</span><span class="titlebar-right">⌘ K</span></div>
           <div class="app-layout">
@@ -69,9 +74,8 @@
         <p class="preview-caption">An interactive preview of your next workspace.</p>
       </div>
     </section>
-    <section class="tools-strip wrap" aria-label="Supported coding agents"><span>THE TOOLS YOU ALREADY KNOW.<br>ROOM TO DO MORE.</span><div><span class="claude-mark" aria-hidden="true">✳</span>Claude Code</div><div><svg class="icon codex-mark"><use href="#i-terminal"/></svg>Codex</div><span class="tools-note">Bring your existing CLI setup.</span></section>
-    <section class="features wrap" aria-labelledby="features-title">
-      <div class="section-intro"><div class="eyebrow">BUILT FOR THE WAY YOU BUILD</div><h2 id="features-title">Keep the momentum.<br><span>Lose the juggling.</span></h2><p>When the work gets bigger, your workspace<br class="desktop-break"> should bring it together.</p></div>
+    <section class="features wrap" id="features" aria-labelledby="features-title">
+      <div class="section-intro"><div class="eyebrow">Made for your momentum</div><h2 id="features-title">A little less friction.<br><span>A lot more possibility.</span></h2><p>When the work gets bigger, your workspace<br class="desktop-break"> should bring it together.</p></div>
       <div class="feature-grid">
         <article class="feature"><div class="feature-number">01 / CONTEXT</div><div class="feature-visual context-visual" aria-hidden="true"><div><span class="mini-avatar">A</span>Acme <span>4 sessions</span></div><div><span class="mini-avatar personal">P</span>Personal <span>2 sessions</span></div><div class="context-tags"><span>Projects</span><span>Groups</span><span>Sessions</span></div></div><h3>A place for every project.</h3><p>Organize work into workspaces, projects, and session groups. Pick up a conversation where you left off.</p></article>
         <article class="feature"><div class="feature-number">02 / FOCUS</div><div class="feature-visual parallel-visual" aria-hidden="true"><div class="branch-trunk"><svg class="icon"><use href="#i-branch"/></svg><span>main</span></div><div class="branch-row"><span>feat/onboarding</span><span class="mini-status">Claude Code</span></div><div class="branch-row"><span>fix/auth</span><span class="mini-status codex">Codex</span></div></div><h3>Work in parallel. Stay in flow.</h3><p>Give sessions their own Git worktrees. Explore a new idea while another agent moves the next task forward.</p></article>
@@ -83,8 +87,8 @@
     </section>
     <section class="download-section wrap" id="download" aria-labelledby="download-title">
       <div class="download-art"><img src="assets/consola.svg" alt="Consola app icon" width="104" height="104"></div>
-      <div class="eyebrow">YOUR NEXT IDEA STARTS HERE</div>
-      <h2 id="download-title">Make room<br>for great work.</h2>
+      <div class="eyebrow">Your next idea starts here</div>
+      <h2 id="download-title">Big ideas deserve<br>a little more space.</h2>
       <p>One desktop app. Your favorite agents.<br>Everything you need to keep moving.</p>
       <div id="download-action"><span class="button button-primary download-pending" aria-disabled="true"><svg class="icon"><use href="#i-down"/></svg>Download for macOS</span></div>
       <p class="download-detail" id="download-status" role="status">The macOS download is coming soon.</p>

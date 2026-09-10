@@ -1,6 +1,6 @@
 # Consola website
 
-A standalone static landing page for Consola. The authored website is in `dist/`, separate from the Electron app. Sites configuration is in `.openai/hosting.json`.
+A standalone static landing page for Consola. The authored website is in `dist/`, separate from the Electron app. The website is deployed using the repository-root Vercel configuration.
 
 The workspace is an illustrative, interactive preview, not a live agent session. Its tabs support mouse and keyboard navigation. The page includes responsive layouts, visible focus states, reduced-motion support, and local font and icon assets.
 
@@ -27,4 +27,4 @@ No installer was published as part of building this website. The Electron app cu
 
 ## Design
 
-The download-first structure was informed by https://t3.codes. Copy, styling, and interface preview are original to Consola. The icon is reused from the app. JetBrains Mono is bundled under its included OFL license.
+The visual direction is inspired by https://clerk.com: pale surfaces, fine structural borders, restrained violet accents, generous typography, and detailed product demonstrations. Copy and interface preview are original to Consola. The icon is reused from the app. JetBrains Mono is bundled under its included OFL license.
