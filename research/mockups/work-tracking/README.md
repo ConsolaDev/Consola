@@ -1,5 +1,9 @@
 # Work tracking design prototype
 
+Start with [Home navigation](home.html) for the first implementation slice. It reuses the application's theme tokens, sidebar styles, and spacing. Switch scopes, fold groups, view all workspace sessions, and use a group’s **+** to open the composer with that scope and group. Sending creates a fictional session only; cancelling or changing context creates nothing. Agent/model controls are illustrative. The theme toggle previews the app’s light and dark palettes. **Inbox** links to the earlier work-tracking exploration.
+
+The production app uses Home and its existing Inbox as the working rail destinations. Home filters groups and Ungrouped by scope; All your sessions spans the workspace and labels each session’s scope. The scope selector also sets the destination for the composer, keyboard shortcut, fan-out, and orchestration. Scope management remains in workspace settings. Activity, Artifacts, and Tickets are outside this first slice.
+
 Open [index.html](index.html) in a browser. It is standalone, requires no server or install, and makes no service calls. The surrounding prototype controls are separate from the proposed app UI.
 
 [Read the evaluation and staged plan](../../2026-09-10-work-tracking-information-architecture.md).

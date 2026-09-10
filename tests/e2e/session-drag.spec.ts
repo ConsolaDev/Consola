@@ -145,7 +145,7 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
   });
 
   await expect(
-    page.locator(`[data-testid="scope-group-${scopes.otherScopeId}"] .scope-row`)
+    page.locator('.sidebar .scope-selector')
   ).toBeVisible();
   return scopes;
 }
@@ -169,7 +169,7 @@ test('a group header keeps the move dropEffect it sets, so the drop is not vetoe
   }
 });
 
-test('only the scope a grouped session came from offers to take it back', async () => {
+test('Ungrouped accepts its selected scope and the scope selector never moves sessions', async () => {
   test.setTimeout(90_000);
   const fixture = makeFixture();
   const { app, page } = await launchElectron();
@@ -184,12 +184,12 @@ test('only the scope a grouped session came from offers to take it back', async 
 
     const home = await dropEffectWrites(
       page,
-      `[data-testid="scope-group-${homeScopeId}"] .scope-row`,
+      '.sidebar-ungrouped .sidebar-section-header',
       grouped
     );
     const other = await dropEffectWrites(
       page,
-      `[data-testid="scope-group-${otherScopeId}"] .scope-row`,
+      '.sidebar .scope-selector',
       grouped
     );
 

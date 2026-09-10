@@ -269,7 +269,7 @@ const sessionsOn51 = (stateFile: string) =>
 
 /** Open the Inbox from the sidebar, select PR #51's row, and hand back the pane. */
 async function openPaneFor51(page: Page): Promise<Locator> {
-  await page.locator('.sidebar-inbox-row').click();
+  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^Inbox/ }).click();
   const row = page.locator(`[data-work-item-key="${PR51_KEY}"]`);
   await expect(row).toBeVisible({ timeout: 15_000 });
   await row.click();
@@ -328,7 +328,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     await page.getByRole('button', { name: /^Switch workspace/ }).click();
     await page.getByRole('menuitem', { name: /Sympower/ }).click();
 
-    const inboxRow = page.locator('.sidebar-inbox-row');
+    const inboxRow = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^Inbox/ });
     await expect(inboxRow).toBeVisible({ timeout: 10_000 });
     await inboxRow.click();
 
@@ -344,7 +344,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     await expect(page.locator(`[data-work-item-key="${PR51_KEY}"]`)).toBeVisible();
     await expect(page.locator('[data-work-item-key="github:sympower/other-repo:pr:200"]')).toHaveCount(0);
     // The sidebar badge is the sectioned count too.
-    await expect(page.locator('.sidebar-inbox-count')).toHaveText('7');
+    await expect(page.locator('.app-navigation-badge')).toHaveText('7');
 
     // Collapsed by default: the team-review section shows its count, not its row.
     await expect(page.locator('[data-work-item-key="github:sympower/flex-portal:pr:60"]')).toHaveCount(0);
@@ -466,11 +466,13 @@ test('sections, views and filters render; actions, links and renames flow throug
       '2 sessions'
     );
 
-    // --- Link a hand-made session from the sidebar. The `+` on the scope row
-    // creates "New Session" and activates it; its row's menu offers the link.
-    await page.getByRole('button', { name: 'New session in controller-app' }).click();
+    // Create through the scoped composer, then link the new session from its menu.
+    await page.getByRole('button', { name: 'New ungrouped session' }).click();
+    await page.getByRole('combobox', { name: 'Message' }).fill('Inspect the billing client');
+    await page.getByRole('button', { name: 'Send message' }).click();
     const plainRow = page.locator('.session-nav-item', { hasText: 'New Session' });
     await expect(plainRow).toBeVisible({ timeout: 10_000 });
+    const plainCwd = sessionsIn(stateFile).find(session => !session.workItem)?.cwd;
     await plainRow.hover();
     await plainRow.getByRole('button', { name: 'Session actions' }).click();
     // Ruling 1: the menu item renders three literal dots, not an ellipsis.
@@ -484,7 +486,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     await expect.poll(() => sessionsOn51(stateFile).length, { timeout: 15_000 }).toBe(3);
     const linked = sessionsOn51(stateFile).find((session) => session.workItemAction === undefined);
     expect(linked?.name).toBe('New Session');
-    expect(linked?.cwd).toBeUndefined(); // linking never moves a session
+    expect(linked?.cwd).toBe(plainCwd); // linking never moves a session
     await expect(linkDialog).toBeHidden({ timeout: 10_000 });
 
     const paneAfterLink = await openPaneFor51(page);

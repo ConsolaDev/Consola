@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, type ReactNode } from 'react';
-import { ChevronDown, Folder, Check, AlertCircle } from 'lucide-react';
+import { ChevronDown, Boxes, Check, AlertCircle } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -10,7 +10,8 @@ import { PromptComposer } from '../PromptComposer';
 import { HarnessIcon } from '../HarnessIcon';
 import { CheckoutPicker } from '../CheckoutPicker/CheckoutPicker';
 import { generateSessionInstanceId, openNewSessionComposer } from '../../utils/sessionActions';
-import { primaryScope } from '../../../shared/workspace';
+import { homeScope, useHomeStore } from '../../stores/homeStore';
+import { ScopeSelector } from '../Sidebar/ScopeSelector';
 import type { SessionCheckout } from '../../../shared/sessionCheckout';
 import './styles.css';
 import './new-session.css';
@@ -49,12 +50,14 @@ export function NewSessionView({ workspace }: { workspace: Workspace }) {
   const { capabilities, loading: modelsLoading, unavailable: modelsError, retry: retryModels } = useHarnessCapabilities(selectedHarness, true);
   const models = capabilities?.models ?? [];
   const selectedModelInfo = models.find(model => model.value === selectedModel);
-  const [selectedScopeId, setSelectedScopeId] = useState(primaryScope(workspace)?.id);
-  const selectedScope = workspace.scopes.find(scope => scope.id === selectedScopeId) ?? primaryScope(workspace);
+  const selectedScopeId = useHomeStore(state => state.scopeIds[workspace.id]);
+  const selectedScope = homeScope(workspace, selectedScopeId);
+  const draftGroupId = useHomeStore(state => state.draftGroupIds[workspace.id]);
+  const groups = workspace.groups.filter(group => !group.archivedAt);
+  const selectedGroup = groups.find(group => group.id === draftGroupId);
 
   useEffect(() => { setSelectedHarnessId(workspace.defaultHarnessId); }, [workspace.id, workspace.defaultHarnessId]);
   useEffect(() => { setSelectedModel(undefined); }, [selectedHarness?.id]);
-  useEffect(() => { setSelectedScopeId(primaryScope(workspace)?.id); }, [workspace.id]);
   useEffect(() => { setCheckout({ mode: 'current' }); setError(''); }, [workspace.id, selectedScope?.id]);
 
   const handleSubmit = async () => {
@@ -67,7 +70,7 @@ export function NewSessionView({ workspace }: { workspace: Workspace }) {
       const instanceId = generateSessionInstanceId(workspace.id);
       const session = await createSession(workspace.id, {
         name: 'New Session', workspaceId: workspace.id, instanceId,
-        harnessId: selectedHarness.id, model: selectedModel, scopeId: selectedScope.id,
+        harnessId: selectedHarness.id, model: selectedModel, scopeId: selectedScope.id, groupId: selectedGroup?.id,
       }, checkout);
       if (!session) throw new Error('The conversation could not be created. Please try again.');
       setPendingPrompt(instanceId, trimmedPrompt);
@@ -101,9 +104,14 @@ export function NewSessionView({ workspace }: { workspace: Workspace }) {
               ...models.map(model => ({ id: model.value, label: model.displayName, selected: model.value === selectedModel, detail: model.description, onSelect: () => setSelectedModel(model.value) })),
               ...(modelsError ? [{ id: 'retry-models', label: 'Retry loading models', selected: false, onSelect: retryModels }] : []),
             ]}><span>{selectedModelInfo?.displayName ?? (modelsLoading ? 'Loading models…' : modelsError ? 'Models unavailable' : 'Default model')}</span></Picker>
-            {workspace.scopes.length > 1 && selectedScope && <>
+            <span className="composer-divider" />
+            <ScopeSelector workspace={workspace} disabled={isSubmitting} className="composer-control" />
+            {groups.length > 0 && <>
               <span className="composer-divider" />
-              <Picker label="Choose folder" disabled={isSubmitting} options={workspace.scopes.map(scope => ({ id: scope.id, label: scope.name, detail: scope.path, selected: scope.id === selectedScope.id, onSelect: () => setSelectedScopeId(scope.id) }))}><Folder size={14} /><span>{selectedScope.name}</span></Picker>
+              <Picker label="Choose group" disabled={isSubmitting} options={[
+                { id: 'ungrouped', label: 'Ungrouped', selected: !selectedGroup, onSelect: () => useHomeStore.getState().setDraftGroup(workspace.id) },
+                ...groups.map(group => ({ id: group.id, label: group.name, selected: group.id === selectedGroup?.id, onSelect: () => useHomeStore.getState().setDraftGroup(workspace.id, group.id) })),
+              ]}><Boxes size={14} /><span>{selectedGroup?.name ?? 'Ungrouped'}</span></Picker>
             </>}
           </>} />
         {selectedScope && <CheckoutPicker key={`${workspace.id}:${selectedScope.id}`} workspaceId={workspace.id} scope={selectedScope} value={checkout} onChange={next => { setCheckout(next); setError(''); }} disabled={isSubmitting} />}

@@ -58,7 +58,7 @@ test.describe('resizing', () => {
     await dragSidebarEdge(page, 80);
 
     expect(await sidebarWidth(page)).toBe(DEFAULT_WIDTH + 80);
-    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80);
+    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80 + 56);
   });
 
   test('the width stops at its bounds instead of hiding the sidebar', async () => {
@@ -175,7 +175,7 @@ async function holdWorkspace(target: Page): Promise<void> {
   await expect(trigger.locator('.workspace-switcher-name')).toHaveText(WORKSPACE_NAME);
 }
 
-test.describe('folding scopes and groups', () => {
+test.describe('Home scopes and groups', () => {
   let scopeDir: string;
 
   test.beforeEach(async () => {
@@ -193,8 +193,11 @@ test.describe('folding scopes and groups', () => {
     fs.rmSync(scopeDir, { recursive: true, force: true });
   });
 
-  const scopeGroup = (target: Page, scopeId: string) =>
-    target.locator(`[data-testid="scope-group-${scopeId}"]`);
+  const ungrouped = (target: Page) => target.locator('.sidebar-ungrouped');
+  const chooseScope = async (target: Page, name: string) => {
+    await target.locator('.sidebar').getByRole('button', { name: 'Choose scope', exact: true }).click();
+    await target.getByRole('menuitem', { name: new RegExp(name) }).click();
+  };
 
   test('explorer width survives hiding, switching sessions and relaunching', async () => {
     test.setTimeout(60_000);
@@ -232,11 +235,12 @@ test.describe('folding scopes and groups', () => {
 
   test('model and harness metadata toggle independently and stay hidden after relaunch', async () => {
     test.setTimeout(60_000);
+    await page.getByRole('tab', { name: 'All your sessions' }).click();
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.session-nav-item-model').first()).toHaveText('claude-opus-4-6');
-    await expect(page.locator('[data-harness-type="claude"]')).toHaveCount(3);
-    await expect(page.locator('[data-harness-type="codex"]')).toHaveCount(1);
-    await expect(page.locator('[data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
+    await expect(page.locator('.sidebar [data-harness-type="claude"]')).toHaveCount(3);
+    await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveCount(1);
+    await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
     const toggle = page.getByRole('menuitemcheckbox', { name: 'Model', exact: true });
     const harnessToggle = page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true });
@@ -252,6 +256,7 @@ test.describe('folding scopes and groups', () => {
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
+    await page.getByRole('tab', { name: 'All your sessions' }).click();
     await expect(page.locator('.session-nav-item-model')).toHaveCount(0);
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
@@ -275,38 +280,56 @@ test.describe('folding scopes and groups', () => {
     expect(stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model).toBe('claude-opus-4-6');
   });
 
-  test('a scope starts open and folds its sessions away behind a count', async () => {
-    const appScope = scopeGroup(page, 'scope-app');
-    const toggle = appScope.locator('.scope-row-toggle');
-
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
-    await expect(appScope.locator('.scope-row-count')).toHaveCount(0);
-
-    await toggle.click();
-
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(0);
-    // The grouped session is not the scope's to count.
-    await expect(appScope.locator('.scope-row-count')).toHaveText('2 sessions');
-
-    await toggle.click();
-
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
+  test('scope selection filters both groups and ungrouped sessions', async () => {
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
+    await expect(page.locator('.group-nav-count')).toHaveText('1');
+    await chooseScope(page, 'shared-lib');
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(ungrouped(page)).toContainText('Bump deps');
+    await expect(page.locator('.group-nav-count')).toHaveText('0');
+    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(0);
+    await chooseScope(page, 'controller-app');
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
+    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope' }).click();
+    await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
+    await expect(page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Scopes', exact: true })).toHaveAttribute('aria-current', 'true');
   });
 
-  test('folding one scope leaves the others alone', async () => {
-    await scopeGroup(page, 'scope-app').locator('.scope-row-toggle').click();
-
-    await expect(scopeGroup(page, 'scope-app').locator('.session-nav-item')).toHaveCount(0);
-    await expect(scopeGroup(page, 'scope-lib').locator('.session-nav-item')).toHaveCount(1);
-    await expect(
-      scopeGroup(page, 'scope-lib').locator('.scope-row-toggle')
-    ).toHaveAttribute('aria-expanded', 'true');
+  test('All your sessions spans scopes and selecting a session reveals its Home scope', async () => {
+    await page.getByRole('tab', { name: 'All your sessions' }).click();
+    await expect(page.locator('.session-nav-item')).toHaveCount(4);
+    await page.locator('.session-nav-item').filter({ hasText: 'Bump deps' }).click();
+    await page.getByRole('tab', { name: 'Home', exact: true }).click();
+    await expect(page.locator('.sidebar .scope-selector')).toContainText('shared-lib');
+    await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
   });
 
-  test('a group folds the same way its scopes do', async () => {
+  test('group and ungrouped creation share the selected scope without creating a session early', async () => {
+    await chooseScope(page, 'shared-lib');
+    await page.locator('.group-nav-header').hover();
+    await page.getByRole('button', { name: 'New session in Fan out', exact: true }).click();
+    await expect(page.locator('.new-session-view .scope-selector')).toContainText('shared-lib');
+    await expect(page.getByRole('button', { name: 'Choose group' })).toContainText('Fan out');
+    const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
+    expect(await count()).toBe(4);
+    await page.getByRole('button', { name: 'New ungrouped session' }).click();
+    await expect(page.getByRole('button', { name: 'Choose group' })).toContainText('Ungrouped');
+    await expect(page.locator('.new-session-view .scope-selector')).toContainText('shared-lib');
+    expect(await count()).toBe(4);
+    await page.getByRole('combobox', { name: 'Message' }).fill('Keep this draft when switching scopes');
+    await chooseScope(page, 'controller-app');
+    await expect(page.getByRole('combobox', { name: 'Message' })).toHaveValue('Keep this draft when switching scopes');
+    await expect(page.locator('.dropdown-content')).toHaveCount(0);
+    await page.mouse.move(500, 100);
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(page.locator('.radix-themes')).toHaveClass(/light/);
+    await page.screenshot({ path: 'test-results/home-sidebar-light.png', animations: 'disabled' });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(page.locator('.radix-themes')).toHaveClass(/dark/);
+    await page.screenshot({ path: 'test-results/home-sidebar-dark.png', animations: 'disabled' });
+  });
+
+  test('a group folds and retains its scope-filtered count', async () => {
     const toggle = page.locator('.group-nav-toggle');
 
     await expect(toggle).toHaveAttribute('aria-expanded', 'true');
@@ -358,19 +381,20 @@ test.describe('folding scopes and groups', () => {
     await expect(close).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(row).toHaveCount(0);
-    await expect(page.locator('.session-nav-item')).toHaveCount(3);
+    await expect(page.locator('.session-nav-item')).toHaveCount(2);
   });
 
-  test('the group × archives the group and returns its sessions to their scope', async () => {
+  test('the group menu archives the group and returns its sessions to Ungrouped', async () => {
     const header = page.locator('.group-nav-header');
     await header.hover();
-    await header.getByRole('button', { name: 'Archive group Fan out', exact: true }).click();
+    await header.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Archive group', exact: true }).click();
     await expect(page.locator('.group-nav-item')).toHaveCount(0);
-    await expect(scopeGroup(page, 'scope-app').locator('.session-nav-item')).toHaveCount(3);
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
     await expect(rowFor(page, 'Fan member')).toHaveCount(1);
   });
 
-  test('the Groups heading makes a group, the way the Scopes heading adds a scope', async () => {
+  test('the Your groups heading creates a group', async () => {
     await expect(page.locator('.group-nav-item')).toHaveCount(1);
 
     await page.getByRole('button', { name: 'Add group' }).click();
@@ -385,7 +409,7 @@ test.describe('folding scopes and groups', () => {
   });
 
   test('the ⋯ menu moves a session into a group and back out again', async () => {
-    const appScope = scopeGroup(page, 'scope-app');
+    const appScope = ungrouped(page);
     const groupRows = page.locator('.group-nav-item .session-nav-item');
 
     await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
@@ -423,40 +447,32 @@ test.describe('folding scopes and groups', () => {
 
   test('a move survives a relaunch — it is a record, not a view preference', async () => {
     test.setTimeout(60_000);
+    await chooseScope(page, 'shared-lib');
     const row = rowFor(page, 'Bump deps');
     await row.hover();
     await row.getByRole('button', { name: 'Session actions' }).click();
     await page.getByRole('menuitem', { name: 'Move to group' }).click();
     await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(2);
+    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
 
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
+    await chooseScope(page, 'shared-lib');
 
     await expect(
       page.locator('.group-nav-item .session-nav-item').filter({ hasText: 'Bump deps' })
     ).toHaveCount(1);
-    await expect(scopeGroup(page, 'scope-lib').locator('.session-nav-item')).toHaveCount(0);
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(0);
   });
 
-  test('a fold survives a relaunch', async () => {
+  test('a group fold survives a relaunch', async () => {
     test.setTimeout(60_000);
-    await scopeGroup(page, 'scope-app').locator('.scope-row-toggle').click();
     await page.locator('.group-nav-toggle').click();
-
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
-
-    await expect(
-      scopeGroup(page, 'scope-app').locator('.scope-row-toggle')
-    ).toHaveAttribute('aria-expanded', 'false');
-    await expect(scopeGroup(page, 'scope-app').locator('.session-nav-item')).toHaveCount(0);
     await expect(page.locator('.group-nav-toggle')).toHaveAttribute('aria-expanded', 'false');
-    // The one nobody touched is still open.
-    await expect(
-      scopeGroup(page, 'scope-lib').locator('.scope-row-toggle')
-    ).toHaveAttribute('aria-expanded', 'true');
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
   });
 });

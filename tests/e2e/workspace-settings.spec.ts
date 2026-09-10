@@ -306,6 +306,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     const global = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(global).toBeVisible();
     await expect(global.locator('.settings-modal-nav-item')).toHaveText([
+      'Updates',
       'Appearance',
       'Harnesses',
       'Keyboard Shortcuts',
