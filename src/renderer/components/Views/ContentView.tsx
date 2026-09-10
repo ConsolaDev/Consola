@@ -105,16 +105,18 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
         .getSessionName(claudeSessionId, launchFields)
         .then((result) => {
           if (cancelled || !result) return;
-          if (result.source === 'summary' && timer !== undefined) {
+          // Codex can switch conversations or rename them inside the same TUI.
+          if (result.source === 'summary' && launchFields.driverId !== 'codex' && timer !== undefined) {
             clearInterval(timer);
           }
           // Read the live name rather than depending on it: a dependency
           // would restart this effect — and its interval — on every adoption,
           // and the poll must outlive the names it writes.
-          const current = useWorkspaceStore
+          const currentSession = useWorkspaceStore
             .getState()
-            .getSession(workspaceId, sessionId)?.name;
-          if (result.name !== current) {
+            .getSession(workspaceId, sessionId);
+          if (!currentSession || currentSession.nameIsUserSet) return;
+          if (result.name !== currentSession.name) {
             void updateSession(workspaceId, sessionId, { name: result.name });
           }
         })

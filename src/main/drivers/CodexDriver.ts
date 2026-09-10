@@ -10,6 +10,7 @@ import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDrive
 import { findCodexRollout, readSessionModel } from './sessionModel';
 import { createCodexThread } from './codexAppServer';
 import { listCodexModels } from './codexModels';
+import { readCodexSessionName } from './codexSessionName';
 
 interface CodexMapping { threadId: string; pendingThreadPrefix?: string }
 
@@ -78,6 +79,30 @@ export class CodexDriver implements HarnessDriver {
     private readonly preparing = new Map<string, Promise<string>>();
 
     private readonly rolloutFiles = new Map<string, string>();
+
+    public async getSessionDisplayName(config: HarnessConfig, sessionId: string) {
+        if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
+        const home = config.configDir || getLoginEnv().CODEX_HOME || path.join(os.homedir(), '.codex');
+        try {
+            const mapping: CodexMapping = JSON.parse(await fs.promises.readFile(
+                path.join(home, 'consola', 'sessions', `${sessionId}.json`), 'utf8'
+            ));
+            const threadId = mapping.pendingThreadPrefix
+                ? (/^[0-9a-f-]{29}$/i.test(mapping.pendingThreadPrefix)
+                    ? threadForPrefix(home, mapping.pendingThreadPrefix) : undefined)
+                : mapping.threadId;
+            if (typeof threadId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(threadId)) return null;
+            const key = path.join(home, threadId);
+            let file = this.rolloutFiles.get(key);
+            if (!file || !fs.existsSync(file)) {
+                file = await findCodexRollout(path.join(home, 'sessions'), threadId)
+                    ?? await findCodexRollout(path.join(home, 'archived_sessions'), threadId)
+                    ?? undefined;
+                if (file) this.rolloutFiles.set(key, file);
+            }
+            return await readCodexSessionName(path.join(home, 'session_index.jsonl'), threadId, sessionId, file);
+        } catch { return null; }
+    }
 
     public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
         if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;

@@ -1,0 +1,5 @@
+*
+!vercel.json
+!website
+!website/dist
+!website/dist/**

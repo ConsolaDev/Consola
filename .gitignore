@@ -15,3 +15,7 @@ release/
 
 # Superpowers agent scratch (brainstorm ports/tokens, sdd run artefacts)
 .superpowers/
+
+# Local Vercel project link
+.vercel/
+.env*

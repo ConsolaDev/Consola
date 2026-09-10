@@ -80,7 +80,7 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange }: WorkspaceS
   return (
     <Dialog.Root open={workspace !== null} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="dialog-overlay" />
+        <Dialog.Overlay className="dialog-overlay settings-modal-overlay" />
         <Dialog.Content className="settings-modal-content">
           {/* Keyed so retargeting the modal to another workspace remounts
               every panel: no draft, open rename or pending confirmation
