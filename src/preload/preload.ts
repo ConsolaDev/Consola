@@ -1,3 +1,4 @@
+import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
@@ -49,6 +50,15 @@ function subscribe<T>(channel: string, callback: (payload: T) => void): () => vo
     ipcRenderer.on(channel, listener);
     return () => ipcRenderer.removeListener(channel, listener);
 }
+
+contextBridge.exposeInMainWorld('shellAPI', {
+    attach: options => ipcRenderer.invoke(IPC_CHANNELS.SHELL_ATTACH, options),
+    restart: options => ipcRenderer.invoke(IPC_CHANNELS.SHELL_RESTART, options),
+    input: (id, data) => ipcRenderer.send(IPC_CHANNELS.SHELL_INPUT, id, data),
+    resize: (id, cols, rows) => ipcRenderer.send(IPC_CHANNELS.SHELL_RESIZE, id, cols, rows),
+    onData: callback => subscribe(IPC_CHANNELS.SHELL_DATA, callback),
+    onExit: callback => subscribe(IPC_CHANNELS.SHELL_EXIT, callback),
+} satisfies ShellAPI);
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('terminalAPI', {

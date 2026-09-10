@@ -29,8 +29,8 @@ export class ScreenModel {
         this.terminal.loadAddon(this.serializer);
     }
 
-    public write(data: string): void {
-        this.terminal.write(data);
+    public write(data: string, callback?: () => void): void {
+        this.terminal.write(data, callback);
     }
 
     public resize(cols: number, rows: number): void {

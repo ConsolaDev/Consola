@@ -1,3 +1,4 @@
+import { useShellStore } from '../stores/shellStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -153,6 +154,7 @@ export async function deleteSessionCompletely(
     return;
   }
 
+  useShellStore.getState().remove(session.instanceId);
   terminalBridge.destroy(session.instanceId);
   useTerminalStore.getState().removeInstance(session.instanceId);
 

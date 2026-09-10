@@ -4,6 +4,12 @@ import type { HarnessDriverId } from './types';
 
 export const IPC_CHANNELS = {
     // Terminal lifecycle (renderer -> main)
+    SHELL_ATTACH: 'shell:attach',
+    SHELL_RESTART: 'shell:restart',
+    SHELL_INPUT: 'shell:input',
+    SHELL_RESIZE: 'shell:resize',
+    SHELL_DATA: 'shell:data',
+    SHELL_EXIT: 'shell:exit',
     TERMINAL_CREATE: 'terminal:create',       // Start/attach a session terminal
     TERMINAL_INPUT: 'terminal:input',         // User input -> PTY
     TERMINAL_PASTE: 'terminal:paste',         // Bracketed-paste a block of text

@@ -1,3 +1,4 @@
+import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus } from 'lucide-react';
@@ -187,6 +188,7 @@ function ShortcutsSection() {
     { label: 'New session', key: `${mod}N` },
     { label: 'Toggle sidebar', key: `${mod}\\` },
     { label: 'Toggle file explorer', key: `${mod}${shift}E` },
+    { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: `${mod}${shift}T` },
   ];
