@@ -1,3 +1,4 @@
+import { homeScope, useHomeStore } from '../stores/homeStore';
 import { useShellStore } from '../stores/shellStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
@@ -118,10 +119,22 @@ export async function createQuickSession(
  * through as the workspace's view for the same reason it is anywhere else —
  * choosing it is a state worth coming back to.
  */
-export async function openNewSessionComposer(workspaceId: string): Promise<void> {
+export async function openNewSessionComposer(
+  workspaceId: string,
+  destination: { scopeId?: string; groupId?: string } = {}
+): Promise<void> {
   const result = await windowBridge.activateWorkspace(workspaceId);
   if (result.verdict !== 'took') return;
 
+  const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
+  if (workspace) {
+    const home = useHomeStore.getState();
+    const navigation = useNavigationStore.getState();
+    const scope = homeScope(workspace, destination.scopeId ?? home.scopeIds[workspaceId],
+      navigation.activeWorkspaceId === workspaceId ? navigation.activeSessionId : null);
+    if (scope) home.selectScope(workspaceId, scope.id);
+    home.setDraftGroup(workspaceId, destination.groupId);
+  }
   useNavigationStore.setState({
     activeWorkspaceId: workspaceId,
     activeSessionId: null,

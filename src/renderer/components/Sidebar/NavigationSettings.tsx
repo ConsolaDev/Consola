@@ -16,7 +16,7 @@ export function NavigationSettings() {
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="dropdown-content" side="top" align="end" sideOffset={8}>
+        <DropdownMenu.Content className="dropdown-content" side="bottom" align="end" sideOffset={8}>
           <DropdownMenu.Label className="navigation-settings-label">Show in navigation</DropdownMenu.Label>
           <DropdownMenu.CheckboxItem
             className="dropdown-item"

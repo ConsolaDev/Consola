@@ -64,6 +64,33 @@ test('new conversation creates and reuses worktrees, with searchable refs and re
     const sessions = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!.sessions);
     expect(sessions).toHaveLength(2);
     expect(sessions[1].cwd).toBe(existing);
+
+    // Group creation must persist the scope selected in Home, including when
+    // the last active conversation ran in a different scope and worktree.
+    const destination = await page.evaluate(async ({ folder }) => {
+      const ws = (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!;
+      const scope = await window.workspaceAPI.addScope(ws.id, { name: 'inbox-checkout', path: folder, isGitRepo: true });
+      const group = await window.workspaceAPI.createGroup(ws.id, { name: 'Inbox work' });
+      return { scopeId: scope.id, groupId: group.id };
+    }, { folder: existing });
+    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope' }).click();
+    await page.getByRole('menuitem', { name: /inbox-checkout/ }).click();
+    await page.locator('.group-nav-header').hover();
+    await page.getByRole('button', { name: 'New session in Inbox work' }).click();
+    await expect(page.locator('.new-session-view .scope-selector')).toContainText('inbox-checkout');
+    await expect(page.getByRole('button', { name: 'Choose group' })).toContainText('Inbox work');
+    await page.getByRole('combobox', { name: 'Message' }).fill('Finish the inbox work');
+    await page.getByRole('button', { name: 'Send message' }).click();
+    await expect(page.locator('.new-session-view')).toHaveCount(0);
+    const grouped = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!.sessions.at(-1)!);
+    expect(grouped.scopeId).toBe(destination.scopeId);
+    expect(grouped.groupId).toBe(destination.groupId);
+    expect(grouped.cwd).toBe(existing);
+    await expect(page.locator('.group-nav-item .session-nav-item.active')).toBeVisible();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+KeyN' : 'Control+KeyN');
+    await expect(page.locator('.new-session-view .scope-selector')).toContainText('inbox-checkout');
+    await expect(page.getByRole('button', { name: 'Choose group' })).toContainText('Ungrouped');
+
   } finally {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });

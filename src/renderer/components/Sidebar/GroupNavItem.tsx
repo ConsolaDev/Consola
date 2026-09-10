@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Archive, Boxes, ChevronDown, ChevronRight, MoreVertical, X } from 'lucide-react';
+import { Archive, Boxes, ChevronDown, ChevronRight, MoreVertical, Plus } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
@@ -18,28 +18,17 @@ interface GroupNavItemProps {
   /** The scope a member session belongs to, for its subtitle. */
   scopeFor: (scopeId: string) => Scope | undefined;
   activeSessionId: string | null;
+  onNewSession: () => void;
 }
 
-/**
- * One group in the sidebar: a collapsible header with a derived badge, and
- * its member sessions beneath, each subtitled with the scope it belongs to.
- *
- * The badge is recomputed from the terminal store on every render — progress
- * is derived, never stored (see groupCounts.ts). Folded state, by contrast,
- * is a preference: it lives in the settings store keyed by group id, in the
- * same set the scope rows use, so a fold outlives a relaunch.
- *
- * The header is also the sidebar's only drop target: dropping a session row
- * on it moves that session here. Scope rows deliberately accept nothing, since
- * a session's scope is fixed for its lifetime and a scope that lit up on hover
- * would promise a move the record refuses to make.
- */
+/** A collapsible group of sessions in the selected scope, with live status counts. */
 export function GroupNavItem({
   group,
   sessions,
   workspaceId,
   scopeFor,
   activeSessionId,
+  onNewSession,
 }: GroupNavItemProps) {
   const collapsed = useSettingsStore((state) =>
     state.collapsedSidebarSections.includes(group.id)
@@ -57,23 +46,17 @@ export function GroupNavItem({
     ? [conductor, ...sessions.filter((session) => session !== conductor)]
     : sessions;
 
-  // Which scope a member belongs to — the thing its row can no longer say by
-  // sitting under a scope heading. A fan-out member runs in one repo inside
-  // the scope rather than the scope's own folder, so that folder is named
-  // after the scope: "which scope" is answered for every row either way.
-  //
-  // Both halves are optional. A scope whose record is gone still leaves the
-  // folder, which is the truth, and a session in the scope's own folder has
-  // no folder to add.
+  // The scope is already selected above. Fan-out members still name the repo
+  // they run in when their working folder differs from the scope's root.
   const subtitleFor = (session: Session): string | undefined => {
     const scope = scopeFor(session.scopeId);
     const folder =
       session.cwd && session.cwd !== scope?.path ? basename(session.cwd) : undefined;
-    return [scope?.name, folder].filter(Boolean).join(' · ') || undefined;
+    return folder;
   };
 
   // Archiving is how a group ends: the record outlives it so member sessions
-  // keep their groupId, and the sidebar hands them back to their scopes.
+  // keep their groupId, and the sidebar returns them to Ungrouped.
   const handleArchive = async () => {
     try {
       await useWorkspaceStore.getState().archiveGroup(workspaceId, group.id);
@@ -160,11 +143,11 @@ export function GroupNavItem({
           <button
             type="button"
             className="nav-row-action"
-            aria-label={`Archive group ${group.name}`}
-            title="Archive group"
-            onClick={() => void handleArchive()}
+            aria-label={`New session in ${group.name}`}
+            title="New session"
+            onClick={onNewSession}
           >
-            <X size={12} aria-hidden="true" />
+            <Plus size={12} aria-hidden="true" />
           </button>
         </div>
       </div>

@@ -53,6 +53,7 @@ interface WorkspaceSettingsModalProps {
   /** The workspace to edit; null means closed. */
   workspaceId: string | null;
   onOpenChange: (open: boolean) => void;
+  initialSection?: WorkspaceSettingsSectionId;
 }
 
 /**
@@ -60,7 +61,7 @@ interface WorkspaceSettingsModalProps {
  * so it is visibly not the global Settings modal. The panels are the six the
  * old Workspace tab stacked; here a left nav shows one at a time.
  */
-export function WorkspaceSettingsModal({ workspaceId, onOpenChange }: WorkspaceSettingsModalProps) {
+export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSection = 'general' }: WorkspaceSettingsModalProps) {
   const workspace = useWorkspaceStore((state) =>
     workspaceId
       ? (state.workspaces.find((candidate) => candidate.id === workspaceId) ?? null)
@@ -86,7 +87,7 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange }: WorkspaceS
               every panel: no draft, open rename or pending confirmation
               survives into another workspace's record — the contract the
               old Workspace tab kept, carried over. */}
-          {workspace && <WorkspaceSettingsBody key={workspace.id} workspace={workspace} />}
+          {workspace && <WorkspaceSettingsBody key={`${workspace.id}:${initialSection}`} workspace={workspace} initialSection={initialSection} />}
           <Dialog.Close asChild>
             <button className="dialog-close" aria-label="Close">
               <X size={16} />
@@ -98,8 +99,8 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange }: WorkspaceS
   );
 }
 
-function WorkspaceSettingsBody({ workspace }: { workspace: Workspace }) {
-  const [activeSection, setActiveSection] = useState<WorkspaceSettingsSectionId>('general');
+function WorkspaceSettingsBody({ workspace, initialSection }: { workspace: Workspace; initialSection: WorkspaceSettingsSectionId }) {
+  const [activeSection, setActiveSection] = useState<WorkspaceSettingsSectionId>(initialSection);
 
   return (
     <>

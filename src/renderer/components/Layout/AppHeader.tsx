@@ -13,8 +13,7 @@ export function AppHeader() {
         <SidebarToggle />
       </div>
       <div className={`app-header-content ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
-        <WorkspaceSwitcher />
-        <NewMenu />
+        {isSidebarHidden && <><WorkspaceSwitcher /><NewMenu /></>}
       </div>
     </header>
   );
