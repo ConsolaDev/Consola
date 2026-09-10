@@ -34,6 +34,7 @@ Consola is an Electron desktop application for working with Claude Code and Code
 - **Tab-based Interface** - Work on multiple projects simultaneously
 - **Claude Code Integration** - Runs the `claude` CLI itself, so every feature it ships is available as-is
 - **Codex Harness** - Add OpenAI's Codex CLI in Settings → Harnesses and select it for new sessions
+- **Session Terminals** - Open a normal shell alongside each agent, rooted in its checkout, with output and running commands preserved while switching sessions
 - **Resumable Sessions** - Each tab keeps its conversation across restarts
 - **Issue Tracker Integration** - Native sync with Linear and other project management tools
 - **File Explorer & Git Review** - Browse files, review diffs, and stage and commit alongside the session
@@ -87,6 +88,21 @@ The integration requires a CLI supporting `app-server`, `thread/start`,
 `thread/name/set`, and `thread/resume`. Update Codex if your CLI lacks these
 methods. Consola keeps conversation ID mappings in `CODEX_HOME/consola/sessions`;
 retain that folder alongside the profile's history when moving a profile.
+
+### Running shell commands
+
+Click the **Terminal** icon next to the file explorer button, or press **Ctrl+`**,
+to open your normal interactive
+shell in that session's directory (including its Git worktree). Drag the divider
+to resize it; use the icon, shortcut, or **×** in the terminal header to hide it. Each session has its own shell,
+and commands keep running while the panel is hidden or another session is active.
+The panel shows the shell's starting directory; use `pwd` to see your current
+location after `cd`.
+
+The shell runs independently of the coding agent. After `exit`, click **New
+shell** to start again. Deleting the session or its workspace, or quitting
+Consola, stops its shell. Shell processes and output are not restored after an
+app restart.
 
 ## Development
 

@@ -1,3 +1,4 @@
+import { isShellShortcut } from '../../utils/shellShortcut';
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -114,6 +115,10 @@ export function useTerminal({
         // substitute goes through `input()` rather than the bridge, so it takes
         // the same path to the PTY as a typed key, scrollback included.
         terminal.attachCustomKeyEventHandler((event) => {
+            if (isShellShortcut(event)) {
+                event.preventDefault();
+                return false;
+            }
             const override = terminalKeyOverride(event);
             if (!override) return true;
 
