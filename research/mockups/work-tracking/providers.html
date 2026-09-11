@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Consola · Inbox prototype</title>
+<link rel="stylesheet" href="../../../src/renderer/styles/themes/tokens.css">
+<link rel="stylesheet" href="../../../src/renderer/styles/themes/dark.css">
+<link rel="stylesheet" href="../../../src/renderer/styles/themes/light.css">
+<link rel="stylesheet" href="../../../src/renderer/styles/global.css">
+<link rel="stylesheet" href="../../../src/renderer/components/Layout/styles.css">
+<link rel="stylesheet" href="../../../src/renderer/components/Sidebar/styles.css">
+<link rel="stylesheet" href="../../../src/renderer/components/Inbox/styles.css">
+<link rel="stylesheet" href="providers.css">
+<link rel="stylesheet" href="inbox-exploration.css">
+</head>
+<body>
+<div class="layout">
+<header class="app-header" id="app-header" hidden><div class="app-header-sidebar"><button class="inbox-refresh" data-toggle-frame aria-label="Hide sidebar"></button></div><div class="app-header-content"></div></header>
+<div class="layout-body"><div id="app-sidebar" hidden></div><main class="content-area" id="surface"></main></div>
+</div>
+<dialog id="dialog"></dialog><div id="toast" role="status" hidden></div>
+<script src="providers.js"></script>
+<script src="inbox-exploration.js"></script>
+</body></html>
