@@ -16,6 +16,22 @@ The key distinction is lifetime: a notification can be handled in seconds, while
 
 This is a design evaluation and staged proposal, not a user-tested conclusion or a replacement implementation spec. [Open the interactive mockups](mockups/work-tracking/index.html). They compare four navigation models and demonstrate the recommended Work, Inbox, Track detail, session context, and Sources screens with fictional data. No external services are called.
 
+## Current prototype: contextual Inbox navigation in the existing app
+
+The [current prototype](mockups/work-tracking/providers.html) uses the application's actual frame, theme, sidebar and Inbox styles. Home retains the current scope/group/session sidebar. Clicking Inbox replaces the middle sidebar with work-oriented navigation, retaining the workspace dropdown and the two existing rails. This is the current design constraint; the older separate Work destination below remains background research rather than the current proposed shell.
+
+The title-bar comparison explores three alternatives with shared data:
+
+| Alternative | Structure | Assessment |
+|---|---|---|
+| A · Workflow first | Attention, tracked work, unlinked items, integrations, pinned trackers | Suggested starting point for cross-service work; source queues stay directly accessible. |
+| B · Integrations first | Attention, each connection with its own views, shared trackers | Familiar entry points; a growing integration list can hide cohesive work. |
+| C · Tracker first | Outcome trees with linked tickets, code changes and sessions; sources below | Strong work continuity; tree density needs folding and filtering. |
+
+The tracker is the shared context record across every alternative: outcome, next step, provider artifacts with explicit roles and native states, sessions, decisions and handoffs. A ticket can define work, a PR or merge request implement it, and a discussion explain a decision. A local investigation needs no ticket. Attention acknowledgements and tracker completion are local operations that do not mutate provider lifecycle states. Session execution returns to Home with the tracker context beside it; opening the tracker returns to Inbox navigation.
+
+The existing GitHub queue remains a provider view with role-based filters, review/check states and direct session actions. Jira and Linear have assigned-issue and sprint/cycle views instead. New integrations add source views and can link their artifacts to existing trackers. The prototype includes sample GitLab, Bitbucket, Azure DevOps, Asana, Slack, Notion and custom integrations to test that the structure is not limited to the three initial providers. These are simulated connections, not implemented adapters.
+
 ## What the original research gets right
 
 - **The relationship is the product.** “Which ticket belongs to this session and PR?” is a better organizing question than “Which integration should I open?” Track should be a durable work record, with a clear outcome, relevant evidence, execution history, and next step.

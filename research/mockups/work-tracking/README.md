@@ -1,42 +1,62 @@
-# Work tracking design prototype
+# Inbox navigation and shared context prototype
 
-Start with [Home navigation](home.html) for the first implementation slice. It reuses the application's theme tokens, sidebar styles, and spacing. Switch scopes, fold groups, view all workspace sessions, and use a group’s **+** to open the composer with that scope and group. Sending creates a fictional session only; cancelling or changing context creates nothing. Agent/model controls are illustrative. The theme toggle previews the app’s light and dark palettes. **Inbox** links to the earlier work-tracking exploration.
+Open [providers.html](providers.html). This is the current prototype: it loads the production app’s theme tokens, layout, sidebar and Inbox styles. The workspace icon rail, Home/Inbox rail, workspace dropdown and main content frame follow the application. **Home** shows the existing scope/group/session sidebar; **Inbox** replaces that sidebar with navigation for work and integrations.
 
-The production app uses Home and its existing Inbox as the working rail destinations. Home filters groups and Ungrouped by scope; All your sessions spans the workspace and labels each session’s scope. The scope selector also sets the destination for the composer, keyboard shortcut, fan-out, and orchestration. Scope management remains in workspace settings. Activity, Artifacts, and Tickets are outside this first slice.
+Use **Compare Inbox** in the title bar to switch three alternatives. The adjacent information button explains the tradeoffs. Switching alternatives preserves the current page, selected tracker, notes, links, sessions and added integrations in browser memory.
 
-Open [index.html](index.html) in a browser. It is standalone, requires no server or install, and makes no service calls. The surrounding prototype controls are separate from the proposed app UI.
+| Alternative | Inbox sidebar | Main tradeoff |
+|---|---|---|
+| A · Workflow first | Needs attention, tracked work, unlinked items, integrations, pinned trackers | Suggested starting point: shared work stays visible without hiding source views. |
+| B · Integrations first | Cross-service attention, provider views nested under each integration, shared trackers | Familiar service-oriented navigation; connections and views lengthen the sidebar. |
+| C · Tracker first | Attention, outcome trees with tickets/code/sessions, source access | Strong continuity within an outcome; larger work lists need folding and filtering. |
 
-[Read the evaluation and staged plan](../../2026-09-10-work-tracking-information-architecture.md).
+## Try the connected journey
 
-## Try the main journey
+1. Click **Home**, then **Inbox**. The middle sidebar changes; both rails remain.
+2. Open **Make payment retries safe**. Its tracker combines Jira PAY-88, two GitHub PRs, a saved discussion reference and three sessions. Ticket status, code review state and local tracker state remain independent.
+3. Add a handoff note. Switch the navigation alternative. The same tracker and note remain.
+4. Resume **Address rounding feedback**. The session opens with the Home sidebar and a tracker context panel. **Open tracker** returns to the contextual Inbox navigation.
+5. In **Links**, attach a URL or reject the ambiguous discussion suggestion. Reference URLs are validated; rejection persists until reload.
+6. Open **GitHub** from the Inbox sidebar. The current review queue remains available, with the screenshot’s five visible PRs, five view tabs, seven sections, filters and detail/session pane. Select an untracked item and **Link to tracker**. You can attach it to an existing tracker or create one, retaining its linked sessions.
+7. **Add integration → GitLab** creates a sample connection and source view. Link its merge request to the cache investigation tracker and start a sample session. The shared context also works for a different git provider.
+8. Add a **Custom integration** with a name and category: code reviews, tickets, or documents/discussions. New sources appear in every navigation alternative. The sample catalog also includes Bitbucket, Azure DevOps, Asana, Slack and Notion.
+9. Handle a Needs attention entry, then open Tracked work. Handling an update does not remove its tracker. Marking a tracker finished is local shelving and leaves provider states unchanged.
 
-1. Open **Make payment retries safe** in Work, then **Open work**.
-2. Inspect the outcome, remaining review work, latest decision, linked artifacts, and sessions.
-3. **Resume review session** to see the terminal beside its work context.
-4. Open **Inbox**, handle the payment update, and return to **Work**. The task remains.
-5. In the Track's **Links** tab, reject the ambiguous Slack suggestion or add a URL reference.
-6. Browse **Work → Sources → Jira** and track PAY-102. Or use **Track work** to create local work without a ticket.
-7. Use **Compare navigation** to inspect the original Inbox model, one Work hub, and the work-centric sidebar.
+Jira and Linear retain assigned-issue, sprint/cycle and backlog views, with list/board layouts and Plan / Implement / Investigate actions. GitHub retains Review / Address review / Fix CI. Integrations are examples of source capabilities; the tracker joins artifacts by their role (defines, implements, discusses, evidence, reference), not by assuming every provider is a ticket system.
 
-Search, list filters, previews, tabs, handling/snoozing, manual linking, suggestion disposition, and local Track creation run in browser memory. Reload or Reset restores the sample. Start-session settings illustrate a context selection flow but always open the sample session; no agent executes. Handoff notes demonstrate entry in the session context panel and reset on navigation. Snooze does not run a real timer. Secondary Tracks have abbreviated details. Back navigation is simplified; preserving every list's scroll/filter state is a production requirement in the proposal. The prototype does not implement sync, remote source navigation, editing provider data, real terminal input, merging, or persistence.
+## Running
 
-## Static mockups
+[Open the running preview](http://localhost:4176/providers.html). The current local preview server exposes the repository so production CSS resolves. Alternatively open the file directly, or serve the repository root:
 
-| Recommended flow | Preview |
+```sh
+python3 -m http.server 4177 --bind 127.0.0.1
+```
+
+Then open `http://localhost:4177/research/mockups/work-tracking/providers.html`. Serve from the repository root, not just the mockup directory, because the prototype uses the application’s real styles.
+
+Direct comparison links: [workflow first](providers.html?nav=workflow), [integrations first](providers.html?nav=integrations), [tracker first](providers.html?nav=trackers). [GitHub’s existing queue](providers.html?provider=GitHub), [Jira](providers.html?provider=Jira), and [Linear](providers.html?provider=Linear) can also be opened directly.
+
+## Scope and limits
+
+Everything is sample data in browser memory. Reload resets it. Adding a connection never asks for credentials or contacts a service. Session actions create sample entries and a context preview; no agent or terminal runs. Provider writes, real sync, connection removal and authentication are outside this prototype. Workspace switching changes the sample frame identity; it does not load separate account data. Some artifact details are abbreviated. Static snapshot counts match the GitHub screenshot under default filters; hidden PR details were not invented, so expanding the team section explains the missing data. Changed filters count only known sample rows.
+
+## Preview images
+
+| Screen | Preview |
 |---|---|
-| Work overview | [work.png](work.png) |
-| Inbox attention queue | [inbox.png](inbox.png) |
-| Work detail | [detail.png](detail.png) |
-| Session with work context | [session.png](session.png) |
-| Provider browsing | [sources.png](sources.png) |
-| Compact Work layout | [work-compact.png](work-compact.png) |
-
-| Alternative navigation | Preview |
-|---|---|
-| A. Everything in Inbox | [alternative-inbox.png](alternative-inbox.png) |
-| B. One Work hub | [alternative-hub.png](alternative-hub.png) |
-| D. Work in the sidebar | [alternative-tree.png](alternative-tree.png) |
+| A · Workflow sidebar and attention | [inbox-workflow.png](inbox-workflow.png) |
+| B · Integration navigation | [inbox-integrations.png](inbox-integrations.png) |
+| C · Tracker navigation | [inbox-trackers.png](inbox-trackers.png) |
+| Cohesive tracker detail | [inbox-context.png](inbox-context.png) |
+| Session with tracker context | [inbox-session-context.png](inbox-session-context.png) |
+| GitHub in the current app frame | [provider-github.png](provider-github.png) |
+| Jira in the current app frame | [provider-jira.png](provider-jira.png) |
+| Linear in the current app frame | [provider-linear.png](provider-linear.png) |
 
 ## Verification
 
-Checked with Playwright against installed Chrome: five primary screens, four navigation models, preview-to-detail navigation, ambiguous-relation rejection, manual URL attachment, handled Inbox signals retaining the Track in Work, and horizontal overflow at 820px and 390px. Inspected the Work and detail screenshots visually. These are prototype checks, not validation with users or production app tests.
+Checked with Playwright in installed Chrome: Home/Inbox sidebar switching; all three alternatives retaining edits; the existing GitHub queue; Jira/Linear source views; tracker creation and local completion; handoff notes; URL validation; reference removal and suggestion disposition; attention handling retaining work; session linking and context; adding GitLab and a custom integration; attaching their artifacts; responsive navigation at 820px and 390px; no script or asset errors. Visually inspected the workflow and tracker screenshots. These are prototype checks, not production integration tests or user validation.
+
+## Earlier explorations
+
+[Home navigation](home.html) preserves the earlier Home-only interaction sample and now opens this prototype from Inbox. [index.html](index.html) retains the earlier Work information-architecture exploration for reference; its separate shell is not the proposed application frame. [Read the evaluation](../../2026-09-10-work-tracking-information-architecture.md) for background and the updated design direction.
