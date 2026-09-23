@@ -22,11 +22,28 @@ Run `pnpm dev:website` from the repository root for a local preview.
 `pnpm build` builds both workspaces. Vercel serves `public/` directly to keep
 static deployment independent of Electron dependencies. When changing the production domain, update the canonical and Open Graph URLs in `public/index.html`.
 
-## Enable downloads
+## GitHub release downloads
 
-Set `url` in `public/download.json` to the public HTTPS URL of a macOS installer and update `detail` to describe that build. The navigation, hero, and final download button all use this configuration. Until an installer URL exists, the page clearly shows that the download is coming soon; it does not link to a missing release.
+The site queries the public `ConsolaDev/Consola` repository's latest stable
+GitHub release and links directly to its DMG assets using `browser_download_url`.
+The navigation, hero, and final download buttons download the Apple silicon
+installer; the download section also offers an Intel Mac link. If only the Intel
+installer is available, the primary buttons explicitly identify it as Intel.
+No token, manually updated URL, or website redeploy is needed for new releases.
 
-No installer was published as part of building this website. The Electron app currently packages a local Apple silicon app directory, and GitHub had no releases at the time of creation.
+The distribution configuration names DMGs `Consola-${version}-${arch}.dmg`
+(`arm64` and `x64`). Keep those names in sync with asset selection in
+`public/app.js`. ZIPs and update metadata are reserved for the desktop updater.
+
+Follow the [desktop release guide](../../docs/desktop-updates.md) to build,
+test, and publish signed installers. The release workflow creates a **draft**;
+it must be published as a stable release before the website can offer downloads.
+There were no published releases when this integration was added.
+
+Before a release exists, if its installers are missing, or if GitHub's API is
+unavailable or rate limited, the buttons open the GitHub releases page and the
+site explains the download status. These fallback links also work without
+JavaScript.
 
 ## Design
 
