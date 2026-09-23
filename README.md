@@ -43,6 +43,11 @@ Consola is an Electron desktop application for working with Claude Code and Code
 
 ## Getting Started
 
+Published macOS installers are available from
+[GitHub Releases](https://github.com/ConsolaDev/Consola/releases). Choose the
+`arm64.dmg` download for Apple Silicon or `x64.dmg` for Intel, then drag Consola
+into Applications. The steps below are for running from source.
+
 ### Prerequisites
 
 - Node.js 22.12+
