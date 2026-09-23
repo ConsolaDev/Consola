@@ -24,8 +24,10 @@ static deployment independent of Electron dependencies. When changing the produc
 
 ## GitHub release downloads
 
-The site queries the public `ConsolaDev/Consola` repository's latest stable
+On macOS, the site queries the public `ConsolaDev/Consola` repository's latest stable
 GitHub release and links directly to its DMG assets using `browser_download_url`.
+Other platforms (including iPads using desktop browsing mode) show “View GitHub
+Releases” instead and do not request macOS installers.
 The navigation, hero, and final download buttons download the Apple silicon
 installer; the download section also offers an Intel Mac link. If only the Intel
 installer is available, the primary buttons explicitly identify it as Intel.

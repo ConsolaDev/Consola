@@ -36,6 +36,14 @@ selectPreview(tabs[0]);
 async function loadDownload() {
   const repository = 'ConsolaDev/Consola';
   const status = document.querySelector('#download-status');
+  const platform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
+  // iPadOS can report MacIntel when browsing desktop sites.
+  const isMac = /mac/i.test(platform) && !(navigator.maxTouchPoints > 1) &&
+    !/iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
+  if (!isMac) {
+    status.textContent = 'Consola is currently available for macOS. View GitHub Releases for downloads.';
+    return;
+  }
   try {
     const response = await fetch(`https://api.github.com/repos/${repository}/releases/latest`, {
       headers: { Accept: 'application/vnd.github+json' },
