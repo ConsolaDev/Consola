@@ -11,23 +11,29 @@ Consola is an Electron desktop application that provides a structured AI-assiste
 ## Build & Development Commands
 
 ```bash
-npm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
-npm run build            # Production build (all processes)
-npm start                # Run production build
-npm run test:e2e         # Run Playwright E2E tests
+pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Electron auto-restart)
+pnpm run build            # Production build (all processes)
+pnpm start                # Run production build
+pnpm run test:e2e         # Run Playwright E2E tests
 ```
 
 Individual builds:
 ```bash
-npm run build:main       # Main process only
-npm run build:preload    # Preload script only
-npm run build:renderer   # Renderer (Vite) only
+pnpm run build:main       # Main process only
+pnpm run build:preload    # Preload script only
+pnpm run build:renderer   # Renderer (Vite) only
 ```
 
 Only the renderer hot-reloads. `src/main` and `src/preload` are compiled and
 loaded once per launch, so `scripts/dev-electron.cjs` restarts Electron when
 their output changes — otherwise a new UI ends up talking to a main process
 built hours earlier, and the mismatch reads as a renderer bug.
+
+All commands above run from the repository root. The pnpm workspace contains
+`apps/desktop` (`consola`) and `apps/website` (`@consola/website`). Turborepo
+orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
+`scripts/`, or `dist/` are relative to `apps/desktop`. Use
+`pnpm --filter consola exec <tool>` for app-specific tools.
 
 ## Architecture Overview
 
@@ -223,7 +229,9 @@ Every terminal message carries `instanceId`; there is one terminal per session.
 
 ## Research Documents
 
-Architecture decisions are documented in `research/`:
+Implementation plans live in `docs/plans/`.
+
+Architecture decisions are documented in `docs/research/`:
 - `2026-02-05-esm-commonjs-interop-claude-agent-sdk.md` - SDK integration
 - `2026-02-05-git-status-file-explorer.md` - Git feature design
 - `2026-02-03-workspace-feature-architecture.md` - Workspace system

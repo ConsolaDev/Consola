@@ -3,5 +3,5 @@
   "framework": null,
   "installCommand": "",
   "buildCommand": "",
-  "outputDirectory": "website/dist"
+  "outputDirectory": "apps/website/public"
 }

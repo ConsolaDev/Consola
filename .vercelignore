@@ -1,5 +1,6 @@
 *
 !vercel.json
-!website
-!website/dist
-!website/dist/**
+!apps
+!apps/website
+!apps/website/public
+!apps/website/public/**

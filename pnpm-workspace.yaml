@@ -1,0 +1,13 @@
+packages:
+  - 'apps/*'
+  - 'packages/*'
+
+# Electron and the native terminal/build dependencies require install scripts.
+onlyBuiltDependencies:
+  - electron
+  - esbuild
+  - node-pty
+
+# node-pty is rebuilt for Electron by the desktop postinstall script.
+# Avoid sharing that ABI-specific build through pnpm's side-effects cache.
+sideEffectsCache: false
