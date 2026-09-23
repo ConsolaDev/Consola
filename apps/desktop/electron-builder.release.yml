@@ -7,6 +7,8 @@ publish:
   owner: ConsolaDev
   repo: Consola
   releaseType: draft
+dmg:
+  artifactName: '${productName}-${version}-${arch}.${ext}'
 mac:
   hardenedRuntime: true
   notarize: true
