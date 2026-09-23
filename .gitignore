@@ -6,7 +6,7 @@ dist/
 .idea/
 
 # Playwright
-tests/e2e/screenshots/
+**/tests/e2e/screenshots/
 test-results/
 playwright-report/
 
@@ -19,3 +19,6 @@ release/
 # Local Vercel project link
 .vercel/
 .env*
+
+# Turborepo task cache
+.turbo/

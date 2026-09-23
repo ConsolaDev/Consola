@@ -1,0 +1,13 @@
+{
+  "name": "@consola/website",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "dev": "vite public --port 5174",
+    "build": "node scripts/build.cjs",
+    "preview": "vite preview --port 5174"
+  },
+  "devDependencies": {
+    "vite": "^7.3.6"
+  }
+}

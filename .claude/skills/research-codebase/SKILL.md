@@ -74,7 +74,7 @@ Key principles:
 
 ### Step 5: Generate Research Document
 
-Write to `./research/YYYY-MM-DD-description.md`:
+Write to `docs/research/YYYY-MM-DD-description.md`:
 
 ```markdown
 ---

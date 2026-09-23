@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="src/renderer/public/icon.svg" alt="Consola app icon" width="112" height="112">
+  <img src="apps/desktop/src/renderer/public/icon.svg" alt="Consola app icon" width="112" height="112">
 </p>
 
 <h1 align="center">Consola</h1>
@@ -45,8 +45,8 @@ Consola is an Electron desktop application for working with Claude Code and Code
 
 ### Prerequisites
 
-- Node.js 18+
-- npm or yarn
+- Node.js 22.12+
+- pnpm 10.28.2 (`corepack enable` to enable the pinned package manager)
 - Claude API access (via Claude Code CLI)
 
 ### Installation
@@ -57,20 +57,20 @@ git clone https://github.com/ConsolaDev/Consola.git
 cd Consola
 
 # Install dependencies
-npm install
+pnpm install
 
 # Start development server
-npm run dev
+pnpm run dev
 ```
 
 ### Building for Production
 
 ```bash
 # Build all components
-npm run build
+pnpm run build
 
 # Start the production app
-npm start
+pnpm start
 ```
 
 For signed installers and publishing updates to installed apps, see the
@@ -112,25 +112,43 @@ app restart.
 
 ### Project Structure
 
+```text
+apps/
+├── desktop/        # Electron app (package name: consola)
+│   ├── src/
+│   │   ├── main/     # Electron main process
+│   │   ├── preload/  # Preload scripts for IPC
+│   │   ├── renderer/ # React frontend
+│   │   └── shared/   # App types and constants
+│   ├── tests/      # Playwright tests and fixtures
+│   ├── scripts/    # Development and packaging utilities
+│   └── build/      # App icons
+└── website/        # Static landing page (@consola/website)
+    └── public/     # Authored HTML, CSS, JS, and assets
 ```
-src/
-├── main/           # Electron main process
-├── preload/        # Preload scripts for IPC
-├── renderer/       # React frontend
-│   ├── components/ # UI components
-│   ├── hooks/      # Custom React hooks
-│   ├── stores/     # Zustand state management
-│   └── services/   # API and bridge services
-└── shared/         # Shared types and constants
-```
+
+Implementation plans live in `docs/plans/`, and research and design mockups
+live in `docs/research/`.
+
+The root manages pnpm workspaces and Turborepo tasks. Future shared packages
+can live in `packages/*`. Desktop outputs are in `apps/desktop/dist`, installers
+in `apps/desktop/release`, and website build output in `apps/website/dist`.
+
+Run commands below from the repository root. Use `pnpm --filter consola exec <command>`
+for desktop tools, or `pnpm --filter @consola/website <script>` for the website.
+Add dependencies to their owning workspace with
+`pnpm --filter <package> add <dependency>`.
 
 ### Scripts
 
-- `npm run dev` - Start development server with hot reload
-- `npm run build` - Build for production
-- `npm run build:main` - Build main process only
-- `npm run build:renderer` - Build renderer only
-- `npm run test:e2e` - Run Playwright E2E tests
+- `pnpm run dev` - Start development server with hot reload
+- `pnpm run dev:website` - Preview the website at localhost:5174
+- `pnpm run build` - Build both apps with Turborepo caching
+- `pnpm test` - Run unit tests
+- `pnpm run typecheck` - Check TypeScript
+- `pnpm run build:main` - Build main process only
+- `pnpm run build:renderer` - Build renderer only
+- `pnpm run test:e2e` - Build the desktop app, then run Playwright E2E tests
 
 ## The RPI Methodology
 
