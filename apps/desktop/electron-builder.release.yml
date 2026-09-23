@@ -1,4 +1,5 @@
 extends: ./electron-builder.yml
+artifactName: '${productName}-${version}-${arch}.${ext}'
 forceCodeSigning: true
 extraMetadata:
   consolaAutoUpdates: true
@@ -7,8 +8,6 @@ publish:
   owner: ConsolaDev
   repo: Consola
   releaseType: draft
-dmg:
-  artifactName: '${productName}-${version}-${arch}.${ext}'
 mac:
   hardenedRuntime: true
   notarize: true
