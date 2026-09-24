@@ -60,6 +60,20 @@ export function Sidebar() {
   const startSession = (groupId?: string) => {
     if (workspace) void createQuickSession(workspace.id, { scopeId: scope?.id, groupId });
   };
+  // The Home tab shows one scope at a time, so an empty list can mean "nothing
+  // yet" or "it is in another scope". Say which, and point to the other one.
+  const ungroupedEmptyMessage = () => {
+    if (!scope) return 'Add a scope to start a session.';
+    if (!allSessions.length) return `Sessions you start in ${scope.name} appear here.`;
+    const elsewhere = allSessions.length - sessions.length;
+    if (!sessions.length && elsewhere > 0) {
+      return <>Nothing in {scope.name} yet.{' '}
+        <button type="button" className="sidebar-empty-link" onClick={() => useHomeStore.getState().selectTab(workspace!.id, 'all')}>
+          {elsewhere} {elsewhere === 1 ? 'session' : 'sessions'} in other scopes
+        </button></>;
+    }
+    return 'No ungrouped sessions in this scope.';
+  };
   const renderSession = (session: typeof allSessions[number], showScope = false) => <SessionNavItem
     key={session.id} session={session} workspaceId={workspace!.id}
     isActive={!isInboxOpen && activeSessionId === session.id}
@@ -92,7 +106,7 @@ export function Sidebar() {
                   workspaceId={workspace.id} scopeFor={id => workspace.scopes.find(candidate => candidate.id === id)} activeSessionId={isInboxOpen ? null : activeSessionId}
                   onNewSession={() => startSession(group.id)}
                   onNewSessionWithOptions={() => openNewSessionDialog(workspace.id, { scopeId: scope?.id, groupId: group.id })} />)}
-                {!groups.length && <p className="sidebar-empty">Organize your sessions into groups.</p>}
+                {!groups.length && <p className="sidebar-empty">Group sessions that belong together, like a feature or a bug hunt.</p>}
               </nav>
             </div>
             <div className="sidebar-section sidebar-ungrouped">
@@ -113,7 +127,7 @@ export function Sidebar() {
                 <button className="sidebar-section-button" aria-label="New ungrouped session" disabled={!scope} onClick={() => startSession()}><Plus size={14} /></button>
               </div>
               <nav className="session-list" aria-label="Ungrouped sessions">{ungrouped.map(session => renderSession(session))}</nav>
-              {!ungrouped.length && <p className="sidebar-empty">{scope ? 'No ungrouped sessions in this scope.' : 'Add a scope to start a session.'}</p>}
+              {!ungrouped.length && <p className="sidebar-empty">{ungroupedEmptyMessage()}</p>}
             </div>
           </Tabs.Content>
           <Tabs.Content className="home-session-panel" value="all">

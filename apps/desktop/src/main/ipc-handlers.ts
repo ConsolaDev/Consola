@@ -808,7 +808,7 @@ export function setupIpcHandlers(): boolean {
     // Handle folder picker dialog (multi-select)
     ipcMain.handle(IPC_CHANNELS.DIALOG_SELECT_FOLDERS, async () => {
         const result = await dialog.showOpenDialog({
-            properties: ['openDirectory', 'multiSelections'],
+            properties: ['openDirectory', 'multiSelections', 'createDirectory'],
             title: 'Select Project Folders'
         });
         if (result.canceled) return [];

@@ -1,4 +1,5 @@
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
+import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
 import { AppUpdateNotice } from '../AppUpdates';
@@ -30,9 +31,13 @@ export function Layout() {
   const sidebarWidth = useNavigationStore((state) => state.sidebarWidth);
   const layoutRef = useRef<HTMLDivElement>(null);
 
+  // ⌘N starts the next thing there is to start: a session in the open
+  // workspace, or, with none open, the workspace itself.
   const handleNewSession = () => {
     if (activeWorkspaceId) {
       if (!useNewSessionDialogStore.getState().destination) void createQuickSession(activeWorkspaceId);
+    } else {
+      void pickFoldersAndCreateWorkspace();
     }
   };
 
@@ -41,6 +46,7 @@ export function Layout() {
     onNewSessionWithOptions: () => {
       if (useNewSessionDialogStore.getState().destination) return;
       if (activeWorkspaceId) openNewSessionDialog(activeWorkspaceId);
+      else void pickFoldersAndCreateWorkspace();
     },
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,

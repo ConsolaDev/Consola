@@ -15,7 +15,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import { dialogBridge } from '../../services/dialogBridge';
+import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { sessionStatusFor } from '../../utils/sessionStatus';
 import { isMac } from '../../utils/platform';
 import { WorkspaceIcon } from '../WorkspaceIcon';
@@ -44,13 +44,6 @@ export function WorkspaceRail() {
       keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] },
     })
   );
-
-  const addWorkspace = async () => {
-    const folder = await dialogBridge.selectFolder();
-    if (!folder) return;
-    const workspace = await useWorkspaceStore.getState().createWorkspace(folder.name, folder.path, folder.isGitRepo);
-    await useNavigationStore.getState().setActiveWorkspace(workspace.id);
-  };
 
   // Keep the overlay lifted until main has persisted and broadcast the move.
   // The rail, tooltip numbers, and global shortcuts then update together.
@@ -103,7 +96,7 @@ export function WorkspaceRail() {
                 canReorder={workspaces.length > 1} reordering={draggedId !== null} reducedMotion={reducedMotion} />
             ))}
           </SortableContext>
-          <button className="workspace-rail-add" aria-label="Add workspace" title="Add workspace" onClick={() => void addWorkspace()}>
+          <button className="workspace-rail-add" aria-label="Add workspace" title="Add workspace" onClick={() => void pickFoldersAndCreateWorkspace()}>
             <Plus size={24} />
           </button>
         </nav>
