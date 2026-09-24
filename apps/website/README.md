@@ -14,7 +14,7 @@ The demo starts on Acme’s Home view with grouped conversations and a sample se
 
 The app keeps its desktop layout. On narrow screens, the frame scrolls horizontally; the page itself does not overflow. An “Open full demo” link is also available. There is no automatic tour advancing underneath visitors.
 
-The existing real desktop capture is available under “A look at the real app.” Its asset is `public/assets/consola-screenshot.png`; the root README uses the same asset. Link previews use `public/assets/consola-demo.png`, captured from the real renderer with sample data. Preview metadata is static in `index.html`. Keep its absolute image URL and dimensions in sync when updating it.
+The root README’s clickable hero and the website’s link previews share `public/assets/consola-demo.png`, captured from the real renderer with sample data. Clicking the README preview opens the landing page’s interactive demo at `https://www.consola.dev/#workspace`; GitHub cannot embed the live iframe. The existing real desktop capture, `public/assets/consola-screenshot.png`, is available under “A look at the real app” on the website and in a collapsed section in the README. Preview metadata is static in `index.html`. Keep its absolute image URL and dimensions in sync when updating it.
 
 To regenerate the preview, start the site and run:
 
@@ -23,6 +23,8 @@ PLAYWRIGHT_CHANNEL=chrome pnpm --filter @consola/website capture:demo
 ```
 
 Omit the environment variable to use Playwright's installed Chromium.
+
+Commit the regenerated `public/assets/consola-demo.png` with UI or fixture changes so the README and social preview stay aligned. The capture script opens the landing page’s embedded demo, selects “Inspect code changes,” and waits for the review panel, terminal, and fonts before taking the screenshot. It uses the same renderer and sample setup visitors can explore; no separate README mockup needs maintaining.
 
 ## Development and verification
 
