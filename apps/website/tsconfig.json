@@ -1,0 +1,6 @@
+{
+  "extends": "../desktop/tsconfig.renderer.json",
+  "compilerOptions": { "target": "ES2022", "types": ["vite/client"] },
+  "include": ["demo/**/*.ts", "demo/**/*.tsx", "../desktop/src/renderer/types/electron.d.ts"],
+  "exclude": ["node_modules"]
+}

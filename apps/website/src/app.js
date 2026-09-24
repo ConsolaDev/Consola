@@ -55,3 +55,32 @@ async function loadDownload() {
   }
 }
 loadDownload();
+
+// The product demo uses the actual desktop renderer in an isolated iframe.
+const demoFrame = document.querySelector('[data-live-demo] iframe');
+let demoReady = false;
+let pendingCommand;
+function sendDemoCommand(command) {
+  if (!demoFrame) return;
+  if (!demoReady) { pendingCommand = command; return; }
+  demoFrame.contentWindow.postMessage({ type: 'consola:demo-command', command }, location.origin);
+  if (command === 'reset') demoReady = false;
+}
+window.addEventListener('message', (event) => {
+  if (event.origin !== location.origin || event.source !== demoFrame?.contentWindow) return;
+  if (event.data?.type === 'consola:demo-view') {
+    document.querySelectorAll('.live-demo-shortcuts [data-demo-command]').forEach(button => {
+      button.setAttribute('aria-pressed', String(button.dataset.demoCommand === event.data.view));
+    });
+    return;
+  }
+  if (event.data?.type !== 'consola:demo-ready') return;
+  demoReady = true;
+  if (pendingCommand) { const command = pendingCommand; pendingCommand = undefined; sendDemoCommand(command); }
+});
+document.querySelectorAll('[data-demo-command]').forEach(button => {
+  button.addEventListener('click', () => sendDemoCommand(button.dataset.demoCommand));
+});
+document.querySelectorAll('[data-demo-launch]').forEach(link => {
+  link.addEventListener('click', () => sendDemoCommand(link.dataset.demoLaunch));
+});
