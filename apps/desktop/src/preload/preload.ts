@@ -402,6 +402,9 @@ function readWindowContext(): WindowContext {
 }
 
 contextBridge.exposeInMainWorld('windowAPI', {
+    onOpenSettings: (callback: (section?: 'updates') => void) =>
+        subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
+
     context: readWindowContext(),
 
     activateWorkspace: (workspaceId: string | null): Promise<ActivateWorkspaceResult> =>

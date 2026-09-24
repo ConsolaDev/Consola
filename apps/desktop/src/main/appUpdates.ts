@@ -5,7 +5,7 @@ import { autoUpdater } from 'electron-updater';
 import { UPDATE_CHANNELS } from '../shared/appUpdates';
 import { AppUpdateService } from './AppUpdateService';
 
-export function setupAppUpdates(): () => void {
+export function setupAppUpdates() {
     let enabled = false;
     if (app.isPackaged && process.platform === 'darwin') {
         const metadata = JSON.parse(readFileSync(join(app.getAppPath(), 'package.json'), 'utf8'));
@@ -29,10 +29,13 @@ export function setupAppUpdates(): () => void {
         return result.response === 1;
     }));
     service.start();
-    return () => {
-        service.dispose();
-        for (const channel of [UPDATE_CHANNELS.GET, UPDATE_CHANNELS.CHECK, UPDATE_CHANNELS.INSTALL]) {
-            ipcMain.removeHandler(channel);
-        }
+    return {
+        check: () => service.check(),
+        dispose: () => {
+            service.dispose();
+            for (const channel of [UPDATE_CHANNELS.GET, UPDATE_CHANNELS.CHECK, UPDATE_CHANNELS.INSTALL]) {
+                ipcMain.removeHandler(channel);
+            }
+        },
     };
 }

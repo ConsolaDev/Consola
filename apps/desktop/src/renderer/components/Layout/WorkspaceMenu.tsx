@@ -35,12 +35,12 @@ export function WorkspaceMenu() {
         <DropdownMenu.Content
           className="dropdown-content workspace-menu-content"
           align="start"
-          sideOffset={8}
+          sideOffset={4}
           collisionPadding={8}
           onCloseAutoFocus={event => { if (openingSettings.current) event.preventDefault(); }}
         >
           <DropdownMenu.Label className="workspace-menu-identity">
-            <span className="workspace-menu-avatar"><WorkspaceIcon icon={workspace.icon} name={workspace.name} size={40} /></span>
+            <span className="workspace-menu-avatar"><WorkspaceIcon icon={workspace.icon} name={workspace.name} size={28} /></span>
             <span className="workspace-menu-details">
               <span className="workspace-menu-title">{workspace.name}</span>
               <span className="workspace-menu-summary">
@@ -53,7 +53,6 @@ export function WorkspaceMenu() {
           <DropdownMenu.Item className="dropdown-item" onSelect={() => openSection('scopes')}>
             Manage scopes…
           </DropdownMenu.Item>
-          <DropdownMenu.Separator className="dropdown-separator" />
           <DropdownMenu.Item className="dropdown-item" onSelect={() => openSection('general')}>
             Workspace settings…
           </DropdownMenu.Item>

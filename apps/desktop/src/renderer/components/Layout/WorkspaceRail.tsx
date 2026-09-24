@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { createPortal } from 'react-dom';
-import { Plus, X } from 'lucide-react';
+import { Plus, Settings, X } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor,
@@ -11,6 +11,7 @@ import {
   SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
+import { useSettings } from '../../contexts/SettingsContext';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
@@ -30,6 +31,7 @@ const dropAnimation = {
 };
 
 export function WorkspaceRail() {
+  const { openSettings } = useSettings();
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const reducedMotion = useReducedMotion();
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -90,14 +92,19 @@ export function WorkspaceRail() {
         }}
       >
         <nav className="workspace-rail" aria-label="Workspaces" data-reordering={draggedId ? '' : undefined}>
-          <SortableContext items={workspaces.map(workspace => workspace.id)} strategy={verticalListSortingStrategy}>
-            {workspaces.map((workspace, index) => (
-              <SortableWorkspace key={workspace.id} workspace={workspace} index={index}
-                canReorder={workspaces.length > 1} reordering={draggedId !== null} reducedMotion={reducedMotion} />
-            ))}
-          </SortableContext>
-          <button className="workspace-rail-add" aria-label="Add workspace" title="Add workspace" onClick={() => void pickFoldersAndCreateWorkspace()}>
-            <Plus size={24} />
+          <div className="workspace-rail-list">
+            <SortableContext items={workspaces.map(workspace => workspace.id)} strategy={verticalListSortingStrategy}>
+              {workspaces.map((workspace, index) => (
+                <SortableWorkspace key={workspace.id} workspace={workspace} index={index}
+                  canReorder={workspaces.length > 1} reordering={draggedId !== null} reducedMotion={reducedMotion} />
+              ))}
+            </SortableContext>
+            <button className="workspace-rail-add" aria-label="Add workspace" title="Add workspace" onClick={() => void pickFoldersAndCreateWorkspace()}>
+              <Plus size={24} />
+            </button>
+          </div>
+          <button className="workspace-rail-settings" aria-label="Settings" title="Settings" onClick={openSettings}>
+            <Settings size={22} />
           </button>
         </nav>
         {createPortal(

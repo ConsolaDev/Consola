@@ -113,6 +113,7 @@ export const IPC_CHANNELS = {
 
     // Window identity (main -> one renderer)
     WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
+    WINDOW_OPEN_SETTINGS: 'window:open-settings',
     WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
 } as const;
 

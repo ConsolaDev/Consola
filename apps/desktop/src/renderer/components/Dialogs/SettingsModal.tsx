@@ -1,6 +1,5 @@
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
-import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus } from 'lucide-react';
 import {
@@ -16,7 +15,7 @@ import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import './styles.css';
 
-type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts' | 'updates';
+export type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts' | 'updates';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -41,12 +40,13 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 ];
 
 interface SettingsModalProps {
+  activeSection: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }
 
-export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
-  const [activeSection, setActiveSection] = useState<SettingsSection>('appearance');
+export function SettingsModal({ open, onOpenChange, activeSection, onSectionChange }: SettingsModalProps) {
   const { theme, setTheme, terminalFontSize, setTerminalFontSize } = useSettingsStore();
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const { openWorkspaceSettings } = useWorkspaceSettings();
@@ -83,7 +83,7 @@ export function SettingsModal({ open, onOpenChange }: SettingsModalProps) {
                 type="button"
                 className={`settings-modal-nav-item ${activeSection === id ? 'active' : ''}`}
                 aria-current={activeSection === id ? 'true' : undefined}
-                onClick={() => setActiveSection(id)}
+                onClick={() => onSectionChange(id)}
               >
                 <Icon size={16} />
                 <span>{label}</span>
