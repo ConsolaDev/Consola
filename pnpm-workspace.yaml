@@ -2,6 +2,14 @@ packages:
   - 'apps/*'
   - 'packages/*'
 
+# Keep transitive dependencies outside the affected security advisory ranges.
+overrides:
+  '@xmldom/xmldom@>=0.7.0 <0.8.15': 0.8.15
+  'fast-uri@>=3.0.0 <3.1.6': 3.1.6
+  'hono@<4.13.5': 4.13.5
+  'js-yaml@>=4.0.0 <4.3.2': 4.3.2
+  'qs@>=2.2.5 <6.16.0': 6.16.0
+
 # Electron and the native terminal/build dependencies require install scripts.
 onlyBuiltDependencies:
   - electron
