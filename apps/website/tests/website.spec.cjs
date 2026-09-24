@@ -172,10 +172,10 @@ test('latest stable installers populate all primary and Intel download links', a
   } }));
   await page.goto('/');
   for (const link of await page.locator('[data-download-link]').all()) {
-    await expect(link).toHaveAttribute('href', installer('arm64').browser_download_url);
+    await expect(link).toHaveAttribute('href', '/download/?arch=arm64');
   }
   await expect(page.locator('#download-intel')).toBeVisible();
-  await expect(page.locator('#download-intel')).toHaveAttribute('href', installer('x64').browser_download_url);
+  await expect(page.locator('#download-intel')).toHaveAttribute('href', '/download/?arch=x64');
 });
 
 test('release failures leave usable fallback links', async ({ page }) => {
@@ -222,3 +222,55 @@ test('standalone demo can scroll on a phone-sized viewport', async ({ page }) =>
   await page.evaluate(() => scrollTo({ left: 600, behavior: 'instant' }));
   expect(await page.evaluate(() => scrollX)).toBeGreaterThan(0);
 });
+
+for (const arch of ['arm64', 'x64']) {
+  test(`download thank-you page starts the ${arch} installer and offers a retry`, async ({ page }) => {
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
+      Object.defineProperty(navigator, 'userAgentData', { value: undefined });
+      Object.defineProperty(navigator, 'maxTouchPoints', { value: 0 });
+    });
+    await page.route(releaseApi, route => route.fulfill({ json: {
+      tag_name: 'v1.0.0', assets: [installer('arm64'), installer('x64')],
+    } }));
+    await page.route(installer(arch).browser_download_url, route => route.fulfill({
+      contentType: 'application/octet-stream', headers: { 'Content-Disposition': `attachment; filename="Consola-${arch}.dmg"` }, body: 'test installer',
+    }));
+    await page.goto('/');
+    const download = page.waitForEvent('download');
+    await page.locator(arch === 'arm64' ? '.hero [data-download-link]' : '#download-intel').click();
+    expect((await download).suggestedFilename()).toBe(`Consola-${arch}.dmg`);
+    await expect(page).toHaveURL(`/download/?arch=${arch}`);
+    await expect(page.getByRole('heading', { level: 1 })).toContainText('Thanks for downloading');
+    await expect(page.locator('[data-download-retry]')).toHaveAttribute('href', installer(arch).browser_download_url);
+    await expect(page.locator('.download-community a')).toHaveAttribute('href', 'https://github.com/ConsolaDev/Consola');
+    const retry = page.waitForEvent('download');
+    await page.locator('[data-download-retry]').click();
+    await retry;
+  });
+}
+
+test('download page keeps a release fallback when GitHub is unavailable', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(navigator, 'platform', { value: 'MacIntel' });
+    Object.defineProperty(navigator, 'userAgentData', { value: undefined });
+    Object.defineProperty(navigator, 'maxTouchPoints', { value: 0 });
+  });
+  await page.route(releaseApi, route => route.fulfill({ status: 503, body: '{}' }));
+  await page.goto('/download/?arch=arm64');
+  await expect(page.locator('#download-status')).toContainText('Check GitHub releases');
+  await expect(page.locator('[data-download-retry]')).toHaveAttribute('href', releaseUrl);
+});
+
+for (const width of [320, 390, 1440]) {
+  test(`download page fits at ${width}px without JavaScript`, async ({ browser }) => {
+    const context = await browser.newContext({ javaScriptEnabled: false, viewport: { width, height: 900 } });
+    const page = await context.newPage();
+    await page.goto('http://localhost:5174/download/');
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    await expect(page.locator('[data-download-retry]')).toHaveAttribute('href', releaseUrl);
+    await expect(page.locator('.download-community a')).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    await context.close();
+  });
+}

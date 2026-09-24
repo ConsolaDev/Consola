@@ -3,6 +3,7 @@
 async function loadDownload() {
   const repository = 'ConsolaDev/Consola';
   const status = document.querySelector('#download-status');
+  const downloadPage = document.querySelector('[data-download-page]');
   const platform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
   // iPadOS can report MacIntel when browsing desktop sites.
   const isMac = /mac/i.test(platform) && !(navigator.maxTouchPoints > 1) &&
@@ -30,26 +31,36 @@ async function loadDownload() {
     );
     const appleSilicon = installer('arm64');
     const intel = installer('x64');
-    const primary = appleSilicon || intel;
+    const requestedArch = new URLSearchParams(location.search).get('arch');
+    const primary = downloadPage && requestedArch === 'x64' ? intel
+      : downloadPage && requestedArch === 'arm64' ? appleSilicon : appleSilicon || intel;
     if (!primary) {
       status.textContent = 'No macOS installer is attached to the latest release. Check GitHub for downloads.';
       return;
     }
-    const architecture = appleSilicon ? 'Apple silicon' : 'Intel';
+    const architecture = primary === appleSilicon ? 'Apple silicon' : 'Intel';
+    const downloadPath = `/download/?arch=${primary === appleSilicon ? 'arm64' : 'x64'}`;
     document.querySelectorAll('[data-download-link]').forEach((item) => {
-      item.href = primary.browser_download_url;
+      item.href = downloadPath;
       item.setAttribute('aria-label', `Download for macOS (${architecture})`);
     });
     document.querySelectorAll('[data-download-label]').forEach((item) => {
       item.textContent = item.dataset.downloadLabel === 'short' ? 'Download' : 'Download for macOS';
     });
-    if (appleSilicon && intel) {
+    if (!downloadPage && appleSilicon && intel) {
       const intelLink = document.querySelector('#download-intel');
-      intelLink.href = intel.browser_download_url;
+      intelLink.href = '/download/?arch=x64';
       intelLink.hidden = false;
     }
     document.querySelector('[data-availability]').textContent = `macOS · ${architecture}`;
     status.textContent = `${release.tag_name} · ${architecture} · DMG installer`;
+    if (downloadPage) {
+      const retry = document.querySelector('[data-download-retry]');
+      retry.href = primary.browser_download_url;
+      retry.textContent = 'Click here';
+      document.querySelector('[data-download-message]').textContent = ' if your download hasn’t started.';
+      retry.click();
+    }
   } catch {
     status.textContent = 'Check GitHub releases for the latest macOS download.';
   }

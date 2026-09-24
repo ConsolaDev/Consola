@@ -46,12 +46,14 @@ vercel link --project consola --scope javier-tarazaga-gomezs-projects
 vercel deploy --prod
 ```
 
-`pnpm --filter @consola/website build` emits both the landing page and `demo/index.html`, along with bundled JavaScript/CSS and the static assets. Vite's `preview` command serves that production build locally. When changing the domain, update the canonical and Open Graph URLs in `index.html`.
+`pnpm --filter @consola/website build` emits the landing page, `download/index.html`, and `demo/index.html`, along with bundled JavaScript/CSS and the static assets. Vite's `preview` command serves that production build locally. When changing the domain, update the canonical and Open Graph URLs in `index.html`.
 
 ## GitHub release downloads
 
 On macOS, the site queries the public `ConsolaDev/Consola` repository's latest stable
-GitHub release and links directly to its DMG assets using `browser_download_url`.
+GitHub release and routes download buttons to `/download/?arch=arm64` (or `x64`). The branded
+thank-you page resolves the selected installer, starts its download using
+`browser_download_url`, and provides a direct retry link plus a GitHub community card.
 Other platforms (including iPads using desktop browsing mode) show “View GitHub
 Releases” instead and do not request macOS installers.
 The navigation, hero, and final download buttons download the Apple silicon
@@ -61,7 +63,8 @@ No token, manually updated URL, or website redeploy is needed for new releases.
 
 The distribution configuration names DMGs `Consola-${version}-${arch}.dmg`
 (`arm64` and `x64`). Keep those names in sync with asset selection in
-`src/app.js`. ZIPs and update metadata are reserved for the desktop updater.
+`src/app.js`. The download page is a separate Vite HTML entry at
+`download/index.html`. ZIPs and update metadata are reserved for the desktop updater.
 
 Use the [desktop release workflow](../../.github/workflows/release.yml) to build
 and publish signed installers. The release workflow creates a **draft**;
