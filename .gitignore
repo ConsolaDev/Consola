@@ -22,3 +22,7 @@ release/
 
 # Turborepo task cache
 .turbo/
+
+# Private local research and planning
+/docs/
+/doc/
