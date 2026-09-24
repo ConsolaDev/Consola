@@ -1,4 +1,5 @@
 import { execFileSync } from 'child_process';
+import * as childProcess from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -9,6 +10,10 @@ import type { Scope, Workspace } from '../shared/workspace';
 import { getProviderDriver, type GitProviderDriver } from './providers';
 import { createStubDriver } from './providers/stubDriver.test-helpers';
 import { WorktreeService, worktreeDirName } from './WorktreeService';
+
+vi.mock('child_process', async (importOriginal) => ({
+  ...await importOriginal<typeof import('child_process')>(),
+}));
 
 const STUB_GH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
 
@@ -98,6 +103,23 @@ describe('WorktreeService.resolveRepo', () => {
     const service = new WorktreeService(tmpDir('consola-wt-root-'));
     const workspace = makeWorkspace([makeScope(repoScope, true)]);
     expect(service.resolveRepo(workspace, 'sympower/controller-app')).toBe(repoScope);
+  });
+
+  it('recognizes a scope whose origin uses a configured GitHub SSH alias', () => {
+    const dir = tmpDir('consola-wt-ssh-alias-');
+    initRepo(dir, 'git@github.com-personal:ConsolaDev/Consola.git');
+    const run = childProcess.execFileSync;
+    const spy = vi.spyOn(childProcess, 'execFileSync').mockImplementation((...args) => {
+      if (args[0] === 'ssh') return 'hostname github.com\n';
+      return run(...args);
+    });
+    try {
+      const service = new WorktreeService(tmpDir('consola-wt-root-'));
+      expect(service.resolveRepo(makeWorkspace([makeScope(dir, true)]), 'ConsolaDev/Consola')).toBe(dir);
+      expect(spy).toHaveBeenCalledWith('ssh', ['-G', 'github.com-personal'], expect.any(Object));
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   it('scans a container scope one level deep', () => {
