@@ -2,6 +2,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { SidebarToggle } from '../Sidebar/SidebarToggle';
 import { WorkspaceMenu } from './WorkspaceMenu';
 import { NewMenu } from './NewMenu';
+import { AppUpdateNotice } from '../AppUpdates';
 
 export function AppHeader() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -14,6 +15,7 @@ export function AppHeader() {
       </div>
       <div className={`app-header-content ${isSidebarHidden ? 'sidebar-hidden' : ''}`}>
         {isSidebarHidden && <><WorkspaceMenu /><NewMenu /></>}
+        <AppUpdateNotice />
       </div>
     </header>
   );
