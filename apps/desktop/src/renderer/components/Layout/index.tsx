@@ -1,4 +1,6 @@
-import { openNewSessionComposer } from '../../utils/sessionActions';
+import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
+import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
+import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
 import { AppUpdateNotice } from '../AppUpdates';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
@@ -29,14 +31,17 @@ export function Layout() {
   const layoutRef = useRef<HTMLDivElement>(null);
 
   const handleNewSession = () => {
-    // Only enter new session view if a workspace is selected
     if (activeWorkspaceId) {
-      void openNewSessionComposer(activeWorkspaceId);
+      if (!useNewSessionDialogStore.getState().destination) void createQuickSession(activeWorkspaceId);
     }
   };
 
   useKeyboardShortcuts({
     onNewSession: handleNewSession,
+    onNewSessionWithOptions: () => {
+      if (useNewSessionDialogStore.getState().destination) return;
+      if (activeWorkspaceId) openNewSessionDialog(activeWorkspaceId);
+    },
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,
     onOpenScopedPalette: openPalette,
@@ -66,6 +71,7 @@ export function Layout() {
 
   return (
     <div ref={layoutRef} className="layout" style={layoutStyle}>
+      <NewSessionDialog />
       <AppHeader />
       <AppUpdateNotice />
       <div className="layout-body">

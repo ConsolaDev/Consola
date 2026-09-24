@@ -12,7 +12,7 @@ export interface LaunchOptions {
 
 /** The chord for a new window, matching useKeyboardShortcuts on this platform. */
 export function newWindowChord(): string {
-  return process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN';
+  return process.platform === 'darwin' ? 'Meta+Alt+KeyN' : 'Control+Alt+KeyN';
 }
 
 /** The chord for the global Settings modal, matching useKeyboardShortcuts on this platform. */

@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { Home, Inbox, Plus, Settings } from 'lucide-react';
+import { Home, Inbox, MoreVertical, Plus, Settings } from 'lucide-react';
+import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -15,7 +16,7 @@ import { ScopeSelector } from './ScopeSelector';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { WorkspaceMenu } from '../Layout/WorkspaceMenu';
 import { NewMenu } from '../Layout/NewMenu';
-import { activateSession, moveSessionToGroup, openNewSessionComposer } from '../../utils/sessionActions';
+import { activateSession, moveSessionToGroup, createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { droppedSessionId, isSessionFromScope, leftDropTarget } from './sessionDrag';
 import './styles.css';
 
@@ -57,7 +58,7 @@ export function Sidebar() {
   const sessions = allSessions.filter(session => session.scopeId === scope?.id);
   const ungrouped = sessions.filter(session => !session.groupId || !liveGroupIds.has(session.groupId));
   const startSession = (groupId?: string) => {
-    if (workspace) void openNewSessionComposer(workspace.id, { scopeId: scope?.id, groupId });
+    if (workspace) void createQuickSession(workspace.id, { scopeId: scope?.id, groupId });
   };
   const renderSession = (session: typeof allSessions[number], showScope = false) => <SessionNavItem
     key={session.id} session={session} workspaceId={workspace!.id}
@@ -89,7 +90,8 @@ export function Sidebar() {
               <nav className="session-list" aria-label="Session groups">
                 {groups.map(group => <GroupNavItem key={group.id} group={group} sessions={sessions.filter(session => session.groupId === group.id)}
                   workspaceId={workspace.id} scopeFor={id => workspace.scopes.find(candidate => candidate.id === id)} activeSessionId={isInboxOpen ? null : activeSessionId}
-                  onNewSession={() => startSession(group.id)} />)}
+                  onNewSession={() => startSession(group.id)}
+                  onNewSessionWithOptions={() => openNewSessionDialog(workspace.id, { scopeId: scope?.id, groupId: group.id })} />)}
                 {!groups.length && <p className="sidebar-empty">Organize your sessions into groups.</p>}
               </nav>
             </div>
@@ -98,7 +100,17 @@ export function Sidebar() {
                 onDragOver={event => { if (!scope || !isSessionFromScope(event, scope.id)) return; event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setIsDropTarget(true); }}
                 onDragLeave={event => { if (leftDropTarget(event)) setIsDropTarget(false); }}
                 onDrop={event => { event.preventDefault(); setIsDropTarget(false); const id = droppedSessionId(event); if (id) void moveSessionToGroup(workspace.id, id, undefined); }}>
-                <span className="sidebar-section-title">Ungrouped</span><button className="sidebar-section-button" aria-label="New ungrouped session" disabled={!scope} onClick={() => startSession()}><Plus size={14} /></button>
+                <span className="sidebar-section-title">Ungrouped</span>
+                <DropdownMenu.Root>
+                  <DropdownMenu.Trigger asChild><button className="sidebar-section-button" aria-label="Ungrouped actions"><MoreVertical size={14} /></button></DropdownMenu.Trigger>
+                  <DropdownMenu.Portal>
+                    <DropdownMenu.Content className="dropdown-content" align="end" sideOffset={4} onCloseAutoFocus={event => event.preventDefault()}>
+                      <DropdownMenu.Item className="dropdown-item" disabled={!scope} onSelect={() => startSession()}>New session</DropdownMenu.Item>
+                      <DropdownMenu.Item className="dropdown-item" onSelect={() => openNewSessionDialog(workspace.id, { scopeId: scope?.id })}>New session with options…</DropdownMenu.Item>
+                    </DropdownMenu.Content>
+                  </DropdownMenu.Portal>
+                </DropdownMenu.Root>
+                <button className="sidebar-section-button" aria-label="New ungrouped session" disabled={!scope} onClick={() => startSession()}><Plus size={14} /></button>
               </div>
               <nav className="session-list" aria-label="Ungrouped sessions">{ungrouped.map(session => renderSession(session))}</nav>
               {!ungrouped.length && <p className="sidebar-empty">{scope ? 'No ungrouped sessions in this scope.' : 'Add a scope to start a session.'}</p>}

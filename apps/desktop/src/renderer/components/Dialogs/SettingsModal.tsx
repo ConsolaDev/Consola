@@ -189,6 +189,8 @@ function ShortcutsSection() {
   const shortcuts = [
     { label: 'Command palette', key: COMMAND_PALETTE_SHORTCUT_LABEL },
     { label: 'New session', key: `${mod}N` },
+    { label: 'New session with options', key: isMac ? '⇧⌘N' : 'Ctrl+Shift+N' },
+    { label: 'New window', key: isMac ? '⌥⌘N' : 'Ctrl+Alt+N' },
     { label: 'Switch workspace by position', key: `${mod}1–9` },
     { label: 'Toggle sidebar', key: `${mod}\\` },
     { label: 'Toggle file explorer', key: `${mod}${shift}E` },

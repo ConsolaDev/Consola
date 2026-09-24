@@ -6,7 +6,9 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
-import { generateSessionInstanceId, primaryScope } from '../../shared/workspace';
+import { generateSessionInstanceId } from '../../shared/workspace';
+import type { SessionCheckout } from '../../shared/sessionCheckout';
+import { useNewSessionDialogStore, type NewSessionDestination } from '../stores/newSessionDialogStore';
 
 export { generateSessionInstanceId };
 
@@ -71,76 +73,74 @@ export async function activateSessionAnywhere(
   }
 }
 
-/**
- * Create a session in a scope with the workspace's default harness, and open it.
- *
- * The quick path used by the sidebar's `+`. With no scope named it lands in
- * the primary scope — which is exactly where every session landed before
- * scopes existed. Choosing a harness or starting with a prompt happens on the
- * new-session screen instead.
- */
-export async function createQuickSession(
+/** Resolve the selected scope without changing the current view or filters. */
+function sessionDestination(workspaceId: string, destination: NewSessionDestination) {
+  const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
+  if (!workspace) return destination;
+  const navigation = useNavigationStore.getState();
+  const scope = homeScope(workspace, destination.scopeId ?? useHomeStore.getState().scopeIds[workspaceId],
+    navigation.activeWorkspaceId === workspaceId ? navigation.activeSessionId : null);
+  return { ...destination, scopeId: scope?.id };
+}
+
+/** Open options without creating a session or replacing the view underneath. */
+export function openNewSessionDialog(workspaceId: string, destination: NewSessionDestination = {}): void {
+  useNewSessionDialogStore.getState().open(workspaceId, sessionDestination(workspaceId, destination));
+}
+
+/** Shared creation path for default sessions and the options dialog. */
+export async function createSessionAndOpen(
   workspaceId: string,
-  scopeId?: string
+  options: NewSessionDestination & { harnessId?: string; model?: string; checkout?: SessionCheckout } = {}
 ): Promise<Session | undefined> {
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
-  if (!workspace) return undefined;
+  if (!workspace) throw new Error('This workspace is no longer available.');
+  const { scopeId, groupId } = sessionDestination(workspaceId, options);
+  if (!scopeId) throw new Error('Add a scope to this workspace to start a session.');
 
-  const scope =
-    (scopeId
-      ? workspace.scopes.find((candidate) => candidate.id === scopeId)
-      : undefined) ?? primaryScope(workspace);
-  if (!scope) return undefined;
-
+  if (useNavigationStore.getState().activeWorkspaceId !== workspaceId) {
+    const result = await windowBridge.activateWorkspace(workspaceId);
+    if (result.verdict !== 'took') return undefined;
+    useNavigationStore.setState({ activeWorkspaceId: workspaceId, ...result.view });
+  }
   const session = await useWorkspaceStore.getState().createSession(workspaceId, {
     name: 'New Session',
     workspaceId,
     instanceId: generateSessionInstanceId(workspaceId),
-    harnessId: workspace.defaultHarnessId,
-    scopeId: scope.id,
-  });
-
-  if (session) {
+    harnessId: options.harnessId ?? workspace.defaultHarnessId,
+    model: options.model,
+    scopeId,
+    groupId,
+  }, options.checkout);
+  if (!session) throw new Error('The session could not be created. Please try again.');
+  // A slow worktree creation must not pull the user back from another workspace.
+  if (useNavigationStore.getState().activeWorkspaceId === workspaceId) {
     activateSession(workspaceId, session.id);
   }
   return session;
 }
 
-/**
- * Open the new-session composer for a workspace.
- *
- * No session exists until a prompt is submitted, so backing out of the
- * composer leaves nothing behind — which is why the palette starts sessions
- * this way rather than by creating one up front.
- *
- * Deliberately not `setActiveWorkspace`, which restores whatever the target
- * workspace was last showing: asking for a new session and being handed an
- * existing one is the opposite of what was asked. The composer is written
- * through as the workspace's view for the same reason it is anywhere else —
- * choosing it is a state worth coming back to.
- */
-export async function openNewSessionComposer(
-  workspaceId: string,
-  destination: { scopeId?: string; groupId?: string } = {}
-): Promise<void> {
-  const result = await windowBridge.activateWorkspace(workspaceId);
-  if (result.verdict !== 'took') return;
+const pendingQuickSessions = new Set<string>();
 
-  const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
-  if (workspace) {
-    const home = useHomeStore.getState();
-    const navigation = useNavigationStore.getState();
-    const scope = homeScope(workspace, destination.scopeId ?? home.scopeIds[workspaceId],
-      navigation.activeWorkspaceId === workspaceId ? navigation.activeSessionId : null);
-    if (scope) home.selectScope(workspaceId, scope.id);
-    home.setDraftGroup(workspaceId, destination.groupId);
+/** Start immediately with defaults; failed launches can be corrected in options. */
+export async function createQuickSession(
+  workspaceId: string,
+  destination: NewSessionDestination = {}
+): Promise<Session | undefined> {
+  if (pendingQuickSessions.has(workspaceId)) return undefined;
+  pendingQuickSessions.add(workspaceId);
+  const resolved = sessionDestination(workspaceId, destination);
+  try {
+    return await createSessionAndOpen(workspaceId, resolved);
+  } catch (reason) {
+    if (useNavigationStore.getState().activeWorkspaceId === workspaceId) {
+      useNewSessionDialogStore.getState().open(workspaceId, resolved,
+        reason instanceof Error ? reason.message : String(reason));
+    }
+    return undefined;
+  } finally {
+    pendingQuickSessions.delete(workspaceId);
   }
-  useNavigationStore.setState({
-    activeWorkspaceId: workspaceId,
-    activeSessionId: null,
-    isInboxOpen: false,
-  });
-  windowBridge.setView(workspaceId, { activeSessionId: null, isInboxOpen: false });
 }
 
 /**

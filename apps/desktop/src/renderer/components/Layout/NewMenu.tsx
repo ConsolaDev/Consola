@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { Plus } from 'lucide-react';
+import { ChevronDown, Plus } from 'lucide-react';
+import { isMac } from '../../utils/platform';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { openNewSessionComposer } from '../../utils/sessionActions';
+import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { FanOutDialog } from '../Dialogs/FanOutDialog';
 import { OrchestrationDialog } from '../Dialogs/OrchestrationDialog';
@@ -28,63 +29,70 @@ export function NewMenu() {
 
   return (
     <>
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger asChild>
-          <button className="new-menu-trigger" aria-label="New">
-            <Plus size={14} />
-          </button>
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Portal>
-          <DropdownMenu.Content
-            className="dropdown-content"
-            sideOffset={6}
-            align="start"
-            onCloseAutoFocus={(event) => event.preventDefault()}
-          >
-            <DropdownMenu.Item
-              className="dropdown-item"
-              onSelect={() => void openNewSessionComposer(activeWorkspaceId)}
+      <div className="new-menu-buttons">
+        <button className="new-menu-trigger" aria-label="New session" title="New session" onClick={() => void createQuickSession(activeWorkspaceId)}><Plus size={14} /></button>
+        <DropdownMenu.Root>
+          <DropdownMenu.Trigger asChild>
+            <button className="new-menu-trigger" aria-label="New">
+              <ChevronDown size={12} />
+            </button>
+          </DropdownMenu.Trigger>
+          <DropdownMenu.Portal>
+            <DropdownMenu.Content
+              className="dropdown-content"
+              sideOffset={6}
+              align="start"
+              onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              <span>New session…</span>
-              <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>⌘N</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('group')}>
-              <span>New group</span>
-            </DropdownMenu.Item>
-            <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('fan-out')}>
-              <span>Fan-out…</span>
-            </DropdownMenu.Item>
-            {scopeCount === 0 ? (
-              <Tooltip.Provider delayDuration={200}>
-                <Tooltip.Root>
-                  {/* Radix disables pointer events on a disabled item, so the
-                      tooltip trigger is a wrapper that still receives hover. */}
-                  <Tooltip.Trigger asChild>
-                    <span style={{ display: 'block' }}>
-                      <DropdownMenu.Item className="dropdown-item" disabled>
-                        <span>Orchestration…</span>
-                      </DropdownMenu.Item>
-                    </span>
-                  </Tooltip.Trigger>
-                  <Tooltip.Portal>
-                    <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
-                      Add a scope first — the conductor needs somewhere to live
-                      <Tooltip.Arrow className="tooltip-arrow" />
-                    </Tooltip.Content>
-                  </Tooltip.Portal>
-                </Tooltip.Root>
-              </Tooltip.Provider>
-            ) : (
               <DropdownMenu.Item
                 className="dropdown-item"
-                onSelect={() => setOpenDialog('orchestration')}
+                onSelect={() => void createQuickSession(activeWorkspaceId)}
               >
-                <span>Orchestration…</span>
+                <span>New session</span>
+                <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>{isMac ? '⌘N' : 'Ctrl+N'}</span>
               </DropdownMenu.Item>
-            )}
-          </DropdownMenu.Content>
-        </DropdownMenu.Portal>
-      </DropdownMenu.Root>
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => openNewSessionDialog(activeWorkspaceId)}>
+                <span>New session with options…</span>
+                <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>{isMac ? '⇧⌘N' : 'Ctrl+Shift+N'}</span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('group')}>
+                <span>New group</span>
+              </DropdownMenu.Item>
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('fan-out')}>
+                <span>Fan-out…</span>
+              </DropdownMenu.Item>
+              {scopeCount === 0 ? (
+                <Tooltip.Provider delayDuration={200}>
+                  <Tooltip.Root>
+                    {/* Radix disables pointer events on a disabled item, so the
+                        tooltip trigger is a wrapper that still receives hover. */}
+                    <Tooltip.Trigger asChild>
+                      <span style={{ display: 'block' }}>
+                        <DropdownMenu.Item className="dropdown-item" disabled>
+                          <span>Orchestration…</span>
+                        </DropdownMenu.Item>
+                      </span>
+                    </Tooltip.Trigger>
+                    <Tooltip.Portal>
+                      <Tooltip.Content className="tooltip-content" side="right" sideOffset={8}>
+                        Add a scope first — the conductor needs somewhere to live
+                        <Tooltip.Arrow className="tooltip-arrow" />
+                      </Tooltip.Content>
+                    </Tooltip.Portal>
+                  </Tooltip.Root>
+                </Tooltip.Provider>
+              ) : (
+                <DropdownMenu.Item
+                  className="dropdown-item"
+                  onSelect={() => setOpenDialog('orchestration')}
+                >
+                  <span>Orchestration…</span>
+                </DropdownMenu.Item>
+              )}
+            </DropdownMenu.Content>
+          </DropdownMenu.Portal>
+        </DropdownMenu.Root>
+      </div>
 
       {openDialog === 'group' && (
         <NewGroupDialog workspaceId={activeWorkspaceId} onClose={() => setOpenDialog(null)} />

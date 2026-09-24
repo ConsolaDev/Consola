@@ -298,21 +298,25 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
   });
 
-  test('group and ungrouped creation share the selected scope without creating a session early', async () => {
+  test('group and ungrouped options share the selected scope without creating a session early', async () => {
     await chooseScope(page, 'shared-lib');
     await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'New session in Fan out', exact: true }).click();
-    await expect(page.locator('.new-session-view .scope-selector')).toContainText('shared-lib');
-    await expect(page.getByRole('button', { name: 'Choose group' })).toContainText('Fan out');
+    await page.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
+    await expect(page.getByLabel('Group', { exact: true }).locator('.session-option-name')).toHaveText('Fan out');
     const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
     expect(await count()).toBe(4);
-    await page.getByRole('button', { name: 'New ungrouped session' }).click();
-    await expect(page.getByRole('button', { name: 'Choose group' })).toContainText('Ungrouped');
-    await expect(page.locator('.new-session-view .scope-selector')).toContainText('shared-lib');
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Ungrouped actions' }).click();
+    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await expect(page.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
+    await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
     expect(await count()).toBe(4);
-    await page.getByRole('combobox', { name: 'Message' }).fill('Keep this draft when switching scopes');
-    await chooseScope(page, 'controller-app');
-    await expect(page.getByRole('combobox', { name: 'Message' })).toHaveValue('Keep this draft when switching scopes');
+    await page.getByLabel('Scope', { exact: true }).click();
+    await page.getByRole('option', { name: 'controller-app', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(page.locator('.sidebar .scope-selector')).toContainText('shared-lib');
     await expect(page.locator('.dropdown-content')).toHaveCount(0);
     await page.mouse.move(500, 100);
     await page.emulateMedia({ colorScheme: 'light' });

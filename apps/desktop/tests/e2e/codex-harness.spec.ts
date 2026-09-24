@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { createProfileDir, launchElectron, settingsChord } from './helpers/electron';
 
-test('adds a Codex harness in settings, launches a prompt, and resumes after an app restart', async () => {
+test('adds a Codex harness in settings, launches a configured session, and resumes after an app restart', async () => {
   test.setTimeout(90_000);
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-codex-e2e-'));
   const codexHome = path.join(root, 'profile');
@@ -42,19 +42,18 @@ test('adds a Codex harness in settings, launches a prompt, and resumes after an 
 
     await page.evaluate(folder => window.workspaceAPI.createWorkspace('Codex workspace', folder, false, 'codex-test'), root);
     await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Codex workspace/ }).click();
-    await expect(page.getByRole('button', { name: 'Choose agent', exact: true })).toHaveText('Codex test');
-    await expect(page.getByRole('button', { name: 'Choose model' })).toBeEnabled();
-    await page.getByRole('button', { name: 'Choose model' }).click();
-    await page.getByRole('menuitem', { name: 'fixture-model-b', exact: true }).click();
-    const composer = page.locator('.new-session-view textarea');
-    await composer.fill('Explain the project');
-    await composer.press('Enter');
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
+    await expect(page.getByLabel('Agent', { exact: true })).toContainText('Codex test');
+    await expect(page.getByLabel('Model', { exact: true })).toBeEnabled();
+    await page.getByLabel('Model', { exact: true }).click();
+    await page.getByRole('option', { name: 'fixture-model-b', exact: true }).click();
+    await page.getByRole('button', { name: 'Create session' }).click();
     await expect.poll(() => launches().length).toBe(1);
     const first = launches()[0];
     expect(first.args[0]).toBe('resume');
     expect(first.args).toContain('--model');
     expect(first.args[first.args.indexOf('--model') + 1]).toBe('fixture-model-b');
-    expect(first.args.slice(-2)).toEqual(['--', 'Explain the project']);
+    expect(first.args).not.toContain('--');
     expect(first.home).toBe(codexHome);
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 
