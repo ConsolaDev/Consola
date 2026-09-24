@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Home, Inbox, MoreVertical, Plus, Settings } from 'lucide-react';
+import { Home, Inbox, MoreVertical, Plus } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -8,7 +8,6 @@ import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { itemsForView } from '../../../shared/inboxViews';
-import { useSettings } from '../../contexts/SettingsContext';
 import { SessionNavItem } from './SessionNavItem';
 import { NavigationSettings } from './NavigationSettings';
 import { GroupNavItem } from './GroupNavItem';
@@ -29,7 +28,6 @@ export function Sidebar() {
   const workspace = workspaces.find(candidate => candidate.id === activeWorkspaceId);
   const selectedScopeId = useHomeStore(state => state.scopeIds[activeWorkspaceId ?? '']);
   const tab = useHomeStore(state => state.tabs[activeWorkspaceId ?? ''] ?? 'home');
-  const { openSettings } = useSettings();
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [isDropTarget, setIsDropTarget] = useState(false);
   const inboxCount = useInboxStore(state => workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0);
@@ -81,16 +79,15 @@ export function Sidebar() {
     subtitle={showScope ? workspace?.scopes.find(candidate => candidate.id === session.scopeId)?.name ?? 'Unavailable scope' : undefined}
   />;
 
-  return <>
-    <nav className="app-navigation" aria-label="Main navigation">
-      <button className={`app-navigation-item ${!isInboxOpen ? 'active' : ''}`} aria-current={!isInboxOpen ? 'page' : undefined}
-        onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span>Home</span></button>
-      {workspace?.provider && <button className={`app-navigation-item ${isInboxOpen ? 'active' : ''}`} aria-current={isInboxOpen ? 'page' : undefined}
-        onClick={() => useNavigationStore.getState().openInbox()}><Inbox size={18} /><span>Inbox</span>{inboxCount > 0 && <span className="app-navigation-badge">{inboxCount}</span>}</button>}
-      <button className="app-navigation-item app-navigation-settings" onClick={openSettings} aria-label="Settings"><Settings size={18} /></button>
-    </nav>
+  return (
     <aside className="sidebar" aria-label="Home sidebar">
       <div className="sidebar-workspace"><WorkspaceMenu /><NavigationSettings /><NewMenu /></div>
+      <nav className="app-navigation" aria-label="Main navigation">
+        <button className={`app-navigation-item ${!isInboxOpen ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={!isInboxOpen ? 'page' : undefined}
+          onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span className="app-navigation-label">Home</span></button>
+        {workspace?.provider && <button className={`app-navigation-item ${isInboxOpen ? 'active' : ''}`} aria-label="Inbox" title="Inbox" aria-current={isInboxOpen ? 'page' : undefined}
+          onClick={() => useNavigationStore.getState().openInbox()}><Inbox size={18} /><span className="app-navigation-label">Inbox</span>{inboxCount > 0 && <span className="app-navigation-badge">{inboxCount}</span>}</button>}
+      </nav>
       {workspace && <>
         <Tabs.Root className="home-navigation" value={tab} onValueChange={value => useHomeStore.getState().selectTab(workspace.id, value as 'home' | 'all')}>
           <Tabs.List className="home-tabs" aria-label="Session views">
@@ -141,5 +138,5 @@ export function Sidebar() {
         {isCreatingGroup && <NewGroupDialog key={workspace.id} workspaceId={workspace.id} onClose={() => setIsCreatingGroup(false)} />}
       </>}
     </aside>
-  </>;
+  );
 }

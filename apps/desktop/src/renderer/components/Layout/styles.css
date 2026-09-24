@@ -31,8 +31,8 @@
   display: flex;
   align-items: center;
   justify-content: flex-start;
-  width: calc(var(--sidebar-width) + 56px + var(--workspace-rail-width));
-  min-width: calc(var(--sidebar-width) + 56px + var(--workspace-rail-width));
+  width: calc(var(--sidebar-width) + var(--workspace-rail-width));
+  min-width: calc(var(--sidebar-width) + var(--workspace-rail-width));
   padding: var(--space-2) var(--space-3);
   padding-left: 72px; /* Always position right next to macOS traffic light buttons */
 }
@@ -90,7 +90,7 @@
   pointer-events: auto;
 }
 
-/* Workspace icons occupy their own rail, beside the Home / Inbox navigation. */
+/* Workspace icons occupy their own rail, beside the sidebar. */
 .workspace-rail {
   display: flex;
   flex: 0 0 var(--workspace-rail-width);
@@ -98,14 +98,26 @@
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-3) var(--space-1);
-  overflow-y: auto;
-  scrollbar-width: none;
+  overflow: hidden;
   border-right: 1px solid var(--color-border);
   background: var(--color-bg-primary);
 }
 
+.workspace-rail-list {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  width: calc(100% + 2 * var(--space-1));
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  overflow-y: auto;
+  scrollbar-width: none;
+}
+
 .workspace-rail-item,
-.workspace-rail-add {
+.workspace-rail-add,
+.workspace-rail-settings {
   position: relative;
   display: flex;
   align-items: center;
@@ -121,8 +133,11 @@
   cursor: pointer;
 }
 
+.workspace-rail-settings { color: var(--color-text-primary); }
+
 .workspace-rail-item:hover { color: var(--color-text-primary); }
-.workspace-rail-add:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.workspace-rail-add:hover,
+.workspace-rail-settings:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .workspace-rail-item[aria-current='true']::before {
   content: '';
   position: absolute;
@@ -134,7 +149,8 @@
   background: var(--color-text-primary);
 }
 .workspace-rail-item:focus-visible,
-.workspace-rail-add:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.workspace-rail-add:focus-visible,
+.workspace-rail-settings:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .workspace-rail-add { background: transparent; }
 .workspace-rail-item[data-sortable] { cursor: grab; touch-action: pan-y; user-select: none; }
 .workspace-rail[data-reordering],
@@ -250,11 +266,11 @@
 .workspace-menu-placeholder { padding: 0 var(--space-2); color: var(--color-text-tertiary); font-size: 13px; }
 
 .workspace-menu-content {
-  width: 320px;
+  width: 264px;
   max-width: calc(100vw - 16px);
   max-height: var(--radix-dropdown-menu-content-available-height);
   overflow-y: auto;
-  padding: var(--space-2) 0;
+  padding: var(--space-1);
   border-radius: 8px;
 }
 
@@ -262,7 +278,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-3) var(--space-5);
+  padding: var(--space-2);
 }
 
 .workspace-menu-avatar {
@@ -270,8 +286,8 @@
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  width: 48px;
-  height: 48px;
+  width: 34px;
+  height: 34px;
   border: 1px solid var(--color-border);
   border-radius: 10px;
   background: var(--color-bg-primary);
@@ -279,14 +295,29 @@
 }
 
 .workspace-menu-details { display: flex; flex-direction: column; gap: var(--space-1); min-width: 0; }
-.workspace-menu-title { color: var(--color-text-primary); font-size: 16px; font-weight: 600; overflow-wrap: anywhere; }
+.workspace-menu-title { color: var(--color-text-primary); font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
 .workspace-menu-summary { color: var(--color-text-secondary); font-size: var(--font-size-sm); }
-.workspace-menu-content .dropdown-separator { margin: var(--space-2) 0; }
-.workspace-menu-content .dropdown-item { min-height: 36px; padding: var(--space-2) var(--space-5); border-radius: 0; color: var(--color-text-primary); }
+.workspace-menu-content .dropdown-separator { margin: var(--space-1) var(--space-2); }
+.workspace-menu-content .dropdown-item,
+.workspace-tools-content .dropdown-item {
+  min-height: 30px;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-primary);
+}
+
+/* Radix moves focus between rows; an inset highlight keeps it visible
+   without the global focus outline being clipped by the menu edges. */
+.workspace-menu-content .dropdown-item:focus-visible,
+.workspace-tools-content .dropdown-item:focus-visible { outline: none; }
+.workspace-menu-content .dropdown-item[data-highlighted],
+.workspace-tools-content .dropdown-item[data-highlighted] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
 .workspace-menu-tools { justify-content: space-between; }
 .workspace-menu-tools[data-state='open'] { background: var(--color-bg-hover); }
 .workspace-tools-content { min-width: 200px; }
-.workspace-tools-content .dropdown-item[data-highlighted] { background: var(--color-bg-hover); color: var(--color-text-primary); }
 
 .app-header-content > .workspace-menu-trigger { max-width: 240px; margin-left: var(--space-2); }
 

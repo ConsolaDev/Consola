@@ -276,7 +276,9 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     const railBox = (await rail.boundingBox())!;
     const homeBox = (await home.boundingBox())!;
     expect(railBox.x + railBox.width).toBeLessThanOrEqual(homeBox.x);
-    expect(railBox.y).toBe(homeBox.y);
+    const workspaceHeaderBox = (await page.locator('.sidebar-workspace').boundingBox())!;
+    expect(homeBox.y).toBeGreaterThanOrEqual(workspaceHeaderBox.y + workspaceHeaderBox.height);
+    await expect(page.locator('.sidebar').getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
     await expect(home.locator('[data-workspace-icon]')).toHaveCount(0);
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
     const modifierLabel = process.platform === 'darwin' ? '⌘' : 'Ctrl';
@@ -295,7 +297,7 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await rail.getByRole('button', { name: 'Add workspace', exact: true }).click();
     const added = rail.getByRole('button', { name: addedName, exact: true });
     await expect(added).toHaveAttribute('aria-current', 'true');
-    await expect(rail.getByRole('button')).toHaveCount(3);
+    await expect(rail.getByRole('button')).toHaveCount(4);
     await expect(added).toHaveAttribute('aria-keyshortcuts', `${modifier}+2`);
     await added.hover();
     await expect(page.getByRole('tooltip')).toContainText(addedName);
@@ -308,11 +310,10 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await expect(page.locator('.workspace-menu-title')).toHaveText(addedName);
     await page.keyboard.press('Escape');
 
-    // Switch while the composer has focus, without inserting shortcut text.
-    const composer = page.getByRole('combobox', { name: 'Message' });
-    await composer.fill('Keep this draft');
+    // Workspace shortcuts also work while a sidebar control has focus.
+    await page.getByRole('button', { name: `${addedName} workspace menu`, exact: true }).focus();
     await page.keyboard.press(`${modifier}+Digit2`);
-    await expect(composer).toHaveValue('Keep this draft');
+    await expect(added).toHaveAttribute('aria-current', 'true');
     await page.keyboard.press(`${modifier}+Digit1`);
     await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
     await expect(added).not.toHaveAttribute('aria-current', 'true');
@@ -343,6 +344,7 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await page.locator('.sidebar-toggle').click();
     await expect(page.locator('.sidebar')).toHaveCount(0);
     await expect(rail).toBeVisible();
+    await expect(rail.getByRole('button', { name: 'Settings', exact: true })).toBeVisible();
     await menuButton.click();
     await page.getByRole('menuitem', { name: 'Manage scopes…', exact: true }).click();
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Scopes');
@@ -416,11 +418,11 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
   }
 });
 
-test('the sidebar gear opens the global modal; the workspace modal commits a rename, shows the Actions panel, and Cancel on delete leaves Danger zone active', async () => {
+test('the workspace rail gear opens the global modal; the workspace modal commits a rename, shows the Actions panel, and Cancel on delete leaves Danger zone active', async () => {
   test.setTimeout(60_000);
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
-    // The sidebar footer gear is the other door into Settings, and it opens
+    // The workspace rail footer gear is the other door into Settings, and it opens
     // the global modal (not a workspace one), landing on Appearance.
     await page.getByRole('button', { name: /^Settings/ }).click();
     const global = page.getByRole('dialog', { name: 'Settings', exact: true });

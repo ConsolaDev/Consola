@@ -482,6 +482,7 @@ export type ActivateWorkspaceResult =
  * verdict rather than just applying the request.
  */
 export interface WindowAPI {
+    onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;

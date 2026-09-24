@@ -1,4 +1,5 @@
-import { BrowserWindow, app } from 'electron';
+import { BrowserWindow, Menu, MenuItem, app } from 'electron';
+import { IPC_CHANNELS } from '../shared/constants';
 import { setupAppUpdates } from './appUpdates';
 import { isBackgroundTest } from './test-mode';
 import {
@@ -71,11 +72,47 @@ app.whenReady().then(() => {
     // rest of this synchronous tick, so without this guard a window would still
     // open on top of an app that's already tearing itself down.
     if (!setupIpcHandlers()) return;
-    cleanupAppUpdates = setupAppUpdates();
+    const appUpdates = setupAppUpdates();
+    cleanupAppUpdates = appUpdates.dispose;
     // getKnownWorkspaceIds() has to run after setupIpcHandlers() returned true:
     // that's the call that loads workspaceService, and before it every saved
     // workspace id would look dead and every window would fall back to Home.
     restoreWindowLayout(getKnownWorkspaceIds(), viewMemoryPort());
+
+    if (process.platform === 'darwin') {
+        const menu = Menu.getApplicationMenu() ?? Menu.buildFromTemplate([
+            { role: 'appMenu' }, { role: 'fileMenu' }, { role: 'editMenu' },
+            { role: 'viewMenu' }, { role: 'windowMenu' },
+        ]);
+        const applicationMenu = menu.items[0]?.submenu;
+        if (applicationMenu) {
+            const showSettings = (section?: 'updates') => {
+                const existing = BrowserWindow.getFocusedWindow() ?? getAnyWindow();
+                const target = existing ?? createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
+                const openSettings = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, section);
+                if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', openSettings);
+                else openSettings();
+                if (target.isMinimized()) target.restore();
+                if (!isBackgroundTest) { target.show(); target.focus(); }
+            };
+            applicationMenu.insert(1, new MenuItem({
+                id: 'check-for-updates',
+                label: 'Check for Updates…',
+                click: () => {
+                    showSettings('updates');
+                    void appUpdates.check();
+                },
+            }));
+            applicationMenu.insert(3, new MenuItem({
+                id: 'application-settings',
+                label: 'Settings…',
+                accelerator: 'Command+,',
+                click: () => showSettings(),
+            }));
+            applicationMenu.insert(4, new MenuItem({ type: 'separator' }));
+            Menu.setApplicationMenu(menu);
+        }
+    }
 
     app.on('activate', () => {
         if (BrowserWindow.getAllWindows().length === 0) {

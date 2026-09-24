@@ -8,6 +8,10 @@ import type { ActivateWorkspaceResult, WindowContext, WorkspaceView } from '../.
  * took the workspace or another one already had it.
  */
 export const windowBridge = {
+    onOpenSettings(callback: (section?: 'updates') => void): () => void {
+        return window.windowAPI.onOpenSettings(callback);
+    },
+
     get context(): WindowContext {
         return window.windowAPI.context;
     },

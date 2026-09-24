@@ -58,7 +58,7 @@ test.describe('resizing', () => {
     await dragSidebarEdge(page, 80);
 
     expect(await sidebarWidth(page)).toBe(DEFAULT_WIDTH + 80);
-    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80 + 112);
+    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80 + 56);
   });
 
   test('the width stops at its bounds instead of hiding the sidebar', async () => {
