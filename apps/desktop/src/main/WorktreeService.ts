@@ -7,6 +7,7 @@ import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
 import { getProviderDriver, type GitProviderDriver } from './providers';
+import { resolveSshRemote } from './sshRemote';
 
 const execFileAsync = promisify(execFile);
 
@@ -23,14 +24,14 @@ export function worktreeDirName(workItem: WorkItemRef): string {
  * The mapping scans the workspace's scopes: a repo scope matches on its origin
  * remote; a container scope scans its direct children. Whether a remote URL
  * names a repo is the provider's call (host, casing), so matching goes
- * through the workspace's driver; the raw URL is what gets cached — per
+ * through the workspace's driver; the URL with SSH aliases resolved is cached — per
  * directory, invalidated when scopes change (wired to
  * WorkspaceService.onChange) — because a `git remote get-url` per directory
  * per scan would otherwise run on every Inbox paint, and a cached
  * provider-derived value would go stale if the binding changed.
  */
 export class WorktreeService {
-  /** Directory -> raw origin remote URL (or null for non-repos). */
+  /** Directory -> origin URL with SSH aliases resolved (or null for non-repos). */
   private readonly remoteCache = new Map<string, string | null>();
 
   constructor(
@@ -103,6 +104,7 @@ export class WorktreeService {
           encoding: 'utf8',
           stdio: ['ignore', 'pipe', 'pipe'],
         }).trim() || null;
+      if (origin) origin = resolveSshRemote(origin);
     } catch {
       origin = null; // Not a repo, or no origin — either way, not a match.
     }
