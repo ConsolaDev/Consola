@@ -1,5 +1,6 @@
 import { BrowserWindow, app } from 'electron';
 import { setupAppUpdates } from './appUpdates';
+import { isBackgroundTest } from './test-mode';
 import {
     contextToReopen,
     createWindow,
@@ -24,6 +25,12 @@ try {
 }
 
 app.setName('Consola');
+
+// Hiding the Dock after ready is too late to prevent launch activation.
+// Hidden renderers remain available to Playwright without activating macOS.
+if (isBackgroundTest && process.platform === 'darwin') {
+    app.setActivationPolicy('prohibited');
+}
 
 // Only the installed app gets the plain profile. Sharing userData with it would
 // share the persisted workspaces and session list, so a dev or test launch would
@@ -56,12 +63,6 @@ if (!app.requestSingleInstanceLock()) {
 let cleanupAppUpdates: (() => void) | undefined;
 
 app.whenReady().then(() => {
-    // The hidden test window still registers an app that bounces in the Dock and
-    // takes focus on launch. Tests need neither.
-    if (process.env.NODE_ENV === 'test') {
-        app.dock?.hide();
-    }
-
     // Handlers are registered once for the process, not once per window: they
     // are ipcMain-global, and a second registration throws.
     //

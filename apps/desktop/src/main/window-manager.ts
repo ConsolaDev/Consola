@@ -3,6 +3,7 @@ import * as path from 'path';
 import type { WindowContext, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
+import { isBackgroundTest } from './test-mode';
 
 /**
  * The open windows, and which workspace each one holds.
@@ -70,7 +71,9 @@ export function createWindow(
         // A test run launches the app once per test and retries failures, so a
         // visible window means a dozen of them stealing focus. The renderer still
         // runs and Playwright still drives it over CDP; it is simply never mapped.
-        show: !isTest,
+        show: !isBackgroundTest,
+        // Workspace activation and CDP input must not steal desktop focus.
+        focusable: !isBackgroundTest,
         webPreferences: {
             preload: path.join(__dirname, '../../../dist/preload/preload/preload.js'),
             nodeIntegration: false,
