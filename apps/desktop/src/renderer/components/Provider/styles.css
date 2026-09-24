@@ -1,4 +1,4 @@
-/* Provider binding panel (GitHub today), mounted inside the Workspace settings section —
+/* Provider binding panel (GitHub today), shared by Inbox and Workspace settings —
    panel chrome (.ws-panel-*) and the account picker rows (.ws-choice-*)
    come from WorkspaceSettings/styles.css. */
 
@@ -37,6 +37,83 @@
   color: var(--color-error);
 }
 
+.github-recheck-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.github-recheck-button:hover:not(:disabled) { background: var(--color-bg-hover); }
+.github-recheck-button:disabled { opacity: 0.5; cursor: default; }
+
+.github-setup-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  min-height: 320px;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+}
+
+.github-setup-spinner {
+  flex: none;
+  animation: github-setup-spin 1s linear infinite;
+}
+
+@keyframes github-setup-spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .github-setup-spinner { animation: none; }
+}
+
+.github-setup-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+  margin: 0;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+.github-setup-step { padding-left: var(--space-1); min-width: 0; }
+.github-setup-step > * + * { margin-top: var(--space-2); }
+.github-setup-step p { margin-bottom: 0; line-height: var(--line-height-normal); }
+.github-setup-step a { color: var(--color-accent); }
+.github-setup-step-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+.github-setup-step-title svg { color: var(--color-success); flex: none; }
+.github-setup-command {
+  display: block;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .github-empty-state {
   display: flex;
   flex-direction: column;
@@ -73,6 +150,8 @@
 }
 
 .github-org-field input {
+  width: 100%;
+  min-width: 0;
   padding: var(--space-2) var(--space-3);
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
@@ -94,7 +173,7 @@
 }
 
 /* The shared primary button has no disabled state, and its hover would light
-   up a dead "Bind account". Scoped here so other dialogs are untouched. */
+   up a disabled account action. Scoped here so other dialogs are untouched. */
 .github-section-actions .dialog-button-primary:disabled,
 .github-section-actions .dialog-button-primary:disabled:hover {
   background: var(--color-accent);

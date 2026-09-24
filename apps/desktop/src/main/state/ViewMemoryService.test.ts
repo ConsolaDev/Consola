@@ -103,14 +103,12 @@ describe('resolveRememberedView', () => {
     });
   });
 
-  it('closes the Inbox when the provider has since been unbound', () => {
-    // The sidebar only offers the Inbox to a bound workspace, so a remembered
-    // `true` can outlive the binding it was set under.
+  it('keeps integration onboarding open without a provider binding', () => {
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
     expect(resolveRememberedView({ activeSessionId: 's1', isInboxOpen: true }, workspace)).toEqual({
       activeSessionId: 's1',
-      isInboxOpen: false,
+      isInboxOpen: true,
     });
   });
 });

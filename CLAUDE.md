@@ -118,8 +118,8 @@ Three things are load-bearing:
   session, which is why navigation has its own small file that nobody
   subscribes to.
 - **Resolution happens on read**, in `resolveRememberedView` — a dangling
-  session id becomes `null`, and the Inbox closes for a workspace whose
-  provider was unbound. Because every read goes through it, nothing upstream
+  session id becomes `null`, while workspace destinations remain available.
+  Because every read goes through it, nothing upstream
   has to eagerly clean up after a delete. A dangling id never resolves to a
   *substitute* session: mounting one spawns a PTY the user never asked for.
 - **"No session" is a remembered state**, not an absence of one. Backing out to

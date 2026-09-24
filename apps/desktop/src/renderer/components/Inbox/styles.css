@@ -177,6 +177,53 @@
   font-size: 13px;
 }
 
+/* Inline integration setup reuses the workspace settings panel and controls. */
+.inbox-setup-main {
+  padding: clamp(24px, 6vh, 64px) var(--space-4) var(--space-4);
+}
+
+.inbox-setup-main > .inbox-setup {
+  width: 100%;
+  max-width: 600px;
+  margin-inline: auto;
+}
+
+.inbox-setup-main .ws-panel-title {
+  font-size: var(--font-size-lg);
+}
+
+.inbox-setup-main .github-section-description,
+.inbox-setup-main .github-section-footnote {
+  font-size: var(--font-size-sm);
+}
+
+.inbox-setup-main .github-setup-steps {
+  font-size: 13px;
+}
+
+.inbox-setup-main .github-setup-step-title {
+  font-size: 13px;
+}
+
+.inbox-setup {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  width: 100%;
+  max-width: 600px;
+}
+
+.inbox-setup-recovery {
+  padding: 0 var(--space-4) var(--space-3);
+  max-height: 60%;
+  overflow-y: auto;
+  flex-shrink: 0;
+}
+
+.inbox-setup-recovery .inbox-setup {
+  margin-top: var(--space-3);
+}
+
 /* Sections. */
 .inbox-section {
   margin-bottom: var(--space-3);

@@ -32,7 +32,7 @@ export function isValidView(value: unknown): value is WorkspaceView {
  * identically whether a view is being restored at window construction or
  * fetched mid-session on a switch. Because it runs on every read, nothing
  * upstream has to eagerly clean up: a session deleted from another window, a
- * provider unbound, a workspace removed — each is caught here the next time
+ * workspace removed — each is caught here the next time
  * anyone asks.
  *
  * A dangling session id resolves to `null`, never to a substitute session.
@@ -51,11 +51,9 @@ export function resolveRememberedView(
 
   return {
     activeSessionId: sessionStillExists ? view.activeSessionId : null,
-    // The sidebar only offers the Inbox to a bound workspace, so a remembered
-    // `true` outlives the binding it was set under. MainContent guards this
-    // too, but resolving it here keeps main the one authority on what a
-    // workspace is showing rather than leaving a latent flag set.
-    isInboxOpen: view.isInboxOpen && workspace.provider !== undefined,
+    // Inbox also hosts integration setup, so it remains a valid destination
+    // before an account is connected and after one is disconnected.
+    isInboxOpen: view.isInboxOpen,
   };
 }
 
