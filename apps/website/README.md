@@ -2,7 +2,7 @@
 
 A standalone static landing page for Consola. The authored website is in `public/`, separate from the Electron app. The website is deployed using the repository-root Vercel configuration.
 
-The workspace section shows a framed desktop capture with a link to the full-size image. Its asset is `public/assets/consola-screenshot.png`; keep it in sync with `docs/assets/consola-screenshot.png`, used by the root README. The page includes responsive layouts, visible focus states, reduced-motion support, and local font and icon assets.
+The workspace section shows a desktop capture without an added background with a link to the full-size image. Its asset is `public/assets/consola-screenshot.png`; keep it in sync with `docs/assets/consola-screenshot.png`, used by the root README. The page includes responsive layouts, visible focus states, reduced-motion support, and local font and icon assets.
 
 ## Vercel deployment
 
