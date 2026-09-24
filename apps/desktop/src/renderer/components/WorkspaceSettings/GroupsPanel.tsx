@@ -1,8 +1,7 @@
 import { useState } from 'react';
 import { Archive, ArchiveRestore, Boxes, Pencil, Plus } from 'lucide-react';
-import { useWorkspaceStore, type Group, type Workspace } from '../../stores/workspaceStore';
+import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
-import { InlineRename } from './InlineRename';
 
 interface GroupsPanelProps {
   workspace: Workspace;
@@ -19,12 +18,13 @@ interface GroupsPanelProps {
  * shown where it gets asked.
  */
 export function GroupsPanel({ workspace }: GroupsPanelProps) {
-  const updateGroup = useWorkspaceStore((state) => state.updateGroup);
   const archiveGroup = useWorkspaceStore((state) => state.archiveGroup);
   const restoreGroup = useWorkspaceStore((state) => state.restoreGroup);
 
-  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+
+  const editingGroup = workspace.groups.find(group => group.id === editingId);
 
   const live = workspace.groups.filter((group) => !group.archivedAt);
   const archived = workspace.groups.filter((group) => group.archivedAt);
@@ -34,18 +34,6 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
 
   const landingActionsFor = (groupId: string) =>
     workspace.actions.filter((action) => action.groupId === groupId).map((action) => action.name);
-
-  const renderName = (group: Group) =>
-    renamingId === group.id ? (
-      <InlineRename
-        value={group.name}
-        ariaLabel={`Rename group ${group.name}`}
-        onSubmit={(name) => updateGroup(workspace.id, group.id, { name })}
-        onClose={() => setRenamingId(null)}
-      />
-    ) : (
-      <span className="ws-row-name">{group.name}</span>
-    );
 
   return (
     <section className="ws-panel">
@@ -75,44 +63,40 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
                 return (
                   <div key={group.id} className="ws-row">
                     <span className="ws-row-icon">
-                      <Boxes size={13} />
+                      <span className="group-emoji" aria-hidden="true">{group.emoji || <Boxes size={13} />}</span>
                     </span>
-                    {renderName(group)}
-                    {renamingId !== group.id && (
-                      <>
-                        {members > 0 && (
-                          <span className="ws-row-chip">
-                            {members} session{members === 1 ? '' : 's'}
-                          </span>
-                        )}
-                        {landing.length > 0 && (
-                          <span
-                            className="ws-row-chip ws-action-group"
-                            title="Sessions started by these actions land here"
-                          >
-                            ← {landing.join(', ')}
-                          </span>
-                        )}
-                        <button
-                          type="button"
-                          className="ws-row-action"
-                          onClick={() => setRenamingId(group.id)}
-                          aria-label={`Rename group ${group.name}`}
-                          title="Rename"
-                        >
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          type="button"
-                          className="ws-row-action"
-                          onClick={() => void archiveGroup(workspace.id, group.id)}
-                          aria-label={`Archive group ${group.name}`}
-                          title="Archive — members return to their scopes"
-                        >
-                          <Archive size={13} />
-                        </button>
-                      </>
+                    <span className="ws-row-name">{group.name}</span>
+                    {members > 0 && (
+                      <span className="ws-row-chip">
+                        {members} session{members === 1 ? '' : 's'}
+                      </span>
                     )}
+                    {landing.length > 0 && (
+                      <span
+                        className="ws-row-chip ws-action-group"
+                        title="Sessions started by these actions land here"
+                      >
+                        ← {landing.join(', ')}
+                      </span>
+                    )}
+                    <button
+                      type="button"
+                      className="ws-row-action"
+                      onClick={() => setEditingId(group.id)}
+                      aria-label={`Rename group ${group.name}`}
+                      title="Rename group"
+                    >
+                      <Pencil size={13} />
+                    </button>
+                    <button
+                      type="button"
+                      className="ws-row-action"
+                      onClick={() => void archiveGroup(workspace.id, group.id)}
+                      aria-label={`Archive group ${group.name}`}
+                      title="Archive — members return to their scopes"
+                    >
+                      <Archive size={13} />
+                    </button>
                   </div>
                 );
               })}
@@ -125,7 +109,7 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
                 {archived.map((group) => (
                   <div key={group.id} className="ws-row ws-row--archived">
                     <span className="ws-row-icon">
-                      <Boxes size={13} />
+                      <span className="group-emoji" aria-hidden="true">{group.emoji || <Boxes size={13} />}</span>
                     </span>
                     <span className="ws-row-name">{group.name}</span>
                     {group.archivedAt && (
@@ -148,6 +132,9 @@ export function GroupsPanel({ workspace }: GroupsPanelProps) {
             </>
           )}
         </>
+      )}
+      {editingGroup && (
+        <NewGroupDialog workspaceId={workspace.id} group={editingGroup} onClose={() => setEditingId(null)} />
       )}
       {creating && (
         <NewGroupDialog workspaceId={workspace.id} onClose={() => setCreating(false)} />

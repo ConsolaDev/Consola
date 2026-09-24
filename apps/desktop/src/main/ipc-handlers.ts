@@ -366,7 +366,7 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_GROUP_UPDATE,
-        (_event, workspaceId: string, groupId: string, updates: Partial<Pick<Group, 'name'>>) => {
+        (_event, workspaceId: string, groupId: string, updates: Partial<Pick<Group, 'name' | 'emoji'>>) => {
             // Filtering lives in updateFilters.ts, tested there:
             // `conductorSessionId` and `archivedAt` are the fields this keeps
             // out — the first is the orchestration door's alone, the second

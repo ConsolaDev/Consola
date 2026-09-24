@@ -59,10 +59,14 @@ export function allowedScopeUpdates(
  * the same split allowedHarnessUpdates makes for `archived`.
  */
 export function allowedGroupUpdates(
-    updates: Partial<Pick<Group, 'name'>>
-): Partial<Pick<Group, 'name'>> {
-    const allowed: Partial<Pick<Group, 'name'>> = {};
+    updates: Partial<Pick<Group, 'name' | 'emoji'>>
+): Partial<Pick<Group, 'name' | 'emoji'>> {
+    const allowed: Partial<Pick<Group, 'name' | 'emoji'>> = {};
     if (updates.name !== undefined) allowed.name = updates.name;
+    // Presence distinguishes clearing the emoji from an unrelated rename.
+    if ('emoji' in updates && (updates.emoji === undefined || typeof updates.emoji === 'string')) {
+        allowed.emoji = updates.emoji;
+    }
     return allowed;
 }
 

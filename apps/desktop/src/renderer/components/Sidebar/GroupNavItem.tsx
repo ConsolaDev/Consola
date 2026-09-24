@@ -9,6 +9,7 @@ import { basename } from '../../utils/fileUtils';
 import { formatGroupBadge, groupCountsFor } from '../../utils/groupCounts';
 import { activateSession, moveSessionToGroup } from '../../utils/sessionActions';
 import { droppedSessionId, isSessionDrag, leftDropTarget } from './sessionDrag';
+import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { SessionNavItem } from './SessionNavItem';
 
 interface GroupNavItemProps {
@@ -39,6 +40,7 @@ export function GroupNavItem({
   const terminals = useTerminalStore((state) => state.terminals);
   const counts = groupCountsFor(sessions, terminals);
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const [editing, setEditing] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
 
   // The conductor sits at the head of its group's member list — the brain
@@ -114,7 +116,7 @@ export function GroupNavItem({
           )}
           {/* Decorative: the button names itself from this subtree, and the
               glyph adds nothing the group's name does not already say. */}
-          <Boxes size={14} aria-hidden="true" />
+          <span className="group-emoji" aria-hidden="true">{group.emoji || <Boxes size={14} />}</span>
           <span className="group-nav-name">{group.name}</span>
           <span className="group-nav-count">{formatGroupBadge(counts)}</span>
         </button>
@@ -134,6 +136,7 @@ export function GroupNavItem({
               <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end" onCloseAutoFocus={event => event.preventDefault()}>
                 <DropdownMenu.Item className="dropdown-item" onSelect={onNewSession}>New session</DropdownMenu.Item>
                 <DropdownMenu.Item className="dropdown-item" onSelect={onNewSessionWithOptions}>New session with options…</DropdownMenu.Item>
+                <DropdownMenu.Item className="dropdown-item" onSelect={() => setEditing(true)}>Rename group…</DropdownMenu.Item>
                 <DropdownMenu.Separator className="dropdown-separator" />
                 <DropdownMenu.Item
                   className="dropdown-item dropdown-item-destructive"
@@ -156,6 +159,7 @@ export function GroupNavItem({
           </button>
         </div>
       </div>
+      {editing && <NewGroupDialog workspaceId={workspaceId} group={group} onClose={() => setEditing(false)} />}
       {!collapsed &&
         orderedSessions.map((session) => (
           <SessionNavItem

@@ -108,7 +108,7 @@ export const workspaceBridge = {
     updateGroup(
         workspaceId: string,
         groupId: string,
-        updates: Partial<Pick<Group, 'name'>>
+        updates: Partial<Pick<Group, 'name' | 'emoji'>>
     ): Promise<void> {
         return window.workspaceAPI.updateGroup(workspaceId, groupId, updates);
     },

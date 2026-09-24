@@ -74,6 +74,8 @@ export interface Scope {
 
 /** A plain container for sessions that belong together. */
 export interface Group {
+  /** Optional native emoji; absent uses the default group icon. */
+  emoji?: string;
   id: string;
   name: string;
   parentGroupId?: string;          // Nesting
@@ -159,6 +161,7 @@ export function createScopeRecord(fields: NewScopeFields): Scope {
 }
 
 export interface NewGroupFields {
+  emoji?: string;
   name: string;
   parentGroupId?: string;
   conductorSessionId?: string;
@@ -166,6 +169,7 @@ export interface NewGroupFields {
 
 export function createGroupRecord(fields: NewGroupFields): Group {
   const group: Group = { id: generateId(), name: fields.name, createdAt: Date.now() };
+  if (fields.emoji !== undefined) group.emoji = fields.emoji;
   if (fields.parentGroupId !== undefined) group.parentGroupId = fields.parentGroupId;
   if (fields.conductorSessionId !== undefined) {
     group.conductorSessionId = fields.conductorSessionId;

@@ -794,3 +794,48 @@ test('scope editing saves name and location together, supports cancel, and expos
     fs.rmSync(destination, { recursive: true, force: true });
   }
 });
+
+test('group emojis can be searched, cancelled, saved, reloaded and removed', async ({}, testInfo) => {
+  test.setTimeout(60_000);
+  const { page, stateFile, cleanup } = await launchSeeded();
+  const savedGroup = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].groups[0];
+  try {
+    await holdWorkspace(page);
+    const openEdit = async () => {
+      await page.locator('.group-nav-header').hover();
+      await page.getByRole('button', { name: 'Group actions for PR reviews' }).click();
+      await page.getByRole('menuitem', { name: 'Rename group…' }).click();
+    };
+    await openEdit();
+    const dialog = page.getByRole('dialog', { name: 'Rename group', exact: true });
+    await dialog.getByRole('button', { name: 'Choose group emoji' }).click();
+    const picker = page.getByRole('dialog', { name: 'Group emoji', exact: true });
+    await picker.locator('input[type="search"]').fill('sweden');
+    await page.screenshot({ path: testInfo.outputPath('group-emoji-picker.png') });
+    await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
+    await expect(picker).toBeHidden();
+    await expect(dialog.getByRole('button', { name: 'Change group emoji' })).toHaveText('🇸🇪');
+    await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+    expect(savedGroup().emoji).toBeUndefined();
+
+    await openEdit();
+    await dialog.getByRole('button', { name: 'Choose group emoji' }).click();
+    await picker.locator('input[type="search"]').fill('sweden');
+    await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => savedGroup().emoji).toBe('🇸🇪');
+    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+    await page.reload();
+    await holdWorkspace(page);
+    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+
+    await openEdit();
+    await dialog.getByRole('button', { name: 'Change group emoji' }).click();
+    await picker.getByRole('button', { name: 'Remove emoji' }).click();
+    await dialog.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect.poll(() => savedGroup().emoji).toBeUndefined();
+    await expect(page.locator('.group-nav-toggle .group-emoji svg')).toBeVisible();
+  } finally {
+    await cleanup();
+  }
+});

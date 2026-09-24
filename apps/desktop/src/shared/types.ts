@@ -386,7 +386,7 @@ export interface WorkspaceAPI {
     updateGroup: (
         workspaceId: string,
         groupId: string,
-        updates: Partial<Pick<Group, 'name'>>
+        updates: Partial<Pick<Group, 'name' | 'emoji'>>
     ) => Promise<void>;
     archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
     restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
