@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { fanOut } from './fanOut';
+import { fanOut, type FanOutDeps } from './fanOut';
 import type { Group, Session, Workspace } from '../shared/workspace';
 
 const workspace = {
@@ -21,7 +21,7 @@ const intent = {
     groupName: 'bump lodash',
 };
 
-function buildDeps(launchSession: ReturnType<typeof vi.fn>) {
+function buildDeps(launchSession: FanOutDeps['launcher']['launchSession']) {
     return {
         workspaces: {
             getAll: vi.fn(() => [workspace]),
