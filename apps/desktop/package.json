@@ -1,7 +1,7 @@
 {
   "name": "consola",
   "productName": "Consola",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "description": "Your command center for AI-assisted development. Built on top of Claude Code, Consola brings structure to AI coding through the RPI methodology (Research, Plan, Implement) with native integration to your issue trackers for seamless project management.",
   "main": "dist/main/main/index.js",
   "scripts": {
