@@ -156,6 +156,16 @@ Add dependencies to their owning workspace with
 - `pnpm run build:renderer` - Build renderer only
 - `pnpm run test:e2e` - Build the desktop app, then run Playwright E2E tests
 
+E2E tests run in the background by default: Electron windows stay hidden and
+cannot take focus; on macOS the test app also cannot activate or appear in the
+Dock. Playwright still drives the real Electron app, including IPC and terminals.
+This uses hidden Electron windows, so Linux CI still needs a display (such as Xvfb).
+
+To show test windows while debugging, run `CONSOLA_E2E_HEADED=1 pnpm run test:e2e`.
+Use this environment variable rather than Playwright's `--headed` flag, since
+the suite launches Electron directly. Traces and failure screenshots remain
+available in the default background mode.
+
 ## The RPI Methodology
 
 The Research-Plan-Implement methodology brings engineering rigor to AI-assisted development:
