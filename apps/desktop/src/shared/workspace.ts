@@ -116,8 +116,7 @@ export const CURRENT_WORKSPACE_STATE_VERSION = 7;
 /**
  * Terminal instance id for a new session in a workspace.
  *
- * Shared because both sides mint sessions: the renderer on the new-session
- * screen, and the main process when fan-out creates a fleet. One format, or
+ * Shared because both sides mint sessions: the renderer when starting a session, and the main process when fan-out creates a fleet. One format, or
  * the "every terminal message carries instanceId" contract quietly forks.
  */
 export function generateSessionInstanceId(workspaceId: string): string {

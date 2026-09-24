@@ -19,6 +19,7 @@ interface GroupNavItemProps {
   scopeFor: (scopeId: string) => Scope | undefined;
   activeSessionId: string | null;
   onNewSession: () => void;
+  onNewSessionWithOptions: () => void;
 }
 
 /** A collapsible group of sessions in the selected scope, with live status counts. */
@@ -29,6 +30,7 @@ export function GroupNavItem({
   scopeFor,
   activeSessionId,
   onNewSession,
+  onNewSessionWithOptions,
 }: GroupNavItemProps) {
   const collapsed = useSettingsStore((state) =>
     state.collapsedSidebarSections.includes(group.id)
@@ -129,7 +131,10 @@ export function GroupNavItem({
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
+              <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end" onCloseAutoFocus={event => event.preventDefault()}>
+                <DropdownMenu.Item className="dropdown-item" onSelect={onNewSession}>New session</DropdownMenu.Item>
+                <DropdownMenu.Item className="dropdown-item" onSelect={onNewSessionWithOptions}>New session with options…</DropdownMenu.Item>
+                <DropdownMenu.Separator className="dropdown-separator" />
                 <DropdownMenu.Item
                   className="dropdown-item dropdown-item-destructive"
                   onSelect={() => void handleArchive()}

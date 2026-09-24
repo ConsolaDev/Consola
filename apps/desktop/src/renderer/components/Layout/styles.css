@@ -310,3 +310,6 @@
 .new-menu-trigger:hover {
   opacity: 1;
 }
+
+.new-menu-buttons { display: flex; align-items: center; flex-shrink: 0; }
+.new-menu-buttons .new-menu-trigger { width: 24px; }

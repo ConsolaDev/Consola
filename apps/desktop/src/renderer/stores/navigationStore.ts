@@ -94,7 +94,7 @@ export const useNavigationStore = create<NavigationState>()(
       isExplorerVisible: false,
       activeWorkspaceId: windowBridge.context.workspaceId,
       // Both arrive with the window, so the first paint already shows what
-      // this workspace was left on rather than a composer it corrects later.
+      // this workspace was left on rather than an empty view it corrects later.
       activeSessionId: windowBridge.context.activeSessionId,
       isInboxOpen: windowBridge.context.isInboxOpen,
 
@@ -121,7 +121,7 @@ export const useNavigationStore = create<NavigationState>()(
 
       setActiveSession: (id) => {
         set({ activeSessionId: id, isInboxOpen: false });
-        // Reported even when `id` is null: backing out to the composer on
+        // Reported even when `id` is null: backing out to the workspace on
         // purpose is a state worth returning to, not an absence of one.
         windowBridge.setView(get().activeWorkspaceId, {
           activeSessionId: id,

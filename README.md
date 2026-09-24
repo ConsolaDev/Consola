@@ -35,6 +35,7 @@ Consola is an Electron desktop application for working with Claude Code and Code
 - **Claude Code Integration** - Runs the `claude` CLI itself, so every feature it ships is available as-is
 - **Codex Harness** - Add OpenAI's Codex CLI in Settings → Harnesses and select it for new sessions
 - **Session Terminals** - Open a normal shell alongside each agent, rooted in its checkout, with output and running commands preserved while switching sessions
+- **Quick Session Creation** - Use + or ⌘N to start with workspace defaults. Use ⌘⇧N or a group’s ⋯ menu to choose session options; ⌘⌥N opens a new window (Ctrl replaces ⌘ on other platforms).
 - **Resumable Sessions** - Each tab keeps its conversation across restarts
 - **Issue Tracker Integration** - Native sync with Linear and other project management tools
 - **File Explorer & Git Review** - Browse files, review diffs, and stage and commit alongside the session

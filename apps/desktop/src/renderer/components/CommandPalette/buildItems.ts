@@ -27,7 +27,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useSettingsStore, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '../../stores/settingsStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
-import { openNewSessionComposer } from '../../utils/sessionActions';
+import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor } from '../../utils/sessionStatus';
 import { isMac } from '../../utils/platform';
 import type {
@@ -105,9 +105,13 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       context: activeWorkspace.name,
       icon: Plus,
       shortcutHint: isMac ? '⌘N' : 'Ctrl+N',
-      // Opens the composer rather than creating a record, so backing out
-      // leaves no empty session behind.
-      run: () => openNewSessionComposer(activeWorkspace.id),
+      run: async () => { await createQuickSession(activeWorkspace.id); },
+    });
+    items.push({
+      kind: 'action', section: 'actions', id: 'action.session.new-with-options',
+      label: 'New session with options…', context: activeWorkspace.name, icon: Plus,
+      shortcutHint: isMac ? '⇧⌘N' : 'Ctrl+Shift+N',
+      run: () => openNewSessionDialog(activeWorkspace.id),
     });
   }
 

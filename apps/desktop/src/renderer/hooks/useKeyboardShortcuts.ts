@@ -10,6 +10,7 @@ import type { PaletteScope } from '../components/CommandPalette/types';
 
 interface UseKeyboardShortcutsOptions {
   onNewSession?: () => void;
+  onNewSessionWithOptions?: () => void;
   onOpenSettings?: () => void;
   onTogglePalette?: () => void;
   onOpenScopedPalette?: (scope: PaletteScope) => void;
@@ -27,7 +28,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
-  const { onNewSession, onOpenSettings, onTogglePalette, onOpenScopedPalette } = options;
+  const { onNewSession, onNewSessionWithOptions, onOpenSettings, onTogglePalette, onOpenScopedPalette } = options;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -79,19 +80,20 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
-      // Cmd/Ctrl + Shift + N : Open another window
-      // Checked before the ⌘N branch below: ⌘⇧N also satisfies `event.key === 'n'`,
-      // so this would never fire if it came second.
-      if (isMod && event.shiftKey && event.key.toLowerCase() === 'n') {
+      // Keep window creation available on Cmd/Ctrl + Alt + N.
+      if (isMod && event.altKey && !event.shiftKey && event.code === 'KeyN') {
         event.preventDefault();
-        void windowBridge.openWindow(null);
+        if (!event.repeat) void windowBridge.openWindow(null);
         return;
       }
 
-      // Cmd/Ctrl + N : New session (enters new session view for current workspace)
-      if (isMod && event.key === 'n') {
+      // Cmd/Ctrl + N starts immediately; adding Shift opens session options.
+      if (isMod && !event.altKey && event.key.toLowerCase() === 'n') {
         event.preventDefault();
-        onNewSession?.();
+        if (!event.repeat) {
+          if (event.shiftKey) onNewSessionWithOptions?.();
+          else onNewSession?.();
+        }
         return;
       }
 
@@ -124,6 +126,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     toggleExplorer,
     cycleTheme,
     onNewSession,
+    onNewSessionWithOptions,
     onOpenSettings,
     onTogglePalette,
     onOpenScopedPalette,

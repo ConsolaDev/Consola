@@ -8,7 +8,7 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import {
   activateSessionAnywhere,
   deleteSessionCompletely,
-  openNewSessionComposer,
+  createQuickSession,
   renameSession,
   restartSession,
 } from '../../utils/sessionActions';
@@ -214,7 +214,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       switch (mode.kind) {
         case 'pick-workspace':
           if (item.kind === 'workspace') {
-            void openNewSessionComposer(item.workspaceId);
+            void createQuickSession(item.workspaceId);
             close();
           }
           return;

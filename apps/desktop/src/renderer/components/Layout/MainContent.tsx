@@ -1,6 +1,6 @@
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { HomeView, ContentView, NewSessionView } from '../Views';
+import { HomeView, ContentView, WorkspaceEmptyView } from '../Views';
 import { InboxView } from '../Inbox';
 
 export function MainContent() {
@@ -26,9 +26,9 @@ export function MainContent() {
     return <InboxView workspace={workspace} />;
   }
 
-  // Workspace selected, no session - show centered input
+  // Workspace selected, no session - show workspace actions
   if (!activeSessionId) {
-    return <NewSessionView key={workspace.id} workspace={workspace} />;
+    return <WorkspaceEmptyView key={workspace.id} workspace={workspace} />;
   }
 
   // Session active - show conversation view

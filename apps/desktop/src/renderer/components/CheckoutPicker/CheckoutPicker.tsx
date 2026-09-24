@@ -118,7 +118,7 @@ export function CheckoutPicker({ workspaceId, scope, value, onChange, disabled }
     {value.mode === 'new' && <div className="checkout-new-details">
       <GitBranch size={14} /><label htmlFor="new-worktree-branch">{value.useExistingBranch ? 'Branch' : 'New branch'}</label>
       <input id="new-worktree-branch" placeholder="Auto-generated, or enter a name" value={value.useExistingBranch ? value.baseRef : value.branchName ?? ''} disabled={disabled || value.useExistingBranch} onChange={event => onChange({ ...value, branchName: event.target.value })} />
-      <span>Created when you send</span>
+      <span>Created with the session</span>
     </div>}
     {value.mode === 'existing' && tree && <p className="checkout-path" title={tree.path}>{tree.path}</p>}
   </>;

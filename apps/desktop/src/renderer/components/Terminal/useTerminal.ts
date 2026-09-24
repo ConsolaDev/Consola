@@ -155,7 +155,7 @@ export function useTerminal({
                 // Fallback metrics are still usable; nothing to recover here.
             });
 
-        // A prompt typed on the new-session screen travels with the create call;
+        // A pending prompt from a launch action travels with the create call;
         // the main process submits it once the CLI is ready and is not sitting
         // on a confirmation menu.
         const initialPrompt = useTerminalStore.getState().consumePendingPrompt(instanceId);

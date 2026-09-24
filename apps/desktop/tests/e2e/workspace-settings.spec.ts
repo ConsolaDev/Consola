@@ -701,24 +701,19 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     expect(await page.evaluate(() => window.terminalAPI.getStatusSnapshot())).not.toHaveProperty('scope-survivor');
     expect(fs.existsSync(root)).toBe(true);
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(page.getByRole('combobox', { name: 'Message', exact: true })).toBeDisabled();
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeDisabled();
-    await expect(page.getByRole('alert')).toContainText('Add a scope to this workspace to start a conversation.');
+    await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeDisabled();
 
     await page.reload();
     await holdWorkspace(page);
-    await expect(page.getByRole('combobox', { name: 'Message', exact: true })).toBeDisabled();
+    await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeDisabled();
     await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
     await app.evaluate(({ dialog }, folder) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
     }, root);
-    await page.locator('.new-session-view').getByRole('button', { name: 'Choose scope', exact: true }).click();
+    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Add scope', exact: true }).click();
-    await expect(page.getByRole('combobox', { name: 'Message', exact: true })).toBeEnabled();
-    await expect(page.getByRole('alert')).toHaveCount(0);
-    await expect(page.locator('.new-session-view').getByRole('button', { name: 'Choose scope', exact: true })).toHaveText(path.basename(root));
-    await page.getByRole('combobox', { name: 'Message', exact: true }).fill('A new session can start here');
-    await expect(page.getByRole('button', { name: 'Send message', exact: true })).toBeEnabled();
+    await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeEnabled();
+    await expect(page.locator('.sidebar').getByRole('button', { name: 'Choose scope', exact: true })).toHaveText(path.basename(root));
     const restored = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
     expect(restored.scopes).toHaveLength(1);
     expect(restored.groups).toEqual(seeded.groups);

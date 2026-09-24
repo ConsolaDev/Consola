@@ -116,7 +116,7 @@ export function ScopeNavItem({
             <div className="nav-row-actions">
               <button
                 className="nav-row-action"
-                onClick={() => void createQuickSession(workspaceId, scope.id)}
+                onClick={() => void createQuickSession(workspaceId, { scopeId: scope.id })}
                 aria-label={`New session in ${scope.name}`}
                 title="New session"
               >
@@ -139,7 +139,7 @@ export function ScopeNavItem({
           <ContextMenu.Content className="dropdown-content">
             <ContextMenu.Item
               className="dropdown-item"
-              onSelect={() => void createQuickSession(workspaceId, scope.id)}
+              onSelect={() => void createQuickSession(workspaceId, { scopeId: scope.id })}
             >
               <Plus size={14} />
               <span>New session</span>

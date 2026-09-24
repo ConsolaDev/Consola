@@ -1114,3 +1114,5 @@
 .sidebar-error { color: var(--color-error); }
 .sidebar-ungrouped .drop-target { background: var(--color-bg-hover); outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .app-navigation-item:focus-visible, .home-tab:focus-visible, .scope-selector:focus-visible, .sidebar-section-button:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+
+.sidebar-ungrouped .sidebar-section-title { margin-right: auto; }
