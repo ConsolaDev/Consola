@@ -33,7 +33,7 @@
     "linear",
     "issue-tracker"
   ],
-  "author": "Javier Taraza",
+  "author": "Javier Tarazaga",
   "license": "ISC",
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",
