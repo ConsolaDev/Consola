@@ -17,13 +17,13 @@ test('update bridge, settings and background download notice', async () => {
         status: 'downloading', currentVersion: '1.0.0', version: '1.1.0', progress: 42,
       });
     });
-    await expect(page.getByText('Downloading Consola 1.1.0… 42%')).toBeVisible();
+    await expect(page.getByRole('banner').getByRole('button', { name: 'Downloading update… 42%' })).toBeVisible();
     await app.evaluate(({ BrowserWindow }) => {
       BrowserWindow.getAllWindows()[0].webContents.send('app-update:changed', {
         status: 'ready', currentVersion: '1.0.0', version: '1.1.0', progress: 100,
       });
     });
-    await expect(page.getByRole('button', { name: 'Restart and install', exact: true })).toBeVisible();
+    await expect(page.getByRole('banner').getByRole('button', { name: 'Restart to update', exact: true })).toBeVisible();
   } finally {
     await app.close();
   }

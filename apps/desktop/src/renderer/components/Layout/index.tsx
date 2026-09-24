@@ -2,7 +2,6 @@ import { createQuickSession, openNewSessionDialog } from '../../utils/sessionAct
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
-import { AppUpdateNotice } from '../AppUpdates';
 import { useEffect, useRef, type CSSProperties } from 'react';
 import { Sidebar } from '../Sidebar';
 import { SidebarResizeHandle } from '../Sidebar/SidebarResizeHandle';
@@ -79,7 +78,6 @@ export function Layout() {
     <div ref={layoutRef} className="layout" style={layoutStyle}>
       <NewSessionDialog />
       <AppHeader />
-      <AppUpdateNotice />
       <div className="layout-body">
         <WorkspaceRail />
         <Sidebar />

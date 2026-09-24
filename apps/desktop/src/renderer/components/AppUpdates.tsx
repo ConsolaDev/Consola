@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Download, RotateCw } from 'lucide-react';
 import type { AppUpdateState } from '../../shared/appUpdates';
 import './appUpdates.css';
 
@@ -41,11 +42,17 @@ function statusText(state: AppUpdateState): string {
 export function AppUpdateNotice() {
   const { state, error, run } = useAppUpdates();
   if (!state || !['downloading', 'ready', 'error'].includes(state.status)) return null;
+  const downloading = state.status === 'downloading';
+  const ready = state.status === 'ready';
   return (
     <div className="app-update-notice" role="status">
-      <span>{error ?? statusText(state)}</span>
-      {state.status === 'ready' && <button onClick={() => run('install')}>Restart and install</button>}
-      {state.status === 'error' && <button onClick={() => run('check')}>Retry update</button>}
+      <button className="app-update-action" disabled={downloading}
+        title={error ?? statusText(state)}
+        onClick={() => run(ready ? 'install' : 'check')}>
+        {downloading ? <Download size={14} aria-hidden="true" /> : <RotateCw size={14} aria-hidden="true" />}
+        <span>{downloading ? `Downloading update… ${state.progress ?? 0}%` : ready ? 'Restart to update' : 'Retry update'}</span>
+      </button>
+      {error && <span className="app-update-action-error" role="alert">{error}</span>}
     </div>
   );
 }
