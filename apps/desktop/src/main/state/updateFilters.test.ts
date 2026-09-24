@@ -284,3 +284,11 @@ describe('allowedSessionUpdates', () => {
     expect('workItem' in allowedSessionUpdates({ name: 'Renamed' })).toBe(false);
   });
 });
+
+describe('group emoji updates', () => {
+  it('distinguishes an absent emoji from an explicit removal across IPC', () => {
+    expect(allowedGroupUpdates({ emoji: '🇸🇪' })).toEqual({ emoji: '🇸🇪' });
+    expect(allowedGroupUpdates({ name: 'Nordics' })).not.toHaveProperty('emoji');
+    expect(allowedGroupUpdates({ emoji: undefined })).toHaveProperty('emoji', undefined);
+  });
+});

@@ -307,7 +307,7 @@ export class WorkspaceService {
   public updateGroup(
     workspaceId: string,
     groupId: string,
-    updates: Partial<Pick<Group, 'name' | 'conductorSessionId' | 'archivedAt'>>
+    updates: Partial<Pick<Group, 'name' | 'emoji' | 'conductorSessionId' | 'archivedAt'>>
   ): void {
     this.commit(
       this.workspaces.map((workspace) =>

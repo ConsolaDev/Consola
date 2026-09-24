@@ -253,7 +253,7 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     updateGroup: (
         workspaceId: string,
         groupId: string,
-        updates: Partial<Pick<Group, 'name'>>
+        updates: Partial<Pick<Group, 'name' | 'emoji'>>
     ): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE, workspaceId, groupId, updates),
 

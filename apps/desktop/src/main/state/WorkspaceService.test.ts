@@ -826,3 +826,22 @@ describe('WorkspaceService', () => {
     expect(reloaded).not.toHaveProperty('archivedAt');
   });
 });
+
+describe('group emojis', () => {
+  it('persists emoji changes and removal without changing other groups or lifecycle fields', () => {
+    const workspace = service.createWorkspace('Work', '/work', false);
+    const group = service.createGroup(workspace.id, { name: 'Nordics', emoji: '🇸🇪' });
+    const other = service.createGroup(workspace.id, { name: 'Other' });
+    expect(build().getAll()[0].groups[0].emoji).toBe('🇸🇪');
+    service.updateGroup(workspace.id, group.id, { emoji: '👩🏽‍💻' });
+    service.updateGroup(workspace.id, group.id, { name: 'Engineering' });
+    expect(build().getAll()[0].groups).toEqual([
+      { ...group, name: 'Engineering', emoji: '👩🏽‍💻' }, other,
+    ]);
+    service.archiveGroup(workspace.id, group.id);
+    service.restoreGroup(workspace.id, group.id);
+    expect(build().getAll()[0].groups[0].emoji).toBe('👩🏽‍💻');
+    service.updateGroup(workspace.id, group.id, { emoji: undefined });
+    expect(build().getAll()[0].groups[0]).not.toHaveProperty('emoji');
+  });
+});

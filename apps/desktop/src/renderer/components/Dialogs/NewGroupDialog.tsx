@@ -2,10 +2,12 @@ import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import type { Group } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { GroupEmojiPicker } from '../GroupEmojiPicker';
 import './styles.css';
 
 interface NewGroupDialogProps {
   workspaceId: string;
+  group?: Group;
   onClose: () => void;
   /**
    * The group just created, before the dialog closes. Lets a caller that
@@ -15,9 +17,10 @@ interface NewGroupDialogProps {
   onCreated?: (group: Group) => void | Promise<void>;
 }
 
-/** Name it, and that is all: a group is a folder for humans. */
-export function NewGroupDialog({ workspaceId, onClose, onCreated }: NewGroupDialogProps) {
-  const [name, setName] = useState('');
+/** Shared create/edit form; changes stay local until Save. */
+export function NewGroupDialog({ workspaceId, group: existingGroup, onClose, onCreated }: NewGroupDialogProps) {
+  const [name, setName] = useState(existingGroup?.name ?? '');
+  const [emoji, setEmoji] = useState(existingGroup?.emoji);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -27,7 +30,12 @@ export function NewGroupDialog({ workspaceId, onClose, onCreated }: NewGroupDial
     setError(null);
     setSubmitting(true);
     try {
-      const group = await useWorkspaceStore.getState().createGroup(workspaceId, { name: trimmed });
+      if (existingGroup) {
+        await useWorkspaceStore.getState().updateGroup(workspaceId, existingGroup.id, { name: trimmed, emoji });
+        onClose();
+        return;
+      }
+      const group = await useWorkspaceStore.getState().createGroup(workspaceId, { name: trimmed, emoji });
       // Inside the try on purpose: a callback that fails leaves the dialog
       // open with its message, rather than closing over a half-done move.
       await onCreated?.(group);
@@ -46,27 +54,31 @@ export function NewGroupDialog({ workspaceId, onClose, onCreated }: NewGroupDial
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="dialog-content">
-          <Dialog.Title className="dialog-title">New group</Dialog.Title>
+          <Dialog.Title className="dialog-title">{existingGroup ? 'Rename group' : 'New group'}</Dialog.Title>
           <Dialog.Description className="dialog-description">
-            A folder for sessions; no conductor.
+            Give your group a name and an optional emoji.
           </Dialog.Description>
           <div className="dialog-form">
             <div className="dialog-field">
               <label className="dialog-label" htmlFor="new-group-name">
                 Name
               </label>
-              <input
-                id="new-group-name"
-                className="dialog-input"
-                autoFocus
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === 'Enter') void create();
-                }}
-                placeholder="e.g. bump lodash v5"
-              />
-              {error && <span className="dialog-error">{error}</span>}
+              <div className="group-name-field">
+                <GroupEmojiPicker value={emoji} onChange={setEmoji} disabled={submitting} />
+                <input
+                  id="new-group-name"
+                  className="dialog-input"
+                  autoFocus
+                  disabled={submitting}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void create();
+                  }}
+                  placeholder="e.g. bump lodash v5"
+                />
+              </div>
+              {error && <span className="dialog-error" role="alert">{error}</span>}
             </div>
           </div>
           <div className="dialog-actions">
@@ -78,7 +90,7 @@ export function NewGroupDialog({ workspaceId, onClose, onCreated }: NewGroupDial
               onClick={() => void create()}
               disabled={!name.trim() || submitting}
             >
-              Create
+              {submitting ? 'Saving…' : existingGroup ? 'Save' : 'Create'}
             </button>
           </div>
         </Dialog.Content>
