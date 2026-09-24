@@ -18,6 +18,8 @@ import { InboxHeader } from './InboxHeader';
 import { InboxItemPane } from './InboxItemPane';
 import { InboxRow } from './InboxRow';
 import { InboxSectionGroup } from './InboxSectionGroup';
+import { InboxSetup } from './InboxSetup';
+import { ProviderBindingPanel } from '../Provider';
 import { ViewTabs } from './ViewTabs';
 import { filterByRepos, filterByUpdated, reposInSnapshot } from './inboxFilters';
 import { groupSessionsByWorkItem, isRepoCloned } from './inboxPresentation';
@@ -45,11 +47,18 @@ const SECTION_LABELS = Object.fromEntries(
  * live in the settings store because they survive relaunch.
  */
 export function InboxView({ workspace }: InboxViewProps) {
+  return workspace.provider
+    ? <ConnectedInbox key={workspace.id} workspace={workspace} />
+    : <InboxSetup workspace={workspace} />;
+}
+
+function ConnectedInbox({ workspace }: InboxViewProps) {
   // Shared between the tab strip and the panel below it, so each tab's own
   // id and the panel's aria-labelledby agree on the same generated string.
   const panelId = useId();
   const [view, setView] = useState<InboxViewId>('inbox');
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [showSetup, setShowSetup] = useState(false);
   // Keyed by workspace id: MainContent keeps this component mounted across
   // a workspace switch, and one workspace's folded sections are not another's.
   const [collapsedByWorkspace, setCollapsedByWorkspace] = useState<
@@ -65,12 +74,18 @@ export function InboxView({ workspace }: InboxViewProps) {
   const setInboxUpdatedFilter = useSettingsStore((state) => state.setInboxUpdatedFilter);
 
   useEffect(() => {
+    // A first fetch that fails has no queue to preserve: put setup help in
+    // view immediately. Later outages keep the last good queue visible.
+    if (snapshot?.error && snapshot.fetchedAt === 0) setShowSetup(true);
+  }, [snapshot?.error, snapshot?.fetchedAt]);
+
+  useEffect(() => {
     void useInboxStore.getState().load(workspace.id);
     // A different workspace's snapshot has its own keys; carrying a
     // selection across would risk landing on an unrelated item that
     // happens to share a repo/number with one in the workspace just left.
     setSelectedKey(null);
-  }, [workspace.id]);
+  }, [workspace.id, workspace.provider?.accountLogin, workspace.provider?.org]);
 
   const items = snapshot?.items ?? NO_ITEMS;
   const repos = useMemo(() => reposInSnapshot(items), [items]);
@@ -175,6 +190,18 @@ export function InboxView({ workspace }: InboxViewProps) {
         onRefresh={() => void refresh(workspace.id)}
       />
       <ViewTabs active={view} counts={counts} onSelect={setView} panelId={panelId} />
+      {snapshot?.error && (
+        <div className="inbox-setup-recovery">
+          <button className="inbox-pane-secondary" aria-expanded={showSetup}
+            onClick={() => setShowSetup(!showSetup)}>
+            {showSetup ? 'Hide GitHub setup' : 'Review GitHub setup'}
+          </button>
+          {showSetup && <section className="inbox-setup" aria-label="Review GitHub setup">
+            <ProviderBindingPanel workspace={workspace} onConnected={() => void refresh(workspace.id)} />
+            <button className="inbox-pane-secondary" onClick={() => void refresh(workspace.id)}>Retry Inbox</button>
+          </section>}
+        </div>
+      )}
       <div className="inbox-body">
         <div
           className="inbox-main"

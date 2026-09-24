@@ -69,7 +69,12 @@
   background: var(--color-accent);
 }
 
-/* Pinned Inbox row — only rendered for GitHub-bound workspaces */
+/* Integration rows use the sidebar's existing compact navigation rhythm. */
+.sidebar-integrations {
+  margin-top: var(--space-3);
+}
+
+/* Pinned Inbox row */
 .sidebar-inbox {
   padding: var(--space-2) var(--space-2) 0;
 }

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Home, Inbox, MoreVertical, Plus } from 'lucide-react';
+import { GitPullRequest, Home, Inbox, MoreVertical, Plus } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tabs from '@radix-ui/react-tabs';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -8,6 +8,7 @@ import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { itemsForView } from '../../../shared/inboxViews';
+import { PROVIDER_META } from '../../../shared/providers';
 import { SessionNavItem } from './SessionNavItem';
 import { NavigationSettings } from './NavigationSettings';
 import { GroupNavItem } from './GroupNavItem';
@@ -80,15 +81,27 @@ export function Sidebar() {
   />;
 
   return (
-    <aside className="sidebar" aria-label="Home sidebar">
+    <aside className="sidebar" aria-label={isInboxOpen ? 'Inbox sidebar' : 'Home sidebar'}>
       <div className="sidebar-workspace"><WorkspaceMenu /><NavigationSettings /><NewMenu /></div>
       <nav className="app-navigation" aria-label="Main navigation">
         <button className={`app-navigation-item ${!isInboxOpen ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={!isInboxOpen ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span className="app-navigation-label">Home</span></button>
-        {workspace?.provider && <button className={`app-navigation-item ${isInboxOpen ? 'active' : ''}`} aria-label="Inbox" title="Inbox" aria-current={isInboxOpen ? 'page' : undefined}
-          onClick={() => useNavigationStore.getState().openInbox()}><Inbox size={18} /><span className="app-navigation-label">Inbox</span>{inboxCount > 0 && <span className="app-navigation-badge">{inboxCount}</span>}</button>}
+        {workspace && <button className={`app-navigation-item ${isInboxOpen ? 'active' : ''}`} aria-label="Inbox" title="Inbox" aria-current={isInboxOpen ? 'page' : undefined}
+          onClick={() => useNavigationStore.getState().openInbox()}><Inbox size={18} /><span className="app-navigation-label">Inbox</span>{workspace.provider && inboxCount > 0 && <span className="app-navigation-badge">{inboxCount}</span>}</button>}
       </nav>
-      {workspace && <>
+      {workspace && isInboxOpen && <div className="home-navigation">
+        <div className="home-session-panel">
+          <section className="sidebar-section sidebar-integrations" aria-label="Integrations">
+            <div className="sidebar-section-header"><span className="sidebar-section-title">Integrations</span></div>
+            <button className="sidebar-inbox-row active" aria-current="page" onClick={() => useNavigationStore.getState().openInbox()}>
+              <GitPullRequest size={14} aria-hidden="true" />
+              <span className="sidebar-inbox-name">{PROVIDER_META.github.displayName}</span>
+              {!workspace.provider ? <span className="sidebar-inbox-count">Set up</span> : inboxCount > 0 && <span className="sidebar-inbox-count">{inboxCount}</span>}
+            </button>
+          </section>
+        </div>
+      </div>}
+      {workspace && !isInboxOpen && <>
         <Tabs.Root className="home-navigation" value={tab} onValueChange={value => useHomeStore.getState().selectTab(workspace.id, value as 'home' | 'all')}>
           <Tabs.List className="home-tabs" aria-label="Session views">
             <Tabs.Trigger className="home-tab" value="home">Home</Tabs.Trigger>
