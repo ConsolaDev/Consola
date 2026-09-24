@@ -16,9 +16,9 @@
   <a href="#development">Development</a>
 </p>
 
-![Consola desktop app showing the workspace sidebar and a new conversation ready to start](docs/assets/consola-screenshot.png)
+![Consola desktop app showing grouped sessions, an active Codex conversation, and integrated file and Git review panels](docs/assets/consola-screenshot.png)
 
-<p align="center"><sub>A new conversation in Consola, with agent selection and Git checkout controls.</sub></p>
+<p align="center"><sub>An active Codex session in Consola, with grouped conversations, files, and Git review side by side.</sub></p>
 
 ## What is Consola?
 
