@@ -2,7 +2,7 @@
 
 A standalone static landing page for Consola. The authored website is in `public/`, separate from the Electron app. The website is deployed using the repository-root Vercel configuration.
 
-The workspace section shows a desktop capture without an added background with a link to the full-size image. Its asset is `public/assets/consola-screenshot.png`; keep it in sync with `docs/assets/consola-screenshot.png`, used by the root README. The page includes responsive layouts, visible focus states, reduced-motion support, and local font and icon assets.
+The workspace section shows a desktop capture without an added background with a link to the full-size image. Its asset is `public/assets/consola-screenshot.png`; the root README uses the same asset. The page includes responsive layouts, visible focus states, reduced-motion support, and local font and icon assets.
 
 ## Vercel deployment
 
@@ -37,8 +37,8 @@ The distribution configuration names DMGs `Consola-${version}-${arch}.dmg`
 (`arm64` and `x64`). Keep those names in sync with asset selection in
 `public/app.js`. ZIPs and update metadata are reserved for the desktop updater.
 
-Follow the [desktop release guide](../../docs/desktop-updates.md) to build,
-test, and publish signed installers. The release workflow creates a **draft**;
+Use the [desktop release workflow](../../.github/workflows/release.yml) to build
+and publish signed installers. The release workflow creates a **draft**;
 it must be published as a stable release before the website can offer downloads.
 There were no published releases when this integration was added.
 

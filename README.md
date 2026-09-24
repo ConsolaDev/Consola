@@ -16,7 +16,7 @@
   <a href="#development">Development</a>
 </p>
 
-![Consola desktop app showing grouped sessions, an active Codex conversation, and integrated file and Git review panels](docs/assets/consola-screenshot.png)
+![Consola desktop app showing grouped sessions, an active Codex conversation, and integrated file and Git review panels](apps/website/public/assets/consola-screenshot.png)
 
 <p align="center"><sub>An active Codex session in Consola, with grouped conversations, files, and Git review side by side.</sub></p>
 
@@ -80,7 +80,7 @@ pnpm start
 ```
 
 For signed installers and publishing updates to installed apps, see the
-[desktop release guide](docs/desktop-updates.md).
+[desktop release workflow](.github/workflows/release.yml).
 
 ### Using Codex
 
@@ -133,8 +133,8 @@ apps/
     └── public/     # Authored HTML, CSS, JS, and assets
 ```
 
-Implementation plans live in `docs/plans/`, and research and design mockups
-live in `docs/research/`.
+Local implementation plans, research, and design mockups belong in the ignored
+root `docs/` folder and are not included in this repository.
 
 The root manages pnpm workspaces and Turborepo tasks. Future shared packages
 can live in `packages/*`. Desktop outputs are in `apps/desktop/dist`, installers
