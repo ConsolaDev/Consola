@@ -57,6 +57,18 @@ test('adds a Codex harness in settings, launches a configured session, and resum
     expect(first.home).toBe(codexHome);
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
 
+    // Wheel scrolling must move through conversation history, not just leave
+    // a working composer on an alternate screen with no scrollback.
+    const slider = page.locator('.terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider');
+    const sliderTop = () => slider.evaluate(element => parseFloat((element as HTMLElement).style.top));
+    await expect.poll(sliderTop).toBeGreaterThan(0);
+    const bottom = await sliderTop();
+    await page.locator('.terminal-surface .xterm-screen').hover();
+    await page.mouse.wheel(0, -600);
+    await expect.poll(sliderTop).toBeLessThan(bottom);
+    await page.mouse.wheel(0, 10000);
+    await expect.poll(sliderTop).toBe(bottom);
+
     // A tab can change conversations without restarting its PTY.
     const input = page.getByRole('textbox', { name: 'Terminal input' });
     await input.focus();

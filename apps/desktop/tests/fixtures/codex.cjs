@@ -67,6 +67,12 @@ if (args.includes('--version')) {
   }
   fs.appendFileSync(path.join(home, 'launches.jsonl'), JSON.stringify({ args, home }) + '\n');
   process.stdout.write(`\x1b]0;${args[1]}\x07`);
+  // Model the CLI's alternate-screen default so the UI test catches launches
+  // that discard native scrollback, even though they still display a prompt.
+  if (!args.includes('--no-alt-screen')) process.stdout.write('\x1b[?1049h');
+  for (let line = 1; line <= 150; line++) {
+    process.stdout.write(`Conversation history line ${line}\r\n`);
+  }
   process.stdout.write('Codex fixture ready\r\n› ');
   let input = '';
   process.stdin.on('data', chunk => {

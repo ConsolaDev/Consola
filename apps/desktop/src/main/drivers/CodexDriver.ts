@@ -148,6 +148,9 @@ export class CodexDriver implements HarnessDriver {
             ...(launch.model ? ['--model', launch.model] : []),
             ...config.extraArgs,
             ...mcp,
+            // Keep conversation history in xterm's scrollback. The alternate
+            // screen has no native scrollback for the embedded view to scroll.
+            ...(config.extraArgs.includes('--no-alt-screen') ? [] : ['--no-alt-screen']),
             // OSC title updates follow /new, /clear and /resume in this PTY.
             // Keep this after profile overrides: it is our session identity channel.
             '-c', 'tui.terminal_title=["thread-id"]',

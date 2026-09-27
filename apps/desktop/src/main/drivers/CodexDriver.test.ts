@@ -153,8 +153,18 @@ describe('Codex harness', () => {
     });
     expect(args.slice(2)).toEqual([
       '--model', 'chosen-model', '--sandbox', 'read-only',
+      '--no-alt-screen',
       '-c', 'tui.terminal_title=["thread-id"]', '--', '-Explain this\nwith examples',
     ]);
+  });
+
+  it('preserves scrollback on new and resumed sessions without duplicating an explicit flag', async () => {
+    for (const resume of [false, true]) {
+      for (const extraArgs of [[], ['--no-alt-screen']]) {
+        const args = await driver().buildSessionArgs({ ...config(), extraArgs }, launch(resume));
+        expect(args.filter(arg => arg === '--no-alt-screen')).toHaveLength(1);
+      }
+    }
   });
 
   it('resumes the active thread after an in-terminal switch and app restart', async () => {
