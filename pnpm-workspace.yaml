@@ -5,10 +5,17 @@ packages:
 # Keep transitive dependencies outside the affected security advisory ranges.
 overrides:
   '@xmldom/xmldom@>=0.7.0 <0.8.15': 0.8.15
-  'fast-uri@>=3.0.0 <3.1.6': 3.1.6
-  'hono@<4.13.5': 4.13.5
+  'brace-expansion@<1.1.21': 1.1.21
+  'brace-expansion@>=2.0.0 <2.1.7': 2.1.7
+  'brace-expansion@>=4.0.0 <5.0.12': 5.0.12
+  'fast-uri@>=3.0.0 <3.1.8': 3.1.8
+  'hono@<4.13.7': 4.13.12
+  'ip-address@<10.7.1': 10.7.3
+  'joi@>=18.0.0 <18.2.6': 18.2.9
   'js-yaml@>=4.0.0 <4.3.2': 4.3.2
   'qs@>=2.2.5 <6.16.0': 6.16.0
+  'undici@<6.28.1': 6.29.0
+  'undici@>=7.0.0 <7.29.1': 7.29.1
 
 # Electron and the native terminal/build dependencies require install scripts.
 onlyBuiltDependencies:
