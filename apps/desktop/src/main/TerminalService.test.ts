@@ -216,6 +216,29 @@ describe('TerminalService prompt FIFO', () => {
         service.destroy();
     });
 
+    it('treats a faint placeholder suggestion as an empty composer', async () => {
+        const pty = installFakePty();
+        const service = await buildService('seeded');
+
+        // Claude paints an example prompt in faint text inside an empty composer.
+        pty.feed('❯ \x1b[2mTry "how do I log an error?"\x1b[22m');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual(pasted('seeded'));
+
+        service.destroy();
+    });
+
+    it('never types over text the user has started in the composer', async () => {
+        const pty = installFakePty();
+        const service = await buildService('seeded');
+
+        pty.feed('❯ half a thought');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual([]);
+
+        service.destroy();
+    });
+
     it('seeds the queue from initialPrompt', async () => {
         const pty = installFakePty();
         const service = await buildService('seeded');

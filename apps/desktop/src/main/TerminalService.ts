@@ -41,7 +41,8 @@ const CONFIRMATION_MARKERS = [
  * Waiting for this positive signal — rather than merely for output to stop —
  * keeps a queued prompt out of the startup repaint and out of any menu, and
  * requiring the composer to be *empty* means it can never clobber text the user
- * has already begun typing.
+ * has already begun typing. Matched against the screen with faint text
+ * removed, so Claude's placeholder suggestion still counts as empty.
  */
 const COMPOSER_READY_PATTERN = /^\s*[❯>›]\s*$/;
 
@@ -427,8 +428,10 @@ export class TerminalService extends EventEmitter {
     private isComposerReady(): boolean {
         if (!this.screen) return false;
 
+        // Without faint cells: the placeholder suggestion Claude shows in an
+        // empty composer would otherwise read as text the user had typed.
         return this.screen
-            .visibleText()
+            .visibleTextWithoutFaint()
             .split('\n')
             .some((line) => COMPOSER_READY_PATTERN.test(line));
     }
