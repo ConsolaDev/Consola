@@ -13,6 +13,8 @@
 !apps/website/src/**
 !apps/website/demo
 !apps/website/demo/**
+!apps/website/download
+!apps/website/download/**
 !apps/website/public
 !apps/website/public/**
 !apps/desktop
