@@ -123,6 +123,11 @@ export const fileSchema = z
         version: z.literal(1, {
             errorMap: () => ({ message: 'Expected `version: 1` at the top of the file.' }),
         }),
-        automations: z.array(z.unknown()).default([]),
+        // `automations:` with only comments under it is YAML null, and it is
+        // what a file looks like once its last automation is commented out.
+        automations: z
+            .array(z.unknown())
+            .nullish()
+            .transform((automations) => automations ?? []),
     })
     .strict();

@@ -24,16 +24,24 @@ export interface LoadedFactoryFile {
     spec: FactorySpecParseResult;
 }
 
-/** Shown by "Open file" when there is no file yet: valid, inert, and self-explaining. */
+/**
+ * Shown by "Open file" when there is no file yet: valid, inert, and self-explaining.
+ *
+ * The example's description is commented one level deeper than the example,
+ * inside the entry. Turning the example on means selecting it and toggling
+ * the comment, which strips one level from every line: prose at the same
+ * level as the YAML would become YAML, and the file would stop loading.
+ */
 export const FACTORY_TEMPLATE = `# This workspace's automations, run by Consola while it is open.
 # Each one acts only on this workspace.
 # Modes: auto | confirm (the default: you approve each run) | notify (report only).
+# To turn the example on, uncomment its lines.
 version: 1
 automations:
-  # Every morning, remove sessions whose pull request was merged or closed,
-  # with their Consola worktrees and branches. Anything with unsaved or
-  # unpushed work is kept. Starts as "confirm": you approve each run.
   # - name: clean-up-stale-sessions
+  #   # Every morning, remove sessions whose pull request was merged or closed,
+  #   # with their Consola worktrees and branches. Anything with unsaved or
+  #   # unpushed work is kept. Starts as "confirm": you approve each run.
   #   on: { cron: "0 9 * * *" }
   #   run: consola#cleanup_stale_sessions
   #   with: { pr_states: [merged, closed] }

@@ -55,6 +55,12 @@ describe('parseFactorySpec', () => {
         expect(parseFactorySpec('# nothing yet\n')).toEqual({ automations: [], issues: [] });
     });
 
+    it('treats an automations key with nothing under it as no automations', () => {
+        // What a file looks like once its last automation is commented out.
+        const text = 'version: 1\nautomations:\n  # - name: a\n  #   on: { cron: "0 9 * * *" }\n';
+        expect(parseFactorySpec(text)).toEqual({ automations: [], issues: [] });
+    });
+
     it('loads nothing and reports the line when the YAML itself is broken', () => {
         const result = parseFactorySpec('version: 1\nautomations:\n  - name: a\n   bad: [\n');
         expect(result.automations).toEqual([]);
