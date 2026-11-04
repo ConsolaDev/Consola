@@ -1,6 +1,6 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
-import type { WindowContext, WorkspaceView } from '../shared/types';
+import type { SettingsSectionRequest, WindowContext, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
@@ -198,6 +198,27 @@ export function focusOrCreate(
 
 export function getAnyWindow(): BrowserWindow | null {
     return BrowserWindow.getAllWindows()[0] ?? null;
+}
+
+/**
+ * Bring a window forward with Settings open — the focused one, any one, or a
+ * fresh one when none is left (macOS keeps running with zero windows).
+ */
+export function showSettingsSection(
+    section: SettingsSectionRequest | undefined,
+    knownWorkspaceIds: Set<string>,
+    viewMemory: ViewMemoryAccess
+): void {
+    const existing = BrowserWindow.getFocusedWindow() ?? getAnyWindow();
+    const target = existing ?? createWindow(contextToReopen(knownWorkspaceIds, viewMemory));
+    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, section);
+    if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
+    else open();
+    if (target.isMinimized()) target.restore();
+    if (!isBackgroundTest) {
+        target.show();
+        target.focus();
+    }
 }
 
 /**

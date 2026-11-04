@@ -1,7 +1,7 @@
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus, CalendarClock } from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
@@ -13,9 +13,10 @@ import { useTheme } from '../../hooks/useTheme';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
+import { AutomationsSection } from '../Automations';
 import './styles.css';
 
-export type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts' | 'updates';
+export type SettingsSection = 'appearance' | 'harnesses' | 'automations' | 'shortcuts' | 'updates';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -30,6 +31,8 @@ const sections: SettingsSectionConfig[] = [
   { id: 'updates', label: 'Updates', icon: Monitor },
   { id: 'appearance', label: 'Appearance', icon: Palette },
   { id: 'harnesses', label: 'Harnesses', icon: Boxes },
+  // Personal automations span workspaces (factory.yml selects them), so they are global.
+  { id: 'automations', label: 'Automations', icon: CalendarClock },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
 ];
 
@@ -101,6 +104,7 @@ export function SettingsModal({ open, onOpenChange, activeSection, onSectionChan
               />
             )}
             {activeSection === 'harnesses' && <HarnessesSection />}
+            {activeSection === 'automations' && <AutomationsSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
             {activeSection === 'updates' && <AppUpdatesSection />}
           </div>

@@ -115,6 +115,16 @@ export const IPC_CHANNELS = {
     WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
     WINDOW_OPEN_SETTINGS: 'window:open-settings',
     WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
+
+    // Personal automations (renderer -> main; main runs them)
+    AUTOMATIONS_GET_SNAPSHOT: 'automations:get-snapshot', // Parsed factory.yml, schedule and run history
+    AUTOMATIONS_RUN_NOW: 'automations:run-now',           // Fire one automation now, in its own mode
+    AUTOMATIONS_APPROVE: 'automations:approve',           // Approve a run waiting in confirm mode
+    AUTOMATIONS_DISMISS: 'automations:dismiss',           // Dismiss a run waiting in confirm mode
+    AUTOMATIONS_OPEN_FILE: 'automations:open-file',       // Open factory.yml, creating it from a template
+
+    // Personal automations (main -> every renderer)
+    AUTOMATIONS_CHANGED: 'automations:changed',           // A fresh AutomationsSnapshot
 } as const;
 
 export const DEFAULT_DIMENSIONS = {

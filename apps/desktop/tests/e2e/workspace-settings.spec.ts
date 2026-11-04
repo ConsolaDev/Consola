@@ -400,6 +400,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'Updates',
       'Appearance',
       'Harnesses',
+      'Automations',
       'Keyboard Shortcuts',
     ]);
 

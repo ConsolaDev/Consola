@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
 import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
-import { mcpConfigForSession } from './conductor/ConductorControlServer';
+import { mcpConfigForSession } from './mcp/SessionMcpHost';
 import type { TerminalServiceOptions } from './TerminalService';
 
 /**
@@ -61,10 +61,10 @@ function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
 
 export class SessionLauncher {
     /**
-     * Kind-gated MCP registration, set at wiring time (ipc-handlers).
-     * Optional so unit tests and early boot need no conductor machinery.
+     * The Consola MCP endpoint every session gets, set at wiring time
+     * (ipc-handlers). Optional so unit tests and early boot need no MCP.
      */
-    public conductorControl?: { register(session: Session): Promise<string> };
+    public mcpHost?: { register(session: Pick<Session, 'id'>): Promise<string> };
 
     constructor(
         private readonly workspaces: SessionRecordStore,
@@ -112,11 +112,11 @@ export class SessionLauncher {
             );
         }
 
-        // Conductors, and only conductors, get an endpoint and a config file
-        // pointing at it. The gate is `mcpConfigForSession`, shared with
-        // TERMINAL_CREATE, so both launch paths agree on what a conductor is.
-        const mcpConfigPath = this.conductorControl
-            ? await mcpConfigForSession(session, this.conductorControl)
+        // Every session gets an endpoint and a config file pointing at it;
+        // `mcpConfigForSession`, shared with TERMINAL_CREATE, decides what a
+        // failure to set one up means for each kind.
+        const mcpConfigPath = this.mcpHost
+            ? await mcpConfigForSession(session, this.mcpHost)
             : undefined;
 
         const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);

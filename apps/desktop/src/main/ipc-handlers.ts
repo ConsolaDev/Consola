@@ -3,7 +3,8 @@ import type { ShellOptions } from '../shared/shell';
 import { scopeForSession } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
-import { ipcMain, BrowserWindow, dialog, app, Notification } from 'electron';
+import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, shell } from 'electron';
+import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
@@ -20,16 +21,21 @@ import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/laun
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { NotificationPolicy, findSessionByInstanceId } from './attention';
-import {
-    ConductorControlServer,
-    mcpConfigForSession,
-    type ConductorSessionStatus,
-} from './conductor/ConductorControlServer';
+import { ConductorTools } from './conductor/ConductorTools';
+import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
+import { buildSessionServer } from './mcp/buildSessionServer';
+import { SessionRemover } from './SessionRemover';
+import { SessionCleanupService } from './cleanup/SessionCleanupService';
+import { ToolRegistry } from './tools/Tool';
+import { consolaTools } from './tools/consolaTools';
+import { AutomationService } from './automations/AutomationService';
+import { FactoryFile } from './automations/FactoryFile';
+import { RunStore, type AutomationStateFile } from './automations/RunStore';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
-import { deriveTerminalStatus } from '../shared/terminalStatus';
+import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { InboxSection } from '../shared/inboxSections';
 import { isGitProviderId, type GitProviderId } from '../shared/providers';
@@ -69,6 +75,7 @@ import {
     findWindowForWorkspace,
     focusOrCreate,
     getWorkspaceFor,
+    showSettingsSection,
     viewsFromStoredLayout,
     type ViewMemoryAccess,
 } from './window-manager';
@@ -98,6 +105,10 @@ let harnessService: HarnessService | null = null;
 let inboxService: InboxService | null = null;
 let worktreeService: WorktreeService | null = null;
 let onBrowserWindowFocus: (() => void) | null = null;
+
+// Personal automations (~/.consola/factory.yml), run while the app is open.
+let automationService: AutomationService | null = null;
+let onPowerResume: (() => void) | null = null;
 
 /**
  * Load a state service, or refuse to start.
@@ -200,6 +211,20 @@ export function setupIpcHandlers(): boolean {
         workspaces.moveWorkspace(id, beforeId);
     });
 
+    // The one way a session goes away in main. Its collaborators are built
+    // further down; the closures only run once setup has finished.
+    const sessionRemover = new SessionRemover({
+        deleteRecord: (workspaceId, sessionId) => workspaces.deleteSession(workspaceId, sessionId),
+        destroyTerminal: (instanceId) => {
+            terminalManager?.destroy(instanceId);
+            notificationPolicy.forget(instanceId);
+        },
+        destroyShell: (instanceId) => shellManager?.destroy(instanceId),
+        // A session's endpoint would otherwise outlive its record as a
+        // listening socket and a config file nothing can name again.
+        releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
+    });
+
     ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
         // Read the sessions while the record still exists. Once it is gone
         // nothing can name these terminals again: their PTYs would run untended
@@ -207,23 +232,15 @@ export function setupIpcHandlers(): boolean {
         // the dock badge up forever, pointing at a session no window can reach
         // and no UI can dismiss.
         const doomed = workspaces.getAll().find((workspace) => workspace.id === id);
-        const stranded = doomed?.sessions.map((session) => session.instanceId) ?? [];
+        const stranded = doomed?.sessions ?? [];
 
         workspaces.deleteWorkspace(id);
 
         // Only once the delete has reached disk — a failed write throws above
         // and leaves the workspace, and its terminals, intact. destroy() clears
         // the awaiting set and fires onAttentionChanged, so the PTY and the
-        // badge close together.
-        for (const instanceId of stranded) {
-            terminalManager?.destroy(instanceId);
-            shellManager?.destroy(instanceId);
-        }
-
-        // Same reasoning one layer down: a conductor's endpoint would outlive
-        // its record as a listening socket and a config file on disk that
-        // nothing can ever name again. A no-op for every other session.
-        doomed?.sessions.forEach((session) => conductorControl.unregister(session.id));
+        // badge close together; the MCP endpoint goes with them.
+        stranded.forEach((session) => sessionRemover.stop(session));
     });
 
     const sessionCheckouts = new SessionCheckoutService();
@@ -273,13 +290,11 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
         (_event, workspaceId: string, sessionId: string) => {
-            // Before the record goes: unregister is a no-op for every session
-            // that never had an endpoint, and the only chance a conductor gets
-            // to have its socket closed and its config file removed.
-            conductorControl.unregister(sessionId);
             const session = workspaces.getAll().find(w => w.id === workspaceId)?.sessions.find(s => s.id === sessionId);
-            workspaces.deleteSession(workspaceId, sessionId);
-            if (session) shellManager?.destroy(session.instanceId);
+            // Record first, then the PTY, shell and MCP endpoint — in main,
+            // so the delete is whole even when no renderer sends the rest.
+            if (session) sessionRemover.remove(workspaceId, session);
+            else workspaces.deleteSession(workspaceId, sessionId);
         }
     );
 
@@ -304,11 +319,7 @@ export function setupIpcHandlers(): boolean {
                 ?.sessions.filter(session => session.scopeId === scopeId) ?? [];
             workspaces.removeScope(workspaceId, scopeId);
             // Stop the deleted sessions only after the entire change reaches disk.
-            for (const session of sessions) {
-                terminalManager?.destroy(session.instanceId);
-                shellManager?.destroy(session.instanceId);
-                conductorControl.unregister(session.id);
-            }
+            sessions.forEach((session) => sessionRemover.stop(session));
         }
     );
 
@@ -614,10 +625,21 @@ export function setupIpcHandlers(): boolean {
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
     const launcher = new SessionLauncher(workspaces, harnesses, manager);
 
-    // The conductor control plane. Tool logic runs here in main, next to the
-    // records and terminals it acts on; each conductor session reaches it
-    // through its own private socket (see ConductorControlServer).
-    const conductorControl = new ConductorControlServer({
+    // The same derivation the terminal:status event promotes, from the same
+    // flags — so what a tool sees and what the fleet UI shows can never
+    // disagree. A terminal that is gone (never mounted, or closed) is exited.
+    const sessionStatus = (instanceId: string): TerminalStatus => {
+        const terminal = manager.get(instanceId);
+        if (!terminal) return 'exited';
+        return deriveTerminalStatus({
+            busy: terminal.busy(),
+            awaitingConfirmation: terminal.awaitingConfirmation(),
+            exited: terminal.hasClaudeExited(),
+        });
+    };
+
+    // A conductor's group tools: spawn, prompt and observe its workers.
+    const conductorTools = new ConductorTools({
         getWorkspaces: () => workspaces.getAll(),
         launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
         queuePrompt: (instanceId, prompt) => {
@@ -626,28 +648,108 @@ export function setupIpcHandlers(): boolean {
             terminal.queuePrompt(prompt);
             return true;
         },
-        // The same derivation the terminal:status event promotes, from the
-        // same flags — so what a conductor sees and what the fleet UI shows
-        // can never disagree. A terminal that is gone reads as exited.
-        getStatus: (instanceId): ConductorSessionStatus => {
-            const terminal = manager.get(instanceId);
-            if (!terminal) return 'exited';
-            return deriveTerminalStatus({
-                busy: terminal.busy(),
-                awaitingConfirmation: terminal.awaitingConfirmation(),
-                exited: terminal.hasClaudeExited(),
-            });
+        getStatus: sessionStatus,
+    });
+
+    // Finished-PR cleanup and single deletes: one service behind the MCP
+    // tools, automations and Settings alike.
+    const sessionCleanup = new SessionCleanupService({
+        getWorkspaces: () => workspaces.getAll(),
+        status: sessionStatus,
+        driverFor: (workspace) => {
+            if (!workspace.provider) return null;
+            try {
+                return getProviderDriver(workspace.provider.id);
+            } catch {
+                return null; // A provider this build lacks.
+            }
         },
+        // Token composed here and only here, like the Inbox: never on IPC.
+        composeEnv: (workspace) =>
+            composeProviderEnv(getProviderDriver(workspace.provider!.id), workspace.provider!.accountLogin),
+        worktrees,
+        remover: sessionRemover,
+    });
+
+    // Consola's own tools — one registry, three callers: agents (MCP),
+    // automations (factory.yml) and the app.
+    const tools = new ToolRegistry();
+    consolaTools({
+        cleanup: sessionCleanup,
+        getWorkspaces: () => workspaces.getAll(),
+        status: sessionStatus,
+        isManagedPath: (dir) => worktrees.isManagedPath(dir),
+        automations: () => automations,
+    }).forEach((tool) => tools.register(tool));
+
+    // Every session's private MCP endpoint (see SessionMcpHost): the Consola
+    // tools for all, plus the group tools for conductors.
+    const mcpHost = new SessionMcpHost({
         // In the packaged app the shim must be a real file on disk — the
         // claude CLI, an outside process, spawns it. Hence asarUnpack.
         shimEntryPath: () =>
             path
                 .join(__dirname, 'conductor/conductorShim.js')
                 .replace('app.asar', 'app.asar.unpacked'),
-        configDir: () => path.join(app.getPath('userData'), 'conductor-mcp'),
+        configDir: () => path.join(app.getPath('userData'), 'session-mcp'),
+        buildServer: (sessionId) =>
+            buildSessionServer(sessionId, {
+                registry: tools,
+                conductorTools,
+                getWorkspaces: () => workspaces.getAll(),
+            }),
     });
-    launcher.conductorControl = conductorControl;
-    app.on('will-quit', () => conductorControl.dispose());
+    launcher.mcpHost = mcpHost;
+    app.on('will-quit', () => mcpHost.dispose());
+
+    const automations = new AutomationService({
+        file: new FactoryFile(),
+        store: new RunStore(
+            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json'))
+        ),
+        registry: tools,
+        getWorkspaces: () => workspaces.getAll(),
+        now: () => new Date(),
+        newId: () => randomUUID(),
+        notify: (notice) => {
+            if (!Notification.isSupported()) return;
+            const notification = new Notification({ title: notice.title, body: notice.body });
+            notification.on('click', () =>
+                showSettingsSection('automations', getKnownWorkspaceIds(), viewMemoryPort())
+            );
+            notification.show();
+        },
+        broadcast: (snapshot) => {
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, snapshot);
+            }
+        },
+        every: (ms, run) => {
+            const timer = setInterval(run, ms);
+            timer.unref?.();
+            return () => clearInterval(timer);
+        },
+    });
+    automationService = automations;
+    void automations.start().catch((error) => console.error('Automations failed to start.', error));
+    // A laptop asleep at 09:00 wakes into a due run: check right away rather
+    // than at the next tick.
+    onPowerResume = () => void automations.tick();
+    powerMonitor.on('resume', onPowerResume);
+
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, () => automations.snapshot());
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, (_event, name: string) => {
+        if (typeof name !== 'string') throw new Error('Automation name required.');
+        return automations.trigger(name);
+    });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_APPROVE, (_event, runId: string) => automations.approve(String(runId)));
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_DISMISS, (_event, runId: string) => automations.dismiss(String(runId)));
+    // Creates the file from a commented template first, so "Open" always
+    // lands in an editor rather than an error.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async () => {
+        const failure = await shell.openPath(await automations.ensureFile());
+        if (failure) throw new Error(failure);
+    });
 
     ipcMain.handle(IPC_CHANNELS.CONDUCTOR_CREATE, (_event, request: ConductorCreateRequest) =>
         createConductor(
@@ -706,17 +808,24 @@ export function setupIpcHandlers(): boolean {
         const providerId = workspace?.provider?.id;
         const providerAccountLogin = workspace?.provider?.accountLogin;
 
-        // Conductors get their control tools back on every relaunch: the
+        // Every session gets its Consola tools back on every relaunch: the
         // config file references this run's socket, so it is (re)generated
-        // before the PTY spawns. Kind-gated — every other session passes
-        // through untouched, and the renderer never sees the path.
+        // before the PTY spawns. The renderer never sees the path.
         const record = workspaces
             .getAll()
             .flatMap((candidate) => candidate.sessions)
             .find((session) => session.instanceId === instanceId);
         const mcpConfigPath = record
-            ? await mcpConfigForSession(record, conductorControl)
+            ? await mcpConfigForSession(record, mcpHost)
             : undefined;
+        // The await above is a window: a session deleted during it must not
+        // get a PTY that nothing can name again.
+        if (
+            record &&
+            !workspaces.getAll().some((candidate) => candidate.sessions.some((session) => session.id === record.id))
+        ) {
+            throw new Error('Session was deleted before its terminal started.');
+        }
 
         return manager.ensure(instanceId, {
             cwd,
@@ -1465,6 +1574,18 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
+
+    automationService?.stop();
+    automationService = null;
+    if (onPowerResume) {
+        powerMonitor.removeListener('resume', onPowerResume);
+        onPowerResume = null;
+    }
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);
 
     // Clean up all terminal services
     ipcMain.removeHandler(IPC_CHANNELS.SHELL_ATTACH);

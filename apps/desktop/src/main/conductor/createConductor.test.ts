@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Group } from '../../shared/workspace';
 import { createConductor, type CreateConductorDeps } from './createConductor';
-import { makeSession, makeWorkspace } from './ConductorControlServer.test';
+import { makeSession, makeWorkspace } from './ConductorTools.test';
 
 const request = {
     workspaceId: 'ws-1',

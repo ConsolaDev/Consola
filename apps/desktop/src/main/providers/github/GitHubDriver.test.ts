@@ -521,3 +521,84 @@ describe('GitHubDriver identity, URLs and header', () => {
     expect(driver.seedHeader(issue87)).toContain('issue #87 ("Issue #87") in sprocket/media-upload-api');
   });
 });
+
+describe('GitHubDriver.lookupPullRequests', () => {
+  beforeEach(() => {
+    process.env.CONSOLA_GH_PATH = FIXTURE_GH;
+  });
+
+  const pull = (number: number, extra: Record<string, unknown> = {}) => ({
+    number,
+    state: 'closed',
+    merged_at: '2026-10-01T10:00:00Z',
+    html_url: `https://github.com/acme/app/pull/${number}`,
+    created_at: '2026-09-01T10:00:00Z',
+    head: { sha: 'b'.repeat(40), ref: `branch-${number}` },
+    ...extra,
+  });
+
+  function pullsFixture(lines: Record<string, unknown>): Record<string, string> {
+    const file = path.join(dir, 'pulls.txt');
+    fs.writeFileSync(
+      file,
+      Object.entries(lines)
+        .map(([endpoint, body]) => `${endpoint} ${JSON.stringify(body)}`)
+        .join('\n')
+    );
+    return { STUB_GH_PULLS: file };
+  }
+
+  it('answers each query in order, by number and by head branch, with the token env', async () => {
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+    const env = fixtureEnv(
+      pullsFixture({
+        'repos/acme/app/pulls/51': pull(51),
+        'repos/acme/app/pulls?state=all&per_page=20&head=acme%3Afeature': [
+          pull(60, { state: 'open', merged_at: null }),
+        ],
+      })
+    );
+
+    const result = await driver.lookupPullRequests(
+      [
+        { repo: 'acme/app', number: 51 },
+        { repo: 'acme/app', headBranch: 'feature' },
+      ],
+      env
+    );
+
+    expect(result.map((lookup) => lookup.pullRequests.map((pr) => [pr.number, pr.status]))).toEqual([
+      [[51, 'merged']],
+      [[60, 'open']],
+    ]);
+    const calls = invocations();
+    expect(calls).toHaveLength(2);
+    expect(calls).toContain('api repos/acme/app/pulls/51 --hostname github.com GH_TOKEN=gho_test');
+  });
+
+  it('fails one query without failing the batch', async () => {
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+    const env = fixtureEnv(pullsFixture({ 'repos/acme/app/pulls/51': pull(51) }));
+
+    const [found, missing, invalid] = await driver.lookupPullRequests(
+      [
+        { repo: 'acme/app', number: 51 },
+        { repo: 'acme/app', number: 404 },
+        { repo: '../escape', number: 1 },
+      ],
+      env
+    );
+
+    expect(found.error).toBeUndefined();
+    expect(missing).toMatchObject({ pullRequests: [], error: expect.stringMatching(/Not Found/) });
+    expect(invalid.error).toMatch(/owner\/name/);
+    // The invalid query never reached gh.
+    expect(invocations()).toHaveLength(2);
+  });
+
+  it('names the repository behind a GitHub remote, and nothing else', () => {
+    const driver = new GitHubDriver(() => ({ PATH: '' }));
+    expect(driver.repoOfRemote('git@github.com:Acme/App.git')).toBe('acme/app');
+    expect(driver.repoOfRemote('https://gitlab.com/acme/app')).toBeNull();
+  });
+});

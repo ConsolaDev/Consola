@@ -1,6 +1,8 @@
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
+import { forgetSessionLocally } from '../utils/forgetSession';
+import { vanishedSessions } from '../utils/vanishedSessions';
 import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import {
@@ -172,6 +174,8 @@ export async function hydrateWorkspaceStore(): Promise<void> {
   useWorkspaceStore.setState({ workspaces: snapshot.workspaces });
 
   workspaceBridge.onChanged((workspaces) => {
+    const gone = vanishedSessions(useWorkspaceStore.getState().workspaces, workspaces);
     useWorkspaceStore.setState({ workspaces });
+    gone.forEach(forgetSessionLocally);
   });
 }

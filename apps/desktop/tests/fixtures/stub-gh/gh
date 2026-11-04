@@ -10,14 +10,19 @@
 #                                 flattened — the GraphQL query spans lines) then
 #                                 the GH_TOKEN the call saw
 #   GRAPHQL_INBOX_FIXTURE=path    `api graphql` prints this file instead of graphql-inbox.json
+#   STUB_GH_PULLS=path            `api repos/...` (endpoint first) answers from this file:
+#                                 one `<endpoint> <json>` pair per line; an endpoint
+#                                 with no line is a 404, as GitHub would answer
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ -n "${STUB_GH_LOG:-}" ]]; then
   # printf '%s' rather than echo so the only newline is the one added after
   # flattening; a trailing space would otherwise ride into every assertion.
-  printf '%s' "$* GH_TOKEN=${GH_TOKEN:-}" | tr '\n' ' ' >> "$STUB_GH_LOG"
-  printf '\n' >> "$STUB_GH_LOG"
+  # One write per call: concurrent callers (batched PR lookups) would
+  # otherwise interleave a line and its newline.
+  line="$(printf '%s' "$* GH_TOKEN=${GH_TOKEN:-}" | tr '\n' ' ')"
+  printf '%s\n' "$line" >> "$STUB_GH_LOG"
 fi
 
 if [[ "${STUB_GH_FAIL:-}" == "1" ]]; then
@@ -43,6 +48,19 @@ case "$cmd" in
     # The static fixture keeps fixed dates for the parser tests; the e2e
     # points this at a payload it generates with live timestamps.
     cat "${GRAPHQL_INBOX_FIXTURE:-$here/graphql-inbox.json}"
+    ;;
+  "api repos/"*)
+    # REST lookups (pull request state): gh api <endpoint> --hostname github.com
+    if [[ -n "${STUB_GH_PULLS:-}" && -f "$STUB_GH_PULLS" ]]; then
+      while IFS= read -r line || [[ -n "$line" ]]; do
+        if [[ "${line%% *}" == "$2" ]]; then
+          printf '%s\n' "${line#* }"
+          exit 0
+        fi
+      done < "$STUB_GH_PULLS"
+    fi
+    echo "gh: Not Found (HTTP 404)" >&2
+    exit 1
     ;;
   "pr checkout")
     # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.

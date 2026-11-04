@@ -437,6 +437,7 @@ declare global {
         conductorAPI: ConductorAPI;
         harnessStateAPI: HarnessStateAPI;
         windowAPI: WindowAPI;
+        automationsAPI: import('./automations').AutomationsAPI;
     }
 }
 
@@ -476,13 +477,16 @@ export type ActivateWorkspaceResult =
     | { verdict: 'took'; view: WorkspaceView }
     | { verdict: 'focused-elsewhere' };
 
+/** A Settings section main can open directly: the app menu's updates, an automation's approval. */
+export type SettingsSectionRequest = 'updates' | 'automations';
+
 /**
  * This window's identity, exposed by preload. Main arbitrates every change:
  * a workspace lives in at most one window, so `activateWorkspace` reports a
  * verdict rather than just applying the request.
  */
 export interface WindowAPI {
-    onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
+    onOpenSettings: (callback: (section?: SettingsSectionRequest) => void) => () => void;
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;

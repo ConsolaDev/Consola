@@ -163,27 +163,28 @@ describe('SessionLauncher', () => {
         expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
-    it('registers MCP config for conductor sessions only', async () => {
-        const register = vi.fn(async () => '/tmp/cond.json');
+    it('registers the Consola MCP endpoint for every kind of session', async () => {
+        const register = vi.fn(async (session: { id: string }) => `/tmp/${session.id}.json`);
 
-        const conductor = buildLauncher(sessionFixture({ kind: 'conductor' }));
-        conductor.launcher.conductorControl = { register };
-        await conductor.launcher.launchSession('ws-1', { ...launchFields, kind: 'conductor' });
+        for (const kind of ['conductor', 'interactive'] as const) {
+            const { launcher, terminals } = buildLauncher(sessionFixture({ kind }));
+            launcher.mcpHost = { register };
+            await launcher.launchSession('ws-1', { ...launchFields, kind });
+            // The tools reach the PTY as an opaque path.
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({ mcpConfigPath: '/tmp/session-1.json' })
+            );
+        }
+        expect(register).toHaveBeenCalledTimes(2);
+    });
 
-        // The conductor's control tools reach the PTY as an opaque path.
-        expect(register).toHaveBeenCalledTimes(1);
-        expect(conductor.terminals.startHeadless).toHaveBeenCalledWith(
-            'instance-1',
-            expect.objectContaining({ mcpConfigPath: '/tmp/cond.json' })
-        );
-
-        // Every other kind passes through untouched: no registration, no path.
-        const interactive = buildLauncher(sessionFixture());
-        interactive.launcher.conductorControl = { register };
-        await interactive.launcher.launchSession('ws-1', launchFields);
-
-        expect(register).toHaveBeenCalledTimes(1);
-        expect(interactive.terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
+    it('still launches an ordinary session when its MCP endpoint cannot be set up', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { launcher, terminals } = buildLauncher(sessionFixture());
+        launcher.mcpHost = { register: async () => Promise.reject(new Error('EACCES')) };
+        await launcher.launchSession('ws-1', launchFields);
+        expect(terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
     });
 
     it('pins nothing for the built-in or an unknown harness', async () => {

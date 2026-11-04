@@ -1,5 +1,6 @@
 import type { GitProviderId, ProviderBinding, ProviderProbeResult } from '../../shared/providers';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
+import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
 
 /**
  * What Consola needs from a git hosting provider in order to run its Inbox.
@@ -54,4 +55,19 @@ export interface GitProviderDriver {
 
   /** The fixed context header prepended to every action body. */
   seedHeader(ref: WorkItemRef, item?: InboxItem): string;
+
+  /**
+   * `owner/name` for a git remote URL on this provider, or null when the URL
+   * is not one of its repositories. How a worktree that was never linked to
+   * a work item learns which repository its branch's PR would live in.
+   */
+  repoOfRemote?(remoteUrl: string): string | null;
+
+  /**
+   * Pull requests in every state — open, merged, closed — by number or by
+   * head branch. One answer per query, in order; a failed query carries
+   * `error` instead of failing the batch. Must refuse unrecognised replies:
+   * an empty list reads as "no PR", and callers act on that.
+   */
+  lookupPullRequests?(queries: PullRequestQuery[], env: NodeJS.ProcessEnv): Promise<PullRequestLookup[]>;
 }

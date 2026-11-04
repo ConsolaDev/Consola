@@ -7,7 +7,7 @@ import { z } from 'zod/v3';
 
 /**
  * Proves the MCP SDK works under this repo's CommonJS main build before
- * ConductorControlServer is built on it: subpath imports resolve, a server
+ * SessionMcpHost is built on it: subpath imports resolve, a server
  * registers a zod-typed tool, and a client can call it end to end.
  */
 describe('MCP SDK interop', () => {

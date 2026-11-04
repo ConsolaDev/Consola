@@ -25,8 +25,10 @@ import {
     SessionFanOutResult,
     ScopeRepo,
     ConductorCreateRequest,
+    SettingsSectionRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import type { AutomationsAPI } from '../shared/automations';
 import type { InboxSection } from '../shared/inboxSections';
 import type { GitProviderId, ProviderProbeResult } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
@@ -401,9 +403,19 @@ function readWindowContext(): WindowContext {
     }
 }
 
+// Personal automations: main runs them; the renderer reads and sends intents.
+contextBridge.exposeInMainWorld('automationsAPI', {
+    getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT),
+    runNow: (name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, name),
+    approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
+    dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
+    openFile: () => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE),
+    onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
+} satisfies AutomationsAPI);
+
 contextBridge.exposeInMainWorld('windowAPI', {
-    onOpenSettings: (callback: (section?: 'updates') => void) =>
-        subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
+    onOpenSettings: (callback: (section?: SettingsSectionRequest) => void) =>
+        subscribe<SettingsSectionRequest | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
 
     context: readWindowContext(),
 
