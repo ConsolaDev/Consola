@@ -19,10 +19,9 @@ describe('automationVersion', () => {
         expect(automationVersion(base)).toMatch(/^[0-9a-f]{16}$/);
     });
 
-    it('changes with what the automation does: target, arguments, workspace, mode', () => {
+    it('changes with what the automation does: target, arguments, mode', () => {
         const version = automationVersion(base);
         expect(automationVersion({ ...base, with: { pr_states: ['merged'] } })).not.toBe(version);
-        expect(automationVersion({ ...base, workspace: 'Acme' })).not.toBe(version);
         expect(automationVersion({ ...base, mode: 'confirm' })).not.toBe(version);
         expect(automationVersion({ ...base, run: parseRunTarget('consola#other')! })).not.toBe(version);
     });

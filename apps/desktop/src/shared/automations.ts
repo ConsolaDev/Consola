@@ -2,14 +2,13 @@ import type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/facto
 
 export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
 
-/** One automation from factory.yml as the app shows it. */
+/** One automation from a workspace's factory.yml, as the app shows it. */
 export interface AutomationView {
     name: string;
     cron: string;
     mode: AutomationMode;
     /** The `run:` reference as written. */
     target: string;
-    workspace?: string;
     /** 1-based line in factory.yml. */
     line?: number;
     /** Next scheduled occurrence (ISO), or null when it will not be scheduled. */
@@ -21,31 +20,38 @@ export interface AutomationView {
     asksFirst?: boolean;
     /**
      * Why it is not scheduled even though the file parsed: an unknown tool,
-     * arguments the tool rejects, a workspace that does not exist.
+     * or arguments the tool rejects.
      */
     problem?: string;
 }
 
 /**
- * The automations surface of preload. Main owns the runner; the renderer
- * reads snapshots and sends intents — run, approve, dismiss, open the file.
+ * The automations surface of preload. Each workspace has its own factory.yml;
+ * main owns the runner, and the renderer reads one workspace's snapshot and
+ * sends intents — run, approve, dismiss, open the file.
  */
 export interface AutomationsAPI {
-    getSnapshot: () => Promise<AutomationsSnapshot>;
-    runNow: (name: string) => Promise<RunRecord>;
+    getSnapshot: (workspaceId: string) => Promise<AutomationsSnapshot>;
+    runNow: (workspaceId: string, name: string) => Promise<RunRecord>;
     approve: (runId: string) => Promise<RunRecord>;
     dismiss: (runId: string) => Promise<RunRecord>;
-    openFile: () => Promise<void>;
-    onChanged: (callback: (snapshot: AutomationsSnapshot) => void) => () => void;
+    openFile: (workspaceId: string) => Promise<void>;
+    onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 
-/** Everything the Automations settings section renders, pushed as one snapshot. */
+/** One workspace's automations changed: pushed to every window, each showing the ones it is open on. */
+export interface AutomationsChange {
+    workspaceId: string;
+    snapshot: AutomationsSnapshot;
+}
+
+/** Everything a workspace's Automations panel renders, pushed as one snapshot. */
 export interface AutomationsSnapshot {
     filePath: string;
     fileExists: boolean;
     automations: AutomationView[];
     /** Problems with the file itself or with individual entries. */
     issues: FactorySpecIssue[];
-    /** Newest first, capped. Includes runs waiting for approval. */
+    /** This workspace's runs, newest first, capped. Includes runs waiting for approval. */
     runs: RunRecord[];
 }

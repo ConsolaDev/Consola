@@ -2,34 +2,44 @@ import { useEffect, useState } from 'react';
 import { AlertTriangle, ExternalLink, Play } from 'lucide-react';
 import type { AutomationsSnapshot, AutomationView, RunRecord } from '../../../shared/automations';
 import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
+import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import './styles.css';
 
 /**
- * Settings › Automations: what ~/.consola/factory.yml asks for, what is
- * waiting for approval, and what already ran.
+ * A workspace's Automations panel: what its own factory.yml asks for, what is
+ * waiting for approval in it — its automations' plans and its agents'
+ * requests to delete — and what already ran.
  *
  * Read-only on the spec by design — the file is the source of truth, edited
  * in the person's own editor ("Open factory.yml"). Everything here is an
  * intent sent to main: run now, approve, dismiss.
  */
-export function AutomationsSection() {
+export function AutomationsPanel({ workspace }: { workspace: Workspace }) {
+  const workspaceId = workspace.id;
   const [snapshot, setSnapshot] = useState<AutomationsSnapshot | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let live = true;
-    void automationsBridge.getSnapshot().then((initial) => {
-      if (live && initial) setSnapshot(initial);
+    automationsBridge
+      .getSnapshot(workspaceId)
+      .then((initial) => {
+        if (live && initial) setSnapshot(initial);
+      })
+      .catch((failure) => {
+        if (live) setError(ipcErrorMessage(failure));
+      });
+    const unsubscribe = automationsBridge.onChanged((change) => {
+      if (change.workspaceId === workspaceId) setSnapshot(change.snapshot);
     });
-    const unsubscribe = automationsBridge.onChanged(setSnapshot);
     return () => {
       live = false;
       unsubscribe();
     };
-  }, []);
+  }, [workspaceId]);
 
   const act = async (key: string, intent: () => Promise<unknown>) => {
     setBusy(key);
@@ -47,22 +57,23 @@ export function AutomationsSection() {
   const history = snapshot?.runs.filter((run) => run.status !== 'needs-approval').slice(0, 15) ?? [];
 
   return (
-    <div className="settings-modal-section automations">
-      <div className="automations-header">
-        <h2 className="settings-modal-section-title">Automations</h2>
+    <section className="ws-panel automations">
+      <div className="ws-panel-header">
+        <h3 className="ws-panel-title">Automations</h3>
         <button
           type="button"
           className="dialog-button-secondary automations-small-button"
-          onClick={() => void act('open', automationsBridge.openFile)}
+          onClick={() => void act('open', () => automationsBridge.openFile(workspaceId))}
           disabled={busy === 'open'}
         >
           <ExternalLink size={13} />
           Open factory.yml
         </button>
       </div>
-      <p className="automations-description">
-        Defined in <code>{snapshot?.filePath ?? '~/.consola/factory.yml'}</code> and run by Consola while it is
-        open. A run missed while it was closed happens once, the next time it opens.
+      <p className="ws-panel-hint">
+        This workspace&rsquo;s own automations, each acting only on it. Defined in{' '}
+        <code>{snapshot?.filePath ?? 'its factory.yml'}</code> and run by Consola while it is open. A run
+        missed while it was closed happens once, the next time it opens.
       </p>
 
       {error && <div className="automations-error" role="alert">{error}</div>}
@@ -126,8 +137,8 @@ export function AutomationsSection() {
         {snapshot && snapshot.automations.length === 0 && snapshot.issues.length === 0 && (
           <div className="automations-empty">
             {snapshot.fileExists
-              ? 'No automations in factory.yml yet.'
-              : 'No factory.yml yet. Open it to start from a commented example — a daily cleanup of sessions whose pull request is merged or closed.'}
+              ? 'No automations in this workspace’s factory.yml yet.'
+              : 'No factory.yml for this workspace yet. Open it to start from a commented example — a daily cleanup of sessions whose pull request is merged or closed.'}
           </div>
         )}
         {snapshot?.automations.map((automation) => (
@@ -136,7 +147,7 @@ export function AutomationsSection() {
             automation={automation}
             running={busy === `run:${automation.name}` || isRunning(snapshot, automation.name)}
             disabled={busy !== null}
-            onRun={() => void act(`run:${automation.name}`, () => automationsBridge.runNow(automation.name))}
+            onRun={() => void act(`run:${automation.name}`, () => automationsBridge.runNow(workspaceId, automation.name))}
           />
         ))}
       </section>
@@ -156,7 +167,7 @@ export function AutomationsSection() {
           </ul>
         </section>
       )}
-    </div>
+    </section>
   );
 }
 
@@ -181,7 +192,6 @@ function AutomationCard({
         </div>
         <div className="automations-meta">
           <code>{automation.target}</code> · <code>{automation.cron}</code>
-          {automation.workspace ? ` · ${automation.workspace}` : ' · every workspace'}
         </div>
         {automation.problem ? (
           <div className="automations-problem">

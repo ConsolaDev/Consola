@@ -477,8 +477,14 @@ export type ActivateWorkspaceResult =
     | { verdict: 'took'; view: WorkspaceView }
     | { verdict: 'focused-elsewhere' };
 
-/** A Settings section main can open directly: the app menu's updates, an automation's approval. */
-export type SettingsSectionRequest = 'updates' | 'automations';
+/**
+ * A workspace's settings, opened by main at a section: how a notification
+ * about an automation lands on that workspace's approvals.
+ */
+export interface WorkspaceSettingsRequest {
+    workspaceId: string;
+    section: 'automations';
+}
 
 /**
  * This window's identity, exposed by preload. Main arbitrates every change:
@@ -486,7 +492,8 @@ export type SettingsSectionRequest = 'updates' | 'automations';
  * verdict rather than just applying the request.
  */
 export interface WindowAPI {
-    onOpenSettings: (callback: (section?: SettingsSectionRequest) => void) => () => void;
+    onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
+    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) => () => void;
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;

@@ -1,6 +1,6 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
-import type { SettingsSectionRequest, WindowContext, WorkspaceView } from '../shared/types';
+import type { WindowContext, WorkspaceSettingsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
@@ -201,24 +201,21 @@ export function getAnyWindow(): BrowserWindow | null {
 }
 
 /**
- * Bring a window forward with Settings open — the focused one, any one, or a
- * fresh one when none is left (macOS keeps running with zero windows).
+ * Bring forward the window holding a workspace — opening one if none does —
+ * with that workspace's settings open at a section. How a notification about
+ * an automation lands on the approvals it is about.
  */
-export function showSettingsSection(
-    section: SettingsSectionRequest | undefined,
-    knownWorkspaceIds: Set<string>,
+export function showWorkspaceSettings(
+    workspaceId: string,
+    section: WorkspaceSettingsRequest['section'],
     viewMemory: ViewMemoryAccess
 ): void {
-    const existing = BrowserWindow.getFocusedWindow() ?? getAnyWindow();
-    const target = existing ?? createWindow(contextToReopen(knownWorkspaceIds, viewMemory));
-    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, section);
+    const target = focusOrCreate(workspaceId, viewMemory);
+    const request: WorkspaceSettingsRequest = { workspaceId, section };
+    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, request);
     if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
     else open();
-    if (target.isMinimized()) target.restore();
-    if (!isBackgroundTest) {
-        target.show();
-        target.focus();
-    }
+    if (!isBackgroundTest) target.show();
 }
 
 /**

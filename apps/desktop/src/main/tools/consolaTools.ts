@@ -20,9 +20,9 @@ import {
 
 /** The slice of the automation runner the tools need, resolved lazily: the runner itself runs tools. */
 export interface AutomationControl {
-    list(): AutomationView[];
-    /** Fire an automation now, in its own mode: a `confirm` automation still waits for a person. */
-    trigger(name: string, actor: { sessionId?: string }): Promise<RunRecord>;
+    list(workspaceId: string): AutomationView[];
+    /** Fire one of a workspace's automations now, in its own mode: a `confirm` one still waits for a person. */
+    trigger(workspaceId: string, name: string, actor: { sessionId?: string }): Promise<RunRecord>;
 }
 
 export interface ConsolaToolDeps {
@@ -173,13 +173,13 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         defineTool({
             name: 'list_automations',
             description:
-                'List the automations in ~/.consola/factory.yml: schedule, mode (auto | confirm | ' +
+                'List your workspace’s automations (its factory.yml): schedule, mode (auto | confirm | ' +
                 'notify), what each runs, the next run, and any problem keeping one from running.',
             input: {},
             mutating: false,
             automatable: false,
-            async run() {
-                const automations = deps.automations().list();
+            async run(_args, context) {
+                const automations = deps.automations().list(callerWorkspace(context));
                 return { summary: `${automations.length} automations.`, data: { automations } };
             },
         }),
@@ -187,8 +187,8 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
         defineTool({
             name: 'run_automation',
             description:
-                'Run an automation from ~/.consola/factory.yml now, by name, across the workspaces it ' +
-                'names. A `notify` automation only reports; any other waits for the person to approve ' +
+                'Run one of your workspace’s automations now, by name (see consola_list_automations). ' +
+                'A `notify` automation only reports; any other waits for the person to approve ' +
                 'it in Consola — `auto` included, since the person did not start this run. If a run is ' +
                 'already waiting for approval, returns that one instead of starting another. Returns ' +
                 'the run’s id, status and a one-line summary; the person reviews the details in Consola.',
@@ -197,10 +197,9 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
             automatable: false,
             async run(args, context) {
                 const actor = context.caller.kind === 'agent' ? { sessionId: context.caller.sessionId } : {};
-                const run = await deps.automations().trigger(args.name, actor);
-                // The run can span workspaces beyond the caller's own, so the
-                // caller learns the outcome, never the sessions, paths or
-                // pull requests behind it. Summaries are counts only.
+                const run = await deps.automations().trigger(callerWorkspace(context), args.name, actor);
+                // The outcome, not the plan: what would change is the
+                // person's to review, in Consola. Summaries are counts only.
                 return {
                     summary: run.summary ?? `${args.name}: ${run.status}.`,
                     data: { runId: run.id, status: run.status },
@@ -208,4 +207,10 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
             },
         }),
     ];
+}
+
+/** The workspace whose automations an agent may see and run: its own. */
+function callerWorkspace(context: ToolContext): string {
+    if (context.caller.kind !== 'agent') throw new Error('Only a session’s agent has a workspace of its own.');
+    return context.caller.workspaceId;
 }

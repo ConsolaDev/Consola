@@ -114,17 +114,18 @@ export const IPC_CHANNELS = {
     // Window identity (main -> one renderer)
     WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
     WINDOW_OPEN_SETTINGS: 'window:open-settings',
+    WINDOW_OPEN_WORKSPACE_SETTINGS: 'window:open-workspace-settings', // At a section: an automation's approvals
     WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
 
-    // Personal automations (renderer -> main; main runs them)
-    AUTOMATIONS_GET_SNAPSHOT: 'automations:get-snapshot', // Parsed factory.yml, schedule and run history
-    AUTOMATIONS_RUN_NOW: 'automations:run-now',           // Fire one automation now, in its own mode
+    // Personal automations, one factory.yml per workspace (renderer -> main; main runs them)
+    AUTOMATIONS_GET_SNAPSHOT: 'automations:get-snapshot', // A workspace's parsed factory.yml, schedule and runs
+    AUTOMATIONS_RUN_NOW: 'automations:run-now',           // Fire one of a workspace's automations now
     AUTOMATIONS_APPROVE: 'automations:approve',           // Approve a run waiting in confirm mode
     AUTOMATIONS_DISMISS: 'automations:dismiss',           // Dismiss a run waiting in confirm mode
-    AUTOMATIONS_OPEN_FILE: 'automations:open-file',       // Open factory.yml, creating it from a template
+    AUTOMATIONS_OPEN_FILE: 'automations:open-file',       // Open a workspace's factory.yml, creating it from a template
 
     // Personal automations (main -> every renderer)
-    AUTOMATIONS_CHANGED: 'automations:changed',           // A fresh AutomationsSnapshot
+    AUTOMATIONS_CHANGED: 'automations:changed',           // A workspace's fresh AutomationsSnapshot
 } as const;
 
 export const DEFAULT_DIMENSIONS = {

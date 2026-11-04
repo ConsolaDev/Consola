@@ -74,16 +74,16 @@ export interface RunRecord {
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed', 'rejected'];
 
 /**
- * A short, stable hash of what an automation does: target, arguments,
- * workspace and mode — not its schedule. What approval binds to: an approved
+ * A short, stable hash of what an automation does: target, arguments and
+ * mode — not its schedule, and not its workspace, which is where the file
+ * lives rather than something it says. What approval binds to: an approved
  * plan is refused if the definition changed under it, and an `auto` entry is
  * trusted to run unasked only at the version a person approved.
  */
-export function automationVersion(automation: Pick<Automation, 'run' | 'with' | 'workspace' | 'mode'>): string {
+export function automationVersion(automation: Pick<Automation, 'run' | 'with' | 'mode'>): string {
     const canonical = stableStringify({
         run: automation.run.ref,
         with: automation.with,
-        workspace: automation.workspace ?? null,
         mode: automation.mode,
     });
     return createHash('sha256').update(canonical).digest('hex').slice(0, 16);

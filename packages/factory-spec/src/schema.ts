@@ -26,8 +26,6 @@ export interface Automation {
     /** Arguments for the target. Validated by the runner, which knows the target's schema. */
     with: Record<string, unknown>;
     mode: AutomationMode;
-    /** Workspace name or id. Absent: every workspace the target applies to. */
-    workspace?: string;
     /** 1-based line of the entry in the file, for error and UI pointers. */
     line?: number;
 }
@@ -92,7 +90,16 @@ export function automationSchema(options: SpecOptions) {
             }),
             with: z.record(z.unknown()).default({}),
             mode: z.enum(AUTOMATION_MODES).default('confirm'),
-            workspace: z.string().min(1).optional(),
+            // A file belongs to one workspace, so there is nothing to select.
+            // Named rather than left to `strict()`, whose "unrecognized key"
+            // would not say why.
+            workspace: z
+                .never({
+                    errorMap: () => ({
+                        message: 'Not needed: this file belongs to one workspace, and its automations act only on it.',
+                    }),
+                })
+                .optional(),
         })
         .strict()
         .transform(
@@ -102,7 +109,6 @@ export function automationSchema(options: SpecOptions) {
                 run: parseRunTarget(entry.run)!,
                 with: entry.with,
                 mode: entry.mode,
-                ...(entry.workspace ? { workspace: entry.workspace } : {}),
             })
         );
 }

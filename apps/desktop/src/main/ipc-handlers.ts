@@ -29,7 +29,8 @@ import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
-import { FactoryFile } from './automations/FactoryFile';
+import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
+import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
@@ -75,7 +76,7 @@ import {
     findWindowForWorkspace,
     focusOrCreate,
     getWorkspaceFor,
-    showSettingsSection,
+    showWorkspaceSettings,
     viewsFromStoredLayout,
     type ViewMemoryAccess,
 } from './window-manager';
@@ -106,7 +107,7 @@ let inboxService: InboxService | null = null;
 let worktreeService: WorktreeService | null = null;
 let onBrowserWindowFocus: (() => void) | null = null;
 
-// Personal automations (~/.consola/factory.yml), run while the app is open.
+// Personal automations (one factory.yml per workspace), run while the app is open.
 let automationService: AutomationService | null = null;
 let onPowerResume: (() => void) | null = null;
 
@@ -706,7 +707,7 @@ export function setupIpcHandlers(): boolean {
     app.on('will-quit', () => mcpHost.dispose());
 
     const automations = new AutomationService({
-        file: new FactoryFile(),
+        fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
         store: new RunStore(
             new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json'))
         ),
@@ -717,14 +718,17 @@ export function setupIpcHandlers(): boolean {
         notify: (notice) => {
             if (!Notification.isSupported()) return;
             const notification = new Notification({ title: notice.title, body: notice.body });
+            // Lands on the approvals the notice is about: that workspace's
+            // Automations panel, in the window holding it.
             notification.on('click', () =>
-                showSettingsSection('automations', getKnownWorkspaceIds(), viewMemoryPort())
+                showWorkspaceSettings(notice.workspaceId, 'automations', viewMemoryPort())
             );
             notification.show();
         },
-        broadcast: (snapshot) => {
+        broadcast: (workspaceId, snapshot) => {
+            const change: AutomationsChange = { workspaceId, snapshot };
             for (const window of BrowserWindow.getAllWindows()) {
-                if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, snapshot);
+                if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, change);
             }
         },
         every: (ms, run) => {
@@ -735,22 +739,26 @@ export function setupIpcHandlers(): boolean {
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));
+    // A workspace's file is read from when it appears, and let go when it is deleted.
+    workspaces.onChange(() => void automations.syncWorkspaces());
     // A laptop asleep at 09:00 wakes into a due run: check right away rather
     // than at the next tick.
     onPowerResume = () => void automations.tick();
     powerMonitor.on('resume', onPowerResume);
 
-    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, () => automations.snapshot());
-    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, (_event, name: string) => {
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, (_event, workspaceId: string) =>
+        automations.snapshot(String(workspaceId))
+    );
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, (_event, workspaceId: string, name: string) => {
         if (typeof name !== 'string') throw new Error('Automation name required.');
-        return automations.trigger(name);
+        return automations.trigger(String(workspaceId), name);
     });
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_APPROVE, (_event, runId: string) => automations.approve(String(runId)));
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_DISMISS, (_event, runId: string) => automations.dismiss(String(runId)));
     // Creates the file from a commented template first, so "Open" always
     // lands in an editor rather than an error.
-    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async () => {
-        const failure = await shell.openPath(await automations.ensureFile());
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async (_event, workspaceId: string) => {
+        const failure = await shell.openPath(await automations.ensureFile(String(workspaceId)));
         if (failure) throw new Error(failure);
     });
 

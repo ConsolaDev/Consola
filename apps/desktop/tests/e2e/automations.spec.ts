@@ -1,15 +1,15 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { execFileSync } from 'child_process';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { launchElectron, settingsChord } from './helpers/electron';
+import { launchElectron } from './helpers/electron';
 
 /**
- * Personal automations, end to end: a factory.yml with a confirm-mode
- * cleanup, run from Settings, previewed, approved — and the one session
- * whose PR merged is gone with its worktree and branch, while the one with
- * unsaved work is kept, untouched.
+ * Personal automations, end to end: a workspace's own factory.yml with a
+ * confirm-mode cleanup, run from that workspace's settings, previewed,
+ * approved — and the one session whose PR merged is gone with its worktree
+ * and branch, while the one with unsaved work is kept, untouched.
  */
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
@@ -29,6 +29,26 @@ function worktree(clone: string, root: string, name: string, branch: string): { 
   git(dir, 'config', `branch.${branch}.remote`, 'origin');
   git(dir, 'config', `branch.${branch}.merge`, `refs/heads/${branch}`);
   return { dir: fs.realpathSync(dir), head: git(dir, 'rev-parse', 'HEAD') };
+}
+
+/** Where Consola reads a workspace's automations, under the test's factory dir. */
+function writeFactoryFile(factoryDir: string, workspaceId: string, yaml: string): void {
+  fs.mkdirSync(path.join(factoryDir, workspaceId), { recursive: true });
+  fs.writeFileSync(path.join(factoryDir, workspaceId, 'factory.yml'), yaml);
+}
+
+/** Hold the workspace in this window and open its settings at Automations. */
+async function openAutomationsPanel(page: Page, workspaceName: string) {
+  const railButton = page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: workspaceName, exact: true });
+  await railButton.click();
+  await expect(railButton).toHaveAttribute('aria-current', 'true');
+  await page.getByRole('button', { name: / workspace menu$/ }).click();
+  await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+  const modal = page.getByRole('dialog', { name: workspaceName, exact: true });
+  await modal.getByRole('button', { name: 'Automations', exact: true }).click();
+  return modal;
 }
 
 function mergedPull(number: number, branch: string, head: string) {
@@ -71,24 +91,13 @@ test('a confirm-mode cleanup previews, waits for approval, and removes only what
     ].join('\n')
   );
 
-  const factoryFile = path.join(base, 'factory.yml');
-  fs.writeFileSync(
-    factoryFile,
-    `version: 1
-automations:
-  - name: clean-up-stale-sessions
-    on: { cron: "0 9 * * *" }
-    run: consola#cleanup_stale_sessions
-    with: { pr_states: [merged, closed] }
-    mode: confirm
-`
-  );
+  const factoryDir = path.join(base, 'factories');
 
   const { app, page } = await launchElectron({
     env: {
       CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
       CONSOLA_WORKTREES_DIR: worktreesDir,
-      CONSOLA_FACTORY_FILE: factoryFile,
+      CONSOLA_FACTORY_DIR: factoryDir,
       STUB_GH_PULLS: pulls,
     },
   });
@@ -122,12 +131,25 @@ automations:
       },
       [workspaceId, done.dir, dirty.dir] as const
     );
+    // The workspace's own file, picked up by the watcher.
+    writeFactoryFile(
+      factoryDir,
+      workspaceId,
+      `version: 1
+automations:
+  - name: clean-up-stale-sessions
+    on: { cron: "0 9 * * *" }
+    run: consola#cleanup_stale_sessions
+    with: { pr_states: [merged, closed] }
+    mode: confirm
+`
+    );
 
-    await page.keyboard.press(settingsChord());
-    const settings = page.getByRole('dialog');
-    await settings.getByRole('button', { name: 'Automations', exact: true }).click();
+    const settings = await openAutomationsPanel(page, 'Acme');
+    await expect(settings.locator('.ws-panel-hint')).toContainText(path.join(factoryDir, workspaceId, 'factory.yml'));
 
     const card = settings.locator('.automations-card', { hasText: 'clean-up-stale-sessions' }).first();
+    await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card).toContainText('confirm');
     await expect(card).toContainText('Next run');
     await card.getByRole('button', { name: 'Run now' }).click();
@@ -165,19 +187,24 @@ automations:
 });
 
 test('a broken factory.yml is reported with its line, and nothing is scheduled', async () => {
-  const base = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-automations-bad-'));
-  const factoryFile = path.join(base, 'factory.yml');
-  fs.writeFileSync(
-    factoryFile,
-    'version: 1\nautomations:\n  - name: sweep\n    on: { cron: "0 9 * * *" }\n    run: consola#cleanup_stale_sessions\n    mode: sometimes\n'
-  );
-  const { app, page } = await launchElectron({ env: { CONSOLA_FACTORY_FILE: factoryFile } });
+  const base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-automations-bad-')));
+  const folder = path.join(base, 'app');
+  fs.mkdirSync(folder);
+  const factoryDir = path.join(base, 'factories');
+  const { app, page } = await launchElectron({ env: { CONSOLA_FACTORY_DIR: factoryDir } });
   try {
-    await page.keyboard.press(settingsChord());
-    const settings = page.getByRole('dialog');
-    await settings.getByRole('button', { name: 'Automations', exact: true }).click();
+    const workspaceId = await page.evaluate(
+      async ([dir]) => (await window.workspaceAPI.createWorkspace('Broken', dir, true)).id,
+      [folder] as const
+    );
+    writeFactoryFile(
+      factoryDir,
+      workspaceId,
+      'version: 1\nautomations:\n  - name: sweep\n    on: { cron: "0 9 * * *" }\n    run: consola#cleanup_stale_sessions\n    mode: sometimes\n'
+    );
+    const settings = await openAutomationsPanel(page, 'Broken');
     const issues = settings.locator('.automations-issues');
-    await expect(issues).toContainText('line 6');
+    await expect(issues).toContainText('line 6', { timeout: 15_000 });
     await expect(issues).toContainText('automations[0].mode');
     await expect(settings.locator('.automations-card')).toHaveCount(0);
   } finally {

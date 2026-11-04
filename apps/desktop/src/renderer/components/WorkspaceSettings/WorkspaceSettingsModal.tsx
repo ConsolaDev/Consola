@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, Folder, Info, Plug, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Boxes, CalendarClock, Folder, Info, Plug, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
@@ -9,6 +9,7 @@ import { ScopesPanel } from './ScopesPanel';
 import { GroupsPanel } from './GroupsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
 import { ActionsPanel } from './ActionsPanel';
+import { AutomationsPanel } from '../Automations';
 import { providerNavLabel } from './navLabels';
 import '../Dialogs/styles.css';
 import './styles.css';
@@ -18,6 +19,7 @@ export type WorkspaceSettingsSectionId =
   | 'scopes'
   | 'provider'
   | 'actions'
+  | 'automations'
   | 'groups'
   | 'danger';
 
@@ -33,6 +35,7 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'scopes',
   'provider',
   'actions',
+  'automations',
   'groups',
   'danger',
 ];
@@ -45,6 +48,7 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   scopes: { label: () => 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
+  automations: { label: () => 'Automations', icon: CalendarClock },
   groups: { label: () => 'Groups', icon: Boxes },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
 };
@@ -58,8 +62,9 @@ interface WorkspaceSettingsModalProps {
 
 /**
  * One workspace's settings as a dialog of its own, titled by the workspace
- * so it is visibly not the global Settings modal. The panels are the six the
- * old Workspace tab stacked; here a left nav shows one at a time.
+ * so it is visibly not the global Settings modal. A left nav shows one panel
+ * at a time: the six the old Workspace tab stacked, and the workspace's
+ * automations.
  */
 export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSection = 'general' }: WorkspaceSettingsModalProps) {
   const workspace = useWorkspaceStore((state) =>
@@ -150,6 +155,7 @@ function WorkspaceSettingsBody({ workspace, initialSection }: { workspace: Works
             </section>
           )}
           {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
+          {activeSection === 'automations' && <AutomationsPanel workspace={workspace} />}
           {activeSection === 'groups' && <GroupsPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}
         </div>

@@ -3,9 +3,20 @@ import * as os from 'os';
 import * as path from 'path';
 import { parseFactorySpec, type FactorySpecParseResult } from '@consola/factory-spec';
 
-/** `~/.consola/factory.yml`, or `CONSOLA_FACTORY_FILE` — the seam tests use. */
-export function personalFactoryPath(): string {
-    return process.env.CONSOLA_FACTORY_FILE ?? path.join(os.homedir(), '.consola', 'factory.yml');
+/** Workspace ids are generated tokens; anything else never reaches the filesystem as a path. */
+const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
+
+/**
+ * One workspace's personal automations: `~/.consola/workspaces/<id>/factory.yml`.
+ * Under `~/.consola` with the worktrees rather than in Consola's own state, so
+ * it is a text file a person can keep with their dotfiles. Keyed by id, not
+ * name, so renaming a workspace never orphans its file. `CONSOLA_FACTORY_DIR`
+ * replaces the `workspaces` folder — the seam tests use.
+ */
+export function workspaceFactoryPath(workspaceId: string): string {
+    if (!WORKSPACE_ID.test(workspaceId)) throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
+    const root = process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces');
+    return path.join(root, workspaceId, 'factory.yml');
 }
 
 export interface LoadedFactoryFile {
@@ -14,7 +25,8 @@ export interface LoadedFactoryFile {
 }
 
 /** Shown by "Open file" when there is no file yet: valid, inert, and self-explaining. */
-export const FACTORY_TEMPLATE = `# Consola automations, run by Consola while it is open.
+export const FACTORY_TEMPLATE = `# This workspace's automations, run by Consola while it is open.
+# Each one acts only on this workspace.
 # Modes: auto | confirm (the default: you approve each run) | notify (report only).
 version: 1
 automations:
@@ -29,7 +41,7 @@ automations:
 `;
 
 /**
- * The personal spec file: read, parsed, watched.
+ * One workspace's spec file: read, parsed, watched.
  *
  * Watched by polling its stat rather than `fs.watch`: the file and even its
  * directory may not exist yet, and editors replace files atomically — both
@@ -40,7 +52,7 @@ export class FactoryFile {
     private watching = false;
 
     constructor(
-        public readonly filePath: string = personalFactoryPath(),
+        public readonly filePath: string,
         private readonly pollMs = 2000
     ) {}
 

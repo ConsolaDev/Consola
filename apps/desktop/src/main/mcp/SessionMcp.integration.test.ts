@@ -203,7 +203,7 @@ describe('MCP surface (in-memory)', () => {
     await client.close();
   });
 
-  it('tells an agent how an automation run went, never what it found across workspaces', async () => {
+  it('runs only the caller’s workspace’s automation, and tells it the outcome, not the plan', async () => {
     const run = runRecord({
       id: 'run-1',
       summary: 'Would remove 1 session. An agent asked for this run.',
@@ -211,7 +211,7 @@ describe('MCP surface (in-memory)', () => {
       result: { candidates: [{ sessionId: 'x-1', name: 'Other workspace session', cwd: '/elsewhere/x-1' }] },
       approval: { args: { session_ids: ['x-1'] } },
     });
-    const trigger = vi.fn(async (_name: string, _actor: { sessionId?: string }) => run);
+    const trigger = vi.fn(async (_workspaceId: string, _name: string, _actor: { sessionId?: string }) => run);
     toolDeps.automations = () => ({ list: () => [], trigger });
     const client = await clientFor('w-1');
     const answer = JSON.parse(
@@ -222,7 +222,8 @@ describe('MCP surface (in-memory)', () => {
       runId: 'run-1',
       status: 'needs-approval',
     });
-    expect(trigger).toHaveBeenCalledWith('sweep', { sessionId: 'w-1' });
+    // Only ever the caller's own workspace's automation.
+    expect(trigger).toHaveBeenCalledWith('ws-1', 'sweep', { sessionId: 'w-1' });
     await client.close();
   });
 

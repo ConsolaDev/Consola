@@ -25,7 +25,7 @@ import {
     SessionFanOutResult,
     ScopeRepo,
     ConductorCreateRequest,
-    SettingsSectionRequest,
+    WorkspaceSettingsRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { AutomationsAPI } from '../shared/automations';
@@ -403,19 +403,23 @@ function readWindowContext(): WindowContext {
     }
 }
 
-// Personal automations: main runs them; the renderer reads and sends intents.
+// Personal automations, one file per workspace: main runs them; the renderer
+// reads a workspace's snapshot and sends intents.
 contextBridge.exposeInMainWorld('automationsAPI', {
-    getSnapshot: () => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT),
-    runNow: (name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, name),
+    getSnapshot: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
+    runNow: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name),
     approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
     dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
-    openFile: () => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE),
+    openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
     onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 
 contextBridge.exposeInMainWorld('windowAPI', {
-    onOpenSettings: (callback: (section?: SettingsSectionRequest) => void) =>
-        subscribe<SettingsSectionRequest | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
+    onOpenSettings: (callback: (section?: 'updates') => void) =>
+        subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
+
+    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) =>
+        subscribe<WorkspaceSettingsRequest>(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, callback),
 
     context: readWindowContext(),
 

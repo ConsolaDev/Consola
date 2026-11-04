@@ -8,7 +8,6 @@ import {
     getAnyWindow,
     restoreWindowLayout,
     saveWindowLayout,
-    showSettingsSection,
 } from './window-manager';
 import {
     setupIpcHandlers,
@@ -87,8 +86,15 @@ app.whenReady().then(() => {
         ]);
         const applicationMenu = menu.items[0]?.submenu;
         if (applicationMenu) {
-            const showSettings = (section?: 'updates') =>
-                showSettingsSection(section, getKnownWorkspaceIds(), viewMemoryPort());
+            const showSettings = (section?: 'updates') => {
+                const existing = BrowserWindow.getFocusedWindow() ?? getAnyWindow();
+                const target = existing ?? createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
+                const openSettings = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, section);
+                if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', openSettings);
+                else openSettings();
+                if (target.isMinimized()) target.restore();
+                if (!isBackgroundTest) { target.show(); target.focus(); }
+            };
             applicationMenu.insert(1, new MenuItem({
                 id: 'check-for-updates',
                 label: 'Check for Updates…',

@@ -5,9 +5,9 @@ export interface AutomationStateFile {
     version: 1;
     /** Last time each schedule fired (ISO), by `scheduleKey`. The scheduler's only memory. */
     lastFired: Record<string, string>;
-    /** The `automationVersion` a person approved for each `auto` automation, by name. */
+    /** The `automationVersion` a person approved for each `auto` automation, by workspace id and name. */
     accepted?: Record<string, string>;
-    /** Newest first, capped. */
+    /** Newest first, capped; every workspace's together, told apart by `attribution.workspaceId`. */
     runs: RunRecord[];
 }
 
@@ -75,12 +75,12 @@ export class RunStore {
         this.persist();
     }
 
-    public acceptedVersion(name: string): string | undefined {
-        return this.state.accepted[name];
+    public acceptedVersion(automationKey: string): string | undefined {
+        return this.state.accepted[automationKey];
     }
 
-    public accept(name: string, version: string): void {
-        this.state.accepted[name] = version;
+    public accept(automationKey: string, version: string): void {
+        this.state.accepted[automationKey] = version;
         this.persist();
     }
 

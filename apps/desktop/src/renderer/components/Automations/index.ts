@@ -1,1 +1,1 @@
-export { AutomationsSection } from './AutomationsSection';
+export { AutomationsPanel } from './AutomationsPanel';

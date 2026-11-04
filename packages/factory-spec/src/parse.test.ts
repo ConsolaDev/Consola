@@ -9,7 +9,6 @@ automations:
     run: consola#cleanup_stale_sessions
     with: { pr_states: [merged, closed] }
     mode: auto
-    workspace: Acme
 `;
 
 describe('parseFactorySpec', () => {
@@ -28,7 +27,6 @@ describe('parseFactorySpec', () => {
                 },
                 with: { pr_states: ['merged', 'closed'] },
                 mode: 'auto',
-                workspace: 'Acme',
                 line: 4,
             },
         ]);
@@ -40,7 +38,16 @@ describe('parseFactorySpec', () => {
         );
         expect(result.issues).toEqual([]);
         expect(result.automations[0]).toMatchObject({ mode: 'confirm', with: {} });
-        expect(result.automations[0]).not.toHaveProperty('workspace');
+    });
+
+    it('says why a workspace selector is not needed', () => {
+        const result = parseFactorySpec(
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: consola#x\n    workspace: Acme\n'
+        );
+        expect(result.automations).toEqual([]);
+        expect(result.issues).toMatchObject([
+            { path: 'automations[0].workspace', message: expect.stringMatching(/belongs to one workspace/), line: 6 },
+        ]);
     });
 
     it('treats an empty or comments-only file as no automations', () => {
