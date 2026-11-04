@@ -180,15 +180,22 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
             description:
                 'Run an automation from ~/.consola/factory.yml now, by name, across the workspaces it ' +
                 'names. A `notify` automation only reports; any other waits for the person to approve ' +
-                'it in Consola — `auto` included, since the person did not start this run. Returns the ' +
-                'run record.',
+                'it in Consola — `auto` included, since the person did not start this run. If a run is ' +
+                'already waiting for approval, returns that one instead of starting another. Returns ' +
+                'the run’s id, status and a one-line summary; the person reviews the details in Consola.',
             input: { name: z.string().min(1).describe('The automation’s name, as in factory.yml.') },
             mutating: true,
             automatable: false,
             async run(args, context) {
                 const actor = context.caller.kind === 'agent' ? { sessionId: context.caller.sessionId } : {};
                 const run = await deps.automations().trigger(args.name, actor);
-                return { summary: run.summary ?? `${args.name}: ${run.status}.`, data: run };
+                // The run can span workspaces beyond the caller's own, so the
+                // caller learns the outcome, never the sessions, paths or
+                // pull requests behind it. Summaries are counts only.
+                return {
+                    summary: run.summary ?? `${args.name}: ${run.status}.`,
+                    data: { runId: run.id, status: run.status },
+                };
             },
         }),
     ];

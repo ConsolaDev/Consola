@@ -336,6 +336,20 @@ describe('modes', () => {
         expect(t.calls.map((call) => call.mode)).toEqual(['preview']);
     });
 
+    it('an agent never supersedes a plan waiting for a person, nor notifies again', async () => {
+        const t = setup({ yaml: entry('    mode: confirm\n') });
+        await t.start();
+        const waiting = await t.service.trigger('sweep');
+        const notices = t.notices.length;
+        expect(await t.service.trigger('sweep', { sessionId: 's-9' })).toMatchObject({
+            id: waiting.id,
+            status: 'needs-approval',
+        });
+        expect(t.store.get(waiting.id)).toMatchObject({ status: 'needs-approval' });
+        expect(t.notices).toHaveLength(notices);
+        expect(t.calls).toHaveLength(1);
+    });
+
     it('records a failing run and says so', async () => {
         const t = setup({ accepted: true, runFails: true });
         await t.start();

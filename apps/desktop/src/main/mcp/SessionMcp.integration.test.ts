@@ -8,6 +8,7 @@ import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
 import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/stdio.js';
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
+import type { RunRecord } from '@consola/factory-spec';
 import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
@@ -168,6 +169,41 @@ describe('MCP surface (in-memory)', () => {
     const listed = JSON.parse(firstText(await client.callTool({ name: 'consola_list_sessions', arguments: {} })));
     expect(listed.sessions.map((s: { sessionId: string }) => s.sessionId)).toEqual(['cond-1', 'w-1']);
     expect(listed.sessions[1]).toMatchObject({ sessionId: 'w-1', you: true, status: 'ready' });
+    await client.close();
+  });
+
+  it('tells an agent how an automation run went, never what it found across workspaces', async () => {
+    const at = '2026-11-04T09:00:00.000Z';
+    const run: RunRecord = {
+      id: 'run-1',
+      runner: 'local',
+      source: 'personal',
+      automationId: 'sweep',
+      actionName: 'consola#cleanup_stale_sessions',
+      actionVersion: 'v1',
+      mode: 'confirm',
+      trigger: { kind: 'manual', at, by: 'agent', actorId: 'w-1' },
+      status: 'needs-approval',
+      summary: 'Would remove 1 session. An agent asked for this run.',
+      // What the preview found in another workspace: none of it may reach the agent.
+      result: { candidates: [{ sessionId: 'x-1', name: 'Other workspace session', cwd: '/elsewhere/x-1' }] },
+      approval: { args: { session_ids: ['x-1'] } },
+      attribution: { automationId: 'sweep', actionName: 'consola#cleanup_stale_sessions', triggerKind: 'manual', actorId: 'w-1' },
+      createdAt: at,
+      updatedAt: at,
+    };
+    const trigger = vi.fn(async (_name: string, _actor: { sessionId?: string }) => run);
+    toolDeps.automations = () => ({ list: () => [], trigger });
+    const client = await clientFor('w-1');
+    const answer = JSON.parse(
+      firstText(await client.callTool({ name: 'consola_run_automation', arguments: { name: 'sweep' } }))
+    );
+    expect(answer).toEqual({
+      summary: 'Would remove 1 session. An agent asked for this run.',
+      runId: 'run-1',
+      status: 'needs-approval',
+    });
+    expect(trigger).toHaveBeenCalledWith('sweep', { sessionId: 'w-1' });
     await client.close();
   });
 

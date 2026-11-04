@@ -158,6 +158,14 @@ export class AutomationService {
         if (!entry) throw new Error(`No automation named "${name}" in ${this.deps.file.filePath}.`);
         const problem = this.problemOf(entry);
         if (problem) throw new Error(`${name} cannot run: ${problem}`);
+        // An agent never replaces a plan a person may be reviewing, nor
+        // notifies them again about it: it gets the waiting run back.
+        if (actor.sessionId) {
+            const pending = this.deps.store
+                .runs()
+                .find((run) => run.automationId === name && run.status === 'needs-approval');
+            if (pending) return pending;
+        }
         return this.fire(entry, {
             kind: 'manual',
             at: this.iso(),
