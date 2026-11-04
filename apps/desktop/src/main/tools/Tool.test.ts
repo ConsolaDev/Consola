@@ -53,11 +53,15 @@ describe('ToolRegistry', () => {
         expect(run).not.toHaveBeenCalled();
     });
 
-    it('refuses an automatable mutating tool without a preview, and duplicates', () => {
+    it('refuses a tool without the preview someone must approve from, and duplicates', () => {
         const tools = new ToolRegistry();
         const base = { description: '', input: {}, run: async () => ({ summary: '', data: null }) };
         expect(() =>
             tools.register(defineTool({ ...base, name: 'x', mutating: true, automatable: true }))
+        ).toThrow(/preview/);
+        // An agent's destructive call waits for a person, who approves its preview.
+        expect(() =>
+            tools.register(defineTool({ ...base, name: 'w', mutating: true, destructive: true, automatable: false }))
         ).toThrow(/preview/);
         // Only agents call this one directly; nothing ever needs its preview.
         tools.register(defineTool({ ...base, name: 'z', mutating: true, automatable: false }));

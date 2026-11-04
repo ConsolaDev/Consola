@@ -695,6 +695,9 @@ export function setupIpcHandlers(): boolean {
         buildServer: (sessionId) =>
             buildSessionServer(sessionId, {
                 registry: tools,
+                approvals: {
+                    request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
+                },
                 conductorTools,
                 getWorkspaces: () => workspaces.getAll(),
             }),

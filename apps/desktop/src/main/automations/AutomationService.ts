@@ -1,3 +1,4 @@
+import { createHash } from 'crypto';
 import {
     automationVersion,
     nextCronOccurrence,
@@ -11,6 +12,7 @@ import type { AutomationsSnapshot, AutomationView } from '../../shared/automatio
 import type { Workspace } from '../../shared/workspace';
 import { describeError } from '../describeError';
 import {
+    agentContext,
     CONSOLA_NAMESPACE,
     type ToolContext,
     type ToolDefinition,
@@ -33,6 +35,10 @@ import type { RunStore } from './RunStore';
  * runs on its own only at a version a person approved once — a new or edited
  * one asks first, whoever wrote the file. Approving runs exactly what the
  * preview showed, and nothing if the definition changed since.
+ *
+ * It also holds what agents ask to delete. An agent never runs a destructive
+ * tool directly: its call becomes a run here (`source: 'manual'`), waiting
+ * beside the automations' approvals and approved or dismissed the same way.
  */
 
 export interface AutomationNotice {
@@ -66,6 +72,9 @@ export const TICK_MS = 30_000;
 
 /** Results bigger than this are summarised away rather than kept in history. */
 const MAX_RESULT_CHARS = 20_000;
+
+/** Requests one agent session may leave waiting before it must wait for the person. */
+export const MAX_WAITING_PER_SESSION = 10;
 
 interface Resolved {
     automation: Automation;
@@ -175,6 +184,80 @@ export class AutomationService {
     }
 
     /**
+     * An agent's destructive call, made a run that waits for a person:
+     * previewed now with the agent's own authority, and run — exactly what the
+     * preview showed — only when a person approves it. Asking again for the
+     * same plan returns the waiting run instead of notifying twice; a plan
+     * with nothing to do records nothing.
+     */
+    public async requestApproval(
+        toolName: string,
+        raw: unknown,
+        sessionId: string
+    ): Promise<{ preview: ToolResult; run: RunRecord | null }> {
+        const tool = this.deps.registry.get(toolName);
+        if (!tool) throw new Error(`No Consola tool named "${toolName}".`);
+        const workspaces = this.deps.getWorkspaces();
+        const context = agentContext(sessionId, workspaces);
+        const preview = await this.deps.registry.invoke(tool.name, raw, context, 'preview');
+        if (preview.actionable === 0) return { preview, run: null };
+
+        const validated = this.deps.registry.validate(tool, raw);
+        const args = preview.approvalArgs ?? (validated.ok ? validated.args : {});
+        const ref = `${CONSOLA_NAMESPACE}#${tool.name}`;
+        const version = requestVersion(ref, args);
+        const waitingFromCaller = this.deps.store
+            .runs()
+            .filter(
+                (run) => isAgentRequest(run) && run.status === 'needs-approval' && run.trigger.actorId === sessionId
+            );
+        const same = waitingFromCaller.find((run) => run.actionName === ref && run.actionVersion === version);
+        if (same) return { preview, run: same };
+        if (waitingFromCaller.length >= MAX_WAITING_PER_SESSION) {
+            throw new Error(
+                `${waitingFromCaller.length} requests from this session are already waiting for the person; ` +
+                    'ask them to review those in Consola first.'
+            );
+        }
+
+        const asker = workspaces.flatMap((workspace) => workspace.sessions).find((session) => session.id === sessionId);
+        const summary = `${preview.summary} Asked by "${asker?.name ?? sessionId}".`;
+        const now = this.iso();
+        const run: RunRecord = {
+            id: this.deps.newId(),
+            runner: 'local',
+            source: 'manual',
+            automationId: ref,
+            actionName: ref,
+            actionVersion: version,
+            mode: 'confirm',
+            trigger: { kind: 'manual', at: now, by: 'agent', actorId: sessionId },
+            status: 'needs-approval',
+            summary,
+            result: compact(preview.data),
+            approval: { args },
+            attribution: {
+                automationId: ref,
+                actionName: ref,
+                triggerKind: 'manual',
+                workspaceId: context.caller.workspaceId,
+                actorId: sessionId,
+            },
+            createdAt: now,
+            updatedAt: now,
+        };
+        this.deps.store.add(run);
+        this.broadcast();
+        this.deps.notify({
+            title: `"${asker?.name ?? 'A session'}" needs your approval`,
+            body: `${summary} Review it in Consola.`,
+            runId: run.id,
+            needsApproval: true,
+        });
+        return { preview, run };
+    }
+
+    /**
      * Approve a run waiting for a person. Runs exactly what its preview showed
      * — every safety rule checked again, nothing added — and refuses if the
      * automation changed since. Approving a new or edited `auto` entry also
@@ -182,6 +265,7 @@ export class AutomationService {
      */
     public async approve(runId: string): Promise<RunRecord> {
         const run = this.waiting(runId);
+        if (isAgentRequest(run)) return this.approveRequest(run);
         const entry = this.resolved.find((candidate) => candidate.automation.name === run.automationId);
         const problem = !entry
             ? 'it is no longer in factory.yml'
@@ -199,6 +283,42 @@ export class AutomationService {
             this.finish(run.id, 'completed', { result });
             if (entry.automation.mode === 'auto') this.deps.store.accept(entry.automation.name, entry.version);
         });
+    }
+
+    /**
+     * Run an agent's request as previewed, with that agent's authority as it
+     * is now: once the asking session is deleted or moved, its request
+     * cannot run.
+     */
+    private async approveRequest(run: RunRecord): Promise<RunRecord> {
+        const tool = this.deps.registry.get(run.actionName);
+        const context = this.authorityOf(run.trigger.actorId);
+        if (!tool || !context) {
+            const problem = !tool
+                ? `${run.actionName} no longer exists`
+                : 'the session that asked for it no longer exists';
+            this.finish(run.id, 'failed', { error: `Not run: ${problem}.` });
+            throw new Error(`Not run: ${problem}.`);
+        }
+        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        return this.guarded(
+            run.id,
+            run.id,
+            async () => {
+                const result = await this.deps.registry.invoke(tool.name, run.approval?.args ?? {}, context, 'run');
+                this.finish(run.id, 'completed', { result });
+            },
+            run.actionName
+        );
+    }
+
+    private authorityOf(sessionId: string | undefined): ToolContext | null {
+        if (!sessionId) return null;
+        try {
+            return agentContext(sessionId, this.deps.getWorkspaces());
+        } catch {
+            return null; // The session is gone, and its authority with it.
+        }
     }
 
     public dismiss(runId: string): RunRecord {
@@ -347,17 +467,25 @@ export class AutomationService {
         });
     }
 
-    /** One run at a time per automation, with the bookkeeping every run shares. */
-    private async guarded(name: string, runId: string, work: () => Promise<void>): Promise<RunRecord> {
-        this.inFlight.add(name);
+    /**
+     * One run at a time per key (an automation's name; a request's own id),
+     * with the bookkeeping every run shares.
+     */
+    private async guarded(
+        key: string,
+        runId: string,
+        work: () => Promise<void>,
+        label: string = key
+    ): Promise<RunRecord> {
+        this.inFlight.add(key);
         this.broadcast();
         try {
             await work();
         } catch (error) {
             this.finish(runId, 'failed', { error: describeError(error) });
-            this.notify(`${name} failed`, describeError(error), runId);
+            this.notify(`${label} failed`, describeError(error), runId);
         } finally {
-            this.inFlight.delete(name);
+            this.inFlight.delete(key);
             this.broadcast();
         }
         return this.deps.store.get(runId)!;
@@ -438,6 +566,16 @@ export class AutomationService {
     private iso(): string {
         return this.deps.now().toISOString();
     }
+}
+
+/** An agent's call waiting for a person, as opposed to a run of an automation. */
+function isAgentRequest(run: RunRecord): boolean {
+    return run.source === 'manual';
+}
+
+/** What a request asks for — tool and exact arguments — so asking twice for one plan is recognised. */
+function requestVersion(ref: string, args: Record<string, unknown>): string {
+    return createHash('sha256').update(JSON.stringify([ref, args])).digest('hex').slice(0, 16);
 }
 
 function compact(data: unknown): unknown {

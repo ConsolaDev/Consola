@@ -90,7 +90,7 @@ export function AutomationsSection() {
           {waiting.map((run) => (
             <div key={run.id} className="automations-card automations-card-waiting">
               <div className="automations-card-heading">
-                <span className="automations-name">{run.automationId}</span>
+                <span className="automations-name">{runTitle(run)}</span>
                 <span className="automations-meta">{formatTime(run.createdAt)} · {triggerLabel(run)}</span>
               </div>
               <p className="automations-summary">{run.summary}</p>
@@ -148,7 +148,7 @@ export function AutomationsSection() {
             {history.map((run) => (
               <li key={run.id} className="automations-history-row">
                 <span className={`automations-dot automations-dot-${run.status}`} aria-label={run.status} />
-                <span className="automations-name">{run.automationId}</span>
+                <span className="automations-name">{runTitle(run)}</span>
                 <span className="automations-meta">{formatTime(run.createdAt)} · {triggerLabel(run)} · {run.mode}</span>
                 <span className="automations-history-summary">{run.error ?? run.summary ?? run.status}</span>
               </li>
@@ -262,6 +262,13 @@ function diskEffect(verdict: SessionVerdict): string {
 
 function isRunning(snapshot: AutomationsSnapshot, name: string): boolean {
   return snapshot.runs.some((run) => run.automationId === name && run.status === 'running');
+}
+
+/** An automation's name; for an agent's request, what it asks to do ("Delete session"). */
+function runTitle(run: RunRecord): string {
+  if (run.source !== 'manual') return run.automationId;
+  const words = run.actionName.replace(/^consola#/, '').replace(/_/g, ' ');
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function triggerLabel(run: RunRecord): string {

@@ -35,7 +35,11 @@ export interface RunRecord {
     id: string;
     runner: RunnerKind;
     source: RunSource;
-    /** The automation's name: its identity in a personal file. */
+    /**
+     * The automation's name: its identity in a personal file. A `manual` run
+     * no automation made — an agent's call waiting for a person — carries
+     * its tool reference here instead.
+     */
     automationId: string;
     /** The `run:` reference as written, e.g. `consola#cleanup_stale_sessions`. */
     actionName: string;

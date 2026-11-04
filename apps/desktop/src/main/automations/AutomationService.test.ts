@@ -86,6 +86,29 @@ function setup({
     );
     registry.register(
         defineTool({
+            name: 'zap',
+            description: '',
+            input: { target: z.string() },
+            mutating: true,
+            destructive: true,
+            automatable: false,
+            preview: async (args, context) => {
+                calls.push({ mode: 'preview', context, args });
+                return {
+                    summary: `Would zap ${args.target}.`,
+                    data: { target: args.target },
+                    actionable: args.target === 'nothing' ? 0 : 1,
+                    approvalArgs: { target: args.target },
+                };
+            },
+            run: async (args, context) => {
+                calls.push({ mode: 'run', context, args });
+                return { summary: `Zapped ${args.target}.`, data: null, actionable: 1 };
+            },
+        })
+    );
+    registry.register(
+        defineTool({
             name: 'peek',
             description: '',
             input: {},
@@ -146,6 +169,75 @@ function setup({
     };
     return t;
 }
+
+describe('an agent’s destructive call', () => {
+    const team = () => [
+        {
+            id: 'ws-1',
+            name: 'Acme',
+            sessions: [
+                { id: 's-1', name: 'worker' },
+                { id: 's-2', name: 'old' },
+            ],
+        } as unknown as Workspace,
+    ];
+    const OWN_WORKSPACE = { workspaceIds: ['ws-1'], excludeSessionIds: ['s-1'] };
+
+    it('waits for a person instead of running, and says who asked', async () => {
+        const t = setup({ workspaces: team() });
+        await t.start();
+        const { run } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        expect(run).toMatchObject({
+            source: 'manual',
+            status: 'needs-approval',
+            mode: 'confirm',
+            automationId: 'consola#zap',
+            summary: 'Would zap s-2. Asked by "worker".',
+            trigger: { kind: 'manual', by: 'agent', actorId: 's-1' },
+            attribution: { workspaceId: 'ws-1', actorId: 's-1' },
+            approval: { args: { target: 's-2' } },
+        });
+        expect(t.calls).toMatchObject([{ mode: 'preview', context: { scope: OWN_WORKSPACE } }]);
+        expect(t.notices).toMatchObject([{ needsApproval: true, runId: run!.id }]);
+    });
+
+    it('runs exactly the previewed plan, with the agent’s authority, once a person approves', async () => {
+        const t = setup({ workspaces: team() });
+        await t.start();
+        const { run } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        expect(await t.service.approve(run!.id)).toMatchObject({ status: 'completed', summary: 'Zapped s-2.' });
+        expect(t.calls[1]).toMatchObject({
+            mode: 'run',
+            args: { target: 's-2' },
+            context: { caller: { kind: 'agent', sessionId: 's-1' }, scope: OWN_WORKSPACE },
+        });
+    });
+
+    it('returns the waiting run when asked again for the same plan, and records nothing to do', async () => {
+        const t = setup({ workspaces: team() });
+        await t.start();
+        const first = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        const again = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        expect(again.run!.id).toBe(first.run!.id);
+        expect(t.notices).toHaveLength(1);
+        expect((await t.service.requestApproval('zap', { target: 'nothing' }, 's-1')).run).toBeNull();
+        expect(t.store.runs()).toHaveLength(1);
+    });
+
+    it('caps what one session leaves waiting, and never runs for a session that is gone', async () => {
+        const workspaces = team();
+        const t = setup({ workspaces });
+        await t.start();
+        const { run } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        for (let i = 1; i < 10; i++) await t.service.requestApproval('zap', { target: `t-${i}` }, 's-1');
+        await expect(t.service.requestApproval('zap', { target: 't-10' }, 's-1')).rejects.toThrow(/already waiting/);
+
+        workspaces[0].sessions = workspaces[0].sessions.filter((session) => session.id !== 's-1');
+        await expect(t.service.approve(run!.id)).rejects.toThrow(/no longer exists/);
+        expect(t.store.get(run!.id)).toMatchObject({ status: 'failed' });
+        expect(t.calls.filter((call) => call.mode === 'run')).toEqual([]);
+    });
+});
 
 describe('scheduling', () => {
     it('never fires a new automation for an occurrence before it existed, then fires when due', async () => {

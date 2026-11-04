@@ -145,40 +145,63 @@ export class SessionCleanupService {
      */
     public deleteSession(scope: ToolScope, sessionId: string): Promise<SessionOutcome> {
         return this.exclusive(async () => {
-            const located = workspacesInScope(this.deps.getWorkspaces(), scope)
-                .flatMap((workspace) => workspace.sessions.map((session) => ({ workspace, session })))
-                .find(({ session }) => session.id === sessionId);
-            if (!located) throw new Error(`No session ${sessionId} in the workspaces you can act on.`);
-            const { workspace, session } = located;
-            if (scope.excludeSessionIds.includes(session.id)) {
-                throw new Error('A session cannot delete itself.');
-            }
-            if (session.kind === 'conductor') {
-                throw new Error('Conductors are deleted from the sidebar, together with their group.');
-            }
-            const status = this.deps.status(session.instanceId);
-            if (BUSY.has(status)) {
-                throw new Error(`"${session.name}" is ${status}; wait until it is idle, then delete it.`);
-            }
-
-            const removal: Removal = { workspace, session, verdict: verdictFor(workspace, session) };
-            if (session.cwd && this.deps.worktrees.isManagedPath(session.cwd)) {
-                const inspection = await this.deps.worktrees.inspect(session.cwd);
-                if (inspection) {
-                    const { pr, env } = await this.prFor(workspace, session);
-                    const blocker = await this.checkWorktree(inspection, pr, env);
-                    if (blocker) {
-                        removal.verdict.worktree = { path: inspection.toplevel, remove: false, keptBecause: blocker.detail };
-                    } else {
-                        markForRemoval(removal, inspection);
-                    }
-                }
-            }
+            const removal = await this.planDelete(scope, sessionId);
             const { removed, failed, nowBusy } = await this.execute([removal]);
             if (failed.length > 0) throw new Error(failed[0].error ?? 'Delete failed.');
-            if (nowBusy.length > 0) throw new Error(`"${session.name}" became busy; it was not deleted.`);
+            if (nowBusy.length > 0) throw new Error(`"${removal.session.name}" became busy; it was not deleted.`);
             return removed[0];
         });
+    }
+
+    /**
+     * What deleting one session would do right now, changing nothing —
+     * refusing exactly what `deleteSession` would refuse. The plan a person
+     * approves when an agent asks for the delete.
+     */
+    public previewDelete(scope: ToolScope, sessionId: string): Promise<StalePreview> {
+        return this.exclusive(async () => {
+            const { verdict } = await this.planDelete(scope, sessionId);
+            return {
+                candidates: [verdict],
+                skipped: [],
+                unknownSessionIds: [],
+                summary: `Would delete "${verdict.sessionName}"${verdict.worktree?.remove ? ' and its worktree' : ''}.`,
+            };
+        });
+    }
+
+    /** The checks a delete must pass, and what it would do on disk. */
+    private async planDelete(scope: ToolScope, sessionId: string): Promise<Removal> {
+        const located = workspacesInScope(this.deps.getWorkspaces(), scope)
+            .flatMap((workspace) => workspace.sessions.map((session) => ({ workspace, session })))
+            .find(({ session }) => session.id === sessionId);
+        if (!located) throw new Error(`No session ${sessionId} in the workspaces you can act on.`);
+        const { workspace, session } = located;
+        if (scope.excludeSessionIds.includes(session.id)) {
+            throw new Error('A session cannot delete itself.');
+        }
+        if (session.kind === 'conductor') {
+            throw new Error('Conductors are deleted from the sidebar, together with their group.');
+        }
+        const status = this.deps.status(session.instanceId);
+        if (BUSY.has(status)) {
+            throw new Error(`"${session.name}" is ${status}; wait until it is idle, then delete it.`);
+        }
+
+        const removal: Removal = { workspace, session, verdict: verdictFor(workspace, session) };
+        if (session.cwd && this.deps.worktrees.isManagedPath(session.cwd)) {
+            const inspection = await this.deps.worktrees.inspect(session.cwd);
+            if (inspection) {
+                const { pr, env } = await this.prFor(workspace, session);
+                const blocker = await this.checkWorktree(inspection, pr, env);
+                if (blocker) {
+                    removal.verdict.worktree = { path: inspection.toplevel, remove: false, keptBecause: blocker.detail };
+                } else {
+                    markForRemoval(removal, inspection);
+                }
+            }
+        }
+        return removal;
     }
 
     private exclusive<T>(work: () => Promise<T>): Promise<T> {

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import * as fs from 'fs';
 import * as net from 'net';
 import * as os from 'os';
@@ -12,8 +12,8 @@ import type { RunRecord } from '@consola/factory-spec';
 import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
-import { ToolRegistry } from '../tools/Tool';
-import { buildSessionServer } from './buildSessionServer';
+import { agentContext, ToolRegistry } from '../tools/Tool';
+import { buildSessionServer, type SessionServerDeps } from './buildSessionServer';
 import { SessionMcpHost } from './SessionMcpHost';
 
 /** A fake agent: the MCP SDK client over a raw socket, like the shim pipes. */
@@ -66,7 +66,26 @@ let configDir: string;
 let host: SessionMcpHost;
 let conductorDeps: ConductorToolsDeps;
 let toolDeps: ConsolaToolDeps;
+let requestApproval: Mock<SessionServerDeps['approvals']['request']>;
 let build: (sessionId: string) => ReturnType<typeof buildSessionServer>;
+
+function runRecord(fields: Partial<RunRecord> & { id: string }): RunRecord {
+  const at = '2026-11-04T09:00:00.000Z';
+  return {
+    runner: 'local',
+    source: 'personal',
+    automationId: 'sweep',
+    actionName: 'consola#cleanup_stale_sessions',
+    actionVersion: 'v1',
+    mode: 'confirm',
+    trigger: { kind: 'manual', at, by: 'agent', actorId: 'w-1' },
+    status: 'needs-approval',
+    attribution: { automationId: 'sweep', actionName: 'consola#cleanup_stale_sessions', triggerKind: 'manual', actorId: 'w-1' },
+    createdAt: at,
+    updatedAt: at,
+    ...fields,
+  };
+}
 
 const workspaces = () => [
   makeWorkspace({
@@ -92,6 +111,7 @@ beforeEach(() => {
     cleanup: {
       previewStale: vi.fn(async () => ({ candidates: [], skipped: [], unknownSessionIds: [], summary: 'No sessions with finished pull requests.' })),
       cleanupStale: vi.fn(),
+      previewDelete: vi.fn(async () => ({ candidates: [], skipped: [], unknownSessionIds: [], summary: 'Would delete "worker".' })),
       deleteSession: vi.fn(),
     },
     getWorkspaces: workspaces,
@@ -102,7 +122,18 @@ beforeEach(() => {
   const registry = new ToolRegistry();
   consolaTools(toolDeps).forEach((tool) => registry.register(tool));
   const conductorTools = new ConductorTools(conductorDeps);
-  build = (sessionId) => buildSessionServer(sessionId, { registry, conductorTools, getWorkspaces: workspaces });
+  // Like AutomationService.requestApproval: preview with the agent's authority, then wait.
+  requestApproval = vi.fn(async (toolName: string, args: unknown, sessionId: string) => ({
+    preview: await registry.invoke(toolName, args, agentContext(sessionId, workspaces()), 'preview'),
+    run: runRecord({ id: 'req-1', source: 'manual', automationId: `consola#${toolName}`, actionName: `consola#${toolName}` }),
+  }));
+  build = (sessionId) =>
+    buildSessionServer(sessionId, {
+      registry,
+      approvals: { request: requestApproval },
+      conductorTools,
+      getWorkspaces: workspaces,
+    });
   host = new SessionMcpHost({ shimEntryPath: () => '/fake/shim.js', configDir: () => configDir, buildServer: build });
 });
 
@@ -173,25 +204,13 @@ describe('MCP surface (in-memory)', () => {
   });
 
   it('tells an agent how an automation run went, never what it found across workspaces', async () => {
-    const at = '2026-11-04T09:00:00.000Z';
-    const run: RunRecord = {
+    const run = runRecord({
       id: 'run-1',
-      runner: 'local',
-      source: 'personal',
-      automationId: 'sweep',
-      actionName: 'consola#cleanup_stale_sessions',
-      actionVersion: 'v1',
-      mode: 'confirm',
-      trigger: { kind: 'manual', at, by: 'agent', actorId: 'w-1' },
-      status: 'needs-approval',
       summary: 'Would remove 1 session. An agent asked for this run.',
       // What the preview found in another workspace: none of it may reach the agent.
       result: { candidates: [{ sessionId: 'x-1', name: 'Other workspace session', cwd: '/elsewhere/x-1' }] },
       approval: { args: { session_ids: ['x-1'] } },
-      attribution: { automationId: 'sweep', actionName: 'consola#cleanup_stale_sessions', triggerKind: 'manual', actorId: 'w-1' },
-      createdAt: at,
-      updatedAt: at,
-    };
+    });
     const trigger = vi.fn(async (_name: string, _actor: { sessionId?: string }) => run);
     toolDeps.automations = () => ({ list: () => [], trigger });
     const client = await clientFor('w-1');
@@ -204,6 +223,30 @@ describe('MCP surface (in-memory)', () => {
       status: 'needs-approval',
     });
     expect(trigger).toHaveBeenCalledWith('sweep', { sessionId: 'w-1' });
+    await client.close();
+  });
+
+  it('never lets an agent delete directly: the call becomes a plan waiting for the person', async () => {
+    const client = await clientFor('cond-1');
+    const { tools } = await client.listTools();
+    expect(tools.find((tool) => tool.name === 'consola_delete_session')?.description).toMatch(
+      /runs only once they approve it there/
+    );
+
+    const answer = JSON.parse(
+      firstText(await client.callTool({ name: 'consola_delete_session', arguments: { session_id: 'w-1' } }))
+    );
+    expect(answer).toMatchObject({
+      summary: 'Would delete "worker". Waiting for the person to approve it in Consola; nothing has changed yet.',
+      runId: 'req-1',
+      status: 'needs-approval',
+    });
+    expect(requestApproval).toHaveBeenCalledWith('delete_session', { session_id: 'w-1' }, 'cond-1');
+    expect(toolDeps.cleanup.previewDelete).toHaveBeenCalledWith(
+      { workspaceIds: ['ws-1'], excludeSessionIds: ['cond-1'] },
+      'w-1'
+    );
+    expect(toolDeps.cleanup.deleteSession).not.toHaveBeenCalled();
     await client.close();
   });
 

@@ -26,7 +26,7 @@ export interface AutomationControl {
 }
 
 export interface ConsolaToolDeps {
-    cleanup: Pick<SessionCleanupService, 'previewStale' | 'cleanupStale' | 'deleteSession'>;
+    cleanup: Pick<SessionCleanupService, 'previewStale' | 'cleanupStale' | 'previewDelete' | 'deleteSession'>;
     getWorkspaces(): Workspace[];
     status(instanceId: string): TerminalStatus;
     isManagedPath(dir: string): boolean;
@@ -155,6 +155,15 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
             mutating: true,
             destructive: true,
             automatable: false,
+            async preview(args, context) {
+                const preview = await deps.cleanup.previewDelete(context.scope, args.session_id);
+                return {
+                    summary: preview.summary,
+                    data: preview,
+                    actionable: 1,
+                    approvalArgs: { session_id: args.session_id },
+                };
+            },
             async run(args, context) {
                 const outcome = await deps.cleanup.deleteSession(context.scope, args.session_id);
                 return { summary: `Deleted "${outcome.sessionName}".`, data: outcome };

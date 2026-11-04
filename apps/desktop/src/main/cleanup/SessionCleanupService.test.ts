@@ -419,6 +419,19 @@ describe('deleteSession', () => {
         expect(fs.existsSync(dir)).toBe(true);
     });
 
+    it('previews the delete — worktree and branch included — changing nothing', async () => {
+        const { dir } = rig.worktree('previewed');
+        const session = rig.session({ name: 'Done', cwd: dir });
+        const preview = await rig.service().previewDelete(ALL, session.id);
+        expect(preview).toMatchObject({
+            summary: 'Would delete "Done" and its worktree.',
+            candidates: [{ sessionId: session.id, worktree: { remove: true }, branch: 'previewed' }],
+            skipped: [],
+        });
+        expect(rig.sessionIds()).toEqual([session.id]);
+        expect(fs.existsSync(dir)).toBe(true);
+    });
+
     it('never touches a scope folder', async () => {
         const session = rig.session({ name: 'Here', cwd: rig.clone });
         const outcome = await rig.service().deleteSession(ALL, session.id);
@@ -435,6 +448,8 @@ describe('deleteSession', () => {
         const scope = { workspaceIds: ['ws-1'], excludeSessionIds: [self.id] };
 
         await expect(service.deleteSession(scope, self.id)).rejects.toThrow(/itself/);
+        // A preview refuses what the delete would, so no one is asked to approve it.
+        await expect(service.previewDelete(scope, conductor.id)).rejects.toThrow(/Conductors/);
         await expect(service.deleteSession(scope, conductor.id)).rejects.toThrow(/Conductors/);
         await expect(service.deleteSession(scope, busy.id)).rejects.toThrow(/working/);
         await expect(

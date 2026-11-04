@@ -28,6 +28,24 @@ export interface ToolContext {
     scope: ToolScope;
 }
 
+export type AgentCaller = Extract<ToolCaller, { kind: 'agent' }>;
+
+/**
+ * Authority for a call from an agent: its own workspace, minus itself.
+ * Resolved from the session at the moment of the call, so a session deleted
+ * or moved since has none.
+ */
+export function agentContext(sessionId: string, workspaces: Workspace[]): ToolContext & { caller: AgentCaller } {
+    const workspace = workspaces.find((candidate) =>
+        candidate.sessions.some((session) => session.id === sessionId)
+    );
+    if (!workspace) throw new Error('Calling session no longer exists.');
+    return {
+        caller: { kind: 'agent', sessionId, workspaceId: workspace.id },
+        scope: { workspaceIds: [workspace.id], excludeSessionIds: [sessionId] },
+    };
+}
+
 /** The workspaces a scope covers, in their stored order. */
 export function workspacesInScope(workspaces: Workspace[], scope: ToolScope): Workspace[] {
     return scope.workspaceIds === 'all'
@@ -63,7 +81,11 @@ export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {
     input: Shape;
     /** Changes something. Automatable mutating tools must offer `preview`. */
     mutating: boolean;
-    /** Can delete something. Surfaced to the CLI as MCP's `destructiveHint`. */
+    /**
+     * Can delete something. Surfaced to the CLI as MCP's `destructiveHint`,
+     * and an agent's call never runs directly: it waits in Consola for a
+     * person to approve its preview — so it must offer one.
+     */
     destructive?: boolean;
     /**
      * Whether factory.yml may name it in `run:`. Read-only listings, tools
@@ -92,6 +114,9 @@ export class ToolRegistry {
         // automation can run that changes things must be able to give one.
         if (tool.automatable && tool.mutating && !tool.preview) {
             throw new Error(`Automatable tool ${tool.name} changes things, so it must offer a preview.`);
+        }
+        if (tool.destructive && !tool.preview) {
+            throw new Error(`Destructive tool ${tool.name} must offer a preview: a person approves an agent's call from it.`);
         }
         this.tools.set(tool.name, tool);
     }
