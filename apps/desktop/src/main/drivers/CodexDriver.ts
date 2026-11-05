@@ -6,6 +6,7 @@ import { z } from 'zod';
 import type { HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
 import { getLoginEnv } from '../LoginEnvironment';
 import { JsonStateFile } from '../state/JsonStateFile';
+import type { SessionToolPolicy } from '../../shared/workspace';
 import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
 import { findCodexRollout, readSessionModel } from './sessionModel';
 import { createCodexThread } from './codexAppServer';
@@ -70,6 +71,19 @@ function mcpArgs(file?: string): string[] {
         return ['-c', `mcp_servers.${name}={ ${fields.join(', ')} }`];
     });
 }
+
+/**
+ * Why Codex cannot run a `read-only` session yet. `--sandbox read-only`
+ * stops writes and the network for commands, but not what read-only has to
+ * stop: the person's own MCP servers from `config.toml` still load and run
+ * outside the sandbox, a trusted repository's `.codex/config.toml` can add
+ * servers and hooks of its own, and the item's code still runs. Refused,
+ * as a driver that cannot enforce a policy must, rather than launched
+ * looser than it says.
+ */
+const READ_ONLY_REFUSAL =
+    'Codex sessions cannot be made read-only yet, so automations cannot start one: make a Claude harness ' +
+    'this workspace’s default to run them.';
 
 export class CodexDriver implements HarnessDriver {
     public readonly id = 'codex' as const;
@@ -140,7 +154,16 @@ export class CodexDriver implements HarnessDriver {
         return config.configDir ? { ...baseEnv, CODEX_HOME: config.configDir } : { ...baseEnv };
     }
 
+    public toolPolicyProblem(_config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null {
+        return policy ? READ_ONLY_REFUSAL : null;
+    }
+
     public async buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): Promise<string[]> {
+        const problem = this.toolPolicyProblem(config, launch.toolPolicy);
+        if (problem) throw new Error(problem);
+        if (launch.unattended || launch.forkFrom) {
+            throw new Error('This harness can’t run a turn unattended or continue a conversation in a new session.');
+        }
         const mcp = mcpArgs(launch.mcpConfigPath);
         const threadId = await this.resolveThread(config, launch);
         return [

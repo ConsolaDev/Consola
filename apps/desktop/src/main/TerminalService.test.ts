@@ -17,7 +17,7 @@ vi.mock('./drivers', () => ({
     toHarnessConfig: (options: unknown) => options,
 }));
 
-import { TerminalService } from './TerminalService';
+import { TerminalService, UNATTENDED_TURN_LIMIT_MS } from './TerminalService';
 
 /** What deliverPendingPrompt writes: a bracketed paste, then Enter. */
 function pasted(prompt: string): string[] {
@@ -27,25 +27,31 @@ function pasted(prompt: string): string[] {
 interface PtyHarness {
     writes: string[];
     feed: (data: string) => void;
-    exit: (exitCode: number) => void;
+    /** A process exit as node-pty reports it: a signal death reads as exit 0, with the signal. */
+    exit: (exitCode: number, signal?: number) => void;
+    kills: () => number;
+    killSignals: () => Array<string | undefined>;
 }
 
 /** Install a fake PTY behind the mocked spawn and hand back its controls. */
 function installFakePty(): PtyHarness {
     const writes: string[] = [];
+    const killSignals: Array<string | undefined> = [];
     let onData: ((data: string) => void) | undefined;
-    let onExit: ((event: { exitCode: number }) => void) | undefined;
+    let onExit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
     spawnMock.mockReturnValue({
         onData: (callback: (data: string) => void) => { onData = callback; },
-        onExit: (callback: (event: { exitCode: number }) => void) => { onExit = callback; },
+        onExit: (callback: (event: { exitCode: number; signal?: number }) => void) => { onExit = callback; },
         write: (data: string) => { writes.push(data); },
         resize: () => {},
-        kill: () => {},
+        kill: (signal?: string) => { killSignals.push(signal); },
     });
     return {
         writes,
         feed: (data) => onData?.(data),
-        exit: (exitCode) => onExit?.({ exitCode }),
+        exit: (exitCode, signal) => onExit?.({ exitCode, ...(signal !== undefined ? { signal } : {}) }),
+        kills: () => killSignals.length,
+        killSignals: () => killSignals,
     };
 }
 
@@ -306,6 +312,219 @@ describe('TerminalService status event', () => {
         // a menu that is no longer on screen.
         expect(statuses).toEqual(['ready']);
 
+        service.destroy();
+    });
+});
+
+describe('TerminalService unattended turns', () => {
+    const unattended = (fields: Record<string, unknown> = {}) =>
+        new TerminalService({
+            cwd: os.tmpdir(),
+            claudeSessionId: 'consola-id',
+            resume: false,
+            toolPolicy: 'read-only',
+            unattended: true,
+            initialPrompt: 'review it',
+            ...fields,
+        });
+
+    it('an unattended launch passes its prompt as an argument and queues nothing', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls[0][1]).toMatchObject({ unattended: true, initialPrompt: 'review it', resume: false });
+        // A composer appearing must not get the prompt typed into it a second time.
+        pty.feed('❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual([]);
+        service.destroy();
+    });
+
+    it('reads busy for the whole unattended turn, quiet output included', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const output: string[] = [];
+        service.on('data', (data) => output.push(data));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(service.busy()).toBe(true);
+        expect(output.join('')).toContain('Consola is running this unattended and read-only.');
+        // Print mode writes nothing until the answer: a long silence is still work.
+        await vi.advanceTimersByTimeAsync(60_000);
+        expect(service.busy()).toBe(true);
+        pty.feed('FINDINGS: looks good\r\n');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(service.busy()).toBe(true);
+        pty.exit(0);
+        expect(service.busy()).toBe(false);
+        service.destroy();
+    });
+
+    it('an unattended exit reports unattended and the last line, and never retries as fresh', async () => {
+        const pty = installFakePty();
+        const service = unattended({ resume: true });
+        const exits: unknown[] = [];
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.feed('Checking the diff\r\nError: the conversation could not be resumed\r\n\r\n');
+        pty.exit(1);
+        // The exit waits for the screen to parse what came before it.
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(exits).toEqual([{ exitCode: 1, unattended: true, lastLine: 'Error: the conversation could not be resumed' }]);
+        // Starting fresh would lose the conversation the turn belongs to.
+        expect(spawnMock).toHaveBeenCalledTimes(1);
+        service.destroy();
+    });
+
+    it('restarting after an unattended turn resumes interactively, with no prompt', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const exits: unknown[] = [];
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0);
+        // A person reads the findings before clicking Continue.
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls[1][1]).toMatchObject({ resume: true, unattended: false, toolPolicy: 'read-only' });
+        expect(buildArgsMock.mock.calls[1][1].initialPrompt).toBeUndefined();
+        pty.feed('❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(pty.writes).toEqual([]);
+        expect(service.busy()).toBe(false);
+        pty.exit(0);
+        // It printed nothing: no last line, rather than Consola's own notice.
+        expect(exits).toEqual([{ exitCode: 0, unattended: true }, { exitCode: 0 }]);
+        service.destroy();
+    });
+
+    it('stops an unattended turn that runs past the limit', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const output: string[] = [];
+        const exits: unknown[] = [];
+        service.on('data', (data) => output.push(data));
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(UNATTENDED_TURN_LIMIT_MS - 1);
+        expect(pty.kills()).toBe(0);
+        await vi.advanceTimersByTimeAsync(1);
+        expect(pty.kills()).toBe(1);
+        // A death by signal: node-pty says exit 0 and names the signal.
+        pty.exit(0, 1);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(output.join('')).toContain('Stopped: it ran for an hour without finishing.');
+        // Stopped on purpose: not a CLI that failed to start.
+        expect(output.join('')).not.toContain('before printing anything');
+        expect(exits).toEqual([{ exitCode: 0, unattended: true, stopped: 'it ran for an hour without finishing' }]);
+        service.destroy();
+    });
+
+    it('says a silent turn stopped, not that the CLI failed to start', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const output: string[] = [];
+        const exits: unknown[] = [];
+        service.on('data', (data) => output.push(data));
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        // Ctrl+C before the answer: print mode had written nothing yet.
+        pty.exit(130);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(output.join('')).toContain('`claude-stub` stopped (exit 130) before printing anything.');
+        expect(output.join('')).not.toContain('exited immediately');
+        expect(exits).toEqual([{ exitCode: 130, unattended: true }]);
+        service.destroy();
+    });
+
+    it('kills an unattended turn that ignores being stopped', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        await vi.advanceTimersByTimeAsync(UNATTENDED_TURN_LIMIT_MS);
+        expect(pty.killSignals()).toEqual([undefined]);
+        await vi.advanceTimersByTimeAsync(10_000);
+        expect(pty.killSignals()).toEqual([undefined, 'SIGKILL']);
+        service.destroy();
+    });
+
+    it('a Ctrl+C during an unattended turn reports it stopped, even when the CLI exits 0', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const exits: unknown[] = [];
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        service.write('\x03');
+        // Claude's print-mode SIGINT handler exits cleanly.
+        pty.exit(0);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(exits).toEqual([{ exitCode: 0, unattended: true, stopped: 'you pressed Ctrl+C' }]);
+        service.destroy();
+    });
+
+    it('a turn killed by a signal reports it stopped', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const exits: unknown[] = [];
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0, 9);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(exits).toEqual([{ exitCode: 0, unattended: true, stopped: 'it was killed (signal 9)' }]);
+        service.destroy();
+    });
+
+    it('an unattended launch that cannot start reports an unattended exit with the reason', async () => {
+        installFakePty();
+        const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+        buildArgsMock.mockImplementation(() => {
+            throw new Error('Read-only sessions cannot use --add-dir.');
+        });
+        const service = unattended();
+        const exits: unknown[] = [];
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(exits).toEqual([{ exitCode: 1, unattended: true, stopped: 'Read-only sessions cannot use --add-dir.' }]);
+        service.destroy();
+        log.mockRestore();
+    });
+
+    it('a fork launch passes forkFrom once', async () => {
+        const pty = installFakePty();
+        const service = new TerminalService({ cwd: os.tmpdir(), claudeSessionId: 'new', resume: false, forkFrom: 'orig' });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0);
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls.map((call) => [call[1].resume, call[1].forkFrom])).toEqual([
+            [false, 'orig'],
+            [true, undefined],
+        ]);
+        service.destroy();
+    });
+
+    it('passes the session’s tool policy to the driver on every launch', async () => {
+        const pty = installFakePty();
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: true, toolPolicy: 'read-only',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0);
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls.map((call) => call[1].toolPolicy)).toEqual(['read-only', 'read-only']);
         service.destroy();
     });
 });

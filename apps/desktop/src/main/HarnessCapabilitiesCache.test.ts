@@ -23,6 +23,7 @@ function fakeDriver(
         configDirEnvVar: 'CLAUDE_CONFIG_DIR',
         resolveBinary: () => 'claude',
         buildSessionArgs: () => [],
+        toolPolicyProblem: () => null,
         composeEnv: (_config, base) => base,
         probeHealth: async () => ({ available: true, resolvedBinary: 'claude' }),
         probeCapabilities,

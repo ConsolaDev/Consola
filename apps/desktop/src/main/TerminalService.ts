@@ -9,6 +9,7 @@ import { ScreenModel } from './ScreenModel';
 import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
 import { getProviderDriver, layerProviderToken } from './providers';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
+import type { SessionToolPolicy } from '../shared/workspace';
 
 /**
  * One session tab's terminal.
@@ -22,18 +23,30 @@ import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalSta
 const IDLE_DEBOUNCE_MS = 500;
 
 /**
+ * How long an unattended turn may run before Consola stops it. A print-mode
+ * process that never exits would hold one of the few automation slots
+ * forever; an hour is far past any review.
+ */
+export const UNATTENDED_TURN_LIMIT_MS = 60 * 60_000;
+
+const UNATTENDED_NOTICE =
+    'Consola is running this unattended and read-only. What it finds appears here when it finishes. Press Ctrl+C to stop it.';
+const UNATTENDED_LIMIT_REASON = 'it ran for an hour without finishing';
+const UNATTENDED_LIMIT_NOTICE = 'Stopped: it ran for an hour without finishing.';
+
+/** How long a turn stopped at the limit gets to exit before it is killed outright. */
+const UNATTENDED_KILL_GRACE_MS = 10_000;
+
+/**
  * Markers for a TUI screen that is waiting on a keyboard confirmation — the
  * workspace trust gate, tool permission prompts, and similar menus.
  *
  * Matched against the emulated screen with whitespace collapsed, so wrapping
  * and column padding do not defeat them.
  */
-const CONFIRMATION_MARKERS = [
-    /do you trust/i,
-    /trust this folder/i,
-    /do you want to proceed/i,
-    /enter to confirm/i,
-];
+const TRUST_GATE_MARKERS = [/do you trust/i, /trust this folder/i];
+
+const CONFIRMATION_MARKERS = [...TRUST_GATE_MARKERS, /do you want to proceed/i, /enter to confirm/i];
 
 /**
  * An empty prompt composer: the CLI is booted, idle, and waiting for typing.
@@ -54,6 +67,11 @@ function formatNotice(message: string): string {
     return `\r\n\x1b[31m${message}\x1b[0m\r\n`;
 }
 
+/** Consola's own words that are news, not a problem: dim instead of red. */
+function formatInfo(message: string): string {
+    return `\x1b[2m${message}\x1b[0m\r\n\r\n`;
+}
+
 function normalizeScreen(visibleText: string): string {
     return visibleText.replace(/\s+/g, ' ');
 }
@@ -67,8 +85,15 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
     /** Initial size, so the TUI paints at the right dimensions immediately. */
     cols?: number;
     rows?: number;
-    /** Prompt to submit once the CLI is ready for input. */
+    /** Prompt to submit once the CLI is ready for input; with `unattended`, the turn's argument. */
     initialPrompt?: string;
+    /**
+     * Run the first launch as one non-interactive turn (`SessionLaunch.unattended`).
+     * Consumed by the first spawn: a restart resumes interactively.
+     */
+    unattended?: boolean;
+    /** Start this session as a fork of that conversation. Consumed by the first spawn. */
+    forkFrom?: string;
     /** Model this session is pinned to, replayed on every relaunch. */
     model?: string;
     /**
@@ -85,10 +110,26 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
      */
     providerId?: GitProviderId;
     providerAccountLogin?: string;
+    /**
+     * What the agent may do, from the session record. Replayed on every
+     * launch like the model; the driver enforces it or refuses to launch.
+     */
+    toolPolicy?: SessionToolPolicy;
 }
 
 export interface TerminalExitInfo {
     exitCode: number;
+    /** The launch that exited was an unattended turn. */
+    unattended?: boolean;
+    /** That turn's last non-empty screen line: its answer's end, or the CLI's error. */
+    lastLine?: string;
+    /**
+     * Why that turn ended without finishing, whatever its exit code: the
+     * person pressed Ctrl+C, Consola stopped it at the limit, a signal
+     * killed it, or it never started. Claude exits 0 on Ctrl+C, and node-pty
+     * reports a death by signal as exit 0, so the code alone cannot say.
+     */
+    stopped?: string;
 }
 
 export class TerminalService extends EventEmitter {
@@ -111,6 +152,18 @@ export class TerminalService extends EventEmitter {
     private isLaunching = false;
     private initialPromptArgument: string | undefined;
     private lastStatus: TerminalStatus | null = null;
+    /** The next spawn is the unattended turn. */
+    private unattendedPending: boolean;
+    /** The next spawn forks this conversation. */
+    private forkPending: string | undefined;
+    /** The live process is an unattended turn: busy until it exits. */
+    private unattendedTurn = false;
+    private unattendedLimit: NodeJS.Timeout | null = null;
+    private unattendedKill: NodeJS.Timeout | null = null;
+    /** Why Consola stopped the unattended turn, when it did. */
+    private unattendedStopReason: string | null = null;
+    /** An exit waiting for the screen to catch up, run early if the screen goes first. */
+    private screenSettling: (() => void) | null = null;
 
     constructor(options: TerminalServiceOptions) {
         super();
@@ -124,7 +177,11 @@ export class TerminalService extends EventEmitter {
         // failure would be indistinguishable from a missing conversation.
         this.driver = getDriver(options.driverId);
         this.harness = toHarnessConfig(options);
-        if (this.driver.initialPromptViaArgs) {
+        this.unattendedPending = options.unattended === true;
+        this.forkPending = options.forkFrom;
+        // An unattended turn takes its prompt as its argument: there is no
+        // composer to type it into.
+        if (this.driver.initialPromptViaArgs || this.unattendedPending) {
             this.initialPromptArgument = options.initialPrompt;
         } else {
             this.promptQueue = options.initialPrompt != null ? [options.initialPrompt] : [];
@@ -170,6 +227,8 @@ export class TerminalService extends EventEmitter {
     }
 
     public write(data: string): void {
+        // Print mode exits 0 on Ctrl+C: remember that the person stopped it.
+        if (this.unattendedTurn && data.includes('\x03')) this.unattendedStopReason ??= 'you pressed Ctrl+C';
         this.claudePty?.write(data);
     }
 
@@ -211,6 +270,7 @@ export class TerminalService extends EventEmitter {
             clearTimeout(this.idleTimer);
             this.idleTimer = null;
         }
+        this.clearUnattendedLimit();
         this.claudePty?.kill();
         this.claudePty = null;
         this.disposeScreen();
@@ -229,7 +289,7 @@ export class TerminalService extends EventEmitter {
             this.claudeExited = true;
             this.emitStatus();
             this.writeNotice(cwdProblem);
-            this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
+            this.emit('exit', { exitCode: 1, ...this.unattendedNeverStarted(cwdProblem) } as TerminalExitInfo);
             return;
         }
 
@@ -244,6 +304,7 @@ export class TerminalService extends EventEmitter {
             // Read from `options` on every launch rather than captured once, so a
             // pinned model survives a resume, a restart, and the retry-as-fresh
             // path below without any of them having to remember it.
+            const unattended = this.unattendedPending;
             const launchArgs = this.driver.buildSessionArgs(this.harness, {
                 sessionId: this.options.claudeSessionId,
                 cwd: this.options.cwd,
@@ -251,10 +312,15 @@ export class TerminalService extends EventEmitter {
                 model: this.options.model,
                 mcpConfigPath: this.options.mcpConfigPath,
                 initialPrompt: this.initialPromptArgument,
+                toolPolicy: this.options.toolPolicy,
+                unattended,
+                forkFrom: resume ? undefined : this.forkPending,
             });
             const args = Array.isArray(launchArgs) ? launchArgs : await launchArgs;
             if (this.isDestroyed || this.claudePty) return;
 
+            // Written before the spawn so it sits above whatever the turn prints.
+            if (unattended) this.writeNotice(UNATTENDED_NOTICE, formatInfo);
             this.claudeProducedOutput = false;
             this.claudePty = pty.spawn(binary, args, {
                 name: 'xterm-256color',
@@ -267,8 +333,13 @@ export class TerminalService extends EventEmitter {
                     borrowed?.token ?? null
                 ) as { [key: string]: string },
             });
+            // A prompt on the command line is delivered by the spawn itself,
+            // and the turn and fork it asked for are done with once spawned.
             this.initialPromptArgument = undefined;
+            this.unattendedPending = false;
+            this.forkPending = undefined;
             this.claudeExited = false;
+            if (unattended) this.beginUnattendedTurn();
             this.emitStatus();
 
             const observeOutput = this.driver.createOutputObserver?.(this.harness, this.options.claudeSessionId);
@@ -281,16 +352,20 @@ export class TerminalService extends EventEmitter {
                 this.handleData(data);
             });
 
-            this.claudePty.onExit(({ exitCode }) => {
+            this.claudePty.onExit(({ exitCode, signal }) => {
                 this.claudePty = null;
                 this.claudeExited = true;
+                const turn = this.endUnattendedTurn();
+                const stopped = turn ? (this.unattendedStopReason ?? (signal ? `it was killed (signal ${signal})` : undefined)) : undefined;
                 this.setBusy(false);
 
                 // A resume against a session Claude no longer has fails
                 // immediately; retry once as a new conversation so the tab
                 // stays usable. Wipe the failed attempt's output first so its
-                // error message does not sit above the fresh session.
-                if (resume && exitCode !== 0 && this.driver.retryResumeAsFresh !== false) {
+                // error message does not sit above the fresh session. Never
+                // for an unattended turn: it belongs to that conversation,
+                // and a fresh one would answer a question nobody asked it.
+                if (resume && exitCode !== 0 && !turn && this.driver.retryResumeAsFresh !== false) {
                     this.disposeScreen();
                     this.emit('data', CLEAR_SCREEN);
                     void this.initClaude(false);
@@ -300,23 +375,46 @@ export class TerminalService extends EventEmitter {
                 // A failure with nothing on screen means the CLI never got far
                 // enough to say anything, so there is no error for the user to
                 // read. Name what was run instead of leaving an empty pane.
-                if (exitCode !== 0 && !this.claudeProducedOutput) {
+                // Print mode is silent until it answers, so an unattended turn
+                // stopped partway — Ctrl+C, the time limit — printed nothing
+                // either, without having failed to start.
+                if (exitCode !== 0 && !this.claudeProducedOutput && !this.unattendedStopReason) {
                     this.writeNotice(
-                        `\`${binary}\` exited immediately without starting. ` +
-                            'Check this session\'s harness in Settings — is that binary installed and executable?'
+                        turn
+                            ? `\`${binary}\` stopped (exit ${exitCode}) before printing anything. ` +
+                                  'If it never started, check this session\'s harness in Settings.'
+                            : `\`${binary}\` exited immediately without starting. ` +
+                                  'Check this session\'s harness in Settings — is that binary installed and executable?'
                     );
                 }
 
                 this.emitStatus();
-                this.emit('exit', { exitCode } as TerminalExitInfo);
+                if (!turn) {
+                    this.emit('exit', { exitCode } as TerminalExitInfo);
+                    return;
+                }
+                // The screen parses output a tick behind the PTY: wait for it,
+                // so the last line is what the turn actually printed last.
+                this.afterScreenSettles(() => {
+                    // Only what the CLI printed: with nothing from it, the last
+                    // line on screen would be Consola's own notice.
+                    const lastLine = this.claudeProducedOutput ? this.lastScreenLine() : undefined;
+                    this.emit('exit', {
+                        exitCode,
+                        unattended: true,
+                        ...(lastLine ? { lastLine } : {}),
+                        ...(stopped ? { stopped } : {}),
+                    } as TerminalExitInfo);
+                });
             });
         } catch (error) {
             if (this.isDestroyed) return;
             console.error(`Error spawning ${this.driver.id}:`, error);
-            this.writeNotice(error instanceof Error ? error.message : `Could not start ${this.driver.id}.`);
+            const message = error instanceof Error ? error.message : `Could not start ${this.driver.id}.`;
+            this.writeNotice(message);
             this.claudeExited = true;
             this.emitStatus();
-            this.emit('exit', { exitCode: 1 } as TerminalExitInfo);
+            this.emit('exit', { exitCode: 1, ...this.unattendedNeverStarted(message) } as TerminalExitInfo);
         } finally {
             this.isLaunching = false;
         }
@@ -362,6 +460,9 @@ export class TerminalService extends EventEmitter {
     private async borrowProviderToken(): Promise<{ envVar: string; token: string } | null> {
         const { providerId, providerAccountLogin: login } = this.options;
         if (!providerId || !login) return null;
+        // A read-only session acts as nobody on the provider: what it needs
+        // of the item, main fetches with the token for it.
+        if (this.options.toolPolicy === 'read-only') return null;
         try {
             const driver = getProviderDriver(providerId);
             return { envVar: driver.tokenEnvVar, token: await driver.token(login) };
@@ -384,8 +485,8 @@ export class TerminalService extends EventEmitter {
      * and again in the replay buffer `TerminalManager.ensure` captures after
      * starting the terminal.
      */
-    private writeNotice(message: string): void {
-        const text = formatNotice(message);
+    private writeNotice(message: string, format: (message: string) => string = formatNotice): void {
+        const text = format(message);
         setImmediate(() => {
             // The session may have been closed in the meantime; recreating its
             // screen here would leak an emulator nothing will ever dispose.
@@ -405,10 +506,89 @@ export class TerminalService extends EventEmitter {
         if (this.idleTimer) clearTimeout(this.idleTimer);
         this.idleTimer = setTimeout(() => {
             this.classifyScreen();
-            this.setBusy(false);
+            // Print mode is silent while it works; only its exit ends the turn.
+            if (!this.unattendedTurn) this.setBusy(false);
             this.deliverPendingPrompt();
             this.emitStatus();
         }, IDLE_DEBOUNCE_MS);
+    }
+
+    /** Busy from spawn to exit, and stopped if it outlasts the limit. */
+    private beginUnattendedTurn(): void {
+        this.unattendedTurn = true;
+        this.unattendedStopReason = null;
+        this.setBusy(true);
+        this.clearUnattendedLimit();
+        this.unattendedLimit = setTimeout(() => {
+            this.unattendedLimit = null;
+            this.unattendedStopReason = UNATTENDED_LIMIT_REASON;
+            this.writeNotice(UNATTENDED_LIMIT_NOTICE);
+            this.claudePty?.kill();
+            // A process that ignores the hangup would hold its slot forever.
+            this.unattendedKill = setTimeout(() => {
+                this.unattendedKill = null;
+                this.claudePty?.kill('SIGKILL');
+            }, UNATTENDED_KILL_GRACE_MS);
+        }, UNATTENDED_TURN_LIMIT_MS);
+    }
+
+    /**
+     * What an exit reports when the unattended turn this launch was for never
+     * started (a refused launch, a missing folder): the turn is over, and its
+     * run must hear so. A restart afterwards resumes interactively.
+     */
+    private unattendedNeverStarted(reason: string): Pick<TerminalExitInfo, 'unattended' | 'stopped'> {
+        if (!this.unattendedPending) return {};
+        this.unattendedPending = false;
+        this.initialPromptArgument = undefined;
+        return { unattended: true, stopped: reason };
+    }
+
+    /** Whether an unattended turn was running; it is over now either way. */
+    private endUnattendedTurn(): boolean {
+        if (!this.unattendedTurn) return false;
+        this.unattendedTurn = false;
+        this.clearUnattendedLimit();
+        return true;
+    }
+
+    /** The screen's last non-empty line: a turn's answer ends there, and so does the CLI's error. */
+    private lastScreenLine(): string | undefined {
+        return (this.screen?.visibleText() ?? '')
+            .split('\n')
+            .map((line) => line.trim())
+            .filter((line) => line.length > 0)
+            .pop();
+    }
+
+    /**
+     * Run `callback` once the screen has parsed everything written to it.
+     * A screen torn down first (a restart, a close) runs it then, with what
+     * it had — never not at all, or an automation run would wait forever for
+     * the turn's end. A closed session runs nothing.
+     */
+    private afterScreenSettles(callback: () => void): void {
+        const screen = this.screen;
+        if (!screen) {
+            callback();
+            return;
+        }
+        let done = false;
+        const settle = () => {
+            if (done) return;
+            done = true;
+            if (this.screenSettling === settle) this.screenSettling = null;
+            if (!this.isDestroyed) callback();
+        };
+        this.screenSettling = settle;
+        screen.write('', settle);
+    }
+
+    private clearUnattendedLimit(): void {
+        if (this.unattendedLimit) clearTimeout(this.unattendedLimit);
+        if (this.unattendedKill) clearTimeout(this.unattendedKill);
+        this.unattendedLimit = null;
+        this.unattendedKill = null;
     }
 
     /** Note whether the settled screen is waiting on a keyboard confirmation. */
@@ -437,6 +617,9 @@ export class TerminalService extends EventEmitter {
     }
 
     private disposeScreen(): void {
+        const settling = this.screenSettling;
+        this.screenSettling = null;
+        settling?.();
         this.screen?.dispose();
         this.screen = null;
     }

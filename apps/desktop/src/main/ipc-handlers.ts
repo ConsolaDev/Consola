@@ -29,6 +29,7 @@ import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
+import { launchAgentRun } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
@@ -256,7 +257,11 @@ export function setupIpcHandlers(): boolean {
             sessionCheckouts.list(checkoutScope(workspaceId, scopeId).path));
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_CREATE,
-        async (_event, workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => {
+        async (_event, workspaceId: string, payload: NewSessionFields, checkout?: SessionCheckout) => {
+            // Where a session came from and what its agent may do are main's
+            // to set, when an automation launches one; a window never does.
+            // eslint-disable-next-line @typescript-eslint/no-unused-vars
+            const { toolPolicy, automation, ...fields } = payload ?? ({} as NewSessionFields);
             if (!checkout) return workspaces.createSession(workspaceId, fields);
             const scope = checkoutScope(workspaceId, fields.scopeId);
             const cwd = await sessionCheckouts.prepare(scope.path, checkout);
@@ -459,6 +464,10 @@ export function setupIpcHandlers(): boolean {
                     window.webContents.send(IPC_CHANNELS.INBOX_CHANGED, snapshot);
                 }
             }
+            // The event source: what changed since the last good fetch fires
+            // event automations. The poll is the Inbox's own — checking
+            // costs no tokens, and no agent ever polls.
+            automationService?.observeInbox(snapshot);
         },
     });
     inboxService = inbox;
@@ -613,14 +622,32 @@ export function setupIpcHandlers(): boolean {
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) return;
 
+        // An automation's session waits for nothing but the person: say who
+        // started it. Consola never answers a menu itself.
+        const started = located.session.automation;
         const notification = new Notification({
             title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
-            body: 'Click to open it in Consola.',
+            body: started
+                ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
+                : 'Click to open it in Consola.',
         });
         notification.on('click', () => {
             focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
         });
         notification.show();
+    };
+
+    // An automation session's unattended turn ending is its run finishing:
+    // the findings are there, or the reason it stopped is.
+    manager.onExit = (instanceId, info) => {
+        if (!info.unattended) return;
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (!located) return;
+        automationService?.turnEnded(located.session.id, {
+            exitCode: info.exitCode,
+            lastLine: info.lastLine,
+            stopped: info.stopped,
+        });
     };
 
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
@@ -681,6 +708,21 @@ export function setupIpcHandlers(): boolean {
         status: sessionStatus,
         isManagedPath: (dir) => worktrees.isManagedPath(dir),
         automations: () => automations,
+        // Fetched here, with the token only main holds: a read-only session
+        // has none, and this is how it reads the item it is about.
+        workItemContext: async (sessionId) => {
+            const workspace = workspaces.getAll().find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
+            const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+            const workItem = session?.workItem;
+            if (!workspace || !workItem) throw new Error('This session is not about a pull request or an issue.');
+            if (workspace.provider?.id !== workItem.provider) {
+                throw new Error(`This workspace has no ${workItem.provider} account bound to fetch it with.`);
+            }
+            const driver = getProviderDriver(workspace.provider.id);
+            if (!driver.describeWorkItem) throw new Error(`Consola cannot describe ${workItem.provider} items yet.`);
+            return driver.describeWorkItem(workItem, await composeProviderEnv(driver, workspace.provider.accountLogin));
+        },
+        inbox: (workspaceId) => inbox.getSnapshot(workspaceId),
     }).forEach((tool) => tools.register(tool));
 
     // Every session's private MCP endpoint (see SessionMcpHost): the Consola
@@ -718,10 +760,13 @@ export function setupIpcHandlers(): boolean {
         notify: (notice) => {
             if (!Notification.isSupported()) return;
             const notification = new Notification({ title: notice.title, body: notice.body });
-            // Lands on the approvals the notice is about: that workspace's
-            // Automations panel, in the window holding it.
+            // Lands on what the notice is about: the session a run started,
+            // or else that workspace's Automations panel, in the window
+            // holding it.
             notification.on('click', () =>
-                showWorkspaceSettings(notice.workspaceId, 'automations', viewMemoryPort())
+                notice.sessionId
+                    ? focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId)
+                    : showWorkspaceSettings(notice.workspaceId, 'automations', viewMemoryPort())
             );
             notification.show();
         },
@@ -736,6 +781,31 @@ export function setupIpcHandlers(): boolean {
             timer.unref?.();
             return () => clearInterval(timer);
         },
+        inboxSnapshot: (workspaceId) => inbox.getSnapshot(workspaceId),
+        refreshInbox: (workspaceId) => inbox.refresh(workspaceId),
+        launchAgent: (request) =>
+            launchAgentRun(
+                {
+                    getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+                    resolveDriver: getProviderDriver,
+                    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+                    worktreePathFor: (workItem) => worktrees.worktreePathFor(workItem),
+                    ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
+                    refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
+                    worktreeInUse: (dir) =>
+                        workspaces
+                            .getAll()
+                            .flatMap((workspace) => workspace.sessions)
+                            .some((session) => session.cwd === dir && manager.get(session.instanceId)?.hasClaudeExited() === false),
+                    composeEnv: composeProviderEnv,
+                    restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
+                    launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
+                },
+                request
+            ),
+        // A turn Consola quit in the middle of picks up in its own session.
+        resumeAgent: (session, prompt) => launcher.resumeUnattended(session.workspaceId, session.id, prompt),
+        hasLiveTerminal: (session) => manager.get(session.instanceId)?.hasClaudeExited() === false,
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));
@@ -757,6 +827,9 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_DISMISS, (_event, runId: string) => automations.dismiss(String(runId)));
     // Creates the file from a commented template first, so "Open" always
     // lands in an editor rather than an error.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, (_event, workspaceId: string) =>
+        automations.addAssignedReviews(String(workspaceId))
+    );
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async (_event, workspaceId: string) => {
         const failure = await shell.openPath(await automations.ensureFile(String(workspaceId)));
         if (failure) throw new Error(failure);
@@ -779,6 +852,12 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(IPC_CHANNELS.SESSION_FAN_OUT, (_event, intent: SessionFanOutIntent) =>
         fanOut({ workspaces, launcher }, intent)
+    );
+
+    // A read-only session's restriction is never lifted in place: the person
+    // continues its conversation in a fork of their own.
+    ipcMain.handle(IPC_CHANNELS.WORKSPACE_SESSION_FORK, (_event, workspaceId: string, sessionId: string) =>
+        launcher.forkWithFullTools(workspaceId, sessionId)
     );
 
     ipcMain.handle(
@@ -860,6 +939,9 @@ export function setupIpcHandlers(): boolean {
             providerId,
             providerAccountLogin,
             mcpConfigPath,
+            // From the record, never the window: a relaunch after a restart
+            // comes through here, and must stay as restricted as the launch.
+            toolPolicy: record?.toolPolicy,
         }, event.sender);
     });
 
@@ -1554,6 +1636,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_FORK);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);
@@ -1597,6 +1680,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS);
 
     // Clean up all terminal services
     ipcMain.removeHandler(IPC_CHANNELS.SHELL_ATTACH);

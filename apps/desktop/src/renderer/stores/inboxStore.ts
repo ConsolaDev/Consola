@@ -124,6 +124,10 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         // queue delivers it — never into a menu.
         useTerminalStore.getState().setPendingPrompt(result.session.instanceId, result.seedPrompt);
         activateSession(workspaceId, result.session.id);
+      } else if (result.reason === 'automation-review') {
+        // An automation is already reviewing it with this action: its
+        // session is the review, findings and all.
+        activateSession(workspaceId, result.sessionId);
       } else if (result.reason === 'not-cloned') {
         get().openClonePrompt(workspaceId, item);
       } else {

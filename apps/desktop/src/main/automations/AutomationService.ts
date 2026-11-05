@@ -2,14 +2,19 @@ import { createHash } from 'crypto';
 import {
     automationVersion,
     nextCronOccurrence,
+    stableStringify,
     type Automation,
     type AutomationMode,
+    type CronTrigger,
     type RunRecord,
     type RunStatus,
     type RunTrigger,
 } from '@consola/factory-spec';
-import type { AutomationsSnapshot, AutomationView } from '../../shared/automations';
-import type { Workspace } from '../../shared/workspace';
+import type { AgentRunPreview, AutomationsSnapshot, AutomationView } from '../../shared/automations';
+import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
+import { defaultActionFor } from '../../shared/workItemActions';
+import { sameWorkItem } from '../../shared/workItems';
+import type { Scope, Session, Workspace } from '../../shared/workspace';
 import { describeError } from '../describeError';
 import {
     agentContext,
@@ -19,24 +24,38 @@ import {
     type ToolRegistry,
     type ToolResult,
 } from '../tools/Tool';
-import type { LoadedFactoryFile } from './FactoryFile';
+import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
+import { describeSchedule } from './describeSchedule';
+import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, factoryTemplate, type LoadedFactoryFile } from './FactoryFile';
 import type { RunStore } from './RunStore';
+import { StartedByHandError } from './launchAgentRun';
+import { advanceSeen } from './seenRecord';
 
 /**
  * The local runner for personal automations: one `factory.yml` per workspace
  * (`~/.consola/workspaces/<workspace-id>/factory.yml`), whose automations act
  * on that workspace and nothing else.
  *
- * Trigger → tool, in a mode. Cron is a main-process timer, so automations run
- * only while Consola is open; an occurrence missed while it was closed fires
- * once on the next launch (`catchUp`), never once per missed occurrence. No
+ * Trigger → target, in a mode. A target is a tool, run in-process, or an
+ * agent session — one of the workspace's actions or a prompt of the
+ * automation's own — started headless, read-only, as an ordinary tab the
+ * person can watch, steer and resume. Triggers are a cron, a main-process
+ * timer, or a connection's event: a change between two successful polls of
+ * the Inbox. Consola detects; the agent acts — nothing is spent while nothing
+ * is new. Automations run only while Consola is open; what was missed while
+ * it was closed fires once on the next launch, never once per occurrence. No
  * run ever starts another run (no workflow engine).
  *
  * Nothing a person did not approve runs unasked: `confirm` is the default; an
  * agent asking for an `auto` automation gets `confirm`; and an `auto` entry
  * runs on its own only at a version a person approved once — a new or edited
- * one asks first, whoever wrote the file. Approving runs exactly what the
- * preview showed, and nothing if the definition changed since.
+ * one asks first, whoever wrote the file, and so does one whose action was
+ * edited in settings. Approving runs exactly what the preview showed, and
+ * nothing if the definition changed since.
+ *
+ * Agent runs share one machine and one subscription, so at most a few of
+ * their sessions work at once across every workspace; the rest wait as
+ * `queued`, first in, first out.
  *
  * It also holds what agents ask to delete. An agent never runs a destructive
  * tool directly: its call becomes a run here (`source: 'manual'`), waiting in
@@ -51,6 +70,8 @@ export interface AutomationNotice {
     /** Whose Automations panel a click opens. */
     workspaceId: string;
     needsApproval: boolean;
+    /** The session a run started: a click opens it instead of the panel. */
+    sessionId?: string;
 }
 
 /** One workspace's spec file. */
@@ -59,7 +80,27 @@ export interface FactoryFileHandle {
     load(): Promise<LoadedFactoryFile>;
     watch(onChange: () => void): void;
     unwatch(): void;
-    ensureExists(): Promise<string>;
+    /** Create the file from `template` when it is missing; returns its path. */
+    ensureExists(template: string): Promise<string>;
+    /** Add one automation (a `- name: …` item) at the end of the list, keeping everything else. */
+    appendAutomation(entryYaml: string): Promise<void>;
+}
+
+/** What an agent run asks main to start: a headless, read-only session. */
+export interface AgentLaunchRequest {
+    workspaceId: string;
+    run: { id: string; automation: string };
+    /** The exact prompt the session starts with — the one its preview showed. */
+    prompt: string;
+    /**
+     * An item run: it runs in a worktree of the item's own repo. When
+     * `startedByHandSince` is set, a session the person started on the item
+     * with the same action after that time refuses the launch
+     * (`StartedByHandError`), checked under the lock an Inbox click takes.
+     */
+    item?: { workItem: InboxItem['workItem']; title: string; label: string; groupId?: string; startedByHandSince?: string };
+    /** A scheduled run: it runs in this scope's folder. */
+    scopeId?: string;
 }
 
 export interface AutomationServiceDeps {
@@ -74,10 +115,31 @@ export interface AutomationServiceDeps {
     broadcast(workspaceId: string, snapshot: AutomationsSnapshot): void;
     /** setInterval, as a seam; returns a canceller. */
     every(ms: number, run: () => void): () => void;
+    /** A workspace's latest Inbox snapshot, or null before its first fetch. */
+    inboxSnapshot(workspaceId: string): InboxSnapshot | null;
+    /** Fetch a workspace's Inbox now — an event automation's "Check now". */
+    refreshInbox(workspaceId: string): Promise<void>;
+    /** Start an agent run's session, its first turn unattended; throws with the reason it could not. */
+    launchAgent(request: AgentLaunchRequest): Promise<Session>;
+    /** Run `prompt` as an unattended turn in a recorded automation session; throws with the reason it could not. */
+    resumeAgent(session: Session, prompt: string): Promise<void>;
+    /** Whether a session has a terminal whose process is still running: someone opened it. */
+    hasLiveTerminal(session: Session): boolean;
+    /** Agent sessions automations may have working at once, across every workspace. */
+    maxConcurrentAgents?: number;
 }
+
+/** The events automatic reviews listen to: a review asked of the person, or the pull request assigned to them. */
+const ASSIGNED_REVIEW_EVENTS = ['pull_request.review_requested', 'pull_request.assigned'];
+
+/** The turn an automation session gets when Consola quit before its first one finished. */
+export const INTERRUPTED_PROMPT = 'Consola closed before you finished. Continue where you left off.';
 
 /** How often the scheduler looks at the clock. Coarse on purpose: cron is per-minute. */
 export const TICK_MS = 30_000;
+
+/** Automation sessions working at once, across every workspace, by default. */
+export const DEFAULT_MAX_CONCURRENT_AGENTS = 2;
 
 /** Results bigger than this are summarised away rather than kept in history. */
 const MAX_RESULT_CHARS = 20_000;
@@ -85,13 +147,30 @@ const MAX_RESULT_CHARS = 20_000;
 /** Requests one agent session may leave waiting before it must wait for the person. */
 export const MAX_WAITING_PER_SESSION = 10;
 
+/** A run that has not finished: one more of these for the same thing would be a duplicate. */
+const OPEN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'needs-approval'];
+
 interface Resolved {
     workspaceId: string;
     automation: Automation;
-    /** `automationVersion`: what approvals bind to. */
+    /** `automationVersion`, the action's body included: what approvals bind to. */
     version: string;
+    /** A tool run's tool and validated arguments. */
     tool?: ToolDefinition;
     args?: Record<string, unknown>;
+    /** An agent run: the body it renders, and how its session is labelled and placed. */
+    agent?: {
+        body: string;
+        /** The session's `workItemAction` for an item run: the action's name, or the automation's. */
+        label?: string;
+        groupId?: string;
+        /** A scheduled run's scope. */
+        scope?: Scope;
+        /** "Review action", "Prompt" — for previews. */
+        runs: string;
+    };
+    /** An event trigger, resolved against the entry's filter. */
+    event?: EventSource;
     /** Set when the entry parsed but cannot run: the reason it will not. */
     problem?: string;
 }
@@ -110,18 +189,41 @@ function automationKey(entry: Pick<Resolved, 'workspaceId' | 'automation'>): str
     return `${entry.workspaceId} ${entry.automation.name}`;
 }
 
+function cronOf(entry: Resolved): CronTrigger | null {
+    return entry.automation.trigger.kind === 'cron' ? entry.automation.trigger : null;
+}
+
 /** A schedule's identity: a renamed automation or an edited cron starts afresh rather than catching up. */
 function scheduleKey(entry: Resolved): string {
-    return `${automationKey(entry)} ${entry.automation.trigger.cron}`;
+    return `${automationKey(entry)} ${cronOf(entry)?.cron ?? ''}`;
 }
+
+/**
+ * Which list an event automation watches: its trigger and filter, and whose
+ * Inbox it is — the account and org the workspace is bound to decide what
+ * the searches return. Changing any of them re-baselines, so binding another
+ * org never reads as every request in it arriving at once.
+ */
+function listDefinition(entry: Resolved, provider: Workspace['provider']): string {
+    const { trigger, filter } = entry.automation;
+    const account = provider ? { id: provider.id, login: provider.accountLogin, org: provider.org } : null;
+    return createHash('sha256').update(stableStringify({ trigger, filter, account })).digest('hex').slice(0, 16);
+}
+
+type QueueVerdict =
+    | { go: true; item?: InboxItem }
+    | { go: false; wait: true }
+    | { go: false; wait?: false; status: 'rejected' | 'failed'; message: string };
 
 export class AutomationService {
     private readonly factories = new Map<string, WorkspaceFactory>();
     private stopTicking: (() => void) | null = null;
-    /** Runs in progress: by automation key, or a request's own id. One at a time per automation. */
+    /** Tool runs in progress: by automation key, or a request's own id. One at a time per automation. */
     private readonly inFlight = new Set<string>();
     private ticking = false;
     private started = false;
+    private pumping = false;
+    private pumpAgain = false;
 
     constructor(private readonly deps: AutomationServiceDeps) {}
 
@@ -130,7 +232,8 @@ export class AutomationService {
         this.started = true;
         await this.syncWorkspaces();
         this.stopTicking = this.deps.every(TICK_MS, () => void this.tick());
-        // Catch up on anything missed while Consola was closed.
+        // Catch up on anything missed while Consola was closed, and resume
+        // whatever was queued when it quit.
         await this.tick();
     }
 
@@ -144,9 +247,10 @@ export class AutomationService {
 
     /**
      * Follow the workspace list. A new workspace's file is read and watched; a
-     * deleted one's is let go — its schedules stop, and anything waiting for
-     * approval in it is dismissed, since there is nowhere left to approve it.
-     * Cheap when nothing was added or removed, so it runs on every change.
+     * deleted one's is let go — its schedules stop, and anything waiting in it
+     * is dismissed, since there is nowhere left to approve or run it. Every
+     * other workspace's entries are resolved again, because what they resolve
+     * against — actions, scopes, the provider binding — lives on the record.
      */
     public async syncWorkspaces(): Promise<void> {
         if (!this.started) return;
@@ -157,7 +261,7 @@ export class AutomationService {
             this.factories.get(workspaceId)!.file.unwatch();
             this.factories.delete(workspaceId);
             for (const run of this.deps.store.runs()) {
-                if (run.attribution.workspaceId === workspaceId && run.status === 'needs-approval') {
+                if (run.attribution.workspaceId === workspaceId && (run.status === 'needs-approval' || run.status === 'queued')) {
                     this.finish(run.id, 'rejected', { summary: 'Its workspace was deleted.' });
                 }
             }
@@ -171,12 +275,31 @@ export class AutomationService {
             this.factories.set(workspaceId, { file, loaded: NOT_LOADED, resolved: [] });
             file.watch(() => void this.reload(workspaceId));
         }
+
+        // Settings edits re-resolve without touching the file. Broadcast only
+        // what changed: this runs on every workspace write, session clicks
+        // included.
+        for (const [workspaceId, factory] of this.factories) {
+            if (added.includes(workspaceId)) continue;
+            const before = stableStringify(this.list(workspaceId));
+            this.resolveAll(workspaceId, factory);
+            if (stableStringify(this.list(workspaceId)) !== before) this.broadcast(workspaceId);
+        }
+
         // Every file is read before schedules are reconciled: reconciling
         // while one is unread would forget its fire times, and with them the
         // catch-up for whatever it missed while Consola was closed.
         await Promise.all(added.map((workspaceId) => this.load(workspaceId)));
         if (added.length > 0 || removed.length > 0) this.settleSchedules();
         for (const workspaceId of added) this.broadcast(workspaceId);
+        // A session closed mid-turn never reports its exit (closing drops the
+        // terminal's listeners): its run ends here, and its slot frees.
+        for (const run of this.deps.store.runs()) {
+            if (run.status === 'running' && run.sessionId && isAgentRun(run) && !this.sessionOf(run)) {
+                this.finish(run.id, 'failed', { error: 'Its session was closed before it finished.' });
+            }
+        }
+        void this.pump();
     }
 
     /** Re-read one workspace's file: when it changes, and after "Open file" creates it. */
@@ -186,14 +309,64 @@ export class AutomationService {
         this.broadcast(workspaceId);
     }
 
-    /** The workspace's file, created from its commented template when missing; for "Open file". */
+    /**
+     * The workspace's file, created from the template when missing; for
+     * "Open file". A new file reviews assigned pull requests with the
+     * workspace's default pull request action, when it has one.
+     */
     public async ensureFile(workspaceId: string): Promise<string> {
-        const filePath = await this.factoryOf(workspaceId).file.ensureExists();
+        const filePath = await this.factoryOf(workspaceId).file.ensureExists(factoryTemplate(this.prActionOf(workspaceId) ?? null));
         await this.reload(workspaceId);
         return filePath;
     }
 
-    /** Fire everything that is due. Public so wake-from-sleep can call it. */
+    /**
+     * The panel's "Review PRs assigned to me automatically": add
+     * review-assigned-prs to the workspace's file — the template when there
+     * is no file, otherwise one more entry at the end, every other line left
+     * as it was. In `auto`, so it asks once before the first review.
+     */
+    public async addAssignedReviews(workspaceId: string): Promise<void> {
+        const action = this.prActionOf(workspaceId);
+        if (!action) throw new Error('Add an action for pull requests first.');
+        const { file } = this.factoryOf(workspaceId);
+        const loaded = await file.load();
+        if (loaded.spec.automations.some((automation) => automation.name === ASSIGNED_REVIEWS_NAME)) {
+            throw new Error(`factory.yml already has ${ASSIGNED_REVIEWS_NAME}.`);
+        }
+        if (loaded.exists) await file.appendAutomation(assignedReviewsEntry(action));
+        else await file.ensureExists(factoryTemplate(action));
+        await this.reload(workspaceId);
+    }
+
+    /** The action automatic reviews would run: the workspace's default for pull requests. */
+    private prActionOf(workspaceId: string): string | undefined {
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        return workspace ? defaultActionFor(workspace.actions ?? [], 'pr')?.name : undefined;
+    }
+
+    /**
+     * Whether to offer automatic reviews: the workspace can run them (an
+     * account and a pull request action), its file loads, and nothing in it
+     * already reviews requests or assignments — or goes by that name.
+     */
+    private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): { action: string } | null {
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        const action = this.prActionOf(workspaceId);
+        if (!workspace?.provider || !action) return null;
+        const { spec } = factory.loaded;
+        if (spec.issues.some((issue) => !issue.path.startsWith('automations['))) return null;
+        const covered = spec.automations.some(
+            (automation) =>
+                automation.name === ASSIGNED_REVIEWS_NAME ||
+                (automation.trigger.kind === 'event' &&
+                    automation.trigger.connection === 'github' &&
+                    automation.trigger.events.some((event) => ASSIGNED_REVIEW_EVENTS.includes(event)))
+        );
+        return covered ? null : { action };
+    }
+
+    /** Fire everything that is due, and start what the queue has room for. Public so wake-from-sleep can call it. */
     public async tick(): Promise<void> {
         if (this.ticking) return;
         this.ticking = true;
@@ -202,7 +375,7 @@ export class AutomationService {
             for (const entry of this.allResolved()) {
                 // A run still in progress keeps the occurrence for a later
                 // tick rather than silently consuming it.
-                if (entry.problem || this.inFlight.has(automationKey(entry))) continue;
+                if (!cronOf(entry) || entry.problem || this.inFlight.has(automationKey(entry))) continue;
                 if (!this.factories.has(entry.workspaceId)) continue; // Deleted mid-tick.
                 const due = this.nextDue(entry, now);
                 if (!due || due.getTime() > now.getTime()) continue;
@@ -217,14 +390,103 @@ export class AutomationService {
         } finally {
             this.ticking = false;
         }
+        await this.pump();
     }
 
-    /** Run one of a workspace's automations now: its panel's Run now, or an agent's `run_automation`. */
-    public async trigger(workspaceId: string, name: string, actor: { sessionId?: string } = {}): Promise<RunRecord> {
+    /**
+     * One workspace's Inbox, freshly fetched: each event automation's set is
+     * compared with what it held last time (`advanceSeen`), and every member
+     * that passes its filter and has not fired since it entered is one run.
+     * A failed fetch — the last good list carried forward with an error —
+     * says nothing about what changed, so it fires nothing and moves nothing.
+     *
+     * The seen record is written before any run is created, so a crash can
+     * never fire one event twice. An automation with no record of its own —
+     * new, or with a trigger or filter edited — records what is there and
+     * fires nothing: turning one on never works through the backlog already
+     * waiting, the same rule as a new schedule never firing for a past
+     * occurrence. A record that survived a restart is diffed as usual, so a
+     * request that arrived while Consola was closed fires once.
+     */
+    public observeInbox(snapshot: InboxSnapshot): void {
+        if (!this.started || snapshot.error || snapshot.fetchedAt === 0) return;
+        const factory = this.factories.get(snapshot.workspaceId);
+        if (!factory) return;
+        const provider = this.deps.getWorkspaces().find((workspace) => workspace.id === snapshot.workspaceId)?.provider;
+        const at = new Date(snapshot.fetchedAt).toISOString();
+        for (const entry of factory.resolved) {
+            const { event } = entry;
+            // An entry with a problem is paused: its record stays where it
+            // was, so fixing it catches up rather than forgetting.
+            if (!event || entry.problem) continue;
+            const inSet = new Map<string, InboxItem>();
+            for (const item of snapshot.items) if (event.inSet(item)) inSet.set(event.keyOf(item), item);
+            const key = automationKey(entry);
+            const previous = this.deps.store.seen(key);
+            const current = [...inSet].map(([itemKey, item]) => ({ key: itemKey, passes: event.passesFilter(item) }));
+            const { record, fire } = advanceSeen(previous, listDefinition(entry, provider), current, at);
+            this.deps.store.setSeen(key, record);
+            for (const itemKey of fire) this.fireEvent(entry, inSet.get(itemKey)!, previous!.at, at);
+        }
+        void this.pump();
+    }
+
+    /**
+     * A session's unattended turn ended: its run is done, one way or the
+     * other, and its slot is free. The run is the session's `running` one —
+     * a later exit of the same session, the person continuing it, is not.
+     */
+    public turnEnded(sessionId: string, outcome: { exitCode: number; lastLine?: string; stopped?: string }): void {
+        const run = this.deps.store
+            .runs()
+            .find((candidate) => candidate.sessionId === sessionId && candidate.status === 'running' && isAgentRun(candidate));
+        if (!run) return;
+        const name = this.sessionOf(run)?.name ?? 'its session';
+        let notice: { title: string; body: string };
+        if (outcome.stopped) {
+            // Stopped before it answered — by the person, the limit, or a
+            // signal — whatever code the process exited with.
+            const error = `It stopped before finishing: ${outcome.stopped.trim().replace(/[.\s]+$/, '')}.`;
+            this.finish(run.id, 'failed', { error });
+            notice = { title: `${run.automationId} did not finish`, body: error };
+        } else if (outcome.exitCode === 0) {
+            this.finish(run.id, 'completed', { summary: `Ready in “${name}”.` });
+            const item = (run.result as AgentRunPreview).item?.label;
+            notice = { title: `${run.automationId}: ready`, body: `${item ?? name} — the findings are waiting. Click to open them.` };
+        } else {
+            const said = outcome.lastLine?.trim().replace(/[.\s]+$/, '');
+            const error = `It stopped before finishing (exit ${outcome.exitCode})${said ? `: ${said}` : ''}.`;
+            this.finish(run.id, 'failed', { error });
+            notice = { title: `${run.automationId} did not finish`, body: error };
+        }
+        // The click opens the session, where the findings — or the reason — are.
+        const { workspaceId } = run.attribution;
+        if (workspaceId) this.deps.notify({ ...notice, runId: run.id, workspaceId, needsApproval: false, sessionId });
+        void this.pump();
+    }
+
+    /**
+     * Run one of a workspace's automations now: its panel's Run now, or an
+     * agent's `run_automation`. An event automation has no run to start on
+     * request — its "Check now" fetches the Inbox, and only what is new fires
+     * — so it returns null; an agent cannot ask for one at all.
+     */
+    public async trigger(
+        workspaceId: string,
+        name: string,
+        actor: { sessionId?: string } = {}
+    ): Promise<RunRecord | null> {
         const factory = this.factoryOf(workspaceId);
         const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
         if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
         if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
+        if (entry.event) {
+            if (actor.sessionId) {
+                throw new Error(`${name} runs when its event happens (${entry.event.describe.toLowerCase()}), not on request.`);
+            }
+            await this.deps.refreshInbox(workspaceId);
+            return null;
+        }
         // An agent never replaces a plan a person may be reviewing, nor
         // notifies them again about it: it gets the waiting run back.
         if (actor.sessionId) {
@@ -314,15 +576,14 @@ export class AutomationService {
     /**
      * Approve a run waiting for a person. Runs exactly what its preview showed
      * — every safety rule checked again, nothing added — and refuses if the
-     * automation changed since. Approving a new or edited `auto` entry also
-     * lets it run on its own from now on.
+     * automation changed since. An agent run joins the queue, so approving
+     * one never steps past the cap. Approving a new or edited `auto` entry
+     * also lets it run on its own from now on.
      */
     public async approve(runId: string): Promise<RunRecord> {
         const run = this.waiting(runId);
         if (isAgentRequest(run)) return this.approveRequest(run);
-        const entry = this.factories
-            .get(run.attribution.workspaceId ?? '')
-            ?.resolved.find((candidate) => candidate.automation.name === run.automationId);
+        const entry = this.entryOf(run);
         const problem = !entry
             ? 'it is no longer in its workspace’s factory.yml'
             : (entry.problem ??
@@ -332,6 +593,15 @@ export class AutomationService {
             throw new Error(`Not run: ${problem}.`);
         }
         const key = automationKey(entry);
+        if (entry.agent) {
+            this.deps.store.update(run.id, { status: 'queued', updatedAt: this.iso() });
+            if (entry.automation.mode === 'auto') this.deps.store.accept(key, entry.version);
+            this.broadcastRun(run.id);
+            // As approved: in line. The queue may start it at once.
+            const queued = { ...this.deps.store.get(run.id)! };
+            void this.pump();
+            return queued;
+        }
         this.assertIdle(key, entry.automation.name);
         this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
         return this.guarded(
@@ -347,10 +617,12 @@ export class AutomationService {
         );
     }
 
+    /** Turn down a run waiting for approval, or take a queued one out of the line. */
     public dismiss(runId: string): RunRecord {
-        const run = this.waiting(runId);
-        this.finish(run.id, 'rejected', {});
-        return this.deps.store.get(run.id)!;
+        const run = this.deps.store.get(runId);
+        if (run?.status !== 'queued') this.waiting(runId);
+        this.finish(runId, 'rejected', {});
+        return this.deps.store.get(runId)!;
     }
 
     /** A workspace's automations as its panel and `list_automations` show them. */
@@ -358,11 +630,16 @@ export class AutomationService {
         const now = this.deps.now();
         return (this.factories.get(workspaceId)?.resolved ?? []).map((entry) => {
             const { automation } = entry;
-            const next = entry.problem ? null : this.nextDue(entry, now);
+            const cron = cronOf(entry);
+            const next = cron && !entry.problem ? this.nextDue(entry, now) : null;
             return {
                 name: automation.name,
-                cron: automation.trigger.cron,
                 mode: automation.mode,
+                trigger: entry.event?.describe ?? (cron ? describeSchedule(cron.cron) : describeTriggerAsWritten(automation)),
+                ...(cron ? { schedule: cron.cron } : {}),
+                onEvent: automation.trigger.kind === 'event',
+                kind: automation.run.kind === 'tool' ? 'tool' : 'agent',
+                runs: describeRun(automation),
                 target: automation.run.ref,
                 ...(automation.line ? { line: automation.line } : {}),
                 // A due-but-unfired occurrence reads as "now", not as a time in the past.
@@ -377,13 +654,199 @@ export class AutomationService {
 
     public snapshot(workspaceId: string): AutomationsSnapshot {
         const factory = this.factoryOf(workspaceId);
+        const runs = this.deps.store.runs().filter((run) => run.attribution.workspaceId === workspaceId);
+        // A place in the one line every workspace shares.
+        const queue: Record<string, number> = {};
+        this.queuedRuns().forEach((run, index) => {
+            if (run.attribution.workspaceId === workspaceId) queue[run.id] = index + 1;
+        });
         return {
             filePath: factory.file.filePath,
             fileExists: factory.loaded.exists,
             automations: this.list(workspaceId),
             issues: factory.loaded.spec.issues,
-            runs: this.deps.store.runs().filter((run) => run.attribution.workspaceId === workspaceId),
+            runs,
+            queue,
+            suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
         };
+    }
+
+    /**
+     * Start queued agent runs while there is room: oldest first, each checked
+     * once more right before it starts. Re-entrant calls fold into one more
+     * pass rather than racing the one in progress.
+     */
+    private async pump(): Promise<void> {
+        if (!this.started) return;
+        if (this.pumping) {
+            this.pumpAgain = true;
+            return;
+        }
+        this.pumping = true;
+        try {
+            do {
+                this.pumpAgain = false;
+                for (const run of this.queuedRuns()) {
+                    // The list was taken before the last launch was awaited:
+                    // a run dismissed or dropped meanwhile is not in line.
+                    if (this.deps.store.get(run.id)?.status !== 'queued') continue;
+                    if (this.slotsInUse() >= this.capacity()) break;
+                    const verdict = this.checkQueued(run);
+                    if (!verdict.go) {
+                        if (!verdict.wait) {
+                            this.finish(run.id, verdict.status, verdict.status === 'failed' ? { error: verdict.message } : { summary: verdict.message });
+                        }
+                        continue;
+                    }
+                    await this.startAgentRun(run, verdict.item);
+                }
+            } while (this.pumpAgain);
+        } finally {
+            this.pumping = false;
+        }
+    }
+
+    /**
+     * Whether a queued run may start now. Its automation must still say the
+     * same thing, and an event run's item must still be in the list — a
+     * review the person did by hand while it waited is not done twice. An
+     * item the runner cannot check yet (no Inbox since launch) waits.
+     */
+    private checkQueued(run: RunRecord): QueueVerdict {
+        // A turn cut off by a quit resumes in its session, whatever the file
+        // says now: it was approved, and it belongs to that conversation.
+        if (run.sessionId) {
+            const session = this.sessionOf(run);
+            if (!session) return { go: false, status: 'rejected', message: 'Its session was closed.' };
+            if (this.deps.hasLiveTerminal(session)) {
+                return { go: false, status: 'rejected', message: 'You opened its session before Consola could resume it.' };
+            }
+            return { go: true };
+        }
+        const entry = this.entryOf(run);
+        if (!entry) return { go: false, status: 'rejected', message: 'It is no longer in its workspace’s factory.yml.' };
+        if (entry.problem) return { go: false, status: 'failed', message: `Not run: ${entry.problem}.` };
+        if (entry.version !== run.actionVersion) {
+            return { go: false, status: 'rejected', message: 'Its automation changed since it was queued.' };
+        }
+        const wanted = run.trigger.item;
+        if (!wanted || !entry.event) return { go: true };
+        const snapshot = this.deps.inboxSnapshot(entry.workspaceId);
+        if (!snapshot || snapshot.fetchedAt === 0) return { go: false, wait: true };
+        const item = snapshot.items.find((candidate) => entry.event!.keyOf(candidate) === wanted.key);
+        // The set, not the filter: a queued review is not dropped for going back to draft.
+        if (!item || !entry.event.inSet(item)) return { go: false, status: 'rejected', message: entry.event.goneReason };
+        const byHand = this.startedByHand(entry, item, run.createdAt);
+        if (byHand) return { go: false, status: 'rejected', message: `Already started by hand: “${byHand.name}”.` };
+        return { go: true, item };
+    }
+
+    /**
+     * Start a queued agent run. Its status is `running` from here until its
+     * turn ends (`turnEnded`): the run is the turn, and what holds a slot.
+     */
+    private async startAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
+        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        this.broadcastRun(run.id);
+        if (run.sessionId) return this.resumeAgentRun(run);
+        const entry = this.entryOf(run)!;
+        const agent = entry.agent!;
+        const name = entry.automation.name;
+        try {
+            const session = await this.deps.launchAgent({
+                workspaceId: entry.workspaceId,
+                run: { id: run.id, automation: name },
+                prompt: String(run.approval?.args.prompt ?? ''),
+                ...(item
+                    ? {
+                          item: {
+                              workItem: item.workItem,
+                              title: item.title,
+                              label: agent.label ?? name,
+                              ...(agent.groupId ? { groupId: agent.groupId } : {}),
+                              startedByHandSince: run.createdAt,
+                          },
+                      }
+                    : { scopeId: agent.scope?.id }),
+            });
+            this.deps.store.update(run.id, { sessionId: session.id, summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
+            this.broadcastRun(run.id);
+        } catch (error) {
+            // The person got there first: nothing failed, the review exists.
+            if (error instanceof StartedByHandError) {
+                this.finish(run.id, 'rejected', { summary: error.message });
+                return;
+            }
+            this.finish(run.id, 'failed', { error: describeError(error) });
+            this.notify(`${name} could not start`, describeError(error), run.id);
+        }
+    }
+
+    /** Pick an interrupted turn up where it stopped. Needs its session, never its entry, which may be gone. */
+    private async resumeAgentRun(run: RunRecord): Promise<void> {
+        const session = this.sessionOf(run);
+        try {
+            if (!session) throw new Error('Its session was closed.');
+            await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
+            this.deps.store.update(run.id, { summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
+            this.broadcastRun(run.id);
+        } catch (error) {
+            this.finish(run.id, 'failed', { error: describeError(error) });
+            this.notify(`${run.automationId} could not continue`, describeError(error), run.id);
+        }
+    }
+
+    /** The session an agent run started, while its workspace still has it. */
+    private sessionOf(run: RunRecord): Session | undefined {
+        if (!run.sessionId) return undefined;
+        return this.deps
+            .getWorkspaces()
+            .find((workspace) => workspace.id === run.attribution.workspaceId)
+            ?.sessions.find((session) => session.id === run.sessionId);
+    }
+
+    /**
+     * Oldest in line first, by when each joined the queue — after the turns
+     * a quit interrupted, which were already running and go back first.
+     */
+    private queuedRuns(): RunRecord[] {
+        return this.deps.store
+            .runs()
+            .filter((run) => run.status === 'queued')
+            .reverse()
+            .sort((a, b) => {
+                if (!!a.sessionId !== !!b.sessionId) return a.sessionId ? -1 : 1;
+                return a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0;
+            });
+    }
+
+    /** Agent runs whose turn is running, or being launched: each is one process. */
+    private slotsInUse(): number {
+        return this.deps.store.runs().filter((run) => run.status === 'running' && isAgentRun(run)).length;
+    }
+
+    private capacity(): number {
+        return this.deps.maxConcurrentAgents ?? DEFAULT_MAX_CONCURRENT_AGENTS;
+    }
+
+    /**
+     * A session the person started on this item with the same action since
+     * `sinceIso` — the review they clicked before the automation got to it.
+     */
+    private startedByHand(entry: Resolved, item: InboxItem, sinceIso: string): Session | undefined {
+        const label = entry.agent?.label;
+        if (!label) return undefined;
+        const since = Date.parse(sinceIso);
+        return this.deps
+            .getWorkspaces()
+            .find((workspace) => workspace.id === entry.workspaceId)
+            ?.sessions.find(
+                (session) =>
+                    !session.automation &&
+                    sameWorkItem(session.workItem, item.workItem) &&
+                    session.workItemAction === label &&
+                    session.createdAt > since
+            );
     }
 
     /**
@@ -429,20 +892,35 @@ export class AutomationService {
         const loaded = await factory.file.load();
         if (this.factories.get(workspaceId) !== factory) return false;
         factory.loaded = loaded;
-        factory.resolved = loaded.spec.automations.map((automation) => this.resolve(workspaceId, automation));
+        this.resolveAll(workspaceId, factory);
         return true;
     }
 
+    private resolveAll(workspaceId: string, factory: WorkspaceFactory): void {
+        factory.resolved = factory.loaded.spec.automations.map((automation) => this.resolve(workspaceId, automation));
+    }
+
     /**
-     * Forget schedules no file names any more, and start each new one now: it
-     * never fires for an occurrence that passed before it existed.
+     * Forget schedules and lists no file names any more, and start each new
+     * schedule now: it never fires for an occurrence that passed before it
+     * existed.
      */
     private settleSchedules(): void {
-        const keys = new Set(this.allResolved().map(scheduleKey));
+        const resolved = this.allResolved();
+        const keys = new Set(resolved.filter(cronOf).map(scheduleKey));
         this.deps.store.keepSchedules(keys);
         for (const key of keys) {
             if (!this.deps.store.lastFired(key)) this.deps.store.setLastFired(key, this.iso());
         }
+        // A file that did not load cleanly may be hiding an entry behind a
+        // typo: its workspace's lists are kept until the file says otherwise,
+        // so fixing the typo catches up instead of starting from scratch.
+        const kept = new Set(resolved.filter((entry) => entry.automation.trigger.kind === 'event').map(automationKey));
+        for (const [workspaceId, factory] of this.factories) {
+            if (factory.loaded.spec.issues.length === 0) continue;
+            for (const key of this.deps.store.seenKeys()) if (key.startsWith(`${workspaceId} `)) kept.add(key);
+        }
+        this.deps.store.keepSeen(kept);
     }
 
     private allResolved(): Resolved[] {
@@ -455,20 +933,90 @@ export class AutomationService {
         return factory;
     }
 
+    private entryOf(run: RunRecord): Resolved | undefined {
+        return this.factories
+            .get(run.attribution.workspaceId ?? '')
+            ?.resolved.find((candidate) => candidate.automation.name === run.automationId);
+    }
+
+    /**
+     * What an entry resolves to in its workspace, or why it cannot run. Which
+     * tools, actions, scopes, connections and events exist is the runner's to
+     * say; each problem names the one that was asked for.
+     */
     private resolve(workspaceId: string, automation: Automation): Resolved {
-        const version = automationVersion(automation);
-        const { run } = automation;
-        const unable = (problem: string): Resolved => ({ workspaceId, automation, version, problem });
-        if (run.kind !== 'tool') return unable('actions cannot be run by automations yet');
-        if (run.namespace !== CONSOLA_NAMESPACE) {
-            return unable(`unknown tool namespace "${run.namespace}"; only consola# tools exist today`);
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        const base = automationVersion(automation);
+        const unable = (problem: string): Resolved => ({ workspaceId, automation, version: base, problem });
+        const { run, trigger } = automation;
+
+        let event: EventSource | undefined;
+        if (trigger.kind === 'event') {
+            const resolution = resolveEventSource(trigger, automation.filter);
+            if (!resolution.ok) return unable(resolution.problem);
+            event = resolution.source;
+            if (run.kind === 'tool') {
+                return unable('tools run on a schedule; an event starts an agent session (`run: { action: … }` or `run: { prompt: … }`)');
+            }
+            if (workspace?.provider?.id !== trigger.connection) {
+                return unable(`this workspace has no ${trigger.connection} account bound; bind one in its settings`);
+            }
+            if (event.itemsHaveRepo && automation.scope) {
+                return unable(`scope: a ${trigger.connection} item runs in a worktree of its own repository, so it takes no scope`);
+            }
+            if (!event.itemsHaveRepo && !automation.scope) {
+                return unable(`scope: ${trigger.connection} items have no repository, so say which scope this runs in`);
+            }
         }
-        const tool = this.deps.registry.get(run.tool);
-        if (!tool) return unable(`there is no Consola tool named "${run.tool}"`);
-        if (!tool.automatable) return unable(`${run.ref} cannot be run by an automation`);
-        const validated = this.deps.registry.validate(tool, automation.with);
-        if (!validated.ok) return unable(`with: ${validated.error}`);
-        return { workspaceId, automation, version, tool, args: validated.args };
+
+        if (run.kind === 'tool') {
+            if (run.namespace !== CONSOLA_NAMESPACE) {
+                return unable(`unknown tool namespace "${run.namespace}"; only consola# tools exist today`);
+            }
+            const tool = this.deps.registry.get(run.tool);
+            if (!tool) return unable(`there is no Consola tool named "${run.tool}"`);
+            if (!tool.automatable) return unable(`${run.ref} cannot be run by an automation`);
+            const validated = this.deps.registry.validate(tool, run.with);
+            if (!validated.ok) return unable(`with: ${validated.error}`);
+            return { workspaceId, automation, version: base, tool, args: validated.args };
+        }
+
+        if (run.kind === 'action') {
+            const action = workspace?.actions.find((candidate) => candidate.name === run.name);
+            if (!action) return unable(`no action named ${run.name} in this workspace`);
+            if (event && !action.appliesTo.includes(event.itemType)) {
+                return unable(`the ${run.name} action does not apply to ${event.itemType === 'pr' ? 'pull requests' : 'issues'}`);
+            }
+            return {
+                workspaceId,
+                automation,
+                // The body lives in settings, not the file: editing it asks again.
+                version: automationVersion(automation, action.prompt),
+                event,
+                agent: {
+                    body: action.prompt,
+                    label: action.name,
+                    ...(action.groupId ? { groupId: action.groupId } : {}),
+                    runs: `${action.name} action`,
+                },
+            };
+        }
+
+        let scope: Scope | undefined;
+        if (automation.scope) {
+            scope = workspace?.scopes.find((candidate) => candidate.name === automation.scope);
+            if (!scope) {
+                const names = workspace?.scopes.map((candidate) => candidate.name).join(', ');
+                return unable(`no scope named "${automation.scope}" in this workspace${names ? `; it has: ${names}` : ''}`);
+            }
+        }
+        return {
+            workspaceId,
+            automation,
+            version: base,
+            event,
+            agent: { body: run.prompt, ...(event ? { label: automation.name } : {}), ...(scope ? { scope } : {}), runs: 'Prompt' },
+        };
     }
 
     /** An automation acts on its own workspace, as itself. */
@@ -480,8 +1028,10 @@ export class AutomationService {
     }
 
     private nextDue(entry: Resolved, now: Date): Date | null {
+        const cron = cronOf(entry);
+        if (!cron) return null;
         const last = this.deps.store.lastFired(scheduleKey(entry));
-        return nextCronOccurrence(entry.automation.trigger.cron, last ? new Date(last) : now);
+        return nextCronOccurrence(cron.cron, last ? new Date(last) : now);
     }
 
     /** The mode this run uses, and why it asks when the file says `auto`. */
@@ -496,6 +1046,7 @@ export class AutomationService {
     }
 
     private async fire(entry: Resolved, trigger: RunTrigger): Promise<RunRecord> {
+        if (entry.agent) return this.fireAgent(entry, trigger);
         const { automation } = entry;
         const key = automationKey(entry);
         this.assertIdle(key, automation.name);
@@ -544,8 +1095,88 @@ export class AutomationService {
     }
 
     /**
+     * A scheduled or requested agent run, which has no item: its session
+     * starts in the automation's scope. One waits at a time — a queued run
+     * is what the next occurrence would have been.
+     */
+    private fireAgent(entry: Resolved, trigger: RunTrigger): RunRecord {
+        const agent = entry.agent!;
+        const lined = this.deps.store.runs().find((run) => isRunOf(run, entry) && (run.status === 'queued' || run.status === 'running'));
+        if (lined) return lined;
+        const scopeName = agent.scope?.name ?? '';
+        const prompt = scheduledPrompt(agent.body, entry.automation.name, scopeName);
+        const preview: AgentRunPreview = { kind: 'agent-run', runs: agent.runs, prompt, scope: scopeName };
+        return this.recordAgentRun(entry, trigger, preview, `${agent.runs} in ${scopeName}`);
+    }
+
+    /** One event — an item entering an automation's list — made one run. */
+    private fireEvent(entry: Resolved, item: InboxItem, since: string, at: string): void {
+        const event = entry.event!;
+        const agent = entry.agent!;
+        const itemKey = event.keyOf(item);
+        // One at a time per (automation, item); items run side by side.
+        const open = this.deps.store
+            .runs()
+            .some((run) => isRunOf(run, entry) && run.trigger.item?.key === itemKey && OPEN_STATUSES.includes(run.status));
+        if (open) return;
+        const trigger: RunTrigger = {
+            kind: 'event',
+            at,
+            connection: event.connection,
+            events: event.eventsOf(item),
+            item: { key: itemKey, url: item.url, title: item.title },
+        };
+        const described = event.describeItem(item);
+        const byHand = this.startedByHand(entry, item, since);
+        if (byHand) {
+            const run = this.newRun(entry, trigger, entry.automation.mode);
+            const now = this.iso();
+            this.deps.store.add({ ...run, status: 'rejected', summary: `Already started by hand: “${byHand.name}”.`, finishedAt: now });
+            this.broadcast(entry.workspaceId);
+            return;
+        }
+        const preview: AgentRunPreview = {
+            kind: 'agent-run',
+            runs: agent.runs,
+            prompt: event.renderPrompt(agent.body, item, entry.automation.name),
+            item: { url: item.url, title: item.title, author: item.author, label: described },
+        };
+        this.recordAgentRun(entry, trigger, preview, described);
+    }
+
+    /** The bookkeeping every agent run shares: queued, waiting for a person, or only reported. */
+    private recordAgentRun(entry: Resolved, trigger: RunTrigger, preview: AgentRunPreview, described: string): RunRecord {
+        const { automation } = entry;
+        const { mode, asks } = this.effectiveMode(entry, trigger);
+        const base = this.newRun(entry, trigger, mode);
+        const now = this.iso();
+        // The prompt approval sends is the one the preview showed.
+        const run: RunRecord = { ...base, result: preview, approval: { args: { prompt: preview.prompt } } };
+        if (mode === 'notify') {
+            this.deps.store.add({ ...run, status: 'completed', summary: `${described}. Nothing started (notify).`, finishedAt: now });
+            this.notify(automation.name, `${described}.`, run.id);
+        } else if (mode === 'confirm') {
+            if (!trigger.item) this.supersedeWaiting(entry, run.id);
+            const summary = `${entry.agent!.runs}: ${described}.${asks ? ` ${asks}` : ''}`;
+            this.deps.store.add({ ...run, status: 'needs-approval', summary });
+            this.deps.notify({
+                title: `${automation.name} needs your approval`,
+                body: `${summary} Review it in Consola.`,
+                runId: run.id,
+                workspaceId: entry.workspaceId,
+                needsApproval: true,
+            });
+        } else {
+            this.deps.store.add({ ...run, status: 'queued', summary: `${entry.agent!.runs}: ${described}.` });
+        }
+        this.broadcast(entry.workspaceId);
+        void this.pump();
+        return this.deps.store.get(run.id)!;
+    }
+
+    /**
      * One run at a time per key (an automation's key; a request's own id),
-     * with the bookkeeping every run shares.
+     * with the bookkeeping every tool run shares.
      */
     private async guarded(key: string, runId: string, work: () => Promise<void>, label: string): Promise<RunRecord> {
         this.inFlight.add(key);
@@ -642,6 +1273,24 @@ export class AutomationService {
     private iso(): string {
         return this.deps.now().toISOString();
     }
+}
+
+/** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions". */
+function describeRun(automation: Automation): string {
+    const { run } = automation;
+    if (run.kind === 'tool') return `Tool: ${run.tool}`;
+    return run.kind === 'action' ? `${run.name} action` : 'Prompt';
+}
+
+/** A run that starts a session: its result is the preview of what it starts. */
+function isAgentRun(run: RunRecord): boolean {
+    return (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run';
+}
+
+/** An event trigger that did not resolve, said as written. */
+function describeTriggerAsWritten(automation: Automation): string {
+    const { trigger } = automation;
+    return trigger.kind === 'event' ? `${trigger.connection}: ${trigger.events.join(', ')}` : trigger.cron;
 }
 
 /** A run of this automation, in this workspace. */

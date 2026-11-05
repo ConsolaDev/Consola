@@ -226,6 +226,9 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
 
+    forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_FORK, workspaceId, sessionId),
+
     addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
 
@@ -411,6 +414,7 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
     dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
     openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
+    addAssignedReviews: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
     onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 

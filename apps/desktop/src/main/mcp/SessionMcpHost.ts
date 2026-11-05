@@ -6,6 +6,7 @@ import * as path from 'path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import type { Session } from '../../shared/workspace';
+import { CONSOLA_MCP_SERVER } from './names';
 
 /**
  * The private MCP endpoint every session Consola launches gets.
@@ -101,7 +102,7 @@ export class SessionMcpHost {
         const configPath = path.join(this.deps.configDir(), `${sessionId}.json`);
         const config = {
             mcpServers: {
-                consola: {
+                [CONSOLA_MCP_SERVER]: {
                     type: 'stdio',
                     command: process.execPath,
                     args: [this.deps.shimEntryPath()],

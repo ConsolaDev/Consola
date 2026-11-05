@@ -5,13 +5,22 @@ export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/facto
 /** One automation from a workspace's factory.yml, as the app shows it. */
 export interface AutomationView {
     name: string;
-    cron: string;
     mode: AutomationMode;
-    /** The `run:` reference as written. */
+    /** The trigger in words: "When a pull request asks for your review", "Weekdays at 9:00". */
+    trigger: string;
+    /** A cron trigger's expression, as written. */
+    schedule?: string;
+    /** Fired by a connection's event rather than a clock: its Run now is "Check now". */
+    onEvent: boolean;
+    /** A tool run in-process, or an agent session. */
+    kind: 'tool' | 'agent';
+    /** What it runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions". */
+    runs: string;
+    /** The `run:` target as written: a tool reference, an action's name, or `prompt`. */
     target: string;
     /** 1-based line in factory.yml. */
     line?: number;
-    /** Next scheduled occurrence (ISO), or null when it will not be scheduled. */
+    /** Next scheduled occurrence (ISO), or null when it is not on a schedule or will not run. */
     nextRunAt: string | null;
     /**
      * An `auto` automation that is new or changed since a person last
@@ -20,9 +29,29 @@ export interface AutomationView {
     asksFirst?: boolean;
     /**
      * Why it is not scheduled even though the file parsed: an unknown tool,
-     * or arguments the tool rejects.
+     * action, scope or event, or arguments the tool rejects.
      */
     problem?: string;
+}
+
+/**
+ * What an agent run will start, kept on its run as `result`: shown before a
+ * person approves it, and what approving sends — the prompt exactly.
+ */
+export interface AgentRunPreview {
+    kind: 'agent-run';
+    /** "Review action", "Prompt". */
+    runs: string;
+    /** The exact prompt the session starts with. */
+    prompt: string;
+    /** The item an event run is about. Title and author are the author's own text. */
+    item?: { url: string; title: string; author: string; label: string };
+    /** A scheduled run's scope. */
+    scope?: string;
+}
+
+export function isAgentRunPreview(value: unknown): value is AgentRunPreview {
+    return typeof value === 'object' && value !== null && (value as { kind?: unknown }).kind === 'agent-run';
 }
 
 /**
@@ -32,10 +61,14 @@ export interface AutomationView {
  */
 export interface AutomationsAPI {
     getSnapshot: (workspaceId: string) => Promise<AutomationsSnapshot>;
-    runNow: (workspaceId: string, name: string) => Promise<RunRecord>;
+    /** Run now; for an event automation, check now — null, since only what is new fires. */
+    runNow: (workspaceId: string, name: string) => Promise<RunRecord | null>;
     approve: (runId: string) => Promise<RunRecord>;
+    /** Turn down a run waiting for approval, or take a queued one out of the line. */
     dismiss: (runId: string) => Promise<RunRecord>;
     openFile: (workspaceId: string) => Promise<void>;
+    /** Add review-assigned-prs to the workspace's factory.yml, creating the file when it is missing. */
+    addAssignedReviews: (workspaceId: string) => Promise<void>;
     onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 
@@ -52,6 +85,14 @@ export interface AutomationsSnapshot {
     automations: AutomationView[];
     /** Problems with the file itself or with individual entries. */
     issues: FactorySpecIssue[];
-    /** This workspace's runs, newest first, capped. Includes runs waiting for approval. */
+    /** This workspace's runs, newest first, capped. Includes runs waiting for approval or a slot. */
     runs: RunRecord[];
+    /** Each queued run's place in the one line every workspace shares, 1 first. */
+    queue: Record<string, number>;
+    /**
+     * Offer automatic reviews of pull requests assigned to the person, with
+     * the action they would run — or null when the workspace cannot run
+     * them, its file does not load, or the file already has them.
+     */
+    suggestAssignedReviews: { action: string } | null;
 }

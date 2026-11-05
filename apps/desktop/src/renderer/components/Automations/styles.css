@@ -200,3 +200,87 @@
 .automations-dot-running {
   background: var(--color-info);
 }
+
+.automations-dot-queued {
+  background: var(--color-warning);
+}
+
+/* The exact prompt an agent run sends: shown verbatim, scrollable, never reflowed into prose. */
+.automations-prompt {
+  max-height: 220px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automations-queue-row {
+  grid-template-columns: 1.5em auto 1fr auto;
+}
+
+.automations-queue-row .automations-history-summary {
+  grid-column: 3;
+}
+
+.automations-place {
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.automations-row-action {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.automations-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The one-click way to turn on automatic reviews of assigned pull requests. */
+.automations-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+}
+
+.automations-callout-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.automations-callout-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+/* An agent run's state: Running, Ready or Failed. */
+.automations-state {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.automations-state-completed {
+  color: var(--color-success);
+}
+
+.automations-state-failed {
+  color: var(--color-error);
+}

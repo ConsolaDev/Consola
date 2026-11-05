@@ -270,6 +270,27 @@ export class WorktreeService {
     }
   }
 
+  /** Where `ensureWorktree` keeps an item's worktree, whether or not it exists yet. */
+  public worktreePathFor(workItem: WorkItemRef): string {
+    return path.join(this.root, worktreeDirName(workItem));
+  }
+
+  /**
+   * Bring an existing pull-request worktree up to the PR's current head, the
+   * provider's own checkout run again — so a review requested again after new
+   * pushes reads the new code, not the commit the folder was made at.
+   *
+   * Only a clean worktree is touched: anything uncommitted in it is someone's
+   * work, and a refresh must never be what loses it. Returns whether it ran.
+   */
+  public async refreshPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<boolean> {
+    if (workItem.type !== 'pr') return false;
+    const status = await this.run('git', dir, ['status', '--porcelain'], env);
+    if (status.trim()) return false;
+    await this.resolveDriver(workItem.provider).checkout(dir, workItem, env);
+    return true;
+  }
+
   /**
    * Remove a work-item worktree — offered, never automatic.
    *

@@ -1,7 +1,7 @@
 import * as path from 'path';
 import type { GitProviderId } from '../../shared/providers';
 import type { InboxItem, WorkItemLaunchAction, WorkItemRef } from '../../shared/workItems';
-import { isValidWorkItemRef, workItemActionKey, workItemKey } from '../../shared/workItems';
+import { isValidWorkItemRef, sameWorkItem, workItemActionKey, workItemKey } from '../../shared/workItems';
 import { fallbackWorkItemTitle, renderActionPrompt } from '../../shared/workItemPrompt';
 import type { WorkItemPromptResult } from '../../shared/workItemPrompt';
 import type { WorkItemLaunchResult } from '../../shared/types';
@@ -29,7 +29,7 @@ export interface WorkItemLaunchDeps {
 }
 
 /** The deepest scope whose path contains the clone — its home in the sidebar. */
-function scopeIdForPath(workspace: Workspace, clonePath: string): string {
+export function scopeIdForPath(workspace: Workspace, clonePath: string): string {
   let best: Workspace['scopes'][number] | undefined;
   for (const scope of workspace.scopes) {
     const matches = clonePath === scope.path || clonePath.startsWith(scope.path + path.sep);
@@ -77,8 +77,8 @@ function resolveAction(
  * and an archived group hands its members back to their scopes, so a session
  * arriving into one would be invisible under the heading it was routed to.
  */
-function readyGroup(
-  deps: WorkItemLaunchDeps,
+export function readyGroup(
+  deps: Pick<WorkItemLaunchDeps, 'restoreGroup'>,
   workspace: Workspace,
   groupId: string | undefined
 ): string | undefined {
@@ -108,7 +108,7 @@ function readyGroup(
  */
 const worktreeChains = new Map<string, Promise<unknown>>();
 
-function chainWorktreeStep(key: string, run: () => Promise<string>): Promise<string> {
+export function chainWorktreeStep<T>(key: string, run: () => Promise<T>): Promise<T> {
   const previous = worktreeChains.get(key) ?? Promise.resolve();
   const started = previous.catch(() => undefined).then(run);
   const settled = started.catch(() => undefined).then(() => {
@@ -116,6 +116,16 @@ function chainWorktreeStep(key: string, run: () => Promise<string>): Promise<str
   });
   worktreeChains.set(key, settled);
   return started;
+}
+
+/**
+ * The lock both launch paths — an Inbox click and an automation — hold
+ * around "check, worktree, create the record" for one item and action, so
+ * whichever comes second sees the first one's session and one session
+ * results. Taken before the per-item worktree step, always in that order.
+ */
+export function itemActionLaunchKey(workspaceId: string, ref: WorkItemRef, actionName: string): string {
+  return `${workspaceId}:${workItemKey(ref)}:action:${actionName}`;
 }
 
 /**
@@ -180,40 +190,57 @@ export async function launchWorkItem(
   // of them must degrade the same way as the steps above rather than reject
   // the invoke with Electron's own prefixed message. `not-cloned` is a
   // normal return, not a throw, so it still reads as that reason.
-  let session: Session | undefined;
-  try {
-    const clonePath = deps.resolveRepo(workspace, ref.repo);
-    if (!clonePath) return { ok: false, reason: 'not-cloned' };
+  const provider = workspace.provider;
+  const created = await chainWorktreeStep(
+    itemActionLaunchKey(workspaceId, ref, resolved.name),
+    async (): Promise<WorkItemLaunchResult | Session | undefined> => {
+      // Under the lock, against the record as it is now: an automation that
+      // got here first is already reviewing this item with this action, and
+      // its review is the one to open. A custom prompt is always a new one.
+      if ('id' in action) {
+        // The newest: a re-requested review has an earlier one on older code.
+        const reviewing = deps
+          .getWorkspace(workspaceId)
+          ?.sessions.filter(
+            (session) =>
+              session.automation && sameWorkItem(session.workItem, ref) && session.workItemAction === resolved.name
+          )
+          .reduce<Session | undefined>((newest, session) => (!newest || session.createdAt > newest.createdAt ? session : newest), undefined);
+        if (reviewing) return { ok: false, reason: 'automation-review', sessionId: reviewing.id };
+      }
 
-    const env = await deps.composeEnv(driver, workspace.provider.accountLogin);
-    const worktreeChainKey = `${workspaceId}:${workItemKey(ref)}`;
-    const worktreePath = await chainWorktreeStep(worktreeChainKey, () =>
-      deps.ensureWorktree(clonePath, ref, env)
-    );
+      const clonePath = deps.resolveRepo(workspace, ref.repo);
+      if (!clonePath) return { ok: false, reason: 'not-cloned' };
 
-    // Last, so a failed worktree step never leaves a group restored for a
-    // session that was never created.
-    const groupId = readyGroup(deps, workspace, resolved.groupId);
+      const env = await deps.composeEnv(driver, provider.accountLogin);
+      const worktreeChainKey = `${workspaceId}:${workItemKey(ref)}`;
+      const worktreePath = await chainWorktreeStep(worktreeChainKey, () =>
+        deps.ensureWorktree(clonePath, ref, env)
+      );
 
-    session = deps.createSession(workspaceId, {
-      name: item?.title ?? fallbackWorkItemTitle(ref),
-      workspaceId,
-      instanceId: generateSessionInstanceId(workspaceId),
-      harnessId: workspace.defaultHarnessId,
-      scopeId: scopeIdForPath(workspace, clonePath),
-      cwd: worktreePath,
-      kind: 'interactive',
-      workItem: ref,
-      workItemAction: resolved.name,
-      ...(groupId !== undefined ? { groupId } : {}),
-    });
-  } catch (error) {
-    return { ok: false, reason: 'error', message: describeError(error) };
-  }
-  if (!session) {
+      // Last, so a failed worktree step never leaves a group restored for a
+      // session that was never created.
+      const groupId = readyGroup(deps, workspace, resolved.groupId);
+
+      return deps.createSession(workspaceId, {
+        name: item?.title ?? fallbackWorkItemTitle(ref),
+        workspaceId,
+        instanceId: generateSessionInstanceId(workspaceId),
+        harnessId: workspace.defaultHarnessId,
+        scopeId: scopeIdForPath(workspace, clonePath),
+        cwd: worktreePath,
+        kind: 'interactive',
+        workItem: ref,
+        workItemAction: resolved.name,
+        ...(groupId !== undefined ? { groupId } : {}),
+      });
+    }
+  ).catch((error: unknown): WorkItemLaunchResult => ({ ok: false, reason: 'error', message: describeError(error) }));
+  if (!created) {
     return { ok: false, reason: 'error', message: 'Could not create the session record.' };
   }
-  return { ok: true, session, seedPrompt: prompt.seedPrompt };
+  if ('ok' in created) return created;
+  return { ok: true, session: created, seedPrompt: prompt.seedPrompt };
 }
 
 /**

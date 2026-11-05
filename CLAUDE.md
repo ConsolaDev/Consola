@@ -144,6 +144,18 @@ composer and no confirmation markers (`CONFIRMATION_MARKERS`). Claude shows a
 workspace trust gate on first launch in an unfamiliar folder, and typing into
 it would answer it. Any future automated input must respect the same guard.
 
+An automation's session never needs that guard for its first turn: it runs
+non-interactively (Claude's print mode), with its prompt as an argument, so
+there is no composer and no menu to type into. That happens only in a
+read-only session, and each driver refuses it otherwise
+(`SessionLaunch.unattended`): print mode skips the trust prompt, and
+without `--restricted` it would load the folder's hooks and settings
+unasked. The run lasts until that process exits. Continuing the session
+afterwards is an ordinary interactive resume, still read-only, where the
+trust prompt is the person's to answer. Lifting the restriction means a
+fork the person starts (`SessionLauncher.forkWithFullTools`), never an edit
+of the session's `toolPolicy`.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
@@ -162,7 +174,10 @@ Two invariants are load-bearing:
   A session's model is fixed the same way and for the same kind of reason: it
   is replayed on every relaunch, so a later edit would move a conversation onto
   a different model part-way through. Both are kept immutable by being absent
-  from `allowedSessionUpdates`, not by validation.
+  from `allowedSessionUpdates`, not by validation. So is a session's
+  `toolPolicy` (`read-only` for every session an automation starts): main
+  replays it from the record on every launch, `TERMINAL_CREATE` included,
+  and each driver enforces it with its CLI's own flags or refuses to launch.
 - **Deleting a harness archives it.** The record has to outlive removal, or
   every conversation started under it would resume against the wrong profile.
 

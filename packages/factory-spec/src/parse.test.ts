@@ -6,8 +6,7 @@ version: 1
 automations:
   - name: clean-up-stale-sessions
     on: { cron: "0 9 * * *" }
-    run: consola#cleanup_stale_sessions
-    with: { pr_states: [merged, closed] }
+    run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }
     mode: auto
 `;
 
@@ -24,8 +23,8 @@ describe('parseFactorySpec', () => {
                     ref: 'consola#cleanup_stale_sessions',
                     namespace: 'consola',
                     tool: 'cleanup_stale_sessions',
+                    with: { pr_states: ['merged', 'closed'] },
                 },
-                with: { pr_states: ['merged', 'closed'] },
                 mode: 'auto',
                 line: 4,
             },
@@ -34,15 +33,15 @@ describe('parseFactorySpec', () => {
 
     it('defaults mode to confirm and with to {}', () => {
         const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "*/5 * * * *" }\n    run: consola#x\n'
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "*/5 * * * *" }\n    run: { tool: consola#x }\n'
         );
         expect(result.issues).toEqual([]);
-        expect(result.automations[0]).toMatchObject({ mode: 'confirm', with: {} });
+        expect(result.automations[0]).toMatchObject({ mode: 'confirm', run: { with: {} } });
     });
 
     it('says why a workspace selector is not needed', () => {
         const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: consola#x\n    workspace: Acme\n'
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n    workspace: Acme\n'
         );
         expect(result.automations).toEqual([]);
         expect(result.issues).toMatchObject([
@@ -86,10 +85,10 @@ describe('parseFactorySpec', () => {
 automations:
   - name: good
     on: { cron: "0 9 * * *" }
-    run: consola#cleanup_stale_sessions
+    run: { tool: consola#cleanup_stale_sessions }
   - name: bad
     on: { cron: "0 9 * * *" }
-    run: consola#cleanup_stale_sessions
+    run: { tool: consola#cleanup_stale_sessions }
     mode: sometimes
 `);
         expect(result.automations.map((a) => a.name)).toEqual(['good']);
@@ -103,7 +102,7 @@ automations:
 
     it('rejects a bad cron expression with the reason', () => {
         const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "every day" }\n    run: consola#x\n'
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "every day" }\n    run: { tool: consola#x }\n'
         );
         expect(result.automations).toEqual([]);
         expect(result.issues[0].path).toBe('automations[0].on.cron');
@@ -112,50 +111,27 @@ automations:
 
     it('rejects six-field (seconds) cron for portability', () => {
         const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 0 9 * * *" }\n    run: consola#x\n'
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 0 9 * * *" }\n    run: { tool: consola#x }\n'
         );
         expect(result.issues[0].message).toMatch(/five cron fields/);
     });
 
-    it('rejects triggers the local runner does not have', () => {
-        const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { github: issues.opened }\n    run: consola#x\n'
-        );
-        expect(result.issues[0].message).toMatch(/exactly one trigger, `cron`/);
-    });
-
-    it('rejects actions unless the runner allows them', () => {
-        const text =
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: Review\n';
-        expect(parseFactorySpec(text).issues[0].message).toMatch(/Actions .* cannot be run/);
-        const allowed = parseFactorySpec(text, { allowActions: true });
-        expect(allowed.issues).toEqual([]);
-        expect(allowed.automations[0].run).toEqual({ kind: 'action', ref: 'Review', name: 'Review' });
-    });
-
-    it('rejects malformed tool references', () => {
-        const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: "consola#Bad-Tool"\n'
-        );
-        expect(result.issues[0].message).toMatch(/not a tool reference/);
-    });
-
     it('rejects unknown keys on an entry', () => {
         const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: consola#x\n    moed: auto\n'
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n    moed: auto\n'
         );
         expect(result.issues[0]).toMatchObject({ automation: 'a', line: 6 });
     });
 
     it('rejects names that are not kebab-case identifiers', () => {
         const result = parseFactorySpec(
-            'version: 1\nautomations:\n  - name: Clean Up\n    on: { cron: "0 9 * * *" }\n    run: consola#x\n'
+            'version: 1\nautomations:\n  - name: Clean Up\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n'
         );
         expect(result.issues[0].path).toBe('automations[0].name');
     });
 
     it('rejects duplicate names, keeping the first', () => {
-        const entry = '  - name: a\n    on: { cron: "0 9 * * *" }\n    run: consola#x\n';
+        const entry = '  - name: a\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n';
         const result = parseFactorySpec(`version: 1\nautomations:\n${entry}${entry}`);
         expect(result.automations).toHaveLength(1);
         expect(result.issues[0].message).toMatch(/Duplicate automation name "a"/);

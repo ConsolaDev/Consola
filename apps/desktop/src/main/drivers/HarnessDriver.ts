@@ -7,6 +7,7 @@ import type {
     HarnessProbeResult,
     SessionNameResult,
 } from '../../shared/types';
+import type { SessionToolPolicy } from '../../shared/workspace';
 
 /**
  * What Consola needs to know about an agent CLI in order to drive it.
@@ -32,8 +33,22 @@ export interface HarnessDriver {
     /** Absolute path to the binary, or a bare name to let the spawn fail loudly. */
     resolveBinary(config: HarnessConfig): string;
 
-    /** argv for an interactive session, including the harness's extra args. */
+    /**
+     * argv for an interactive session, including the harness's extra args.
+     *
+     * Throws when `launch.toolPolicy` is set and `toolPolicyProblem` says it
+     * cannot be enforced: a session that was meant to be restricted must
+     * never start unrestricted.
+     */
     buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] | Promise<string[]>;
+
+    /**
+     * Why this harness cannot launch a session under `policy`, or null when
+     * it can. Null for no policy. A driver whose CLI has no way to enforce a
+     * policy says so here rather than launching without it, and so does one
+     * whose harness's extra args would loosen it.
+     */
+    toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null;
 
     /** Deliver the opening prompt through argv instead of waiting on the TUI. */
     readonly initialPromptViaArgs?: boolean;
@@ -102,6 +117,39 @@ export interface SessionLaunch {
      * ignoring it would launch a conductor with no hands.
      */
     mcpConfigPath?: string;
+    /** What the agent may do, fixed for the session's lifetime and replayed on every resume. */
+    toolPolicy?: SessionToolPolicy;
+    /**
+     * Run one turn non-interactively, with `initialPrompt` as its argument,
+     * and exit: nobody is there to type, so there is no composer to type
+     * into. Only for a read-only session — a non-interactive turn skips the
+     * CLI's folder-trust prompt — and a driver that cannot do it refuses.
+     */
+    unattended?: boolean;
+    /**
+     * Start `sessionId` as a copy of this conversation, leaving the original
+     * as it was. First launch only; a driver that cannot fork refuses.
+     */
+    forkFrom?: string;
+}
+
+/**
+ * Whether `args` names any of `flags`, as `--flag value` or `--flag=value`.
+ * The shared half of every driver's loosening check; which flags loosen is
+ * each CLI's own business.
+ */
+export function namedFlags(args: readonly string[], flags: readonly string[]): string[] {
+    return flags.filter((flag) => args.some((arg) => arg === flag || arg.startsWith(`${flag}=`)));
+}
+
+/** The refusal every driver gives for loosening extra args, so they read alike. */
+export function looseningProblem(flags: readonly string[]): string | null {
+    if (flags.length === 0) return null;
+    return (
+        `This harness's extra arguments (${flags.join(', ')}) would loosen a read-only session, ` +
+        'so automations cannot start sessions on it. Remove them in Settings › Harnesses, or make ' +
+        'another harness this workspace’s default.'
+    );
 }
 
 /** A harness's launch settings, normalised for driver consumption. */

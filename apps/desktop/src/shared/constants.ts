@@ -42,6 +42,8 @@ export const IPC_CHANNELS = {
     WORKSPACE_SESSION_CREATE: 'workspace:session-create',
     WORKSPACE_SESSION_UPDATE: 'workspace:session-update',
     WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
+    /** Continue a read-only session as a new one with full tools: a fork of its conversation. */
+    WORKSPACE_SESSION_FORK: 'workspace:session-fork',
     WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
     WORKSPACE_UPDATE_SCOPE: 'workspace:update-scope',
     WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',
@@ -123,6 +125,7 @@ export const IPC_CHANNELS = {
     AUTOMATIONS_APPROVE: 'automations:approve',           // Approve a run waiting in confirm mode
     AUTOMATIONS_DISMISS: 'automations:dismiss',           // Dismiss a run waiting in confirm mode
     AUTOMATIONS_OPEN_FILE: 'automations:open-file',       // Open a workspace's factory.yml, creating it from a template
+    AUTOMATIONS_ADD_ASSIGNED_REVIEWS: 'automations:add-assigned-reviews', // Add review-assigned-prs to a workspace's factory.yml
 
     // Personal automations (main -> every renderer)
     AUTOMATIONS_CHANGED: 'automations:changed',           // A workspace's fresh AutomationsSnapshot

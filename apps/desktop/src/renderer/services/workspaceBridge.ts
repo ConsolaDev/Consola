@@ -67,6 +67,11 @@ export const workspaceBridge = {
         return window.workspaceAPI.updateSession(workspaceId, sessionId, updates);
     },
 
+    /** Continue a read-only session's conversation in a new session with full tools. */
+    forkSession(workspaceId: string, sessionId: string): Promise<Session> {
+        return window.workspaceAPI.forkSession(workspaceId, sessionId);
+    },
+
     deleteSession(workspaceId: string, sessionId: string): Promise<void> {
         return window.workspaceAPI.deleteSession(workspaceId, sessionId);
     },

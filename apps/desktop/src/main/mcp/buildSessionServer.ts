@@ -2,6 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RunRecord } from '@consola/factory-spec';
 import type { Workspace } from '../../shared/workspace';
 import { agentContext, type ToolRegistry, type ToolResult } from '../tools/Tool';
+import { mcpToolName } from './names';
 import { asToolResult } from './toolResult';
 
 export interface SessionServerDeps {
@@ -36,9 +37,22 @@ const APPROVAL_NOTE =
 export function buildSessionServer(sessionId: string, deps: SessionServerDeps): McpServer {
     const server = new McpServer({ name: 'consola', version: '1.0.0' });
 
+    // A session's kind and tool policy are fixed for its lifetime, so
+    // deciding per connection is enough.
+    const caller = deps
+        .getWorkspaces()
+        .flatMap((workspace) => workspace.sessions)
+        .find((session) => session.id === sessionId);
+    // A read-only session — one an automation started — gets only tools that
+    // change nothing: no deletes, and no run_automation, since a run never
+    // starts another run. Whatever its item's text talks it into, it has no
+    // hands here.
+    const readOnly = caller?.toolPolicy === 'read-only';
+
     for (const tool of deps.registry.list()) {
+        if (readOnly && tool.mutating) continue;
         server.registerTool(
-            `consola_${tool.name}`,
+            mcpToolName(tool.name),
             {
                 description: tool.destructive ? tool.description + APPROVAL_NOTE : tool.description,
                 inputSchema: tool.input,
@@ -61,12 +75,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
         );
     }
 
-    // A session's kind is fixed for its lifetime, so deciding per connection is enough.
-    const caller = deps
-        .getWorkspaces()
-        .flatMap((workspace) => workspace.sessions)
-        .find((session) => session.id === sessionId);
-    if (caller?.kind === 'conductor') deps.conductorTools.addTo(server, sessionId);
+    if (caller?.kind === 'conductor' && !readOnly) deps.conductorTools.addTo(server, sessionId);
 
     return server;
 }

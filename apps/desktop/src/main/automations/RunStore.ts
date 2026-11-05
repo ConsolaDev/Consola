@@ -1,5 +1,6 @@
 import type { RunRecord } from '@consola/factory-spec';
 import type { JsonStateFile } from '../state/JsonStateFile';
+import type { SeenRecord } from './seenRecord';
 
 export interface AutomationStateFile {
     version: 1;
@@ -7,9 +8,12 @@ export interface AutomationStateFile {
     lastFired: Record<string, string>;
     /** The `automationVersion` a person approved for each `auto` automation, by workspace id and name. */
     accepted?: Record<string, string>;
+    /** What each event automation last saw, by workspace id and name. An event's only memory. */
+    seen?: Record<string, SeenRecord>;
     /** Newest first, capped; every workspace's together, told apart by `attribution.workspaceId`. */
     runs: RunRecord[];
 }
+
 
 /** Enough to see the last few weeks; small enough to rewrite on every change. */
 export const MAX_RUNS = 100;
@@ -23,7 +27,7 @@ export const MAX_RUNS = 100;
  * every schedule and one approval per `auto` automation, never the app.
  */
 export class RunStore {
-    private state: Required<AutomationStateFile> = { version: 1, lastFired: {}, accepted: {}, runs: [] };
+    private state: Required<AutomationStateFile> = { version: 1, lastFired: {}, accepted: {}, seen: {}, runs: [] };
 
     constructor(private readonly file: Pick<JsonStateFile<AutomationStateFile>, 'read' | 'write'>) {}
 
@@ -35,6 +39,7 @@ export class RunStore {
                     version: 1,
                     lastFired: isRecord(stored.lastFired) ? stored.lastFired : {},
                     accepted: isRecord(stored.accepted) ? stored.accepted : {},
+                    seen: isRecord(stored.seen) ? (stored.seen as Record<string, SeenRecord>) : {},
                     runs: stored.runs,
                 };
             }
@@ -42,10 +47,15 @@ export class RunStore {
             console.error('Automation history unreadable; starting empty.', error);
         }
         // A run still `running` was cut off by a quit or a crash. Saying so is
-        // the honest answer; re-running a write action unasked is not.
+        // the honest answer; re-running a write action unasked is not. An
+        // agent run's turn is read-only and was approved: it goes back to
+        // the line, to resume in its session.
         let interrupted = false;
         for (const run of this.state.runs) {
-            if (run.status === 'running') {
+            if (run.status === 'running' && (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run') {
+                Object.assign(run, { status: 'queued', updatedAt: nowIso });
+                interrupted = true;
+            } else if (run.status === 'running') {
                 Object.assign(run, {
                     status: 'failed',
                     error: 'Interrupted: Consola quit while this was running.',
@@ -72,6 +82,28 @@ export class RunStore {
         const stale = Object.keys(this.state.lastFired).filter((key) => !keys.has(key));
         if (stale.length === 0) return;
         for (const key of stale) delete this.state.lastFired[key];
+        this.persist();
+    }
+
+    public seen(automationKey: string): SeenRecord | undefined {
+        const record = this.state.seen[automationKey];
+        return record && Array.isArray(record.items) ? record : undefined;
+    }
+
+    public setSeen(automationKey: string, record: SeenRecord): void {
+        this.state.seen[automationKey] = record;
+        this.persist();
+    }
+
+    public seenKeys(): string[] {
+        return Object.keys(this.state.seen);
+    }
+
+    /** Forget event automations no file names any more, so one coming back baselines afresh. */
+    public keepSeen(automationKeys: ReadonlySet<string>): void {
+        const stale = Object.keys(this.state.seen).filter((key) => !automationKeys.has(key));
+        if (stale.length === 0) return;
+        for (const key of stale) delete this.state.seen[key];
         this.persist();
     }
 
@@ -115,11 +147,12 @@ export class RunStore {
     }
 }
 
-/** Newest first, at most MAX_RUNS — but a run waiting for approval is never the one dropped. */
+/** Newest first, at most MAX_RUNS — but a run still waiting, for a person or for a slot, is never the one dropped. */
 function capped(runs: RunRecord[]): RunRecord[] {
     if (runs.length <= MAX_RUNS) return runs;
-    const waiting = runs.filter((run) => run.status === 'needs-approval');
-    const rest = runs.filter((run) => run.status !== 'needs-approval').slice(0, Math.max(0, MAX_RUNS - waiting.length));
+    const isWaiting = (run: RunRecord) => run.status === 'needs-approval' || run.status === 'queued';
+    const waiting = runs.filter(isWaiting);
+    const rest = runs.filter((run) => !isWaiting(run)).slice(0, Math.max(0, MAX_RUNS - waiting.length));
     const keep = new Set([...waiting, ...rest]);
     return runs.filter((run) => keep.has(run));
 }

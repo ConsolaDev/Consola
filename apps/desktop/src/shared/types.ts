@@ -283,7 +283,9 @@ export interface HarnessAPI {
 export type WorkItemLaunchResult =
     | { ok: true; session: Session; seedPrompt: string }
     | { ok: false; reason: 'not-cloned' }
-    | { ok: false; reason: 'error'; message: string };
+    | { ok: false; reason: 'error'; message: string }
+    /** An automation already reviews this item with this action: open that session instead. */
+    | { ok: false; reason: 'automation-review'; sessionId: string };
 
 export interface CloneRepoResult {
     ok: boolean;
@@ -367,6 +369,8 @@ export interface WorkspaceAPI {
     createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
     updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+    /** A new session of the person's own that continues this read-only one's conversation. */
+    forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
     addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
     updateScope: (
         workspaceId: string,

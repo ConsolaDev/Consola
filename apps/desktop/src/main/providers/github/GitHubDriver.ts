@@ -13,10 +13,11 @@ import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { workItemUrl } from '../../../shared/workItems';
 import { renderSeedHeader } from '../../../shared/workItemPrompt';
 import { getLoginEnv } from '../../LoginEnvironment';
-import type { GitProviderDriver } from '../GitProviderDriver';
+import type { GitProviderDriver, WorkItemDetails } from '../GitProviderDriver';
 import type { PullRequestLookup, PullRequestQuery } from '../pullRequests';
 import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } from './inboxQuery';
 import { parsePullsResponse, pullsEndpoint } from './pullRequests';
+import { diffArgs, parseWorkItemDetails, viewArgs } from './workItemDetails';
 
 const execFileAsync = promisify(execFile);
 
@@ -340,6 +341,19 @@ export class GitHubDriver implements GitProviderDriver {
 
     public repoOfRemote(remoteUrl: string): string | null {
         return parseGitHubRemote(remoteUrl);
+    }
+
+    /**
+     * `gh pr view --json` (and `gh pr diff` for a pull request), always with
+     * `--repo`: what an item is must never depend on the folder it is asked
+     * from.
+     */
+    public async describeWorkItem(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<WorkItemDetails> {
+        const [view, diff] = await Promise.all([
+            this.exec(viewArgs(ref), env),
+            ref.type === 'pr' ? this.exec(diffArgs(ref), env) : Promise.resolve(undefined),
+        ]);
+        return parseWorkItemDetails(view, diff);
     }
 
     /**

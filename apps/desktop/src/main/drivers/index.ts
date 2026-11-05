@@ -1,5 +1,6 @@
-import type { HarnessDriverId } from '../../shared/types';
-import type { HarnessDriver } from './HarnessDriver';
+import type { HarnessDriverId, HarnessLaunchFields } from '../../shared/types';
+import type { SessionToolPolicy } from '../../shared/workspace';
+import { toHarnessConfig, type HarnessDriver } from './HarnessDriver';
 import { ClaudeDriver } from './ClaudeDriver';
 import { CodexDriver } from './CodexDriver';
 
@@ -32,6 +33,15 @@ export function getDriver(id?: HarnessDriverId): HarnessDriver {
         return DRIVERS[DEFAULT_DRIVER_ID];
     }
     return driver;
+}
+
+/**
+ * Why a session on this harness cannot run under `policy`, or null — asked
+ * before anything is created, so a launch that would be refused at spawn is
+ * refused before it has a worktree, a record or a tab.
+ */
+export function toolPolicyProblem(fields: HarnessLaunchFields, policy: SessionToolPolicy | undefined): string | null {
+    return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
 }
 
 export type { HarnessDriver, HarnessConfig } from './HarnessDriver';

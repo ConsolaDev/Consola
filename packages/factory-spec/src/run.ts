@@ -5,23 +5,32 @@ import type { Automation, AutomationMode } from './schema';
  * One execution of an automation.
  *
  * The north-star Run record (docs/north-star/consola-factories.md §3), as
- * much of it as a local tool run has. Same field names and status words, so
- * the cloud runner's rows and these list side by side later. Not recorded
- * yet, and why: `cost` (a tool run spends no tokens; agent actions will),
- * `environment` (the workspace scope is in `attribution` until environments
- * exist locally), `orgId` (personal automations have no org).
+ * much of it as a local run has. Same field names and status words, so the
+ * cloud runner's rows and these list side by side later. Not recorded yet,
+ * and why: `cost` (a tool run spends no tokens; an agent run's tokens are its
+ * session's), `environment` (the workspace scope is in `attribution` until
+ * environments exist locally), `orgId` (personal automations have no org).
  */
-export type RunStatus = 'running' | 'needs-approval' | 'completed' | 'failed' | 'rejected';
+export type RunStatus = 'queued' | 'running' | 'needs-approval' | 'completed' | 'failed' | 'rejected';
 
 /** The runner set grows (an Anthropic-hosted one, say); nothing may assume two values. */
 export type RunnerKind = 'local' | 'cloud' | (string & {});
 
 export type RunSource = 'org' | 'repo' | 'personal' | 'manual';
 
+/** The item an event run is about, as the connection reported it. */
+export interface RunItem {
+    /** The connection's stable key for it, e.g. `github:acme/api:pr:123`. */
+    key: string;
+    url: string;
+    /** Author-controlled: shown as data, never sent as instructions. */
+    title: string;
+}
+
 export interface RunTrigger {
-    /** What fired it: the schedule, or a request outside it. */
-    kind: 'cron' | 'manual';
-    /** ISO time: the scheduled occurrence for cron, the request for manual. */
+    /** What fired it: the schedule, a connection's event, or a request outside both. */
+    kind: 'cron' | 'event' | 'manual';
+    /** ISO time: the scheduled occurrence, the poll that saw the event, or the request. */
     at: string;
     /** A cron occurrence missed while the runner was down, fired late. */
     catchUp?: boolean;
@@ -29,6 +38,10 @@ export interface RunTrigger {
     by?: 'person' | 'agent';
     /** The asking session, when an agent asked. */
     actorId?: string;
+    /** For an event: which connection, which of its listed events the item was in, and the item. */
+    connection?: string;
+    events?: string[];
+    item?: RunItem;
 }
 
 export interface RunRecord {
@@ -41,7 +54,7 @@ export interface RunRecord {
      * its tool reference here instead.
      */
     automationId: string;
-    /** The `run:` reference as written, e.g. `consola#cleanup_stale_sessions`. */
+    /** What it runs: a tool reference, an action's name, or `prompt`. */
     actionName: string;
     /** `automationVersion` of the definition this run executed. */
     actionVersion: string;
@@ -58,6 +71,8 @@ export interface RunRecord {
      * preview narrowed to what the person saw, never a fresh plan.
      */
     approval?: { args: Record<string, unknown> };
+    /** The agent session the run started, once it launched. */
+    sessionId?: string;
     error?: string;
     attribution: {
         automationId: string;
@@ -74,22 +89,42 @@ export interface RunRecord {
 export const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ['completed', 'failed', 'rejected'];
 
 /**
- * A short, stable hash of what an automation does: target, arguments and
- * mode — not its schedule, and not its workspace, which is where the file
- * lives rather than something it says. What approval binds to: an approved
- * plan is refused if the definition changed under it, and an `auto` entry is
- * trusted to run unasked only at the version a person approved.
+ * A short, stable hash of what an automation does — what approval binds to:
+ * an approved plan is refused if the definition changed under it, and an
+ * `auto` entry is trusted to run unasked only at the version a person
+ * approved.
+ *
+ * Covers the target and its arguments or body, the mode, the filter and
+ * scope (which items, and where), and an event trigger (what fires it). Not
+ * a cron schedule, which says when rather than what, and not the workspace,
+ * which is where the file lives rather than something it says.
+ *
+ * `resolvedBody` is what the runner resolved the target to — an action's
+ * prompt, which lives in the workspace's settings rather than the file — so
+ * editing the Review action makes an `auto` automation that runs it ask
+ * again.
  */
-export function automationVersion(automation: Pick<Automation, 'run' | 'with' | 'mode'>): string {
+export function automationVersion(
+    automation: Pick<Automation, 'run' | 'mode' | 'trigger'> & Partial<Pick<Automation, 'filter' | 'scope'>>,
+    resolvedBody?: string
+): string {
+    const { trigger } = automation;
     const canonical = stableStringify({
-        run: automation.run.ref,
-        with: automation.with,
+        run: automation.run,
         mode: automation.mode,
+        filter: automation.filter,
+        scope: automation.scope,
+        event:
+            trigger.kind === 'event'
+                ? { connection: trigger.connection, events: trigger.events, params: trigger.params }
+                : undefined,
+        resolvedBody,
     });
     return createHash('sha256').update(canonical).digest('hex').slice(0, 16);
 }
 
-function stableStringify(value: unknown): string {
+/** JSON with sorted keys and undefined dropped, so equal definitions hash equal. */
+export function stableStringify(value: unknown): string {
     if (Array.isArray(value)) return `[${value.map(stableStringify).join(',')}]`;
     if (value && typeof value === 'object') {
         const entries = Object.entries(value as Record<string, unknown>)

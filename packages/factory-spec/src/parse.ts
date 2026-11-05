@@ -1,6 +1,6 @@
 import { LineCounter, parseDocument, type Document } from 'yaml';
 import type { ZodIssue } from 'zod';
-import { automationSchema, fileSchema, type Automation, type SpecOptions } from './schema';
+import { automationSchema, fileSchema, type Automation } from './schema';
 
 export interface FactorySpecIssue {
     message: string;
@@ -25,10 +25,7 @@ export interface FactorySpecParseResult {
  * a whole — YAML syntax, a missing `version` — loads nothing: half-reading a
  * file whose shape is unknown could run something the person did not write.
  */
-export function parseFactorySpec(
-    text: string,
-    options: SpecOptions = { allowActions: false }
-): FactorySpecParseResult {
+export function parseFactorySpec(text: string): FactorySpecParseResult {
     const lineCounter = new LineCounter();
     const doc = parseDocument(text, { lineCounter, prettyErrors: false });
     const lineOf = (offset: number | undefined) =>
@@ -57,7 +54,7 @@ export function parseFactorySpec(
         };
     }
 
-    const schema = automationSchema(options);
+    const schema = automationSchema();
     const automations: Automation[] = [];
     const issues: FactorySpecIssue[] = [];
     const seen = new Set<string>();
