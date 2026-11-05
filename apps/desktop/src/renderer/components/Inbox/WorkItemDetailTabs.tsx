@@ -1,5 +1,7 @@
-import { useCallback, useMemo, useState, type ReactNode } from 'react';
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react';
+import * as Tooltip from '@radix-ui/react-tooltip';
 import {
+  ArrowRight,
   ChevronRight,
   CircleAlert,
   CircleCheck,
@@ -82,6 +84,43 @@ export function StateBadge({ kind, label, tone }: { kind: StatusKind; label: str
       <Icon size={14} aria-hidden="true" />
       {label}
     </span>
+  );
+}
+
+/**
+ * One branch name, cut short with an ellipsis when the row runs out. Hovering
+ * a cut-short chip shows the whole name; a chip that fits shows nothing, since
+ * the tooltip would only repeat it. Radix rather than `title`, like every
+ * other tooltip here: the native one did not appear in this window.
+ */
+function BranchChip({ name }: { name: string }) {
+  const ref = useRef<HTMLElement>(null);
+  const [open, setOpen] = useState(false);
+  const isCut = () => !!ref.current && ref.current.scrollWidth > ref.current.clientWidth;
+  return (
+    <Tooltip.Root open={open} onOpenChange={(next) => setOpen(next && isCut())}>
+      <Tooltip.Trigger asChild>
+        <code ref={ref}>{name}</code>
+      </Tooltip.Trigger>
+      <Tooltip.Portal>
+        <Tooltip.Content className="tooltip-content inbox-detail-branch-tooltip" sideOffset={6} align="start">
+          {name}
+          <Tooltip.Arrow className="tooltip-arrow" />
+        </Tooltip.Content>
+      </Tooltip.Portal>
+    </Tooltip.Root>
+  );
+}
+
+export function BranchPair({ head, base }: { head: string; base: string | undefined }) {
+  return (
+    <Tooltip.Provider delayDuration={300}>
+      <span className="inbox-detail-branches">
+        <BranchChip name={head} />
+        <ArrowRight size={12} aria-hidden="true" />
+        <BranchChip name={base ?? ''} />
+      </span>
+    </Tooltip.Provider>
   );
 }
 

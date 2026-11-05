@@ -1,6 +1,5 @@
 import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react';
 import {
-  ArrowRight,
   CircleAlert,
   CircleCheck,
   Eye,
@@ -17,6 +16,7 @@ import type { WorkItemComment, WorkItemDetails, WorkItemMutation } from '../../.
 import { inboxBridge } from '../../services/inboxBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import {
+  BranchPair,
   ChecksTab,
   CheckIcon,
   ConversationTimeline,
@@ -206,14 +206,10 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
   return (
     <section className="inbox-detail" aria-label="Remote item details" aria-busy={busy || loading}>
       <div className="inbox-detail-toolbar">
-        <StateBadge key={status.kind} {...status} />
-        {details?.headBranch && (
-          <span className="inbox-detail-branches" title={`Merges ${details.headBranch} into ${details.baseBranch}`}>
-            <code>{details.headBranch}</code>
-            <ArrowRight size={12} aria-hidden="true" />
-            <code>{details.baseBranch}</code>
-          </span>
-        )}
+        <div className="inbox-detail-toolbar-lead">
+          <StateBadge key={status.kind} {...status} />
+          {details?.headBranch && <BranchPair head={details.headBranch} base={details.baseBranch} />}
+        </div>
         <span className="inbox-detail-account" title="Actions here run as this workspace’s GitHub account">
           <UserRound size={12} aria-hidden="true" />
           as {accountLogin}

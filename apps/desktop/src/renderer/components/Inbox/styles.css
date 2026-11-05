@@ -778,7 +778,18 @@
   gap: 8px 10px;
 }
 
+/* State and branches wrap as one unit, so the branches shrink beside the
+   badge instead of dropping to a line of their own; the account and refresh
+   are what move down when the row runs out. */
+.inbox-detail-toolbar-lead {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
 .inbox-detail-state {
+  flex: none;
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -793,17 +804,24 @@
   animation: inbox-detail-land 260ms var(--inbox-ease) both;
 }
 
+/* A grid, not a flex row: flex would shrink both chips in proportion to their
+   length, cutting "main" to "m…" beside a long head branch. These columns
+   fill the shorter name first, so only the longer one gives up space. */
 .inbox-detail-branches {
-  display: inline-flex;
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto minmax(0, max-content);
   align-items: center;
-  gap: 5px;
+  column-gap: 5px;
   min-width: 0;
   max-width: 100%;
   color: var(--color-text-secondary);
 }
 
+/* Full names whenever the row has room; an ellipsis only once it runs out,
+   with the whole name in the chip's tooltip. */
 .inbox-detail-branches code {
-  max-width: 22ch;
+  cursor: default;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -813,6 +831,18 @@
   color: var(--color-text-primary);
   font-family: var(--font-mono);
   font-size: 12px;
+}
+
+/* A cut-short branch in full. Portaled to <body>, so not scoped under
+   .inbox-detail; the doubled class wins over the shared .tooltip-content, as
+   .checkout-tooltip does. Code is shown as typed, and long names wrap. */
+.tooltip-content.inbox-detail-branch-tooltip {
+  max-width: min(480px, calc(100vw - 32px));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+  word-break: normal;
 }
 
 .inbox-detail-account {

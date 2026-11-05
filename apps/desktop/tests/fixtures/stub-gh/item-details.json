@@ -4,7 +4,7 @@
   "state": "OPEN", "isDraft": false, "author": {"login": "simon-sprocket"},
   "labels": [{"name": "enhancement"}], "assignees": [{"login": "JaviDev"}],
   "headRefOid": "1234567890123456789012345678901234567890",
-  "headRefName": "extract-billing", "baseRefName": "main",
+  "headRefName": "extract-billing-client-and-add-regression-coverage", "baseRefName": "main",
   "mergeStateStatus": "BLOCKED", "reviewDecision": "CHANGES_REQUESTED",
   "statusCheckRollup": [
     {"name": "Unit tests", "status": "COMPLETED", "conclusion": "FAILURE", "detailsUrl": "https://github.com/sprocket/catalog-portal/actions/runs/1"},

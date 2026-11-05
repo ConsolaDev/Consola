@@ -588,6 +588,23 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     await expect(remote.getByText('regression coverage')).toBeVisible();
     await expect(remote.getByText('as JaviDev')).toBeVisible();
     await expect(pane.getByText('Sessions · 0')).toBeVisible();
+    // A branch cut short by a narrow pane names itself in full on hover; one that fits stays quiet.
+    const [width, height] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
+    await page.setViewportSize({ width: 880, height });
+    const branches = remote.locator('.inbox-detail-branches');
+    await expect(branches.locator('[title]')).toHaveCount(0); // a native tooltip would show beside this one
+    await branches.locator('code', { hasText: 'extract-billing' }).hover();
+    await expect(page.getByRole('tooltip')).toHaveText('extract-billing-client-and-add-regression-coverage');
+    // In steps, like a real pointer: Radix keeps a tooltip open while the
+    // pointer may be heading for it, and closes on the next move that is not.
+    await page.mouse.move(450, height - 40, { steps: 10 });
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
+    const base = branches.locator('code', { hasText: 'main' });
+    await expect(base).toHaveJSProperty('scrollWidth', await base.evaluate((el) => el.clientWidth)); // "main" stays whole
+    await base.hover();
+    await page.waitForTimeout(600); // past the 300ms open delay
+    await expect(page.getByRole('tooltip')).toHaveCount(0);
+    await page.setViewportSize({ width, height });
     await remote.getByRole('tab', { name: /Files changed/ }).click();
     await remote.locator('summary', { hasText: 'src/billing.ts' }).click();
     await expect(remote.getByLabel('Diff for src/billing.ts')).toContainText('+new');
