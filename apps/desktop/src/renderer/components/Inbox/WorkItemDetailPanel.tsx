@@ -28,6 +28,7 @@ import {
   type FixTarget,
 } from './WorkItemDetailTabs';
 import { itemStatus, mergeStateMeta, summarizeChecks } from './workItemDetailPresentation';
+import { MOD_KEY, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
 
 interface Props {
   workspaceId: string;
@@ -44,13 +45,6 @@ type ReviewEvent = 'comment' | 'approve' | 'request-changes';
 
 /** A confirmation is read, then gone; an error stays until dismissed or retried. */
 const NOTICE_MS = 5000;
-const MOD_KEY = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
-
-const isSubmitChord = (event: KeyboardEvent) => event.key === 'Enter' && (event.metaKey || event.ctrlKey);
-
-function prefersReducedMotion(): boolean {
-  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
-}
 
 export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fixTarget = 'a session', onDetails }: Props) {
   const [details, setDetails] = useState<WorkItemDetails | null>(null);

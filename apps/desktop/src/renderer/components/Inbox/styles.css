@@ -556,8 +556,48 @@
   text-underline-offset: 2px;
 }
 
+/* The sessions dock: every session on the item and the ways to start one,
+   directly under the title. Its own surface (the sidebar's) so it reads as
+   Consola's part of the pane, set apart from GitHub's item below it. The
+   accent is spent once, on the default action. */
+.inbox-pane-dock {
+  --pane-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --pane-accent-text: var(--color-accent);
+  --pane-warning-text: var(--color-warning);
+  --pane-error-text: var(--color-error);
+  display: flex;
+  flex-direction: column;
+  margin-top: var(--space-3);
+  border: 1px solid var(--color-border);
+  /* Literal: inside .radix-themes the radius tokens can collapse to 0px. */
+  border-radius: 10px;
+  background: var(--color-bg-sidebar);
+}
+
+[data-theme='dark'] .inbox-pane-dock {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-elevation-1);
+}
+
+/* Toned text darkens on white to keep AA contrast, as in .inbox-detail. */
+[data-theme='light'] .inbox-pane-dock {
+  --pane-accent-text: color-mix(in srgb, var(--color-accent) 62%, black);
+  --pane-warning-text: color-mix(in srgb, var(--color-warning) 62%, black);
+  --pane-error-text: color-mix(in srgb, var(--color-error) 78%, black);
+}
+
+.inbox-pane-dock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 8px 6px 2px 12px;
+}
+
 .inbox-pane-section-title {
-  margin: 20px 0 var(--space-1);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
   font-size: 11px;
   font-weight: var(--font-weight-semibold);
   letter-spacing: 0.08em;
@@ -565,27 +605,90 @@
   color: var(--color-text-secondary);
 }
 
-.inbox-pane-kv {
-  display: flex;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding: 2px 0;
+.inbox-pane-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+  font-size: 10.5px;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
 }
 
-.inbox-pane-empty,
-.inbox-pane-hint {
-  margin: 0 0 var(--space-2);
-  font-size: 12px;
+.inbox-pane-link-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
   color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms var(--pane-ease), color 150ms var(--pane-ease);
+}
+
+.inbox-pane-link-session:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-empty {
+  margin: 2px 12px 12px;
+  font-size: 12px;
   line-height: 1.45;
+  color: var(--color-text-tertiary);
+}
+
+.inbox-pane-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+/* Session rows. Status is the dot's job; the row only adds a halo while the
+   agent works and a warm wash when it is waiting on the person. */
+.inbox-pane-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 2px 4px 6px;
+  list-style: none;
 }
 
 .inbox-pane-session-row {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 5px 0;
-  border-bottom: 1px solid var(--color-border);
+  gap: 10px;
+  min-height: 42px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 7px;
+  transition: background-color 150ms var(--pane-ease);
+}
+
+.inbox-pane-session-row:hover {
+  background: color-mix(in srgb, var(--color-text-primary) 5%, transparent);
+}
+
+.inbox-pane-session-row[data-status='working'] .status-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.inbox-pane-session-row[data-status='needs-attention'] {
+  background: color-mix(in srgb, var(--color-warning) 9%, transparent);
+}
+
+.inbox-pane-session-row[data-status='needs-attention']:hover {
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
 }
 
 .inbox-pane-session-text {
@@ -593,10 +696,12 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .inbox-pane-session-label {
   color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -610,8 +715,422 @@
   text-overflow: ellipsis;
 }
 
-.inbox-pane-open,
+.inbox-pane-session-row[data-status='working'] .inbox-pane-session-status {
+  color: var(--pane-accent-text);
+}
+
+.inbox-pane-session-row[data-status='needs-attention'] .inbox-pane-session-status {
+  color: var(--pane-warning-text);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Open follows the row: pointing anywhere on it readies the button and
+   slides its arrow toward where it goes. */
+.inbox-pane-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--pane-ease),
+    border-color 150ms var(--pane-ease),
+    transform 120ms var(--pane-ease);
+}
+
+.inbox-pane-open svg {
+  color: var(--color-text-tertiary);
+  transition: transform 200ms var(--pane-ease), color 150ms var(--pane-ease);
+}
+
+.inbox-pane-session-row:hover .inbox-pane-open {
+  border-color: var(--color-border-hover);
+}
+
+.inbox-pane-session-row:hover .inbox-pane-open svg,
+.inbox-pane-open:focus-visible svg {
+  color: var(--color-text-primary);
+  transform: translateX(2px);
+}
+
+.inbox-pane-open:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-pane-open:active {
+  transform: scale(0.97);
+}
+
+/* Where the pane sits beside a session, that session's row: a fact, not a
+   button, so it is a quiet tag rather than an edge to press. */
+.inbox-pane-current {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 9px;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 11.5px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* Which automation started a session: read-only, and not the person's own. */
+.inbox-pane-automation-badge {
+  margin-left: var(--space-2);
+  padding: 0 5px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  color: var(--color-text-secondary);
+}
+
+/* Starting one: actions as a wrapping row, the section default in the
+   accent, a custom prompt drawn dashed as the blank one. */
+.inbox-pane-launch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inbox-pane-action {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-text-primary) 3%, transparent);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--pane-ease),
+    border-color 150ms var(--pane-ease),
+    color 150ms var(--pane-ease),
+    box-shadow 200ms var(--pane-ease),
+    transform 120ms var(--pane-ease);
+}
+
+.inbox-pane-action:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+
+.inbox-pane-action:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.inbox-pane-action:disabled {
+  cursor: default;
+}
+
+/* A launch in flight is busy, not unavailable: it keeps full strength. */
+.inbox-pane-action:disabled:not([data-launching]) {
+  opacity: 0.45;
+}
+
+.inbox-pane-action-icon {
+  flex: none;
+  transition: transform 220ms var(--pane-ease);
+}
+
+.inbox-pane-action-icon--spin {
+  animation: inbox-detail-spin 0.9s linear infinite;
+}
+
+.inbox-pane-action--default {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.inbox-pane-action--default:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text-primary));
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--color-accent) 80%, transparent);
+}
+
+.inbox-pane-action--default:hover:not(:disabled) .inbox-pane-action-icon:not(.inbox-pane-action-icon--spin) {
+  transform: translateX(1.5px) scale(1.1);
+}
+
+.inbox-pane-action--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.inbox-pane-action--quiet:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-action--compose {
+  border-style: dashed;
+  border-color: var(--color-border-hover);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.inbox-pane-action--compose:hover:not(:disabled) {
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-action--compose:hover:not(:disabled) .inbox-pane-action-icon {
+  transform: rotate(-12deg);
+}
+
+/* Arming a start over a busy item takes the whole row, so the warning reads
+   as a sentence and not as one more button. */
+.inbox-pane-action--confirm {
+  flex-basis: 100%;
+  justify-content: flex-start;
+  padding: 6px 12px;
+  border-color: color-mix(in srgb, var(--color-warning) 55%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--pane-warning-text);
+  text-align: left;
+  white-space: normal;
+  animation: inbox-pane-arm 260ms var(--pane-ease);
+}
+
+.inbox-pane-action--confirm:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-warning) 75%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  box-shadow: none;
+}
+
+/* Preparing: a band of light crosses the button until the session opens. */
+.inbox-pane-action[data-launching]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    100deg,
+    transparent 25%,
+    color-mix(in srgb, currentColor 20%, transparent) 50%,
+    transparent 75%
+  );
+  transform: translateX(-100%);
+  animation: inbox-pane-sweep 1.2s var(--pane-ease) infinite;
+}
+
+.inbox-pane-action-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--pane-error-text);
+}
+
+.inbox-pane-action-error strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* The custom prompt opens in place. A Fix handed over from the details below
+   lands here, and a ring marks where it landed. */
+.inbox-pane-custom {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: inbox-pane-unfold 240ms var(--pane-ease);
+}
+
+.inbox-pane-custom-landed {
+  position: absolute;
+  inset: -5px -6px;
+  z-index: -1;
+  border-radius: 12px;
+  pointer-events: none;
+  animation: inbox-pane-landed 1100ms var(--pane-ease) forwards;
+}
+
+.inbox-pane-custom-textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  transition: border-color 150ms var(--pane-ease), box-shadow 150ms var(--pane-ease);
+}
+
+.inbox-pane-custom-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* The accent border and ring replace the global outline: same signal, drawn
+   on the field's own edge. */
+.inbox-pane-custom-textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.inbox-pane-placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.inbox-pane-placeholders-label {
+  margin-right: 2px;
+  font-size: 11.5px;
+  color: var(--color-text-tertiary);
+}
+
+.inbox-pane-placeholder {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-ligatures: none;
+  cursor: pointer;
+  transition:
+    border-color 150ms var(--pane-ease),
+    background-color 150ms var(--pane-ease),
+    color 150ms var(--pane-ease),
+    transform 100ms var(--pane-ease);
+}
+
+.inbox-pane-placeholder::before { content: '{{'; opacity: 0.45; }
+.inbox-pane-placeholder::after { content: '}}'; opacity: 0.45; }
+
+.inbox-pane-placeholder:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-bg-primary));
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-placeholder:active {
+  transform: translateY(1px);
+}
+
+.inbox-pane-custom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.inbox-pane-kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.inbox-pane-kbd-hint kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+}
+
+@keyframes inbox-pane-unfold {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+
+@keyframes inbox-pane-arm {
+  from { opacity: 0.6; transform: scale(0.985); }
+}
+
+@keyframes inbox-pane-sweep {
+  to { transform: translateX(100%); }
+}
+
+@keyframes inbox-pane-landed {
+  0% {
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 60%, transparent);
+  }
+  30% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* Reduced motion keeps every state and drops the travel. The spinner stays:
+   it is the only sign a launch is still in flight. */
+@media (prefers-reduced-motion: reduce) {
+  .inbox-pane-custom,
+  .inbox-pane-action--confirm,
+  .inbox-pane-action[data-launching]::after {
+    animation: none;
+  }
+
+  .inbox-pane-custom-landed {
+    display: none;
+  }
+
+  .inbox-pane-action,
+  .inbox-pane-action-icon,
+  .inbox-pane-open,
+  .inbox-pane-open svg,
+  .inbox-pane-placeholder {
+    transition: none;
+  }
+}
+
+/* Outside the dock: the Inbox's own setup-recovery buttons. */
 .inbox-pane-secondary {
+  align-self: flex-start;
+  margin-top: var(--space-2);
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-md);
   background: transparent;
@@ -622,114 +1141,9 @@
   white-space: nowrap;
 }
 
-.inbox-pane-secondary {
-  align-self: flex-start;
-  margin-top: var(--space-2);
-}
-
-.inbox-pane-open:hover,
 .inbox-pane-secondary:hover {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
-}
-
-/* Where the pane sits beside a session, that session's row: a fact, not a
-   button, so it carries no edge. */
-.inbox-pane-current {
-  font-size: 11.5px;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
-}
-
-.inbox-pane-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.inbox-pane-action-slot {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* Every action is a button; the section default is the one drawn in the
-   accent, and a confirm turns the whole label into the warning. */
-.inbox-pane-action {
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: transparent;
-  color: var(--color-text-primary);
-  font-size: 13px;
-  padding: 6px 10px;
-  text-align: left;
-  cursor: pointer;
-}
-
-.inbox-pane-action:hover:not(:disabled) {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.inbox-pane-action--default {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
-}
-
-.inbox-pane-action--confirm {
-  border-color: var(--color-warning);
-  color: var(--color-warning);
-  white-space: normal;
-}
-
-.inbox-pane-action:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.inbox-pane-action-error {
-  font-size: 12px;
-  color: var(--color-error);
-}
-
-.inbox-pane-custom {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: var(--space-2);
-}
-
-.inbox-pane-custom-textarea {
-  width: 100%;
-  resize: vertical;
-  font: inherit;
-  font-size: 13px;
-  padding: 7px 10px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-md);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-
-.inbox-pane-custom-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
-.inbox-pane-custom-actions .inbox-pane-secondary {
-  margin-top: 0;
-}
-
-/* Which automation started a session: read-only, and not the person's own. */
-.inbox-pane-automation-badge {
-  margin-left: var(--space-2);
-  padding: 0 var(--space-1);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-normal);
-  color: var(--color-text-secondary);
 }
 
 

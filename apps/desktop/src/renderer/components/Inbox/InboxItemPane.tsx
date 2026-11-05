@@ -1,6 +1,18 @@
 import { WorkItemDetailPanel } from './WorkItemDetailPanel';
-import { useRef, useState } from 'react';
-import { ExternalLink, X } from 'lucide-react';
+import { useRef, useState, type KeyboardEvent } from 'react';
+import {
+  ArrowRight,
+  ArrowUpRight,
+  ExternalLink,
+  FolderDown,
+  Link2,
+  LoaderCircle,
+  PenLine,
+  Play,
+  TriangleAlert,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import { sessionLabel } from '../../../shared/sessionLabel';
@@ -15,7 +27,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
-import { formatAge } from './inboxPresentation';
+import { MOD_KEY, formatAge, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
 import './styles.css';
 
 export interface InboxItemPaneProps {
@@ -37,6 +49,9 @@ export interface InboxItemPaneProps {
 /** Verbatim from the spec: the inline confirm that replaces a block. */
 const CONFIRM_LABEL = 'Another session is working on this — Start anyway';
 
+/** What a custom prompt may name; substitutePlaceholders fills them at launch. */
+const PLACEHOLDERS = ['number', 'repo', 'title', 'url', 'type'] as const;
+
 const STATUS_WORDS: Record<SessionStatus, string> = {
   working: 'working',
   ready: 'ready',
@@ -57,10 +72,14 @@ function automationPhase(status: SessionStatus): string | null {
 }
 
 /**
- * The right-hand detail pane (layout B): the item's provider facts, every
- * session on it, and the ways to add one — an action, a custom prompt, or
- * linking a session that already exists. Remote details and actions are
- * provided by WorkItemDetailPanel.
+ * The right-hand detail pane (layout B): the item's sessions and the ways to
+ * add one — an action, a custom prompt, or linking a session that already
+ * exists — then the item itself, provided by WorkItemDetailPanel.
+ *
+ * Sessions come first, in a dock under the title. They are what Consola
+ * adds to the item and the reason to open it here rather than on GitHub, and
+ * they are local: the dock renders at full height at once, where the remote
+ * details below arrive later and would push anything under them down.
  *
  * The highlighted action is the section default, resolved here rather than
  * passed in: the pane knows the item, and the section is a pure function
@@ -75,9 +94,14 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
   const resolved = useInboxStore((state) => state.resolvedRepos[workspace.id]);
 
   const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
-  const sessionActionsRef = useRef<HTMLDivElement>(null);
+  const customBoxRef = useRef<HTMLDivElement>(null);
+  const customFieldRef = useRef<HTMLTextAreaElement>(null);
+  const customToggleRef = useRef<HTMLButtonElement>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
+  // Each Fix handed over remounts the glow under this key, replaying it; it
+  // clears itself once played, so reopening the prompt by hand stays quiet.
+  const [landedKey, setLandedKey] = useState<number | null>(null);
   // The Inbox's copy lags a refresh behind, and a stand-in for an item it no
   // longer lists has no title at all: a fresh read is the better answer.
   const [fetched, setFetched] = useState<WorkItemDetails | null>(null);
@@ -104,12 +128,25 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
     return status === 'working' || status === 'needs-attention';
   });
 
-  const applicable = workspace.actions.filter((action) =>
-    action.appliesTo.includes(item.workItem.type)
-  );
   const section = sectionFor(item);
   const preferredId = section ? workspace.sectionDefaults[section] : undefined;
   const highlighted = defaultActionFor(workspace.actions, item.workItem.type, preferredId);
+  const actions = workspace.actions
+    .filter((action) => action.appliesTo.includes(item.workItem.type))
+    .map((action) => ({
+      action,
+      key: launchKey(workspace.id, item, { id: action.id }),
+      // An automation already ran this action on this item: that session is
+      // the review, so the button opens it. A custom prompt still starts a
+      // new one on purpose. The newest: a re-requested review has an earlier
+      // one on older code.
+      automationReview: siblings
+        .filter((session) => session.automation && session.workItemAction === action.name)
+        .reduce<Session | undefined>(
+          (newest, session) => (!newest || session.createdAt > newest.createdAt ? session : newest),
+          undefined
+        ),
+    }));
 
   // null means "asked main, and no scope has it"; undefined means "not
   // asked yet", which optimistically reads as cloned — the launch corrects it.
@@ -131,6 +168,53 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
   const repoShort = item.workItem.repo.split('/').pop() ?? item.workItem.repo;
   const trimmedCustom = customPrompt.trim();
   const customKey = launchKey(workspace.id, item, { customPrompt: trimmedCustom });
+  const canStartCustom = trimmedCustom.length > 0 && !launching[customKey];
+
+  const closeCustom = () => {
+    setCustomOpen(false);
+    setConfirmingKey(null);
+    // The field that had focus is gone; give it back to what opened it.
+    requestAnimationFrame(() => customToggleRef.current?.focus());
+  };
+
+  // A Fix from the details below lands here as a drafted prompt: open it,
+  // bring it into view, and mark where it landed.
+  const receiveFix = (prompt: string) => {
+    setCustomPrompt(prompt);
+    setCustomOpen(true);
+    setLandedKey((previous) => (previous ?? 0) + 1);
+    requestAnimationFrame(() => {
+      customFieldRef.current?.focus({ preventScroll: true });
+      customBoxRef.current?.scrollIntoView({
+        block: 'center',
+        behavior: prefersReducedMotion() ? 'auto' : 'smooth',
+      });
+    });
+  };
+
+  // Placeholders go in at the caret, replacing any selection, and the caret
+  // lands after them so typing carries on.
+  const insertPlaceholder = (token: string) => {
+    const field = customFieldRef.current;
+    const from = field?.selectionStart ?? customPrompt.length;
+    const to = field?.selectionEnd ?? from;
+    setCustomPrompt(customPrompt.slice(0, from) + token + customPrompt.slice(to));
+    requestAnimationFrame(() => {
+      field?.focus();
+      field?.setSelectionRange(from + token.length, from + token.length);
+    });
+  };
+
+  const onCustomKey = (event: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.key === 'Escape') {
+      // Handled here, so the Inbox's own Esc does not close the whole pane.
+      event.preventDefault();
+      closeCustom();
+    } else if (isSubmitChord(event)) {
+      event.preventDefault();
+      if (canStartCustom) start({ customPrompt: trimmedCustom }, customKey);
+    }
+  };
 
   return (
     <aside className="inbox-pane" data-testid="inbox-pane" aria-label="Work item details">
@@ -147,6 +231,242 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         </a>
       </div>
 
+      <section className="inbox-pane-dock" aria-label="Sessions on this item">
+        <div className="inbox-pane-dock-head">
+          <h3 className="inbox-pane-section-title">
+            Sessions
+            {siblings.length > 0 && <span className="inbox-pane-count">{siblings.length}</span>}
+          </h3>
+          <button
+            className="inbox-pane-link-session"
+            onClick={() =>
+              useLinkSessionDialogStore.getState().open({
+                kind: 'pick-session',
+                workspaceId: workspace.id,
+                item,
+              })
+            }
+          >
+            <Link2 size={13} aria-hidden="true" />
+            Link existing…
+          </button>
+        </div>
+
+        {siblings.length === 0 ? (
+          <p className="inbox-pane-empty">No sessions on this item yet.</p>
+        ) : (
+          <ul className="inbox-pane-sessions">
+            {siblings.map((session) => {
+              const status = statusOf(session);
+              const phase = session.automation ? automationPhase(status) : null;
+              const current = session.id === currentSessionId;
+              return (
+                <li
+                  className="inbox-pane-session-row"
+                  key={session.id}
+                  data-status={status}
+                  data-current={current || undefined}
+                >
+                  <span className={`status-dot status-dot--${status}`} aria-hidden="true" />
+                  <div className="inbox-pane-session-text">
+                    <span className="inbox-pane-session-label">
+                      {sessionLabel(session)}
+                      {session.automation && (
+                        <span className="inbox-pane-automation-badge" title="Started by an automation, read-only">
+                          {session.automation.name}
+                        </span>
+                      )}
+                    </span>
+                    <span className="inbox-pane-session-sub">
+                      <span className="inbox-pane-session-status">{phase ?? STATUS_WORDS[status]}</span>
+                      {' · '}
+                      {formatAge(session.lastActiveAt)}
+                      {session.cwd ? ` · ${basename(session.cwd)}` : ''}
+                    </span>
+                  </div>
+                  {current ? (
+                    <span className="inbox-pane-current">This session</span>
+                  ) : (
+                    <button
+                      className="inbox-pane-open"
+                      onClick={() => activateSession(workspace.id, session.id)}
+                      aria-label={`Open ${sessionLabel(session)}`}
+                    >
+                      Open
+                      <ArrowRight size={12} aria-hidden="true" />
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ul>
+        )}
+
+        <div className="inbox-pane-launch">
+          <h3 className="inbox-pane-section-title">Start a session</h3>
+          {uncloned ? (
+            <>
+              <p className="inbox-pane-hint">
+                {repoShort} is not cloned in any scope of this workspace.
+              </p>
+              <div className="inbox-pane-actions">
+                <button
+                  className="inbox-pane-action inbox-pane-action--default inbox-pane-clone"
+                  disabled={launching[repoKey]}
+                  data-launching={launching[repoKey] || undefined}
+                  onClick={() => openClonePrompt(workspace.id, item)}
+                >
+                  <ActionIcon icon={launching[repoKey] ? LoaderCircle : FolderDown} spin={launching[repoKey]} />
+                  {launching[repoKey] ? 'Cloning…' : 'Clone into scope…'}
+                </button>
+              </div>
+              {launchErrors[repoKey] && (
+                <p className="inbox-pane-action-error" role="alert">{launchErrors[repoKey]}</p>
+              )}
+            </>
+          ) : (
+            <>
+              {actions.length === 0 && (
+                <p className="inbox-pane-hint">
+                  No actions apply to {item.workItem.type === 'pr' ? 'pull requests' : 'issues'} —
+                  add one in Workspace settings.
+                </p>
+              )}
+              <div className="inbox-pane-actions">
+                {actions.map(({ action, key, automationReview }) => {
+                  const confirming = confirmingKey === key;
+                  const isDefault = highlighted?.id === action.id;
+                  const pending = launching[key];
+                  // A default starts something (a play mark); a button that
+                  // opens an automation's finished review points away instead.
+                  const icon = pending
+                    ? LoaderCircle
+                    : confirming
+                      ? TriangleAlert
+                      : automationReview
+                        ? ArrowUpRight
+                        : isDefault
+                          ? Play
+                          : null;
+                  return (
+                    <button
+                      key={action.id}
+                      className={[
+                        'inbox-pane-action',
+                        isDefault && 'inbox-pane-action--default',
+                        confirming && 'inbox-pane-action--confirm',
+                      ].filter(Boolean).join(' ')}
+                      data-action-id={action.id}
+                      data-launching={pending || undefined}
+                      disabled={pending}
+                      title={automationReview ? `Open the review ${automationReview.automation!.name} started` : undefined}
+                      onClick={() =>
+                        automationReview
+                          ? activateSession(workspace.id, automationReview.id)
+                          : start({ id: action.id }, key)
+                      }
+                    >
+                      {icon && <ActionIcon icon={icon} spin={pending} filled={icon === Play} />}
+                      {pending ? 'Preparing…' : confirming ? CONFIRM_LABEL : action.name}
+                    </button>
+                  );
+                })}
+                {!customOpen && (
+                  <button
+                    ref={customToggleRef}
+                    className="inbox-pane-action inbox-pane-action--compose"
+                    onClick={() => setCustomOpen(true)}
+                  >
+                    <ActionIcon icon={PenLine} />
+                    Custom prompt…
+                  </button>
+                )}
+              </div>
+              {actions.map(({ action, key }) =>
+                launchErrors[key] ? (
+                  <p className="inbox-pane-action-error" role="alert" key={action.id}>
+                    {actions.length > 1 && <strong>{action.name}: </strong>}
+                    {launchErrors[key]}
+                  </p>
+                ) : null
+              )}
+
+              {customOpen && (
+                <div ref={customBoxRef} className="inbox-pane-custom">
+                  {landedKey !== null && (
+                    <span
+                      key={landedKey}
+                      className="inbox-pane-custom-landed"
+                      aria-hidden="true"
+                      onAnimationEnd={() => setLandedKey(null)}
+                    />
+                  )}
+                  <textarea
+                    ref={customFieldRef}
+                    className="inbox-pane-custom-textarea"
+                    rows={3}
+                    value={customPrompt}
+                    onChange={(event) => setCustomPrompt(event.target.value)}
+                    onKeyDown={onCustomKey}
+                    placeholder="What should the agent do?"
+                    aria-label="Custom prompt"
+                    aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+Enter' : 'Control+Enter'}
+                    autoFocus
+                  />
+                  <div className="inbox-pane-placeholders" role="group" aria-label="Insert a placeholder">
+                    <span className="inbox-pane-placeholders-label" aria-hidden="true">Insert</span>
+                    {PLACEHOLDERS.map((name) => (
+                      <button
+                        key={name}
+                        type="button"
+                        className="inbox-pane-placeholder"
+                        title={`Insert {{${name}}}, filled in when the session starts`}
+                        // Keep the caret where it is: the insert goes there.
+                        onMouseDown={(event) => event.preventDefault()}
+                        onClick={() => insertPlaceholder(`{{${name}}}`)}
+                      >
+                        {name}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="inbox-pane-custom-actions">
+                    <span className="inbox-pane-kbd-hint" aria-hidden="true">
+                      <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> start · <kbd>Esc</kbd> cancel
+                    </span>
+                    <button className="inbox-pane-action inbox-pane-action--quiet" onClick={closeCustom}>
+                      Cancel
+                    </button>
+                    <button
+                      className={`inbox-pane-action ${
+                        confirmingKey === customKey ? 'inbox-pane-action--confirm' : 'inbox-pane-action--default'
+                      }`}
+                      data-action-id="custom"
+                      data-launching={launching[customKey] || undefined}
+                      disabled={!canStartCustom}
+                      onClick={() => start({ customPrompt: trimmedCustom }, customKey)}
+                    >
+                      <ActionIcon
+                        icon={launching[customKey] ? LoaderCircle : confirmingKey === customKey ? TriangleAlert : Play}
+                        spin={launching[customKey]}
+                        filled={!launching[customKey] && confirmingKey !== customKey}
+                      />
+                      {launching[customKey]
+                        ? 'Preparing…'
+                        : confirmingKey === customKey
+                          ? CONFIRM_LABEL
+                          : 'Start'}
+                    </button>
+                  </div>
+                  {launchErrors[customKey] && (
+                    <p className="inbox-pane-action-error" role="alert">{launchErrors[customKey]}</p>
+                  )}
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </section>
+
       {workspace.provider && <WorkItemDetailPanel
         key={`${workspace.id}:${workspace.provider.accountLogin}:${workspace.provider.org ?? ''}`}
         workspaceId={workspace.id}
@@ -154,169 +474,19 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         item={item}
         onDetails={setFetched}
         fixTarget={fixInSession ? 'this session' : 'a session'}
-        onFix={fixInSession ?? ((prompt) => {
-          setCustomPrompt(prompt); setCustomOpen(true);
-          requestAnimationFrame(() => sessionActionsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
-        })}
+        onFix={fixInSession ?? receiveFix}
       />}
-
-      <div className="inbox-pane-section-title">Sessions · {siblings.length}</div>
-      {siblings.length === 0 && <p className="inbox-pane-empty">No sessions on this item yet.</p>}
-      {siblings.map((session) => {
-        const status = statusOf(session);
-        const phase = session.automation ? automationPhase(status) : null;
-        return (
-          <div className="inbox-pane-session-row" key={session.id}>
-            <span className={`status-dot status-dot--${status}`} aria-hidden="true" />
-            <div className="inbox-pane-session-text">
-              <span className="inbox-pane-session-label">
-                {sessionLabel(session)}
-                {session.automation && (
-                  <span className="inbox-pane-automation-badge" title="Started by an automation, read-only">
-                    {session.automation.name}
-                  </span>
-                )}
-              </span>
-              <span className="inbox-pane-session-sub">
-                {phase ?? STATUS_WORDS[status]} · {formatAge(session.lastActiveAt)}
-                {session.cwd ? ` · ${basename(session.cwd)}` : ''}
-              </span>
-            </div>
-            {session.id === currentSessionId ? (
-              <span className="inbox-pane-current">This session</span>
-            ) : (
-              <button
-                className="inbox-pane-open"
-                onClick={() => activateSession(workspace.id, session.id)}
-                aria-label={`Open ${sessionLabel(session)}`}
-              >
-                Open
-              </button>
-            )}
-          </div>
-        );
-      })}
-      <button
-        className="inbox-pane-secondary"
-        onClick={() =>
-          useLinkSessionDialogStore.getState().open({
-            kind: 'pick-session',
-            workspaceId: workspace.id,
-            item,
-          })
-        }
-      >
-        Link existing session...
-      </button>
-
-      <div ref={sessionActionsRef} className="inbox-pane-section-title">Start a session</div>
-      {uncloned ? (
-        <>
-          <p className="inbox-pane-hint">
-            {repoShort} is not cloned in any scope of this workspace.
-          </p>
-          <button
-            className="inbox-pane-action inbox-pane-clone"
-            disabled={launching[repoKey]}
-            onClick={() => openClonePrompt(workspace.id, item)}
-          >
-            {launching[repoKey] ? 'Cloning...' : 'Clone into scope...'}
-          </button>
-          {launchErrors[repoKey] && (
-            <span className="inbox-pane-action-error">{launchErrors[repoKey]}</span>
-          )}
-        </>
-      ) : (
-        <div className="inbox-pane-actions">
-          {applicable.length === 0 && (
-            <p className="inbox-pane-hint">
-              No actions apply to {item.workItem.type === 'pr' ? 'pull requests' : 'issues'} —
-              add one in Workspace settings.
-            </p>
-          )}
-          {applicable.map((action) => {
-            const key = launchKey(workspace.id, item, { id: action.id });
-            const confirming = confirmingKey === key;
-            // An automation already ran this action on this item: that
-            // session is the review, so the button opens it. A custom
-            // prompt below still starts a new one on purpose.
-            // The newest: a re-requested review has an earlier one on older code.
-            const automationReview = siblings
-              .filter((session) => session.automation && session.workItemAction === action.name)
-              .reduce<Session | undefined>(
-                (newest, session) => (!newest || session.createdAt > newest.createdAt ? session : newest),
-                undefined
-              );
-            return (
-              <div className="inbox-pane-action-slot" key={action.id}>
-                <button
-                  className={`inbox-pane-action ${
-                    highlighted?.id === action.id ? 'inbox-pane-action--default' : ''
-                  } ${confirming ? 'inbox-pane-action--confirm' : ''}`}
-                  data-action-id={action.id}
-                  disabled={launching[key]}
-                  title={automationReview ? `Open the review ${automationReview.automation!.name} started` : undefined}
-                  onClick={() =>
-                    automationReview
-                      ? activateSession(workspace.id, automationReview.id)
-                      : start({ id: action.id }, key)
-                  }
-                >
-                  {launching[key] ? 'Preparing...' : confirming ? CONFIRM_LABEL : action.name}
-                </button>
-                {launchErrors[key] && (
-                  <span className="inbox-pane-action-error">{launchErrors[key]}</span>
-                )}
-              </div>
-            );
-          })}
-          {customOpen ? (
-            <div className="inbox-pane-custom">
-              <textarea
-                className="inbox-pane-custom-textarea"
-                rows={3}
-                value={customPrompt}
-                onChange={(event) => setCustomPrompt(event.target.value)}
-                placeholder="A one-off prompt. Placeholders: {{number}} {{repo}} {{title}} {{url}} {{type}}"
-                aria-label="Custom prompt"
-                autoFocus
-              />
-              <div className="inbox-pane-custom-actions">
-                <button
-                  className="inbox-pane-secondary"
-                  onClick={() => {
-                    setCustomOpen(false);
-                    setConfirmingKey(null);
-                  }}
-                >
-                  Cancel
-                </button>
-                <button
-                  className={`inbox-pane-action ${
-                    confirmingKey === customKey ? 'inbox-pane-action--confirm' : ''
-                  }`}
-                  data-action-id="custom"
-                  disabled={trimmedCustom.length === 0 || launching[customKey]}
-                  onClick={() => start({ customPrompt: trimmedCustom }, customKey)}
-                >
-                  {launching[customKey]
-                    ? 'Preparing...'
-                    : confirmingKey === customKey
-                      ? CONFIRM_LABEL
-                      : 'Start'}
-                </button>
-              </div>
-              {launchErrors[customKey] && (
-                <span className="inbox-pane-action-error">{launchErrors[customKey]}</span>
-              )}
-            </div>
-          ) : (
-            <button className="inbox-pane-secondary" onClick={() => setCustomOpen(true)}>
-              Custom prompt...
-            </button>
-          )}
-        </div>
-      )}
     </aside>
+  );
+}
+
+function ActionIcon({ icon: Icon, spin, filled }: { icon: LucideIcon; spin?: boolean; filled?: boolean }) {
+  return (
+    <Icon
+      size={13}
+      aria-hidden="true"
+      className={`inbox-pane-action-icon${spin ? ' inbox-pane-action-icon--spin' : ''}`}
+      fill={filled ? 'currentColor' : 'none'}
+    />
   );
 }

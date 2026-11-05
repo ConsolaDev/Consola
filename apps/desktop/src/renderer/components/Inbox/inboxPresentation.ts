@@ -134,3 +134,14 @@ export function worstStatusForItem(
 ): SessionStatus {
   return worstStatus(linked.map((session) => sessionStatusFor(terminals[session.instanceId])));
 }
+
+/** The platform's modifier, as its keycap reads. */
+export const MOD_KEY = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
+
+/** ⌘↵ (Ctrl+Enter elsewhere): what submits every multi-line field in the Inbox. */
+export const isSubmitChord = (event: { key: string; metaKey: boolean; ctrlKey: boolean }) =>
+  event.key === 'Enter' && (event.metaKey || event.ctrlKey);
+
+export function prefersReducedMotion(): boolean {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+}
