@@ -146,8 +146,9 @@
   color: var(--color-text-tertiary);
 }
 
-/* Two columns. The pane is fixed width so the list does not reflow when it
-   opens; the list scrolls on its own so the header and tabs stay put. */
+/* Two resizable columns (react-resizable-panels): the list, and the
+   selected item's pane. Each Panel clips its content, so each column scrolls
+   on its own and the header and tabs stay put. */
 .inbox-body {
   flex: 1;
   display: flex;
@@ -155,21 +156,68 @@
 }
 
 .inbox-main {
-  flex: 1;
+  height: 100%;
   min-width: 0;
   overflow-y: auto;
   padding: var(--space-4);
 }
 
 .inbox-pane-slot {
-  flex: none;
+  /* Read by sticky children: they stick inside this padding, not at the edge. */
+  --pane-slot-inset-top: var(--space-4);
+  height: 100%;
   overflow-y: auto;
-  /* .inbox-pane carries its own width and left border (ruling: no
-     duplicate box model between the slot and the pane), but the pane's own
-     padding is bottom/left only -- it assumes a parent that already insets
-     it from the top and right, the way .inbox-main insets the list. The
-     slot is that parent, so it owns the matching top/right padding. */
-  padding: var(--space-4) var(--space-4) 0 0;
+  /* The pane's own padding is bottom/left only -- it assumes a parent that
+     already insets it from the top and right, the way .inbox-main insets the
+     list. The slot is that parent, so it owns the matching top/right padding. */
+  padding: var(--pane-slot-inset-top) var(--space-4) 0 0;
+}
+
+/* The divider between list and pane: a hairline with a wider grab area.
+   Hover, focus and drag all light it in the accent; arrow keys resize it
+   once focused, and a double-click puts it back to the default width. */
+.inbox-resize-handle {
+  position: relative;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.inbox-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--color-border);
+  transform: translateX(-50%);
+  transition: background-color 150ms ease-out, transform 150ms ease-out;
+}
+
+.inbox-resize-handle:hover::after,
+.inbox-resize-handle:focus-visible::after,
+.inbox-resize-handle[data-separator='hover']::after,
+.inbox-resize-handle[data-separator='active']::after {
+  background: var(--color-accent);
+  transform: translateX(-50%) scaleX(2);
+}
+
+/* The lit hairline is the focus indicator; an outline box around a 9px
+   strip would only blur it. */
+.inbox-resize-handle:focus-visible {
+  outline: none;
+}
+
+/* A drag across either column must not select its text. */
+.inbox-body:has(.inbox-resize-handle[data-separator='active']) {
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inbox-resize-handle::after {
+    transition: none;
+  }
 }
 
 .inbox-empty {
@@ -442,19 +490,18 @@
   color: var(--color-text-tertiary);
 }
 
-/* The detail pane (layout B). Its width is fixed so the list does not
-   reflow when a row is selected; it scrolls on its own. */
+/* The detail pane (layout B). Its width is the Panel's, which the person
+   sets by dragging the divider; the divider also draws the column's edge. */
 .inbox-pane {
-  width: clamp(340px, 38vw, 560px);
   min-width: 0;
-  flex: none;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border-left: 1px solid var(--color-border);
   padding: 0 0 var(--space-4) var(--space-4);
-  overflow-y: auto;
-  font-size: 12.5px;
+  /* Fill the slot. The slot scrolls; the pane must not, or the detail tabs
+     could not stick to the top while it does. */
+  min-height: 100%;
+  font-size: 13px;
   color: var(--color-text-secondary);
 }
 
@@ -467,9 +514,10 @@
 .inbox-pane-title {
   flex: 1;
   margin: 0;
-  font-size: 13.5px;
-  font-weight: var(--font-weight-medium);
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
   line-height: 1.35;
+  text-wrap: pretty;
   color: var(--color-text-primary);
 }
 
@@ -491,8 +539,8 @@
 }
 
 .inbox-pane-meta {
-  font-size: 11.5px;
-  color: var(--color-text-tertiary);
+  font-size: 12px;
+  color: var(--color-text-secondary);
 }
 
 .inbox-pane-link {
@@ -504,15 +552,17 @@
 
 .inbox-pane-link:hover {
   color: var(--color-text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .inbox-pane-section-title {
-  margin: var(--space-4) 0 var(--space-1);
-  font-size: 10px;
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.09em;
+  margin: 20px 0 var(--space-1);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
   text-transform: uppercase;
-  color: var(--color-text-tertiary);
+  color: var(--color-text-secondary);
 }
 
 .inbox-pane-kv {
@@ -525,9 +575,9 @@
 .inbox-pane-empty,
 .inbox-pane-hint {
   margin: 0 0 var(--space-2);
-  font-size: 11.5px;
-  color: var(--color-text-tertiary);
-  line-height: 1.4;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  line-height: 1.45;
 }
 
 .inbox-pane-session-row {
@@ -553,8 +603,8 @@
 }
 
 .inbox-pane-session-sub {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
+  font-size: 12px;
+  color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -563,11 +613,11 @@
 .inbox-pane-open,
 .inbox-pane-secondary {
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  padding: 2px 8px;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  padding: 4px 10px;
   cursor: pointer;
   white-space: nowrap;
 }
@@ -599,11 +649,11 @@
    accent, and a confirm turns the whole label into the warning. */
 .inbox-pane-action {
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  padding: 4px 10px;
+  color: var(--color-text-primary);
+  font-size: 13px;
+  padding: 6px 10px;
   text-align: left;
   cursor: pointer;
 }
@@ -630,7 +680,7 @@
 }
 
 .inbox-pane-action-error {
-  font-size: 11px;
+  font-size: 12px;
   color: var(--color-error);
 }
 
@@ -645,10 +695,10 @@
   width: 100%;
   resize: vertical;
   font: inherit;
-  font-size: 12px;
-  padding: 6px 8px;
+  font-size: 13px;
+  padding: 7px 10px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: var(--color-bg-secondary);
   color: var(--color-text-primary);
 }
@@ -674,34 +724,1259 @@
   color: var(--color-text-secondary);
 }
 
-/* Remote work stays alongside existing local session actions. */
-.inbox-detail { min-width: 0; margin-top: 12px; }
-.inbox-detail-toolbar, .inbox-detail-actions, .inbox-detail-comment-meta, .inbox-detail-labels {
-  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+
+/* ---------------------------------------------------------------------------
+   Remote item details (WorkItemDetailPanel): the GitHub item itself, read and
+   acted on in place. Colour carries meaning and nothing else. Every tone is a
+   theme token chosen with data-tone, and the light theme darkens toned text so
+   it keeps AA contrast on white, where the raw tokens are too pale for text.
+   --------------------------------------------------------------------------- */
+.inbox-detail {
+  container: inbox-detail / inline-size;
+  --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --inbox-link: var(--color-accent);
+  --diff-add-text: var(--color-success);
+  --diff-del-text: var(--color-error);
+  min-width: 0;
+  margin-top: var(--space-3);
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
 }
-.inbox-detail-toolbar { margin-bottom: 10px; }
-.inbox-detail-account { flex: 1; color: var(--color-text-tertiary); font-size: 11px; }
-.inbox-detail-state { border-radius: 12px; padding: 3px 9px; background: var(--color-bg-tertiary); text-transform: capitalize; }
-.inbox-detail-state--open, .inbox-detail-notice { color: var(--color-success, #3fb950); }
-.inbox-detail-state--merged { color: #bc8cff; }
-.inbox-detail-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--color-border); margin-top: 14px; }
-.inbox-detail-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 7px; font: inherit; font-size: 11px; color: var(--color-text-secondary); cursor: pointer; }
-.inbox-detail-tabs button[aria-selected='true'] { border-bottom-color: var(--color-accent); color: var(--color-text-primary); }
-.inbox-detail-content { padding: 10px 0; overflow-wrap: anywhere; }
-.inbox-detail-content .markdown-content { font-size: 12px; }
-.inbox-detail-content .markdown-content img { max-width: 100%; }
-.inbox-detail-labels span { border: 1px solid var(--color-border); border-radius: 10px; padding: 2px 7px; font-size: 11px; }
-.inbox-detail-editor, .inbox-detail-confirm { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; padding: 10px; background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 6px; }
-.inbox-detail-editor label { display: flex; flex-direction: column; gap: 5px; }
-.inbox-detail input:not([type='checkbox']), .inbox-detail textarea, .inbox-detail select { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; background: var(--color-bg-primary); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 4px; font: inherit; }
-.inbox-detail textarea { resize: vertical; }
-.inbox-detail button:disabled { opacity: .5; cursor: default; }
-.inbox-detail-comment { padding: 12px 0; border-bottom: 1px solid var(--color-border); }
-.inbox-detail-comment time, .inbox-detail-comment-meta span { font-size: 10px; color: var(--color-text-tertiary); }
-.inbox-detail-file { border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 8px; }
-.inbox-detail-file summary { padding: 8px; cursor: pointer; }
-.inbox-detail-file summary span { display: block; font-size: 10px; color: var(--color-text-tertiary); }
-.inbox-detail-file pre { overflow: auto; max-height: 420px; padding: 8px; margin: 0; font-size: 11px; background: var(--color-bg-primary); }
-.inbox-detail-file .diff-added { color: #3fb950; }
-.inbox-detail-file .diff-removed { color: #f85149; }
-.inbox-detail-check { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--color-border); }
+
+/* Code is shown as typed: JetBrains Mono would draw === as one glyph. Pills
+   use a literal radius, because inside .radix-themes --radius-full is 0px
+   unless the Theme asks for radius="full". */
+.inbox-detail :is(code, pre, kbd) {
+  font-variant-ligatures: none;
+}
+
+[data-theme='light'] .inbox-detail {
+  --inbox-link: color-mix(in srgb, var(--color-accent) 62%, black);
+  --diff-add-text: color-mix(in srgb, var(--color-success) 72%, black);
+  --diff-del-text: color-mix(in srgb, var(--color-error) 78%, black);
+}
+
+.inbox-detail [data-tone='success'] { --tone: var(--color-success); }
+.inbox-detail [data-tone='error'] { --tone: var(--color-error); }
+.inbox-detail [data-tone='warning'] { --tone: var(--color-warning); }
+.inbox-detail [data-tone='merged'] { --tone: var(--color-merged); }
+.inbox-detail [data-tone='accent'] { --tone: var(--color-accent); }
+.inbox-detail [data-tone='neutral'] { --tone: var(--color-text-secondary); }
+.inbox-detail [data-tone] { --tone-text: var(--tone); }
+[data-theme='light'] .inbox-detail [data-tone] { --tone-text: color-mix(in srgb, var(--tone) 62%, black); }
+[data-theme='light'] .inbox-detail [data-tone='neutral'] { --tone-text: var(--color-text-secondary); }
+
+.inbox-detail-toned { color: var(--tone-text); }
+.inbox-detail-tone-icon { flex: none; color: var(--tone-text, currentColor); }
+
+/* Status strip: state, branches, whose account acts, refresh. */
+.inbox-detail-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px 10px;
+}
+
+.inbox-detail-state {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px 0 9px;
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  color: var(--tone-text);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  animation: inbox-detail-land 260ms var(--inbox-ease) both;
+}
+
+.inbox-detail-branches {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-branches code {
+  max-width: 22ch;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.inbox-detail-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.inbox-detail-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 150ms var(--inbox-ease), color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-icon-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A refresh in flight stays legible: the spin is the feedback. */
+.inbox-detail-icon-btn:disabled:has(.inbox-detail-spin) {
+  opacity: 1;
+}
+
+.inbox-detail-spin {
+  animation: inbox-detail-spin 900ms linear infinite;
+}
+
+/* Outcome of the last action. */
+.inbox-detail-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+  animation: inbox-detail-rise 220ms var(--inbox-ease) both;
+}
+
+.inbox-detail-message > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.inbox-detail-message p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.inbox-detail-message .inbox-detail-icon-btn {
+  width: 22px;
+  height: 22px;
+  margin: -1px -4px -1px 0;
+  color: inherit;
+}
+
+.inbox-detail-skeleton {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.inbox-detail-skeleton i {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  animation: inbox-detail-pulse 1.4s ease-in-out infinite;
+}
+
+.inbox-detail-skeleton i:nth-child(2) { width: 55%; height: 30px; margin-bottom: 8px; border-radius: var(--radius-md); }
+.inbox-detail-skeleton i:nth-child(3) { width: 92%; }
+.inbox-detail-skeleton i:nth-child(4) { width: 74%; }
+.inbox-detail-skeleton i:nth-child(5) { width: 84%; }
+
+/* Buttons. One solid button per decision; everything else recedes. */
+.inbox-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--inbox-ease),
+    border-color 150ms var(--inbox-ease),
+    color 150ms var(--inbox-ease),
+    transform 120ms var(--inbox-ease);
+}
+
+.inbox-detail-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+
+.inbox-detail-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.inbox-detail-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.inbox-detail-btn--small {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.inbox-detail-btn--quiet {
+  border-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-btn--quiet:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-text-primary);
+}
+
+/* Edit is a toggle: while its form is open, it reads as pressed. */
+.inbox-detail-btn--quiet[aria-expanded='true'] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
+
+/* Close is reversible, so it stays quiet until pointed at. */
+.inbox-detail-btn--danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--color-error) 12%, transparent);
+  color: var(--diff-del-text);
+}
+
+.inbox-detail-btn--solid {
+  border-color: transparent;
+  background: var(--fill);
+  color: var(--on-fill);
+}
+
+.inbox-detail-btn--solid:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fill) 86%, var(--color-text-primary));
+}
+
+.inbox-detail-btn--accent { --fill: var(--color-accent); --on-fill: var(--color-accent-text); }
+.inbox-detail-btn--success { --fill: var(--color-success); --on-fill: var(--color-bg-primary); }
+.inbox-detail-btn--danger-solid { --fill: var(--color-error); --on-fill: var(--color-bg-primary); }
+[data-theme='light'] .inbox-detail-btn--success { --fill: color-mix(in srgb, var(--color-success) 85%, black); }
+[data-theme='light'] .inbox-detail-btn--danger-solid { --fill: color-mix(in srgb, var(--color-error) 85%, black); }
+
+.inbox-detail-btn--tinted {
+  border-color: color-mix(in srgb, var(--tone) 40%, transparent);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  color: var(--tone-text);
+}
+
+.inbox-detail-btn--tinted:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--tone) 65%, transparent);
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+
+.inbox-detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+.inbox-detail-actions-main,
+.inbox-detail-actions-quiet {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.inbox-detail-actions-main + .inbox-detail-actions-quiet {
+  margin-left: auto;
+  gap: 0;
+}
+
+/* Confirmations and the editor open in place, under the button that asked. */
+.inbox-detail-confirm,
+.inbox-detail-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-sidebar);
+  animation: inbox-detail-rise 220ms var(--inbox-ease) both;
+}
+
+.inbox-detail-confirm {
+  border-color: color-mix(in srgb, var(--tone) 40%, transparent);
+  background: color-mix(in srgb, var(--tone) 7%, var(--color-bg-primary));
+}
+
+.inbox-detail-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-confirm-title svg {
+  flex: none;
+  color: var(--tone-text);
+}
+
+.inbox-detail-confirm-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-confirm-warning svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.inbox-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-inline-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail input:not([type='checkbox']),
+.inbox-detail textarea,
+.inbox-detail select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color 150ms var(--inbox-ease), box-shadow 150ms var(--inbox-ease);
+}
+
+.inbox-detail textarea {
+  resize: vertical;
+}
+
+.inbox-detail textarea::placeholder {
+  color: var(--color-text-secondary);
+}
+
+/* A drawn caret, so the control follows the theme instead of the OS. */
+.inbox-detail select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-text-secondary) 50%),
+    linear-gradient(135deg, var(--color-text-secondary) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.inbox-detail-inline-field select {
+  width: auto;
+  padding-block: 4px;
+  font-size: 12.5px;
+  color: var(--color-text-primary);
+}
+
+.inbox-detail input:not([type='checkbox']):hover:not(:disabled),
+.inbox-detail textarea:hover:not(:disabled),
+.inbox-detail select:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+}
+
+.inbox-detail input:not([type='checkbox']):focus-visible,
+.inbox-detail textarea:focus-visible,
+.inbox-detail select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.inbox-detail input.inbox-detail-title-input {
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-checkbox {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+}
+
+.inbox-detail-checkbox input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  accent-color: var(--color-success);
+}
+
+.inbox-detail-form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.inbox-detail-form-foot > .inbox-detail-hint {
+  flex-basis: 100%;
+}
+
+.inbox-detail-kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Tabs stick while a long description or conversation scrolls under them.
+   A sticky box stops at its scroll container's padding edge, so top: 0 would
+   leave the slot's top padding as a strip where content shows above the
+   tabs. Offsetting by that padding pins them to the visible edge instead. */
+.inbox-detail-tabs {
+  position: sticky;
+  top: calc(-1 * var(--pane-slot-inset-top, 0px));
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  margin-top: 18px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+.inbox-detail-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 10px 10px 9px;
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-tab::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transition: transform 240ms var(--inbox-ease);
+}
+
+.inbox-detail-tab:hover,
+.inbox-detail-tab[aria-selected='true'] {
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-tab[aria-selected='true']::after {
+  transform: scaleX(1);
+}
+
+.inbox-detail-tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.inbox-detail-tab-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 11.5px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-detail-tab[aria-selected='true'] .inbox-detail-tab-count {
+  background: var(--color-accent-muted);
+}
+
+/* The narrowest pane (the 340px end of its clamp) still fits every tab. */
+@container inbox-detail (max-width: 440px) {
+  .inbox-detail-tabs {
+    gap: 0;
+  }
+
+  .inbox-detail-tab {
+    gap: 5px;
+    padding-inline: 6px;
+    font-size: 12.5px;
+  }
+
+  .inbox-detail-tab::after {
+    left: 4px;
+    right: 4px;
+  }
+
+  .inbox-detail-tab-count {
+    min-width: 18px;
+    padding: 0 5px;
+  }
+
+  .inbox-detail-tab-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+.inbox-detail-content {
+  padding: 16px 0 4px;
+  overflow-wrap: anywhere;
+  animation: inbox-detail-fade 180ms var(--inbox-ease) both;
+}
+
+.inbox-detail-empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-empty--icon {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 0 18px;
+}
+
+.inbox-detail-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--inbox-link);
+  text-decoration: none;
+}
+
+.inbox-detail-text-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-detail-counts {
+  display: inline-flex;
+  gap: 6px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-detail-add { color: var(--diff-add-text); }
+.inbox-detail-del { color: var(--diff-del-text); }
+
+/* Overview: the facts a reviewer decides on, each a way to its tab. */
+.inbox-detail-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  align-items: center;
+  gap: 8px 20px;
+  margin: 0 0 18px;
+}
+
+.inbox-detail-fact {
+  display: contents;
+}
+
+.inbox-detail-fact dt {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-fact dd {
+  min-width: 0;
+  margin: 0;
+}
+
+.inbox-detail-fact-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  max-width: calc(100% + 16px);
+  margin: -3px -8px;
+  padding: 3px 8px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: none;
+  color: var(--color-text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background-color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-fact-link--tinted {
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-fact-link:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-detail-fact-chevron {
+  flex: none;
+  color: var(--color-text-secondary);
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 150ms var(--inbox-ease), transform 150ms var(--inbox-ease);
+}
+
+.inbox-detail-fact-link:hover .inbox-detail-fact-chevron,
+.inbox-detail-fact-link:focus-visible .inbox-detail-fact-chevron {
+  opacity: 1;
+  transform: none;
+}
+
+.inbox-detail-fact-value {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inbox-detail-label {
+  padding: 0 9px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 32%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  line-height: 20px;
+}
+
+.inbox-detail-description {
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-detail-description:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+/* Markdown here is something to read, not a chat bubble: looser than the
+   transcript defaults, which are tuned for density. */
+.inbox-detail .markdown-content {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+}
+
+.inbox-detail .markdown-content p {
+  margin: 0 0 0.7em;
+}
+
+.inbox-detail .markdown-content p + p {
+  margin-top: 0;
+}
+
+.inbox-detail .markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail .markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.inbox-detail .markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.inbox-detail .markdown-content h1 { font-size: 17px; }
+.inbox-detail .markdown-content h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 15.5px;
+}
+.inbox-detail .markdown-content h3 { font-size: 14px; }
+.inbox-detail .markdown-content :is(h4, h5, h6) { font-size: 13.5px; }
+
+.inbox-detail .markdown-content :is(ul, ol) {
+  margin: 0 0 0.7em;
+  padding-left: 1.4em;
+}
+
+.inbox-detail .markdown-content li + li {
+  margin-top: 0.25em;
+}
+
+.inbox-detail .markdown-content blockquote {
+  margin: 0 0 0.7em;
+  padding: 2px 0 2px 12px;
+  border-left-width: 3px;
+}
+
+.inbox-detail .markdown-content :not(pre) > code {
+  font-size: 12px;
+}
+
+.inbox-detail .markdown-content a {
+  color: var(--inbox-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--inbox-link) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.inbox-detail .markdown-content a:hover {
+  text-decoration-color: currentColor;
+}
+
+.inbox-detail .markdown-content img {
+  max-width: 100%;
+}
+
+/* Bots fold release notes and logs into <details>; keep the fold visible. */
+.inbox-detail .markdown-content details {
+  margin: 0 0 0.7em;
+}
+
+.inbox-detail .markdown-content summary {
+  cursor: pointer;
+}
+
+.inbox-detail .markdown-content details[open] > summary {
+  margin-bottom: 0.5em;
+}
+
+/* Conversation: a timeline, one avatar per voice, verdicts in colour. */
+.inbox-detail-timeline {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-detail-event {
+  position: relative;
+  display: grid;
+  grid-template-columns: 28px minmax(0, 1fr);
+  gap: 12px;
+  padding-bottom: 20px;
+}
+
+.inbox-detail-event:not(:last-child)::before {
+  content: '';
+  position: absolute;
+  top: 32px;
+  bottom: 4px;
+  left: 13.5px;
+  width: 1px;
+  background: var(--color-border-strong);
+}
+
+.inbox-detail-avatar {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-avatar[data-tone] {
+  background: color-mix(in srgb, var(--tone) 20%, var(--color-bg-primary));
+  box-shadow: 0 0 0 1.5px color-mix(in srgb, var(--tone) 60%, transparent);
+  color: var(--tone-text);
+}
+
+.inbox-detail-event-main {
+  min-width: 0;
+}
+
+.inbox-detail-event-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  min-height: 28px;
+}
+
+.inbox-detail-event-author {
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-event-verb,
+.inbox-detail-event-time {
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-event-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-detail-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 15%, transparent);
+  color: var(--tone-text);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-path {
+  padding: 1px 6px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.inbox-detail-icon-link {
+  display: inline-grid;
+  place-items: center;
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  transition: background-color 150ms var(--inbox-ease), color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-icon-link:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-event-body {
+  margin-top: 2px;
+}
+
+.inbox-detail-event-main > .inbox-detail-btn {
+  margin-top: 10px;
+}
+
+.inbox-detail-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-sidebar);
+}
+
+.inbox-detail-composer-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+}
+
+/* Files changed. */
+.inbox-detail-tab-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px 12px;
+  margin-bottom: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-tab-head .inbox-detail-counts {
+  margin-left: 4px;
+}
+
+.inbox-detail-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbox-detail-file {
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.inbox-detail-file summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-file summary::-webkit-details-marker {
+  display: none;
+}
+
+.inbox-detail-file summary:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-detail-file summary:focus-visible {
+  outline-offset: -2px;
+}
+
+.inbox-detail-file[open] summary {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+
+.inbox-detail-file-chevron {
+  flex: none;
+  color: var(--color-text-secondary);
+  transition: transform 180ms var(--inbox-ease);
+}
+
+.inbox-detail-file[open] .inbox-detail-file-chevron {
+  transform: rotate(90deg);
+}
+
+/* The directory gives way before the file name does. */
+.inbox-detail-file-path {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.inbox-detail-file-dir {
+  flex: 0 10000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-file-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-file-stat {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.inbox-detail-blocks {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.inbox-detail-block {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--color-bg-tertiary);
+}
+
+.inbox-detail-block--add { background: var(--color-success); }
+.inbox-detail-block--del { background: var(--color-error); }
+
+.inbox-detail-file-note {
+  padding: 10px 12px;
+}
+
+.inbox-detail-diff {
+  max-height: 480px;
+  margin: 0;
+  overflow: auto;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.inbox-detail-diff:focus-visible {
+  outline-offset: -2px;
+}
+
+/* Rows stretch to the widest line, so a tint spans the whole scroll width. */
+.inbox-detail-diff code {
+  display: inline-block;
+  min-width: 100%;
+  padding: 4px 0;
+  font: inherit;
+}
+
+.inbox-detail-diff .diff-row {
+  display: flex;
+}
+
+.inbox-detail-diff .diff-num {
+  flex: none;
+  width: 3.5ch;
+  padding: 0 6px;
+  color: var(--color-text-secondary);
+  text-align: right;
+  user-select: none;
+  box-sizing: content-box;
+}
+
+.inbox-detail-diff .diff-num + .diff-num {
+  margin-right: 10px;
+  border-right: 1px solid var(--color-border);
+}
+
+.inbox-detail-diff .diff-text {
+  flex: 1;
+  padding-right: 14px;
+  white-space: pre;
+}
+
+.inbox-detail-diff .diff-row--add { background: color-mix(in srgb, var(--color-success) 15%, transparent); }
+.inbox-detail-diff .diff-row--del { background: color-mix(in srgb, var(--color-error) 15%, transparent); }
+.inbox-detail-diff .diff-row--add .diff-num { color: var(--diff-add-text); }
+.inbox-detail-diff .diff-row--del .diff-num { color: var(--diff-del-text); }
+.inbox-detail-diff .diff-row--hunk { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+.inbox-detail-diff .diff-row--hunk .diff-text,
+.inbox-detail-diff .diff-row--note .diff-text { color: var(--color-text-secondary); }
+.inbox-detail-diff .diff-row--note .diff-text { font-style: italic; }
+
+/* Checks. */
+.inbox-detail-checks-head {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.inbox-detail-meter {
+  display: flex;
+  gap: 3px;
+  height: 6px;
+}
+
+.inbox-detail-meter span {
+  min-width: 6px;
+  border-radius: 999px;
+  background: var(--tone);
+  transform-origin: left;
+  animation: inbox-detail-grow 560ms var(--inbox-ease) both;
+}
+
+.inbox-detail-meter span:nth-child(2) { animation-delay: 50ms; }
+.inbox-detail-meter span:nth-child(3) { animation-delay: 100ms; }
+.inbox-detail-meter span:nth-child(4) { animation-delay: 150ms; }
+
+.inbox-detail-checks-sentence {
+  margin: 0;
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-sep {
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-callout {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+}
+
+.inbox-detail-callout p {
+  margin: 0;
+}
+
+.inbox-detail-callout strong {
+  color: var(--tone-text);
+}
+
+.inbox-detail-checklist {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.inbox-detail-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.inbox-detail-check + .inbox-detail-check {
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-detail-check-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-detail-check-state {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
+}
+
+@keyframes inbox-detail-land {
+  from { opacity: 0; transform: scale(0.9); }
+}
+
+@keyframes inbox-detail-rise {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+
+@keyframes inbox-detail-fade {
+  from { opacity: 0; transform: translateY(2px); }
+}
+
+@keyframes inbox-detail-grow {
+  from { transform: scaleX(0); }
+}
+
+@keyframes inbox-detail-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes inbox-detail-pulse {
+  50% { opacity: 0.45; }
+}
+
+/* Reduced motion keeps every state change and drops the travel. The refresh
+   spinner stays: it is the only sign a reload is in flight. */
+@media (prefers-reduced-motion: reduce) {
+  .inbox-detail-state,
+  .inbox-detail-message,
+  .inbox-detail-confirm,
+  .inbox-detail-editor,
+  .inbox-detail-content,
+  .inbox-detail-meter span,
+  .inbox-detail-skeleton i {
+    animation: none;
+  }
+
+  .inbox-detail-tab::after,
+  .inbox-detail-fact-chevron,
+  .inbox-detail-file-chevron,
+  .inbox-detail-btn {
+    transition: none;
+  }
+}

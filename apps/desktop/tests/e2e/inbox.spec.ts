@@ -612,7 +612,7 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     await remote.getByRole('button', { name: 'Edit', exact: true }).click();
     await remote.getByLabel('Title', { exact: true }).fill('Updated billing title');
     await remote.getByRole('button', { name: 'Save changes' }).click();
-    await expect(remote.getByText('Item updated.', { exact: true })).toBeVisible();
+    await expect(remote.getByText('Changes saved.', { exact: true })).toBeVisible();
     await remote.getByRole('button', { name: 'Merge…', exact: true }).click();
     await remote.getByLabel('Merge method').selectOption('rebase');
     await remote.getByLabel('Merge automatically when requirements pass').check();

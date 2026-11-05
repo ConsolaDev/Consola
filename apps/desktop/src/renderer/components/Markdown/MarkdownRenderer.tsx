@@ -1,5 +1,7 @@
 import React, { ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
+import rehypeRaw from 'rehype-raw';
+import rehypeSanitize from 'rehype-sanitize';
 import remarkGfm from 'remark-gfm';
 import { CodeBlock } from './CodeBlock';
 import { useCommandHighlightContext, HighlightedSegments } from '../HighlightedText';
@@ -10,6 +12,30 @@ interface MarkdownRendererProps {
   className?: string;
   /** Enable command/skill highlighting (default: true if context available) */
   enableCommandHighlighting?: boolean;
+  /**
+   * Render HTML written into the markdown (`<img>`, `<details>`) rather than
+   * showing it as text. Cut down to GitHub's own allowlist first, so markdown
+   * someone else wrote cannot carry a script or an event handler.
+   */
+  allowHtml?: boolean;
+  /**
+   * Where each image actually loads from, `<source srcset>` included.
+   * Undefined drops the source, leaving the alt text.
+   */
+  resolveImageSrc?: (src: string | undefined) => string | undefined;
+}
+
+/** Raw HTML parsed into the tree, then sanitized to GitHub's allowlist. */
+const SANITIZED_HTML = [rehypeRaw, rehypeSanitize];
+
+/** Each candidate in a srcset (`url [descriptor], …`), resolved; unresolvable ones are dropped. */
+function resolveSrcSet(srcSet: string | undefined, resolve: (src: string) => string | undefined): string | undefined {
+  const candidates = (srcSet ?? '').split(',').flatMap((candidate) => {
+    const [url, ...descriptors] = candidate.trim().split(/\s+/);
+    const resolved = url ? resolve(url) : undefined;
+    return resolved ? [[resolved, ...descriptors].join(' ')] : [];
+  });
+  return candidates.length > 0 ? candidates.join(', ') : undefined;
 }
 
 /**
@@ -37,7 +63,9 @@ function HighlightedTextNode({ children }: { children: ReactNode }) {
 export function MarkdownRenderer({
   content,
   className,
-  enableCommandHighlighting = true
+  enableCommandHighlighting = true,
+  allowHtml = false,
+  resolveImageSrc,
 }: MarkdownRendererProps) {
   const highlightContext = useCommandHighlightContext();
   const shouldHighlight = enableCommandHighlighting && highlightContext !== null;
@@ -51,6 +79,7 @@ export function MarkdownRenderer({
     <div className={`markdown-content ${className || ''}`}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={allowHtml ? SANITIZED_HTML : undefined}
         components={{
           code({ node, className: codeClassName, children, ...props }) {
             const match = /language-(\w+)/.exec(codeClassName || '');
@@ -87,6 +116,14 @@ export function MarkdownRenderer({
           pre({ children }) {
             return <>{children}</>;
           },
+          ...(resolveImageSrc && {
+            img({ node, src, ...props }) {
+              return <img {...props} src={resolveImageSrc(typeof src === 'string' ? src : undefined)} />;
+            },
+            source({ node, srcSet, ...props }) {
+              return <source {...props} srcSet={resolveSrcSet(srcSet, resolveImageSrc)} />;
+            },
+          }),
           // Custom text renderer for command highlighting
           ...(shouldHighlight && {
             text({ children }) {

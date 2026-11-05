@@ -486,6 +486,31 @@ describe('GitHubDriver.matchesRemote', () => {
   });
 });
 
+describe('GitHubDriver.isPrivateAsset', () => {
+  const driver = new GitHubDriver(() => ({ PATH: '' }));
+  const is = (href: string) => driver.isPrivateAsset(new URL(href));
+
+  it('claims uploads pasted into a PR or issue', () => {
+    expect(is('https://github.com/user-attachments/assets/3c9d2a71-8e4f-4b6a-a1d2-5f0e7b9c4d18')).toBe(true);
+    expect(is('https://github.com/sprocket/catalog-portal/assets/1234567/0b6f1e7a-5d2c-4c1e-9a3b-2f8d7c6e5a4b')).toBe(true);
+  });
+
+  it('offers the token to github.com over https and nowhere else', () => {
+    expect(is('http://github.com/user-attachments/assets/3c9d2a71')).toBe(false);
+    expect(is('https://github.com.evil.example/user-attachments/assets/3c9d2a71')).toBe(false);
+    expect(is('https://evil.example/user-attachments/assets/3c9d2a71')).toBe(false);
+    expect(is('https://github.com:8443/user-attachments/assets/3c9d2a71')).toBe(false);
+    expect(is('https://someone@github.com/user-attachments/assets/3c9d2a71')).toBe(false);
+  });
+
+  it('leaves public images and other GitHub pages alone', () => {
+    expect(is('https://user-images.githubusercontent.com/1/abc.png')).toBe(false);
+    expect(is('https://github.com/user-attachments/files/123/report.pdf')).toBe(false);
+    expect(is('https://github.com/sprocket/catalog-portal/pull/51')).toBe(false);
+    expect(is('https://github.com/sprocket/catalog-portal/assets/12/../../settings')).toBe(false);
+  });
+});
+
 describe('GitHubDriver identity, URLs and header', () => {
   const driver = new GitHubDriver(() => ({ PATH: '' }));
   const item51: InboxItem = {

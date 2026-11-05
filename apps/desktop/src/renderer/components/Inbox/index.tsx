@@ -1,5 +1,6 @@
 // src/renderer/components/Inbox/index.tsx
 import { useEffect, useId, useMemo, useState } from 'react';
+import { Group, Panel, Separator, useDefaultLayout, usePanelRef } from 'react-resizable-panels';
 import {
   DEFAULT_COLLAPSED_SECTIONS,
   INBOX_SECTIONS,
@@ -30,6 +31,9 @@ interface InboxViewProps {
 }
 
 const NO_ITEMS: InboxItem[] = [];
+
+/** Where the details pane starts, and where a double-click on its divider returns it. */
+const PANE_DEFAULT_SIZE = '42%';
 
 const SECTION_LABELS = Object.fromEntries(
   INBOX_SECTIONS.map(({ id, label }) => [id, label])
@@ -136,6 +140,16 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
     if (selectedKey && !selected) setSelectedKey(null);
   }, [selected, selectedKey]);
 
+  // The pane's width outlives a selection and a relaunch. The list alone and
+  // the list with a pane are separate saved layouts, so closing the pane
+  // never overwrites the width it is reopened at.
+  const { defaultLayout, onLayoutChanged } = useDefaultLayout({
+    id: 'inbox-split',
+    panelIds: selected ? ['inbox-list', 'inbox-pane'] : ['inbox-list'],
+    storage: localStorage,
+  });
+  const paneRef = usePanelRef();
+
   // Esc closes the pane. The Inbox defers to ANY open dialog, without
   // requiring dialogs to opt in: CloneDialog and LinkSessionDialog also
   // stopPropagation on their own Esc, but WorkspaceSettingsModal and its
@@ -203,68 +217,82 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
         </div>
       )}
       <div className="inbox-body">
-        <div
-          className="inbox-main"
-          id={panelId}
-          role="tabpanel"
-          aria-labelledby={`${panelId}-tab-${view}`}
-        >
-          {!snapshot && <p className="inbox-empty">Fetching from {providerName}...</p>}
-          {snapshot &&
-            view === 'inbox' &&
-            sections.map(({ section, items: sectionItems }) => (
-              <InboxSectionGroup
-                key={section}
-                section={section}
-                label={SECTION_LABELS[section]}
-                items={sectionItems}
-                collapsed={collapsed.has(section)}
-                onToggle={() => toggleSection(section)}
-                sessionsByItem={sessionsByItem}
-                terminals={terminals}
-                resolvedRepos={resolvedRepos}
-                selectedKey={selectedKey}
-                onSelectItem={selectItem}
-              />
-            ))}
-          {snapshot && view !== 'inbox' && shown.length === 0 && (
-            <p className="inbox-empty">Nothing here right now.</p>
-          )}
-          {snapshot && view !== 'inbox' && shown.length > 0 && (
-            <div className="inbox-list">
-              {shown.map((item) => {
-                const key = workItemKey(item.workItem);
-                return (
-                  <InboxRow
-                    key={key}
-                    item={item}
-                    sessions={sessionsByItem.get(key) ?? []}
+        <Group orientation="horizontal" defaultLayout={defaultLayout} onLayoutChanged={onLayoutChanged}>
+          <Panel id="inbox-list" minSize="320px">
+            <div
+              className="inbox-main"
+              id={panelId}
+              role="tabpanel"
+              aria-labelledby={`${panelId}-tab-${view}`}
+            >
+              {!snapshot && <p className="inbox-empty">Fetching from {providerName}...</p>}
+              {snapshot &&
+                view === 'inbox' &&
+                sections.map(({ section, items: sectionItems }) => (
+                  <InboxSectionGroup
+                    key={section}
+                    section={section}
+                    label={SECTION_LABELS[section]}
+                    items={sectionItems}
+                    collapsed={collapsed.has(section)}
+                    onToggle={() => toggleSection(section)}
+                    sessionsByItem={sessionsByItem}
                     terminals={terminals}
-                    cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
-                    selected={selectedKey === key}
-                    onSelect={selectItem}
+                    resolvedRepos={resolvedRepos}
+                    selectedKey={selectedKey}
+                    onSelectItem={selectItem}
                   />
-                );
-              })}
+                ))}
+              {snapshot && view !== 'inbox' && shown.length === 0 && (
+                <p className="inbox-empty">Nothing here right now.</p>
+              )}
+              {snapshot && view !== 'inbox' && shown.length > 0 && (
+                <div className="inbox-list">
+                  {shown.map((item) => {
+                    const key = workItemKey(item.workItem);
+                    return (
+                      <InboxRow
+                        key={key}
+                        item={item}
+                        sessions={sessionsByItem.get(key) ?? []}
+                        terminals={terminals}
+                        cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
+                        selected={selectedKey === key}
+                        onSelect={selectItem}
+                      />
+                    );
+                  })}
+                </div>
+              )}
             </div>
+          </Panel>
+          {selected && (
+            <>
+              <Separator
+                className="inbox-resize-handle"
+                aria-label="Resize details pane"
+                title="Drag to resize · double-click to reset"
+                onDoubleClick={() => paneRef.current?.resize(PANE_DEFAULT_SIZE)}
+              />
+              <Panel id="inbox-pane" panelRef={paneRef} defaultSize={PANE_DEFAULT_SIZE} minSize="340px" maxSize="70%">
+                {/* A plain div, not a landmark: InboxItemPane's own <aside
+                    aria-label="Work item details"> is the complementary region --
+                    wrapping it in a second, unnamed one would nest two landmarks
+                    for one piece of content. Keyed by item so the pane's confirm
+                    and custom-prompt state never carries over when selection moves
+                    to a different item. */}
+                <div className="inbox-pane-slot">
+                  <InboxItemPane
+                    key={workItemKey(selected.workItem)}
+                    workspace={workspace}
+                    item={selected}
+                    onClose={() => setSelectedKey(null)}
+                  />
+                </div>
+              </Panel>
+            </>
           )}
-        </div>
-        {selected && (
-          // A plain div, not a landmark: InboxItemPane's own <aside
-          // aria-label="Work item details"> is the complementary region --
-          // wrapping it in a second, unnamed one would nest two landmarks
-          // for one piece of content. Keyed by item so the pane's confirm
-          // and custom-prompt state never carries over when selection moves
-          // to a different item.
-          <div className="inbox-pane-slot">
-            <InboxItemPane
-              key={workItemKey(selected.workItem)}
-              workspace={workspace}
-              item={selected}
-              onClose={() => setSelectedKey(null)}
-            />
-          </div>
-        )}
+        </Group>
       </div>
       <CloneDialog />
     </div>

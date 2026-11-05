@@ -68,6 +68,14 @@ export interface GitProviderDriver {
   repoOfRemote?(remoteUrl: string): string | null;
 
   /**
+   * Whether `url` is a file only a signed-in account can read — an image
+   * pasted into a private repository's pull request. Main fetches those with
+   * the workspace account's token as a Bearer credential, on that one
+   * request only; every other image in a work item is fetched anonymously.
+   */
+  isPrivateAsset?(url: URL): boolean;
+
+  /**
    * Pull requests in every state — open, merged, closed — by number or by
    * head branch. One answer per query, in order; a failed query carries
    * `error` instead of failing the batch. Must refuse unrecognised replies:

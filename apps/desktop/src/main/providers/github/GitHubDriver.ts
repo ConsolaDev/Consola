@@ -403,6 +403,19 @@ export class GitHubDriver implements GitProviderDriver {
         return workItemUrl(ref);
     }
 
+    /**
+     * Uploads pasted into a PR or issue: `/user-attachments/assets/<id>`, and
+     * the older per-repo `/<owner>/<repo>/assets/<n>/<id>`. In a private repo
+     * both answer 404 without a token, and with one they redirect to a
+     * short-lived signed URL. Exactly github.com over https, so the token is
+     * never offered to any other host.
+     */
+    public isPrivateAsset(url: URL): boolean {
+        if (url.protocol !== 'https:' || url.hostname !== WEB_HOST || url.port || url.username || url.password) return false;
+        return /^\/user-attachments\/assets\/[\w-]+$/.test(url.pathname)
+            || /^\/[\w.-]+\/[\w.-]+\/assets\/\d+\/[\w-]+$/.test(url.pathname);
+    }
+
     public seedHeader(ref: WorkItemRef, item?: InboxItem): string {
         return renderSeedHeader(PROVIDER_META.github.seedHeaderTemplate, ref, item);
     }

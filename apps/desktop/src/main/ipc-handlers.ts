@@ -1,10 +1,12 @@
 import { WorkItemDetailService } from './providers/WorkItemDetailService';
+import { fetchWorkItemAsset } from './providers/workItemAssets';
+import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
 import { scopeForSession } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
-import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, shell } from 'electron';
+import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
 import { randomUUID } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -478,6 +480,13 @@ export function setupIpcHandlers(): boolean {
         composeEnv: composeProviderEnv,
     });
     ipcMain.handle(IPC_CHANNELS.INBOX_DETAILS, (_event, id: string, ref: unknown) => details.get(id, ref));
+    // Images in a work item load through main, as the workspace's account
+    // (shared/workItemAssets.ts). Registered privileged in index.ts.
+    protocol.handle(WORK_ITEM_ASSET_SCHEME, (request) => fetchWorkItemAsset({
+        getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+        resolveDriver: getProviderDriver,
+        fetch,
+    }, request.url));
     ipcMain.handle(IPC_CHANNELS.INBOX_MUTATE, async (_event, id: string, ref: unknown, action: unknown) => {
         await details.mutate(id, ref, action);
         // A successful write must remain successful even if the subsequent read fails.
@@ -1682,6 +1691,7 @@ export function cleanupIpcHandlers(): void {
         onBrowserWindowFocus = null;
     }
     ipcMain.removeHandler(IPC_CHANNELS.INBOX_DETAILS);
+    if (protocol.isProtocolHandled(WORK_ITEM_ASSET_SCHEME)) protocol.unhandle(WORK_ITEM_ASSET_SCHEME);
     ipcMain.removeHandler(IPC_CHANNELS.INBOX_MUTATE);
     ipcMain.removeHandler(IPC_CHANNELS.INBOX_GET);
     ipcMain.removeHandler(IPC_CHANNELS.INBOX_REFRESH);
