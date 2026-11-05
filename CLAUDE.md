@@ -27,7 +27,12 @@ pnpm run build:renderer   # Renderer (Vite) only
 Only the renderer hot-reloads. `src/main` and `src/preload` are compiled and
 loaded once per launch, so `scripts/dev-electron.cjs` restarts Electron when
 their output changes — otherwise a new UI ends up talking to a main process
-built hours earlier, and the mismatch reads as a renderer bug.
+built hours earlier, and the mismatch reads as a renderer bug. It restarts only
+when the code the app loads actually changes: compiled tests (`*.test.js`) and
+rebuilds that emit identical output (`pnpm build`, which `test:e2e` runs first)
+leave the running app alone, because every restart pulls its window to the
+front. E2E runs themselves are already hidden and unfocusable
+(`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
 All commands above run from the repository root. The pnpm workspace contains
 `apps/desktop` (`consola`) and `apps/website` (`@consola/website`). Turborepo
