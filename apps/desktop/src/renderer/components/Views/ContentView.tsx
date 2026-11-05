@@ -192,6 +192,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           <PathDisplay
             path={cwd}
             className="workspace-view-path"
+            // The checkout chip's tooltip already names the folder; only a
+            // folder outside git, which gets no chip, needs it printed here.
+            showPath={checkout?.kind === 'none'}
             showExplorerToggle
             isExplorerVisible={isExplorerVisible}
             onToggleExplorer={toggleExplorer}

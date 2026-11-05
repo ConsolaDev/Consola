@@ -10,6 +10,8 @@ import { isMac } from '../../utils/platform';
 interface PathDisplayProps {
   path: string;
   className?: string;
+  /** Print the folder itself. Off where the checkout chip already names it. */
+  showPath?: boolean;
   showExplorerToggle?: boolean;
   isExplorerVisible?: boolean;
   onToggleExplorer?: () => void;
@@ -40,6 +42,7 @@ function truncatePath(fullPath: string): string {
 export function PathDisplay({
   path,
   className,
+  showPath = true,
   showExplorerToggle = false,
   isExplorerVisible = false,
   onToggleExplorer,
@@ -65,21 +68,23 @@ export function PathDisplay({
 
   return (
     <div className="path-display-container">
-      <Tooltip.Provider delayDuration={300}>
-        <Tooltip.Root>
-          <Tooltip.Trigger asChild>
-            <span className={`path-display-text ${className || ''}`}>
-              {truncatePath(path)}
-            </span>
-          </Tooltip.Trigger>
-          <Tooltip.Portal>
-            <Tooltip.Content className="tooltip-content" sideOffset={5}>
-              {path}
-              <Tooltip.Arrow className="tooltip-arrow" />
-            </Tooltip.Content>
-          </Tooltip.Portal>
-        </Tooltip.Root>
-      </Tooltip.Provider>
+      {showPath && (
+        <Tooltip.Provider delayDuration={300}>
+          <Tooltip.Root>
+            <Tooltip.Trigger asChild>
+              <span className={`path-display-text ${className || ''}`}>
+                {truncatePath(path)}
+              </span>
+            </Tooltip.Trigger>
+            <Tooltip.Portal>
+              <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                {path}
+                <Tooltip.Arrow className="tooltip-arrow" />
+              </Tooltip.Content>
+            </Tooltip.Portal>
+          </Tooltip.Root>
+        </Tooltip.Provider>
+      )}
 
       {/* Right side actions - git status and explorer toggle */}
       <div className="path-display-actions">
