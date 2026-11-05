@@ -223,11 +223,14 @@ function totals(files: DetailFile[]) {
 /**
  * A description or comment as GitHub would show it: its HTML rendered
  * (sanitized), and its images loaded through main as the workspace's
- * account, so a screenshot pasted into a private repo appears too.
+ * account, so a screenshot pasted into a private repo appears too. A click
+ * on an image opens it full-window to zoom into.
  */
 function WorkItemMarkdown({ workspaceId, content }: { workspaceId: string; content: string }) {
   const resolveImageSrc = useCallback((src: string | undefined) => workItemAssetUrl(workspaceId, src), [workspaceId]);
-  return <MarkdownRenderer content={content} enableCommandHighlighting={false} allowHtml resolveImageSrc={resolveImageSrc} />;
+  return (
+    <MarkdownRenderer content={content} enableCommandHighlighting={false} allowHtml resolveImageSrc={resolveImageSrc} zoomableImages />
+  );
 }
 
 export function OverviewTab({
