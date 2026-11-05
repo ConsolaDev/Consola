@@ -9,7 +9,7 @@ type LabelSource = Pick<Session, 'workItem' | 'workItemAction' | 'name'>;
  * action (absent for one linked after the fact), which is exactly the
  * discriminator between "PR #4118 · Review" and "⑂ <name>". Deriving it here
  * means the CLI-summary poll, which keeps rewriting `name`, no longer decides
- * what a work-item row reads; `name` survives as the subtitle.
+ * what a work-item row reads.
  */
 export function sessionLabel(session: LabelSource): string {
   if (!session.workItem) return session.name;
@@ -18,9 +18,4 @@ export function sessionLabel(session: LabelSource): string {
     return `${kind} #${session.workItem.number} · ${session.workItemAction}`;
   }
   return `⑂ ${session.name}`;
-}
-
-/** `name` as a subtitle or tooltip — only when the label above stopped showing it. */
-export function sessionSubtitle(session: LabelSource): string | undefined {
-  return session.workItem && session.workItemAction ? session.name : undefined;
 }

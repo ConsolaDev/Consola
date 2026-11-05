@@ -430,7 +430,12 @@ automations:
     relaunched = again.app;
     await again.page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Acme', exact: true }).click();
     const before = launched().length;
-    await again.page.locator('.session-nav-item').filter({ hasText: 'Add retries #2' }).filter({ hasNotText: 'full tools' }).click();
+    // The review and its full-tools fork share a label; only the review wears the lock.
+    const reviewRows = again.page.locator('.session-nav-item').filter({ hasText: 'PR #2 · Review' });
+    await expect(reviewRows).toHaveCount(2);
+    const lockedRow = reviewRows.filter({ has: again.page.locator('.session-nav-item-read-only') });
+    await expect(lockedRow).toHaveCount(1);
+    await lockedRow.click();
     const resumed = new RegExp(` :: --resume ${review.claudeSessionId} .*--permission-mode dontAsk .*--restricted`);
     await expect.poll(() => launched().slice(before).some((line) => resumed.test(line)), { timeout: 30_000 }).toBe(true);
   } finally {

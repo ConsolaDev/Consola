@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { WorkItemRef } from './workItems';
-import { sessionLabel, sessionSubtitle } from './sessionLabel';
+import { sessionLabel } from './sessionLabel';
 
 const pr4118: WorkItemRef = { provider: 'github', repo: 'sprocket/forum-admin', type: 'pr', number: 4118 };
 const issue212: WorkItemRef = { ...pr4118, repo: 'sprocket/schedule-api', type: 'issue', number: 212 };
@@ -32,18 +32,5 @@ describe('sessionLabel', () => {
 
   it('is the plain name for an ordinary session', () => {
     expect(sessionLabel({ name: 'scratch: grafana panels' })).toBe('scratch: grafana panels');
-  });
-});
-
-describe('sessionSubtitle', () => {
-  it('shows the name under a launched session, whose label no longer shows it', () => {
-    expect(
-      sessionSubtitle({ workItem: pr4118, workItemAction: 'Review', name: 'LC-416: fix memory axis' })
-    ).toBe('LC-416: fix memory axis');
-  });
-
-  it('is absent for linked and ordinary sessions, whose label already is the name', () => {
-    expect(sessionSubtitle({ workItem: pr4118, name: 'memory axis investigation' })).toBeUndefined();
-    expect(sessionSubtitle({ name: 'scratch' })).toBeUndefined();
   });
 });
