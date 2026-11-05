@@ -1,4 +1,5 @@
 import type { GitStatusResult, GitDiffResult } from '../types/electron';
+import type { CheckoutInfo } from '../../shared/sessionCheckout';
 
 /**
  * Git Bridge - Isolates all window.gitAPI access to this single file.
@@ -27,6 +28,15 @@ export const gitBridge = {
       return null;
     }
     return api.getStatus(rootPath);
+  },
+
+  /** Whether a folder is a repository's own checkout or a linked worktree */
+  getCheckout: async (dir: string): Promise<CheckoutInfo | null> => {
+    const api = getAPI();
+    if (!api) {
+      return null;
+    }
+    return api.getCheckout(dir);
   },
 
   /** Get diff for a specific file */

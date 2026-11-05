@@ -285,6 +285,19 @@ export function scopeForSession(
 }
 
 /**
+ * The folder a session runs in — its own checkout when it has one (a
+ * worktree), else its scope's. Git state is read from here, never from the
+ * scope: a worktree has its own branch, index and changes, so the scope's path
+ * would describe a different checkout than the one the agent is editing.
+ */
+export function checkoutPathForSession(
+  workspace: Workspace,
+  session: Pick<Session, 'scopeId' | 'cwd'> | undefined
+): string | undefined {
+  return session?.cwd ?? scopeForSession(workspace, session)?.path;
+}
+
+/**
  * The last path segment, or undefined for an empty path.
  *
  * Hand-rolled rather than node's `path.basename` because this module is

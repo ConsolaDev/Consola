@@ -19,7 +19,7 @@ import type { GitFileStatus } from '../../types/electron';
 import type { Harness } from '../../stores/harnessStore';
 import type { Scope, Session, Workspace } from '../../stores/workspaceStore';
 import type { TerminalState } from '../../stores/terminalStore';
-import { primaryScope, scopeForSession } from '../../../shared/workspace';
+import { checkoutPathForSession, primaryScope, scopeForSession } from '../../../shared/workspace';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -78,6 +78,12 @@ function activeScope(ctx: PaletteContext): Scope | null {
   return scopeForSession(ctx.activeWorkspace, ctx.activeSession ?? undefined) ?? null;
 }
 
+/** The checkout git actions act on: the active session's, worktree included. */
+function activeGitRoot(ctx: PaletteContext): string | null {
+  if (!ctx.activeWorkspace) return null;
+  return checkoutPathForSession(ctx.activeWorkspace, ctx.activeSession ?? undefined) ?? null;
+}
+
 /**
  * Whether the loaded git status describes the active workspace.
  *
@@ -87,7 +93,7 @@ function activeScope(ctx: PaletteContext): Scope | null {
  */
 function hasFreshGitStatus(ctx: PaletteContext): boolean {
   const scope = activeScope(ctx);
-  return scope !== null && scope.isGitRepo && ctx.gitStatusRootPath === scope.path;
+  return scope !== null && scope.isGitRepo && ctx.gitStatusRootPath === activeGitRoot(ctx);
 }
 
 /** Actions, filtered to the ones that make sense right now. */
@@ -245,8 +251,9 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
 
   // --- git ----------------------------------------------------------------
   const scope = activeScope(ctx);
-  if (scope?.isGitRepo) {
-    const rootPath = scope.path;
+  const gitRoot = activeGitRoot(ctx);
+  if (scope?.isGitRepo && gitRoot) {
+    const rootPath = gitRoot;
 
     if (activeSession) {
       items.push({
@@ -377,10 +384,9 @@ export function buildWorkspaceItems(
  * inside a session's content view.
  */
 export function buildFileItems(ctx: PaletteContext): FilePaletteItem[] {
-  const scope = activeScope(ctx);
-  if (!ctx.activeSession || !hasFreshGitStatus(ctx) || !scope) return [];
+  const rootPath = activeGitRoot(ctx);
+  if (!ctx.activeSession || !hasFreshGitStatus(ctx) || !rootPath) return [];
 
-  const rootPath = scope.path;
   const items: FilePaletteItem[] = [];
 
   ctx.fileStatuses.forEach((status, relativePath) => {

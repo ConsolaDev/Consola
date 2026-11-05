@@ -43,6 +43,16 @@
   --color-error: rgb(212, 76, 71);
   --color-info: rgb(0, 194, 255);
 
+  /*
+   * Linked worktrees. A hue nothing else uses -- not the accent, which marks
+   * selection, and not a git status colour -- so "this session is in its own
+   * checkout" reads the same in the header and the sidebar, and never as a
+   * file state or a warning.
+   */
+  --color-worktree: rgb(116, 82, 196);
+  --color-worktree-muted: rgba(116, 82, 196, 0.1);
+  --color-worktree-border: rgba(116, 82, 196, 0.32);
+
   /* Git status colors */
   --color-git-staged: rgb(68, 131, 97);      /* Green for staged */
   --color-git-modified: rgb(203, 145, 47);   /* Yellow for unstaged modified */

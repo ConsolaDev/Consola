@@ -253,6 +253,48 @@
   font-size: var(--sidebar-font-size-small);
 }
 
+/* The line under a row's name that says where and on what it runs: its
+   worktree, its model, or both. They share the line when both fit whole and
+   wrap onto two when they don't, so neither is ever cut to a stub. Told
+   apart by hue and the folder glyph rather than a separator, which would
+   dangle at the start of a wrapped line. */
+.session-nav-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  column-gap: 8px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+.session-nav-item-meta .session-nav-item-model {
+  min-width: 0;
+}
+
+/* Worktree rows wear the same hue as the header's worktree chip, so the row
+   and the pane it opens can be matched by colour alone. */
+.session-nav-item-worktree {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 100%;
+  min-width: 0;
+  color: var(--color-worktree);
+}
+
+.session-nav-item-worktree > svg {
+  flex-shrink: 0;
+}
+
+.session-nav-item-worktree-ref {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: color-mix(in srgb, var(--color-worktree) 72%, var(--color-text-secondary));
+}
+
 /* Sidebar toggle */
 .sidebar-toggle {
   display: flex;

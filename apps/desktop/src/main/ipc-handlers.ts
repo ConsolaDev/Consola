@@ -20,6 +20,7 @@ import { InboxService } from './providers/InboxService';
 import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
+import { readCheckout } from './gitCheckout';
 import { NotificationPolicy, findSessionByInstanceId } from './attention';
 import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
@@ -1070,6 +1071,12 @@ export function setupIpcHandlers(): boolean {
     });
 
 
+    // Which checkout a folder is. Anything but an absolute path is answered
+    // as no checkout rather than resolved against main's own cwd.
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_CHECKOUT, async (_event, dir: unknown) =>
+        typeof dir === 'string' && path.isAbsolute(dir) ? readCheckout(dir) : { kind: 'none' }
+    );
+
     // Handle git status
     ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, async (_event, rootPath: string) => {
         return new Promise((resolve) => {
@@ -1721,6 +1728,7 @@ export function cleanupIpcHandlers(): void {
 
     // Remove git IPC handlers
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_STATUS);
+    ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_CHECKOUT);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_GET_DIFF);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_STAGE_FILE);
     ipcMain.removeHandler(IPC_CHANNELS.GIT_UNSTAGE_FILE);

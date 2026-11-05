@@ -4,7 +4,7 @@ import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { scopeForSession } from '../../../shared/workspace';
+import { checkoutPathForSession } from '../../../shared/workspace';
 import { GitReviewFileList } from './GitReviewFileList';
 import { GitReviewDiffList } from './GitReviewDiffList';
 import { GitReviewCommitBar } from './GitReviewCommitBar';
@@ -31,12 +31,14 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
 
   const workspace = activeWorkspaceId ? getWorkspace(activeWorkspaceId) : null;
-  // The active session's scope is the repo under review; with no session the
+  // The checkout the active session runs in is what gets reviewed — for a
+  // worktree session that is the worktree, never the folder it hangs off, or
+  // committing here would commit someone else's changes. With no session the
   // primary scope keeps the panel meaningful, exactly as workspace.path did.
   const session = workspace
     ? workspace.sessions.find((candidate) => candidate.id === activeSessionId)
     : undefined;
-  const rootPath = workspace ? scopeForSession(workspace, session)?.path ?? null : null;
+  const rootPath = workspace ? checkoutPathForSession(workspace, session) ?? null : null;
 
   // Refresh git status when panel opens
   useEffect(() => {

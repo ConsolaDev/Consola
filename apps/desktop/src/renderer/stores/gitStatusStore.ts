@@ -43,6 +43,9 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
 
     try {
       const result = await gitBridge.getStatus(rootPath);
+      // The store tracks one checkout. Switching sessions while a read is in
+      // flight must not let the old checkout's answer land over the new one.
+      if (get().rootPath !== rootPath) return;
 
       if (!result) {
         throw new Error('Git API not available');
@@ -61,6 +64,7 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
         isLoading: false,
       });
     } catch (error) {
+      if (get().rootPath !== rootPath) return;
       console.error('Failed to fetch git status:', error);
       set({
         fileStatuses: new Map(),
@@ -97,8 +101,9 @@ export const useGitStatusStore = create<GitStatusState>((set, get) => ({
 }));
 
 /**
- * Hook to enable auto-refresh of git status on window focus.
- * Should be used in a component near the root of the app.
+ * Keep git status on `rootPath`: read it whenever the root changes — the
+ * header is often the only thing showing it, with no explorer or review panel
+ * open to load it — and again when the window regains focus.
  */
 export function useGitStatusAutoRefresh(rootPath: string | null) {
   const refresh = useGitStatusStore((state) => state.refresh);
@@ -115,6 +120,12 @@ export function useGitStatusAutoRefresh(rootPath: string | null) {
       refresh(rootPath);
     }
   }, [rootPath, isLoading, refresh]);
+
+  useEffect(() => {
+    if (!rootPath) return;
+    lastRefreshTime.current = Date.now();
+    void refresh(rootPath);
+  }, [rootPath, refresh]);
 
   useEffect(() => {
     window.addEventListener('focus', handleFocus);

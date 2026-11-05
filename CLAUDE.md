@@ -137,6 +137,19 @@ resume fails because the conversation is gone, `TerminalService` falls back to
 a fresh session automatically — so never gate resuming on a local existence
 check, Claude is the authority.
 
+### Git State Belongs to the Checkout
+
+A session runs in its scope's folder or in its own linked worktree
+(`Session.cwd`). Everything git-shaped — header stats, the review panel, the
+explorer's colours, palette commits — reads `checkoutPathForSession`, never
+the scope's path. A worktree has its own branch, index and changes, so the
+scope would report (and commit) a different checkout than the agent edits.
+
+Whether a folder *is* a worktree is asked of git (`readCheckout`, cached per
+folder in `checkoutStore`), not inferred from the record: a scope can itself
+be a worktree. The header's checkout chip and the sidebar's worktree line read
+that one answer, so they cannot name different branches for one session.
+
 ### Never Type Into a Confirmation Menu
 
 Queued prompts are delivered only when the emulated screen shows an *empty*
