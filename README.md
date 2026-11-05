@@ -163,6 +163,12 @@ Commit the updated `apps/website/public/assets/consola-demo.png` with your chang
 
 Found a rough edge or have a workflow you’d love to see? [Open an issue](https://github.com/ConsolaDev/Consola/issues), try a change locally, or send a pull request. For UI changes, explore the browser demo as well as the desktop app and refresh the shared preview when needed.
 
+Before your first pull request can be merged, you’ll be asked to sign the [Contributor License Agreement](CLA.md) by leaving a comment on it; a bot walks you through it. You keep the copyright in your work.
+
 ## License
 
-ISC
+Consola is licensed under the [GNU Affero General Public License v3.0](LICENSE) (AGPL-3.0-only). You can use, study, change and share it. If you distribute a modified version, or run one as a service that others use over a network, you must make your changes available under the same license.
+
+Packages meant to be built against — such as the plugin API types and the factory spec — will be published under the MIT license, so plugins and integrations can use whatever license their authors choose. Each package’s `license` field says which applies.
+
+Copyright © 2026 Javier Tarazaga.
