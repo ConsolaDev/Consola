@@ -5,6 +5,7 @@ import {
   createWorkspaceRecord,
   generateUuid,
   migrateWorkspaceState,
+  checkoutPathForSession,
   primaryScope,
   scopeForSession,
   type Workspace,
@@ -699,5 +700,13 @@ describe('scope helpers', () => {
     expect(scopeForSession(workspace, { scopeId: scope.id })?.id).toBe(scope.id);
     expect(scopeForSession(workspace, { scopeId: 'gone' })?.id).toBe(scope.id);
     expect(scopeForSession(workspace, undefined)?.id).toBe(scope.id);
+  });
+
+  it("checkoutPathForSession prefers the session's own checkout over its scope's", () => {
+    const scope = workspace.scopes[0];
+    const tree = '/home/me/.consola/worktrees/consola-session-1';
+    expect(checkoutPathForSession(workspace, { scopeId: scope.id, cwd: tree })).toBe(tree);
+    expect(checkoutPathForSession(workspace, { scopeId: scope.id })).toBe('/code/consola');
+    expect(checkoutPathForSession(workspace, undefined)).toBe('/code/consola');
   });
 });

@@ -85,6 +85,7 @@ export const IPC_CHANNELS = {
 
     // Git operations
     GIT_GET_STATUS: 'git:get-status',  // Get git status and stats
+    GIT_GET_CHECKOUT: 'git:get-checkout',  // Main checkout or linked worktree, and its branch
     GIT_GET_DIFF: 'git:get-diff',      // Get file diff
     GIT_STAGE_FILE: 'git:stage-file',  // Stage a file (git add)
     GIT_UNSTAGE_FILE: 'git:unstage-file',  // Unstage a file (git reset HEAD)

@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Archive, Boxes, ChevronDown, ChevronRight, MoreVertical, Plus } from 'lucide-react';
 import type { Group } from '../../../shared/workspace';
 import { useSettingsStore } from '../../stores/settingsStore';
+import { useCheckoutStore } from '../../stores/checkoutStore';
 import { useWorkspaceStore, type Scope, type Session } from '../../stores/workspaceStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
@@ -51,12 +52,16 @@ export function GroupNavItem({
     : sessions;
 
   // The scope is already selected above. Fan-out members still name the repo
-  // they run in when their working folder differs from the scope's root.
+  // they run in when their working folder differs from the scope's root —
+  // unless that folder is a worktree the row already names on its worktree
+  // line, by branch, which says more than a generated folder name.
+  const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
+  const checkouts = useCheckoutStore((state) => state.byPath);
   const subtitleFor = (session: Session): string | undefined => {
     const scope = scopeFor(session.scopeId);
-    const folder =
-      session.cwd && session.cwd !== scope?.path ? basename(session.cwd) : undefined;
-    return folder;
+    if (!session.cwd || session.cwd === scope?.path) return undefined;
+    if (showWorktree && checkouts[session.cwd]?.kind === 'worktree') return undefined;
+    return basename(session.cwd);
   };
 
   // Archiving is how a group ends: the record outlives it so member sessions

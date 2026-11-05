@@ -1,8 +1,10 @@
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw, GitBranch, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
+import { FolderTree, RotateCw, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
+import { useCheckoutStore } from '../../stores/checkoutStore';
+import { tildePath } from '../../utils/displayPath';
 import { isMac } from '../../utils/platform';
 
 interface PathDisplayProps {
@@ -22,17 +24,7 @@ const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
  * Shows ~ for home directory and last 2-3 path segments.
  */
 function truncatePath(fullPath: string): string {
-  const homeDir = '/Users/';
-  let path = fullPath;
-
-  if (path.startsWith(homeDir)) {
-    const afterHome = path.slice(homeDir.length);
-    const firstSlash = afterHome.indexOf('/');
-    if (firstSlash !== -1) {
-      path = '~' + afterHome.slice(firstSlash);
-    }
-  }
-
+  const path = tildePath(fullPath);
   const segments = path.split('/').filter(Boolean);
 
   if (segments.length <= 3) {
@@ -58,14 +50,16 @@ export function PathDisplay({
   const stats = useGitStatusStore((state) => state.stats);
   const isLoading = useGitStatusStore((state) => state.isLoading);
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
-  const branch = useGitStatusStore((state) => state.branch);
   const refresh = useGitStatusStore((state) => state.refresh);
   const isReviewOpen = useGitReviewStore((state) => state.isOpen);
   const toggleReview = useGitReviewStore((state) => state.toggle);
 
+  // The branch lives in the checkout chip beside the title, so a manual
+  // refresh re-reads that too: one button, one answer.
   const handleRefresh = () => {
     if (path && !isLoading) {
-      refresh(path);
+      void refresh(path);
+      void useCheckoutStore.getState().load(path);
     }
   };
 
@@ -89,18 +83,12 @@ export function PathDisplay({
 
       {/* Right side actions - git status and explorer toggle */}
       <div className="path-display-actions">
-        {/* Git branch and stats badge - show if it's a git repo */}
+        {/* Uncommitted changes in this checkout. Its branch is named by the
+            checkout chip beside the title, with what kind of checkout it is. */}
         {isGitRepo && (
           <div className="git-stats-badge">
-            {branch && (
-              <>
-                <GitBranch size={14} className="git-branch-icon" />
-                <span className="git-branch-name">{branch}</span>
-              </>
-            )}
             {stats.modifiedCount > 0 && (
               <>
-                <span className="git-stats-separator">·</span>
                 <span className="git-stats-count">{stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}</span>
                 <span className="git-stats-separator">·</span>
                 <span className="git-stats-added">+{stats.addedLines}</span>

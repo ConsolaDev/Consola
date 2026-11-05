@@ -333,6 +333,208 @@
   min-width: 0;
 }
 
+/* Checkout chip — which checkout the session's edits land in.
+ *
+ * One slot, two states sharing a shape: a repository's own checkout is a
+ * quiet hairline pill with its branch; a linked worktree prefixes a labelled
+ * segment in --color-worktree. Same outline, different fill, so the eye learns
+ * the slot once and reads the state at a glance. */
+.checkout-chip {
+  display: inline-flex;
+  align-items: stretch;
+  /* Never squeezed: the path beside it gives way first, since the chip is
+     the answer and the path only repeats it in longer form. */
+  flex-shrink: 0;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  overflow: hidden;
+  animation: checkout-chip-in 220ms cubic-bezier(0.25, 1, 0.5, 1);
+  transition: border-color var(--transition-fast), background var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.checkout-chip:hover {
+  border-color: var(--color-border-hover);
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.checkout-chip:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.checkout-chip-icon {
+  align-self: center;
+  flex-shrink: 0;
+  margin-left: 7px;
+  color: var(--color-text-tertiary);
+}
+
+.checkout-chip-ref {
+  align-self: center;
+  max-width: 28ch;
+  padding: 0 8px 0 5px;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  line-height: 20px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.checkout-chip[data-kind='worktree'] {
+  border-color: var(--color-worktree-border);
+  color: var(--color-text-primary);
+}
+
+.checkout-chip[data-kind='worktree']:hover {
+  border-color: var(--color-worktree);
+  background: var(--color-worktree-muted);
+}
+
+.checkout-chip-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  padding: 0 7px;
+  border-right: 1px solid var(--color-worktree-border);
+  background: var(--color-worktree-muted);
+  color: var(--color-worktree);
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+@keyframes checkout-chip-in {
+  from {
+    opacity: 0;
+    transform: translateY(2px);
+  }
+}
+
+/* The tooltip explains the checkout as labelled facts — branch, folder,
+   main checkout — because the worktree's folder is named by Consola and never
+   matches its branch. Doubled class: .tooltip-content is declared later in
+   this file and would otherwise win. */
+.tooltip-content.checkout-tooltip {
+  display: flex;
+  flex-direction: column;
+  /* The shared tooltip centres its items; this one reads as a left-aligned
+     note. */
+  align-items: stretch;
+  gap: 8px;
+  width: max-content;
+  max-width: 440px;
+  padding: 10px 12px;
+  font-size: var(--font-size-xs);
+  text-align: left;
+  word-break: normal;
+}
+
+/* Echoes the chip's own label, so the tooltip reads as its explanation. */
+.checkout-tooltip-title {
+  font-family: var(--font-sans);
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-title[data-kind='worktree'] {
+  color: var(--color-worktree);
+}
+
+.checkout-tooltip-lead {
+  margin: 0;
+  max-width: 46ch;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-lead strong {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.checkout-tooltip-facts {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 8px;
+  margin: 0;
+  padding-top: 8px;
+  border-top: 1px solid var(--color-border);
+}
+
+.checkout-tooltip-facts dt {
+  font-family: var(--font-sans);
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-facts dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.checkout-tooltip-value {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  font-family: var(--font-mono);
+  line-height: 18px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.checkout-tooltip-value > svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+  color: var(--color-text-tertiary);
+}
+
+.checkout-tooltip-value[data-kind='worktree'] > svg {
+  color: var(--color-worktree);
+}
+
+.checkout-tooltip-note {
+  padding-left: 18px;
+  font-family: var(--font-sans);
+  line-height: 1.4;
+  color: var(--color-text-secondary);
+}
+
+.checkout-tooltip-hint {
+  font-family: var(--font-sans);
+  color: var(--color-text-tertiary);
+}
+
+.checkout-tooltip-hint[data-copied] {
+  color: var(--color-success);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .checkout-chip {
+    animation: none;
+  }
+}
+
 .workspace-view-content {
   flex: 1;
   display: flex;
@@ -486,6 +688,7 @@
   align-items: center;
   gap: var(--space-2);
   flex: 1;
+  min-width: 0;
 }
 
 .path-display-text {
@@ -528,25 +731,12 @@
 .git-stats-badge {
   display: flex;
   align-items: center;
+  flex-shrink: 0;
+  white-space: nowrap;
   gap: var(--space-2);
   font-size: var(--font-size-xs);
   font-family: var(--font-mono);
   color: var(--color-text-tertiary);
-}
-
-.git-branch-icon {
-  color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
-  flex-shrink: 0;
-}
-
-.git-branch-name {
-  color: var(--color-text-secondary);
-  font-size: var(--font-size-sm);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex: 1 1 auto;
-  min-width: 0;
 }
 
 .git-stats-count {

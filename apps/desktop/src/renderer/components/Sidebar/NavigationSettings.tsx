@@ -7,6 +7,8 @@ export function NavigationSettings() {
   const setShowModel = useSettingsStore((state) => state.setShowSidebarModel);
   const showHarness = useSettingsStore((state) => state.showSidebarHarness);
   const setShowHarness = useSettingsStore((state) => state.setShowSidebarHarness);
+  const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
+  const setShowWorktree = useSettingsStore((state) => state.setShowSidebarWorktree);
 
   return (
     <DropdownMenu.Root>
@@ -39,6 +41,17 @@ export function NavigationSettings() {
               <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
             </span>
             Model
+          </DropdownMenu.CheckboxItem>
+          <DropdownMenu.CheckboxItem
+            className="dropdown-item"
+            checked={showWorktree}
+            onCheckedChange={setShowWorktree}
+            onSelect={(event) => event.preventDefault()}
+          >
+            <span className="navigation-settings-check">
+              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+            </span>
+            Worktree
           </DropdownMenu.CheckboxItem>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

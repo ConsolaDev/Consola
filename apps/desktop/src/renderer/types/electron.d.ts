@@ -1,4 +1,5 @@
 import type { AppUpdateAPI } from '../../shared/appUpdates';
+import type { CheckoutInfo } from '../../shared/sessionCheckout';
 export interface FolderInfo {
   path: string;
   name: string;
@@ -50,6 +51,7 @@ export interface GitDiffResult {
 
 export interface GitAPI {
   getStatus: (rootPath: string) => Promise<GitStatusResult>;
+  getCheckout: (dir: string) => Promise<CheckoutInfo>;
   getDiff: (rootPath: string, filePath: string, staged: boolean) => Promise<GitDiffResult>;
   stageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;
   unstageFile: (rootPath: string, filePath: string) => Promise<{ success: boolean }>;

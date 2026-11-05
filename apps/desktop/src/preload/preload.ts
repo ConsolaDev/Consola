@@ -1,6 +1,6 @@
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { ShellAPI } from '../shared/shell';
-import type { SessionCheckout, CheckoutContext } from '../shared/sessionCheckout';
+import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
     TerminalCreateOptions,
@@ -367,6 +367,9 @@ interface GitDiffResult {
 contextBridge.exposeInMainWorld('gitAPI', {
     getStatus: (rootPath: string): Promise<GitStatusResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, rootPath);
+    },
+    getCheckout: (dir: string): Promise<CheckoutInfo> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CHECKOUT, dir);
     },
     getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });

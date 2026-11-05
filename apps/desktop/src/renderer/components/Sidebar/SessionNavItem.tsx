@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect } from 'react';
-import { X } from 'lucide-react';
+import { FolderGit2, X } from 'lucide-react';
 import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
+import { checkoutRef } from '../../../shared/sessionCheckout';
+import { checkoutPathForSession } from '../../../shared/workspace';
+import { useCheckout } from '../../stores/checkoutStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionModel } from '../../hooks/useSessionModel';
@@ -55,7 +58,18 @@ export function SessionNavItem({
   const inputRef = useRef<HTMLInputElement>(null);
   const showModel = useSettingsStore((state) => state.showSidebarModel);
   const showHarness = useSettingsStore((state) => state.showSidebarHarness);
+  const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
   const model = useSessionModel(session, showModel);
+  // Read from the folder, not the record: a scope can itself be a worktree.
+  // Nothing is read at all while the line is switched off.
+  const checkoutPath = useWorkspaceStore((state) => {
+    const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
+    return workspace ? checkoutPathForSession(workspace, session) : undefined;
+  });
+  const checkout = useCheckout(showWorktree ? checkoutPath : null);
+  const worktreeRef =
+    showWorktree && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
+  const shownModel = showModel ? model : undefined;
 
   const sessionStatus = useTerminalStore((state) =>
     sessionStatusFor(state.terminals[session.instanceId])
@@ -85,7 +99,14 @@ export function SessionNavItem({
   // scope off the end of a shared line.
   const label = sessionLabel(session);
   const subtitleText = subtitle ?? sessionSubtitle(session);
-  const accessibleName = `${label} — ${STATUS_LABELS[displayStatus]}${showModel && model ? ` — ${model}` : ''}`;
+  const accessibleName = [
+    label,
+    STATUS_LABELS[displayStatus],
+    worktreeRef && `worktree ${worktreeRef}`,
+    shownModel,
+  ]
+    .filter(Boolean)
+    .join(' — ');
 
   useEffect(() => {
     if (isRenaming && inputRef.current) {
@@ -205,7 +226,20 @@ export function SessionNavItem({
         <span className="session-nav-item-text">
           <span className="session-nav-item-name">{label}</span>
           {subtitleText && <span className="session-nav-item-subtitle">{subtitleText}</span>}
-          {showModel && model && <span className="session-nav-item-model" title={model}>{model}</span>}
+          {/* Worktree and model share a line when both fit, and wrap when not. */}
+          {(worktreeRef || shownModel) && (
+            <span className="session-nav-item-meta">
+              {worktreeRef && (
+                <span className="session-nav-item-worktree" title={`Worktree · ${worktreeRef}`}>
+                  <FolderGit2 size={11} aria-hidden="true" />
+                  <span className="session-nav-item-worktree-ref">{worktreeRef}</span>
+                </span>
+              )}
+              {shownModel && (
+                <span className="session-nav-item-model" title={shownModel}>{shownModel}</span>
+              )}
+            </span>
+          )}
         </span>
       )}
       {!isRenaming && statusWord && (

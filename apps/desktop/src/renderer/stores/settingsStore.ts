@@ -35,6 +35,9 @@ interface SettingsState {
   setShowSidebarModel: (show: boolean) => void;
   showSidebarHarness: boolean;
   setShowSidebarHarness: (show: boolean) => void;
+  /** Name the worktree a session runs in, under its row. */
+  showSidebarWorktree: boolean;
+  setShowSidebarWorktree: (show: boolean) => void;
   /** The Inbox's repository and Updated filters, per workspace id. */
   inboxFilters: Record<string, InboxFilterState>;
   /**
@@ -116,6 +119,8 @@ export const useSettingsStore = create<SettingsState>()(
       setShowSidebarModel: (showSidebarModel) => set({ showSidebarModel }),
       showSidebarHarness: true,
       setShowSidebarHarness: (showSidebarHarness) => set({ showSidebarHarness }),
+      showSidebarWorktree: true,
+      setShowSidebarWorktree: (showSidebarWorktree) => set({ showSidebarWorktree }),
       inboxFilters: {},
       collapsedSidebarSections: [],
       setTheme: (theme) => set({ theme }),
@@ -169,6 +174,7 @@ export const useSettingsStore = create<SettingsState>()(
         theme: state.theme,
         showSidebarModel: state.showSidebarModel,
         showSidebarHarness: state.showSidebarHarness,
+        showSidebarWorktree: state.showSidebarWorktree,
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
         collapsedSidebarSections: state.collapsedSidebarSections,
@@ -183,6 +189,7 @@ export const useSettingsStore = create<SettingsState>()(
           ...saved,
           showSidebarModel: typeof saved?.showSidebarModel === 'boolean' ? saved.showSidebarModel : true,
           showSidebarHarness: typeof saved?.showSidebarHarness === 'boolean' ? saved.showSidebarHarness : true,
+          showSidebarWorktree: typeof saved?.showSidebarWorktree === 'boolean' ? saved.showSidebarWorktree : true,
           terminalFontSize: clampTerminalFontSize(
             saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT
           ),

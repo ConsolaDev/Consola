@@ -3,7 +3,7 @@ import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
 import { driverSupportsSessionNaming } from '../../../shared/constants';
-import { scopeForSession } from '../../../shared/workspace';
+import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
@@ -16,6 +16,8 @@ import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { PathDisplay } from './PathDisplay';
+import { CheckoutChip } from './CheckoutChip';
+import { useCheckout } from '../../stores/checkoutStore';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
 
@@ -51,7 +53,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // The session's home scope decides where it runs, unless the session
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
-  const cwd = session?.cwd ?? scope?.path ?? '';
+  const cwd = (workspace && checkoutPathForSession(workspace, session)) ?? '';
+  // Re-read on every switch: the agent on screen may just have changed branch.
+  const checkout = useCheckout(cwd || null, { fresh: true });
 
   // Conditional panels must have separate saved layouts: hiding the explorer
   // must not overwrite the layout that remembers its width.
@@ -84,9 +88,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   );
   const supportsSessionNaming = driverSupportsSessionNaming(launchFields.driverId);
 
-  // Enable auto-refresh of git status on window focus, rooted at the scope —
-  // not the cwd: a worktree session's changes belong to its repo's scope.
-  useGitStatusAutoRefresh(scope?.isGitRepo ? scope.path : null);
+  // Git status follows the checkout the session runs in. A worktree has its
+  // own branch, index and changes, so its scope's path would report a
+  // different checkout than the one the agent is editing.
+  useGitStatusAutoRefresh(scope?.isGitRepo || session?.cwd ? cwd : null);
 
   // Record that this tab has launched, so reopening it resumes the
   // conversation instead of trying to create a session ID Claude already has.
@@ -183,6 +188,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </>
           )}
         </h1>
+        <CheckoutChip checkout={checkout} />
         {cwd && (
           <PathDisplay
             path={cwd}
