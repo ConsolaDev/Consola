@@ -445,7 +445,8 @@
 /* The detail pane (layout B). Its width is fixed so the list does not
    reflow when a row is selected; it scrolls on its own. */
 .inbox-pane {
-  width: 300px;
+  width: clamp(340px, 38vw, 560px);
+  min-width: 0;
   flex: none;
   display: flex;
   flex-direction: column;
@@ -672,3 +673,35 @@
   font-weight: var(--font-weight-normal);
   color: var(--color-text-secondary);
 }
+
+/* Remote work stays alongside existing local session actions. */
+.inbox-detail { min-width: 0; margin-top: 12px; }
+.inbox-detail-toolbar, .inbox-detail-actions, .inbox-detail-comment-meta, .inbox-detail-labels {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
+}
+.inbox-detail-toolbar { margin-bottom: 10px; }
+.inbox-detail-account { flex: 1; color: var(--color-text-tertiary); font-size: 11px; }
+.inbox-detail-state { border-radius: 12px; padding: 3px 9px; background: var(--color-bg-tertiary); text-transform: capitalize; }
+.inbox-detail-state--open, .inbox-detail-notice { color: var(--color-success, #3fb950); }
+.inbox-detail-state--merged { color: #bc8cff; }
+.inbox-detail-tabs { display: flex; flex-wrap: wrap; border-bottom: 1px solid var(--color-border); margin-top: 14px; }
+.inbox-detail-tabs button { background: none; border: 0; border-bottom: 2px solid transparent; padding: 8px 7px; font: inherit; font-size: 11px; color: var(--color-text-secondary); cursor: pointer; }
+.inbox-detail-tabs button[aria-selected='true'] { border-bottom-color: var(--color-accent); color: var(--color-text-primary); }
+.inbox-detail-content { padding: 10px 0; overflow-wrap: anywhere; }
+.inbox-detail-content .markdown-content { font-size: 12px; }
+.inbox-detail-content .markdown-content img { max-width: 100%; }
+.inbox-detail-labels span { border: 1px solid var(--color-border); border-radius: 10px; padding: 2px 7px; font-size: 11px; }
+.inbox-detail-editor, .inbox-detail-confirm { display: flex; flex-direction: column; gap: 10px; margin: 12px 0; padding: 10px; background: var(--color-bg-secondary); border: 1px solid var(--color-border); border-radius: 6px; }
+.inbox-detail-editor label { display: flex; flex-direction: column; gap: 5px; }
+.inbox-detail input:not([type='checkbox']), .inbox-detail textarea, .inbox-detail select { box-sizing: border-box; width: 100%; min-width: 0; padding: 7px; background: var(--color-bg-primary); color: var(--color-text-primary); border: 1px solid var(--color-border); border-radius: 4px; font: inherit; }
+.inbox-detail textarea { resize: vertical; }
+.inbox-detail button:disabled { opacity: .5; cursor: default; }
+.inbox-detail-comment { padding: 12px 0; border-bottom: 1px solid var(--color-border); }
+.inbox-detail-comment time, .inbox-detail-comment-meta span { font-size: 10px; color: var(--color-text-tertiary); }
+.inbox-detail-file { border: 1px solid var(--color-border); border-radius: 4px; margin-bottom: 8px; }
+.inbox-detail-file summary { padding: 8px; cursor: pointer; }
+.inbox-detail-file summary span { display: block; font-size: 10px; color: var(--color-text-tertiary); }
+.inbox-detail-file pre { overflow: auto; max-height: 420px; padding: 8px; margin: 0; font-size: 11px; background: var(--color-bg-primary); }
+.inbox-detail-file .diff-added { color: #3fb950; }
+.inbox-detail-file .diff-removed { color: #f85149; }
+.inbox-detail-check { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid var(--color-border); }

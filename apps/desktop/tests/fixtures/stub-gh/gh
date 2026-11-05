@@ -62,6 +62,25 @@ case "$cmd" in
     echo "gh: Not Found (HTTP 404)" >&2
     exit 1
     ;;
+  "pr view"|"issue view")
+    cat "$here/item-details.json"
+    ;;
+  "api --hostname")
+    case "${4:-}" in
+      */issues/*/comments*) echo '[[{"id":1,"user":{"login":"reviewer"},"body":"Please add a regression test.","created_at":"2026-10-08T08:00:00Z","html_url":"https://github.com/sprocket/catalog-portal/pull/51#issuecomment-1"}]]' ;;
+      */pulls/*/reviews*) echo '[[{"id":2,"user":{"login":"reviewer"},"body":"Needs validation.","state":"CHANGES_REQUESTED","submitted_at":"2026-10-08T09:00:00Z"}]]' ;;
+      */pulls/*/comments*) echo '[[{"id":3,"user":{"login":"reviewer"},"body":"Handle empty input here.","path":"src/billing.ts","line":12,"created_at":"2026-10-08T10:00:00Z"}]]' ;;
+      */pulls/*/files*) echo '[[{"filename":"src/billing.ts","status":"modified","additions":1,"deletions":1,"patch":"@@ -1 +1 @@\n-old\n+new"}]]' ;;
+      *) echo 'stub gh: unhandled API endpoint' >&2; exit 64 ;;
+    esac
+    ;;
+  "pr comment"|"issue comment"|"pr review"|"pr close"|"issue close"|"pr reopen"|"issue reopen"|"pr ready"|"pr merge"|"pr edit"|"issue edit")
+    if [[ -n "${STUB_GH_MUTATION_FAILURE_FILE:-}" && -f "$STUB_GH_MUTATION_FAILURE_FILE" ]]; then
+      echo 'GitHub rejected this action: repository rules are not satisfied.' >&2
+      exit 1
+    fi
+    echo 'Action completed.'
+    ;;
   "pr checkout")
     # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.
     git checkout -B "stub-pr-${3:?pr number}" --quiet

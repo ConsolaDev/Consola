@@ -103,6 +103,8 @@ export const IPC_CHANNELS = {
     PROVIDER_CLONE_REPO: 'provider:clone-repo',         // Clone an un-cloned repo into a chosen directory
 
     // Inbox (renderer -> main; main owns the cache)
+    INBOX_DETAILS: 'inbox:details',
+    INBOX_MUTATE: 'inbox:mutate',
     INBOX_GET: 'inbox:get',                             // Cached snapshot, or null (a refresh is kicked off)
     INBOX_REFRESH: 'inbox:refresh',                     // Manual refresh; result arrives on the push channel
 

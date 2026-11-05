@@ -1,3 +1,4 @@
+import { WorkItemDetailService } from './providers/WorkItemDetailService';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
 import { scopeForSession } from '../shared/workspace';
@@ -470,6 +471,17 @@ export function setupIpcHandlers(): boolean {
             // costs no tokens, and no agent ever polls.
             automationService?.observeInbox(snapshot);
         },
+    });
+    const details = new WorkItemDetailService({
+        getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
+        resolveDriver: getProviderDriver,
+        composeEnv: composeProviderEnv,
+    });
+    ipcMain.handle(IPC_CHANNELS.INBOX_DETAILS, (_event, id: string, ref: unknown) => details.get(id, ref));
+    ipcMain.handle(IPC_CHANNELS.INBOX_MUTATE, async (_event, id: string, ref: unknown, action: unknown) => {
+        await details.mutate(id, ref, action);
+        // A successful write must remain successful even if the subsequent read fails.
+        void inbox.refresh(id);
     });
     inboxService = inbox;
     inbox.start();
@@ -1669,6 +1681,8 @@ export function cleanupIpcHandlers(): void {
         app.removeListener('browser-window-focus', onBrowserWindowFocus);
         onBrowserWindowFocus = null;
     }
+    ipcMain.removeHandler(IPC_CHANNELS.INBOX_DETAILS);
+    ipcMain.removeHandler(IPC_CHANNELS.INBOX_MUTATE);
     ipcMain.removeHandler(IPC_CHANNELS.INBOX_GET);
     ipcMain.removeHandler(IPC_CHANNELS.INBOX_REFRESH);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_PROBE);

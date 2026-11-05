@@ -465,10 +465,9 @@ test('sections, views and filters render; actions, links and renames flow throug
       '2 sessions'
     );
 
-    // Create through the scoped composer, then link the new session from its menu.
+    // Home owns the scoped quick-session controls; Inbox hides that sidebar.
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
     await page.getByRole('button', { name: 'New ungrouped session' }).click();
-    await page.getByRole('combobox', { name: 'Message' }).fill('Inspect the billing client');
-    await page.getByRole('button', { name: 'Send message' }).click();
     const plainRow = page.locator('.session-nav-item', { hasText: 'New Session' });
     await expect(plainRow).toBeVisible({ timeout: 10_000 });
     const plainCwd = sessionsIn(stateFile).find(session => !session.workItem)?.cwd;
@@ -494,6 +493,7 @@ test('sections, views and filters render; actions, links and renames flow throug
 
     // --- Ruling 1 (Phase C preserved): the sidebar row now reads the linked
     // glyph, and Unlink is metadata-only -- the record loses the relation.
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
     await expect(plainRow.locator('.session-nav-item-name')).toHaveText(/^⑂ /);
     await plainRow.hover();
     await plainRow.getByRole('button', { name: 'Session actions' }).click();
@@ -561,6 +561,74 @@ test('sections, views and filters render; actions, links and renames flow throug
     fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
     fs.rmSync(cloneRoot, { recursive: true, force: true });
     fs.rmSync(worktreesDir, { recursive: true, force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});
+
+test('remote detail tabs and actions use the workspace GitHub account', async () => {
+  test.setTimeout(90_000);
+  const userDataDir = createProfileDir();
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-remote-details-'));
+  const fixturePath = path.join(fixtureDir, 'inbox.json');
+  const logPath = path.join(fixtureDir, 'calls.log');
+  const failurePath = path.join(fixtureDir, 'reject-writes');
+  fs.writeFileSync(fixturePath, JSON.stringify(buildInboxFixture()));
+  seedWorkspaceState(userDataDir, fixtureDir);
+  let app: ElectronApplication | undefined;
+  try {
+    const launched = await launchElectron({ userDataDir, env: {
+      CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'), GRAPHQL_INBOX_FIXTURE: fixturePath,
+      STUB_GH_LOG: logPath, STUB_GH_MUTATION_FAILURE_FILE: failurePath,
+    } });
+    app = launched.app;
+    const { page } = launched;
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+    const pane = await openPaneFor51(page);
+    const remote = pane.getByRole('region', { name: 'Remote item details' });
+    await expect(remote.getByText('regression coverage')).toBeVisible();
+    await expect(remote.getByText('as JaviDev')).toBeVisible();
+    await expect(pane.getByText('Sessions · 0')).toBeVisible();
+    await remote.getByRole('tab', { name: /Files changed/ }).click();
+    await remote.locator('summary', { hasText: 'src/billing.ts' }).click();
+    await expect(remote.getByLabel('Diff for src/billing.ts')).toContainText('+new');
+    await remote.getByRole('tab', { name: 'Checks', exact: true }).click();
+    await expect(remote.getByRole('link', { name: 'Unit tests' })).toBeVisible();
+    await expect(remote.getByRole('button', { name: 'Fix failing checks in a session' })).toBeVisible();
+    await remote.getByRole('tab', { name: /Conversation/ }).click();
+    await expect(remote.getByText('Handle empty input here.')).toBeVisible();
+    await remote.getByLabel('Response message').fill('Test comment from Consola');
+    fs.writeFileSync(failurePath, 'reject');
+    await remote.getByRole('button', { name: 'Post comment' }).click();
+    await expect(remote.getByRole('alert')).toContainText('repository rules');
+    await expect(remote.getByLabel('Response message')).toHaveValue('Test comment from Consola');
+    fs.rmSync(failurePath);
+    await remote.getByRole('button', { name: 'Post comment' }).click();
+    await expect(remote.getByText('Comment posted.', { exact: true })).toBeVisible();
+    await expect(remote.getByLabel('Response message')).toHaveValue('');
+    await remote.getByRole('button', { name: 'Review', exact: true }).click();
+    await remote.getByLabel('Review decision').selectOption('approve');
+    await remote.getByRole('button', { name: 'Submit review' }).click();
+    await expect(remote.getByText('Review submitted.', { exact: true })).toBeVisible();
+    await remote.getByRole('button', { name: 'Edit', exact: true }).click();
+    await remote.getByLabel('Title', { exact: true }).fill('Updated billing title');
+    await remote.getByRole('button', { name: 'Save changes' }).click();
+    await expect(remote.getByText('Item updated.', { exact: true })).toBeVisible();
+    await remote.getByRole('button', { name: 'Merge…', exact: true }).click();
+    await remote.getByLabel('Merge method').selectOption('rebase');
+    await remote.getByLabel('Merge automatically when requirements pass').check();
+    await remote.getByRole('button', { name: 'Enable auto-merge', exact: true }).click();
+    await expect(remote.getByText('Auto-merge requested.', { exact: true })).toBeVisible();
+    await expect(remote.getByRole('button', { name: 'Refresh details' })).toBeEnabled();
+    const calls = fs.readFileSync(logPath, 'utf8');
+    expect(calls).toContain('pr comment 51 --repo github.com/sprocket/catalog-portal --body Test comment from Consola GH_TOKEN=gho_stub_token_for_JaviDev');
+    expect(calls).toContain('pr review 51 --repo github.com/sprocket/catalog-portal --approve');
+    expect(calls).toContain('--rebase --match-head-commit 1234567890123456789012345678901234567890 --auto');
+    await remote.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await page.screenshot({ path: path.join(test.info().outputDir, 'github-details.png') });
+  } finally {
+    await app?.close();
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
 });

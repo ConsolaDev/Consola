@@ -1,3 +1,4 @@
+import type { WorkItemDetails as SharedWorkItemDetails, WorkItemMutation } from '../../shared/workItemDetails';
 import type { GitProviderId, ProviderBinding, ProviderProbeResult } from '../../shared/providers';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
@@ -37,6 +38,9 @@ export interface GitProviderDriver {
    * reply: a plausible-looking empty list would read as "nothing to do".
    */
   fetchInbox(binding: ProviderBinding, env: NodeJS.ProcessEnv): Promise<InboxItem[]>;
+
+  fetchDetails?(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<SharedWorkItemDetails>;
+  mutateItem?(ref: WorkItemRef, mutation: WorkItemMutation, env: NodeJS.ProcessEnv): Promise<void>;
 
   /**
    * Check a work item out inside an existing detached worktree. Every git

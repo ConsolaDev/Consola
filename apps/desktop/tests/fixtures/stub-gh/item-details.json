@@ -1,0 +1,13 @@
+{
+  "title": "Extract billing client",
+  "body": "## Billing client\n\nExtract the shared client and add **regression coverage**.",
+  "state": "OPEN", "isDraft": false, "author": {"login": "simon-sprocket"},
+  "labels": [{"name": "enhancement"}], "assignees": [{"login": "JaviDev"}],
+  "headRefOid": "1234567890123456789012345678901234567890",
+  "headRefName": "extract-billing", "baseRefName": "main",
+  "mergeStateStatus": "BLOCKED", "reviewDecision": "CHANGES_REQUESTED",
+  "statusCheckRollup": [
+    {"name": "Unit tests", "status": "COMPLETED", "conclusion": "FAILURE", "detailsUrl": "https://github.com/sprocket/catalog-portal/actions/runs/1"},
+    {"context": "Build", "state": "SUCCESS", "targetUrl": "https://github.com/sprocket/catalog-portal/actions/runs/2"}
+  ]
+}

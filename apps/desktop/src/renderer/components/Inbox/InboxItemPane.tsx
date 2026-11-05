@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { WorkItemDetailPanel } from './WorkItemDetailPanel';
+import { useRef, useState } from 'react';
 import { ExternalLink, X } from 'lucide-react';
 import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
@@ -44,28 +45,11 @@ function automationPhase(status: SessionStatus): string | null {
   return null;
 }
 
-const REVIEW_LABELS: Record<InboxItem['reviewDecision'], string> = {
-  approved: 'Approved',
-  'changes-requested': 'Changes requested',
-  'review-required': 'Awaiting approval',
-  none: 'No review',
-};
-
-function checksLabel(item: InboxItem): string {
-  if (item.checks) {
-    const parts = [`${item.checks.passed}/${item.checks.total} passing`];
-    if (item.checks.failed > 0) parts.push(`${item.checks.failed} failing`);
-    if (item.checks.pending > 0) parts.push(`${item.checks.pending} pending`);
-    return parts.join(' · ');
-  }
-  return item.ciStatus ?? 'none';
-}
-
 /**
  * The right-hand detail pane (layout B): the item's provider facts, every
  * session on it, and the ways to add one — an action, a custom prompt, or
- * linking a session that already exists. Read-only against the provider;
- * the only verbs here create, open or link local sessions.
+ * linking a session that already exists. Remote details and actions are
+ * provided by WorkItemDetailPanel.
  *
  * The highlighted action is the section default, resolved here rather than
  * passed in: the pane knows the item, and the section is a pure function
@@ -80,6 +64,7 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
   const resolved = useInboxStore((state) => state.resolvedRepos[workspace.id]);
 
   const [confirmingKey, setConfirmingKey] = useState<string | null>(null);
+  const sessionActionsRef = useRef<HTMLDivElement>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
 
@@ -146,27 +131,16 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
         </a>
       </div>
 
-      {item.workItem.type === 'pr' && (
-        <>
-          <div className="inbox-pane-section-title">{providerName}</div>
-          <div className="inbox-pane-kv">
-            <span>Review</span>
-            <span>{REVIEW_LABELS[item.reviewDecision]}</span>
-          </div>
-          <div className="inbox-pane-kv">
-            <span>Checks</span>
-            <span>{checksLabel(item)}</span>
-          </div>
-          {(item.additions !== undefined || item.deletions !== undefined) && (
-            <div className="inbox-pane-kv">
-              <span>Diff</span>
-              <span>
-                +{item.additions ?? 0} −{item.deletions ?? 0}
-              </span>
-            </div>
-          )}
-        </>
-      )}
+      {workspace.provider && <WorkItemDetailPanel
+        key={`${workspace.id}:${workspace.provider.accountLogin}:${workspace.provider.org ?? ''}`}
+        workspaceId={workspace.id}
+        accountLogin={workspace.provider.accountLogin}
+        item={item}
+        onFix={(prompt) => {
+          setCustomPrompt(prompt); setCustomOpen(true);
+          requestAnimationFrame(() => sessionActionsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
+        }}
+      />}
 
       <div className="inbox-pane-section-title">Sessions · {siblings.length}</div>
       {siblings.length === 0 && <p className="inbox-pane-empty">No sessions on this item yet.</p>}
@@ -213,7 +187,7 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
         Link existing session...
       </button>
 
-      <div className="inbox-pane-section-title">Start a session</div>
+      <div ref={sessionActionsRef} className="inbox-pane-section-title">Start a session</div>
       {uncloned ? (
         <>
           <p className="inbox-pane-hint">

@@ -1,3 +1,7 @@
+import { z } from 'zod';
+import { githubCommentSchema, githubDetailSchema, githubFileSchema } from './itemDetails';
+import type { WorkItemDetails as SharedWorkItemDetails, WorkItemMutation } from '../../../shared/workItemDetails';
+import { workItemMutationSchema } from '../../../shared/workItemDetails';
 import { execFile } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
@@ -305,6 +309,70 @@ export class GitHubDriver implements GitProviderDriver {
         }
         const stdout = await this.exec(args, env);
         return parseInboxPayload(JSON.parse(stdout));
+    }
+
+    public async fetchDetails(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<SharedWorkItemDetails> {
+        const common = 'title,body,state,author,labels,assignees';
+        const fields = ref.type === 'pr'
+            ? `${common},isDraft,headRefOid,headRefName,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup`
+            : common;
+        const root = `repos/${ref.repo}`;
+        const paginate = async (endpoint: string): Promise<unknown[]> => {
+            const pages = JSON.parse(await this.exec(['api', '--hostname', WEB_HOST, endpoint, '--paginate', '--slurp'], env));
+            if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) throw new Error('Unexpected GitHub list response.');
+            return pages.flat();
+        };
+        const [raw, comments, reviews, inline, files] = await Promise.all([
+            this.exec([ref.type, 'view', String(ref.number), '--repo', `github.com/${ref.repo}`, '--json', fields], env),
+            paginate(`${root}/issues/${ref.number}/comments?per_page=100`),
+            ref.type === 'pr' ? paginate(`${root}/pulls/${ref.number}/reviews?per_page=100`) : [],
+            ref.type === 'pr' ? paginate(`${root}/pulls/${ref.number}/comments?per_page=100`) : [],
+            ref.type === 'pr' ? paginate(`${root}/pulls/${ref.number}/files?per_page=100`) : [],
+        ]);
+        const data = githubDetailSchema.parse(JSON.parse(raw));
+        const conversation = (rows: unknown[], kind: 'comment' | 'review' | 'inline') => z.array(githubCommentSchema).parse(rows).map((row) => ({
+            id: `${kind}:${row.id}`, kind, author: row.user?.login ?? 'ghost', body: row.body ?? '',
+            url: row.html_url ?? '', createdAt: row.submitted_at ?? row.created_at ?? '',
+            state: row.state, path: row.path, line: row.line ?? row.original_line ?? undefined,
+        }));
+        return {
+            title: data.title, body: data.body ?? '', state: data.state.toLowerCase(),
+            isDraft: data.isDraft ?? false, author: data.author?.login ?? 'ghost',
+            labels: (data.labels ?? []).map((label: { name: string }) => label.name),
+            assignees: (data.assignees ?? []).map((user: { login: string }) => user.login),
+            comments: [...conversation(comments, 'comment'), ...conversation(reviews, 'review'), ...conversation(inline, 'inline')]
+                .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
+            checks: (data.statusCheckRollup ?? []).map((check) => ({
+                name: check.name ?? check.context ?? 'Check',
+                state: check.conclusion || check.state || check.status || 'PENDING',
+                url: check.detailsUrl ?? check.targetUrl ?? '',
+            })),
+            files: z.array(githubFileSchema).parse(files).map((file) => ({ path: file.filename, status: file.status,
+                additions: file.additions, deletions: file.deletions, patch: file.patch })),
+            headOid: data.headRefOid, headBranch: data.headRefName, baseBranch: data.baseRefName,
+            mergeState: data.mergeStateStatus, reviewDecision: data.reviewDecision ?? undefined,
+        };
+    }
+
+    public async mutateItem(ref: WorkItemRef, input: WorkItemMutation, env: NodeJS.ProcessEnv): Promise<void> {
+        const mutation = workItemMutationSchema.parse(input);
+        if (['review', 'merge', 'ready'].includes(mutation.kind) && ref.type !== 'pr') {
+            throw new Error('This action requires a pull request.');
+        }
+        const target = [String(ref.number), '--repo', `github.com/${ref.repo}`];
+        let args: string[];
+        switch (mutation.kind) {
+            case 'comment': args = [ref.type, 'comment', ...target, '--body', mutation.body]; break;
+            case 'edit': args = [ref.type, 'edit', ...target, '--title', mutation.title, '--body', mutation.body]; break;
+            case 'close': case 'reopen': args = [ref.type, mutation.kind, ...target]; break;
+            case 'ready': args = ['pr', 'ready', ...target, ...(mutation.draft ? ['--undo'] : [])]; break;
+            case 'review':
+                if (mutation.event !== 'approve' && !mutation.body) throw new Error('A review comment is required.');
+                args = ['pr', 'review', ...target, `--${mutation.event}`, ...(mutation.body ? ['--body', mutation.body] : [])]; break;
+            case 'merge': args = ['pr', 'merge', ...target, `--${mutation.method}`, '--match-head-commit', mutation.headOid,
+                ...(mutation.auto ? ['--auto'] : [])]; break;
+        }
+        await this.exec(args, env);
     }
 
     /**

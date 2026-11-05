@@ -1,3 +1,4 @@
+import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
@@ -150,8 +151,12 @@ contextBridge.exposeInMainWorld('harnessAPI', {
 });
 
 // The Inbox: main owns the cache; the renderer sends intents and listens for
-// pushes. Read-only against the provider by construction.
+// pushes. Remote actions are explicit and validated in main.
 contextBridge.exposeInMainWorld('inboxAPI', {
+    getDetails: (workspaceId: string, ref: WorkItemRef) =>
+        ipcRenderer.invoke(IPC_CHANNELS.INBOX_DETAILS, workspaceId, ref),
+    mutateItem: (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation) =>
+        ipcRenderer.invoke(IPC_CHANNELS.INBOX_MUTATE, workspaceId, ref, mutation),
     getInbox: (workspaceId: string): Promise<InboxSnapshot | null> =>
         ipcRenderer.invoke(IPC_CHANNELS.INBOX_GET, workspaceId),
 
