@@ -9,6 +9,7 @@ import {
   fileStatus,
   isFailingCheck,
   itemStatus,
+  mergeGate,
   mergeStateMeta,
   parsePatch,
   reviewMeta,
@@ -77,6 +78,21 @@ describe('item status', () => {
     expect(mergeStateMeta('DIRTY', 'main')).toEqual({ label: 'Merge conflicts', tone: 'error' });
     expect(mergeStateMeta('CLEAN', 'main').tone).toBe('success');
     expect(mergeStateMeta('NEW_STATE', 'main')).toEqual({ label: 'New state', tone: 'neutral' });
+  });
+
+  it('greens the merge button only when nothing blocks the merge, as GitHub does', () => {
+    expect(mergeGate('CLEAN')).toEqual({ button: 'go', canQueue: false });
+    expect(mergeGate('HAS_HOOKS')).toEqual({ button: 'go', canQueue: false });
+    // Optional checks failing: GitHub merges on request, without the green.
+    expect(mergeGate('UNSTABLE')).toEqual({ button: 'plain', canQueue: false });
+  });
+
+  it('disables the merge button whenever GitHub would refuse, offering auto-merge only for requirements', () => {
+    expect(mergeGate('BLOCKED')).toEqual({ button: 'disabled', canQueue: true });
+    expect(mergeGate('BEHIND')).toEqual({ button: 'disabled', canQueue: true });
+    for (const state of ['DIRTY', 'UNKNOWN', 'DRAFT', 'NEW_STATE', undefined]) {
+      expect(mergeGate(state)).toEqual({ button: 'disabled', canQueue: false });
+    }
   });
 });
 

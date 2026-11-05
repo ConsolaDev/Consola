@@ -630,9 +630,14 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     await remote.getByLabel('Title', { exact: true }).fill('Updated billing title');
     await remote.getByRole('button', { name: 'Save changes' }).click();
     await expect(remote.getByText('Changes saved.', { exact: true })).toBeVisible();
-    await remote.getByRole('button', { name: 'Merge…', exact: true }).click();
+    // GitHub says BLOCKED: no green, no merge -- the button is disabled and
+    // says why, and auto-merge is offered in its place, as on GitHub.
+    const merge = remote.getByRole('button', { name: 'Merge…', exact: true });
+    await expect(merge).toBeDisabled();
+    await expect(merge).not.toHaveClass(/inbox-detail-btn--success/);
+    await expect(merge).toHaveAccessibleDescription('Can’t merge yet: blocked until requirements pass.');
+    await remote.getByRole('button', { name: 'Enable auto-merge…', exact: true }).click();
     await remote.getByLabel('Merge method').selectOption('rebase');
-    await remote.getByLabel('Merge automatically when requirements pass').check();
     await remote.getByRole('button', { name: 'Enable auto-merge', exact: true }).click();
     await expect(remote.getByText('Auto-merge requested.', { exact: true })).toBeVisible();
     await expect(remote.getByRole('button', { name: 'Refresh details' })).toBeEnabled();

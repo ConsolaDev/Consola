@@ -27,7 +27,7 @@ import {
   type DetailTab,
   type FixTarget,
 } from './WorkItemDetailTabs';
-import { itemStatus, mergeStateMeta, summarizeChecks } from './workItemDetailPresentation';
+import { itemStatus, mergeGate, mergeStateMeta, summarizeChecks } from './workItemDetailPresentation';
 import { MOD_KEY, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
 
 interface Props {
@@ -42,9 +42,13 @@ interface Props {
 }
 
 type ReviewEvent = 'comment' | 'approve' | 'request-changes';
+type Confirmable = 'close' | 'merge' | 'auto-merge';
 
 /** A confirmation is read, then gone; an error stays until dismissed or retried. */
 const NOTICE_MS = 5000;
+/** GitHub works mergeability out lazily; UNKNOWN means "ask again shortly". */
+const MERGE_STATE_POLL_MS = 3000;
+const MERGE_STATE_POLLS = 5;
 
 export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fixTarget = 'a session', onDetails }: Props) {
   const [details, setDetails] = useState<WorkItemDetails | null>(null);
@@ -59,9 +63,8 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
   const [editing, setEditing] = useState(false);
   const [titleDraft, setTitleDraft] = useState('');
   const [descriptionDraft, setDescriptionDraft] = useState('');
-  const [confirm, setConfirm] = useState<'close' | 'merge' | null>(null);
+  const [confirm, setConfirm] = useState<Confirmable | null>(null);
   const [method, setMethod] = useState<'squash' | 'merge' | 'rebase'>('squash');
-  const [auto, setAuto] = useState(false);
   const alive = useRef(true);
   const writing = useRef(false);
   const request = useRef(0);
@@ -73,10 +76,13 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
   const isPr = ref.type === 'pr';
   const noun = isPr ? 'Pull request' : 'Issue';
 
-  async function refresh() {
+  /** A quiet read neither shows the spinner nor clears an error the person has yet to read. */
+  async function refresh({ quiet = false } = {}) {
     const version = ++request.current;
-    setLoading(true);
-    setError('');
+    if (!quiet) {
+      setLoading(true);
+      setError('');
+    }
     try {
       const next = await inboxBridge.getDetails(workspaceId, ref);
       if (alive.current && version === request.current) {
@@ -84,9 +90,9 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
         onDetails?.(next);
       }
     } catch (error) {
-      if (alive.current && version === request.current) setError(`Could not refresh details: ${ipcErrorMessage(error)}`);
+      if (alive.current && version === request.current && !quiet) setError(`Could not refresh details: ${ipcErrorMessage(error)}`);
     } finally {
-      if (alive.current && version === request.current) setLoading(false);
+      if (alive.current && version === request.current && !quiet) setLoading(false);
     }
   }
 
@@ -95,6 +101,18 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
     void refresh();
     return () => { alive.current = false; request.current++; };
   }, [workspaceId, accountLogin, ref.repo, ref.type, ref.number]);
+
+  // GitHub's own page keeps asking while it works mergeability out; without
+  // this, a merge button disabled for UNKNOWN would stay so until a refresh.
+  const mergeStatePolls = useRef(0);
+  useEffect(() => {
+    if (details?.mergeState !== 'UNKNOWN' || mergeStatePolls.current >= MERGE_STATE_POLLS) return;
+    const timer = window.setTimeout(() => {
+      mergeStatePolls.current++;
+      void refresh({ quiet: true });
+    }, MERGE_STATE_POLL_MS);
+    return () => window.clearTimeout(timer);
+  }, [details]);
 
   useEffect(() => {
     if (!notice) return;
@@ -131,7 +149,7 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
     }
   }
 
-  function openConfirm(kind: 'close' | 'merge', trigger: HTMLElement) {
+  function openConfirm(kind: Confirmable, trigger: HTMLElement) {
     returnFocusRef.current = trigger;
     setConfirm(kind);
   }
@@ -177,7 +195,10 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
 
   function confirmAction(current: WorkItemDetails) {
     if (confirm === 'close') void perform({ kind: 'close' }, `${noun} closed.`);
-    else void perform({ kind: 'merge', method, auto, headOid: current.headOid! }, auto ? 'Auto-merge requested.' : 'Merge requested.');
+    else {
+      const auto = confirm === 'auto-merge';
+      void perform({ kind: 'merge', method, auto, headOid: current.headOid! }, auto ? 'Auto-merge requested.' : 'Merge requested.');
+    }
   }
 
   function handOff(prompt: string) {
@@ -202,6 +223,17 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
     if (summary.failing) parts.push(`${summary.failing} failing check${summary.failing === 1 ? '' : 's'}`);
     return parts.join(' · ');
   })();
+  // The merge button follows GitHub's own: green only when nothing stands in
+  // the way, disabled whenever GitHub would refuse -- with auto-merge offered
+  // in its place when what refuses it is requirements that can be waited out.
+  const gate = mergeGate(details?.mergeState);
+  const mergeWhy = gate.button === 'disabled'
+    ? details?.mergeState ? mergeStateMeta(details.mergeState, details.baseBranch).label : 'Checking mergeability'
+    : '';
+  // Re-checked at confirm time: a refresh may have changed the answer since.
+  const confirmAllowed = confirm === 'merge' ? gate.button !== 'disabled' : confirm === 'auto-merge' ? gate.canQueue : true;
+  // Queuing auto-merge is a go: waiting for the requirements is what it asks for.
+  const confirmGo = confirm === 'auto-merge' || (confirm === 'merge' && gate.button === 'go');
 
   const onTabKey = (event: KeyboardEvent<HTMLButtonElement>, index: number) => {
     const next =
@@ -275,15 +307,28 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
                     Ready for review
                   </button>
                 ) : (
-                  <button
-                    className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--success"
-                    disabled={disabled || !details.headOid}
-                    aria-expanded={confirm === 'merge'}
-                    onClick={(event) => openConfirm('merge', event.currentTarget)}
-                  >
-                    <GitMerge size={14} aria-hidden="true" />
-                    Merge…
-                  </button>
+                  <>
+                    <button
+                      className={`inbox-detail-btn ${gate.button === 'go' ? 'inbox-detail-btn--solid inbox-detail-btn--success' : ''}`}
+                      disabled={disabled || !details.headOid || gate.button === 'disabled'}
+                      aria-expanded={confirm === 'merge'}
+                      aria-describedby={mergeWhy ? `${uid}-merge-why` : undefined}
+                      onClick={(event) => openConfirm('merge', event.currentTarget)}
+                    >
+                      <GitMerge size={14} aria-hidden="true" />
+                      Merge…
+                    </button>
+                    {gate.canQueue && (
+                      <button
+                        className="inbox-detail-btn"
+                        disabled={disabled || !details.headOid}
+                        aria-expanded={confirm === 'auto-merge'}
+                        onClick={(event) => openConfirm('auto-merge', event.currentTarget)}
+                      >
+                        Enable auto-merge…
+                      </button>
+                    )}
+                  </>
                 )}
                 <button className="inbox-detail-btn" disabled={disabled} onClick={startReview}>
                   <Eye size={14} aria-hidden="true" />
@@ -328,12 +373,17 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
                 </button>
               )}
             </div>
+            {mergeWhy && isPr && open && !details.isDraft && (
+              <p id={`${uid}-merge-why`} className="inbox-detail-merge-why">
+                Can’t merge yet: {mergeWhy.charAt(0).toLowerCase() + mergeWhy.slice(1)}.
+              </p>
+            )}
           </div>
 
           {confirm && (
             <div
               className="inbox-detail-confirm"
-              data-tone={confirm === 'merge' ? 'success' : 'error'}
+              data-tone={confirm === 'close' ? 'error' : confirmGo ? 'success' : 'neutral'}
               role="group"
               aria-label={`Confirm ${confirm}`}
               onKeyDown={(event) => {
@@ -341,12 +391,14 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
               }}
             >
               <p className="inbox-detail-confirm-title">
-                {confirm === 'merge' ? <GitMerge size={15} aria-hidden="true" /> : <GitPullRequestClosed size={15} aria-hidden="true" />}
+                {confirm === 'close' ? <GitPullRequestClosed size={15} aria-hidden="true" /> : <GitMerge size={15} aria-hidden="true" />}
                 {confirm === 'close'
                   ? `Close ${isPr ? 'pull request' : 'issue'} #${ref.number}?`
-                  : `Merge pull request #${ref.number} into ${details.baseBranch}?`}
+                  : confirm === 'auto-merge'
+                    ? `Merge pull request #${ref.number} into ${details.baseBranch} once it can be?`
+                    : `Merge pull request #${ref.number} into ${details.baseBranch}?`}
               </p>
-              {confirm === 'merge' ? (
+              {confirm !== 'close' ? (
                 <>
                   {mergeWarning && (
                     <p className="inbox-detail-confirm-warning" data-tone="warning">
@@ -368,11 +420,11 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
                       <option value="rebase">Rebase and merge</option>
                     </select>
                   </label>
-                  <label className="inbox-detail-checkbox">
-                    <input type="checkbox" checked={auto} disabled={busy} onChange={(event) => setAuto(event.target.checked)} />
-                    Merge automatically when requirements pass
-                  </label>
-                  <p className="inbox-detail-hint">GitHub enforces repository rules and supported merge methods.</p>
+                  <p className="inbox-detail-hint">
+                    {confirm === 'auto-merge'
+                      ? 'GitHub merges it as soon as every requirement passes, if the repository allows auto-merge.'
+                      : 'GitHub enforces repository rules and supported merge methods.'}
+                  </p>
                 </>
               ) : (
                 <p className="inbox-detail-hint">It can be reopened later.</p>
@@ -383,11 +435,14 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fi
                 </button>
                 <button
                   ref={(node) => { if (confirm === 'close') confirmFocusRef.current = node; }}
-                  className={`inbox-detail-btn inbox-detail-btn--solid ${confirm === 'merge' ? 'inbox-detail-btn--success' : 'inbox-detail-btn--danger-solid'}`}
-                  disabled={disabled}
+                  className={`inbox-detail-btn ${
+                    confirm === 'close' ? 'inbox-detail-btn--solid inbox-detail-btn--danger-solid'
+                      : confirmGo ? 'inbox-detail-btn--solid inbox-detail-btn--success' : ''
+                  }`}
+                  disabled={disabled || !confirmAllowed}
                   onClick={() => confirmAction(details)}
                 >
-                  {busy ? 'Working…' : confirm === 'close' ? 'Confirm close' : auto ? 'Enable auto-merge' : 'Confirm merge'}
+                  {busy ? 'Working…' : confirm === 'close' ? 'Confirm close' : confirm === 'auto-merge' ? 'Enable auto-merge' : 'Confirm merge'}
                 </button>
               </div>
             </div>

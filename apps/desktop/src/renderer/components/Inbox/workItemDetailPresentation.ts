@@ -147,6 +147,41 @@ export function mergeStateMeta(state: string, baseBranch: string | undefined): M
   }
 }
 
+/**
+ * GitHub's merge button for a mergeStateStatus, which GitHub keeps for us.
+ *
+ * - `go`: green, nothing stands in the way (CLEAN, HAS_HOOKS).
+ * - `plain`: allowed, but not green -- only optional checks are failing
+ *   (UNSTABLE), so GitHub merges on request without endorsing it.
+ * - `disabled`: GitHub would refuse. Blocked by requirements, behind a base
+ *   that must be merged in, conflicted, a draft, or still being worked out.
+ *
+ * `canQueue` is whether auto-merge can wait out the refusal instead, as
+ * GitHub offers "Enable auto-merge" in place of the disabled button. Only
+ * requirements can be waited out: conflicts need a person, and a PR that
+ * can merge now has nothing to wait for. Unrecognised and absent states are
+ * refused, since green must never promise a merge GitHub will reject.
+ */
+export interface MergeGate {
+  button: 'go' | 'plain' | 'disabled';
+  canQueue: boolean;
+}
+
+export function mergeGate(state: string | undefined): MergeGate {
+  switch (state) {
+    case 'CLEAN':
+    case 'HAS_HOOKS':
+      return { button: 'go', canQueue: false };
+    case 'UNSTABLE':
+      return { button: 'plain', canQueue: false };
+    case 'BLOCKED':
+    case 'BEHIND':
+      return { button: 'disabled', canQueue: true };
+    default:
+      return { button: 'disabled', canQueue: false };
+  }
+}
+
 /** "ellen-sprocket requested changes". Only verdicts carry a colour. */
 export function commentVerb(comment: WorkItemComment): { verb: string; tone?: Tone } {
   if (comment.kind === 'inline') return { verb: 'commented on' };

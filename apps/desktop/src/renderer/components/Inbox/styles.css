@@ -1477,6 +1477,15 @@
   gap: 0;
 }
 
+/* Why the merge button is disabled, under the row it explains: a disabled
+   button shows no tooltip of its own, and grey alone does not say why. */
+.inbox-detail-merge-why {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
 /* Confirmations and the editor open in place, under the button that asked. */
 .inbox-detail-confirm,
 .inbox-detail-editor {
