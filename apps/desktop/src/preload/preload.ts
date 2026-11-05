@@ -25,8 +25,10 @@ import {
     SessionFanOutResult,
     ScopeRepo,
     ConductorCreateRequest,
+    WorkspaceSettingsRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
+import type { AutomationsAPI } from '../shared/automations';
 import type { InboxSection } from '../shared/inboxSections';
 import type { GitProviderId, ProviderProbeResult } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
@@ -224,6 +226,9 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
 
+    forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_FORK, workspaceId, sessionId),
+
     addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
 
@@ -401,9 +406,24 @@ function readWindowContext(): WindowContext {
     }
 }
 
+// Personal automations, one file per workspace: main runs them; the renderer
+// reads a workspace's snapshot and sends intents.
+contextBridge.exposeInMainWorld('automationsAPI', {
+    getSnapshot: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
+    runNow: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name),
+    approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
+    dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
+    openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
+    addAssignedReviews: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
+    onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
+} satisfies AutomationsAPI);
+
 contextBridge.exposeInMainWorld('windowAPI', {
     onOpenSettings: (callback: (section?: 'updates') => void) =>
         subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
+
+    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) =>
+        subscribe<WorkspaceSettingsRequest>(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, callback),
 
     context: readWindowContext(),
 

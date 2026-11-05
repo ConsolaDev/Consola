@@ -283,7 +283,9 @@ export interface HarnessAPI {
 export type WorkItemLaunchResult =
     | { ok: true; session: Session; seedPrompt: string }
     | { ok: false; reason: 'not-cloned' }
-    | { ok: false; reason: 'error'; message: string };
+    | { ok: false; reason: 'error'; message: string }
+    /** An automation already reviews this item with this action: open that session instead. */
+    | { ok: false; reason: 'automation-review'; sessionId: string };
 
 export interface CloneRepoResult {
     ok: boolean;
@@ -367,6 +369,8 @@ export interface WorkspaceAPI {
     createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
     updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
     deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+    /** A new session of the person's own that continues this read-only one's conversation. */
+    forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
     addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
     updateScope: (
         workspaceId: string,
@@ -437,6 +441,7 @@ declare global {
         conductorAPI: ConductorAPI;
         harnessStateAPI: HarnessStateAPI;
         windowAPI: WindowAPI;
+        automationsAPI: import('./automations').AutomationsAPI;
     }
 }
 
@@ -477,12 +482,22 @@ export type ActivateWorkspaceResult =
     | { verdict: 'focused-elsewhere' };
 
 /**
+ * A workspace's settings, opened by main at a section: how a notification
+ * about an automation lands on that workspace's approvals.
+ */
+export interface WorkspaceSettingsRequest {
+    workspaceId: string;
+    section: 'automations';
+}
+
+/**
  * This window's identity, exposed by preload. Main arbitrates every change:
  * a workspace lives in at most one window, so `activateWorkspace` reports a
  * verdict rather than just applying the request.
  */
 export interface WindowAPI {
     onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
+    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) => () => void;
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;

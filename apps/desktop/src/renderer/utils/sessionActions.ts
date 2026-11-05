@@ -1,11 +1,11 @@
 import { homeScope, useHomeStore } from '../stores/homeStore';
-import { useShellStore } from '../stores/shellStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
+import { forgetSessionLocally } from './forgetSession';
 import { generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import { useNewSessionDialogStore, type NewSessionDestination } from '../stores/newSessionDialogStore';
@@ -144,7 +144,8 @@ export async function createQuickSession(
 }
 
 /**
- * Close a session: kill its terminal, forget its state, drop the record.
+ * Close a session: drop the record — main stops its terminal, shell and MCP
+ * endpoint with it — and forget this window's state for it.
  *
  * Closing is what kills the PTY; unmounting a pane does not. The conversation
  * itself stays in the harness's own session files and is still reachable with
@@ -154,9 +155,8 @@ export async function deleteSessionCompletely(
   workspaceId: string,
   session: Session
 ): Promise<void> {
-  // The record goes first because it is the only step that can fail. Killing
-  // the PTY is a one-way send that cannot report an error, so doing it first
-  // would destroy a live terminal and leave the record behind on a failure.
+  // Main deletes the record first and stops the PTY only once that reached
+  // disk, so a failed delete leaves the session running and listed.
   try {
     await useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
   } catch (error) {
@@ -167,13 +167,7 @@ export async function deleteSessionCompletely(
     return;
   }
 
-  useShellStore.getState().remove(session.instanceId);
-  terminalBridge.destroy(session.instanceId);
-  useTerminalStore.getState().removeInstance(session.instanceId);
-
-  if (useNavigationStore.getState().activeSessionId === session.id) {
-    useNavigationStore.getState().setActiveSession(null);
-  }
+  forgetSessionLocally(session);
 }
 
 /**

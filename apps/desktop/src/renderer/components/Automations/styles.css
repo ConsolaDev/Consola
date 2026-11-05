@@ -1,0 +1,286 @@
+/* Workspace settings › Automations */
+.automations-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-tertiary);
+}
+
+.automations code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: anywhere;
+}
+
+.automations-small-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-shrink: 0;
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+}
+
+.automations-error,
+.automations-issues {
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+}
+
+.automations-issues-title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-error);
+}
+
+.automations-issues ul,
+.automations-details ul {
+  margin: var(--space-1) 0 0;
+  padding-left: var(--space-4);
+}
+
+.automations-line {
+  margin-right: var(--space-1);
+  color: var(--color-text-tertiary);
+}
+
+.automations-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-group-title {
+  margin: var(--space-2) 0 0;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+}
+
+.automations-empty {
+  padding: var(--space-3);
+  border: 1px dashed var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--color-bg-primary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+/* Yellow is reserved for what needs a person: here, a run waiting for approval. */
+.automations-card-waiting {
+  flex-direction: column;
+  align-items: stretch;
+  border-color: var(--color-warning);
+}
+
+.automations-card-main {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.automations-card-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.automations-card-actions {
+  display: flex;
+  gap: var(--space-2);
+}
+
+.automations-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.automations-meta {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.automations-summary {
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-mode {
+  padding: 1px var(--space-1);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.automations-mode-auto {
+  color: var(--color-accent-text);
+  background: var(--color-accent-muted);
+}
+
+.automations-problem {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
+.automations-details {
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+}
+
+.automations-details summary {
+  cursor: pointer;
+  color: var(--color-text-tertiary);
+}
+
+.automations-history {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-history-row {
+  display: grid;
+  grid-template-columns: 8px auto 1fr;
+  align-items: baseline;
+  column-gap: var(--space-2);
+  font-size: var(--font-size-xs);
+}
+
+.automations-history-summary {
+  grid-column: 2 / -1;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.automations-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: var(--radius-full);
+  background: var(--color-text-tertiary);
+}
+
+.automations-dot-completed {
+  background: var(--color-success);
+}
+
+.automations-dot-failed {
+  background: var(--color-error);
+}
+
+.automations-dot-running {
+  background: var(--color-info);
+}
+
+.automations-dot-queued {
+  background: var(--color-warning);
+}
+
+/* The exact prompt an agent run sends: shown verbatim, scrollable, never reflowed into prose. */
+.automations-prompt {
+  max-height: 220px;
+  margin: var(--space-1) 0 0;
+  padding: var(--space-2);
+  overflow: auto;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-tertiary);
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automations-queue-row {
+  grid-template-columns: 1.5em auto 1fr auto;
+}
+
+.automations-queue-row .automations-history-summary {
+  grid-column: 3;
+}
+
+.automations-place {
+  color: var(--color-text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.automations-row-action {
+  grid-column: 4;
+  grid-row: 1;
+}
+
+.automations-link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--color-accent-text);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+/* The one-click way to turn on automatic reviews of assigned pull requests. */
+.automations-callout {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-bg-secondary);
+}
+
+.automations-callout-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.automations-callout-title {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+/* An agent run's state: Running, Ready or Failed. */
+.automations-state {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.automations-state-completed {
+  color: var(--color-success);
+}
+
+.automations-state-failed {
+  color: var(--color-error);
+}

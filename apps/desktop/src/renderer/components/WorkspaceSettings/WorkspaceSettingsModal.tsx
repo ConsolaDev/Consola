@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, Folder, Info, Plug, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Boxes, CalendarClock, Folder, Info, Plug, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
+import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
@@ -9,6 +10,7 @@ import { ScopesPanel } from './ScopesPanel';
 import { GroupsPanel } from './GroupsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
 import { ActionsPanel } from './ActionsPanel';
+import { AutomationsPanel } from '../Automations';
 import { providerNavLabel } from './navLabels';
 import '../Dialogs/styles.css';
 import './styles.css';
@@ -18,6 +20,7 @@ export type WorkspaceSettingsSectionId =
   | 'scopes'
   | 'provider'
   | 'actions'
+  | 'automations'
   | 'groups'
   | 'danger';
 
@@ -33,6 +36,7 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'scopes',
   'provider',
   'actions',
+  'automations',
   'groups',
   'danger',
 ];
@@ -45,6 +49,7 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   scopes: { label: () => 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
+  automations: { label: () => 'Automations', icon: CalendarClock },
   groups: { label: () => 'Groups', icon: Boxes },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
 };
@@ -58,8 +63,9 @@ interface WorkspaceSettingsModalProps {
 
 /**
  * One workspace's settings as a dialog of its own, titled by the workspace
- * so it is visibly not the global Settings modal. The panels are the six the
- * old Workspace tab stacked; here a left nav shows one at a time.
+ * so it is visibly not the global Settings modal. A left nav shows one panel
+ * at a time: the six the old Workspace tab stacked, and the workspace's
+ * automations.
  */
 export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSection = 'general' }: WorkspaceSettingsModalProps) {
   const workspace = useWorkspaceStore((state) =>
@@ -67,6 +73,10 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSecti
       ? (state.workspaces.find((candidate) => candidate.id === workspaceId) ?? null)
       : null
   );
+  // A session an automation started opens from its run, in this window —
+  // only when this window holds the workspace it belongs to.
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
+  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
 
   // The workspace can vanish out from under an open dialog — deleted from its
   // own danger zone, or from another window entirely. `open` follows the
@@ -87,7 +97,21 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSecti
               every panel: no draft, open rename or pending confirmation
               survives into another workspace's record — the contract the
               old Workspace tab kept, carried over. */}
-          {workspace && <WorkspaceSettingsBody key={`${workspace.id}:${initialSection}`} workspace={workspace} initialSection={initialSection} />}
+          {workspace && (
+            <WorkspaceSettingsBody
+              key={`${workspace.id}:${initialSection}`}
+              workspace={workspace}
+              initialSection={initialSection}
+              onOpenSession={
+                activeWorkspaceId === workspace.id
+                  ? (sessionId) => {
+                      setActiveSession(sessionId);
+                      onOpenChange(false);
+                    }
+                  : undefined
+              }
+            />
+          )}
           <Dialog.Close asChild>
             <button className="dialog-close" aria-label="Close">
               <X size={16} />
@@ -99,7 +123,16 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSecti
   );
 }
 
-function WorkspaceSettingsBody({ workspace, initialSection }: { workspace: Workspace; initialSection: WorkspaceSettingsSectionId }) {
+function WorkspaceSettingsBody({
+  workspace,
+  initialSection,
+  onOpenSession,
+}: {
+  workspace: Workspace;
+  initialSection: WorkspaceSettingsSectionId;
+  /** Open a session in this window: only when it holds this workspace. */
+  onOpenSession?: (sessionId: string) => void;
+}) {
   const [activeSection, setActiveSection] = useState<WorkspaceSettingsSectionId>(initialSection);
 
   return (
@@ -150,6 +183,7 @@ function WorkspaceSettingsBody({ workspace, initialSection }: { workspace: Works
             </section>
           )}
           {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
+          {activeSection === 'automations' && <AutomationsPanel workspace={workspace} onOpenSession={onOpenSession} />}
           {activeSection === 'groups' && <GroupsPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}
         </div>

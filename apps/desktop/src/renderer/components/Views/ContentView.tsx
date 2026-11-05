@@ -219,6 +219,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <TerminalPanel
                 instanceId={instanceId}
                 workspaceId={workspaceId}
+                sessionId={session.id}
+                readOnly={
+                  session.toolPolicy === 'read-only'
+                    ? { startedBy: session.automation?.name }
+                    : undefined
+                }
                 cwd={cwd}
                 claudeSessionId={session.claudeSessionId}
                 resume={session.hasStarted}

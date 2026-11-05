@@ -11,6 +11,40 @@ import { resolveSshRemote } from './sshRemote';
 
 const execFileAsync = promisify(execFile);
 
+/** A fetch on a dead network must not stall a cleanup run indefinitely. */
+const GIT_TIMEOUT_MS = 60_000;
+
+/** Branches no cleanup ever deletes, whatever a remote's HEAD says. */
+const PROTECTED_BRANCHES = new Set(['main', 'master', 'develop', 'trunk']);
+
+/** What `WorktreeService.inspect` learns about a checkout. */
+export interface WorktreeInspection {
+  /** Real path of the checkout's top level. */
+  toplevel: string;
+  /** The clone it belongs to: the parent of its common git directory. */
+  mainRepo: string;
+  /** False for a clone's own checkout, which Consola never removes. */
+  isLinkedWorktree: boolean;
+  head: string;
+  /** The local branch checked out; null when HEAD is detached. */
+  branch: string | null;
+  /** The branch's name on the remote, from its tracking config; else `branch`. */
+  remoteBranch: string | null;
+  originUrl: string | null;
+  /** Uncommitted changes or untracked files (ignored files do not count). */
+  dirty: boolean;
+}
+
+export type PublishedVerdict = 'published' | 'local-commits' | 'unverifiable';
+
+function realpathOrNull(target: string): string | null {
+  try {
+    return fs.realpathSync(target);
+  } catch {
+    return null;
+  }
+}
+
 /** Spec naming: `<repo-basename>-<type>-<number>`, e.g. catalog-portal-pr-51. */
 export function worktreeDirName(workItem: WorkItemRef): string {
   const basename = workItem.repo.split('/').pop() ?? workItem.repo;
@@ -236,6 +270,27 @@ export class WorktreeService {
     }
   }
 
+  /** Where `ensureWorktree` keeps an item's worktree, whether or not it exists yet. */
+  public worktreePathFor(workItem: WorkItemRef): string {
+    return path.join(this.root, worktreeDirName(workItem));
+  }
+
+  /**
+   * Bring an existing pull-request worktree up to the PR's current head, the
+   * provider's own checkout run again — so a review requested again after new
+   * pushes reads the new code, not the commit the folder was made at.
+   *
+   * Only a clean worktree is touched: anything uncommitted in it is someone's
+   * work, and a refresh must never be what loses it. Returns whether it ran.
+   */
+  public async refreshPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<boolean> {
+    if (workItem.type !== 'pr') return false;
+    const status = await this.run('git', dir, ['status', '--porcelain'], env);
+    if (status.trim()) return false;
+    await this.resolveDriver(workItem.provider).checkout(dir, workItem, env);
+    return true;
+  }
+
   /**
    * Remove a work-item worktree — offered, never automatic.
    *
@@ -259,6 +314,172 @@ export class WorktreeService {
     ).trim();
     const mainRoot = path.dirname(commonDir);
     await this.run('git', mainRoot, ['worktree', 'remove', worktreePath], process.env);
+  }
+
+  /**
+   * Whether `dir` is one of Consola's own worktrees: a direct child of the
+   * root, compared by real path so a symlink or `..` cannot smuggle a scope
+   * folder or a hand-made worktree in.
+   */
+  public isManagedPath(dir: string): boolean {
+    const root = realpathOrNull(this.root);
+    const target = realpathOrNull(dir);
+    return root !== null && target !== null && path.dirname(target) === root;
+  }
+
+  /**
+   * The facts that decide whether removing a checkout could lose work.
+   * Null when `dir` is gone or is not inside a git checkout at all.
+   */
+  public async inspect(dir: string): Promise<WorktreeInspection | null> {
+    if (!fs.existsSync(dir)) return null;
+    const facts = await this.git(dir, [
+      'rev-parse',
+      '--path-format=absolute',
+      '--show-toplevel',
+      '--git-dir',
+      '--git-common-dir',
+      'HEAD',
+    ]);
+    if (facts.code !== 0) return null;
+    const [toplevel, gitDir, commonDir, head] = facts.stdout.trim().split('\n');
+    if (!toplevel || !gitDir || !commonDir || !head) return null;
+
+    const [branchOut, status, origin] = await Promise.all([
+      this.git(toplevel, ['symbolic-ref', '--quiet', '--short', 'HEAD']),
+      this.git(toplevel, ['status', '--porcelain']),
+      this.git(toplevel, ['remote', 'get-url', 'origin']),
+    ]);
+    const branch = branchOut.code === 0 ? branchOut.stdout.trim() || null : null;
+    let remoteBranch: string | null = branch;
+    if (branch) {
+      const merge = await this.git(toplevel, ['config', '--get', `branch.${branch}.merge`]);
+      const tracked = merge.stdout.trim();
+      // A branch pushed under another name tracks it here; `gh pr checkout`
+      // of a fork tracks refs/pull/<n>/head, which names no branch at all.
+      if (merge.code === 0 && tracked.startsWith('refs/heads/')) {
+        remoteBranch = tracked.slice('refs/heads/'.length);
+      }
+    }
+    return {
+      toplevel: realpathOrNull(toplevel) ?? toplevel,
+      mainRepo: path.dirname(commonDir),
+      isLinkedWorktree: path.resolve(gitDir) !== path.resolve(commonDir),
+      head,
+      branch,
+      remoteBranch,
+      originUrl: origin.code === 0 ? resolveSshRemote(origin.stdout.trim()) || null : null,
+      // Status failing is treated as dirty: if git cannot say the tree is
+      // clean, it is not clean enough to delete.
+      dirty: status.code !== 0 || status.stdout.trim().length > 0,
+    };
+  }
+
+  /**
+   * Whether every commit on this checkout's HEAD exists somewhere else.
+   *
+   * With `knownHead` (a PR's final head commit), HEAD must be that commit or
+   * an ancestor of it — correct for squash and rebase merges, where the merge
+   * commit is not a descendant of the branch. The commit is fetched once via
+   * `fetchRef` if this clone has never seen it. Without one, HEAD must be
+   * reachable from a remote-tracking ref.
+   */
+  public async commitsArePublished(
+    inspection: WorktreeInspection,
+    options: { knownHead?: string; fetchRef?: string },
+    env: NodeJS.ProcessEnv
+  ): Promise<PublishedVerdict> {
+    const cwd = inspection.toplevel;
+    const { knownHead, fetchRef } = options;
+    if (knownHead) {
+      if (inspection.head === knownHead) return 'published';
+      const hasCommit = async () =>
+        (await this.git(cwd, ['cat-file', '-e', `${knownHead}^{commit}`])).code === 0;
+      let present = await hasCommit();
+      if (!present && fetchRef) {
+        await this.git(cwd, ['fetch', '--quiet', '--no-tags', 'origin', fetchRef], {
+          ...env,
+          GIT_TERMINAL_PROMPT: '0',
+        });
+        present = await hasCommit();
+      }
+      if (!present) return 'unverifiable';
+      const ancestor = await this.git(cwd, ['merge-base', '--is-ancestor', inspection.head, knownHead]);
+      if (ancestor.code === 0) return 'published';
+      return ancestor.code === 1 ? 'local-commits' : 'unverifiable';
+    }
+    const unpublished = await this.git(cwd, ['rev-list', '--count', inspection.head, '--not', '--remotes']);
+    if (unpublished.code !== 0) return 'unverifiable';
+    return Number(unpublished.stdout.trim()) === 0 ? 'published' : 'local-commits';
+  }
+
+  /**
+   * `git worktree remove` without `--force`, so git itself refuses a tree
+   * that became dirty after it was inspected. Refuses anything that is not
+   * one of Consola's own linked worktrees.
+   */
+  public async removeWorktree(inspection: WorktreeInspection): Promise<void> {
+    if (!inspection.isLinkedWorktree || !this.isManagedPath(inspection.toplevel)) {
+      throw new Error(`Refusing to remove ${inspection.toplevel}: it is not a Consola worktree.`);
+    }
+    const removed = await this.git(inspection.mainRepo, ['worktree', 'remove', inspection.toplevel]);
+    if (removed.code !== 0) {
+      throw new Error(removed.stderr.trim() || `git worktree remove ${inspection.toplevel} failed.`);
+    }
+  }
+
+  /**
+   * Delete a local branch only if it still points at `expectedHead` — the
+   * commit that was just proven published. `update-ref -d <ref> <old>` is a
+   * compare-and-swap, so unlike `branch -d` it works for squash-merged
+   * branches and still cannot delete anything that moved meanwhile. Never
+   * deletes the default branch or one checked out in another worktree.
+   */
+  public async deleteBranchAt(
+    mainRepo: string,
+    branch: string,
+    expectedHead: string
+  ): Promise<{ deleted: true } | { deleted: false; reason: string }> {
+    if (PROTECTED_BRANCHES.has(branch)) return { deleted: false, reason: `${branch} is protected` };
+    const defaultRef = await this.git(mainRepo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+    if (defaultRef.code === 0 && defaultRef.stdout.trim().replace(/^[^/]+\//, '') === branch) {
+      return { deleted: false, reason: `${branch} is the default branch` };
+    }
+    const worktrees = await this.git(mainRepo, ['worktree', 'list', '--porcelain']);
+    if (worktrees.code !== 0) return { deleted: false, reason: 'could not list worktrees' };
+    if (worktrees.stdout.split('\n').includes(`branch refs/heads/${branch}`)) {
+      return { deleted: false, reason: `${branch} is checked out in another worktree` };
+    }
+    const deleted = await this.git(mainRepo, ['update-ref', '-d', `refs/heads/${branch}`, expectedHead]);
+    if (deleted.code !== 0) {
+      return { deleted: false, reason: `${branch} no longer points at ${expectedHead.slice(0, 7)}` };
+    }
+    // update-ref leaves the tracking config behind; harmless, so best-effort.
+    await this.git(mainRepo, ['config', '--remove-section', `branch.${branch}`]);
+    return { deleted: true };
+  }
+
+  /** A git call whose exit code is an answer, not an error. */
+  private async git(
+    cwd: string,
+    args: string[],
+    env: NodeJS.ProcessEnv = process.env
+  ): Promise<{ code: number; stdout: string; stderr: string }> {
+    try {
+      const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
+        env: env as { [key: string]: string },
+        maxBuffer: 10 * 1024 * 1024,
+        timeout: GIT_TIMEOUT_MS,
+      });
+      return { code: 0, stdout, stderr };
+    } catch (error) {
+      const failure = error as { code?: number | string; stdout?: string; stderr?: string };
+      return {
+        code: typeof failure.code === 'number' ? failure.code : -1,
+        stdout: failure.stdout?.toString() ?? '',
+        stderr: failure.stderr?.toString() ?? '',
+      };
+    }
   }
 
   /** Run a subprocess; on failure surface stderr as the Error message. */

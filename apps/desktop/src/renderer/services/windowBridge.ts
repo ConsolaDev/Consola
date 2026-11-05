@@ -1,4 +1,4 @@
-import type { ActivateWorkspaceResult, WindowContext, WorkspaceView } from '../../shared/types';
+import type { ActivateWorkspaceResult, WindowContext, WorkspaceSettingsRequest, WorkspaceView } from '../../shared/types';
 
 /**
  * Bridge to this window's identity.
@@ -10,6 +10,11 @@ import type { ActivateWorkspaceResult, WindowContext, WorkspaceView } from '../.
 export const windowBridge = {
     onOpenSettings(callback: (section?: 'updates') => void): () => void {
         return window.windowAPI.onOpenSettings(callback);
+    },
+
+    /** Main asked for a workspace's settings at a section: an automation notification was clicked. */
+    onOpenWorkspaceSettings(callback: (request: WorkspaceSettingsRequest) => void): () => void {
+        return window.windowAPI.onOpenWorkspaceSettings(callback);
     },
 
     get context(): WindowContext {

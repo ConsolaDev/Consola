@@ -1,8 +1,9 @@
 import * as fs from 'fs';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
-import type { NewSessionFields, Session, Workspace } from '../shared/workspace';
-import { mcpConfigForSession } from './conductor/ConductorControlServer';
+import { generateSessionInstanceId, type NewSessionFields, type Session, type Workspace } from '../shared/workspace';
+import { toolPolicyProblem } from './drivers';
+import { mcpConfigForSession } from './mcp/SessionMcpHost';
 import type { TerminalServiceOptions } from './TerminalService';
 
 /**
@@ -39,9 +40,25 @@ export interface HarnessRecordStore {
 /** The slice of TerminalManager this launcher needs. */
 export interface HeadlessTerminalStarter {
     startHeadless(instanceId: string, options: TerminalServiceOptions): void;
+    /** Whether a session already has a terminal, live or exited. */
+    has(instanceId: string): boolean;
 }
 
-export type LaunchSessionFields = NewSessionFields & { initialPrompt?: string };
+/**
+ * A new session's record fields, plus how its first launch goes. The extras
+ * are delivery-only: they describe one spawn, never the session, and must
+ * never reach the record.
+ */
+export type LaunchSessionFields = NewSessionFields & {
+    initialPrompt?: string;
+    /** Run the first turn unattended (`TerminalServiceOptions.unattended`). */
+    unattended?: boolean;
+    /** Start the session as a fork of this conversation. */
+    forkFrom?: string;
+};
+
+/** What one spawn of a recorded session is asked to do. */
+type SpawnFields = Pick<TerminalServiceOptions, 'resume' | 'initialPrompt' | 'unattended' | 'forkFrom'>;
 
 /**
  * How a harness record translates into launch fields.
@@ -61,10 +78,10 @@ function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
 
 export class SessionLauncher {
     /**
-     * Kind-gated MCP registration, set at wiring time (ipc-handlers).
-     * Optional so unit tests and early boot need no conductor machinery.
+     * The Consola MCP endpoint every session gets, set at wiring time
+     * (ipc-handlers). Optional so unit tests and early boot need no MCP.
      */
-    public conductorControl?: { register(session: Session): Promise<string> };
+    public mcpHost?: { register(session: Pick<Session, 'id'>): Promise<string> };
 
     constructor(
         private readonly workspaces: SessionRecordStore,
@@ -78,8 +95,14 @@ export class SessionLauncher {
             throw new Error(`Cannot launch a session: no workspace ${workspaceId}`);
         }
 
-        // initialPrompt is delivery-only; it must never reach the record.
-        const { initialPrompt, ...sessionFields } = fields;
+        // A session that must be restricted and cannot be is refused before
+        // it has a record, rather than at spawn with a tab already open.
+        const harness = this.harnesses.getAll().find((candidate) => candidate.id === fields.harnessId);
+        const policyProblem = toolPolicyProblem(launchFieldsFor(harness), fields.toolPolicy);
+        if (policyProblem) throw new Error(policyProblem);
+
+        // Delivery-only; none of these may reach the record.
+        const { initialPrompt, unattended, forkFrom, ...sessionFields } = fields;
         const session = this.workspaces.createSession(workspaceId, sessionFields);
         if (!session) {
             throw new Error(`Workspace ${workspaceId} refused the session record`);
@@ -88,8 +111,7 @@ export class SessionLauncher {
         // A session runs in its own cwd when it has one (worktrees, fan-out
         // targets) and in its scope's folder otherwise — the home-vs-runs-in
         // split from the spec.
-        const scope = workspace.scopes.find((candidate) => candidate.id === session.scopeId);
-        const cwd = session.cwd ?? scope?.path;
+        const cwd = workingFolder(workspace, session);
         if (!cwd) {
             // The record exists but can never spawn. Back the creation out
             // rather than leaving a tab that fails on every open.
@@ -112,20 +134,94 @@ export class SessionLauncher {
             );
         }
 
-        // Conductors, and only conductors, get an endpoint and a config file
-        // pointing at it. The gate is `mcpConfigForSession`, shared with
-        // TERMINAL_CREATE, so both launch paths agree on what a conductor is.
-        const mcpConfigPath = this.conductorControl
-            ? await mcpConfigForSession(session, this.conductorControl)
-            : undefined;
+        // First launch of a fresh record; later attaches resume.
+        await this.spawn(workspace, session, cwd, harness, { resume: false, initialPrompt, unattended, forkFrom });
 
+        this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });
+        return { ...session, hasStarted: true };
+    }
+
+    /**
+     * Resume an automation's turn that Consola quit in the middle of: the
+     * recorded session, resumed, unattended, with `prompt` as its turn.
+     *
+     * Only a read-only session — an unattended turn skips the CLI's trust
+     * prompt — and only one with no terminal yet: once the person opened it,
+     * it is theirs, and a second process on one conversation would fork it.
+     */
+    public async resumeUnattended(workspaceId: string, sessionId: string, prompt: string): Promise<void> {
+        const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+        const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+        if (!workspace || !session) throw new Error('Its session was closed.');
+        if (session.toolPolicy !== 'read-only') throw new Error('Consola resumes a turn unattended only in a read-only session.');
+        const opened = () => {
+            if (this.terminals.has(session.instanceId)) throw new Error('You opened its session before Consola could resume it.');
+        };
+        opened();
+        const cwd = workingFolder(workspace, session);
+        if (!cwd || !fs.existsSync(cwd)) throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
         const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
+        // The harness may have changed since the session started.
+        const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
+        if (policyProblem) throw new Error(policyProblem);
+        // Checked again after the await inside: a pane may have mounted meanwhile.
+        await this.spawn(workspace, session, cwd, harness, { resume: true, initialPrompt: prompt, unattended: true }, opened);
+    }
+
+    /**
+     * Continue a read-only conversation as an ordinary session of the
+     * person's own: a fork of it, under a new record with no tool policy and
+     * no automation. The original keeps its restriction and its provenance —
+     * neither is ever lifted in place.
+     *
+     * The fork stays on the source's harness, because the transcript lives in
+     * that harness's config directory and only a CLI reading it can fork it;
+     * a driver that cannot fork refuses when the tab starts.
+     */
+    public async forkWithFullTools(workspaceId: string, sessionId: string): Promise<Session> {
+        const source = this.workspaces
+            .getAll()
+            .find((candidate) => candidate.id === workspaceId)
+            ?.sessions.find((candidate) => candidate.id === sessionId);
+        if (!source) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
+        if (!source.hasStarted) throw new Error('There is no conversation to continue yet.');
+        return this.launchSession(workspaceId, {
+            name: `${source.name} (full tools)`,
+            workspaceId,
+            instanceId: generateSessionInstanceId(workspaceId),
+            harnessId: source.harnessId,
+            model: source.model,
+            scopeId: source.scopeId,
+            kind: 'interactive',
+            ...(source.cwd !== undefined ? { cwd: source.cwd } : {}),
+            ...(source.groupId !== undefined ? { groupId: source.groupId } : {}),
+            ...(source.workItem ? { workItem: source.workItem } : {}),
+            ...(source.workItemAction !== undefined ? { workItemAction: source.workItemAction } : {}),
+            forkFrom: source.claudeSessionId,
+        });
+    }
+
+    /** Start a recorded session's terminal, resolved from the record and its workspace. */
+    private async spawn(
+        workspace: Workspace,
+        session: Session,
+        cwd: string,
+        harness: Harness | undefined,
+        launch: SpawnFields,
+        beforeStart?: () => void
+    ): Promise<void> {
+        // Every session gets an endpoint and a config file pointing at it;
+        // `mcpConfigForSession`, shared with TERMINAL_CREATE, decides what a
+        // failure to set one up means for each kind.
+        const mcpConfigPath = this.mcpHost
+            ? await mcpConfigForSession(session, this.mcpHost)
+            : undefined;
+        beforeStart?.();
+
         this.terminals.startHeadless(session.instanceId, {
             cwd,
             claudeSessionId: session.claudeSessionId,
-            // First launch of a fresh record; later attaches resume.
-            resume: false,
-            initialPrompt,
+            ...launch,
             model: session.model,
             // The workspace's provider binding, resolved here the same way the
             // TERMINAL_CREATE handler resolves it: TerminalService turns the
@@ -133,10 +229,13 @@ export class SessionLauncher {
             providerId: workspace.provider?.id,
             providerAccountLogin: workspace.provider?.accountLogin,
             mcpConfigPath,
+            toolPolicy: session.toolPolicy,
             ...launchFieldsFor(harness),
         });
-
-        this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });
-        return { ...session, hasStarted: true };
     }
+}
+
+/** Where a session runs: its own cwd (worktrees, fan-out targets), else its scope's folder. */
+function workingFolder(workspace: Workspace, session: Session): string | undefined {
+    return session.cwd ?? workspace.scopes.find((candidate) => candidate.id === session.scopeId)?.path;
 }

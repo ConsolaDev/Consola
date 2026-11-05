@@ -1,10 +1,10 @@
 /**
  * The process `claude` spawns for the `consola` MCP server: a dumb pipe
- * between its stdio and the Consola main process's per-conductor socket.
+ * between its stdio and the Consola main process's per-session socket.
  *
  * Runs under `ELECTRON_RUN_AS_NODE=1`, so this is plain Node — no Electron
  * APIs, no imports beyond `net`. All intelligence lives in
- * ConductorControlServer on the other end of the socket; keeping this dumb
+ * SessionMcpHost on the other end of the socket; keeping this dumb
  * means the security boundary has exactly one implementation.
  */
 import * as net from 'net';

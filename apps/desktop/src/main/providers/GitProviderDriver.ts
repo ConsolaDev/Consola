@@ -1,5 +1,6 @@
 import type { GitProviderId, ProviderBinding, ProviderProbeResult } from '../../shared/providers';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
+import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
 
 /**
  * What Consola needs from a git hosting provider in order to run its Inbox.
@@ -54,4 +55,44 @@ export interface GitProviderDriver {
 
   /** The fixed context header prepended to every action body. */
   seedHeader(ref: WorkItemRef, item?: InboxItem): string;
+
+  /**
+   * `owner/name` for a git remote URL on this provider, or null when the URL
+   * is not one of its repositories. How a worktree that was never linked to
+   * a work item learns which repository its branch's PR would live in.
+   */
+  repoOfRemote?(remoteUrl: string): string | null;
+
+  /**
+   * Pull requests in every state — open, merged, closed — by number or by
+   * head branch. One answer per query, in order; a failed query carries
+   * `error` instead of failing the batch. Must refuse unrecognised replies:
+   * an empty list reads as "no PR", and callers act on that.
+   */
+  lookupPullRequests?(queries: PullRequestQuery[], env: NodeJS.ProcessEnv): Promise<PullRequestLookup[]>;
+
+  /**
+   * One item as a reviewer reads it: its description and comments, and for a
+   * pull request the files it changes and its diff. Fetched by main with the
+   * account's token for a session that holds none — a read-only session's
+   * only window on the item beyond its checkout. Must refuse a reply it does
+   * not recognise rather than describe an item that is not there.
+   */
+  describeWorkItem?(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<WorkItemDetails>;
+}
+
+/** What `describeWorkItem` returns. Everything but the URL and the counts is other people's text. */
+export interface WorkItemDetails {
+  title: string;
+  body: string;
+  author: string;
+  /** Lowercased provider state, e.g. 'open'. */
+  state: string;
+  url: string;
+  comments: Array<{ author: string; body: string }>;
+  /** Pull requests only. */
+  baseRef?: string;
+  headRef?: string;
+  files?: Array<{ path: string; additions: number; deletions: number }>;
+  diff?: string;
 }

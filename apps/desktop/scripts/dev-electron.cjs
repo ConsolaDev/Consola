@@ -16,6 +16,7 @@
  * node-pty, which is not a price worth paying for a file watcher.
  */
 const { spawn } = require('child_process');
+const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
@@ -52,13 +53,22 @@ function log(message) {
 }
 
 /**
- * Modification time of the most recently written compiled file.
+ * Whether a compiled file is code the running app can load.
  *
- * Only `.js` is considered: declarations and source maps accompany every emit
- * and change nothing about what actually runs.
+ * Only `.js` counts: declarations and source maps accompany every emit and
+ * change nothing about what runs. Compiled tests (`*.test.js`,
+ * `*.test-helpers.js`) are excluded too — tsconfig.main.json emits them next to
+ * the app because that is how they get typechecked, but Electron never loads
+ * them, so writing a test must not relaunch the app on top of whatever the
+ * developer is doing.
  */
-function newestBuildTime() {
-    let newest = 0;
+function isRuntimeOutput(fileName) {
+    return fileName.endsWith('.js') && !/\.test[.-]/.test(fileName);
+}
+
+/** Every runtime file under the watched build output, in a stable order. */
+function runtimeOutputs() {
+    const files = [];
 
     const visit = (dir) => {
         let entries;
@@ -72,19 +82,52 @@ function newestBuildTime() {
             const target = path.join(dir, entry.name);
             if (entry.isDirectory()) {
                 visit(target);
-            } else if (entry.name.endsWith('.js')) {
-                try {
-                    const { mtimeMs } = fs.statSync(target);
-                    if (mtimeMs > newest) newest = mtimeMs;
-                } catch {
-                    // Same race as above.
-                }
+            } else if (isRuntimeOutput(entry.name)) {
+                files.push(target);
             }
         }
     };
 
     for (const dir of watchDirs) visit(dir);
+    return files.sort();
+}
+
+/** Modification time of the most recently written runtime file. */
+function newestBuildTime() {
+    let newest = 0;
+    for (const file of runtimeOutputs()) {
+        try {
+            const { mtimeMs } = fs.statSync(file);
+            if (mtimeMs > newest) newest = mtimeMs;
+        } catch {
+            // Removed between listing and stat; the next tick will see it.
+        }
+    }
     return newest;
+}
+
+/**
+ * A digest of what the app would load: every runtime file's path and contents.
+ *
+ * A timestamp says a file was written, not that it changed. `pnpm build` — which
+ * `test:e2e` runs first — rewrites every file with exactly what `tsc --watch`
+ * already emitted, and a restart for that is pure cost: it kills the session
+ * PTYs and pulls the window to the front mid-thought. Only read once the
+ * timestamps have settled, so the hashing never runs on an idle poll.
+ */
+function buildFingerprint() {
+    const hash = crypto.createHash('sha1');
+    for (const file of runtimeOutputs()) {
+        hash.update(path.relative(projectRoot, file));
+        hash.update('\0');
+        try {
+            hash.update(fs.readFileSync(file));
+        } catch {
+            // Vanished mid-read: hashing it as missing still reads as a change.
+        }
+        hash.update('\0');
+    }
+    return hash.digest('hex');
 }
 
 function startElectron() {
@@ -145,6 +188,9 @@ async function restart() {
 function watchBuildOutput() {
     let settled = newestBuildTime();
     let pending = null;
+    // What the running Electron was launched with; a settled rebuild that
+    // matches it changed timestamps only.
+    let running = buildFingerprint();
 
     setInterval(() => {
         if (shuttingDown || restarting) return;
@@ -158,6 +204,12 @@ function watchBuildOutput() {
         if (pending === newest) {
             settled = newest;
             pending = null;
+            const fingerprint = buildFingerprint();
+            if (fingerprint === running) {
+                log('Rebuilt with identical output — keeping Electron running');
+                return;
+            }
+            running = fingerprint;
             restart().catch((error) => {
                 console.error('[dev-electron] Restart failed:', error);
                 process.exit(1);

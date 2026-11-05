@@ -59,8 +59,31 @@ export interface Session {
   // the action later never rewrites what a past session was. Absent for
   // sessions linked by hand.
   workItemAction?: string;
+  // What this conversation's agent may do, beyond its CLI's own defaults.
+  // Absent means nothing is pinned — every hand-made session. Fixed for the
+  // session's lifetime like the harness and model, and replayed on every
+  // resume: a relaunch must never lift a restriction mid-conversation.
+  toolPolicy?: SessionToolPolicy;
+  // The automation that started this session, when one did. Fixed: it says
+  // where the session came from, not what it is doing now.
+  automation?: SessionProvenance;
   createdAt: number;
   lastActiveAt: number;
+}
+
+/**
+ * `read-only`: the agent may read files and the change it is about, and run
+ * nothing that could execute the item's code, load its hooks or act on the
+ * provider as the person. What every automation-started session gets; each
+ * harness driver maps it to its CLI's own enforcement, or refuses the launch.
+ */
+export type SessionToolPolicy = 'read-only';
+
+export interface SessionProvenance {
+  /** The automation's name in its workspace's factory.yml. */
+  name: string;
+  /** The run that launched it. */
+  runId: string;
 }
 
 /** A durable *place* sessions run in. Few per workspace; nesting is allowed. */
@@ -206,7 +229,9 @@ export type NewSessionFields = Pick<
   Session,
   'name' | 'workspaceId' | 'instanceId' | 'harnessId' | 'model' | 'scopeId'
 > &
-  Partial<Pick<Session, 'cwd' | 'groupId' | 'kind' | 'workItem' | 'workItemAction'>>;
+  Partial<
+    Pick<Session, 'cwd' | 'groupId' | 'kind' | 'workItem' | 'workItemAction' | 'toolPolicy' | 'automation'>
+  >;
 
 export function createSessionRecord(fields: NewSessionFields): Session {
   const now = Date.now();
@@ -229,7 +254,8 @@ export function createSessionRecord(fields: NewSessionFields): Session {
  * bridge, the store) imports it from here too — six copies had drifted apart.
  * `workItem` is the mutable link, with presence semantics: an explicitly
  * undefined key means unlink. Everything that fixes a session's identity
- * (`scopeId`, `cwd`, `kind`, `harnessId`, `model`) is absent on purpose.
+ * (`scopeId`, `cwd`, `kind`, `harnessId`, `model`, `toolPolicy`,
+ * `automation`) is absent on purpose.
  */
 export type SessionUpdates = Partial<
   Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem'>

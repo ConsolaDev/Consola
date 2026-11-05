@@ -1,15 +1,25 @@
-import { RotateCw, FilePlus, FileX } from 'lucide-react';
+import { useState } from 'react';
+import { RotateCw, FilePlus, FileX, Lock, Unlock } from 'lucide-react';
 import type { HarnessLaunchFields } from '../../../shared/types';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { workspaceBridge } from '../../services/workspaceBridge';
 import { useTerminal } from './useTerminal';
 import { useTerminalFileDrop } from './useTerminalFileDrop';
-import { restartSession } from '../../utils/sessionActions';
+import { activateSession, restartSession } from '../../utils/sessionActions';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
 interface TerminalPanelProps {
     instanceId: string;
     workspaceId: string;
+    /** The session record this tab shows, for actions that act on it. */
+    sessionId: string;
+    /**
+     * Set for a read-only session (every one an automation starts): the
+     * automation that started it, when one did. Its restriction is never
+     * lifted in place — the person continues in a fork of their own.
+     */
+    readOnly?: { startedBy?: string };
     cwd: string;
     /** Session ID Consola assigned to this tab. */
     claudeSessionId: string;
@@ -30,6 +40,8 @@ interface TerminalPanelProps {
 export function TerminalPanel({
     instanceId,
     workspaceId,
+    sessionId,
+    readOnly,
     cwd,
     claudeSessionId,
     resume,
@@ -53,30 +65,66 @@ export function TerminalPanel({
     });
 
     const hasExited = useTerminalStore((state) => state.terminals[instanceId]?.hasExited ?? false);
+    const isBusy = useTerminalStore((state) => state.terminals[instanceId]?.isBusy ?? false);
+    const [forking, setForking] = useState(false);
+    const [forkError, setForkError] = useState<string | null>(null);
 
     const handleRestart = () => {
         restartSession(instanceId);
         focus();
     };
 
+    const handleFork = () => {
+        setForking(true);
+        setForkError(null);
+        workspaceBridge
+            .forkSession(workspaceId, sessionId)
+            .then((fork) => activateSession(workspaceId, fork.id))
+            .catch((error: unknown) => setForkError(error instanceof Error ? error.message : String(error)))
+            .finally(() => setForking(false));
+    };
+
     return (
         <div className="terminal-panel">
             {/*
-              * Only ever holds the restart action, so it appears with it. A bar
-              * that is empty whenever the session is healthy would spend nearly
-              * all of its life taking height from the terminal for nothing.
+              * Holds the restart action, so it appears with it — and, on a
+              * read-only session, says so for as long as it is one. A bar that
+              * is empty whenever the session is healthy would spend nearly all
+              * of its life taking height from the terminal for nothing.
               */}
-            {hasExited && (
+            {(hasExited || readOnly) && (
                 <div className="terminal-panel-toolbar">
-                    <button
-                        type="button"
-                        className="terminal-restart-button"
-                        onClick={handleRestart}
-                        title="Claude exited — resume this conversation"
-                    >
-                        <RotateCw size={13} />
-                        <span>Restart</span>
-                    </button>
+                    {readOnly && (
+                        <span className="terminal-read-only-label">
+                            <Lock size={12} />
+                            <span>{readOnly.startedBy ? `Read-only · started by ${readOnly.startedBy}` : 'Read-only'}</span>
+                        </span>
+                    )}
+                    {hasExited && (
+                        <button
+                            type="button"
+                            className="terminal-restart-button"
+                            onClick={handleRestart}
+                            title={readOnly ? 'Continue this conversation, still read-only' : 'Claude exited — resume this conversation'}
+                        >
+                            <RotateCw size={13} />
+                            <span>{readOnly ? 'Continue' : 'Restart'}</span>
+                        </button>
+                    )}
+                    {readOnly && (
+                        <button
+                            type="button"
+                            className="terminal-fork-button"
+                            onClick={handleFork}
+                            // Mid-turn, the conversation is not all written yet.
+                            disabled={forking || (isBusy && !hasExited)}
+                            title="Continue this conversation in a new session of your own, with your usual tools"
+                        >
+                            <Unlock size={13} />
+                            <span>Continue with full tools</span>
+                        </button>
+                    )}
+                    {forkError && <span className="terminal-toolbar-error">{forkError}</span>}
                 </div>
             )}
 

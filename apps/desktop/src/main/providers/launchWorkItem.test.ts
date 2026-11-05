@@ -4,6 +4,7 @@ import type { WorkItemAction } from '../../shared/workItemActions';
 import type { NewSessionFields, Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from './GitProviderDriver';
 import { createLaunchCoalescer, launchWorkItem, type WorkItemLaunchDeps } from './launchWorkItem';
+import { launchAgentRun, type AgentLaunchDeps } from '../automations/launchAgentRun';
 
 const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
 
@@ -332,6 +333,88 @@ describe('launchWorkItem', () => {
     if (!result1.ok || !result2.ok) return;
     expect(result2.session.id).not.toBe(result1.session.id);
     expect(created[0].cwd).toBe(created[1].cwd);
+  });
+});
+
+describe('launchWorkItem — an automation already reviewing the item', () => {
+  const automationReview = {
+    id: 'auto-1',
+    name: 'Extract billing client',
+    automation: { name: 'review-requests', runId: 'run-1' },
+    toolPolicy: 'read-only',
+    workItem: pr51,
+    workItemAction: 'Review',
+    createdAt: 1,
+  } as unknown as Session;
+
+  it('returns the automation\'s review instead of starting a second session', async () => {
+    const { deps, created } = makeDeps(makeWorkspace({ sessions: [automationReview] }));
+    expect(await launchWorkItem(deps, 'ws-1', pr51, { id: review.id })).toEqual({
+      ok: false,
+      reason: 'automation-review',
+      sessionId: 'auto-1',
+    });
+    expect(deps.ensureWorktree).not.toHaveBeenCalled();
+    expect(created).toEqual([]);
+
+    // A custom prompt is a deliberate new session, and a person's own review is not the automation's.
+    expect((await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: 'Look at the tests.' })).ok).toBe(true);
+    const byHand = { ...automationReview, id: 'mine', automation: undefined } as unknown as Session;
+    const { deps: mine } = makeDeps(makeWorkspace({ sessions: [byHand] }));
+    expect((await launchWorkItem(mine, 'ws-1', pr51, { id: review.id })).ok).toBe(true);
+  });
+
+  it('opens the newest automated review, not one from an earlier request', async () => {
+    const older = { ...automationReview, id: 'auto-old', createdAt: 1 } as unknown as Session;
+    const newer = { ...automationReview, id: 'auto-new', createdAt: 2 } as unknown as Session;
+    const { deps } = makeDeps(makeWorkspace({ sessions: [older, newer] }));
+    expect(await launchWorkItem(deps, 'ws-1', pr51, { id: review.id })).toMatchObject({
+      reason: 'automation-review',
+      sessionId: 'auto-new',
+    });
+  });
+
+  it('an Inbox click during an automation launch opens the automation\'s session', async () => {
+    const workspace = makeWorkspace();
+    const { deps, created } = makeDeps(workspace);
+    const checkout = deferred<void>();
+    const worktree = '/worktrees/catalog-portal-pr-51';
+    const agentDeps: AgentLaunchDeps = {
+      getWorkspace: () => workspace,
+      resolveDriver: () => stubDriver,
+      resolveRepo: () => '/repos/catalog-portal',
+      worktreePathFor: () => '/nonexistent/catalog-portal-pr-51',
+      // The automation's checkout takes a while: the Inbox click lands in the middle of it.
+      ensureWorktree: vi.fn(async () => {
+        await checkout.promise;
+        return worktree;
+      }),
+      refreshWorktree: async () => true,
+      worktreeInUse: () => false,
+      composeEnv: async () => ({}),
+      restoreGroup: () => {},
+      launchSession: async (_workspaceId, fields) => {
+        const session = { ...automationReview, id: 'auto-2', ...fields } as unknown as Session;
+        workspace.sessions.push(session);
+        return session;
+      },
+    };
+    const automation = launchAgentRun(agentDeps, {
+      workspaceId: 'ws-1',
+      run: { id: 'run-2', automation: 'review-requests' },
+      prompt: 'Review it.',
+      item: { workItem: pr51, title: 'Extract billing client', label: 'Review' },
+    });
+    await new Promise((resolve) => setImmediate(resolve));
+    const click = launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
+    await new Promise((resolve) => setImmediate(resolve));
+    // Waiting for the lock: nothing of its own has happened yet.
+    expect(deps.ensureWorktree).not.toHaveBeenCalled();
+    checkout.resolve();
+    await automation;
+    expect(await click).toEqual({ ok: false, reason: 'automation-review', sessionId: 'auto-2' });
+    expect(created).toEqual([]);
+    expect(workspace.sessions.map((session) => session.id)).toEqual(['auto-2']);
   });
 });
 

@@ -28,6 +28,13 @@ export class TerminalManager {
     /** Called on every status transition, after the broadcast. Drives OS notifications. */
     public onStatusChanged?: (instanceId: string, status: TerminalStatus) => void;
 
+    /**
+     * Called when a session's process exits, after the broadcast: an
+     * unattended turn ending is an automation run finishing. Never called
+     * for a terminal `destroy` removed, whose listeners go with it.
+     */
+    public onExit?: (instanceId: string, info: TerminalExitInfo) => void;
+
     /** How many sessions are waiting on a human, across every workspace. */
     public getAttentionCount(): number {
         return this.awaiting.size;
@@ -77,6 +84,10 @@ export class TerminalManager {
     public startHeadless(instanceId: string, options: TerminalServiceOptions): void {
         const existing = this.terminals.get(instanceId);
         if (existing) {
+            // An unattended turn needs a process of its own: queued into the
+            // terminal a person opened, it would be typed into their composer,
+            // and its run would wait for an exit that is not its.
+            if (options.unattended) throw new Error('This session already has a terminal, so its turn cannot run unattended.');
             // Already running — the start is idempotent, but a prompt that
             // rode in with the call must not be dropped.
             if (options.initialPrompt) existing.queuePrompt(options.initialPrompt);
@@ -90,6 +101,11 @@ export class TerminalManager {
 
     public get(instanceId: string): TerminalService | undefined {
         return this.terminals.get(instanceId);
+    }
+
+    /** Whether a session has a terminal, live or exited. */
+    public has(instanceId: string): boolean {
+        return this.terminals.has(instanceId);
     }
 
     /**
@@ -181,6 +197,7 @@ export class TerminalManager {
             this.awaiting.delete(instanceId);
             this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
             this.onAttentionChanged?.();
+            this.onExit?.(instanceId, info);
         });
 
         terminal.on('status', (status: TerminalStatus) => {

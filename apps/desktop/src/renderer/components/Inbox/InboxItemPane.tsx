@@ -33,6 +33,17 @@ const STATUS_WORDS: Record<SessionStatus, string> = {
   exited: 'exited',
 };
 
+/**
+ * An automation's session in words: its unattended turn is running, or it
+ * finished and what it found is in the tab. Anything else — the person
+ * continued it — reads like any other session.
+ */
+function automationPhase(status: SessionStatus): string | null {
+  if (status === 'working') return 'Reviewing…';
+  if (status === 'exited') return 'Findings ready';
+  return null;
+}
+
 const REVIEW_LABELS: Record<InboxItem['reviewDecision'], string> = {
   approved: 'Approved',
   'changes-requested': 'Changes requested',
@@ -161,13 +172,21 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
       {siblings.length === 0 && <p className="inbox-pane-empty">No sessions on this item yet.</p>}
       {siblings.map((session) => {
         const status = statusOf(session);
+        const phase = session.automation ? automationPhase(status) : null;
         return (
           <div className="inbox-pane-session-row" key={session.id}>
             <span className={`status-dot status-dot--${status}`} aria-hidden="true" />
             <div className="inbox-pane-session-text">
-              <span className="inbox-pane-session-label">{sessionLabel(session)}</span>
+              <span className="inbox-pane-session-label">
+                {sessionLabel(session)}
+                {session.automation && (
+                  <span className="inbox-pane-automation-badge" title="Started by an automation, read-only">
+                    {session.automation.name}
+                  </span>
+                )}
+              </span>
               <span className="inbox-pane-session-sub">
-                {STATUS_WORDS[status]} · {formatAge(session.lastActiveAt)}
+                {phase ?? STATUS_WORDS[status]} · {formatAge(session.lastActiveAt)}
                 {session.cwd ? ` · ${basename(session.cwd)}` : ''}
               </span>
             </div>
@@ -222,6 +241,16 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
           {applicable.map((action) => {
             const key = launchKey(workspace.id, item, { id: action.id });
             const confirming = confirmingKey === key;
+            // An automation already ran this action on this item: that
+            // session is the review, so the button opens it. A custom
+            // prompt below still starts a new one on purpose.
+            // The newest: a re-requested review has an earlier one on older code.
+            const automationReview = siblings
+              .filter((session) => session.automation && session.workItemAction === action.name)
+              .reduce<Session | undefined>(
+                (newest, session) => (!newest || session.createdAt > newest.createdAt ? session : newest),
+                undefined
+              );
             return (
               <div className="inbox-pane-action-slot" key={action.id}>
                 <button
@@ -230,7 +259,12 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
                   } ${confirming ? 'inbox-pane-action--confirm' : ''}`}
                   data-action-id={action.id}
                   disabled={launching[key]}
-                  onClick={() => start({ id: action.id }, key)}
+                  title={automationReview ? `Open the review ${automationReview.automation!.name} started` : undefined}
+                  onClick={() =>
+                    automationReview
+                      ? activateSession(workspace.id, automationReview.id)
+                      : start({ id: action.id }, key)
+                  }
                 >
                   {launching[key] ? 'Preparing...' : confirming ? CONFIRM_LABEL : action.name}
                 </button>

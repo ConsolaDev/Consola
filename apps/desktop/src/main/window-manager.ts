@@ -1,6 +1,6 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
-import type { WindowContext, WorkspaceView } from '../shared/types';
+import type { WindowContext, WorkspaceSettingsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
@@ -198,6 +198,24 @@ export function focusOrCreate(
 
 export function getAnyWindow(): BrowserWindow | null {
     return BrowserWindow.getAllWindows()[0] ?? null;
+}
+
+/**
+ * Bring forward the window holding a workspace — opening one if none does —
+ * with that workspace's settings open at a section. How a notification about
+ * an automation lands on the approvals it is about.
+ */
+export function showWorkspaceSettings(
+    workspaceId: string,
+    section: WorkspaceSettingsRequest['section'],
+    viewMemory: ViewMemoryAccess
+): void {
+    const target = focusOrCreate(workspaceId, viewMemory);
+    const request: WorkspaceSettingsRequest = { workspaceId, section };
+    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, request);
+    if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
+    else open();
+    if (!isBackgroundTest) target.show();
 }
 
 /**

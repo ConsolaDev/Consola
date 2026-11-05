@@ -13,8 +13,11 @@ import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { workItemUrl } from '../../../shared/workItems';
 import { renderSeedHeader } from '../../../shared/workItemPrompt';
 import { getLoginEnv } from '../../LoginEnvironment';
-import type { GitProviderDriver } from '../GitProviderDriver';
+import type { GitProviderDriver, WorkItemDetails } from '../GitProviderDriver';
+import type { PullRequestLookup, PullRequestQuery } from '../pullRequests';
 import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } from './inboxQuery';
+import { parsePullsResponse, pullsEndpoint } from './pullRequests';
+import { diffArgs, parseWorkItemDetails, viewArgs } from './workItemDetails';
 
 const execFileAsync = promisify(execFile);
 
@@ -37,6 +40,25 @@ const BINARY_NAME = 'gh';
 const RUN_TIMEOUT_MS = 10000;
 const TOKEN_TTL_MS = 5 * 60 * 1000;
 const WEB_HOST = 'github.com';
+/** Parallel `gh api` calls per lookup batch: quick for a handful, polite for dozens. */
+const PR_LOOKUP_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+    items: T[],
+    limit: number,
+    work: (item: T) => Promise<R>
+): Promise<R[]> {
+    const results = new Array<R>(items.length);
+    let next = 0;
+    const lanes = Array.from({ length: Math.min(limit, items.length) }, async () => {
+        while (next < items.length) {
+            const index = next++;
+            results[index] = await work(items[index]);
+        }
+    });
+    await Promise.all(lanes);
+    return results;
+}
 
 interface RunResult {
     stdout: string;
@@ -315,6 +337,47 @@ export class GitHubDriver implements GitProviderDriver {
 
     public seedHeader(ref: WorkItemRef, item?: InboxItem): string {
         return renderSeedHeader(PROVIDER_META.github.seedHeaderTemplate, ref, item);
+    }
+
+    public repoOfRemote(remoteUrl: string): string | null {
+        return parseGitHubRemote(remoteUrl);
+    }
+
+    /**
+     * `gh pr view --json` (and `gh pr diff` for a pull request), always with
+     * `--repo`: what an item is must never depend on the folder it is asked
+     * from.
+     */
+    public async describeWorkItem(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<WorkItemDetails> {
+        const [view, diff] = await Promise.all([
+            this.exec(viewArgs(ref), env),
+            ref.type === 'pr' ? this.exec(diffArgs(ref), env) : Promise.resolve(undefined),
+        ]);
+        return parseWorkItemDetails(view, diff);
+    }
+
+    /**
+     * One `gh api` call per query, a few at a time. Each query fails on its
+     * own: one deleted repository must not hide the state of every other PR.
+     */
+    public async lookupPullRequests(
+        queries: PullRequestQuery[],
+        env: NodeJS.ProcessEnv
+    ): Promise<PullRequestLookup[]> {
+        return mapWithConcurrency(queries, PR_LOOKUP_CONCURRENCY, async (query) => {
+            try {
+                const endpoint = pullsEndpoint(query);
+                // Endpoint first, flags after: gh accepts either order.
+                const stdout = await this.exec(['api', endpoint, '--hostname', WEB_HOST], env);
+                return { query, pullRequests: parsePullsResponse(query, stdout) };
+            } catch (error) {
+                return {
+                    query,
+                    pullRequests: [],
+                    error: error instanceof Error ? error.message : String(error),
+                };
+            }
+        });
     }
 
     /**

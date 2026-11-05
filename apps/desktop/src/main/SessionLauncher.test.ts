@@ -83,7 +83,7 @@ function buildLauncher(session: Session) {
         deleteSession: vi.fn(),
     };
     const harnesses = { getAll: vi.fn(() => [harnessFixture]) };
-    const terminals = { startHeadless: vi.fn() };
+    const terminals = { startHeadless: vi.fn(), has: vi.fn(() => false) };
     const launcher = new SessionLauncher(workspaces, harnesses, terminals);
     return { launcher, workspaces, harnesses, terminals };
 }
@@ -163,27 +163,197 @@ describe('SessionLauncher', () => {
         expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
-    it('registers MCP config for conductor sessions only', async () => {
-        const register = vi.fn(async () => '/tmp/cond.json');
+    it('registers the Consola MCP endpoint for every kind of session', async () => {
+        const register = vi.fn(async (session: { id: string }) => `/tmp/${session.id}.json`);
 
-        const conductor = buildLauncher(sessionFixture({ kind: 'conductor' }));
-        conductor.launcher.conductorControl = { register };
-        await conductor.launcher.launchSession('ws-1', { ...launchFields, kind: 'conductor' });
+        for (const kind of ['conductor', 'interactive'] as const) {
+            const { launcher, terminals } = buildLauncher(sessionFixture({ kind }));
+            launcher.mcpHost = { register };
+            await launcher.launchSession('ws-1', { ...launchFields, kind });
+            // The tools reach the PTY as an opaque path.
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({ mcpConfigPath: '/tmp/session-1.json' })
+            );
+        }
+        expect(register).toHaveBeenCalledTimes(2);
+    });
 
-        // The conductor's control tools reach the PTY as an opaque path.
-        expect(register).toHaveBeenCalledTimes(1);
-        expect(conductor.terminals.startHeadless).toHaveBeenCalledWith(
-            'instance-1',
-            expect.objectContaining({ mcpConfigPath: '/tmp/cond.json' })
+    it('still launches an ordinary session when its MCP endpoint cannot be set up', async () => {
+        vi.spyOn(console, 'error').mockImplementation(() => {});
+        const { launcher, terminals } = buildLauncher(sessionFixture());
+        launcher.mcpHost = { register: async () => Promise.reject(new Error('EACCES')) };
+        await launcher.launchSession('ws-1', launchFields);
+        expect(terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
+    });
+
+    it('launches with the record’s tool policy', async () => {
+        const session = sessionFixture({ toolPolicy: 'read-only' });
+        const { launcher, terminals } = buildLauncher(session);
+        await launcher.launchSession('ws-1', { ...launchFields, toolPolicy: 'read-only' });
+        expect(terminals.startHeadless.mock.calls[0][1].toolPolicy).toBe('read-only');
+    });
+
+    it('refuses a policy its harness would loosen before creating anything', async () => {
+        const { launcher, workspaces, harnesses, terminals } = buildLauncher(sessionFixture({ toolPolicy: 'read-only' }));
+        harnesses.getAll.mockReturnValue([{ ...harnessFixture, extraArgs: ['--dangerously-skip-permissions'] }]);
+        await expect(launcher.launchSession('ws-1', { ...launchFields, toolPolicy: 'read-only' })).rejects.toThrow(
+            /--dangerously-skip-permissions/
         );
+        expect(workspaces.createSession).not.toHaveBeenCalled();
+        expect(terminals.startHeadless).not.toHaveBeenCalled();
+    });
 
-        // Every other kind passes through untouched: no registration, no path.
-        const interactive = buildLauncher(sessionFixture());
-        interactive.launcher.conductorControl = { register };
-        await interactive.launcher.launchSession('ws-1', launchFields);
+    it('passes unattended and forkFrom to the terminal and never to the record', async () => {
+        const { launcher, workspaces, terminals } = buildLauncher(sessionFixture({ toolPolicy: 'read-only' }));
+        await launcher.launchSession('ws-1', {
+            ...launchFields,
+            toolPolicy: 'read-only',
+            initialPrompt: 'Review it.',
+            unattended: true,
+            forkFrom: 'orig',
+        });
+        const recorded = (workspaces.createSession.mock.calls[0] as unknown[])[1];
+        expect(recorded).not.toHaveProperty('unattended');
+        expect(recorded).not.toHaveProperty('forkFrom');
+        expect(recorded).not.toHaveProperty('initialPrompt');
+        expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+            resume: false,
+            initialPrompt: 'Review it.',
+            unattended: true,
+            forkFrom: 'orig',
+            toolPolicy: 'read-only',
+        });
+    });
 
-        expect(register).toHaveBeenCalledTimes(1);
-        expect(interactive.terminals.startHeadless.mock.calls[0][1].mcpConfigPath).toBeUndefined();
+    it('resumeUnattended starts the recorded session resumed and unattended', async () => {
+        const session = sessionFixture({ toolPolicy: 'read-only', hasStarted: true, cwd: targetDir });
+        const { launcher, workspaces, terminals } = buildLauncher(session);
+        workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+        await launcher.resumeUnattended('ws-1', 'session-1', 'Go on.');
+        expect(terminals.startHeadless).toHaveBeenCalledWith(
+            'instance-1',
+            expect.objectContaining({
+                cwd: targetDir,
+                claudeSessionId: '11111111-1111-4111-8111-111111111111',
+                resume: true,
+                unattended: true,
+                initialPrompt: 'Go on.',
+                toolPolicy: 'read-only',
+                driverId: 'claude',
+                configDirOverride: '/Users/me/.claude-work',
+            })
+        );
+        expect(workspaces.createSession).not.toHaveBeenCalled();
+    });
+
+    it('resumeUnattended refuses a harness that would loosen the policy', async () => {
+        const session = sessionFixture({ toolPolicy: 'read-only', hasStarted: true, cwd: targetDir });
+        const { launcher, workspaces, harnesses, terminals } = buildLauncher(session);
+        workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+        harnesses.getAll.mockReturnValue([{ ...harnessFixture, extraArgs: ['--dangerously-skip-permissions'] }]);
+        await expect(launcher.resumeUnattended('ws-1', 'session-1', 'Go on.')).rejects.toThrow(/--dangerously-skip-permissions/);
+        expect(terminals.startHeadless).not.toHaveBeenCalled();
+    });
+
+    it('resumeUnattended refuses when the session was opened while it prepared', async () => {
+        const session = sessionFixture({ toolPolicy: 'read-only', hasStarted: true, cwd: targetDir });
+        const { launcher, workspaces, terminals } = buildLauncher(session);
+        workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+        // The person clicks the tab while its MCP endpoint is being set up.
+        launcher.mcpHost = {
+            register: async () => {
+                terminals.has.mockReturnValue(true);
+                return '/tmp/session.json';
+            },
+        };
+        await expect(launcher.resumeUnattended('ws-1', 'session-1', 'Go on.')).rejects.toThrow(
+            'You opened its session before Consola could resume it.'
+        );
+        expect(terminals.startHeadless).not.toHaveBeenCalled();
+    });
+
+    it('resumeUnattended refuses a session that is not read-only, or already has a terminal', async () => {
+        const ordinary = sessionFixture({ hasStarted: true });
+        const one = buildLauncher(ordinary);
+        one.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [ordinary] }]);
+        await expect(one.launcher.resumeUnattended('ws-1', 'session-1', 'Go on.')).rejects.toThrow(/read-only/);
+
+        const restricted = sessionFixture({ toolPolicy: 'read-only', hasStarted: true });
+        const two = buildLauncher(restricted);
+        two.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [restricted] }]);
+        two.terminals.has.mockReturnValue(true);
+        await expect(two.launcher.resumeUnattended('ws-1', 'session-1', 'Go on.')).rejects.toThrow(
+            'You opened its session before Consola could resume it.'
+        );
+        await expect(two.launcher.resumeUnattended('ws-1', 'gone', 'Go on.')).rejects.toThrow('Its session was closed.');
+        expect(one.terminals.startHeadless).not.toHaveBeenCalled();
+        expect(two.terminals.startHeadless).not.toHaveBeenCalled();
+    });
+
+    /** A finished automation review, and the launcher holding it in its workspace. */
+    function reviewed(overrides: Partial<Session> = {}) {
+        const source = sessionFixture({
+            name: 'Add retries',
+            hasStarted: true,
+            toolPolicy: 'read-only',
+            automation: { name: 'review-requests', runId: 'run-1' },
+            cwd: targetDir,
+            groupId: 'g-reviews',
+            model: 'opus',
+            workItem: { provider: 'github', repo: 'acme/api', type: 'pr', number: 123 },
+            workItemAction: 'Review',
+            ...overrides,
+        });
+        const fork = sessionFixture({ id: 'session-2', instanceId: 'instance-2', claudeSessionId: '22222222-2222-4222-8222-222222222222', cwd: targetDir });
+        const built = buildLauncher(fork);
+        built.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [source] }]);
+        return { ...built, source };
+    }
+
+    it('forkWithFullTools creates an ordinary session on the same harness, folder and item', async () => {
+        const { launcher, workspaces } = reviewed();
+        await launcher.forkWithFullTools('ws-1', 'session-1');
+        const fields = (workspaces.createSession.mock.calls[0] as unknown[])[1] as Record<string, unknown>;
+        expect(fields).toEqual({
+            name: 'Add retries (full tools)',
+            workspaceId: 'ws-1',
+            instanceId: expect.stringMatching(/^workspace-ws-1-session-/),
+            // The transcript lives in this harness's config directory.
+            harnessId: 'work',
+            model: 'opus',
+            scopeId: 'scope-1',
+            cwd: targetDir,
+            groupId: 'g-reviews',
+            kind: 'interactive',
+            workItem: { provider: 'github', repo: 'acme/api', type: 'pr', number: 123 },
+            workItemAction: 'Review',
+        });
+        // A person's own session: no restriction, and nobody else's provenance.
+        expect(fields).not.toHaveProperty('toolPolicy');
+        expect(fields).not.toHaveProperty('automation');
+    });
+
+    it('forkWithFullTools starts the terminal with forkFrom set to the source conversation', async () => {
+        const { launcher, terminals } = reviewed();
+        const fork = await launcher.forkWithFullTools('ws-1', 'session-1');
+        expect(fork).toMatchObject({ id: 'session-2', hasStarted: true });
+        const options = terminals.startHeadless.mock.calls[0][1];
+        expect(options).toMatchObject({
+            claudeSessionId: '22222222-2222-4222-8222-222222222222',
+            resume: false,
+            forkFrom: '11111111-1111-4111-8111-111111111111',
+            configDirOverride: '/Users/me/.claude-work',
+        });
+        expect(options.toolPolicy).toBeUndefined();
+        expect(options.unattended).toBeUndefined();
+    });
+
+    it('forkWithFullTools refuses a session that never started', async () => {
+        const { launcher, workspaces, terminals } = reviewed({ hasStarted: false });
+        await expect(launcher.forkWithFullTools('ws-1', 'session-1')).rejects.toThrow('There is no conversation to continue yet.');
+        expect(workspaces.createSession).not.toHaveBeenCalled();
+        expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
     it('pins nothing for the built-in or an unknown harness', async () => {

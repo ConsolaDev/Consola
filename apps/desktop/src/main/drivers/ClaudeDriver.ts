@@ -12,7 +12,9 @@ import type {
     HarnessProbeResult,
     SessionNameResult,
 } from '../../shared/types';
-import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
+import type { SessionToolPolicy } from '../../shared/workspace';
+import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
+import { looseningProblem, namedFlags, type HarnessConfig, type HarnessDriver, type SessionLaunch } from './HarnessDriver';
 
 /**
  * Driver for Anthropic's `claude` CLI.
@@ -33,6 +35,72 @@ const FALLBACK_BINARY_PATHS = [
 ];
 
 const BINARY_NAME = 'claude';
+
+/** How Claude names a tool of an MCP server in permission rules. */
+function claudeToolName(tool: string): string {
+    return `mcp__${CONSOLA_MCP_SERVER}__${mcpToolName(tool)}`;
+}
+
+/**
+ * `read-only` as Claude enforces it (verified live against 2.1.318):
+ *
+ * - `--restricted` drops the tools that run code and WebFetch, ignores user,
+ *   project and local settings files — so the checkout's own hooks and
+ *   permission rules never load — and confines file tools to the folder.
+ * - `--strict-mcp-config` skips the checkout's `.mcp.json`; Consola's own
+ *   `--mcp-config` still loads.
+ * - `--tools` leaves only reading files. No Bash at all: every allow rule
+ *   for a shell command turned out to be a door — `git diff --output=<path>`
+ *   writes the author's text anywhere, and `gh … --repo <host>/…` reaches any
+ *   host and any repository the person's token can read. What a reviewer
+ *   needs from the provider, Consola fetches itself and serves as the
+ *   read-only tools allowed below; the session holds no token at all.
+ * - `--permission-mode dontAsk` denies anything not allowed below instead of
+ *   asking. Pinned because the CLI's default is now `auto`, whose classifier
+ *   approves calls on its own; and denying rather than asking means an
+ *   unattended review can never stall on a prompt nobody is there to answer.
+ */
+const READ_ONLY_ARGS = [
+    '--strict-mcp-config',
+    '--permission-mode',
+    'dontAsk',
+    '--tools',
+    'Read,Grep,Glob',
+    '--allowedTools',
+    ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
+    // Last, and taking no value: it closes the variadic tool list above, so
+    // nothing after it — the harness's extra args — can join that list.
+    '--restricted',
+];
+
+/**
+ * Print mode never shows the folder-trust prompt and, unless restricted,
+ * loads the folder's hooks and settings without asking: an unattended turn
+ * is safe only inside the read-only policy, whose `--restricted` shuts them
+ * out.
+ */
+const UNATTENDED_NEEDS_READ_ONLY =
+    'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a read-only session.';
+
+/** Extra args that could widen what a read-only session may do, or what it can reach. */
+const LOOSENING_FLAGS = [
+    '--dangerously-skip-permissions',
+    '--allow-dangerously-skip-permissions',
+    '--permission-mode',
+    '--permission-prompt-tool',
+    '--allowedTools',
+    '--allowed-tools',
+    '--tools',
+    '--settings',
+    '--setting-sources',
+    // File tools reach every working directory, --add-dir included.
+    '--add-dir',
+    // Plugins carry hooks and commands; agents carry tools of their own.
+    '--plugin-dir',
+    '--plugin-url',
+    '--agent',
+    '--agents',
+];
 
 // The binary found on PATH, cached for the app's lifetime. Only auto-detection
 // is cached: a pinned path is cheap to check and must never be answered from a
@@ -172,14 +240,34 @@ export class ClaudeDriver implements HarnessDriver {
      * resumes instead.
      */
     public buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] {
+        const problem = this.toolPolicyProblem(config, launch.toolPolicy);
+        if (problem) throw new Error(problem);
+        if (launch.unattended && launch.toolPolicy !== 'read-only') throw new Error(UNATTENDED_NEEDS_READ_ONLY);
+        if (launch.unattended && !launch.initialPrompt) throw new Error('An unattended turn needs the prompt it runs.');
         const base = launch.resume
             ? ['--resume', launch.sessionId]
-            : ['--session-id', launch.sessionId];
+            : launch.forkFrom
+              ? ['--resume', launch.forkFrom, '--fork-session', '--session-id', launch.sessionId]
+              : ['--session-id', launch.sessionId];
         const model = launch.model ? ['--model', launch.model] : [];
         const mcp = launch.mcpConfigPath ? ['--mcp-config', launch.mcpConfigPath] : [];
-        // The harness's own extra args come last so a hand-written `--model`
-        // there still wins: Claude takes the last occurrence of a flag.
-        return [...base, ...model, ...mcp, ...config.extraArgs];
+        // The harness's own extra args come after Consola's so a hand-written
+        // `--model` there still wins: Claude takes the last occurrence of a
+        // flag. A tool policy comes before them, so an extra arg left wanting
+        // a value (`--append-system-prompt` with none) cannot take one of its
+        // flags as that value; every extra arg that could override the policy
+        // is refused above.
+        const policy = launch.toolPolicy === 'read-only' ? READ_ONLY_ARGS : [];
+        const args = [...base, ...model, ...mcp, ...policy, ...config.extraArgs];
+        // Print mode: one turn, its answer, and exit. The prompt goes after
+        // `--`, because `--allowedTools` takes every value up to the next
+        // flag and would otherwise swallow it.
+        return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+    }
+
+    public toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null {
+        if (!policy) return null;
+        return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
     }
 
     /**
