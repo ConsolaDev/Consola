@@ -209,6 +209,26 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 
+## Licensing
+
+Consola is AGPL-3.0-only (`LICENSE`), and every `package.json` says so. Three
+rules follow:
+
+- **Packages other people build against are MIT.** Plugin API types
+  (`@consola/plugin-types`), the `factory-spec` schema, integration manifest
+  formats: anything a third party compiles against gets its own MIT `LICENSE`
+  and `"license": "MIT"`, so plugin and integration authors choose their own
+  license. Such a package must not import from `apps/*` — that would pull
+  AGPL code into it.
+- **A server people use over the network offers its source** (AGPL §13). The
+  cloud web app links to the source of the version it is running.
+- **Dependencies must be AGPL-compatible**: MIT, ISC, BSD, Apache-2.0,
+  MPL-2.0, LGPL and GPL-3.0 are; GPL-2.0-only is not.
+
+Outside contributions need a signed CLA (`CLA.md`, checked by
+`.github/workflows/cla.yml`). It is what keeps relicensing — a commercial
+license, an MIT carve-out — possible, so never bypass it.
+
 ## Tech Stack
 
 - **Electron 43** - Desktop framework
