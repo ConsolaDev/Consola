@@ -633,6 +633,14 @@
   color: var(--color-text-primary);
 }
 
+/* Where the pane sits beside a session, that session's row: a fact, not a
+   button, so it carries no edge. */
+.inbox-pane-current {
+  font-size: 11.5px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
 .inbox-pane-actions {
   display: flex;
   flex-direction: column;

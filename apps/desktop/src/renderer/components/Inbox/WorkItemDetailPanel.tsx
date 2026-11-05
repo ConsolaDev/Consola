@@ -25,6 +25,7 @@ import {
   StateBadge,
   rollupOutcome,
   type DetailTab,
+  type FixTarget,
 } from './WorkItemDetailTabs';
 import { itemStatus, mergeStateMeta, summarizeChecks } from './workItemDetailPresentation';
 
@@ -32,7 +33,11 @@ interface Props {
   workspaceId: string;
   accountLogin: string;
   item: InboxItem;
-  onFix: (prompt: string) => void;
+  /** Hand a fix prompt to a session. A returned string is why it could not, shown as an error. */
+  onFix: (prompt: string) => string | void;
+  fixTarget?: FixTarget;
+  /** Every fresh read, so the pane's header can follow an edited title. */
+  onDetails?: (details: WorkItemDetails) => void;
 }
 
 type ReviewEvent = 'comment' | 'approve' | 'request-changes';
@@ -47,7 +52,7 @@ function prefersReducedMotion(): boolean {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
 }
 
-export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: Props) {
+export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix, fixTarget = 'a session', onDetails }: Props) {
   const [details, setDetails] = useState<WorkItemDetails | null>(null);
   const [tab, setTab] = useState<DetailTab>('Overview');
   const [loading, setLoading] = useState(true);
@@ -80,7 +85,10 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
     setError('');
     try {
       const next = await inboxBridge.getDetails(workspaceId, ref);
-      if (alive.current && version === request.current) setDetails(next);
+      if (alive.current && version === request.current) {
+        setDetails(next);
+        onDetails?.(next);
+      }
     } catch (error) {
       if (alive.current && version === request.current) setError(`Could not refresh details: ${ipcErrorMessage(error)}`);
     } finally {
@@ -150,7 +158,10 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
     });
   }
 
-  const status = itemStatus(ref.type, details?.state ?? item.state, details?.isDraft ?? item.isDraft);
+  // An item the Inbox no longer lists is stood in for with no state (''):
+  // no badge until details say, rather than a guess that would flip.
+  const knownState = details?.state ?? item.state;
+  const status = knownState ? itemStatus(ref.type, knownState, details?.isDraft ?? item.isDraft) : null;
   const open = details?.state === 'open';
   const ownPr = details?.author.toLowerCase() === accountLogin.toLowerCase();
   const disabled = busy || loading;
@@ -175,8 +186,16 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
     else void perform({ kind: 'merge', method, auto, headOid: current.headOid! }, auto ? 'Auto-merge requested.' : 'Merge requested.');
   }
 
+  function handOff(prompt: string) {
+    const refusal = onFix(prompt);
+    if (refusal) {
+      setNotice('');
+      setError(refusal);
+    }
+  }
+
   function fixComment(comment: WorkItemComment) {
-    onFix(`Address this review feedback on ${item.url}:\n${comment.url}\n\n${comment.body}\n\nInspect the current code, implement the fix, and validate it.`);
+    handOff(`Address this review feedback on ${item.url}:\n${comment.url}\n\n${comment.body}\n\nInspect the current code, implement the fix, and validate it.`);
   }
 
   const mergeWarning = (() => {
@@ -207,7 +226,7 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
     <section className="inbox-detail" aria-label="Remote item details" aria-busy={busy || loading}>
       <div className="inbox-detail-toolbar">
         <div className="inbox-detail-toolbar-lead">
-          <StateBadge key={status.kind} {...status} />
+          {status && <StateBadge key={status.kind} {...status} />}
           {details?.headBranch && <BranchPair head={details.headBranch} base={details.baseBranch} />}
         </div>
         <span className="inbox-detail-account" title="Actions here run as this workspace’s GitHub account">
@@ -455,7 +474,7 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
             {tab === 'Overview' && <OverviewTab workspaceId={workspaceId} details={details} isPr={isPr} onShow={setTab} />}
             {tab === 'Conversation' && (
               <>
-                <ConversationTimeline workspaceId={workspaceId} comments={details.comments} canFix={isPr && open} onFix={fixComment} />
+                <ConversationTimeline workspaceId={workspaceId} comments={details.comments} canFix={isPr && open} fixTarget={fixTarget} onFix={fixComment} />
                 <form
                   className="inbox-detail-composer"
                   onSubmit={(event) => {
@@ -525,8 +544,9 @@ export function WorkItemDetailPanel({ workspaceId, accountLogin, item, onFix }: 
               <ChecksTab
                 checks={details.checks}
                 canFix={open}
+                fixTarget={fixTarget}
                 onFixChecks={() =>
-                  onFix(`Investigate and fix the failing CI checks for ${item.url}. Read the check logs, implement fixes, and run the relevant validation before pushing.`)
+                  handOff(`Investigate and fix the failing CI checks for ${item.url}. Read the check logs, implement fixes, and run the relevant validation before pushing.`)
                 }
               />
             )}

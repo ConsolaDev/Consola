@@ -15,6 +15,7 @@ import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
 import { WorkItemStrip } from '../WorkItemStrip';
+import { WorkItemPanel } from '../WorkItemPanel';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
 import { useCheckout } from '../../stores/checkoutStore';
@@ -33,6 +34,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
+  const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -56,12 +58,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const cwd = (workspace && checkoutPathForSession(workspace, session)) ?? '';
   // Re-read on every switch: the agent on screen may just have changed branch.
   const checkout = useCheckout(cwd || null, { fresh: true });
+  // Details are read as the workspace's account, so a workspace without one
+  // has nothing to show even when the session still names an item.
+  const showWorkItemPanel =
+    isWorkItemPanelVisible && Boolean(session?.workItem) && Boolean(workspace?.provider);
 
   // Conditional panels must have separate saved layouts: hiding the explorer
   // must not overwrite the layout that remembers its width.
   const panelIds = [
     ...(isExplorerVisible && cwd ? ['explorer'] : []),
     'agent',
+    ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
     ...(isGitReviewOpen ? ['git-review'] : []),
   ];
@@ -244,6 +251,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               />
             </SessionTerminalLayout>
           </Panel>
+          {showWorkItemPanel && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="work-item" defaultSize="38%" minSize="320px" maxSize="70%">
+                <WorkItemPanel workspaceId={workspaceId} session={session} />
+              </Panel>
+            </>
+          )}
           {hasOpenTabs && (
             <>
               <Separator className="resize-handle" />

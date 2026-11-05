@@ -310,15 +310,20 @@ export function OverviewTab({
   );
 }
 
+/** Who a Fix button hands its prompt to, in the words the buttons use. */
+export type FixTarget = 'a session' | 'this session';
+
 export function ConversationTimeline({
   workspaceId,
   comments,
   canFix,
+  fixTarget = 'a session',
   onFix,
 }: {
   workspaceId: string;
   comments: WorkItemComment[];
   canFix: boolean;
+  fixTarget?: FixTarget;
   onFix: (comment: WorkItemComment) => void;
 }) {
   if (comments.length === 0) {
@@ -384,7 +389,7 @@ export function ConversationTimeline({
               {fixable && (
                 <button type="button" className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--tinted" data-tone="accent" onClick={() => onFix(comment)}>
                   <Wrench size={13} aria-hidden="true" />
-                  Fix in a session
+                  Fix in {fixTarget}
                 </button>
               )}
             </article>
@@ -492,10 +497,12 @@ export function FilesTab({ files, itemUrl }: { files: DetailFile[]; itemUrl: str
 export function ChecksTab({
   checks,
   canFix,
+  fixTarget = 'a session',
   onFixChecks,
 }: {
   checks: WorkItemDetails['checks'];
   canFix: boolean;
+  fixTarget?: FixTarget;
   onFixChecks: () => void;
 }) {
   const summary = summarizeChecks(checks);
@@ -517,11 +524,12 @@ export function ChecksTab({
       {canFix && summary.failing > 0 && (
         <div className="inbox-detail-callout" data-tone="error">
           <p>
-            <strong>{plural(summary.failing, 'check')} failing.</strong> A session can read the logs, fix the cause and push.
+            <strong>{plural(summary.failing, 'check')} failing.</strong>{' '}
+            {fixTarget === 'this session' ? 'This session' : 'A session'} can read the logs, fix the cause and push.
           </p>
           <button type="button" className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" onClick={onFixChecks}>
             <Wrench size={13} aria-hidden="true" />
-            Fix failing checks in a session
+            Fix failing checks in {fixTarget}
           </button>
         </div>
       )}

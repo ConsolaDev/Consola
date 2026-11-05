@@ -1,12 +1,14 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { ChevronDown, ExternalLink } from 'lucide-react';
+import { ChevronDown, ExternalLink, FolderGit2, PanelRight, Tag } from 'lucide-react';
 import { PROVIDER_META } from '../../../shared/providers';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import { sameWorkItem, workItemUrl } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
 import { useInboxStore } from '../../stores/inboxStore';
+import { useNavigationStore } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { tildePath } from '../../utils/displayPath';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor } from '../../utils/sessionStatus';
 import { metaLineFor } from '../Inbox/inboxPresentation';
@@ -21,8 +23,12 @@ interface WorkItemStripProps {
  * The thin strip above a work-item session's terminal: live PR/issue facts,
  * the action this session was started as, its siblings on the same item,
  * and where it physically runs. It reads the same cache as the Inbox — one
- * fetcher, one rate-limit budget — and is read-only: every provider write
- * happens through the agent in the terminal below it.
+ * fetcher, one rate-limit budget — and is read-only. Its Details toggle opens
+ * the item beside the terminal (WorkItemPanel), which is where it can be
+ * acted on directly.
+ *
+ * Only what can be pressed has an edge: the action and the worktree are
+ * facts about this session, so they read as text, never as buttons.
  *
  * A merged/closed item drops out of the inbox; the strip then falls back to
  * the workItem on the session record, because the session and its
@@ -43,6 +49,8 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
     state.workspaces.find((candidate) => candidate.id === workspaceId)
   );
   const terminals = useTerminalStore((state) => state.terminals);
+  const isPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
+  const togglePanel = useNavigationStore((state) => state.toggleWorkItemPanel);
 
   if (!workItem) return null;
   const label = workItem.type === 'pr' ? 'PR' : 'Issue';
@@ -63,17 +71,32 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
           {item ? metaLineFor(item) : `${workItem.repo} · no longer in the inbox`}
         </span>
       </div>
-      {session.workItemAction && (
-        <span className="work-item-strip-pill work-item-strip-action">{session.workItemAction}</span>
+      {(session.workItemAction || session.cwd) && (
+        <span className="work-item-strip-facts">
+          {session.workItemAction && (
+            <span className="work-item-strip-fact" title={`Started with the ${session.workItemAction} action`}>
+              {/* A label, not a verb: a play glyph would read as "run this". */}
+              <Tag size={12} aria-hidden="true" />
+              {session.workItemAction}
+            </span>
+          )}
+          {session.cwd && (
+            <span className="work-item-strip-fact" title={`Runs in its own worktree: ${tildePath(session.cwd)}`}>
+              <FolderGit2 size={12} aria-hidden="true" />
+              worktree · {workItem.type}-{workItem.number}
+            </span>
+          )}
+        </span>
       )}
       {siblings.length > 0 && (
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button
-              className="work-item-strip-pill work-item-strip-siblings"
+              type="button"
+              className="work-item-strip-button"
               aria-label={`${total} sessions on this ${noun}`}
             >
-              {total} sessions on this {noun} <ChevronDown size={11} />
+              {total} sessions <ChevronDown size={12} aria-hidden="true" />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
@@ -95,11 +118,6 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
           </DropdownMenu.Portal>
         </DropdownMenu.Root>
       )}
-      {session.cwd && (
-        <span className="work-item-strip-pill">
-          worktree · {workItem.type}-{workItem.number}
-        </span>
-      )}
       <a
         className="work-item-strip-link"
         href={item?.url ?? workItemUrl(workItem)}
@@ -108,6 +126,20 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
       >
         Open on {providerName} <ExternalLink size={12} />
       </a>
+      {/* The panel reads as the workspace's account; without one it has
+          nothing to show, so there is nothing to toggle. */}
+      {workspace?.provider && (
+        <button
+          type="button"
+          className="work-item-strip-button"
+          aria-pressed={isPanelVisible}
+          title={isPanelVisible ? `Hide ${noun} details` : `Show ${noun} details beside the session`}
+          onClick={togglePanel}
+        >
+          <PanelRight size={13} aria-hidden="true" />
+          Details
+        </button>
+      )}
     </div>
   );
 }

@@ -1,0 +1,13 @@
+/* A linked session's PR or issue, in a resizable panel beside its terminal.
+   It plays the part of the Inbox's .inbox-pane-slot: the scroll container,
+   with the top/right inset the pane assumes, and the inset the detail tabs
+   offset by to stick to its visible edge (see .inbox-detail-tabs). */
+.work-item-panel {
+  --pane-slot-inset-top: var(--space-4);
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--pane-slot-inset-top) var(--space-4) 0 0;
+  background: var(--color-bg-primary);
+}

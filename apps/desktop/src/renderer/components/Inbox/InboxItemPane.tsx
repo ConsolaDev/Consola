@@ -7,6 +7,7 @@ import { sessionLabel } from '../../../shared/sessionLabel';
 import { defaultActionFor } from '../../../shared/workItemActions';
 import type { InboxItem, WorkItemLaunchAction } from '../../../shared/workItems';
 import { sameWorkItem } from '../../../shared/workItems';
+import type { WorkItemDetails } from '../../../shared/workItemDetails';
 import type { Session, Workspace } from '../../../shared/workspace';
 import { itemKey, launchKey, useInboxStore } from '../../stores/inboxStore';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
@@ -21,6 +22,16 @@ export interface InboxItemPaneProps {
   workspace: Workspace;
   item: InboxItem;
   onClose: () => void;
+  /**
+   * The session this pane sits beside, when it does (WorkItemPanel). Its row
+   * says so instead of offering to open what is already open.
+   */
+  currentSessionId?: string;
+  /**
+   * Beside a session, a Fix is handed to that session rather than drafted as
+   * a new one. A returned string is why it could not be.
+   */
+  fixInSession?: (prompt: string) => string | void;
 }
 
 /** Verbatim from the spec: the inline confirm that replaces a block. */
@@ -55,7 +66,7 @@ function automationPhase(status: SessionStatus): string | null {
  * passed in: the pane knows the item, and the section is a pure function
  * of it.
  */
-export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) {
+export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixInSession }: InboxItemPaneProps) {
   const terminals = useTerminalStore((state) => state.terminals);
   const launch = useInboxStore((state) => state.launch);
   const openClonePrompt = useInboxStore((state) => state.openClonePrompt);
@@ -67,6 +78,11 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
   const sessionActionsRef = useRef<HTMLDivElement>(null);
   const [customOpen, setCustomOpen] = useState(false);
   const [customPrompt, setCustomPrompt] = useState('');
+  // The Inbox's copy lags a refresh behind, and a stand-in for an item it no
+  // longer lists has no title at all: a fresh read is the better answer.
+  const [fetched, setFetched] = useState<WorkItemDetails | null>(null);
+  const title = fetched?.title ?? item.title;
+  const author = fetched?.author || item.author;
 
   // Task 8 fix-wave rule: name the bound provider, never hardcode "GitHub".
   // The pane only ever renders under a provider-bound workspace in practice
@@ -119,13 +135,13 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
   return (
     <aside className="inbox-pane" data-testid="inbox-pane" aria-label="Work item details">
       <div className="inbox-pane-header">
-        <h2 className="inbox-pane-title">{item.title}</h2>
+        <h2 className="inbox-pane-title">{title}</h2>
         <button className="inbox-pane-close" onClick={onClose} aria-label="Close details">
           <X size={14} />
         </button>
       </div>
       <div className="inbox-pane-meta">
-        {item.workItem.repo}#{item.workItem.number} · {item.author} ·{' '}
+        {item.workItem.repo}#{item.workItem.number} · {author ? `${author} · ` : ''}
         <a className="inbox-pane-link" href={item.url} target="_blank" rel="noreferrer">
           Open on {providerName} <ExternalLink size={11} />
         </a>
@@ -136,10 +152,12 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
         workspaceId={workspace.id}
         accountLogin={workspace.provider.accountLogin}
         item={item}
-        onFix={(prompt) => {
+        onDetails={setFetched}
+        fixTarget={fixInSession ? 'this session' : 'a session'}
+        onFix={fixInSession ?? ((prompt) => {
           setCustomPrompt(prompt); setCustomOpen(true);
           requestAnimationFrame(() => sessionActionsRef.current?.scrollIntoView({ block: 'start', behavior: 'smooth' }));
-        }}
+        })}
       />}
 
       <div className="inbox-pane-section-title">Sessions · {siblings.length}</div>
@@ -164,13 +182,17 @@ export function InboxItemPane({ workspace, item, onClose }: InboxItemPaneProps) 
                 {session.cwd ? ` · ${basename(session.cwd)}` : ''}
               </span>
             </div>
-            <button
-              className="inbox-pane-open"
-              onClick={() => activateSession(workspace.id, session.id)}
-              aria-label={`Open ${sessionLabel(session)}`}
-            >
-              Open
-            </button>
+            {session.id === currentSessionId ? (
+              <span className="inbox-pane-current">This session</span>
+            ) : (
+              <button
+                className="inbox-pane-open"
+                onClick={() => activateSession(workspace.id, session.id)}
+                aria-label={`Open ${sessionLabel(session)}`}
+              >
+                Open
+              </button>
+            )}
           </div>
         );
       })}

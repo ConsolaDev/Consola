@@ -649,3 +649,109 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
 });
+
+test('a linked session shows its item pane beside the terminal, and Fix pastes into that session', async () => {
+  test.setTimeout(90_000);
+  const userDataDir = createProfileDir();
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-session-details-'));
+  const fixturePath = path.join(fixtureDir, 'inbox.json');
+  const pastedPath = path.join(fixtureDir, 'pasted.txt');
+  const agent = path.join(fixtureDir, 'agent.sh');
+  // Raw mode hands the agent every byte as it arrives: a paste has no newline
+  // to wait for. Appending, because a health or capability probe runs this
+  // stub too, and must not wipe what the session received.
+  fs.writeFileSync(
+    agent,
+    [
+      '#!/bin/sh',
+      'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
+      'printf "Agent ready\\n"',
+      'stty raw -echo 2>/dev/null',
+      `exec cat >> "${pastedPath}"`,
+    ].join('\n'),
+    { mode: 0o755 }
+  );
+  fs.writeFileSync(fixturePath, JSON.stringify(buildInboxFixture()));
+  // A real clone, so the pane offers actions rather than "Clone into scope".
+  const repoDir = path.join(fixtureDir, 'catalog-portal');
+  initClone(repoDir);
+  const workspaceId = seedWorkspaceState(userDataDir, repoDir);
+  let app: ElectronApplication | undefined;
+  try {
+    const launched = await launchElectron({ userDataDir, env: {
+      CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'), GRAPHQL_INBOX_FIXTURE: fixturePath,
+    } });
+    app = launched.app;
+    const { page } = launched;
+    await page.evaluate(
+      async ({ workspaceId, binaryPath }) => {
+        await window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#555555', binaryPath });
+        const link = (number: number, workItemAction: string, instanceId: string) =>
+          window.workspaceAPI.createSession(workspaceId, {
+            name: 'New Session', workspaceId, instanceId, harnessId: 'stub', scopeId: 'scope-controller',
+            workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number },
+            workItemAction,
+          });
+        await link(51, 'Fix CI', 'details-e2e');
+        // #52 is not in the Inbox: merged, closed, or out of its window.
+        await link(52, 'Review', 'details-e2e-unlisted');
+      },
+      { workspaceId, binaryPath: agent }
+    );
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+    await page.locator('.session-nav-item', { hasText: 'PR #51 · Fix CI' }).click();
+    // The agent is up, in raw mode, and listening.
+    await expect.poll(() => fs.existsSync(pastedPath), { timeout: 15_000 }).toBe(true);
+
+    // Facts about the session are text; only the toggle is a button.
+    const strip = page.locator('.work-item-strip');
+    await expect(strip.getByText('Fix CI', { exact: true })).toBeVisible();
+    await expect(strip.getByRole('button', { name: 'Fix CI' })).toHaveCount(0);
+    const toggle = strip.getByRole('button', { name: 'Details' });
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+    const panel = page.getByTestId('work-item-panel');
+    await expect(panel).toHaveCount(0);
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-pressed', 'true');
+
+    // The whole Inbox pane: header, remote details, sessions, ways to start one.
+    const pane = panel.getByRole('complementary', { name: 'Work item details' });
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
+    const remote = pane.getByRole('region', { name: 'Remote item details' });
+    await expect(remote.getByText('regression coverage')).toBeVisible({ timeout: 15_000 });
+    await expect(remote.getByText('as JaviDev')).toBeVisible();
+    await expect(pane.getByText('Sessions · 1')).toBeVisible();
+    const thisRow = pane.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Fix CI' });
+    await expect(thisRow).toContainText('This session');
+    await expect(thisRow.getByRole('button', { name: /^Open / })).toHaveCount(0);
+    await expect(pane.locator('[data-action-id="review"]')).toBeVisible();
+
+    // A Fix goes to the session on screen, not to a new one: pasted into its
+    // composer and left for the person to send.
+    await remote.getByRole('tab', { name: 'Checks', exact: true }).click();
+    await expect(remote.getByRole('button', { name: 'Fix failing checks in a session' })).toHaveCount(0);
+    await remote.getByRole('button', { name: 'Fix failing checks in this session' }).click();
+    await expect
+      .poll(() => fs.readFileSync(pastedPath, 'utf8'), { timeout: 10_000 })
+      .toContain('\x1b[200~Investigate and fix the failing CI checks for https://github.com/sprocket/catalog-portal/pull/51.');
+    await expect(page.locator('.terminal-panel .terminal-surface textarea')).toBeFocused();
+    await expect(pane.getByRole('textbox', { name: 'Custom prompt' })).toHaveCount(0);
+    await page.screenshot({ path: path.join(test.info().outputDir, 'session-work-item-panel.png') });
+
+    // The panel is a preference: the next linked session shows it too. Its
+    // item is not in the Inbox, so the pane names it from a fresh read.
+    await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
+    await expect(pane.locator('.inbox-pane-meta')).toContainText('sprocket/catalog-portal#52');
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({ timeout: 15_000 });
+    await expect(pane.locator('.inbox-pane-meta')).toContainText('simon-sprocket');
+
+    await pane.getByRole('button', { name: 'Close details' }).click();
+    await expect(panel).toHaveCount(0);
+    await expect(toggle).toHaveAttribute('aria-pressed', 'false');
+  } finally {
+    await app?.close();
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});

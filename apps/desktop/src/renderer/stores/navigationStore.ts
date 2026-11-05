@@ -24,7 +24,8 @@ export function clampSidebarWidth(width: number): number {
  * What this window is showing, and how it is laid out.
  *
  * The two are persisted differently on purpose. Sidebar visibility and width,
- * and explorer visibility, are preferences and are shared by every window,
+ * and explorer and work-item panel visibility, are preferences and are shared
+ * by every window,
  * where a last-writer-wins race is harmless. Which workspace and session a window holds
  * is that window's identity: it arrives from main at construction and is
  * remembered by main, because localStorage is shared and two windows writing
@@ -35,6 +36,11 @@ export interface NavigationState {
   /** Pixel width of the sidebar when shown; kept while it is hidden. */
   sidebarWidth: number;
   isExplorerVisible: boolean;
+  /**
+   * Show a linked session's PR or issue beside its terminal. A preference,
+   * like the explorer: it applies to every session that has a work item.
+   */
+  isWorkItemPanelVisible: boolean;
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   /**
@@ -47,6 +53,8 @@ export interface NavigationState {
   setSidebarWidth: (width: number) => void;
   toggleExplorer: () => void;
   setExplorerVisible: (visible: boolean) => void;
+  toggleWorkItemPanel: () => void;
+  setWorkItemPanelVisible: (visible: boolean) => void;
   /** Ask main for the workspace. Resolves once the verdict is known. */
   setActiveWorkspace: (id: string | null) => Promise<void>;
   setActiveSession: (id: string | null) => void;
@@ -83,6 +91,9 @@ export function mergeNavigationState(
     ...(typeof saved.isExplorerVisible === 'boolean'
       ? { isExplorerVisible: saved.isExplorerVisible }
       : {}),
+    ...(typeof saved.isWorkItemPanelVisible === 'boolean'
+      ? { isWorkItemPanelVisible: saved.isWorkItemPanelVisible }
+      : {}),
   };
 }
 
@@ -92,6 +103,7 @@ export const useNavigationStore = create<NavigationState>()(
       isSidebarHidden: false,
       sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
       isExplorerVisible: false,
+      isWorkItemPanelVisible: false,
       activeWorkspaceId: windowBridge.context.workspaceId,
       // Both arrive with the window, so the first paint already shows what
       // this workspace was left on rather than an empty view it corrects later.
@@ -103,6 +115,9 @@ export const useNavigationStore = create<NavigationState>()(
       setSidebarWidth: (width) => set({ sidebarWidth: clampSidebarWidth(width) }),
       toggleExplorer: () => set((state) => ({ isExplorerVisible: !state.isExplorerVisible })),
       setExplorerVisible: (visible) => set({ isExplorerVisible: visible }),
+      toggleWorkItemPanel: () =>
+        set((state) => ({ isWorkItemPanelVisible: !state.isWorkItemPanelVisible })),
+      setWorkItemPanelVisible: (visible) => set({ isWorkItemPanelVisible: visible }),
 
       setActiveWorkspace: async (id) => {
         const result = await windowBridge.activateWorkspace(id);
@@ -147,6 +162,7 @@ export const useNavigationStore = create<NavigationState>()(
         isSidebarHidden: state.isSidebarHidden,
         sidebarWidth: state.sidebarWidth,
         isExplorerVisible: state.isExplorerVisible,
+        isWorkItemPanelVisible: state.isWorkItemPanelVisible,
       }),
       // partialize only governs writes. zustand's default merge spreads the
       // *raw* persisted blob over fresh state on every hydrate, so a profile
