@@ -169,6 +169,39 @@ describe('createWorkItemAssetCache', () => {
     expect(fetch).toHaveBeenCalledTimes(3);
   });
 
+  it('stops holding a large image once it passes the limit, and streams the rest through whole', async () => {
+    let pulled = 0;
+    const body = () => new ReadableStream<Uint8Array>({
+      pull(controller) {
+        pulled++;
+        if (pulled > 100) controller.close();
+        else controller.enqueue(new TextEncoder().encode('0123456789'));
+      },
+    }, { highWaterMark: 0 });
+    const { fetch, load } = cached(async () => new Response(body(), { headers: { 'content-type': 'image/png' } }), { maxBytes: 25 });
+    const response = await load(AVATAR);
+    // Answered after three chunks (30 bytes > 25), not after reading all 1000 bytes.
+    expect(pulled).toBeLessThanOrEqual(4);
+    expect(response.headers.get('content-type')).toBe('image/png');
+    expect(await response.text()).toBe('0123456789'.repeat(100));
+    pulled = 0;
+    await (await load(AVATAR)).text();
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('answers a body that breaks off with an error, and asks again next time instead of waiting forever', async () => {
+    let broken = true;
+    const { fetch, load } = cached(async () => (broken
+      ? new Response(new ReadableStream({ pull(controller) { controller.error(new Error('connection reset')); } }), {
+        headers: { 'content-type': 'image/png' },
+      })
+      : image()));
+    expect((await load(AVATAR)).status).toBe(502);
+    broken = false;
+    expect(await (await load(AVATAR)).text()).toBe('png-bytes');
+    expect(fetch).toHaveBeenCalledTimes(2);
+  });
+
   it('forgets the least recently used image past its limit', async () => {
     const { fetch, load } = cached(async () => image(), { maxEntries: 2 });
     await load('https://avatars.example/a');

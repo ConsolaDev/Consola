@@ -152,20 +152,62 @@ export function createWorkItemAssetCache(
     let settle!: (entry: StoredAsset | null) => void;
     const slot = new Promise<StoredAsset | null>((resolve) => { settle = resolve; });
     stored.set(href, slot);
+    // Every way out but a stored image goes through here, so whoever waits
+    // on this fetch is never left waiting, and the next request asks again.
     const forget = (response: Response) => {
       settle(null);
       if (stored.get(href) === slot) stored.delete(href);
       return response;
     };
 
-    const response = await fetchWorkItemAsset(deps, href);
-    if (!response.ok) return forget(response);
-    const type = response.headers.get('content-type') ?? '';
-    const bytes = new Uint8Array(await response.arrayBuffer());
-    if (bytes.byteLength > maxBytes) return forget(new Response(bytes, { status: 200, headers: { 'Content-Type': type } }));
-    const entry = { type, bytes };
-    settle(entry);
-    while (stored.size > maxEntries) stored.delete(stored.keys().next().value!);
-    return serve(entry);
+    try {
+      const response = await fetchWorkItemAsset(deps, href);
+      if (!response.ok || !response.body) return forget(response);
+      const type = response.headers.get('content-type') ?? '';
+      // Read only as far as the limit. Past it the image is not kept: what
+      // was read and the rest of the stream go straight to the page, so an
+      // image of any size never sits in main's memory whole.
+      const reader = response.body.getReader();
+      const chunks: Uint8Array[] = [];
+      let size = 0;
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        chunks.push(value);
+        size += value.byteLength;
+        if (size > maxBytes) return forget(new Response(resume(chunks, reader), { status: 200, headers: { 'Content-Type': type } }));
+      }
+      const bytes = new Uint8Array(size);
+      let offset = 0;
+      for (const chunk of chunks) {
+        bytes.set(chunk, offset);
+        offset += chunk.byteLength;
+      }
+      const entry = { type, bytes };
+      settle(entry);
+      while (stored.size > maxEntries) stored.delete(stored.keys().next().value!);
+      return serve(entry);
+    } catch {
+      // The body broke off: a timeout or a dropped connection. The same
+      // broken image as any other failed fetch.
+      return forget(refuse(502));
+    }
   };
+}
+
+/** A stream of the chunks already read, then whatever `reader` has left. */
+function resume(chunks: Uint8Array[], reader: ReadableStreamDefaultReader<Uint8Array>): ReadableStream<Uint8Array> {
+  return new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (const chunk of chunks.splice(0)) controller.enqueue(chunk);
+    },
+    async pull(controller) {
+      const { done, value } = await reader.read();
+      if (done) controller.close();
+      else controller.enqueue(value);
+    },
+    cancel(reason) {
+      return reader.cancel(reason);
+    },
+  });
 }
