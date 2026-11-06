@@ -146,6 +146,29 @@
   border-radius: var(--radius-md, 8px);
 }
 
+/* An image that opens in the viewer. The button adds the cursor and a focus ring, and nothing to the layout. */
+.markdown-image-zoom {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-md, 8px);
+  background: none;
+  color: inherit;
+  font: inherit;
+  vertical-align: bottom;
+  cursor: zoom-in;
+}
+
+.markdown-image-zoom > img,
+.markdown-image-zoom > picture {
+  display: block;
+}
+
+.markdown-image-zoom:hover img {
+  filter: brightness(1.06);
+}
+
 /* Code Block Wrapper */
 .code-block-wrapper {
   margin: 0.35em 0;

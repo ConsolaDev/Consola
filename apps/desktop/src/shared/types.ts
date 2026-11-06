@@ -1,3 +1,4 @@
+import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
     Group,
@@ -321,10 +322,11 @@ export interface SessionFanOutResult {
 }
 
 /**
- * The Inbox surface of preload. Read-only against the provider by
- * construction: there is no method here that writes to it.
+ * The Inbox surface of preload, including explicit remote item actions.
  */
 export interface InboxAPI {
+    getDetails: (workspaceId: string, ref: WorkItemRef) => Promise<WorkItemDetails>;
+    mutateItem: (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation) => Promise<void>;
     getInbox: (workspaceId: string) => Promise<InboxSnapshot | null>;
     refreshInbox: (workspaceId: string) => Promise<void>;
     onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) => () => void;

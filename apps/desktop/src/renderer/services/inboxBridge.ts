@@ -1,3 +1,5 @@
+import type { WorkItemRef } from '../../shared/workItems';
+import type { WorkItemDetails, WorkItemMutation } from '../../shared/workItemDetails';
 import type { InboxSnapshot } from '../../shared/workItems';
 
 function getAPI() {
@@ -11,9 +13,19 @@ function getAPI() {
  * Bridge to the Inbox cache in the main process.
  *
  * Main owns the cache; this bridge sends intents and listens for pushes.
- * Read-only against the provider by construction: nothing here writes to it.
+ * Explicit remote actions are validated and executed in main.
  */
 export const inboxBridge = {
+    getDetails: async (workspaceId: string, ref: WorkItemRef): Promise<WorkItemDetails> => {
+        const api = getAPI();
+        if (!api) throw new Error('Inbox connection is unavailable.');
+        return api.getDetails(workspaceId, ref);
+    },
+    mutateItem: async (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation): Promise<void> => {
+        const api = getAPI();
+        if (!api) throw new Error('Inbox connection is unavailable.');
+        return api.mutateItem(workspaceId, ref, mutation);
+    },
     /** Cached snapshot, or null. A null result also kicks a background refresh. */
     getInbox: async (workspaceId: string): Promise<InboxSnapshot | null> => {
         const api = getAPI();

@@ -585,9 +585,35 @@
 
 .session-nav-item-name {
   max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* The name's line, led by any mark that has to survive a narrow sidebar. */
+.session-nav-item-title {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  max-width: 100%;
+  min-width: 0;
+}
+
+/* A read-only session wears the lock its terminal toolbar does, so the row
+   and the pane it opens match. It leads the name rather than trailing it:
+   the name ellipsizes, and the end of the line is the first thing a narrow
+   sidebar cuts. Quiet at rest, it firms up with the row it belongs to. */
+.session-nav-item-read-only {
+  display: inline-flex;
+  flex: none;
+  color: var(--color-text-tertiary);
+  transition: color var(--transition-fast);
+}
+
+.session-nav-item:hover .session-nav-item-read-only,
+.session-nav-item.active .session-nav-item-read-only {
+  color: var(--color-text-secondary);
 }
 
 /* The scope a grouped session runs in. Its row sits under a group rather

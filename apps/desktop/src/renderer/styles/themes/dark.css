@@ -66,6 +66,13 @@
   --color-worktree-muted: rgba(170, 142, 238, 0.14);
   --color-worktree-border: rgba(170, 142, 238, 0.38);
 
+  /*
+   * Merged pull requests and completed issues. GitHub's own purple, because
+   * the Inbox mirrors GitHub and that is where people learned the colour.
+   * Remote item state only -- the worktree hue above still marks checkouts.
+   */
+  --color-merged: rgb(171, 125, 248);
+
   /* Git status colors */
   --color-git-staged: rgb(77, 171, 117);     /* Green for staged */
   --color-git-modified: rgb(223, 171, 77);   /* Yellow for unstaged modified */

@@ -48,7 +48,7 @@ describe('stub gh fixture', () => {
   });
 
   it('rejects argv it does not know, so a drifted caller fails loudly', () => {
-    expect(() => runStub(['pr', 'merge', '51'])).toThrow();
+    expect(() => runStub(['pr', 'unsupported-command', '51'])).toThrow();
   });
 
   it('records argv and the token it saw, one line per call, when STUB_GH_LOG is set', () => {

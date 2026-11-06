@@ -1,6 +1,6 @@
 import { useState, useRef, useEffect } from 'react';
-import { FolderGit2, X } from 'lucide-react';
-import { sessionLabel, sessionSubtitle } from '../../../shared/sessionLabel';
+import { FolderGit2, Lock, X } from 'lucide-react';
+import { sessionLabel } from '../../../shared/sessionLabel';
 import { checkoutRef } from '../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../shared/workspace';
 import { useCheckout } from '../../stores/checkoutStore';
@@ -90,17 +90,21 @@ export function SessionNavItem({
   const displayStatus: SessionStatus =
     isActive && sessionStatus === 'done' ? 'ready' : sessionStatus;
   const statusWord = STATUS_WORDS[displayStatus];
-  // The row reads the derived label — "PR #4118 · Review", "⑂ name" — and
-  // shows `name` underneath only when the label stopped saying it. A group
-  // member replaces it with where it belongs: its row sits under a group
-  // heading rather than a scope, so the scope is the one fact the row is
-  // otherwise missing. It replaces rather than joins because `name` is the
-  // seed prompt until the CLI summary lands, long enough to truncate the
-  // scope off the end of a shared line.
+  // The row reads the derived label — "PR #4118 · Review", "⑂ name". A
+  // launched work-item session's `name` is not shown under it: until the CLI
+  // summary lands it is the seed prompt Consola sent, which only repeats what
+  // the label already says. The only subtitle is where the row belongs, for
+  // a row whose place in the list doesn't say so.
   const label = sessionLabel(session);
-  const subtitleText = subtitle ?? sessionSubtitle(session);
+  // An automation's session and the "Continue with full tools" fork of it
+  // share a label, so the lock is what tells them apart.
+  const readOnly = session.toolPolicy === 'read-only';
+  const readOnlyNote = session.automation?.name
+    ? `Read-only · started by ${session.automation.name}`
+    : 'Read-only';
   const accessibleName = [
     label,
+    readOnly && 'read-only',
     STATUS_LABELS[displayStatus],
     worktreeRef && `worktree ${worktreeRef}`,
     shownModel,
@@ -224,8 +228,18 @@ export function SessionNavItem({
         />
       ) : (
         <span className="session-nav-item-text">
-          <span className="session-nav-item-name">{label}</span>
-          {subtitleText && <span className="session-nav-item-subtitle">{subtitleText}</span>}
+          <span className="session-nav-item-title">
+            {readOnly && (
+              <span
+                className="session-nav-item-read-only"
+                title={`${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`}
+              >
+                <Lock size={11} aria-hidden="true" />
+              </span>
+            )}
+            <span className="session-nav-item-name">{label}</span>
+          </span>
+          {subtitle &&<span className="session-nav-item-subtitle">{subtitle}</span>}
           {/* Worktree and model share a line when both fit, and wrap when not. */}
           {(worktreeRef || shownModel) && (
             <span className="session-nav-item-meta">

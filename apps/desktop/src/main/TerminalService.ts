@@ -132,6 +132,21 @@ export interface TerminalExitInfo {
     stopped?: string;
 }
 
+/**
+ * Characters a paste must not carry. Remote text reaches a paste -- a PR
+ * title in an action's prompt, a review comment in a Fix -- and an ESC would
+ * let it write its own `ESC[201~`: the paste would end early, and whatever
+ * followed would arrive as keystrokes, Enter included, sent as the person.
+ * Tab and line breaks are content; every other C0 control, DEL and the C1
+ * controls (whose CSI, U+009B, is ESC[ in one byte) are not.
+ */
+const UNSAFE_IN_PASTE = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
+
+/** `text` as one bracketed paste that nothing inside it can end early. */
+export function bracketedPaste(text: string): string {
+    return `\x1b[200~${text.replace(UNSAFE_IN_PASTE, '')}\x1b[201~`;
+}
+
 export class TerminalService extends EventEmitter {
     private claudePty: pty.IPty | null = null;
     private dimensions: TerminalDimensions;
@@ -241,7 +256,7 @@ export class TerminalService extends EventEmitter {
      */
     public paste(text: string): void {
         if (!this.claudePty) return;
-        this.claudePty.write(`\x1b[200~${text}\x1b[201~`);
+        this.claudePty.write(bracketedPaste(text));
     }
 
     public resize(cols: number, rows: number): void {

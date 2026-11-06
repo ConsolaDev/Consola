@@ -53,6 +53,9 @@
   --color-worktree-muted: rgba(116, 82, 196, 0.1);
   --color-worktree-border: rgba(116, 82, 196, 0.32);
 
+  /* Merged pull requests and completed issues; see dark.css. */
+  --color-merged: rgb(130, 80, 223);
+
   /* Git status colors */
   --color-git-staged: rgb(68, 131, 97);      /* Green for staged */
   --color-git-modified: rgb(203, 145, 47);   /* Yellow for unstaged modified */

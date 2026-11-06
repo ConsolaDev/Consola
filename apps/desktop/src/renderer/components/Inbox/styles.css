@@ -146,8 +146,9 @@
   color: var(--color-text-tertiary);
 }
 
-/* Two columns. The pane is fixed width so the list does not reflow when it
-   opens; the list scrolls on its own so the header and tabs stay put. */
+/* Two resizable columns (react-resizable-panels): the list, and the
+   selected item's pane. Each Panel clips its content, so each column scrolls
+   on its own and the header and tabs stay put. */
 .inbox-body {
   flex: 1;
   display: flex;
@@ -155,21 +156,68 @@
 }
 
 .inbox-main {
-  flex: 1;
+  height: 100%;
   min-width: 0;
   overflow-y: auto;
   padding: var(--space-4);
 }
 
 .inbox-pane-slot {
-  flex: none;
+  /* Read by sticky children: they stick inside this padding, not at the edge. */
+  --pane-slot-inset-top: var(--space-4);
+  height: 100%;
   overflow-y: auto;
-  /* .inbox-pane carries its own width and left border (ruling: no
-     duplicate box model between the slot and the pane), but the pane's own
-     padding is bottom/left only -- it assumes a parent that already insets
-     it from the top and right, the way .inbox-main insets the list. The
-     slot is that parent, so it owns the matching top/right padding. */
-  padding: var(--space-4) var(--space-4) 0 0;
+  /* The pane's own padding is bottom/left only -- it assumes a parent that
+     already insets it from the top and right, the way .inbox-main insets the
+     list. The slot is that parent, so it owns the matching top/right padding. */
+  padding: var(--pane-slot-inset-top) var(--space-4) 0 0;
+}
+
+/* The divider between list and pane: a hairline with a wider grab area.
+   Hover, focus and drag all light it in the accent; arrow keys resize it
+   once focused, and a double-click puts it back to the default width. */
+.inbox-resize-handle {
+  position: relative;
+  width: 9px;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+.inbox-resize-handle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  background: var(--color-border);
+  transform: translateX(-50%);
+  transition: background-color 150ms ease-out, transform 150ms ease-out;
+}
+
+.inbox-resize-handle:hover::after,
+.inbox-resize-handle:focus-visible::after,
+.inbox-resize-handle[data-separator='hover']::after,
+.inbox-resize-handle[data-separator='active']::after {
+  background: var(--color-accent);
+  transform: translateX(-50%) scaleX(2);
+}
+
+/* The lit hairline is the focus indicator; an outline box around a 9px
+   strip would only blur it. */
+.inbox-resize-handle:focus-visible {
+  outline: none;
+}
+
+/* A drag across either column must not select its text. */
+.inbox-body:has(.inbox-resize-handle[data-separator='active']) {
+  user-select: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .inbox-resize-handle::after {
+    transition: none;
+  }
 }
 
 .inbox-empty {
@@ -442,18 +490,18 @@
   color: var(--color-text-tertiary);
 }
 
-/* The detail pane (layout B). Its width is fixed so the list does not
-   reflow when a row is selected; it scrolls on its own. */
+/* The detail pane (layout B). Its width is the Panel's, which the person
+   sets by dragging the divider; the divider also draws the column's edge. */
 .inbox-pane {
-  width: 300px;
-  flex: none;
+  min-width: 0;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  border-left: 1px solid var(--color-border);
   padding: 0 0 var(--space-4) var(--space-4);
-  overflow-y: auto;
-  font-size: 12.5px;
+  /* Fill the slot. The slot scrolls; the pane must not, or the detail tabs
+     could not stick to the top while it does. */
+  min-height: 100%;
+  font-size: 13px;
   color: var(--color-text-secondary);
 }
 
@@ -466,9 +514,10 @@
 .inbox-pane-title {
   flex: 1;
   margin: 0;
-  font-size: 13.5px;
-  font-weight: var(--font-weight-medium);
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
   line-height: 1.35;
+  text-wrap: pretty;
   color: var(--color-text-primary);
 }
 
@@ -489,9 +538,28 @@
   color: var(--color-text-primary);
 }
 
+/* Everything that names the item, in one line under its title: its state,
+   where it lives, who opened it, and the way out to the provider. */
 .inbox-pane-meta {
-  font-size: 11.5px;
-  color: var(--color-text-tertiary);
+  --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-pane-meta-text {
+  min-width: 0;
+}
+
+/* The detail panel's state badge, at the meta line's size. */
+.inbox-pane-meta .inbox-detail-state {
+  height: 22px;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+  font-size: 12px;
 }
 
 .inbox-pane-link {
@@ -503,38 +571,142 @@
 
 .inbox-pane-link:hover {
   color: var(--color-text-primary);
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
-.inbox-pane-section-title {
-  margin: var(--space-4) 0 var(--space-1);
-  font-size: 10px;
-  font-weight: var(--font-weight-medium);
-  letter-spacing: 0.09em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
-}
-
-.inbox-pane-kv {
+/* The sessions dock: every session on the item and the ways to start one,
+   directly under the title. Its own surface (the sidebar's) so it reads as
+   Consola's part of the pane, set apart from GitHub's item below it. The
+   accent is spent once, on the default action. */
+.inbox-pane-dock {
+  --pane-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --pane-accent-text: var(--color-accent);
+  --pane-warning-text: var(--color-warning);
+  --pane-error-text: var(--color-error);
   display: flex;
+  flex-direction: column;
+  margin-top: var(--space-3);
+  border: 1px solid var(--color-border);
+  /* Literal: inside .radix-themes the radius tokens can collapse to 0px. */
+  border-radius: 10px;
+  background: var(--color-bg-sidebar);
+}
+
+[data-theme='dark'] .inbox-pane-dock {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.04), var(--shadow-elevation-1);
+}
+
+/* Toned text darkens on white to keep AA contrast, as in .inbox-detail. */
+[data-theme='light'] .inbox-pane-dock {
+  --pane-accent-text: color-mix(in srgb, var(--color-accent) 62%, black);
+  --pane-warning-text: color-mix(in srgb, var(--color-warning) 62%, black);
+  --pane-error-text: color-mix(in srgb, var(--color-error) 78%, black);
+}
+
+.inbox-pane-dock-head {
+  display: flex;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
-  padding: 2px 0;
+  padding: 8px 6px 2px 12px;
 }
 
-.inbox-pane-empty,
-.inbox-pane-hint {
-  margin: 0 0 var(--space-2);
-  font-size: 11.5px;
+/* Sentence case: a quiet label for the dock, not a shout above it. */
+.inbox-pane-section-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-count {
+  display: inline-grid;
+  place-items: center;
+  min-width: 17px;
+  height: 17px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-bg-hover);
+  color: var(--color-text-secondary);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-pane-link-session {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color 150ms var(--pane-ease), color 150ms var(--pane-ease);
+}
+
+.inbox-pane-link-session:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-empty {
+  margin: 2px 12px 12px;
+  font-size: 12px;
+  line-height: 1.45;
   color: var(--color-text-tertiary);
-  line-height: 1.4;
+}
+
+.inbox-pane-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+/* Session rows. Status is the dot's job; the row only adds a halo while the
+   agent works and a warm wash when it is waiting on the person. */
+.inbox-pane-sessions {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 2px 4px 6px;
+  list-style: none;
 }
 
 .inbox-pane-session-row {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  padding: 5px 0;
-  border-bottom: 1px solid var(--color-border);
+  gap: 10px;
+  min-height: 42px;
+  padding: 5px 6px 5px 10px;
+  border-radius: 7px;
+  transition: background-color 150ms var(--pane-ease);
+}
+
+.inbox-pane-session-row:hover {
+  background: color-mix(in srgb, var(--color-text-primary) 5%, transparent);
+}
+
+.inbox-pane-session-row[data-status='working'] .status-dot {
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
+
+.inbox-pane-session-row[data-status='needs-attention'] {
+  background: color-mix(in srgb, var(--color-warning) 9%, transparent);
+}
+
+.inbox-pane-session-row[data-status='needs-attention']:hover {
+  background: color-mix(in srgb, var(--color-warning) 14%, transparent);
 }
 
 .inbox-pane-session-text {
@@ -542,133 +714,2520 @@
   min-width: 0;
   display: flex;
   flex-direction: column;
+  gap: 1px;
 }
 
 .inbox-pane-session-label {
   color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .inbox-pane-session-sub {
-  font-size: 11px;
-  color: var(--color-text-tertiary);
+  font-size: 12px;
+  color: var(--color-text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
-.inbox-pane-open,
-.inbox-pane-secondary {
+.inbox-pane-session-row[data-status='working'] .inbox-pane-session-status {
+  color: var(--pane-accent-text);
+}
+
+.inbox-pane-session-row[data-status='needs-attention'] .inbox-pane-session-status {
+  color: var(--pane-warning-text);
+  font-weight: var(--font-weight-medium);
+}
+
+/* Open follows the row: pointing anywhere on it readies the button and
+   slides its arrow toward where it goes. */
+.inbox-pane-open {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 26px;
+  padding: 0 8px 0 10px;
   border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
+  border-radius: 6px;
   background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 11.5px;
-  padding: 2px 8px;
-  cursor: pointer;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
   white-space: nowrap;
-}
-
-.inbox-pane-secondary {
-  align-self: flex-start;
-  margin-top: var(--space-2);
-}
-
-.inbox-pane-open:hover,
-.inbox-pane-secondary:hover {
-  background: var(--color-bg-hover);
-  color: var(--color-text-primary);
-}
-
-.inbox-pane-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-}
-
-.inbox-pane-action-slot {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-/* Every action is a button; the section default is the one drawn in the
-   accent, and a confirm turns the whole label into the warning. */
-.inbox-pane-action {
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: transparent;
-  color: var(--color-text-secondary);
-  font-size: 12px;
-  padding: 4px 10px;
-  text-align: left;
   cursor: pointer;
+  transition:
+    background-color 150ms var(--pane-ease),
+    border-color 150ms var(--pane-ease),
+    transform 120ms var(--pane-ease);
 }
 
-.inbox-pane-action:hover:not(:disabled) {
+.inbox-pane-open svg {
+  color: var(--color-text-tertiary);
+  transition: transform 200ms var(--pane-ease), color 150ms var(--pane-ease);
+}
+
+.inbox-pane-session-row:hover .inbox-pane-open {
+  border-color: var(--color-border-hover);
+}
+
+.inbox-pane-session-row:hover .inbox-pane-open svg,
+.inbox-pane-open:focus-visible svg {
+  color: var(--color-text-primary);
+  transform: translateX(2px);
+}
+
+.inbox-pane-open:hover {
   background: var(--color-bg-hover);
-  color: var(--color-text-primary);
 }
 
-.inbox-pane-action--default {
-  border-color: var(--color-accent);
-  color: var(--color-accent);
+.inbox-pane-open:active {
+  transform: scale(0.97);
 }
 
-.inbox-pane-action--confirm {
-  border-color: var(--color-warning);
-  color: var(--color-warning);
-  white-space: normal;
-}
-
-.inbox-pane-action:disabled {
-  opacity: 0.6;
-  cursor: default;
-}
-
-.inbox-pane-action-error {
-  font-size: 11px;
-  color: var(--color-error);
-}
-
-.inbox-pane-custom {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  margin-top: var(--space-2);
-}
-
-.inbox-pane-custom-textarea {
-  width: 100%;
-  resize: vertical;
-  font: inherit;
-  font-size: 12px;
-  padding: 6px 8px;
-  border: 1px solid var(--color-border-strong);
-  border-radius: var(--radius-sm);
-  background: var(--color-bg-secondary);
-  color: var(--color-text-primary);
-}
-
-.inbox-pane-custom-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 4px;
-}
-
-.inbox-pane-custom-actions .inbox-pane-secondary {
-  margin-top: 0;
+/* Where the pane sits beside a session, that session's row: a fact, not a
+   button, so it is plain words. An outline read as a disabled button. */
+.inbox-pane-current {
+  flex: none;
+  padding: 0 8px;
+  font-size: 11.5px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
 }
 
 /* Which automation started a session: read-only, and not the person's own. */
 .inbox-pane-automation-badge {
   margin-left: var(--space-2);
-  padding: 0 var(--space-1);
+  padding: 0 5px;
   border: 1px solid var(--color-border);
-  border-radius: var(--radius-sm);
+  border-radius: 4px;
   font-size: var(--font-size-xs);
   font-weight: var(--font-weight-normal);
   color: var(--color-text-secondary);
+}
+
+/* Starting one: actions as a wrapping row under a hairline, the section
+   default in the accent, a custom prompt as the quiet ghost at the end. */
+.inbox-pane-launch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px 12px;
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-pane-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.inbox-pane-action {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-text-primary) 3%, transparent);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--pane-ease),
+    border-color 150ms var(--pane-ease),
+    color 150ms var(--pane-ease),
+    box-shadow 200ms var(--pane-ease),
+    transform 120ms var(--pane-ease);
+}
+
+.inbox-pane-action:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+
+.inbox-pane-action:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.inbox-pane-action:disabled {
+  cursor: default;
+}
+
+/* A launch in flight is busy, not unavailable: it keeps full strength. */
+.inbox-pane-action:disabled:not([data-launching]) {
+  opacity: 0.45;
+}
+
+.inbox-pane-action-icon {
+  flex: none;
+  transition: transform 220ms var(--pane-ease);
+}
+
+.inbox-pane-action-icon--spin {
+  animation: inbox-detail-spin 0.9s linear infinite;
+}
+
+.inbox-pane-action--default {
+  border-color: transparent;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+}
+
+.inbox-pane-action--default:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--color-accent) 86%, var(--color-text-primary));
+  box-shadow: 0 6px 16px -8px color-mix(in srgb, var(--color-accent) 80%, transparent);
+}
+
+.inbox-pane-action--default:hover:not(:disabled) .inbox-pane-action-icon:not(.inbox-pane-action-icon--spin) {
+  transform: translateX(1.5px) scale(1.1);
+}
+
+.inbox-pane-action--quiet {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.inbox-pane-action--quiet:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-action--compose {
+  border-color: transparent;
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.inbox-pane-action--compose:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-action--compose:hover:not(:disabled) .inbox-pane-action-icon {
+  transform: rotate(-12deg);
+}
+
+/* Arming a start over a busy item takes the whole row, so the warning reads
+   as a sentence and not as one more button. */
+.inbox-pane-action--confirm {
+  flex-basis: 100%;
+  justify-content: flex-start;
+  padding: 6px 12px;
+  border-color: color-mix(in srgb, var(--color-warning) 55%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 12%, transparent);
+  color: var(--pane-warning-text);
+  text-align: left;
+  white-space: normal;
+  animation: inbox-pane-arm 260ms var(--pane-ease);
+}
+
+.inbox-pane-action--confirm:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--color-warning) 75%, transparent);
+  background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  box-shadow: none;
+}
+
+/* Preparing: a band of light crosses the button until the session opens. */
+.inbox-pane-action[data-launching]::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background: linear-gradient(
+    100deg,
+    transparent 25%,
+    color-mix(in srgb, currentColor 20%, transparent) 50%,
+    transparent 75%
+  );
+  transform: translateX(-100%);
+  animation: inbox-pane-sweep 1.2s var(--pane-ease) infinite;
+}
+
+.inbox-pane-action-error {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--pane-error-text);
+}
+
+.inbox-pane-action-error strong {
+  font-weight: var(--font-weight-semibold);
+}
+
+/* The custom prompt opens in place. A Fix handed over from the details below
+   lands here, and a ring marks where it landed. */
+.inbox-pane-custom {
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: inbox-pane-unfold 240ms var(--pane-ease);
+}
+
+.inbox-pane-custom-landed {
+  position: absolute;
+  inset: -5px -6px;
+  z-index: -1;
+  border-radius: 12px;
+  pointer-events: none;
+  animation: inbox-pane-landed 1100ms var(--pane-ease) forwards;
+}
+
+.inbox-pane-custom-textarea {
+  width: 100%;
+  min-height: 78px;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  padding: 9px 11px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  transition: border-color 150ms var(--pane-ease), box-shadow 150ms var(--pane-ease);
+}
+
+.inbox-pane-custom-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+/* The accent border and ring replace the global outline: same signal, drawn
+   on the field's own edge. */
+.inbox-pane-custom-textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.inbox-pane-placeholders {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+}
+
+.inbox-pane-placeholders-label {
+  margin-right: 2px;
+  font-size: 11.5px;
+  color: var(--color-text-tertiary);
+}
+
+.inbox-pane-placeholder {
+  height: 22px;
+  padding: 0 7px;
+  border: 1px solid var(--color-border);
+  border-radius: 5px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  font-variant-ligatures: none;
+  cursor: pointer;
+  transition:
+    border-color 150ms var(--pane-ease),
+    background-color 150ms var(--pane-ease),
+    color 150ms var(--pane-ease),
+    transform 100ms var(--pane-ease);
+}
+
+.inbox-pane-placeholder::before { content: '{{'; opacity: 0.45; }
+.inbox-pane-placeholder::after { content: '}}'; opacity: 0.45; }
+
+.inbox-pane-placeholder:hover {
+  border-color: color-mix(in srgb, var(--color-accent) 55%, transparent);
+  background: color-mix(in srgb, var(--color-accent) 9%, var(--color-bg-primary));
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-placeholder:active {
+  transform: translateY(1px);
+}
+
+.inbox-pane-custom-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.inbox-pane-kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.inbox-pane-kbd-hint kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+}
+
+@keyframes inbox-pane-unfold {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+
+@keyframes inbox-pane-arm {
+  from { opacity: 0.6; transform: scale(0.985); }
+}
+
+@keyframes inbox-pane-sweep {
+  to { transform: translateX(100%); }
+}
+
+@keyframes inbox-pane-landed {
+  0% {
+    background: color-mix(in srgb, var(--color-accent) 14%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--color-accent) 60%, transparent);
+  }
+  30% {
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--color-accent) 55%, transparent);
+  }
+  100% {
+    background: transparent;
+    box-shadow: 0 0 0 7px transparent;
+  }
+}
+
+/* Reduced motion keeps every state and drops the travel. The spinner stays:
+   it is the only sign a launch is still in flight. */
+@media (prefers-reduced-motion: reduce) {
+  .inbox-pane-custom,
+  .inbox-pane-action--confirm,
+  .inbox-pane-action[data-launching]::after {
+    animation: none;
+  }
+
+  .inbox-pane-custom-landed {
+    display: none;
+  }
+
+  .inbox-pane-action,
+  .inbox-pane-action-icon,
+  .inbox-pane-open,
+  .inbox-pane-open svg,
+  .inbox-pane-placeholder {
+    transition: none;
+  }
+}
+
+/* Outside the dock: the Inbox's own setup-recovery buttons. */
+.inbox-pane-secondary {
+  align-self: flex-start;
+  margin-top: var(--space-2);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font-size: 12px;
+  padding: 4px 10px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.inbox-pane-secondary:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+
+/* ---------------------------------------------------------------------------
+   Remote item details (WorkItemDetailPanel): the GitHub item itself, read and
+   acted on in place. Colour carries meaning and nothing else. Every tone is a
+   theme token chosen with data-tone, and the light theme darkens toned text so
+   it keeps AA contrast on white, where the raw tokens are too pale for text.
+   --------------------------------------------------------------------------- */
+.inbox-detail {
+  container: inbox-detail / inline-size;
+  --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  --inbox-link: var(--color-accent);
+  --diff-add-text: var(--color-success);
+  --diff-del-text: var(--color-error);
+  --inbox-detail-tabs-height: 40px;
+  min-width: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--color-text-primary);
+}
+
+/* Code is shown as typed: JetBrains Mono would draw === as one glyph. Pills
+   use a literal radius, because inside .radix-themes --radius-full is 0px
+   unless the Theme asks for radius="full". */
+.inbox-detail :is(code, pre, kbd, .inbox-detail-diff, .inbox-detail-hunk, .inbox-detail-sha, .inbox-detail-thread-path) {
+  font-variant-ligatures: none;
+}
+
+[data-theme='light'] .inbox-detail {
+  --inbox-link: color-mix(in srgb, var(--color-accent) 62%, black);
+  --diff-add-text: color-mix(in srgb, var(--color-success) 72%, black);
+  --diff-del-text: color-mix(in srgb, var(--color-error) 78%, black);
+}
+
+/* The pane's meta line shares these: the item's state badge sits there. */
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='success'] { --tone: var(--color-success); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='error'] { --tone: var(--color-error); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='warning'] { --tone: var(--color-warning); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='merged'] { --tone: var(--color-merged); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='accent'] { --tone: var(--color-accent); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='neutral'] { --tone: var(--color-text-secondary); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone] { --tone-text: var(--tone); }
+[data-theme='light'] :is(.inbox-pane-meta, .inbox-detail) [data-tone] { --tone-text: color-mix(in srgb, var(--tone) 62%, black); }
+[data-theme='light'] :is(.inbox-pane-meta, .inbox-detail) [data-tone='neutral'] { --tone-text: var(--color-text-secondary); }
+
+.inbox-detail-toned { color: var(--tone-text); }
+.inbox-detail-tone-icon { flex: none; color: var(--tone-text, currentColor); }
+
+/* The status strip, drawn into the pane above its sessions dock
+   (.inbox-pane-detail-head), with what its ⋯ menu opens under it. It keeps
+   the .inbox-detail class for the tones and controls styled under it. */
+.inbox-pane-detail-head:empty {
+  display: none;
+}
+
+.inbox-detail.inbox-detail-head {
+  margin-top: 2px;
+}
+
+/* The branches, refresh, and the ⋯ menu. One line: the branches give up
+   width (an ellipsis, the full name on hover) before the buttons wrap, and
+   only a pane too narrow to show a branch name at all sends them to a line
+   of their own. */
+.inbox-detail-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 28px;
+}
+
+.inbox-detail-toolbar .inbox-detail-branches {
+  flex: 1 1 14rem;
+}
+
+.inbox-detail-toolbar-tail {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: auto;
+}
+
+/* Drawn in the pane's meta line (InboxItemPane), beside the item's name. */
+.inbox-detail-state {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 26px;
+  padding: 0 11px 0 9px;
+  border: 1px solid color-mix(in srgb, var(--tone) 40%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 16%, transparent);
+  color: var(--tone-text);
+  font-size: 12.5px;
+  font-weight: var(--font-weight-semibold);
+  animation: inbox-detail-land 260ms var(--inbox-ease) both;
+}
+
+/* A grid, not a flex row: flex would shrink both chips in proportion to their
+   length, cutting "main" to "m…" beside a long head branch. These columns
+   fill the shorter name first, so only the longer one gives up space. Packed
+   to the start: when both names fit, the spare width would otherwise go to
+   the arrow's auto column and push the second chip to the far end. */
+.inbox-detail-branches {
+  display: grid;
+  grid-template-columns: minmax(0, max-content) auto minmax(0, max-content);
+  justify-content: start;
+  align-items: center;
+  column-gap: 5px;
+  min-width: 0;
+  max-width: 100%;
+  color: var(--color-text-tertiary);
+}
+
+/* Full names whenever the row has room; an ellipsis only once it runs out,
+   with the whole name in the chip's tooltip. Neutral, not the accent: the
+   branches are reference, and the accent belongs to what acts. */
+.inbox-detail-branches code {
+  cursor: default;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 1px 7px;
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+/* A cut-short branch in full. Portaled to <body>, so not scoped under
+   .inbox-detail; the doubled class wins over the shared .tooltip-content, as
+   .checkout-tooltip does. Code is shown as typed, and long names wrap. */
+.tooltip-content.inbox-detail-branch-tooltip {
+  max-width: min(480px, calc(100vw - 32px));
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-variant-ligatures: none;
+  overflow-wrap: anywhere;
+  word-break: normal;
+}
+
+.inbox-detail-account {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  margin-right: 6px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.inbox-detail-icon-btn {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  border: 0;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background-color 150ms var(--inbox-ease), color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-icon-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-icon-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* A refresh in flight stays legible: the spin is the feedback. */
+.inbox-detail-icon-btn:disabled:has(.inbox-detail-spin) {
+  opacity: 1;
+}
+
+.inbox-detail-spin {
+  animation: inbox-detail-spin 900ms linear infinite;
+}
+
+/* Outcome of the last action. */
+.inbox-detail-message {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-top: 12px;
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--tone) 32%, transparent);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--tone) 12%, transparent);
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+  animation: inbox-detail-rise 220ms var(--inbox-ease) both;
+}
+
+.inbox-detail-message > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.inbox-detail-message p {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.inbox-detail-message .inbox-detail-icon-btn {
+  width: 22px;
+  height: 22px;
+  margin: -1px -4px -1px 0;
+  color: inherit;
+}
+
+.inbox-detail-skeleton {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+
+.inbox-detail-skeleton i {
+  display: block;
+  height: 12px;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-hover);
+  animation: inbox-detail-pulse 1.4s ease-in-out infinite;
+}
+
+.inbox-detail-skeleton i:nth-child(2) { width: 55%; height: 30px; margin-bottom: 8px; border-radius: var(--radius-md); }
+.inbox-detail-skeleton i:nth-child(3) { width: 92%; }
+.inbox-detail-skeleton i:nth-child(4) { width: 74%; }
+.inbox-detail-skeleton i:nth-child(5) { width: 84%; }
+
+/* Buttons. One solid button per decision; everything else recedes. */
+.inbox-detail-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 30px;
+  padding: 0 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--inbox-ease),
+    border-color 150ms var(--inbox-ease),
+    color 150ms var(--inbox-ease),
+    transform 120ms var(--inbox-ease);
+}
+
+.inbox-detail-btn:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+
+.inbox-detail-btn:active:not(:disabled) {
+  transform: scale(0.97);
+}
+
+.inbox-detail-btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.inbox-detail-btn--small {
+  height: 26px;
+  padding: 0 10px;
+  font-size: 12.5px;
+}
+
+.inbox-detail-btn--quiet {
+  border-color: transparent;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-btn--quiet:hover:not(:disabled) {
+  border-color: transparent;
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-btn--solid {
+  border-color: transparent;
+  background: var(--fill);
+  color: var(--on-fill);
+}
+
+.inbox-detail-btn--solid:hover:not(:disabled) {
+  border-color: transparent;
+  background: color-mix(in srgb, var(--fill) 86%, var(--color-text-primary));
+}
+
+.inbox-detail-btn--accent { --fill: var(--color-accent); --on-fill: var(--color-accent-text); }
+.inbox-detail-btn--success { --fill: var(--color-success); --on-fill: var(--color-bg-primary); }
+.inbox-detail-btn--danger-solid { --fill: var(--color-error); --on-fill: var(--color-bg-primary); }
+[data-theme='light'] .inbox-detail-btn--success { --fill: color-mix(in srgb, var(--color-success) 85%, black); }
+[data-theme='light'] .inbox-detail-btn--danger-solid { --fill: color-mix(in srgb, var(--color-error) 85%, black); }
+
+.inbox-detail-btn--tinted {
+  border-color: color-mix(in srgb, var(--tone) 40%, transparent);
+  background: color-mix(in srgb, var(--tone) 10%, transparent);
+  color: var(--tone-text);
+}
+
+.inbox-detail-btn--tinted:hover:not(:disabled) {
+  border-color: color-mix(in srgb, var(--tone) 65%, transparent);
+  background: color-mix(in srgb, var(--tone) 18%, transparent);
+}
+
+/* Confirmations and the editor open in place, under the button that asked. */
+.inbox-detail-confirm,
+.inbox-detail-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 12px;
+  padding: 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-sidebar);
+  animation: inbox-detail-rise 220ms var(--inbox-ease) both;
+}
+
+.inbox-detail-confirm {
+  border-color: color-mix(in srgb, var(--tone) 40%, transparent);
+  background: color-mix(in srgb, var(--tone) 7%, var(--color-bg-primary));
+}
+
+.inbox-detail-confirm-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-confirm-title svg {
+  flex: none;
+  color: var(--tone-text);
+}
+
+.inbox-detail-confirm-warning {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0;
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-confirm-warning svg {
+  flex: none;
+  margin-top: 3px;
+}
+
+.inbox-detail-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail input:not([type='checkbox'], [type='radio']),
+.inbox-detail textarea,
+.inbox-detail select {
+  box-sizing: border-box;
+  width: 100%;
+  min-width: 0;
+  padding: 7px 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color 150ms var(--inbox-ease), box-shadow 150ms var(--inbox-ease);
+}
+
+.inbox-detail textarea {
+  resize: vertical;
+}
+
+.inbox-detail textarea::placeholder {
+  color: var(--color-text-secondary);
+}
+
+/* A drawn caret, so the control follows the theme instead of the OS. */
+.inbox-detail select {
+  appearance: none;
+  padding-right: 30px;
+  background-image:
+    linear-gradient(45deg, transparent 50%, var(--color-text-secondary) 50%),
+    linear-gradient(135deg, var(--color-text-secondary) 50%, transparent 50%);
+  background-position: calc(100% - 16px) 52%, calc(100% - 11px) 52%;
+  background-size: 5px 5px;
+  background-repeat: no-repeat;
+  cursor: pointer;
+}
+
+.inbox-detail input:not([type='checkbox'], [type='radio']):hover:not(:disabled),
+.inbox-detail textarea:hover:not(:disabled),
+.inbox-detail select:hover:not(:disabled) {
+  border-color: var(--color-border-hover);
+}
+
+.inbox-detail input:not([type='checkbox'], [type='radio']):focus-visible,
+.inbox-detail textarea:focus-visible,
+.inbox-detail select:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.inbox-detail input.inbox-detail-title-input {
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-form-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.inbox-detail-form-foot > .inbox-detail-hint {
+  flex-basis: 100%;
+}
+
+.inbox-detail-kbd-hint {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  margin-right: auto;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail kbd {
+  display: inline-grid;
+  place-items: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border: 1px solid var(--color-border-strong);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 11px;
+  line-height: 1;
+}
+
+/* Tabs stick while a long description or conversation scrolls under them.
+   A sticky box stops at its scroll container's padding edge, so top: 0 would
+   leave the slot's top padding as a strip where content shows above the
+   tabs. Offsetting by that padding pins them to the visible edge instead. */
+.inbox-detail-tabs {
+  position: sticky;
+  top: calc(-1 * var(--pane-slot-inset-top, 0px));
+  z-index: 2;
+  display: flex;
+  gap: 2px;
+  /* Room between Consola's dock above and GitHub's item, so they read as
+     two things rather than one long run of controls. */
+  margin-top: var(--space-5);
+  box-sizing: border-box;
+  height: var(--inbox-detail-tabs-height);
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+/* An issue has no tabs: the same room above its stream. */
+.inbox-detail > .inbox-detail-content:first-child {
+  margin-top: var(--space-2);
+}
+
+.inbox-detail-tab {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 0 10px;
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: var(--font-weight-medium);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-tab::after {
+  content: '';
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 0;
+  height: 2px;
+  border-radius: 2px 2px 0 0;
+  background: var(--color-accent);
+  transform: scaleX(0);
+  transition: transform 240ms var(--inbox-ease);
+}
+
+.inbox-detail-tab:hover,
+.inbox-detail-tab[aria-selected='true'] {
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-tab[aria-selected='true']::after {
+  transform: scaleX(1);
+}
+
+.inbox-detail-tab:focus-visible {
+  outline-offset: -2px;
+}
+
+.inbox-detail-tab-count {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 11.5px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-detail-tab[aria-selected='true'] .inbox-detail-tab-count {
+  background: var(--color-accent-muted);
+}
+
+/* The narrowest pane (the 340px end of its clamp) still fits every tab. */
+@container inbox-detail (max-width: 440px) {
+  .inbox-detail-tabs {
+    gap: 0;
+  }
+
+  .inbox-detail-tab {
+    gap: 5px;
+    padding-inline: 6px;
+    font-size: 12.5px;
+  }
+
+  .inbox-detail-tab::after {
+    left: 4px;
+    right: 4px;
+  }
+
+  .inbox-detail-tab-count {
+    min-width: 18px;
+    padding: 0 5px;
+  }
+
+  .inbox-detail-tab-long {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+.inbox-detail-content {
+  padding: 16px 0 4px;
+  overflow-wrap: anywhere;
+  animation: inbox-detail-fade 180ms var(--inbox-ease) both;
+}
+
+.inbox-detail-empty {
+  margin: 0;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-text-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--inbox-link);
+  text-decoration: none;
+}
+
+.inbox-detail-text-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-detail-counts {
+  display: inline-flex;
+  gap: 6px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-detail-add { color: var(--diff-add-text); }
+.inbox-detail-del { color: var(--diff-del-text); }
+
+/* Markdown here is something to read, not a chat bubble: looser than the
+   transcript defaults, which are tuned for density. */
+.inbox-detail .markdown-content {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: var(--color-text-primary);
+}
+
+.inbox-detail .markdown-content p {
+  margin: 0 0 0.7em;
+}
+
+.inbox-detail .markdown-content p + p {
+  margin-top: 0;
+}
+
+.inbox-detail .markdown-content :is(h1, h2, h3, h4, h5, h6) {
+  margin: 1.2em 0 0.5em;
+  line-height: 1.3;
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail .markdown-content > :first-child {
+  margin-top: 0;
+}
+
+.inbox-detail .markdown-content > :last-child {
+  margin-bottom: 0;
+}
+
+.inbox-detail .markdown-content h1 { font-size: 17px; }
+.inbox-detail .markdown-content h2 {
+  padding-bottom: 0.3em;
+  border-bottom: 1px solid var(--color-border);
+  font-size: 15.5px;
+}
+.inbox-detail .markdown-content h3 { font-size: 14px; }
+.inbox-detail .markdown-content :is(h4, h5, h6) { font-size: 13.5px; }
+
+.inbox-detail .markdown-content :is(ul, ol) {
+  margin: 0 0 0.7em;
+  padding-left: 1.4em;
+}
+
+.inbox-detail .markdown-content li + li {
+  margin-top: 0.25em;
+}
+
+.inbox-detail .markdown-content blockquote {
+  margin: 0 0 0.7em;
+  padding: 2px 0 2px 12px;
+  border-left-width: 3px;
+}
+
+.inbox-detail .markdown-content :not(pre) > code {
+  font-size: 12px;
+}
+
+.inbox-detail .markdown-content a {
+  color: var(--inbox-link);
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--inbox-link) 40%, transparent);
+  text-underline-offset: 2px;
+}
+
+.inbox-detail .markdown-content a:hover {
+  text-decoration-color: currentColor;
+}
+
+.inbox-detail .markdown-content img {
+  max-width: 100%;
+}
+
+/* Bots fold release notes and logs into <details>; keep the fold visible. */
+.inbox-detail .markdown-content details {
+  margin: 0 0 0.7em;
+}
+
+.inbox-detail .markdown-content summary {
+  cursor: pointer;
+}
+
+.inbox-detail .markdown-content details[open] > summary {
+  margin-bottom: 0.5em;
+}
+
+/* ---------------------------------------------------------------------------
+   Conversation: GitHub's structure in Consola's look. A spine runs down the
+   left; cards (the description, comments, reviews) sit over it at full
+   width, and small events sit on it as a disc and one line. Every colour is
+   a theme token, except the labels, which keep the colour their repository
+   gave them.
+   --------------------------------------------------------------------------- */
+.inbox-detail-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 18px;
+  margin-bottom: 14px;
+}
+
+.inbox-detail-chip-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 8px;
+  min-width: 0;
+}
+
+.inbox-detail-chip-label {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-chip-group ul {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-detail-person {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+/* GitHub's label colour as Consola's tinted pill: the colour at low alpha for
+   the fill, at 40% for the border, the text in the same hue made readable on
+   each theme's pane (labelColors). */
+.inbox-detail-gh-label {
+  display: inline-block;
+  max-width: 100%;
+  padding: 0 8px;
+  overflow: hidden;
+  border: 1px solid var(--label-border);
+  border-radius: 999px;
+  background: var(--label-fill);
+  color: var(--label-text-dark);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+}
+
+[data-theme='light'] .inbox-detail-gh-label {
+  color: var(--label-text-light);
+}
+
+/* Someone's picture over their initial, which shows until it has loaded or
+   if it never does. Round for people, a rounded square for bots. */
+.inbox-detail-avatar {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  overflow: hidden;
+  border-radius: 50%;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
+  font-size: 10.5px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 1;
+  user-select: none;
+}
+
+.inbox-detail-avatar[data-size='16'] {
+  width: 16px;
+  height: 16px;
+  font-size: 9px;
+}
+
+.inbox-detail-avatar[data-bot] { border-radius: 5px; }
+.inbox-detail-avatar[data-size='16'][data-bot] { border-radius: 4px; }
+
+.inbox-detail-avatar img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  opacity: 0;
+  transition: opacity 150ms var(--inbox-ease);
+}
+
+.inbox-detail-avatar img[data-loaded] {
+  opacity: 1;
+}
+
+.inbox-detail-stream {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-detail-stream::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 15px;
+  width: 2px;
+  background: var(--color-border);
+}
+
+.inbox-detail-stream > li {
+  position: relative;
+  min-width: 0;
+}
+
+/* A long timeline lays out only what is on screen. */
+.inbox-detail-stream-card {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 140px;
+}
+
+.inbox-detail-stream-event {
+  content-visibility: auto;
+  contain-intrinsic-size: auto 26px;
+}
+
+.inbox-detail-card {
+  min-width: 0;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-sidebar);
+}
+
+/* The header's faint raised strip: the text colour at 3% reads lighter on
+   the dark theme and darker on the light one. */
+.inbox-detail-card-head {
+  padding: 6px 6px 6px 10px;
+  border-bottom: 1px solid var(--color-border);
+  border-radius: 7px 7px 0 0;
+  background: color-mix(in srgb, var(--color-text-primary) 3%, transparent);
+}
+
+.inbox-detail-card-head:last-child {
+  border-bottom: 0;
+  border-radius: 7px;
+}
+
+.inbox-detail-post-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px 6px;
+  min-width: 0;
+  min-height: 26px;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-post-author {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-time {
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.inbox-detail-post-menu {
+  width: 24px;
+  height: 24px;
+  margin-left: auto;
+}
+
+.inbox-detail-card-body {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  min-width: 0;
+  padding: 10px 12px 12px;
+}
+
+.inbox-detail-card-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 0 12px 12px;
+}
+
+.inbox-detail-card-head + .inbox-detail-card-threads {
+  padding-top: 12px;
+}
+
+.inbox-detail-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--tone) 15%, transparent);
+  color: var(--tone-text);
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+}
+
+/* Author, Bot, Pending, Outdated. */
+.inbox-detail-chip {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  padding: 0 7px;
+  border: 1px solid color-mix(in srgb, var(--tone, var(--color-text-secondary)) 38%, transparent);
+  border-radius: 999px;
+  color: var(--tone-text, var(--color-text-secondary));
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  line-height: 16px;
+}
+
+.inbox-detail-reactions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-detail-reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 999px;
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+.inbox-detail-reaction[data-mine] {
+  border-color: var(--color-accent);
+  background: var(--color-accent-muted);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-minimized {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-link-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--inbox-link);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.inbox-detail-link-btn:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-detail-fix {
+  align-self: flex-start;
+}
+
+/* Events: a disc on the spine, then one line. */
+.inbox-detail-event-line {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  min-width: 0;
+}
+
+.inbox-detail-disc {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 26px;
+  height: 26px;
+  margin-left: 3px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--tone, var(--color-text-secondary)) 16%, var(--color-bg-primary));
+  box-shadow: 0 0 0 3px var(--color-bg-primary);
+  color: var(--tone-text, var(--color-text-secondary));
+}
+
+.inbox-detail-event-text {
+  min-width: 0;
+  margin: 0;
+  padding-top: 3px;
+  font-size: 12.5px;
+  line-height: 20px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-event-text > .inbox-detail-avatar {
+  margin-right: 6px;
+  vertical-align: -3px;
+}
+
+.inbox-detail-event-text strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-event-text del {
+  color: var(--color-text-tertiary);
+}
+
+.inbox-detail-event-text .inbox-detail-time {
+  margin-left: 2px;
+}
+
+.inbox-detail-code {
+  padding: 0 5px;
+  border-radius: 4px;
+  background: color-mix(in srgb, var(--color-text-primary) 7%, transparent);
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  overflow-wrap: anywhere;
+}
+
+.inbox-detail-ref {
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.inbox-detail-ref:hover strong {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-detail-ref-number {
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-commits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 6px 0 0 39px;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-detail-commit {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.inbox-detail-commit-title {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  text-decoration: none;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-detail-commit-title:hover {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.inbox-detail-commit-checks {
+  display: inline-grid;
+  flex: none;
+}
+
+.inbox-detail-sha {
+  flex: none;
+  color: var(--color-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  text-decoration: none;
+}
+
+.inbox-detail-sha:hover {
+  color: var(--inbox-link);
+}
+
+/* Review threads: in a review's card in the stream, under their line in the diff. */
+.inbox-detail-thread {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inbox-detail-thread-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
+  font-size: 12px;
+}
+
+.inbox-detail-thread-path {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-detail-thread-fold {
+  margin-left: auto;
+}
+
+.inbox-detail-thread-folded {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 7px 10px;
+  border: 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.inbox-detail-thread-folded:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-detail-thread-folded strong {
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-thread-folded code {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.inbox-detail-hunk {
+  border-bottom: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.inbox-detail-hunk-more {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding: 3px 10px;
+  border: 0;
+  background: color-mix(in srgb, var(--color-accent) 8%, transparent);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.inbox-detail-hunk-more:hover {
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-thread-comments {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.inbox-detail-thread-comment {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  padding: 10px 12px;
+}
+
+.inbox-detail-thread-comment + .inbox-detail-thread-comment {
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-detail-thread-comment[data-pending] {
+  background: color-mix(in srgb, var(--color-warning) 5%, transparent);
+}
+
+.inbox-detail-thread-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 8px 12px 10px;
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-detail-thread-foot:empty {
+  display: none;
+}
+
+.inbox-detail-thread > .inbox-detail-message {
+  margin: 0 12px 10px;
+}
+
+.inbox-detail-reply-trigger {
+  display: flex;
+  flex: 1 1 12rem;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  height: 30px;
+  padding: 0 10px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  text-align: left;
+  cursor: text;
+  transition: border-color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-reply-trigger:hover {
+  border-color: var(--color-border-hover);
+}
+
+.inbox-detail-reply {
+  display: flex;
+  flex: 1 1 100%;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.inbox-detail-edit {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* The merge card ends an open pull request's stream. */
+.inbox-detail-merge-card {
+  margin-top: 16px;
+}
+
+.inbox-detail-merge-card > :is(.inbox-detail-merge-row, .inbox-detail-merge-group, .inbox-detail-merge-foot)
+  + :is(.inbox-detail-merge-row, .inbox-detail-merge-group, .inbox-detail-merge-foot) {
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-detail-merge-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+}
+
+.inbox-detail-merge-row > svg {
+  align-self: start;
+  margin-top: 2px;
+}
+
+.inbox-detail-merge-row-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.inbox-detail-merge-row-text strong {
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-merge-row-text > span {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-merge-row-text > span.inbox-detail-toned {
+  color: var(--tone-text);
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-merge-row-action {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.inbox-detail-chevron {
+  transition: transform 180ms var(--inbox-ease);
+}
+
+.inbox-detail-chevron[data-open] {
+  transform: rotate(90deg);
+}
+
+.inbox-detail-merge-checks {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 0 12px 12px 38px;
+}
+
+.inbox-detail-merge-checks .inbox-detail-checklist {
+  align-self: stretch;
+}
+
+.inbox-detail-merge-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border-radius: 0 0 7px 7px;
+  background: color-mix(in srgb, var(--color-text-primary) 2%, transparent);
+}
+
+.inbox-detail-merge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.inbox-detail-merge-actions .inbox-detail-account {
+  margin: 0 0 0 auto;
+}
+
+/* Why GitHub refuses, when none of the rows already says. */
+.inbox-detail-merge-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-merge-card > :is(.inbox-detail-confirm, .inbox-detail-message) {
+  margin: 0 12px 12px;
+}
+
+/* A button with its options beside it: merge and its method, close and its reason. */
+.inbox-detail-split {
+  display: inline-flex;
+  align-items: stretch;
+}
+
+.inbox-detail-split > .inbox-detail-btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.inbox-detail-split-caret {
+  margin-left: -1px;
+  padding: 0 8px;
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+}
+
+.inbox-detail-split-caret.inbox-detail-btn--solid {
+  margin-left: 1px;
+}
+
+.inbox-detail-menu-check {
+  display: inline-grid;
+  width: 14px;
+}
+
+.inbox-detail-btn-count {
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, currentColor 18%, transparent);
+  font-size: 11px;
+  font-weight: var(--font-weight-semibold);
+  line-height: 16px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+}
+
+/* The comment box: the last thing in the stream. */
+.inbox-detail-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 16px;
+  padding: 12px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 8px;
+  background: var(--color-bg-sidebar);
+}
+
+.inbox-detail-composer-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-composer-foot {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.inbox-detail-composer-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-left: auto;
+}
+
+.inbox-detail-composer > :is(.inbox-detail-confirm, .inbox-detail-message) {
+  margin-top: 0;
+}
+
+/* Where any comment is written: Write and Preview, and a toolbar. */
+.inbox-detail-md {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  transition: border-color 150ms var(--inbox-ease), box-shadow 150ms var(--inbox-ease);
+}
+
+.inbox-detail-md:focus-within {
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}
+
+.inbox-detail-md-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 4px 0;
+  border-bottom: 1px solid var(--color-border);
+  background: color-mix(in srgb, var(--color-text-primary) 3%, transparent);
+}
+
+.inbox-detail-md-tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: -1px;
+}
+
+.inbox-detail-md-tab {
+  padding: 4px 10px 5px;
+  border: 1px solid transparent;
+  border-bottom: 0;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+  background: none;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+
+.inbox-detail-md-tab:hover {
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-md-tab[aria-selected='true'] {
+  border-color: var(--color-border);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+}
+
+.inbox-detail-md-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-left: auto;
+  padding-bottom: 3px;
+}
+
+.inbox-detail-md-tools .inbox-detail-icon-btn,
+.inbox-detail-md-toggle {
+  width: 26px;
+  height: 26px;
+}
+
+.inbox-detail-md-toggle {
+  display: none;
+  margin: 0 0 3px auto;
+}
+
+.inbox-detail .inbox-detail-md textarea {
+  display: block;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.inbox-detail .inbox-detail-md textarea:focus-visible {
+  border: 0;
+  box-shadow: none;
+}
+
+.inbox-detail-md-preview {
+  min-height: 92px;
+  padding: 8px 10px;
+}
+
+/* The narrowest pane folds the toolbar behind one button. */
+@container inbox-detail (max-width: 440px) {
+  .inbox-detail-md-toggle {
+    display: inline-grid;
+  }
+
+  .inbox-detail-md-tools:not([data-open]) {
+    display: none;
+  }
+
+  .inbox-detail-md-tools[data-open] {
+    flex-basis: 100%;
+    margin-left: 0;
+  }
+
+  .inbox-detail-merge-row {
+    grid-template-columns: 16px minmax(0, 1fr);
+  }
+
+  .inbox-detail-merge-row-action {
+    grid-column: 2;
+  }
+
+  .inbox-detail-merge-checks {
+    padding-left: 12px;
+  }
+
+  .inbox-detail-merge-actions {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inbox-detail-merge-actions .inbox-detail-account {
+    margin: 0;
+  }
+
+  .inbox-detail-split > .inbox-detail-btn:first-child {
+    flex: 1;
+  }
+}
+
+/* Files changed: a header that stays under the tabs while the diff scrolls. */
+.inbox-detail-files-head {
+  position: sticky;
+  top: calc(var(--inbox-detail-tabs-height) - var(--pane-slot-inset-top, 0px));
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  margin: -16px 0 12px;
+  padding: 10px 0;
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+}
+
+.inbox-detail-files-count {
+  margin-right: auto;
+  font-size: 12.5px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-files-count .inbox-detail-counts {
+  margin-left: 4px;
+}
+
+.inbox-detail-files-head + .inbox-detail-message {
+  margin: -4px 0 12px;
+}
+
+/* GitHub's "Finish your review", opening under its button, never wider than the pane. */
+.inbox-detail.inbox-detail-review-popover {
+  z-index: 30;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: min(400px, var(--radix-popover-content-available-width, 400px));
+  max-height: var(--radix-popover-content-available-height, 80vh);
+  overflow: auto;
+  padding: 14px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 10px;
+  background: var(--color-bg-sidebar);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.32);
+  animation: inbox-detail-rise 160ms var(--inbox-ease) both;
+}
+
+.inbox-detail-review-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: var(--font-weight-semibold);
+}
+
+.inbox-detail-review-events {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.inbox-detail-review-event {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  cursor: pointer;
+}
+
+.inbox-detail-review-event input {
+  margin: 3px 0 0;
+  accent-color: var(--color-accent);
+}
+
+.inbox-detail-review-event > span {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.inbox-detail-review-event[data-disabled] {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.inbox-detail-review-popover > .inbox-detail-confirm {
+  margin-top: 0;
+}
+
+.inbox-detail-file-threads {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-tabs-stat {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  padding-left: 8px;
+  font-size: 12px;
+}
+
+.inbox-detail-files {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inbox-detail-file {
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.inbox-detail-file summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  list-style: none;
+  cursor: pointer;
+  transition: background-color 150ms var(--inbox-ease);
+}
+
+.inbox-detail-file summary::-webkit-details-marker {
+  display: none;
+}
+
+.inbox-detail-file summary:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-detail-file summary:focus-visible {
+  outline-offset: -2px;
+}
+
+.inbox-detail-file[open] summary {
+  border-bottom: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+}
+
+.inbox-detail-file-chevron {
+  flex: none;
+  color: var(--color-text-secondary);
+  transition: transform 180ms var(--inbox-ease);
+}
+
+.inbox-detail-file[open] .inbox-detail-file-chevron {
+  transform: rotate(90deg);
+}
+
+/* The directory gives way before the file name does. */
+.inbox-detail-file-path {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  white-space: nowrap;
+}
+
+.inbox-detail-file-dir {
+  flex: 0 10000 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-file-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: var(--font-weight-medium);
+}
+
+.inbox-detail-file-stat {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  gap: 8px;
+  font-size: 12px;
+}
+
+.inbox-detail-blocks {
+  display: inline-flex;
+  gap: 2px;
+}
+
+.inbox-detail-block {
+  width: 7px;
+  height: 7px;
+  border-radius: 1.5px;
+  background: var(--color-bg-tertiary);
+}
+
+.inbox-detail-block--add { background: var(--color-success); }
+.inbox-detail-block--del { background: var(--color-error); }
+
+.inbox-detail-file-note {
+  padding: 10px 12px;
+}
+
+/* A diff: each run of lines scrolls sideways in its own box, never the pane,
+   with threads and the comment form between runs at the pane's width. Rows
+   stretch to their run's widest line, so a tint spans the scroll width. */
+.inbox-detail-diff {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.inbox-detail-diff:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+.inbox-detail-diff-lines {
+  overflow-x: auto;
+}
+
+.inbox-detail-diff > .inbox-detail-diff-lines:first-of-type,
+.inbox-detail-diff > .sr-only + .inbox-detail-diff-lines {
+  padding-top: 4px;
+}
+
+.inbox-detail-diff > .inbox-detail-diff-lines:last-child {
+  padding-bottom: 4px;
+}
+
+.inbox-detail-diff-rows {
+  display: inline-block;
+  min-width: 100%;
+}
+
+.inbox-detail-diff-lines:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: -2px;
+}
+
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row {
+  position: relative;
+  display: flex;
+}
+
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-num {
+  flex: none;
+  box-sizing: content-box;
+  width: 3.5ch;
+  padding: 0 6px;
+  color: var(--color-text-secondary);
+  text-align: right;
+  user-select: none;
+}
+
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-num + .diff-num {
+  margin-right: 10px;
+  border-right: 1px solid var(--color-border);
+}
+
+/* The + that starts a comment, over the gutter, shown on the line under the pointer. */
+.inbox-detail-diff .diff-gutter {
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 18px;
+  margin: 0 2px 0 -8px;
+}
+
+.inbox-detail-diff .diff-add {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: var(--color-accent);
+  color: var(--color-accent-text);
+  cursor: pointer;
+  opacity: 0;
+  transform: scale(0.85);
+  transition: opacity 120ms var(--inbox-ease), transform 120ms var(--inbox-ease);
+}
+
+.inbox-detail-diff .diff-row[data-commentable]:hover .diff-add,
+.inbox-detail-diff:focus-visible .diff-row[data-active] .diff-add {
+  opacity: 1;
+  transform: none;
+}
+
+.inbox-detail-diff .diff-row[data-commentable] .diff-num {
+  cursor: pointer;
+}
+
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-text {
+  flex: 1;
+  padding-right: 14px;
+  white-space: pre;
+}
+
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row--add { background: color-mix(in srgb, var(--color-success) 15%, transparent); }
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row--del { background: color-mix(in srgb, var(--color-error) 15%, transparent); }
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row--add .diff-num { color: var(--diff-add-text); }
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row--del .diff-num { color: var(--diff-del-text); }
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row--hunk { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
+:is(.inbox-detail-diff, .inbox-detail-hunk) :is(.diff-row--hunk, .diff-row--note) .diff-text { color: var(--color-text-secondary); }
+:is(.inbox-detail-diff, .inbox-detail-hunk) .diff-row--note .diff-text { font-style: italic; }
+
+/* Lines being commented on: the accent's edge, and its tint over the diff's own. */
+.inbox-detail-diff .diff-row[data-selected] {
+  background-image: linear-gradient(color-mix(in srgb, var(--color-accent) 16%, transparent), color-mix(in srgb, var(--color-accent) 16%, transparent));
+  box-shadow: inset 3px 0 0 var(--color-accent);
+}
+
+.inbox-detail-diff:focus-visible .diff-row[data-active] {
+  outline: 1px solid color-mix(in srgb, var(--color-accent) 70%, transparent);
+  outline-offset: -1px;
+}
+
+.inbox-detail-diff-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 8px;
+  border-block: 1px solid var(--color-border);
+  background: var(--color-bg-sidebar);
+  font-family: var(--font-sans);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.inbox-detail-diff-inline:empty {
+  display: none;
+}
+
+.inbox-detail-diff-inline > .inbox-detail-message {
+  margin-top: 0;
+}
+
+.inbox-detail-line-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid color-mix(in srgb, var(--color-accent) 45%, transparent);
+  border-radius: 8px;
+  background: var(--color-bg-primary);
+}
+
+.inbox-detail-line-form-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.inbox-detail-line-form > .inbox-detail-message {
+  margin-top: 0;
+}
+
+
+.inbox-detail-checklist {
+  margin: 0;
+  padding: 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+}
+
+.inbox-detail-check {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+}
+
+.inbox-detail-check + .inbox-detail-check {
+  border-top: 1px solid var(--color-border);
+}
+
+.inbox-detail-check-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.inbox-detail-check-state {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: var(--font-weight-medium);
+}
+
+@keyframes inbox-detail-land {
+  from { opacity: 0; transform: scale(0.9); }
+}
+
+@keyframes inbox-detail-rise {
+  from { opacity: 0; transform: translateY(-4px); }
+}
+
+@keyframes inbox-detail-fade {
+  from { opacity: 0; transform: translateY(2px); }
+}
+
+@keyframes inbox-detail-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes inbox-detail-pulse {
+  50% { opacity: 0.45; }
+}
+
+/* Reduced motion keeps every state change and drops the travel. The refresh
+   spinner stays: it is the only sign a reload is in flight. */
+@media (prefers-reduced-motion: reduce) {
+  .inbox-detail-state,
+  .inbox-detail-message,
+  .inbox-detail-confirm,
+  .inbox-detail-editor,
+  .inbox-detail-content,
+  .inbox-detail-review-popover,
+  .inbox-detail-skeleton i {
+    animation: none;
+  }
+
+  .inbox-detail-tab::after,
+  .inbox-detail-file-chevron,
+  .inbox-detail-chevron,
+  .inbox-detail-avatar img,
+  .inbox-detail-diff .diff-add,
+  .inbox-detail-md,
+  .inbox-detail-btn {
+    transition: none;
+  }
 }

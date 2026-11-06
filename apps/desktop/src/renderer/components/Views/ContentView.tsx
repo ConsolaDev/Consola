@@ -15,6 +15,7 @@ import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
 import { WorkItemStrip } from '../WorkItemStrip';
+import { WorkItemPanel } from '../WorkItemPanel';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
 import { useCheckout } from '../../stores/checkoutStore';
@@ -33,6 +34,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
+  const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
   const getSession = useWorkspaceStore((state) => state.getSession);
@@ -56,12 +58,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const cwd = (workspace && checkoutPathForSession(workspace, session)) ?? '';
   // Re-read on every switch: the agent on screen may just have changed branch.
   const checkout = useCheckout(cwd || null, { fresh: true });
+  // Details are read as the workspace's account, so a workspace without one
+  // has nothing to show even when the session still names an item.
+  const showWorkItemPanel =
+    isWorkItemPanelVisible && Boolean(session?.workItem) && Boolean(workspace?.provider);
 
   // Conditional panels must have separate saved layouts: hiding the explorer
   // must not overwrite the layout that remembers its width.
   const panelIds = [
     ...(isExplorerVisible && cwd ? ['explorer'] : []),
     'agent',
+    ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
     ...(isGitReviewOpen ? ['git-review'] : []),
   ];
@@ -107,9 +114,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // lands. A name the user typed wins permanently and is never polled over.
   // Drivers whose transcripts Consola cannot read never produce a name, so
   // they are skipped outright rather than polled forever. For a work-item
-  // session `name` is only the subtitle — the sidebar label is derived from
-  // the record (sessionLabel), so this poll refines the subtitle and never
-  // decides what the row reads.
+  // session the sidebar label is derived from the record (sessionLabel), so
+  // this poll never decides what the row reads.
   useEffect(() => {
     if (!claudeSessionId) return;
     if (!supportsSessionNaming) return;
@@ -193,6 +199,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           <PathDisplay
             path={cwd}
             className="workspace-view-path"
+            // The checkout chip's tooltip already names the folder; only a
+            // folder outside git, which gets no chip, needs it printed here.
+            showPath={checkout?.kind === 'none'}
             showExplorerToggle
             isExplorerVisible={isExplorerVisible}
             onToggleExplorer={toggleExplorer}
@@ -242,6 +251,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               />
             </SessionTerminalLayout>
           </Panel>
+          {showWorkItemPanel && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="work-item" defaultSize="38%" minSize="320px" maxSize="70%">
+                <WorkItemPanel workspaceId={workspaceId} session={session} />
+              </Panel>
+            </>
+          )}
           {hasOpenTabs && (
             <>
               <Separator className="resize-handle" />

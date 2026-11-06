@@ -1,0 +1,167 @@
+/*
+ * The image viewer sits on a near-black scrim in both themes, as photo
+ * viewers do: a screenshot is judged against neutral dark, not against the
+ * app's chrome. Its controls are light-on-dark for the same reason, so they
+ * use literal colours rather than the theme's tokens.
+ */
+
+.image-viewer {
+  position: fixed;
+  inset: 0;
+  z-index: var(--z-modal);
+  outline: none;
+  background: rgb(9 9 11 / 0.9);
+  color: rgb(255 255 255 / 0.9);
+}
+
+.image-viewer-stage {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  touch-action: none;
+  user-select: none;
+}
+
+.image-viewer-image {
+  position: absolute;
+  top: 0;
+  left: 0;
+  max-width: none;
+  transform-origin: 0 0;
+}
+
+/* Past a few device pixels per image pixel, smoothing only blurs: show the pixels themselves. */
+.image-viewer-image[data-pixelated] {
+  image-rendering: pixelated;
+}
+
+.image-viewer-stage[data-cursor='zoom-in'] .image-viewer-image { cursor: zoom-in; }
+.image-viewer-stage[data-cursor='zoom-out'] .image-viewer-image { cursor: zoom-out; }
+.image-viewer-stage[data-cursor='grab'] { cursor: grab; }
+.image-viewer-stage[data-cursor='grabbing'] { cursor: grabbing; }
+
+.image-viewer-bar {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px;
+  /* The bar spans the top edge; only its contents take the pointer, so the image can still be dragged beneath. */
+  pointer-events: none;
+}
+
+.image-viewer-bar > * {
+  pointer-events: auto;
+}
+
+.image-viewer-title {
+  min-width: 0;
+  padding: 7px 12px;
+  overflow: hidden;
+  border-radius: 10px;
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  line-height: 1.5;
+  color: rgb(255 255 255 / 0.85);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Chips rather than a solid bar, so a zoomed image shows between them, and each stays legible over it. */
+.image-viewer-title,
+.image-viewer-tools,
+.image-viewer-hint {
+  background: rgb(24 24 27 / 0.78);
+  border: 1px solid rgb(255 255 255 / 0.08);
+  box-shadow: 0 4px 16px rgb(0 0 0 / 0.35);
+  backdrop-filter: blur(12px);
+}
+
+.image-viewer-tools {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border-radius: 10px;
+}
+
+.image-viewer-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: rgb(255 255 255 / 0.82);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.image-viewer-button:hover:not(:disabled) {
+  background: rgb(255 255 255 / 0.12);
+  color: #fff;
+}
+
+.image-viewer-button:disabled {
+  color: rgb(255 255 255 / 0.3);
+  cursor: default;
+}
+
+.image-viewer-percent {
+  width: auto;
+  min-width: 52px;
+  padding: 0 6px;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+}
+
+.image-viewer-divider {
+  width: 1px;
+  height: 18px;
+  margin: 0 3px;
+  background: rgb(255 255 255 / 0.14);
+}
+
+.image-viewer-hint {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  max-width: calc(100% - 32px);
+  padding: 6px 12px;
+  border-radius: 999px;
+  font-size: var(--font-size-sm);
+  color: rgb(255 255 255 / 0.7);
+  text-align: center;
+  transform: translateX(-50%);
+  pointer-events: none;
+  transition: opacity var(--transition-slow);
+}
+
+/* Once zoomed, the hint has done its job and would only cover the image. */
+.image-viewer-hint[data-hidden] {
+  opacity: 0;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .image-viewer[data-state='open'] {
+    animation: image-viewer-fade 160ms ease-out;
+  }
+
+  /* Width, height and offset all move linearly in the scale, so easing them together keeps the zoom point still. */
+  .image-viewer-image[data-animate] {
+    transition: width 180ms ease, height 180ms ease, transform 180ms ease;
+  }
+}
+
+@keyframes image-viewer-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}

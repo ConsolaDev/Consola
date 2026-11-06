@@ -1,5 +1,6 @@
-import { BrowserWindow, Menu, MenuItem, app } from 'electron';
+import { BrowserWindow, Menu, MenuItem, app, protocol } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
+import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { setupAppUpdates } from './appUpdates';
 import { isBackgroundTest } from './test-mode';
 import {
@@ -26,6 +27,14 @@ try {
 }
 
 app.setName('Consola');
+
+// Work item images (shared/workItemAssets.ts). Privileges can only be granted
+// before ready; standard gives the URLs a host and query main can parse, and
+// secure keeps them loadable from any page. Deliberately not fetch-capable:
+// the scheme exists to fill <img> elements, not to hand responses to script.
+protocol.registerSchemesAsPrivileged([
+    { scheme: WORK_ITEM_ASSET_SCHEME, privileges: { standard: true, secure: true } },
+]);
 
 // Hiding the Dock after ready is too late to prevent launch activation.
 // Hidden renderers remain available to Playwright without activating macOS.
