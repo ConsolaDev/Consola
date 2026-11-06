@@ -16,7 +16,7 @@
   "dependencies": {
     "croner": "^10.0.1",
     "yaml": "^2.9.1",
-    "zod": "^3.25.76"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@types/node": "^20.11.19",
