@@ -9,7 +9,7 @@
     "test": "playwright test",
     "capture:demo": "node scripts/capture-demo.cjs",
     "preview": "vite preview --port 5174",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "pnpm --filter @consola/factory-spec build && tsc --noEmit"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.1",

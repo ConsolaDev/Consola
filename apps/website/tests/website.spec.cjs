@@ -33,6 +33,7 @@ test('real Inbox → saved action → native terminal → approve and commit sam
   page.on('pageerror', error => errors.push(error.message));
   const frame = await demo(page);
   await frame.getByRole('button', { name: /Add retry logic to the API client/ }).click();
+  await expect(frame.locator('.inbox-pane')).toContainText('A 400 fails the same way on every attempt.');
   await frame.getByRole('button', { name: 'Review PR', exact: true }).click();
   await expect(frame.locator('.work-item-strip')).toContainText('#248');
   const terminal = frame.locator('.terminal-panel .xterm-helper-textarea');
@@ -138,8 +139,8 @@ test('demo interactions stay in the browser and use no persisted state', async (
   });
   const frame = await demo(page);
   await frame.getByRole('button', { name: /Add retry logic to the API client/ }).click();
-  await frame.getByRole('button', { name: 'Custom prompt...', exact: true }).click();
-  await frame.locator('.inbox-pane textarea').fill('Check the sample code');
+  await frame.getByRole('button', { name: 'Custom prompt…', exact: true }).click();
+  await frame.getByRole('textbox', { name: 'Custom prompt', exact: true }).fill('Check the sample code');
   await frame.locator('.inbox-pane').getByRole('button', { name: /Start/ }).click();
   await expect(frame.locator('.terminal-panel')).toBeVisible();
   expect(outgoing).toEqual([]);
