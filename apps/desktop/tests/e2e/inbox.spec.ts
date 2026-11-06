@@ -586,12 +586,14 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     const pane = await openPaneFor51(page);
     const remote = pane.getByRole('region', { name: 'Remote item details' });
     await expect(remote.getByText('regression coverage')).toBeVisible();
-    await expect(remote.getByText('as JaviDev')).toBeVisible();
-    await expect(pane.getByText('Sessions · 0')).toBeVisible();
+    // The status strip sits with the item's name, above the sessions dock.
+    await expect(pane.getByText('as JaviDev')).toBeVisible();
+    await expect(pane.getByText('No sessions on this item yet.')).toBeVisible();
+    await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
     // A branch cut short by a narrow pane names itself in full on hover; one that fits stays quiet.
     const [width, height] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
     await page.setViewportSize({ width: 880, height });
-    const branches = remote.locator('.inbox-detail-branches');
+    const branches = pane.locator('.inbox-detail-branches');
     await expect(branches.locator('[title]')).toHaveCount(0); // a native tooltip would show beside this one
     await branches.locator('code', { hasText: 'extract-billing' }).hover();
     await expect(page.getByRole('tooltip')).toHaveText('extract-billing-client-and-add-regression-coverage');
@@ -622,16 +624,25 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     await remote.getByRole('button', { name: 'Post comment' }).click();
     await expect(remote.getByText('Comment posted.', { exact: true })).toBeVisible();
     await expect(remote.getByLabel('Response message')).toHaveValue('');
-    await remote.getByRole('button', { name: 'Review', exact: true }).click();
+    // A review is the composer's other mode: no second "Review" beside the session dock's.
+    await remote.getByLabel('Response type').selectOption('review');
     await remote.getByLabel('Review decision').selectOption('approve');
     await remote.getByRole('button', { name: 'Submit review' }).click();
     await expect(remote.getByText('Review submitted.', { exact: true })).toBeVisible();
-    await remote.getByRole('button', { name: 'Edit', exact: true }).click();
-    await remote.getByLabel('Title', { exact: true }).fill('Updated billing title');
-    await remote.getByRole('button', { name: 'Save changes' }).click();
-    await expect(remote.getByText('Changes saved.', { exact: true })).toBeVisible();
+    // Edit, draft and close live in the ⋯ menu; Edit's form takes the focus.
+    await pane.getByRole('button', { name: 'More actions' }).click();
+    await expect(page.getByRole('menuitem', { name: 'Convert to draft' })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Close pull request' })).toBeVisible();
+    await page.getByRole('menuitem', { name: 'Edit title and description' }).click();
+    await expect(pane.getByLabel('Title', { exact: true })).toBeFocused();
+    await pane.getByLabel('Title', { exact: true }).fill('Updated billing title');
+    await pane.getByRole('button', { name: 'Save changes' }).click();
+    await expect(pane.getByText('Changes saved.', { exact: true })).toBeVisible();
     // GitHub says BLOCKED: no green, no merge -- the button is disabled and
-    // says why, and auto-merge is offered in its place, as on GitHub.
+    // says why, and auto-merge is offered in its place, as on GitHub. The
+    // merge box ends Overview, and says the merge state only there.
+    await remote.getByRole('tab', { name: 'Overview', exact: true }).click();
+    await expect(remote.locator('.inbox-detail-fact', { hasText: 'Merge' })).toHaveCount(0);
     const merge = remote.getByRole('button', { name: 'Merge…', exact: true });
     await expect(merge).toBeDisabled();
     await expect(merge).not.toHaveClass(/inbox-detail-btn--success/);
@@ -640,7 +651,7 @@ test('remote detail tabs and actions use the workspace GitHub account', async ()
     await remote.getByLabel('Merge method').selectOption('rebase');
     await remote.getByRole('button', { name: 'Enable auto-merge', exact: true }).click();
     await expect(remote.getByText('Auto-merge requested.', { exact: true })).toBeVisible();
-    await expect(remote.getByRole('button', { name: 'Refresh details' })).toBeEnabled();
+    await expect(pane.getByRole('button', { name: 'Refresh details' })).toBeEnabled();
     const calls = fs.readFileSync(logPath, 'utf8');
     expect(calls).toContain('pr comment 51 --repo github.com/sprocket/catalog-portal --body Test comment from Consola GH_TOKEN=gho_stub_token_for_JaviDev');
     expect(calls).toContain('pr review 51 --repo github.com/sprocket/catalog-portal --approve');
@@ -724,8 +735,8 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     const remote = pane.getByRole('region', { name: 'Remote item details' });
     await expect(remote.getByText('regression coverage')).toBeVisible({ timeout: 15_000 });
-    await expect(remote.getByText('as JaviDev')).toBeVisible();
-    await expect(pane.getByText('Sessions · 1')).toBeVisible();
+    await expect(pane.getByText('as JaviDev')).toBeVisible();
+    await expect(pane.locator('.inbox-pane-count')).toHaveText('1');
     const thisRow = pane.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Fix CI' });
     await expect(thisRow).toContainText('This session');
     await expect(thisRow.getByRole('button', { name: /^Open / })).toHaveCount(0);

@@ -36,7 +36,6 @@ import {
   diffBlocks,
   fileStatus,
   initial,
-  mergeStateMeta,
   parsePatch,
   reviewMeta,
   sortChecks,
@@ -247,7 +246,7 @@ export function OverviewTab({
   const summary = summarizeChecks(details.checks);
   const rollup = rollupOutcome(summary);
   const review = reviewMeta(details.reviewDecision);
-  const merge = isPr && details.mergeState ? mergeStateMeta(details.mergeState, details.baseBranch) : null;
+  // No merge fact: the merge state is said once, under the Merge button.
   const { additions, deletions } = totals(details.files);
   const hasFacts = isPr || details.labels.length > 0 || details.assignees.length > 0;
   return (
@@ -277,17 +276,6 @@ export function OverviewTab({
               <FactLink tone="neutral" icon={FileDiff} onClick={() => onShow('Files changed')}>
                 <DiffCounts additions={additions} deletions={deletions} /> in {plural(details.files.length, 'file')}
               </FactLink>
-            </Fact>
-          )}
-          {merge && (
-            <Fact label="Merge">
-              <span className="inbox-detail-fact-value" data-tone={merge.tone}>
-                {(() => {
-                  const Icon = merge.tone === 'success' ? GitMerge : TONE_ICONS[merge.tone];
-                  return <Icon size={14} className="inbox-detail-tone-icon" aria-hidden="true" />;
-                })()}
-                {merge.label}
-              </span>
             </Fact>
           )}
           {details.labels.length > 0 && (

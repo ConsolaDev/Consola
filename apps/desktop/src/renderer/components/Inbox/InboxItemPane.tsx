@@ -28,6 +28,8 @@ import { basename } from '../../utils/fileUtils';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
 import { MOD_KEY, formatAge, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
+import { StateBadge } from './WorkItemDetailTabs';
+import { itemStatus } from './workItemDetailPresentation';
 import './styles.css';
 
 export interface InboxItemPaneProps {
@@ -76,10 +78,13 @@ function automationPhase(status: SessionStatus): string | null {
  * add one — an action, a custom prompt, or linking a session that already
  * exists — then the item itself, provided by WorkItemDetailPanel.
  *
- * Sessions come first, in a dock under the title. They are what Consola
- * adds to the item and the reason to open it here rather than on GitHub, and
- * they are local: the dock renders at full height at once, where the remote
- * details below arrive later and would push anything under them down.
+ * Sessions come first, in a dock under the title and the item's one-line
+ * status strip. They are what Consola adds to the item and the reason to
+ * open it here rather than on GitHub, and they are local: the dock renders
+ * at full height at once, where the remote details below arrive later and
+ * would push anything under them down. The strip above is one line whether
+ * or not they have arrived, so it does not move the dock either -- except in
+ * the narrowest pane, where a PR's branches need a line of their own.
  *
  * The highlighted action is the section default, resolved here rather than
  * passed in: the pane knows the item, and the section is a pure function
@@ -102,11 +107,21 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
   // Each Fix handed over remounts the glow under this key, replaying it; it
   // clears itself once played, so reopening the prompt by hand stays quiet.
   const [landedKey, setLandedKey] = useState<number | null>(null);
+  // Where the details panel draws the item's status strip: above the dock,
+  // with the item's name, rather than down with its tabs.
+  const [detailHead, setDetailHead] = useState<HTMLDivElement | null>(null);
   // The Inbox's copy lags a refresh behind, and a stand-in for an item it no
   // longer lists has no title at all: a fresh read is the better answer.
   const [fetched, setFetched] = useState<WorkItemDetails | null>(null);
   const title = fetched?.title ?? item.title;
   const author = fetched?.author || item.author;
+  // The state is part of what the item is, so it sits with its name. An item
+  // the Inbox no longer lists is stood in for with no state (''): no badge
+  // until a read says, rather than a guess that would flip.
+  const knownState = fetched?.state ?? item.state;
+  const status = knownState
+    ? itemStatus(item.workItem.type, knownState, fetched?.isDraft ?? item.isDraft)
+    : null;
 
   // Task 8 fix-wave rule: name the bound provider, never hardcode "GitHub".
   // The pane only ever renders under a provider-bound workspace in practice
@@ -225,11 +240,16 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         </button>
       </div>
       <div className="inbox-pane-meta">
-        {item.workItem.repo}#{item.workItem.number} · {author ? `${author} · ` : ''}
-        <a className="inbox-pane-link" href={item.url} target="_blank" rel="noreferrer">
-          Open on {providerName} <ExternalLink size={11} />
-        </a>
+        {/* Keyed by the state it shows, so a merge or close visibly lands. */}
+        {status && <StateBadge key={status.kind} {...status} />}
+        <span className="inbox-pane-meta-text">
+          {item.workItem.repo}#{item.workItem.number} · {author ? `${author} · ` : ''}
+          <a className="inbox-pane-link" href={item.url} target="_blank" rel="noreferrer">
+            Open on {providerName} <ExternalLink size={11} />
+          </a>
+        </span>
       </div>
+      {workspace.provider && <div ref={setDetailHead} className="inbox-pane-detail-head" />}
 
       <section className="inbox-pane-dock" aria-label="Sessions on this item">
         <div className="inbox-pane-dock-head">
@@ -303,7 +323,9 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         )}
 
         <div className="inbox-pane-launch">
-          <h3 className="inbox-pane-section-title">Start a session</h3>
+          {/* The dock's own heading and the hairline above say it; a second
+              visible heading was one more thing to read before the buttons. */}
+          <h3 className="sr-only">Start a session</h3>
           {uncloned ? (
             <>
               <p className="inbox-pane-hint">
@@ -472,6 +494,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         workspaceId={workspace.id}
         accountLogin={workspace.provider.accountLogin}
         item={item}
+        headSlot={detailHead}
         onDetails={setFetched}
         fixTarget={fixInSession ? 'this session' : 'a session'}
         onFix={fixInSession ?? receiveFix}

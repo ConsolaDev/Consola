@@ -538,9 +538,28 @@
   color: var(--color-text-primary);
 }
 
+/* Everything that names the item, in one line under its title: its state,
+   where it lives, who opened it, and the way out to the provider. */
 .inbox-pane-meta {
+  --inbox-ease: cubic-bezier(0.16, 1, 0.3, 1);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 8px;
   font-size: 12px;
   color: var(--color-text-secondary);
+}
+
+.inbox-pane-meta-text {
+  min-width: 0;
+}
+
+/* The detail panel's state badge, at the meta line's size. */
+.inbox-pane-meta .inbox-detail-state {
+  height: 22px;
+  gap: 5px;
+  padding: 0 9px 0 7px;
+  font-size: 12px;
 }
 
 .inbox-pane-link {
@@ -593,16 +612,15 @@
   padding: 8px 6px 2px 12px;
 }
 
+/* Sentence case: a quiet label for the dock, not a shout above it. */
 .inbox-pane-section-title {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   margin: 0;
-  font-size: 11px;
+  font-size: 12.5px;
   font-weight: var(--font-weight-semibold);
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--color-text-secondary);
+  color: var(--color-text-primary);
 }
 
 .inbox-pane-count {
@@ -613,9 +631,9 @@
   padding: 0 5px;
   border-radius: 999px;
   background: var(--color-bg-hover);
-  color: var(--color-text-primary);
+  color: var(--color-text-secondary);
   font-size: 10.5px;
-  letter-spacing: 0;
+  font-weight: var(--font-weight-semibold);
   font-variant-numeric: tabular-nums;
 }
 
@@ -771,15 +789,10 @@
 }
 
 /* Where the pane sits beside a session, that session's row: a fact, not a
-   button, so it is a quiet tag rather than an edge to press. */
+   button, so it is plain words. An outline read as a disabled button. */
 .inbox-pane-current {
   flex: none;
-  display: inline-flex;
-  align-items: center;
-  height: 22px;
-  padding: 0 9px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
+  padding: 0 8px;
   font-size: 11.5px;
   color: var(--color-text-tertiary);
   white-space: nowrap;
@@ -796,8 +809,8 @@
   color: var(--color-text-secondary);
 }
 
-/* Starting one: actions as a wrapping row, the section default in the
-   accent, a custom prompt drawn dashed as the blank one. */
+/* Starting one: actions as a wrapping row under a hairline, the section
+   default in the accent, a custom prompt as the quiet ghost at the end. */
 .inbox-pane-launch {
   display: flex;
   flex-direction: column;
@@ -894,13 +907,13 @@
 }
 
 .inbox-pane-action--compose {
-  border-style: dashed;
-  border-color: var(--color-border-hover);
+  border-color: transparent;
   background: transparent;
   color: var(--color-text-secondary);
 }
 
 .inbox-pane-action--compose:hover:not(:disabled) {
+  border-color: transparent;
   color: var(--color-text-primary);
 }
 
@@ -1160,7 +1173,6 @@
   --diff-add-text: var(--color-success);
   --diff-del-text: var(--color-error);
   min-width: 0;
-  margin-top: var(--space-3);
   font-size: 13px;
   line-height: 1.5;
   color: var(--color-text-primary);
@@ -1179,37 +1191,56 @@
   --diff-del-text: color-mix(in srgb, var(--color-error) 78%, black);
 }
 
-.inbox-detail [data-tone='success'] { --tone: var(--color-success); }
-.inbox-detail [data-tone='error'] { --tone: var(--color-error); }
-.inbox-detail [data-tone='warning'] { --tone: var(--color-warning); }
-.inbox-detail [data-tone='merged'] { --tone: var(--color-merged); }
-.inbox-detail [data-tone='accent'] { --tone: var(--color-accent); }
-.inbox-detail [data-tone='neutral'] { --tone: var(--color-text-secondary); }
-.inbox-detail [data-tone] { --tone-text: var(--tone); }
-[data-theme='light'] .inbox-detail [data-tone] { --tone-text: color-mix(in srgb, var(--tone) 62%, black); }
-[data-theme='light'] .inbox-detail [data-tone='neutral'] { --tone-text: var(--color-text-secondary); }
+/* The pane's meta line shares these: the item's state badge sits there. */
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='success'] { --tone: var(--color-success); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='error'] { --tone: var(--color-error); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='warning'] { --tone: var(--color-warning); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='merged'] { --tone: var(--color-merged); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='accent'] { --tone: var(--color-accent); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone='neutral'] { --tone: var(--color-text-secondary); }
+:is(.inbox-pane-meta, .inbox-detail) [data-tone] { --tone-text: var(--tone); }
+[data-theme='light'] :is(.inbox-pane-meta, .inbox-detail) [data-tone] { --tone-text: color-mix(in srgb, var(--tone) 62%, black); }
+[data-theme='light'] :is(.inbox-pane-meta, .inbox-detail) [data-tone='neutral'] { --tone-text: var(--color-text-secondary); }
 
 .inbox-detail-toned { color: var(--tone-text); }
 .inbox-detail-tone-icon { flex: none; color: var(--tone-text, currentColor); }
 
-/* Status strip: state, branches, whose account acts, refresh. */
+/* The status strip, drawn into the pane above its sessions dock
+   (.inbox-pane-detail-head), with what its ⋯ menu opens under it. It keeps
+   the .inbox-detail class for the tones and controls styled under it. */
+.inbox-pane-detail-head:empty {
+  display: none;
+}
+
+.inbox-detail.inbox-detail-head {
+  margin-top: 2px;
+}
+
+/* The branches, whose account acts, refresh, and the ⋯ menu. One line: the
+   branches give up width (an ellipsis, the full name on hover) before the
+   account wraps, and only a pane too narrow to show a branch name at all
+   sends it to a line of its own. */
 .inbox-detail-toolbar {
   display: flex;
-  align-items: center;
   flex-wrap: wrap;
-  gap: 8px 10px;
+  align-items: center;
+  gap: 4px 12px;
+  min-height: 28px;
 }
 
-/* State and branches wrap as one unit, so the branches shrink beside the
-   badge instead of dropping to a line of their own; the account and refresh
-   are what move down when the row runs out. */
-.inbox-detail-toolbar-lead {
+.inbox-detail-toolbar .inbox-detail-branches {
+  flex: 1 1 14rem;
+}
+
+.inbox-detail-toolbar-tail {
+  flex: none;
   display: flex;
   align-items: center;
-  gap: 10px;
-  min-width: 0;
+  gap: 2px;
+  margin-left: auto;
 }
 
+/* Drawn in the pane's meta line (InboxItemPane), beside the item's name. */
 .inbox-detail-state {
   flex: none;
   display: inline-flex;
@@ -1236,11 +1267,12 @@
   column-gap: 5px;
   min-width: 0;
   max-width: 100%;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
 }
 
 /* Full names whenever the row has room; an ellipsis only once it runs out,
-   with the whole name in the chip's tooltip. */
+   with the whole name in the chip's tooltip. Neutral, not the accent: the
+   branches are reference, and the accent belongs to what acts. */
 .inbox-detail-branches code {
   cursor: default;
   min-width: 0;
@@ -1249,8 +1281,8 @@
   white-space: nowrap;
   padding: 1px 7px;
   border-radius: var(--radius-sm);
-  background: color-mix(in srgb, var(--color-accent) 13%, transparent);
-  color: var(--color-text-primary);
+  background: color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+  color: var(--color-text-secondary);
   font-family: var(--font-mono);
   font-size: 12px;
 }
@@ -1271,7 +1303,7 @@
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  margin-left: auto;
+  margin-right: 6px;
   font-size: 12px;
   color: var(--color-text-secondary);
   white-space: nowrap;
@@ -1416,18 +1448,6 @@
   color: var(--color-text-primary);
 }
 
-/* Edit is a toggle: while its form is open, it reads as pressed. */
-.inbox-detail-btn--quiet[aria-expanded='true'] {
-  background: var(--color-bg-active);
-  color: var(--color-text-primary);
-}
-
-/* Close is reversible, so it stays quiet until pointed at. */
-.inbox-detail-btn--danger:hover:not(:disabled) {
-  background: color-mix(in srgb, var(--color-error) 12%, transparent);
-  color: var(--diff-del-text);
-}
-
 .inbox-detail-btn--solid {
   border-color: transparent;
   background: var(--fill);
@@ -1456,31 +1476,36 @@
   background: color-mix(in srgb, var(--tone) 18%, transparent);
 }
 
-.inbox-detail-actions {
+/* The merge box ends Overview, as GitHub ends its page with one: what is
+   being merged is read first. A hairline, not a card, so the confirmation
+   that opens inside it is the only box. */
+.inbox-detail-merge-box {
   display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  margin-top: 14px;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: var(--space-6);
+  padding-top: var(--space-4);
+  border-top: 1px solid var(--color-border);
 }
 
-.inbox-detail-actions-main,
-.inbox-detail-actions-quiet {
+.inbox-detail-merge-box > .inbox-detail-confirm {
+  margin-top: 2px;
+}
+
+.inbox-detail-actions {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
 }
 
-.inbox-detail-actions-main + .inbox-detail-actions-quiet {
-  margin-left: auto;
-  gap: 0;
-}
-
-/* Why the merge button is disabled, under the row it explains: a disabled
-   button shows no tooltip of its own, and grey alone does not say why. */
-.inbox-detail-merge-why {
-  flex-basis: 100%;
+/* Why the merge button is not green, over the buttons it explains: a
+   disabled button shows no tooltip of its own, and grey alone does not say
+   why. The icon carries the tone, so the words can stay quiet. */
+.inbox-detail-merge-note {
+  display: flex;
+  align-items: center;
+  gap: 6px;
   margin: 0;
   font-size: 12px;
   color: var(--color-text-secondary);
@@ -1675,7 +1700,9 @@
   z-index: 2;
   display: flex;
   gap: 2px;
-  margin-top: 18px;
+  /* Room between Consola's dock above and GitHub's item, so they read as
+     two things rather than one long run of controls. */
+  margin-top: var(--space-5);
   overflow-x: auto;
   scrollbar-width: none;
   border-bottom: 1px solid var(--color-border);
@@ -1884,14 +1911,6 @@
 .inbox-detail-fact-link:focus-visible .inbox-detail-fact-chevron {
   opacity: 1;
   transform: none;
-}
-
-.inbox-detail-fact-value {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--tone-text);
-  font-weight: var(--font-weight-medium);
 }
 
 .inbox-detail-labels {
