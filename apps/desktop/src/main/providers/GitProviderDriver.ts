@@ -13,6 +13,11 @@ import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
  * genuinely differs between providers. Nothing outside src/main/providers/
  * may branch on `id`; the registry in ./index.ts is the only place that does.
  */
+export interface CheckoutOptions {
+  /** Move a reused local branch to the item's head even when that is not a fast-forward. */
+  resetBranch?: boolean;
+}
+
 export interface GitProviderDriver {
   readonly id: GitProviderId;
 
@@ -43,11 +48,16 @@ export interface GitProviderDriver {
   mutateItem?(ref: WorkItemRef, mutation: WorkItemMutation, env: NodeJS.ProcessEnv): Promise<void>;
 
   /**
-   * Check a work item out inside an existing detached worktree. Every git
-   * mechanic around it (add, prune, branch) is WorktreeService's; this is
-   * only the provider-specific fetch.
+   * Check a work item out inside an existing worktree: a fresh detached one,
+   * or one an earlier checkout left on the item's branch. Every git mechanic
+   * around it (add, prune, branch) is WorktreeService's; this is only the
+   * provider-specific fetch.
+   *
+   * A local branch the checkout reuses is only ever fast-forwarded, unless
+   * `resetBranch` — which WorktreeService passes only once it has proved
+   * that branch holds nothing but commits fetched from a remote.
    */
-  checkout(worktreeDir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<void>;
+  checkout(worktreeDir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv, options?: CheckoutOptions): Promise<void>;
 
   /** Clone `repo` to `destinationDir` (the clone's own directory, not its parent). */
   cloneRepo(repo: string, destinationDir: string, env: NodeJS.ProcessEnv): Promise<void>;
