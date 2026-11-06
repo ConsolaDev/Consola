@@ -39,7 +39,7 @@ import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
-import { countUntrackedLines, readUntrackedFile } from './untrackedLines';
+import { commit, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
@@ -1101,277 +1101,27 @@ export function setupIpcHandlers(): boolean {
         typeof dir === 'string' && path.isAbsolute(dir) ? readCheckout(dir) : { kind: 'none' }
     );
 
-    // Handle git status
-    ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, async (_event, rootPath: string) => {
-        return new Promise((resolve) => {
-            // Check if directory is a git repo
-            const gitDir = path.join(rootPath, '.git');
-            if (!fs.existsSync(gitDir)) {
-                resolve({ files: [], stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 }, isGitRepo: false, branch: null });
-                return;
-            }
+    // Status, diffs, staging and commits live in gitWorkingTree, which never
+    // hands a file name or a commit message to a shell.
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_STATUS, (_event, rootPath: string) => readStatus(rootPath));
 
-            // Get current branch name
-            exec('git rev-parse --abbrev-ref HEAD', { cwd: rootPath }, (branchErr, branchStdout) => {
-                const branch = !branchErr && branchStdout ? branchStdout.trim() : null;
+    ipcMain.handle(IPC_CHANNELS.GIT_GET_DIFF, (_event, { rootPath, filePath, staged }: { rootPath: string; filePath: string; staged: boolean }) =>
+        readDiff(rootPath, filePath, staged)
+    );
 
-                // Run git status --porcelain to get file statuses
-                exec('git status --porcelain -uall', { cwd: rootPath }, (statusErr, statusStdout) => {
-                    const files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }> = [];
-
-                    if (!statusErr && statusStdout) {
-                        const lines = statusStdout.trimEnd().split('\n').filter(Boolean);
-                        for (const line of lines) {
-                            const indexStatus = line[0];
-                            const workingStatus = line[1];
-                            const filePath = line.slice(3).trim();
-
-                            // Determine status based on git status output
-                            // First column = index (staged), Second column = working tree
-                            if (indexStatus === '?' && workingStatus === '?') {
-                                files.push({ path: filePath, status: 'untracked' });
-                            } else if (indexStatus === 'D' || workingStatus === 'D') {
-                                files.push({ path: filePath, status: 'deleted' });
-                            } else if (indexStatus !== ' ' && indexStatus !== '?') {
-                                // Staged changes (A, M, R, C in index)
-                                files.push({ path: filePath, status: 'staged' });
-                            } else if (workingStatus === 'M') {
-                                // Unstaged modifications
-                                files.push({ path: filePath, status: 'modified' });
-                            }
-                        }
-                    }
-
-                    // Run git diff --numstat for line counts
-                    exec('git diff --numstat', { cwd: rootPath }, (diffErr, diffStdout) => {
-                        let addedLines = 0;
-                        let removedLines = 0;
-
-                        if (!diffErr && diffStdout) {
-                            const lines = diffStdout.trim().split('\n').filter(Boolean);
-                            for (const line of lines) {
-                                const parts = line.split('\t');
-                                const added = parseInt(parts[0], 10);
-                                const removed = parseInt(parts[1], 10);
-                                if (!isNaN(added)) addedLines += added;
-                                if (!isNaN(removed)) removedLines += removed;
-                            }
-                        }
-
-                        // Also get staged diff stats
-                        exec('git diff --cached --numstat', { cwd: rootPath }, (stagedErr, stagedStdout) => {
-                            if (!stagedErr && stagedStdout) {
-                                const lines = stagedStdout.trim().split('\n').filter(Boolean);
-                                for (const line of lines) {
-                                    const parts = line.split('\t');
-                                    const added = parseInt(parts[0], 10);
-                                    const removed = parseInt(parts[1], 10);
-                                    if (!isNaN(added)) addedLines += added;
-                                    if (!isNaN(removed)) removedLines += removed;
-                                }
-                            }
-
-                            // Neither diff above sees untracked files, which
-                            // the file list does include.
-                            const untracked = files.filter((f) => f.status === 'untracked').map((f) => f.path);
-                            countUntrackedLines(rootPath, untracked).then((untrackedLines) => {
-                                resolve({
-                                    files,
-                                    stats: {
-                                        modifiedCount: files.length,
-                                        addedLines: addedLines + untrackedLines,
-                                        removedLines
-                                    },
-                                    isGitRepo: true,
-                                    branch
-                                });
-                            });
-                        });
-                    });
-                });
-            });
-        });
-    });
-
-    // Handle git diff
-    ipcMain.handle(IPC_CHANNELS.GIT_GET_DIFF, async (_event, { rootPath, filePath, staged }: { rootPath: string; filePath: string; staged: boolean }) => {
-        return new Promise((resolve) => {
-            const absolutePath = path.join(rootPath, filePath);
-
-            // Check if file exists for new/untracked files
-            const fileExists = fs.existsSync(absolutePath);
-
-            // For untracked files, return full content as new
-            if (!staged) {
-                exec(`git ls-files --error-unmatch "${filePath}" 2>/dev/null`, { cwd: rootPath }, (err) => {
-                    if (err) {
-                        // File is untracked - read full content, unless it is
-                        // binary by the rules the header's line count uses.
-                        // One that exists but cannot be read shows as binary.
-                        if (fileExists) {
-                            readUntrackedFile(rootPath, filePath).then((file) => {
-                                resolve({
-                                    filePath,
-                                    staged: false,
-                                    oldContent: '',
-                                    newContent: file?.content ?? '',
-                                    hunks: [],
-                                    isBinary: file?.isBinary ?? true,
-                                    isNew: true,
-                                    isDeleted: false
-                                });
-                            });
-                        } else {
-                            resolve({
-                                filePath,
-                                staged: false,
-                                oldContent: '',
-                                newContent: '',
-                                hunks: [],
-                                isBinary: false,
-                                isNew: true,
-                                isDeleted: true
-                            });
-                        }
-                        return;
-                    }
-
-                    // File is tracked, get the diff
-                    getDiffContent(rootPath, filePath, staged, fileExists, resolve);
-                });
-            } else {
-                // Staged file - get the diff directly
-                getDiffContent(rootPath, filePath, staged, fileExists, resolve);
-            }
-        });
-    });
-
-    function getDiffContent(
-        rootPath: string,
-        filePath: string,
-        staged: boolean,
-        fileExists: boolean,
-        resolve: (value: unknown) => void
-    ) {
-        const diffCmd = staged ? `git diff --cached -- "${filePath}"` : `git diff -- "${filePath}"`;
-        const absolutePath = path.join(rootPath, filePath);
-
-        exec(diffCmd, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (diffErr, diffStdout) => {
-            if (diffErr || !diffStdout) {
-                // No diff available
-                resolve({
-                    filePath,
-                    staged,
-                    oldContent: '',
-                    newContent: '',
-                    hunks: [],
-                    isBinary: false,
-                    isNew: false,
-                    isDeleted: !fileExists
-                });
-                return;
-            }
-
-            // Check for binary
-            if (diffStdout.includes('Binary files')) {
-                resolve({
-                    filePath,
-                    staged,
-                    oldContent: '',
-                    newContent: '',
-                    hunks: [],
-                    isBinary: true,
-                    isNew: false,
-                    isDeleted: false
-                });
-                return;
-            }
-
-            // Get old content (from HEAD or index)
-            const showCmd = staged ? `git show HEAD:"${filePath}"` : `git show :"${filePath}"`;
-            exec(showCmd, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (showErr, oldContent) => {
-                // Get new content
-                const getNewContent = (): Promise<string> => {
-                    if (staged) {
-                        // For staged, get from index
-                        return new Promise((res) => {
-                            exec(`git show :"${filePath}"`, { cwd: rootPath, maxBuffer: 10 * 1024 * 1024 }, (err, content) => {
-                                res(err ? '' : content);
-                            });
-                        });
-                    } else {
-                        // For unstaged, read from filesystem
-                        if (fileExists) {
-                            return fs.promises.readFile(absolutePath, 'utf-8').catch(() => '');
-                        }
-                        return Promise.resolve('');
-                    }
-                };
-
-                getNewContent().then((newContent) => {
-                    resolve({
-                        filePath,
-                        staged,
-                        oldContent: showErr ? '' : oldContent,
-                        newContent,
-                        hunks: parseDiffHunks(diffStdout),
-                        isBinary: false,
-                        isNew: showErr !== null,
-                        isDeleted: !fileExists
-                    });
-                });
-            });
-        });
-    }
-
-    // Handle git stage file
     ipcMain.handle(IPC_CHANNELS.GIT_STAGE_FILE, async (_event, { rootPath, filePath }: { rootPath: string; filePath: string }) => {
-        return new Promise((resolve, reject) => {
-            exec(`git add "${filePath}"`, { cwd: rootPath }, (err, stdout, stderr) => {
-                if (err) {
-                    reject(new Error(stderr || err.message));
-                } else {
-                    resolve({ success: true });
-                }
-            });
-        });
+        await stageFile(rootPath, filePath);
+        return { success: true };
     });
 
-    // Handle git unstage file
     ipcMain.handle(IPC_CHANNELS.GIT_UNSTAGE_FILE, async (_event, { rootPath, filePath }: { rootPath: string; filePath: string }) => {
-        return new Promise((resolve, reject) => {
-            exec(`git reset HEAD "${filePath}"`, { cwd: rootPath }, (err, stdout, stderr) => {
-                if (err) {
-                    // If the file was never committed, git reset will fail
-                    // Try removing from index instead
-                    exec(`git rm --cached "${filePath}"`, { cwd: rootPath }, (err2, stdout2, stderr2) => {
-                        if (err2) {
-                            reject(new Error(stderr2 || stderr || err.message));
-                        } else {
-                            resolve({ success: true });
-                        }
-                    });
-                } else {
-                    resolve({ success: true });
-                }
-            });
-        });
+        await unstageFile(rootPath, filePath);
+        return { success: true };
     });
 
-    // Handle git commit
-    ipcMain.handle(IPC_CHANNELS.GIT_COMMIT, async (_event, { rootPath, message }: { rootPath: string; message: string }) => {
-        return new Promise((resolve) => {
-            // Escape double quotes in the message
-            const escapedMessage = message.replace(/"/g, '\\"');
-            exec(`git commit -m "${escapedMessage}"`, { cwd: rootPath }, (err, stdout, stderr) => {
-                if (err) {
-                    resolve({ success: false, error: stderr || err.message });
-                } else {
-                    resolve({ success: true });
-                }
-            });
-        });
-    });
+    ipcMain.handle(IPC_CHANNELS.GIT_COMMIT, (_event, { rootPath, message }: { rootPath: string; message: string }) =>
+        commit(rootPath, message)
+    );
 
     // Handle get staged diff (for AI commit message generation)
     ipcMain.handle(IPC_CHANNELS.GIT_GET_STAGED_DIFF, async (_event, { rootPath }: { rootPath: string }) => {
@@ -1448,86 +1198,6 @@ ${truncatedDiff}`;
         }
         return { message: result.text };
     });
-
-    function parseDiffHunks(diffOutput: string): Array<{
-        oldStart: number;
-        oldLines: number;
-        newStart: number;
-        newLines: number;
-        lines: Array<{
-            type: 'context' | 'add' | 'remove';
-            content: string;
-            oldLineNumber?: number;
-            newLineNumber?: number;
-        }>;
-    }> {
-        const hunks: Array<{
-            oldStart: number;
-            oldLines: number;
-            newStart: number;
-            newLines: number;
-            lines: Array<{
-                type: 'context' | 'add' | 'remove';
-                content: string;
-                oldLineNumber?: number;
-                newLineNumber?: number;
-            }>;
-        }> = [];
-
-        const lines = diffOutput.split('\n');
-        let currentHunk: typeof hunks[0] | null = null;
-        let oldLine = 0;
-        let newLine = 0;
-
-        for (const line of lines) {
-            // Parse hunk header: @@ -oldStart,oldLines +newStart,newLines @@
-            const hunkMatch = line.match(/^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/);
-            if (hunkMatch) {
-                if (currentHunk) {
-                    hunks.push(currentHunk);
-                }
-                currentHunk = {
-                    oldStart: parseInt(hunkMatch[1], 10),
-                    oldLines: parseInt(hunkMatch[2] || '1', 10),
-                    newStart: parseInt(hunkMatch[3], 10),
-                    newLines: parseInt(hunkMatch[4] || '1', 10),
-                    lines: []
-                };
-                oldLine = currentHunk.oldStart;
-                newLine = currentHunk.newStart;
-                continue;
-            }
-
-            if (!currentHunk) continue;
-
-            if (line.startsWith('+') && !line.startsWith('+++')) {
-                currentHunk.lines.push({
-                    type: 'add',
-                    content: line.slice(1),
-                    newLineNumber: newLine++
-                });
-            } else if (line.startsWith('-') && !line.startsWith('---')) {
-                currentHunk.lines.push({
-                    type: 'remove',
-                    content: line.slice(1),
-                    oldLineNumber: oldLine++
-                });
-            } else if (line.startsWith(' ')) {
-                currentHunk.lines.push({
-                    type: 'context',
-                    content: line.slice(1),
-                    oldLineNumber: oldLine++,
-                    newLineNumber: newLine++
-                });
-            }
-        }
-
-        if (currentHunk) {
-            hunks.push(currentHunk);
-        }
-
-        return hunks;
-    }
 
     // A workspace lives in at most one window, and main is the only thing that
     // can say so without two renderers racing to claim it in the same tick.
