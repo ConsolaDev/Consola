@@ -12,6 +12,7 @@ import { buildUnifiedDiff } from '../../utils/diffUtils';
 import { codeTheme } from '../../utils/codeTheme';
 import { SelectableCode } from '../CodeSelection';
 import { useCodeSelectionContext } from '../../contexts/CodeSelectionContext';
+import { countLines } from '../../../shared/lineCount';
 
 interface GitReviewFileSectionProps {
   rootPath: string;
@@ -110,9 +111,9 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
           let added = 0;
           let removed = 0;
           if (data.isNew) {
-            added = data.newContent.split('\n').length;
+            added = countLines(data.newContent);
           } else if (data.isDeleted) {
-            removed = data.oldContent.split('\n').length;
+            removed = countLines(data.oldContent);
           } else {
             for (const hunk of data.hunks) {
               for (const line of hunk.lines) {

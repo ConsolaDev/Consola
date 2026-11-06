@@ -39,6 +39,7 @@ import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
+import { countUntrackedLines } from './untrackedLines';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
@@ -1170,15 +1171,20 @@ export function setupIpcHandlers(): boolean {
                                 }
                             }
 
-                            resolve({
-                                files,
-                                stats: {
-                                    modifiedCount: files.length,
-                                    addedLines,
-                                    removedLines
-                                },
-                                isGitRepo: true,
-                                branch
+                            // Neither diff above sees untracked files, which
+                            // the file list does include.
+                            const untracked = files.filter((f) => f.status === 'untracked').map((f) => f.path);
+                            countUntrackedLines(rootPath, untracked).then((untrackedLines) => {
+                                resolve({
+                                    files,
+                                    stats: {
+                                        modifiedCount: files.length,
+                                        addedLines: addedLines + untrackedLines,
+                                        removedLines
+                                    },
+                                    isGitRepo: true,
+                                    branch
+                                });
                             });
                         });
                     });
