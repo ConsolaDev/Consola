@@ -1,0 +1,18 @@
+[
+  [
+    {
+      "filename": "src/billing.ts",
+      "status": "modified",
+      "additions": 7,
+      "deletions": 4,
+      "patch": "@@ -1,10 +1,13 @@\n import { request } from './http';\n-import { legacy } from './legacy';\n+import { createClient } from './billing/client';\n \n-export function charge(amount) {\n-  return legacy.post('/charge', { amount });\n+const client = createClient();\n+\n+export function charge(amount: number) {\n+  if (!Number.isFinite(amount)) throw new Error('Invalid amount');\n+  return client.post('/charge', { amount });\n }\n \n export function refund(id) {\n-  return legacy.post('/refund', { id });\n+  return client.post('/refund', { id });\n }"
+    },
+    {
+      "filename": "src/billing/client.ts",
+      "status": "added",
+      "additions": 3,
+      "deletions": 0,
+      "patch": "@@ -0,0 +1,3 @@\n+export function createClient() {\n+  return { post: async (path: string, body: unknown) => ({ path, body }) };\n+}"
+    }
+  ]
+]

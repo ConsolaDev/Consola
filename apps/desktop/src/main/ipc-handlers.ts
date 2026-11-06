@@ -1,5 +1,5 @@
 import { WorkItemDetailService } from './providers/WorkItemDetailService';
-import { fetchWorkItemAsset } from './providers/workItemAssets';
+import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
@@ -481,12 +481,14 @@ export function setupIpcHandlers(): boolean {
     });
     ipcMain.handle(IPC_CHANNELS.INBOX_DETAILS, (_event, id: string, ref: unknown) => details.get(id, ref));
     // Images in a work item load through main, as the workspace's account
-    // (shared/workItemAssets.ts). Registered privileged in index.ts.
-    protocol.handle(WORK_ITEM_ASSET_SCHEME, (request) => fetchWorkItemAsset({
+    // (shared/workItemAssets.ts), and are remembered for the run: avatars
+    // repeat on every card. Registered privileged in index.ts.
+    const workItemAsset = createWorkItemAssetCache({
         getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
         resolveDriver: getProviderDriver,
         fetch,
-    }, request.url));
+    });
+    protocol.handle(WORK_ITEM_ASSET_SCHEME, (request) => workItemAsset(request.url));
     ipcMain.handle(IPC_CHANNELS.INBOX_MUTATE, async (_event, id: string, ref: unknown, action: unknown) => {
         await details.mutate(id, ref, action);
         // A successful write must remain successful even if the subsequent read fails.

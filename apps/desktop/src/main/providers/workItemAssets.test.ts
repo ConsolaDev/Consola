@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Workspace } from '../../shared/workspace';
 import { workItemAssetUrl } from '../../shared/workItemAssets';
 import { createStubDriver } from './stubDriver.test-helpers';
-import { fetchWorkItemAsset } from './workItemAssets';
+import { createWorkItemAssetCache, fetchWorkItemAsset } from './workItemAssets';
 
 const PRIVATE = 'https://github.com/user-attachments/assets/0b6f1e7a-5d2c-4c1e-9a3b-2f8d7c6e5a4b';
 const SIGNED = 'https://objects.example/0b6f1e7a.png?X-Amz-Signature=abc';
@@ -124,5 +124,60 @@ describe('fetchWorkItemAsset', () => {
     const deps = { getWorkspace: () => undefined, resolveDriver: () => createStubDriver(), fetch: fetch as unknown as typeof globalThis.fetch };
     expect((await fetchWorkItemAsset(deps, 'consola-asset://image/?workspace=ws&url=file%3A%2F%2F%2Fetc%2Fpasswd')).status).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('createWorkItemAssetCache', () => {
+  function cached(fetchImpl: (url: URL) => Promise<Response>, limits?: { maxEntries?: number; maxBytes?: number }) {
+    const workspace = { provider: { id: 'github', accountLogin: 'workspace-account', org: 'sprocket' } } as Workspace;
+    const fetch = vi.fn(fetchImpl);
+    const fetchCached = createWorkItemAssetCache({
+      getWorkspace: (id: string) => (id === 'ws' ? workspace : undefined),
+      resolveDriver: () => createStubDriver({}),
+      fetch: fetch as unknown as typeof globalThis.fetch,
+      lookup: async () => [{ address: '140.82.112.3', family: 4 }],
+    }, limits);
+    return { fetch, load: (src: string, workspaceId = 'ws') => fetchCached(workItemAssetUrl(workspaceId, src)!) };
+  }
+  const AVATAR = 'https://avatars.example/u/1?s=40';
+
+  it('fetches an image once however often, and however concurrently, it is asked for', async () => {
+    const { fetch, load } = cached(async () => image());
+    const responses = await Promise.all([load(AVATAR), load(AVATAR), load(AVATAR)]);
+    const again = await load(AVATAR);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    for (const response of [...responses, again]) {
+      expect(response.headers.get('content-type')).toBe('image/png');
+      expect(await response.text()).toBe('png-bytes');
+    }
+  });
+
+  it('keeps each workspace’s copy apart', async () => {
+    const { fetch, load } = cached(async () => image());
+    await load(AVATAR, 'ws');
+    expect((await load(AVATAR, 'other')).status).toBe(404);
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('asks again for an image that failed, and does not keep a large one', async () => {
+    let fail = true;
+    const { fetch, load } = cached(async () => (fail ? new Response(null, { status: 500 }) : image()), { maxBytes: 4 });
+    expect((await load(AVATAR)).status).toBe(500);
+    fail = false;
+    expect(await (await load(AVATAR)).text()).toBe('png-bytes');
+    expect(await (await load(AVATAR)).text()).toBe('png-bytes');
+    expect(fetch).toHaveBeenCalledTimes(3);
+  });
+
+  it('forgets the least recently used image past its limit', async () => {
+    const { fetch, load } = cached(async () => image(), { maxEntries: 2 });
+    await load('https://avatars.example/a');
+    await load('https://avatars.example/b');
+    await load('https://avatars.example/a');
+    await load('https://avatars.example/c');
+    await load('https://avatars.example/a');
+    expect(fetch).toHaveBeenCalledTimes(3);
+    await load('https://avatars.example/b');
+    expect(fetch).toHaveBeenCalledTimes(4);
   });
 });

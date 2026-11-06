@@ -1,0 +1,204 @@
+[
+  {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "reviewThreads": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "id": "PRRT_1",
+                "isResolved": false,
+                "isOutdated": false,
+                "path": "src/billing.ts",
+                "line": 7,
+                "startLine": null,
+                "originalLine": 7,
+                "diffSide": "RIGHT",
+                "startDiffSide": null,
+                "viewerCanResolve": true,
+                "viewerCanUnresolve": false,
+                "viewerCanReply": true,
+                "comments": {
+                  "totalCount": 2,
+                  "nodes": [
+                    {
+                      "id": "PRRC_1",
+                      "author": {
+                        "__typename": "User",
+                        "login": "ellen-sprocket",
+                        "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                      },
+                      "body": "Handle empty input here.",
+                      "createdAt": "2026-10-08T09:00:00Z",
+                      "lastEditedAt": null,
+                      "url": "https://github.com/sprocket/catalog-portal/pull/51#discussion_rPRRC_1",
+                      "viewerCanUpdate": false,
+                      "reactionGroups": [],
+                      "isMinimized": false,
+                      "minimizedReason": null,
+                      "diffHunk": "@@ -1,10 +1,13 @@\n import { request } from './http';\n-import { legacy } from './legacy';\n+import { createClient } from './billing/client';\n \n-export function charge(amount) {\n-  return legacy.post('/charge', { amount });\n+const client = createClient();\n+\n+export function charge(amount: number) {\n+  if (!Number.isFinite(amount)) throw new Error('Invalid amount');",
+                      "state": "SUBMITTED",
+                      "viewerCanDelete": false,
+                      "pullRequestReview": {
+                        "id": "PRR_ellen"
+                      }
+                    },
+                    {
+                      "id": "PRRC_2",
+                      "author": {
+                        "__typename": "User",
+                        "login": "mateo-sprocket",
+                        "avatarUrl": "https://avatars.example.invalid/mateo-sprocket?s=40"
+                      },
+                      "body": "Agreed \u2014 an empty string reaches the client today.",
+                      "createdAt": "2026-10-08T12:00:00Z",
+                      "lastEditedAt": null,
+                      "url": "https://github.com/sprocket/catalog-portal/pull/51#discussion_rPRRC_2",
+                      "viewerCanUpdate": false,
+                      "reactionGroups": [],
+                      "isMinimized": false,
+                      "minimizedReason": null,
+                      "diffHunk": "@@ -1,10 +1,13 @@\n import { request } from './http';\n-import { legacy } from './legacy';\n+import { createClient } from './billing/client';\n \n-export function charge(amount) {\n-  return legacy.post('/charge', { amount });\n+const client = createClient();\n+\n+export function charge(amount: number) {\n+  if (!Number.isFinite(amount)) throw new Error('Invalid amount');",
+                      "state": "SUBMITTED",
+                      "viewerCanDelete": false,
+                      "pullRequestReview": {
+                        "id": "PRR_mateo"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "PRRT_2",
+                "isResolved": true,
+                "isOutdated": false,
+                "path": "src/billing.ts",
+                "line": 4,
+                "startLine": null,
+                "originalLine": 4,
+                "diffSide": "RIGHT",
+                "startDiffSide": null,
+                "viewerCanResolve": false,
+                "viewerCanUnresolve": true,
+                "viewerCanReply": true,
+                "comments": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "id": "PRRC_3",
+                      "author": {
+                        "__typename": "User",
+                        "login": "ellen-sprocket",
+                        "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                      },
+                      "body": "Name this `billing`?",
+                      "createdAt": "2026-10-08T09:00:00Z",
+                      "lastEditedAt": null,
+                      "url": "https://github.com/sprocket/catalog-portal/pull/51#discussion_rPRRC_3",
+                      "viewerCanUpdate": false,
+                      "reactionGroups": [],
+                      "isMinimized": false,
+                      "minimizedReason": null,
+                      "diffHunk": "@@ -1,10 +1,13 @@\n import { request } from './http';\n-import { legacy } from './legacy';\n+import { createClient } from './billing/client';\n \n+const client = createClient();",
+                      "state": "SUBMITTED",
+                      "viewerCanDelete": false,
+                      "pullRequestReview": {
+                        "id": "PRR_ellen"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "PRRT_3",
+                "isResolved": false,
+                "isOutdated": true,
+                "path": "src/legacy.ts",
+                "line": null,
+                "startLine": null,
+                "originalLine": 7,
+                "diffSide": "RIGHT",
+                "startDiffSide": null,
+                "viewerCanResolve": true,
+                "viewerCanUnresolve": false,
+                "viewerCanReply": true,
+                "comments": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "id": "PRRC_4",
+                      "author": {
+                        "__typename": "User",
+                        "login": "ellen-sprocket",
+                        "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                      },
+                      "body": "This file goes away, right?",
+                      "createdAt": "2026-10-08T09:00:00Z",
+                      "lastEditedAt": null,
+                      "url": "https://github.com/sprocket/catalog-portal/pull/51#discussion_rPRRC_4",
+                      "viewerCanUpdate": false,
+                      "reactionGroups": [],
+                      "isMinimized": false,
+                      "minimizedReason": null,
+                      "diffHunk": "@@ -5,3 +5,3 @@\n export const legacy = {\n-  post: () => null,\n+  post: () => undefined,",
+                      "state": "SUBMITTED",
+                      "viewerCanDelete": false,
+                      "pullRequestReview": {
+                        "id": "PRR_ellen"
+                      }
+                    }
+                  ]
+                }
+              },
+              {
+                "id": "PRRT_pending",
+                "isResolved": false,
+                "isOutdated": false,
+                "path": "src/billing.ts",
+                "line": 12,
+                "startLine": null,
+                "originalLine": 12,
+                "diffSide": "RIGHT",
+                "startDiffSide": null,
+                "viewerCanResolve": true,
+                "viewerCanUnresolve": false,
+                "viewerCanReply": true,
+                "comments": {
+                  "totalCount": 1,
+                  "nodes": [
+                    {
+                      "id": "PRRC_pending",
+                      "author": {
+                        "__typename": "User",
+                        "login": "JaviDev",
+                        "avatarUrl": "https://avatars.example.invalid/JaviDev?s=40"
+                      },
+                      "body": "Refunds need the same check.",
+                      "createdAt": "2026-10-09T08:00:00Z",
+                      "lastEditedAt": null,
+                      "url": "https://github.com/sprocket/catalog-portal/pull/51#discussion_rPRRC_pending",
+                      "viewerCanUpdate": true,
+                      "reactionGroups": [],
+                      "isMinimized": false,
+                      "minimizedReason": null,
+                      "diffHunk": "@@ -1,10 +1,13 @@\n import { request } from './http';\n-import { legacy } from './legacy';\n+import { createClient } from './billing/client';\n \n-export function charge(amount) {\n-  return legacy.post('/charge', { amount });\n+const client = createClient();\n+\n+export function charge(amount: number) {\n+  if (!Number.isFinite(amount)) throw new Error('Invalid amount');",
+                      "state": "PENDING",
+                      "viewerCanDelete": true,
+                      "pullRequestReview": {
+                        "id": "PRR_pending1"
+                      }
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+]

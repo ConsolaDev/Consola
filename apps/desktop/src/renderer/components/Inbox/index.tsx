@@ -287,6 +287,11 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                     workspace={workspace}
                     item={selected}
                     onClose={() => setSelectedKey(null)}
+                    onOpenWorkItem={(ref) => {
+                      const listed = items.some((candidate) => workItemKey(candidate.workItem) === workItemKey(ref));
+                      if (listed) setSelectedKey(workItemKey(ref));
+                      return listed;
+                    }}
                   />
                 </div>
               </Panel>

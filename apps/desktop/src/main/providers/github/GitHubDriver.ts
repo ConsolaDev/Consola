@@ -1,5 +1,30 @@
-import { z } from 'zod';
-import { githubCommentSchema, githubDetailSchema, githubFileSchema } from './itemDetails';
+import {
+    CHECKS_QUERY,
+    ISSUE_QUERY,
+    MUTATIONS,
+    PULL_REQUEST_ID_QUERY,
+    PULL_REQUEST_QUERY,
+    REVIEW_THREADS_QUERY,
+    THREAD_COMMENTS_QUERY,
+    assertOwners,
+    checksIncomplete,
+    incompleteThreads,
+    issueDetails,
+    nodeOwnersQuery,
+    parseChecks,
+    parseFiles,
+    parseIssueHeader,
+    parsePullRequestHeader,
+    parsePullRequestId,
+    parseStartedReviewId,
+    parseThreadComments,
+    parseThreads,
+    parseTimeline,
+    pullRequestDetails,
+    timelineQuery,
+    toThread,
+    type OwnedNodeType,
+} from './itemDetails';
 import type { WorkItemDetails as SharedWorkItemDetails, WorkItemMutation } from '../../../shared/workItemDetails';
 import { workItemMutationSchema } from '../../../shared/workItemDetails';
 import { execFile } from 'child_process';
@@ -46,6 +71,21 @@ const TOKEN_TTL_MS = 5 * 60 * 1000;
 const WEB_HOST = 'github.com';
 /** Parallel `gh api` calls per lookup batch: quick for a handful, polite for dozens. */
 const PR_LOOKUP_CONCURRENCY = 4;
+
+const REVIEW_EVENTS = { approve: 'APPROVE', 'request-changes': 'REQUEST_CHANGES', comment: 'COMMENT' } as const;
+
+/** Each kind of edit: its mutation, and what the id it is given must be. */
+const EDITS = {
+    comment: { query: MUTATIONS.editComment, type: 'IssueComment' },
+    review: { query: MUTATIONS.editReview, type: 'PullRequestReview' },
+    'review-comment': { query: MUTATIONS.editReviewComment, type: 'PullRequestReviewComment' },
+} as const;
+
+/** The variables every item query takes. The service has already held `repo` to `owner/name`. */
+function itemVars(ref: WorkItemRef): { owner: string; name: string; number: number } {
+    const [owner, name] = ref.repo.split('/');
+    return { owner, name, number: ref.number };
+}
 
 async function mapWithConcurrency<T, R>(
     items: T[],
@@ -311,68 +351,199 @@ export class GitHubDriver implements GitProviderDriver {
         return parseInboxPayload(JSON.parse(stdout));
     }
 
+    /**
+     * Everything the Inbox pane draws, as the workspace's account: the item
+     * and the viewer's pending review (one query), its whole timeline and
+     * review threads (each paginated to the end), and the changed files'
+     * patches on REST, the only place GitHub serves them. Each request runs
+     * at once; a thread or check list longer than its first page is
+     * completed afterwards.
+     */
     public async fetchDetails(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<SharedWorkItemDetails> {
-        const common = 'title,body,state,author,labels,assignees';
-        const fields = ref.type === 'pr'
-            ? `${common},isDraft,headRefOid,headRefName,baseRefName,mergeStateStatus,reviewDecision,statusCheckRollup`
-            : common;
-        const root = `repos/${ref.repo}`;
-        const paginate = async (endpoint: string): Promise<unknown[]> => {
-            const pages = JSON.parse(await this.exec(['api', '--hostname', WEB_HOST, endpoint, '--paginate', '--slurp'], env));
-            if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) throw new Error('Unexpected GitHub list response.');
-            return pages.flat();
-        };
-        const [raw, comments, reviews, inline, files] = await Promise.all([
-            this.exec([ref.type, 'view', String(ref.number), '--repo', `github.com/${ref.repo}`, '--json', fields], env),
-            paginate(`${root}/issues/${ref.number}/comments?per_page=100`),
-            ref.type === 'pr' ? paginate(`${root}/pulls/${ref.number}/reviews?per_page=100`) : [],
-            ref.type === 'pr' ? paginate(`${root}/pulls/${ref.number}/comments?per_page=100`) : [],
-            ref.type === 'pr' ? paginate(`${root}/pulls/${ref.number}/files?per_page=100`) : [],
+        const vars = itemVars(ref);
+        if (ref.type !== 'pr') {
+            const [header, timeline] = await Promise.all([
+                this.graphql(ISSUE_QUERY, vars, env),
+                this.graphql(timelineQuery('issue'), vars, env, true),
+            ]);
+            return issueDetails(parseIssueHeader(header), parseTimeline(timeline, 'issue'));
+        }
+        const [rawHeader, rawTimeline, rawThreads, rawFiles] = await Promise.all([
+            this.graphql(PULL_REQUEST_QUERY, vars, env),
+            this.graphql(timelineQuery('pr'), vars, env, true),
+            this.graphql(REVIEW_THREADS_QUERY, vars, env, true),
+            this.paginate(`repos/${ref.repo}/pulls/${ref.number}/files?per_page=100`, env),
         ]);
-        const data = githubDetailSchema.parse(JSON.parse(raw));
-        const conversation = (rows: unknown[], kind: 'comment' | 'review' | 'inline') => z.array(githubCommentSchema).parse(rows).map((row) => ({
-            id: `${kind}:${row.id}`, kind, author: row.user?.login ?? 'ghost', body: row.body ?? '',
-            url: row.html_url ?? '', createdAt: row.submitted_at ?? row.created_at ?? '',
-            state: row.state, path: row.path, line: row.line ?? row.original_line ?? undefined,
-        }));
-        return {
-            title: data.title, body: data.body ?? '', state: data.state.toLowerCase(),
-            isDraft: data.isDraft ?? false, author: data.author?.login ?? 'ghost',
-            labels: (data.labels ?? []).map((label: { name: string }) => label.name),
-            assignees: (data.assignees ?? []).map((user: { login: string }) => user.login),
-            comments: [...conversation(comments, 'comment'), ...conversation(reviews, 'review'), ...conversation(inline, 'inline')]
-                .sort((a, b) => a.createdAt.localeCompare(b.createdAt)),
-            checks: (data.statusCheckRollup ?? []).map((check) => ({
-                name: check.name ?? check.context ?? 'Check',
-                state: check.conclusion || check.state || check.status || 'PENDING',
-                url: check.detailsUrl ?? check.targetUrl ?? '',
-            })),
-            files: z.array(githubFileSchema).parse(files).map((file) => ({ path: file.filename, status: file.status,
-                additions: file.additions, deletions: file.deletions, patch: file.patch })),
-            headOid: data.headRefOid, headBranch: data.headRefName, baseBranch: data.baseRefName,
-            mergeState: data.mergeStateStatus, reviewDecision: data.reviewDecision ?? undefined,
-        };
+        const header = parsePullRequestHeader(rawHeader);
+        const timeline = parseTimeline(rawTimeline, 'pr');
+        const files = parseFiles(rawFiles);
+        const threads = parseThreads(rawThreads);
+        const [moreComments, checks] = await Promise.all([
+            Promise.all(incompleteThreads(threads).map(async (thread) =>
+                [thread.id, parseThreadComments(await this.graphql(THREAD_COMMENTS_QUERY, { id: thread.id }, env, true))] as const)),
+            checksIncomplete(header) ? this.graphql(CHECKS_QUERY, vars, env, true).then(parseChecks) : Promise.resolve(undefined),
+        ]);
+        const complete = new Map(moreComments);
+        return pullRequestDetails(header, timeline, threads.map((thread) => toThread(thread, complete.get(thread.id))), files, checks);
     }
 
+    /**
+     * One explicit write, always naming the item's repo. Writes addressed by
+     * an id (a thread, a comment, a review) first ask GitHub which item that
+     * id belongs to, and refuse one that is not this item's: the workspace's
+     * org check is made on the ref, and an id would otherwise step around it.
+     */
     public async mutateItem(ref: WorkItemRef, input: WorkItemMutation, env: NodeJS.ProcessEnv): Promise<void> {
         const mutation = workItemMutationSchema.parse(input);
-        if (['review', 'merge', 'ready'].includes(mutation.kind) && ref.type !== 'pr') {
+        const prOnly: WorkItemMutation['kind'][] = [
+            'review', 'merge', 'ready', 'update-branch', 'delete-comment', 'reply', 'resolve-thread', 'line-comment', 'discard-review',
+        ];
+        if (prOnly.includes(mutation.kind) && ref.type !== 'pr') {
             throw new Error('This action requires a pull request.');
         }
         const target = [String(ref.number), '--repo', `github.com/${ref.repo}`];
-        let args: string[];
+        const closing = (comment: string | undefined) => (comment ? ['--comment', comment] : []);
         switch (mutation.kind) {
-            case 'comment': args = [ref.type, 'comment', ...target, '--body', mutation.body]; break;
-            case 'edit': args = [ref.type, 'edit', ...target, '--title', mutation.title, '--body', mutation.body]; break;
-            case 'close': case 'reopen': args = [ref.type, mutation.kind, ...target]; break;
-            case 'ready': args = ['pr', 'ready', ...target, ...(mutation.draft ? ['--undo'] : [])]; break;
+            case 'comment':
+                await this.exec([ref.type, 'comment', ...target, '--body', mutation.body], env);
+                return;
+            case 'edit':
+                await this.exec([ref.type, 'edit', ...target, '--title', mutation.title, '--body', mutation.body], env);
+                return;
+            case 'close':
+                if (mutation.reason && ref.type !== 'issue') throw new Error('Only an issue is closed with a reason.');
+                await this.exec([
+                    ref.type, 'close', ...target, ...closing(mutation.comment),
+                    ...(mutation.reason ? ['--reason', mutation.reason === 'not-planned' ? 'not planned' : 'completed'] : []),
+                ], env);
+                return;
+            case 'reopen':
+                await this.exec([ref.type, 'reopen', ...target, ...closing(mutation.comment)], env);
+                return;
+            case 'ready':
+                await this.exec(['pr', 'ready', ...target, ...(mutation.draft ? ['--undo'] : [])], env);
+                return;
+            case 'merge':
+                await this.exec(['pr', 'merge', ...target, `--${mutation.method}`, '--match-head-commit', mutation.headOid,
+                    ...(mutation.auto ? ['--auto'] : [])], env);
+                return;
+            case 'update-branch':
+                // A merge of the base into the head, never a rebase: a rebase
+                // rewrites commits other people may have checked out.
+                await this.exec(['pr', 'update-branch', ...target], env);
+                return;
             case 'review':
+                if (mutation.pendingReviewId) {
+                    await this.assertOwned(ref, [{ id: mutation.pendingReviewId, type: 'PullRequestReview' }], env);
+                    await this.graphql(MUTATIONS.submitReview, {
+                        id: mutation.pendingReviewId, event: REVIEW_EVENTS[mutation.event], ...(mutation.body ? { body: mutation.body } : {}),
+                    }, env);
+                    return;
+                }
                 if (mutation.event !== 'approve' && !mutation.body) throw new Error('A review comment is required.');
-                args = ['pr', 'review', ...target, `--${mutation.event}`, ...(mutation.body ? ['--body', mutation.body] : [])]; break;
-            case 'merge': args = ['pr', 'merge', ...target, `--${mutation.method}`, '--match-head-commit', mutation.headOid,
-                ...(mutation.auto ? ['--auto'] : [])]; break;
+                await this.exec(['pr', 'review', ...target, `--${mutation.event}`, ...(mutation.body ? ['--body', mutation.body] : [])], env);
+                return;
+            case 'discard-review':
+                await this.assertOwned(ref, [{ id: mutation.reviewId, type: 'PullRequestReview' }], env);
+                await this.graphql(MUTATIONS.discardReview, { id: mutation.reviewId }, env);
+                return;
+            case 'edit-comment': {
+                const { query, type } = EDITS[mutation.target];
+                await this.assertOwned(ref, [{ id: mutation.id, type }], env);
+                await this.graphql(query, { id: mutation.id, body: mutation.body }, env);
+                return;
+            }
+            case 'delete-comment':
+                await this.assertOwned(ref, [{ id: mutation.id, type: 'PullRequestReviewComment' }], env);
+                await this.graphql(MUTATIONS.deleteReviewComment, { id: mutation.id }, env);
+                return;
+            case 'reply':
+                await this.assertOwned(ref, [
+                    { id: mutation.threadId, type: 'PullRequestReviewThread' },
+                    ...(mutation.pendingReviewId ? [{ id: mutation.pendingReviewId, type: 'PullRequestReview' as const }] : []),
+                ], env);
+                await this.graphql(MUTATIONS.reply, {
+                    threadId: mutation.threadId, body: mutation.body, ...(mutation.pendingReviewId ? { reviewId: mutation.pendingReviewId } : {}),
+                }, env);
+                return;
+            case 'resolve-thread':
+                await this.assertOwned(ref, [{ id: mutation.threadId, type: 'PullRequestReviewThread' }], env);
+                await this.graphql(mutation.resolved ? MUTATIONS.resolveThread : MUTATIONS.unresolveThread, { threadId: mutation.threadId }, env);
+                return;
+            case 'line-comment':
+                await this.lineComment(ref, mutation, env);
+                return;
         }
-        await this.exec(args, env);
+    }
+
+    /**
+     * A comment on lines of the diff, anchored to the head commit the diff
+     * was read at — never quietly moved to a newer one: if the pull request
+     * has moved on, GitHub refuses, and the reader is told.
+     *
+     * Posted at once over REST, or held in the viewer's pending review over
+     * GraphQL, starting the review first when there is none. GitHub keeps one
+     * pending review per person, so a standalone comment cannot be posted
+     * while one is open; the pane offers only the review then.
+     */
+    private async lineComment(
+        ref: WorkItemRef,
+        mutation: Extract<WorkItemMutation, { kind: 'line-comment' }>,
+        env: NodeJS.ProcessEnv
+    ): Promise<void> {
+        if ((mutation.startLine === undefined) !== (mutation.startSide === undefined)) {
+            throw new Error('A range needs both its first line and its side.');
+        }
+        if (mutation.startLine !== undefined && mutation.startSide === mutation.side && mutation.startLine >= mutation.line) {
+            throw new Error('A range must start before the line it ends on.');
+        }
+        if (mutation.mode === 'single') {
+            await this.exec([
+                'api', '--hostname', WEB_HOST, `repos/${ref.repo}/pulls/${ref.number}/comments`, '--method', 'POST',
+                '-f', `body=${mutation.body}`, '-f', `commit_id=${mutation.headOid}`, '-f', `path=${mutation.path}`,
+                '-F', `line=${mutation.line}`, '-f', `side=${mutation.side}`,
+                ...(mutation.startLine !== undefined ? ['-F', `start_line=${mutation.startLine}`, '-f', `start_side=${mutation.startSide}`] : []),
+            ], env);
+            return;
+        }
+        let reviewId = mutation.pendingReviewId;
+        if (reviewId) {
+            await this.assertOwned(ref, [{ id: reviewId, type: 'PullRequestReview' }], env);
+        } else {
+            const pullRequestId = parsePullRequestId(await this.graphql(PULL_REQUEST_ID_QUERY, itemVars(ref), env));
+            reviewId = parseStartedReviewId(await this.graphql(MUTATIONS.startReview, { pullRequestId, commit: mutation.headOid }, env));
+        }
+        await this.graphql(MUTATIONS.addThread, {
+            reviewId, body: mutation.body, path: mutation.path, line: mutation.line, side: mutation.side,
+            ...(mutation.startLine !== undefined ? { startLine: mutation.startLine, startSide: mutation.startSide! } : {}),
+        }, env);
+    }
+
+    /** Throws unless each id is a thing of its type on this item (itemDetails.assertOwners). */
+    private async assertOwned(ref: WorkItemRef, nodes: Array<{ id: string; type: OwnedNodeType }>, env: NodeJS.ProcessEnv): Promise<void> {
+        const vars = Object.fromEntries(nodes.map((node, index) => [`n${index}`, node.id]));
+        assertOwners(await this.graphql(nodeOwnersQuery(nodes.length), vars, env), nodes, ref.repo, ref.number);
+    }
+
+    /**
+     * One `gh api graphql` call. Strings go as raw fields (`-f`), so text
+     * someone typed is never read as `@file` or converted; only the numbers
+     * this driver builds itself go typed (`-F`). With `paginate`, gh follows
+     * the query's one pageInfo to the end and hands back every page.
+     */
+    private async graphql(query: string, vars: Record<string, string | number>, env: NodeJS.ProcessEnv, paginate = false): Promise<unknown> {
+        const args = ['api', 'graphql', '--hostname', WEB_HOST, ...(paginate ? ['--paginate', '--slurp'] : []), '-f', `query=${query}`];
+        for (const [key, value] of Object.entries(vars)) {
+            args.push(typeof value === 'number' ? '-F' : '-f', `${key}=${value}`);
+        }
+        return JSON.parse(await this.exec(args, env));
+    }
+
+    /** A REST list, every page of it. */
+    private async paginate(endpoint: string, env: NodeJS.ProcessEnv): Promise<unknown[]> {
+        const pages = JSON.parse(await this.exec(['api', '--hostname', WEB_HOST, endpoint, '--paginate', '--slurp'], env));
+        if (!Array.isArray(pages) || pages.some((page) => !Array.isArray(page))) throw new Error('Unexpected GitHub list response.');
+        return pages.flat();
     }
 
     /**

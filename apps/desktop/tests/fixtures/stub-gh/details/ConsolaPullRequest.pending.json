@@ -1,0 +1,140 @@
+{
+  "data": {
+    "viewer": {
+      "__typename": "User",
+      "login": "JaviDev",
+      "avatarUrl": "https://avatars.example.invalid/JaviDev?s=40"
+    },
+    "repository": {
+      "pullRequest": {
+        "id": "PR_kwDOsprocket51",
+        "author": {
+          "__typename": "User",
+          "login": "simon-sprocket",
+          "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+        },
+        "body": "## Billing client\n\nExtract the shared client and add **regression coverage**.",
+        "createdAt": "2026-10-06T09:00:00Z",
+        "lastEditedAt": "2026-10-06T09:20:00Z",
+        "url": "https://github.com/sprocket/catalog-portal/pull/51",
+        "viewerCanUpdate": true,
+        "reactionGroups": [
+          {
+            "content": "THUMBS_UP",
+            "viewerHasReacted": true,
+            "reactors": {
+              "totalCount": 2
+            }
+          },
+          {
+            "content": "HEART",
+            "viewerHasReacted": false,
+            "reactors": {
+              "totalCount": 1
+            }
+          }
+        ],
+        "title": "Extract billing client",
+        "state": "OPEN",
+        "isDraft": false,
+        "labels": {
+          "nodes": [
+            {
+              "name": "enhancement",
+              "color": "a2eeef"
+            },
+            {
+              "name": "billing",
+              "color": "d93f0b"
+            }
+          ]
+        },
+        "assignees": {
+          "nodes": [
+            {
+              "__typename": "User",
+              "login": "JaviDev",
+              "avatarUrl": "https://avatars.example.invalid/JaviDev?s=40"
+            }
+          ]
+        },
+        "reviewRequests": {
+          "nodes": [
+            {
+              "requestedReviewer": {
+                "__typename": "User",
+                "login": "mateo-sprocket",
+                "avatarUrl": "https://avatars.example.invalid/mateo-sprocket?s=40"
+              }
+            },
+            {
+              "requestedReviewer": {
+                "__typename": "Team",
+                "name": "catalog-maintainers"
+              }
+            }
+          ]
+        },
+        "latestReviews": {
+          "nodes": [
+            {
+              "state": "CHANGES_REQUESTED",
+              "author": {
+                "__typename": "User",
+                "login": "ellen-sprocket",
+                "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+              }
+            }
+          ]
+        },
+        "headRefOid": "1234567890123456789012345678901234567890",
+        "headRefName": "extract-billing-client-and-add-regression-coverage",
+        "baseRefName": "main",
+        "mergeStateStatus": "BLOCKED",
+        "reviewDecision": "CHANGES_REQUESTED",
+        "additions": 10,
+        "deletions": 4,
+        "viewerCanUpdateBranch": true,
+        "reviews": {
+          "nodes": [
+            {
+              "id": "PRR_pending1",
+              "viewerDidAuthor": true,
+              "comments": {
+                "totalCount": 1
+              }
+            }
+          ]
+        },
+        "commits": {
+          "nodes": [
+            {
+              "commit": {
+                "statusCheckRollup": {
+                  "contexts": {
+                    "totalCount": 2,
+                    "nodes": [
+                      {
+                        "__typename": "CheckRun",
+                        "name": "Unit tests",
+                        "status": "COMPLETED",
+                        "conclusion": "FAILURE",
+                        "detailsUrl": "https://github.com/sprocket/catalog-portal/actions/runs/1"
+                      },
+                      {
+                        "__typename": "StatusContext",
+                        "context": "Build",
+                        "state": "SUCCESS",
+                        "targetUrl": "https://github.com/sprocket/catalog-portal/actions/runs/2"
+                      }
+                    ]
+                  }
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  }
+}

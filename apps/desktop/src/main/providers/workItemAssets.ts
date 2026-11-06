@@ -112,3 +112,60 @@ export async function fetchWorkItemAsset(deps: WorkItemAssetDeps, href: string):
     return refuse(error instanceof Refusal ? error.status : 502);
   }
 }
+
+interface StoredAsset {
+  type: string;
+  bytes: Uint8Array;
+}
+
+/**
+ * fetchWorkItemAsset, remembering what it served for as long as the app
+ * runs. Avatars are why: the same person's picture sits on every comment,
+ * event and commit they made, and a long pull request would otherwise ask
+ * for it dozens of times. Requests for an image already on its way wait for
+ * that one fetch.
+ *
+ * Only small images are kept, the newest few hundred of them, and never a
+ * failure: an image that did not load is asked for again next time. Keyed by
+ * the whole `consola-asset://` address, workspace included, so one account's
+ * private upload is never served to another workspace.
+ */
+export function createWorkItemAssetCache(
+  deps: WorkItemAssetDeps,
+  { maxEntries = 300, maxBytes = 512 * 1024 }: { maxEntries?: number; maxBytes?: number } = {}
+): (href: string) => Promise<Response> {
+  const stored = new Map<string, Promise<StoredAsset | null>>();
+  const serve = (entry: StoredAsset) =>
+    new Response(entry.bytes.slice(), { status: 200, headers: { 'Content-Type': entry.type } });
+
+  return async (href) => {
+    const known = stored.get(href);
+    if (known) {
+      const entry = await known;
+      if (entry) {
+        // Most recently used goes last, so eviction takes the oldest.
+        stored.delete(href);
+        stored.set(href, known);
+        return serve(entry);
+      }
+    }
+    let settle!: (entry: StoredAsset | null) => void;
+    const slot = new Promise<StoredAsset | null>((resolve) => { settle = resolve; });
+    stored.set(href, slot);
+    const forget = (response: Response) => {
+      settle(null);
+      if (stored.get(href) === slot) stored.delete(href);
+      return response;
+    };
+
+    const response = await fetchWorkItemAsset(deps, href);
+    if (!response.ok) return forget(response);
+    const type = response.headers.get('content-type') ?? '';
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > maxBytes) return forget(new Response(bytes, { status: 200, headers: { 'Content-Type': type } }));
+    const entry = { type, bytes };
+    settle(entry);
+    while (stored.size > maxEntries) stored.delete(stored.keys().next().value!);
+    return serve(entry);
+  };
+}

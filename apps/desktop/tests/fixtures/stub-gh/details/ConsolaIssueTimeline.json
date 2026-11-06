@@ -1,0 +1,62 @@
+[
+  {
+    "data": {
+      "repository": {
+        "issue": {
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "LabeledEvent",
+                "id": "LE_9",
+                "createdAt": "2026-10-01T09:01:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "ellen-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                },
+                "label": {
+                  "name": "bug",
+                  "color": "d73a4a"
+                }
+              },
+              {
+                "__typename": "AssignedEvent",
+                "id": "AE_1",
+                "createdAt": "2026-10-01T09:02:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "ellen-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                },
+                "assignee": {
+                  "login": "JaviDev"
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_9",
+                "author": {
+                  "__typename": "User",
+                  "login": "mateo-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/mateo-sprocket?s=40"
+                },
+                "body": "Reproduced on staging.",
+                "createdAt": "2026-10-02T10:00:00Z",
+                "lastEditedAt": null,
+                "url": "https://github.com/sprocket/catalog-portal/issues/51#issuecomment-9",
+                "viewerCanUpdate": false,
+                "reactionGroups": [],
+                "isMinimized": false,
+                "minimizedReason": null
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+]

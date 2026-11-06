@@ -4,7 +4,6 @@ import {
   checkOutcome,
   checksSentence,
   commentAge,
-  commentVerb,
   diffBlocks,
   fileStatus,
   isFailingCheck,
@@ -13,6 +12,7 @@ import {
   mergeStateMeta,
   parsePatch,
   reviewMeta,
+  reviewVerb,
   sortChecks,
   splitPath,
   summarizeChecks,
@@ -65,6 +65,8 @@ describe('item status', () => {
     expect(itemStatus('pr', 'merged', false)).toMatchObject({ label: 'Merged', tone: 'merged' });
     expect(itemStatus('pr', 'closed', false)).toMatchObject({ label: 'Closed', tone: 'error' });
     expect(itemStatus('issue', 'closed', false)).toMatchObject({ label: 'Closed', tone: 'merged', kind: 'issue-closed' });
+    expect(itemStatus('issue', 'closed', false, 'completed')).toMatchObject({ label: 'Closed', tone: 'merged' });
+    expect(itemStatus('issue', 'closed', false, 'not-planned')).toMatchObject({ label: 'Closed as not planned', tone: 'neutral', kind: 'issue-not-planned' });
   });
 
   it('uses the Inbox row wording for review decisions', () => {
@@ -97,14 +99,11 @@ describe('item status', () => {
 });
 
 describe('conversation', () => {
-  const base = { id: '1', author: 'ellen-sprocket', body: '', url: '', createdAt: '' };
-
-  it('describes each kind of entry, colouring only verdicts', () => {
-    expect(commentVerb({ ...base, kind: 'review', state: 'APPROVED' })).toEqual({ verb: 'approved these changes', tone: 'success' });
-    expect(commentVerb({ ...base, kind: 'review', state: 'CHANGES_REQUESTED' })).toEqual({ verb: 'requested changes', tone: 'error' });
-    expect(commentVerb({ ...base, kind: 'review', state: 'COMMENTED' })).toEqual({ verb: 'reviewed' });
-    expect(commentVerb({ ...base, kind: 'inline', path: 'src/a.ts' })).toEqual({ verb: 'commented on' });
-    expect(commentVerb({ ...base, kind: 'comment' })).toEqual({ verb: 'commented' });
+  it('describes each review, colouring only verdicts', () => {
+    expect(reviewVerb('APPROVED')).toEqual({ verb: 'approved these changes', tone: 'success' });
+    expect(reviewVerb('CHANGES_REQUESTED')).toEqual({ verb: 'requested changes', tone: 'error' });
+    expect(reviewVerb('COMMENTED')).toEqual({ verb: 'reviewed' });
+    expect(reviewVerb('DISMISSED')).toEqual({ verb: 'left a review, since dismissed' });
   });
 
   it('gives a relative age, a date once it is old, and nothing when unknown', () => {

@@ -1,0 +1,45 @@
+{
+  "data": {
+    "viewer": {
+      "__typename": "User",
+      "login": "JaviDev",
+      "avatarUrl": "https://avatars.example.invalid/JaviDev?s=40"
+    },
+    "repository": {
+      "issue": {
+        "id": "I_kwDOsprocket51",
+        "author": {
+          "__typename": "User",
+          "login": "ellen-sprocket",
+          "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+        },
+        "body": "The rate limiter answers **500** instead of 429.",
+        "createdAt": "2026-10-01T09:00:00Z",
+        "lastEditedAt": null,
+        "url": "https://github.com/sprocket/catalog-portal/issues/51",
+        "viewerCanUpdate": true,
+        "reactionGroups": [],
+        "title": "Rate limit returns 500",
+        "state": "OPEN",
+        "stateReason": null,
+        "labels": {
+          "nodes": [
+            {
+              "name": "bug",
+              "color": "d73a4a"
+            }
+          ]
+        },
+        "assignees": {
+          "nodes": [
+            {
+              "__typename": "User",
+              "login": "JaviDev",
+              "avatarUrl": "https://avatars.example.invalid/JaviDev?s=40"
+            }
+          ]
+        }
+      }
+    }
+  }
+}

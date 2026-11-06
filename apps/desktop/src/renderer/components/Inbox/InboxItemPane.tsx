@@ -17,7 +17,7 @@ import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import { defaultActionFor } from '../../../shared/workItemActions';
-import type { InboxItem, WorkItemLaunchAction } from '../../../shared/workItems';
+import type { InboxItem, WorkItemLaunchAction, WorkItemRef } from '../../../shared/workItems';
 import { sameWorkItem } from '../../../shared/workItems';
 import type { WorkItemDetails } from '../../../shared/workItemDetails';
 import type { Session, Workspace } from '../../../shared/workspace';
@@ -28,7 +28,7 @@ import { basename } from '../../utils/fileUtils';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
 import { MOD_KEY, formatAge, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
-import { StateBadge } from './WorkItemDetailTabs';
+import { StateBadge } from './WorkItemDetailParts';
 import { itemStatus } from './workItemDetailPresentation';
 import './styles.css';
 
@@ -46,6 +46,12 @@ export interface InboxItemPaneProps {
    * a new one. A returned string is why it could not be.
    */
   fixInSession?: (prompt: string) => string | void;
+  /**
+   * Opens another item in this pane when the Inbox lists it (a pull request
+   * an event mentions). False, or absent beside a session, means the link
+   * opens on the provider instead.
+   */
+  onOpenWorkItem?: (ref: WorkItemRef) => boolean;
 }
 
 /** Verbatim from the spec: the inline confirm that replaces a block. */
@@ -90,7 +96,7 @@ function automationPhase(status: SessionStatus): string | null {
  * passed in: the pane knows the item, and the section is a pure function
  * of it.
  */
-export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixInSession }: InboxItemPaneProps) {
+export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixInSession, onOpenWorkItem }: InboxItemPaneProps) {
   const terminals = useTerminalStore((state) => state.terminals);
   const launch = useInboxStore((state) => state.launch);
   const openClonePrompt = useInboxStore((state) => state.openClonePrompt);
@@ -114,13 +120,12 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
   // longer lists has no title at all: a fresh read is the better answer.
   const [fetched, setFetched] = useState<WorkItemDetails | null>(null);
   const title = fetched?.title ?? item.title;
-  const author = fetched?.author || item.author;
   // The state is part of what the item is, so it sits with its name. An item
   // the Inbox no longer lists is stood in for with no state (''): no badge
   // until a read says, rather than a guess that would flip.
   const knownState = fetched?.state ?? item.state;
   const status = knownState
-    ? itemStatus(item.workItem.type, knownState, fetched?.isDraft ?? item.isDraft)
+    ? itemStatus(item.workItem.type, knownState, fetched?.isDraft ?? item.isDraft, fetched?.stateReason)
     : null;
 
   // Task 8 fix-wave rule: name the bound provider, never hardcode "GitHub".
@@ -243,7 +248,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         {/* Keyed by the state it shows, so a merge or close visibly lands. */}
         {status && <StateBadge key={status.kind} {...status} />}
         <span className="inbox-pane-meta-text">
-          {item.workItem.repo}#{item.workItem.number} · {author ? `${author} · ` : ''}
+          {item.workItem.repo}#{item.workItem.number} ·{' '}
           <a className="inbox-pane-link" href={item.url} target="_blank" rel="noreferrer">
             Open on {providerName} <ExternalLink size={11} />
           </a>
@@ -498,6 +503,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         onDetails={setFetched}
         fixTarget={fixInSession ? 'this session' : 'a session'}
         onFix={fixInSession ?? receiveFix}
+        onOpenWorkItem={onOpenWorkItem}
       />}
     </aside>
   );

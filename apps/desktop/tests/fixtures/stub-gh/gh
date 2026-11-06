@@ -13,6 +13,15 @@
 #   STUB_GH_PULLS=path            `api repos/...` (endpoint first) answers from this file:
 #                                 one `<endpoint> <json>` pair per line; an endpoint
 #                                 with no line is a 404, as GitHub would answer
+#   STUB_GH_DETAILS_DIR=path      an item's details answer from this directory instead of
+#                                 ./details: one `<Operation>.json` per named GraphQL
+#                                 operation (`query ConsolaPullRequest(...)`), and
+#                                 pulls-files.json for the changed files
+#   STUB_GH_STATE_DIR=path        a pending review exists while `pending-review` is in here:
+#                                 starting a review creates it, submitting or discarding
+#                                 removes it, and reads prefer `<Operation>.pending.json`
+#   STUB_GH_OWNER_REPO / _NUMBER  which item an id is said to belong to (sprocket/catalog-portal#51)
+#   STUB_GH_MUTATION_FAILURE_FILE while this file exists, every write is rejected
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -30,6 +39,76 @@ if [[ "${STUB_GH_FAIL:-}" == "1" ]]; then
   exit 1
 fi
 
+details_dir="${STUB_GH_DETAILS_DIR:-$here/details}"
+
+reject_writes() {
+  if [[ -n "${STUB_GH_MUTATION_FAILURE_FILE:-}" && -f "$STUB_GH_MUTATION_FAILURE_FILE" ]]; then
+    echo 'GitHub rejected this action: repository rules are not satisfied.' >&2
+    exit 1
+  fi
+}
+
+# Which item each id handed to ConsolaNodeOwners belongs to, its type read
+# from GitHub's id prefixes (PRRT_ thread, PRRC_ review comment, PRR_ review,
+# IC_ issue comment).
+node_owners() {
+  local out='{"data":{' sep='' arg key id type where
+  local repo="${STUB_GH_OWNER_REPO:-sprocket/catalog-portal}" number="${STUB_GH_OWNER_NUMBER:-51}"
+  for arg in "$@"; do
+    [[ "$arg" =~ ^n[0-9]+= ]] || continue
+    key="${arg%%=*}"; id="${arg#*=}"
+    case "$id" in
+      PRRT_*) type=PullRequestReviewThread ;;
+      PRRC_*) type=PullRequestReviewComment ;;
+      PRR_*) type=PullRequestReview ;;
+      IC_*) type=IssueComment ;;
+      *) out+="$sep\"$key\":null"; sep=','; continue ;;
+    esac
+    if [[ "$type" == IssueComment ]]; then
+      where="\"issue\":{\"number\":$number},\"repository\":{\"nameWithOwner\":\"$repo\"}"
+    else
+      where="\"pullRequest\":{\"number\":$number,\"repository\":{\"nameWithOwner\":\"$repo\"}}"
+    fi
+    out+="$sep\"$key\":{\"__typename\":\"$type\",$where}"; sep=','
+  done
+  printf '%s}}\n' "$out"
+}
+
+# A named Consola operation: details reads and writes. Prints nothing and
+# returns 1 for anything else (the Inbox's own anonymous query).
+details_graphql() {
+  local arg query='' op
+  for arg in "$@"; do
+    [[ "$arg" == query=* ]] && query="${arg#query=}"
+  done
+  op="$(printf '%s\n' "$query" | sed -nE '1s/^(query|mutation) (Consola[A-Za-z]+).*/\2/p')"
+  [[ -n "$op" ]] || return 1
+  if [[ "$query" == mutation* ]]; then
+    reject_writes
+    if [[ -n "${STUB_GH_STATE_DIR:-}" ]]; then
+      case "$op" in
+        ConsolaStartReview) touch "$STUB_GH_STATE_DIR/pending-review" ;;
+        ConsolaSubmitReview|ConsolaDiscardReview) rm -f "$STUB_GH_STATE_DIR/pending-review" ;;
+      esac
+    fi
+    if [[ -f "$details_dir/$op.json" ]]; then cat "$details_dir/$op.json"; else echo '{"data":{}}'; fi
+    return 0
+  fi
+  if [[ "$op" == ConsolaNodeOwners ]]; then
+    node_owners "$@"
+    return 0
+  fi
+  local file="$details_dir/$op.json"
+  if [[ -n "${STUB_GH_STATE_DIR:-}" && -f "$STUB_GH_STATE_DIR/pending-review" && -f "$details_dir/$op.pending.json" ]]; then
+    file="$details_dir/$op.pending.json"
+  fi
+  if [[ ! -f "$file" ]]; then
+    echo "stub gh: no fixture for $op" >&2
+    exit 64
+  fi
+  cat "$file"
+}
+
 cmd="${1:-} ${2:-}"
 case "$cmd" in
   "--version "*|"--version")
@@ -45,6 +124,7 @@ case "$cmd" in
     echo "gho_stub_token_for_${4:-unknown}"
     ;;
   "api graphql")
+    details_graphql "$@" && exit 0
     # The static fixture keeps fixed dates for the parser tests; the e2e
     # points this at a payload it generates with live timestamps.
     cat "${GRAPHQL_INBOX_FIXTURE:-$here/graphql-inbox.json}"
@@ -66,19 +146,21 @@ case "$cmd" in
     cat "$here/item-details.json"
     ;;
   "api --hostname")
+    # gh api --hostname github.com <endpoint> [--method POST -f ...]
     case "${4:-}" in
-      */issues/*/comments*) echo '[[{"id":1,"user":{"login":"reviewer"},"body":"Please add a regression test.","created_at":"2026-10-08T08:00:00Z","html_url":"https://github.com/sprocket/catalog-portal/pull/51#issuecomment-1"}]]' ;;
-      */pulls/*/reviews*) echo '[[{"id":2,"user":{"login":"reviewer"},"body":"Needs validation.","state":"CHANGES_REQUESTED","submitted_at":"2026-10-08T09:00:00Z"}]]' ;;
-      */pulls/*/comments*) echo '[[{"id":3,"user":{"login":"reviewer"},"body":"Handle empty input here.","path":"src/billing.ts","line":12,"created_at":"2026-10-08T10:00:00Z"}]]' ;;
-      */pulls/*/files*) echo '[[{"filename":"src/billing.ts","status":"modified","additions":1,"deletions":1,"patch":"@@ -1 +1 @@\n-old\n+new"}]]' ;;
+      graphql)
+        details_graphql "$@" && exit 0
+        echo 'stub gh: unhandled GraphQL operation' >&2; exit 64 ;;
+      */pulls/*/comments)
+        [[ " $* " == *" --method POST "* ]] || { echo 'stub gh: unhandled API endpoint' >&2; exit 64; }
+        reject_writes
+        echo '{"id":99}' ;;
+      */pulls/*/files*) cat "$details_dir/pulls-files.json" ;;
       *) echo 'stub gh: unhandled API endpoint' >&2; exit 64 ;;
     esac
     ;;
-  "pr comment"|"issue comment"|"pr review"|"pr close"|"issue close"|"pr reopen"|"issue reopen"|"pr ready"|"pr merge"|"pr edit"|"issue edit")
-    if [[ -n "${STUB_GH_MUTATION_FAILURE_FILE:-}" && -f "$STUB_GH_MUTATION_FAILURE_FILE" ]]; then
-      echo 'GitHub rejected this action: repository rules are not satisfied.' >&2
-      exit 1
-    fi
+  "pr comment"|"issue comment"|"pr review"|"pr close"|"issue close"|"pr reopen"|"issue reopen"|"pr ready"|"pr merge"|"pr edit"|"issue edit"|"pr update-branch")
+    reject_writes
     echo 'Action completed.'
     ;;
   "pr checkout")

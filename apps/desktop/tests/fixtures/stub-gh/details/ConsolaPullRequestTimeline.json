@@ -1,0 +1,289 @@
+[
+  {
+    "data": {
+      "repository": {
+        "pullRequest": {
+          "timelineItems": {
+            "pageInfo": {
+              "hasNextPage": false,
+              "endCursor": null
+            },
+            "nodes": [
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PRC_1",
+                "url": "https://github.com/sprocket/catalog-portal/pull/51/commits/e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4",
+                "commit": {
+                  "oid": "e1f2a3b4c5d6e7f8091a2b3c4d5e6f708192a3b4",
+                  "messageHeadline": "Extract the billing client",
+                  "committedDate": "2026-10-06T08:40:00Z",
+                  "statusCheckRollup": {
+                    "state": "SUCCESS"
+                  },
+                  "author": {
+                    "name": "simon-sprocket",
+                    "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40",
+                    "user": {
+                      "__typename": "User",
+                      "login": "simon-sprocket",
+                      "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PRC_2",
+                "url": "https://github.com/sprocket/catalog-portal/pull/51/commits/1e50c34d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+                "commit": {
+                  "oid": "1e50c34d5e6f708192a3b4c5d6e7f8091a2b3c4d",
+                  "messageHeadline": "Add regression coverage",
+                  "committedDate": "2026-10-06T08:55:00Z",
+                  "statusCheckRollup": {
+                    "state": "FAILURE"
+                  },
+                  "author": {
+                    "name": "simon-sprocket",
+                    "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40",
+                    "user": {
+                      "__typename": "User",
+                      "login": "simon-sprocket",
+                      "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "LabeledEvent",
+                "id": "LE_1",
+                "createdAt": "2026-10-06T09:01:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "simon-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                },
+                "label": {
+                  "name": "enhancement",
+                  "color": "a2eeef"
+                }
+              },
+              {
+                "__typename": "LabeledEvent",
+                "id": "LE_2",
+                "createdAt": "2026-10-06T09:01:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "simon-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                },
+                "label": {
+                  "name": "billing",
+                  "color": "d93f0b"
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "id": "RRE_1",
+                "createdAt": "2026-10-06T09:02:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "simon-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "ellen-sprocket"
+                }
+              },
+              {
+                "__typename": "ReviewRequestedEvent",
+                "id": "RRE_2",
+                "createdAt": "2026-10-06T09:02:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "simon-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                },
+                "requestedReviewer": {
+                  "__typename": "User",
+                  "login": "mateo-sprocket"
+                }
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_1",
+                "author": {
+                  "__typename": "User",
+                  "login": "ellen-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                },
+                "body": "Please add a regression test.",
+                "createdAt": "2026-10-08T08:00:00Z",
+                "lastEditedAt": null,
+                "url": "https://github.com/sprocket/catalog-portal/pull/51#issuecomment-1",
+                "viewerCanUpdate": false,
+                "reactionGroups": [
+                  {
+                    "content": "EYES",
+                    "viewerHasReacted": false,
+                    "reactors": {
+                      "totalCount": 1
+                    }
+                  }
+                ],
+                "isMinimized": false,
+                "minimizedReason": null
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_ellen",
+                "author": {
+                  "__typename": "User",
+                  "login": "ellen-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/ellen-sprocket?s=40"
+                },
+                "body": "Needs validation.",
+                "createdAt": "2026-10-08T09:00:00Z",
+                "lastEditedAt": null,
+                "url": "https://github.com/sprocket/catalog-portal/pull/51#pullrequestreview-2",
+                "viewerCanUpdate": false,
+                "reactionGroups": [],
+                "isMinimized": false,
+                "minimizedReason": null,
+                "state": "CHANGES_REQUESTED",
+                "submittedAt": "2026-10-08T09:00:00Z"
+              },
+              {
+                "__typename": "HeadRefForcePushedEvent",
+                "id": "HRFPE_1",
+                "createdAt": "2026-10-08T10:30:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "simon-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                },
+                "beforeCommit": {
+                  "abbreviatedOid": "1e50c34"
+                },
+                "afterCommit": {
+                  "abbreviatedOid": "f978427"
+                },
+                "ref": {
+                  "name": "extract-billing-client-and-add-regression-coverage"
+                }
+              },
+              {
+                "__typename": "PullRequestCommit",
+                "id": "PRC_3",
+                "url": "https://github.com/sprocket/catalog-portal/pull/51/commits/1234567890123456789012345678901234567890",
+                "commit": {
+                  "oid": "1234567890123456789012345678901234567890",
+                  "messageHeadline": "Validate empty input",
+                  "committedDate": "2026-10-08T10:29:00Z",
+                  "statusCheckRollup": {
+                    "state": "PENDING"
+                  },
+                  "author": {
+                    "name": "simon-sprocket",
+                    "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40",
+                    "user": {
+                      "__typename": "User",
+                      "login": "simon-sprocket",
+                      "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                    }
+                  }
+                }
+              },
+              {
+                "__typename": "RenamedTitleEvent",
+                "id": "RTE_1",
+                "createdAt": "2026-10-08T10:31:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "simon-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/simon-sprocket?s=40"
+                },
+                "previousTitle": "Billing client",
+                "currentTitle": "Extract billing client"
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_2",
+                "author": {
+                  "__typename": "Bot",
+                  "login": "sprocket-ci",
+                  "avatarUrl": "https://avatars.example.invalid/sprocket-ci?s=40"
+                },
+                "body": "Coverage went from 91.2% to 92.4%.",
+                "createdAt": "2026-10-08T10:40:00Z",
+                "lastEditedAt": null,
+                "url": "https://github.com/sprocket/catalog-portal/pull/51#issuecomment-3",
+                "viewerCanUpdate": false,
+                "reactionGroups": [],
+                "isMinimized": true,
+                "minimizedReason": "OUTDATED"
+              },
+              {
+                "__typename": "IssueComment",
+                "id": "IC_3",
+                "author": {
+                  "__typename": "User",
+                  "login": "JaviDev",
+                  "avatarUrl": "https://avatars.example.invalid/JaviDev?s=40"
+                },
+                "body": "I will take another look after lunch.",
+                "createdAt": "2026-10-08T11:00:00Z",
+                "lastEditedAt": null,
+                "url": "https://github.com/sprocket/catalog-portal/pull/51#issuecomment-4",
+                "viewerCanUpdate": true,
+                "reactionGroups": [],
+                "isMinimized": false,
+                "minimizedReason": null
+              },
+              {
+                "__typename": "CrossReferencedEvent",
+                "id": "CRE_1",
+                "createdAt": "2026-10-08T11:30:00Z",
+                "actor": {
+                  "__typename": "User",
+                  "login": "mateo-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/mateo-sprocket?s=40"
+                },
+                "willCloseTarget": false,
+                "source": {
+                  "__typename": "PullRequest",
+                  "number": 48,
+                  "title": "Rework catalog search",
+                  "state": "OPEN",
+                  "url": "https://github.com/sprocket/catalog-portal/pull/48",
+                  "repository": {
+                    "nameWithOwner": "sprocket/catalog-portal"
+                  }
+                }
+              },
+              {
+                "__typename": "PullRequestReview",
+                "id": "PRR_mateo",
+                "author": {
+                  "__typename": "User",
+                  "login": "mateo-sprocket",
+                  "avatarUrl": "https://avatars.example.invalid/mateo-sprocket?s=40"
+                },
+                "body": "",
+                "createdAt": "2026-10-08T12:00:00Z",
+                "lastEditedAt": null,
+                "url": "https://github.com/sprocket/catalog-portal/pull/51#pullrequestreview-5",
+                "viewerCanUpdate": false,
+                "reactionGroups": [],
+                "isMinimized": false,
+                "minimizedReason": null,
+                "state": "COMMENTED",
+                "submittedAt": "2026-10-08T12:00:00Z"
+              }
+            ]
+          }
+        }
+      }
+    }
+  }
+]
