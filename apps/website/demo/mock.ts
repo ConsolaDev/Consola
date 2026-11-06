@@ -1,9 +1,11 @@
 // Only the Electron boundary is mocked. All product components and stores are
 // imported unchanged from the desktop renderer. Nothing executes or leaves the browser.
-import { workspaces as seedWorkspaces, harnesses as seedHarnesses, inboxes, files, diff } from './fixtures';
+import { workspaces as seedWorkspaces, harnesses as seedHarnesses, inboxes, files, diff, details, mergeStateOf } from './fixtures';
 import { substitutePlaceholders } from '../../desktop/src/shared/workItemPrompt';
 import type { Workspace, Session, NewSessionFields } from '../../desktop/src/shared/workspace';
 import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/shared/types';
+import type { WorkItemRef } from '../../desktop/src/shared/workItems';
+import type { WorkItemDetails, WorkItemMutation } from '../../desktop/src/shared/workItemDetails';
 import type { GitStatusResult } from '../../desktop/src/renderer/types/electron';
 
 function channel<T>() {
@@ -26,6 +28,7 @@ const transcripts = new Map<string, string>();
 const inputs = new Map<string, string>();
 const prompts = new Map<string, string>();
 const changes = new Map<string, GitStatusResult['files']>();
+const itemDetails = new Map<string, WorkItemDetails>();
 let sequence = 0;
 function workspace(id: string) { const value = workspaces.find(w => w.id === id); if (!value) throw new Error('Choose a demo workspace.'); return value; }
 function publish() { workspaceEvents.emit(workspaces); }
@@ -34,6 +37,37 @@ function cwdFor(instanceId: string) {
   return w?.sessions.find(s => s.instanceId === instanceId)?.cwd || w?.scopes[0]?.path || '/demo/acme/platform';
 }
 function snapshot(id: string) { return { workspaceId: id, items: inboxes[id] || [], fetchedAt: Date.now() }; }
+/** A worktree is created under `.worktrees/<branch>`, so its folder names its branch. */
+function branchOf(path: string) { return path.split('/.worktrees/')[1] || 'main'; }
+/** One copy per item, so what the demo "posts" stays until the page reloads. */
+function detailsFor(workspaceId: string, ref: WorkItemRef) {
+  const key = `${workspaceId}:${ref.repo}#${ref.number}`;
+  const item = inboxes[workspaceId]?.find(i => i.workItem.repo === ref.repo && i.workItem.type === ref.type && i.workItem.number === ref.number);
+  if (!item) throw new Error('This sample work item has no details.');
+  if (!itemDetails.has(key)) itemDetails.set(key, details(item, workspace(workspaceId).provider?.accountLogin || 'alex-work'));
+  return itemDetails.get(key)!;
+}
+/** Apply what the pane asked for to the sample copy; the rest only says nothing was sent. */
+function mutate(d: WorkItemDetails, m: WorkItemMutation) {
+  const post = (body: string) => ({ id: crypto.randomUUID(), author: d.viewer, body, url: d.url, createdAt: new Date().toISOString(), reactions: [], viewerCanEdit: true });
+  if (m.kind === 'comment') d.timeline.push({ kind: 'comment', ...post(m.body) });
+  if ((m.kind === 'close' || m.kind === 'reopen') && m.comment) d.timeline.push({ kind: 'comment', ...post(m.comment) });
+  if (m.kind === 'close') d.state = 'closed';
+  if (m.kind === 'reopen') d.state = 'open';
+  if (m.kind === 'ready') d.isDraft = m.draft;
+  if (m.kind === 'merge') d.state = 'merged';
+  if (m.kind === 'edit') { d.title = m.title; d.body = d.description.body = m.body; }
+  if (m.kind === 'review') {
+    const state = m.event === 'approve' ? 'APPROVED' : m.event === 'request-changes' ? 'CHANGES_REQUESTED' : 'COMMENTED';
+    d.timeline.push({ kind: 'review', state, ...post(m.body) });
+    if (state !== 'COMMENTED') {
+      d.reviewers = [...d.reviewers.filter(r => r.who.login !== d.viewer.login), { who: d.viewer, isTeam: false, state: state === 'APPROVED' ? 'approved' : 'changes-requested' }];
+      d.reviewDecision = state;
+      d.mergeState = mergeStateOf(d);
+    }
+  }
+  notify('Sample only: nothing was sent to GitHub. The desktop app posts this to the real pull request.');
+}
 function createSession(workspaceId: string, fields: Partial<NewSessionFields>): Session {
   const w = workspace(workspaceId);
   const id = crypto.randomUUID();
@@ -90,7 +124,7 @@ export function installMock() {
     context: { workspaceId: 'acme', activeSessionId: 'onboarding', isInboxOpen: false },
     activateWorkspace: async id => ({ verdict: 'took', view: views.get(id || '') || { activeSessionId: workspaces.find(w => w.id === id)?.sessions[0]?.id || null, isInboxOpen: true } }),
     setView: (id, view) => { if (id) views.set(id, view); },
-    onWorkspaceChanged: workspaceChanged.subscribe, onActivateSession: noSubscription, onOpenSettings: noSubscription,
+    onWorkspaceChanged: workspaceChanged.subscribe, onActivateSession: noSubscription, onOpenSettings: noSubscription, onOpenWorkspaceSettings: noSubscription,
     openWindow: async id => { if (id) workspaceChanged.emit(id); else notify('The desktop app can open additional windows. This demo stays in one browser frame.'); },
   };
   window.workspaceAPI = {
@@ -114,6 +148,14 @@ export function installMock() {
     setActions: async (id, actions, sectionDefaults) => { Object.assign(workspace(id), { actions, sectionDefaults }); publish(); },
     listScopeRepos: async id => workspace(id).scopes.map(s => ({ name: s.name, path: s.path })),
     checkoutContext: async id => ({ branch: 'main', refs: ['main', 'feat/onboarding'], localBranches: ['main', 'feat/onboarding'], worktrees: [{ path: workspace(id).scopes[0].path, branch: 'main', head: 'demo123', current: true }] }),
+    forkSession: async (id, sessionId) => {
+      const source = workspace(id).sessions.find(s => s.id === sessionId);
+      if (!source) throw new Error('Choose a demo session.');
+      const fork = createSession(id, { name: `${source.name} (full tools)`, harnessId: source.harnessId, model: source.model, scopeId: source.scopeId, kind: 'interactive', cwd: source.cwd, groupId: source.groupId, workItem: source.workItem, workItemAction: source.workItemAction });
+      const transcript = transcripts.get(source.instanceId);
+      if (transcript) transcripts.set(fork.instanceId, transcript);
+      return fork;
+    },
     fanOut: async intent => { const group = await window.workspaceAPI.createGroup(intent.workspaceId, { name: intent.groupName }); const created = intent.targetPaths.map(path => createSession(intent.workspaceId, { scopeId: intent.scopeId, groupId: group.id, name: intent.groupName, cwd: path })); return { group, created, failed: [] }; },
   };
   window.harnessStateAPI = {
@@ -128,7 +170,11 @@ export function installMock() {
     getSessionName: async () => null, getSessionModel: async () => null,
     getCapabilities: async () => ({ supported: false, reason: 'Live CLI discovery is available in the desktop app.' }),
   };
-  window.inboxAPI = { getInbox: async id => snapshot(id), refreshInbox: async id => { inboxEvents.emit(snapshot(id)); }, onInboxChanged: inboxEvents.subscribe };
+  window.inboxAPI = {
+    getInbox: async id => snapshot(id), refreshInbox: async id => { inboxEvents.emit(snapshot(id)); }, onInboxChanged: inboxEvents.subscribe,
+    getDetails: async (id, ref) => structuredClone(detailsFor(id, ref)),
+    mutateItem: async (id, ref, mutation) => mutate(detailsFor(id, ref), mutation),
+  };
   window.providerAPI = {
     probe: async () => ({ available: true, version: 'Demo', accounts: [{ login: 'alex-work', active: true }, { login: 'alex-builds', active: false }] }),
     resolveRepos: async (id, repos) => Object.fromEntries(repos.map(repo => [repo, workspace(id).scopes[0]?.path])),
@@ -146,7 +192,8 @@ export function installMock() {
   };
   changes.set('/demo/acme/platform', [{ path: 'src/lib/retry.ts', status: 'modified' }, { path: 'src/lib/retry.test.ts', status: 'untracked' }]);
   window.gitAPI = {
-    getStatus: async path => ({ files: structuredClone(changes.get(path) || []), stats: { modifiedCount: changes.get(path)?.length || 0, addedLines: changes.get(path)?.length ? 9 : 0, removedLines: changes.get(path)?.length ? 1 : 0 }, isGitRepo: true, branch: path.includes('.worktrees') ? 'fix/retry-guard' : 'main' }),
+    getStatus: async path => ({ files: structuredClone(changes.get(path) || []), stats: { modifiedCount: changes.get(path)?.length || 0, addedLines: changes.get(path)?.length ? 9 : 0, removedLines: changes.get(path)?.length ? 1 : 0 }, isGitRepo: true, branch: branchOf(path) }),
+    getCheckout: async path => ({ kind: path.includes('/.worktrees/') ? 'worktree' : 'main', root: path, mainCheckout: path.split('/.worktrees/')[0], branch: branchOf(path) }),
     getDiff: async (_path, file, staged) => diff(file, staged),
     stageFile: async (path, file) => { const f = changes.get(path)?.find(f => f.path === file); if (f) f.status = 'staged'; return { success: true }; },
     unstageFile: async (path, file) => { const f = changes.get(path)?.find(f => f.path === file); if (f) f.status = file.endsWith('.test.ts') ? 'untracked' : 'modified'; return { success: true }; },
