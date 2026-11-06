@@ -75,17 +75,15 @@ export function Layout() {
   const layoutStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties;
 
   return (
-    <div ref={layoutRef} className="layout" style={layoutStyle}>
+    <div ref={layoutRef} className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`} style={layoutStyle}>
       <NewSessionDialog />
       <AppHeader />
-      <div className="layout-body">
-        <WorkspaceRail />
-        <Sidebar />
-        {!isSidebarHidden && <SidebarResizeHandle layoutRef={layoutRef} />}
-        <main className="content-area">
-          <MainContent />
-        </main>
-      </div>
+      <WorkspaceRail />
+      <Sidebar />
+      {!isSidebarHidden && <SidebarResizeHandle layoutRef={layoutRef} />}
+      <main className="content-area">
+        <MainContent />
+      </main>
     </div>
   );
 }

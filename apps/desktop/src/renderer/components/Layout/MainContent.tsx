@@ -12,12 +12,8 @@ export function MainContent() {
   );
 
   // No workspace selected - show home/welcome
-  if (!activeWorkspaceId) {
-    return <HomeView />;
-  }
-
-  if (!workspace) {
-    return <HomeView />;
+  if (!activeWorkspaceId || !workspace) {
+    return <><ContentDragRegion /><HomeView /></>;
   }
 
   // The Inbox takes the pane over; the active session keeps running behind it
@@ -28,9 +24,19 @@ export function MainContent() {
 
   // Workspace selected, no session - show workspace actions
   if (!activeSessionId) {
-    return <WorkspaceEmptyView key={workspace.id} workspace={workspace} />;
+    return <><ContentDragRegion /><WorkspaceEmptyView key={workspace.id} workspace={workspace} /></>;
   }
 
   // Session active - show conversation view
   return <ContentView workspaceId={activeWorkspaceId} sessionId={activeSessionId} />;
+}
+
+/**
+ * The main pane reaches the window's top edge, where a view's header is the
+ * title bar. A view with no header of its own still needs a strip there to
+ * drag the window by — in flow, not overlaid, so scrolled content never
+ * passes under it and turns into a drag handle.
+ */
+function ContentDragRegion() {
+  return <div className="content-drag-region" aria-hidden="true" />;
 }
