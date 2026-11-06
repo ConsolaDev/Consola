@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { countUntrackedLines } from './untrackedLines';
+import { countUntrackedLines, readUntrackedFile } from './untrackedLines';
 
 let repo: string;
 const git = (...args: string[]) =>
@@ -62,6 +62,19 @@ describe('countUntrackedLines', () => {
     expect(gitAddedLines(['image.png'])).toBe(0);
   });
 
+  it('counts no lines for a text file .gitattributes marks binary or -diff, as git does', async () => {
+    fs.writeFileSync(path.join(repo, '.gitattributes'), '*.lock binary\n*.snap -diff\n');
+    git('add', '.gitattributes');
+    git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-m', 'attributes');
+    fs.writeFileSync(path.join(repo, 'deps.lock'), 'a\nb\nc\n');
+    fs.writeFileSync(path.join(repo, 'view.snap'), 'a\nb\n');
+    fs.writeFileSync(path.join(repo, 'counted.txt'), 'a\n');
+    const paths = ['deps.lock', 'view.snap', 'counted.txt'];
+
+    expect(await countUntrackedLines(repo, paths)).toBe(1);
+    expect(gitAddedLines(paths)).toBe(1);
+  });
+
   it('counts a symlink as the one line git diffs it as', async () => {
     fs.mkdirSync(path.join(repo, 'target-dir'));
     fs.symlinkSync('target-dir', path.join(repo, 'link'));
@@ -72,5 +85,35 @@ describe('countUntrackedLines', () => {
   it('counts nothing for a path that is gone or is a directory', async () => {
     fs.mkdirSync(path.join(repo, 'nested-repo'));
     expect(await countUntrackedLines(repo, ['vanished.txt', 'nested-repo/'])).toBe(0);
+  });
+});
+
+describe('readUntrackedFile', () => {
+  it('reads a text file as text', async () => {
+    fs.writeFileSync(path.join(repo, 'notes.md'), '# Notes\n');
+    expect(await readUntrackedFile(repo, 'notes.md')).toEqual({ content: '# Notes\n', isBinary: false });
+  });
+
+  // The review panel shows this file's content and counts its lines; calling
+  // binary exactly what the header counts as no lines keeps the two in step.
+  it('reads a file with a NUL as binary, with no content', async () => {
+    fs.writeFileSync(path.join(repo, 'image.png'), Buffer.from([0x89, 0x50, 0x00, 0x0a]));
+    expect(await readUntrackedFile(repo, 'image.png')).toEqual({ content: '', isBinary: true });
+  });
+
+  it('reads a file .gitattributes marks binary as binary', async () => {
+    fs.writeFileSync(path.join(repo, '.gitattributes'), '*.lock binary\n');
+    fs.writeFileSync(path.join(repo, 'deps.lock'), 'a\nb\n');
+    expect(await readUntrackedFile(repo, 'deps.lock')).toEqual({ content: '', isBinary: true });
+  });
+
+  it('reads a symlink as its target path, which is what git diffs', async () => {
+    fs.writeFileSync(path.join(repo, 'real.txt'), 'one\ntwo\n');
+    fs.symlinkSync('real.txt', path.join(repo, 'link'));
+    expect(await readUntrackedFile(repo, 'link')).toEqual({ content: 'real.txt', isBinary: false });
+  });
+
+  it('answers null for a file that is gone', async () => {
+    expect(await readUntrackedFile(repo, 'vanished.txt')).toBeNull();
   });
 });

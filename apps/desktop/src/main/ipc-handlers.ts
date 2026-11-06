@@ -39,7 +39,7 @@ import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
-import { countUntrackedLines } from './untrackedLines';
+import { countUntrackedLines, readUntrackedFile } from './untrackedLines';
 import { TerminalCreateOptions, HarnessLaunchFields } from '../shared/types';
 import type { ConductorCreateRequest, SessionFanOutIntent } from '../shared/types';
 import { deriveTerminalStatus, type TerminalStatus } from '../shared/terminalStatus';
@@ -1205,27 +1205,18 @@ export function setupIpcHandlers(): boolean {
             if (!staged) {
                 exec(`git ls-files --error-unmatch "${filePath}" 2>/dev/null`, { cwd: rootPath }, (err) => {
                     if (err) {
-                        // File is untracked - read full content
+                        // File is untracked - read full content, unless it is
+                        // binary by the rules the header's line count uses.
+                        // One that exists but cannot be read shows as binary.
                         if (fileExists) {
-                            fs.promises.readFile(absolutePath, 'utf-8').then((content) => {
+                            readUntrackedFile(rootPath, filePath).then((file) => {
                                 resolve({
                                     filePath,
                                     staged: false,
                                     oldContent: '',
-                                    newContent: content,
+                                    newContent: file?.content ?? '',
                                     hunks: [],
-                                    isBinary: false,
-                                    isNew: true,
-                                    isDeleted: false
-                                });
-                            }).catch(() => {
-                                resolve({
-                                    filePath,
-                                    staged: false,
-                                    oldContent: '',
-                                    newContent: '',
-                                    hunks: [],
-                                    isBinary: true,
+                                    isBinary: file?.isBinary ?? true,
                                     isNew: true,
                                     isDeleted: false
                                 });
