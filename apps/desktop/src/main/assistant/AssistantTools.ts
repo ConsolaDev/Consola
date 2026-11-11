@@ -22,7 +22,7 @@ export interface AssistantToolsDeps {
     getWorkspaces(): Workspace[];
     status(instanceId: string): TerminalStatus;
     deliverPrompt(workspaceId: string, sessionId: string, prompt: string): Promise<PromptDelivery>;
-    /** `null` when Consola cannot read this session's transcript. */
+    /** `null` when Consola cannot read its harness's transcripts; `[]` when there is none yet. */
     recentReplies(session: Session, count: number): Promise<string[] | null>;
     /** `null` unless the session's terminal is running. */
     screenText(instanceId: string): string | null;

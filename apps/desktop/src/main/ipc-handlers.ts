@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
-import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
+import { SessionLauncher } from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
@@ -33,6 +33,7 @@ import { AssistantActivity } from './assistant/AssistantActivity';
 import { AssistantService } from './assistant/AssistantService';
 import { AssistantTools } from './assistant/AssistantTools';
 import { ensureAssistantHome } from './assistant/assistantHome';
+import { recentRepliesFor } from './assistant/recentReplies';
 import { startAssistantSession } from './assistant/startSession';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
@@ -843,17 +844,12 @@ export function setupIpcHandlers(): boolean {
         getWorkspaces: () => workspaces.getAll(),
         status: sessionStatus,
         deliverPrompt: (workspaceId, sessionId, prompt) => launcher.deliverPrompt(workspaceId, sessionId, prompt),
-        // Read from the session's own harness: its transcripts live in that
-        // harness's config directory.
-        recentReplies: async (session, count) => {
-            const fields = launchFieldsFor(harnesses.getAll().find((harness) => harness.id === session.harnessId));
-            const replies = getDriver(fields.driverId).getRecentReplies?.(
-                toHarnessConfig(fields),
-                session.claudeSessionId,
+        recentReplies: (session, count) =>
+            recentRepliesFor(
+                harnesses.getAll().find((harness) => harness.id === session.harnessId),
+                session,
                 count
-            );
-            return (await replies) ?? null;
-        },
+            ),
         // An exited terminal's screen is a stale one.
         screenText: (instanceId) => {
             const terminal = manager.get(instanceId);

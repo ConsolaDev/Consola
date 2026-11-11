@@ -132,6 +132,13 @@ describe('consola_read_session', () => {
     });
   });
 
+  it('does not call a readable harness unreadable when there is no transcript yet', async () => {
+    deps.recentReplies.mockResolvedValue([]);
+    const result = await tools.handleReadSession('a-1', { session_id: 'w-1', messages: 3 });
+    expect(result).toMatchObject({ replies: [] });
+    expect(result).not.toHaveProperty('transcript');
+  });
+
   it('leaves the screen out when the session is not running', async () => {
     deps.status.mockReturnValue('exited');
     deps.recentReplies.mockResolvedValue(['Done.']);
