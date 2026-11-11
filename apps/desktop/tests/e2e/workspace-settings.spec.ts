@@ -89,6 +89,8 @@ async function launchSeeded(): Promise<{
   app: ElectronApplication;
   /** workspaces.json for this run — asserting a write actually persisted. */
   stateFile: string;
+  /** The profile dir, for a relaunch against the same state. */
+  userDataDir: string;
   cleanup: () => Promise<void>;
 }> {
   const userDataDir = createProfileDir();
@@ -106,12 +108,13 @@ async function launchSeeded(): Promise<{
   // real Electron process running for the rest of the worker, nor its
   // profile behind in the OS temp dir.
   const cleanup = async () => {
-    await app.close();
+    // A test that relaunched has already closed this one.
+    await app.close().catch(() => undefined);
     fs.rmSync(userDataDir, { recursive: true, force: true });
     fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
     fs.rmSync(scopeDir, { recursive: true, force: true });
   };
-  return { page, app, stateFile, cleanup };
+  return { page, app, stateFile, userDataDir, cleanup };
 }
 
 /** The seeded workspace stays available in the rail, including after a rename. */
@@ -377,6 +380,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
       'Automations',
+      'Assistant',
       'Groups',
       'Danger zone',
     ]);
@@ -837,6 +841,44 @@ test('group emojis can be searched, cancelled, saved, reloaded and removed', asy
     await expect.poll(() => savedGroup().emoji).toBeUndefined();
     await expect(page.locator('.group-nav-toggle .group-emoji svg')).toBeVisible();
   } finally {
+    await cleanup();
+  }
+});
+
+test('the Assistant section saves its mode and keeps it after relaunch', async () => {
+  test.setTimeout(90_000);
+  const { app, page, userDataDir, cleanup } = await launchSeeded();
+  let relaunched: ElectronApplication | undefined;
+  try {
+    await holdWorkspace(page);
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    await modal.getByRole('button', { name: 'Assistant', exact: true }).click();
+
+    await expect(modal.getByText('Sessions the Assistant runs on pull requests and issues')).toBeVisible();
+    await expect(modal.getByRole('radio', { name: /Full tools/ })).toBeChecked();
+    await modal.getByRole('radio', { name: /Read-only, unattended/ }).click();
+    await expect(modal.getByRole('radio', { name: /Read-only, unattended/ })).toBeChecked();
+    await expect(modal.getByText('Applies to the next session it starts.')).toBeVisible();
+
+    await app.close();
+    const again = await launchElectron({
+      userDataDir,
+      env: {
+        CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
+        PATH: `${STUB_GH_DIR}${path.delimiter}${process.env.PATH ?? ''}`,
+      },
+    });
+    relaunched = again.app;
+    await holdWorkspace(again.page);
+    await again.page.getByRole('button', { name: / workspace menu$/ }).click();
+    await again.page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const reopened = again.page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    await reopened.getByRole('button', { name: 'Assistant', exact: true }).click();
+    await expect(reopened.getByRole('radio', { name: /Read-only, unattended/ })).toBeChecked();
+  } finally {
+    await relaunched?.close().catch(() => undefined);
     await cleanup();
   }
 });
