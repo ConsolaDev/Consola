@@ -35,6 +35,13 @@ export class TerminalManager {
      */
     public onExit?: (instanceId: string, info: TerminalExitInfo) => void;
 
+    /**
+     * Called when a session's CLI says it now works somewhere else — an
+     * agent that entered a worktree on its own. Main records it on the
+     * session, and every window learns of it from the workspace broadcast.
+     */
+    public onWorkingDirectory?: (instanceId: string, cwd: string) => void;
+
     /** How many sessions are waiting on a human, across every workspace. */
     public getAttentionCount(): number {
         return this.awaiting.size;
@@ -198,6 +205,10 @@ export class TerminalManager {
             this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
             this.onAttentionChanged?.();
             this.onExit?.(instanceId, info);
+        });
+
+        terminal.on('working-directory', (cwd: string) => {
+            this.onWorkingDirectory?.(instanceId, cwd);
         });
 
         terminal.on('status', (status: TerminalStatus) => {

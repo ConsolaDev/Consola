@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'os';
 
-const { spawnMock, buildArgsMock } = vi.hoisted(() => ({ spawnMock: vi.fn(), buildArgsMock: vi.fn() }));
+const { spawnMock, buildArgsMock, readCwdMock } = vi.hoisted(() => ({
+    spawnMock: vi.fn(),
+    buildArgsMock: vi.fn(),
+    readCwdMock: vi.fn(),
+}));
 
 vi.mock('node-pty', () => ({ spawn: spawnMock }));
 vi.mock('./LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: '/usr/bin' }) }));
@@ -13,6 +17,7 @@ vi.mock('./drivers', () => ({
         resolveBinary: () => 'claude-stub',
         buildSessionArgs: buildArgsMock,
         composeEnv: (_harness: unknown, env: Record<string, string | undefined>) => env,
+        readWorkingDirectory: readCwdMock,
     }),
     toHarnessConfig: (options: unknown) => options,
 }));
@@ -40,6 +45,7 @@ function installFakePty(): PtyHarness {
     let onData: ((data: string) => void) | undefined;
     let onExit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
     spawnMock.mockReturnValue({
+        pid: 4242,
         onData: (callback: (data: string) => void) => { onData = callback; },
         onExit: (callback: (event: { exitCode: number; signal?: number }) => void) => { onExit = callback; },
         write: (data: string) => { writes.push(data); },
@@ -76,6 +82,7 @@ beforeEach(() => {
     vi.useFakeTimers();
     spawnMock.mockReset();
     buildArgsMock.mockReset().mockReturnValue([]);
+    readCwdMock.mockReset().mockReturnValue(null);
     return () => vi.useRealTimers();
 });
 
@@ -552,5 +559,93 @@ describe('bracketedPaste', () => {
         service.paste('review\x1b[201~\r');
         expect(pty.writes).toEqual(['\x1b[200~review[201~\r\x1b[201~']);
         service.destroy();
+    });
+});
+
+describe('TerminalService working directory', () => {
+    /** How often a working CLI is asked; one poll is unambiguous past it. */
+    const POLL_MS = 2_000;
+
+    it('reports where the CLI says it works, once per change, as soon as it moves mid-turn', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        const reported: string[] = [];
+        service.on('working-directory', (cwd) => reported.push(cwd));
+        await vi.advanceTimersByTimeAsync(0);
+
+        readCwdMock.mockReturnValue('/code/consola');
+        pty.feed('booting');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(readCwdMock).toHaveBeenLastCalledWith(expect.anything(), 4242);
+        expect(reported).toEqual(['/code/consola']);
+
+        // A long turn: output keeps flowing, and the agent enters a worktree.
+        pty.feed('working');
+        readCwdMock.mockReturnValue('/code/consola/.claude/worktrees/assistant');
+        for (let elapsed = 0; elapsed < POLL_MS; elapsed += 400) {
+            await vi.advanceTimersByTimeAsync(400);
+            pty.feed('still working');
+        }
+        expect(reported).toEqual(['/code/consola', '/code/consola/.claude/worktrees/assistant']);
+
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(reported).toHaveLength(2);
+        service.destroy();
+    });
+
+    it('asks nothing while the session sits idle', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.feed('ready');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        const asked = readCwdMock.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(POLL_MS * 10);
+        expect(readCwdMock.mock.calls.length).toBe(asked);
+        service.destroy();
+    });
+
+    it('a relaunched process reports afresh, even where the last one already said', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        const reported: string[] = [];
+        service.on('working-directory', (cwd) => reported.push(cwd));
+        await vi.advanceTimersByTimeAsync(0);
+        readCwdMock.mockReturnValue('/code/consola/.claude/worktrees/assistant');
+        pty.feed('working');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+        pty.exit(0);
+        const relaunched = installFakePty();
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+        relaunched.feed('resumed');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(reported).toEqual([
+            '/code/consola/.claude/worktrees/assistant',
+            '/code/consola/.claude/worktrees/assistant',
+        ]);
+        service.destroy();
+    });
+
+    it('stops asking a CLI whose answer it cannot read, and reports nothing from it', async () => {
+        const pty = installFakePty();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        readCwdMock.mockImplementation(() => { throw new Error('Unrecognised session record'); });
+        const service = await buildService();
+        const reported: string[] = [];
+        service.on('working-directory', (cwd) => reported.push(cwd));
+        await vi.advanceTimersByTimeAsync(0);
+
+        pty.feed('working');
+        await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+        pty.feed('more');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(readCwdMock).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(reported).toEqual([]);
+        service.destroy();
+        warn.mockRestore();
     });
 });

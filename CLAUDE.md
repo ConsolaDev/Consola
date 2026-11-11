@@ -150,6 +150,15 @@ explorer's colours, palette commits — reads `checkoutPathForSession`, never
 the scope's path. A worktree has its own branch, index and changes, so the
 scope would report (and commit) a different checkout than the agent edits.
 
+The agent can also move itself: Claude's `EnterWorktree` moves the whole
+process into a worktree Consola never made. While a session works, its
+terminal asks the driver where the process is (`readWorkingDirectory`,
+Claude's own `<config>/sessions/<pid>.json`), and main records a difference
+as `Session.agentCwd` (`WorkspaceService.recordAgentCwd`, its only writer).
+`checkoutPathForSession` prefers it, so every git view follows the agent.
+Launching never does: spawns still start in `cwd`, and the CLI reports again
+from there.
+
 Whether a folder *is* a worktree is asked of git (`readCheckout`, cached per
 folder in `checkoutStore`), not inferred from the record: a scope can itself
 be a worktree. The header's checkout chip and the sidebar's worktree line read

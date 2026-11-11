@@ -42,8 +42,27 @@ function seed(): void {
   const effective = `${userDataDir} Test`;
   fs.mkdirSync(effective, { recursive: true });
   const now = Date.now();
-  const builtIn = { ...createBuiltInHarness(), configDir: path.join(base, 'claude-profile') };
-  fs.writeFileSync(path.join(effective, 'harnesses.json'), JSON.stringify({ version: 1, harnesses: [builtIn] }));
+  const profile = path.join(base, 'claude-profile');
+  const builtIn = { ...createBuiltInHarness(), configDir: profile };
+  // Stands in for Claude entering a worktree on its own (EnterWorktree): it
+  // starts in the repo, then moves, and records each place where Claude
+  // records it — `<config>/sessions/<pid>.json`, kept by the process itself.
+  // \342\235\257 is UTF-8 for ❯, an empty composer.
+  const stubPath = path.join(base, 'enters-worktree.sh');
+  fs.writeFileSync(stubPath, [
+    '#!/bin/sh',
+    'mkdir -p "$CLAUDE_CONFIG_DIR/sessions"',
+    'record="$CLAUDE_CONFIG_DIR/sessions/$$.json"',
+    `printf '{"pid":%s,"cwd":"%s"}' "$$" '${repo}' > "$record"`,
+    "printf '\\342\\235\\257 '",
+    'sleep 4',
+    `printf '{"pid":%s,"cwd":"%s"}' "$$" '${tree}' > "$record"`,
+    "printf 'Entered the worktree\\r\\n\\342\\235\\257 '",
+    'sleep 300',
+    '',
+  ].join('\n'), { mode: 0o755 });
+  const stub = { ...createBuiltInHarness(), id: 'stub', name: 'Stub', isBuiltIn: false, binaryPath: stubPath, configDir: profile };
+  fs.writeFileSync(path.join(effective, 'harnesses.json'), JSON.stringify({ version: 1, harnesses: [builtIn, stub] }));
   const session = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
     id,
     name,
@@ -71,6 +90,7 @@ function seed(): void {
       sessions: [
         session('s-main', 'Tidy the README'),
         session('s-tree', 'Fix the login redirect', { cwd: tree, model: 'claude-opus-4-6' }),
+        session('s-enters', 'Plan the redirect fix', { harnessId: 'stub' }),
       ],
       createdAt: now,
       updatedAt: now,
@@ -133,6 +153,26 @@ test.describe('worktree visibility', () => {
     await expect(chip(page)).toHaveText('main');
     await expect(page.locator('.git-stats-count')).toHaveCount(0);
     await screenshot('worktree-main-checkout.png');
+  });
+
+  test('everything git-shaped follows an agent that moves itself into a worktree', async () => {
+    test.setTimeout(60_000);
+    await row(page, 'Plan the redirect fix').click();
+    // Launched in the repo, and still there until the CLI says otherwise.
+    await expect(chip(page)).toHaveAttribute('data-kind', 'main');
+    await expect(page.locator('.git-stats-count')).toHaveCount(0);
+
+    await expect(chip(page)).toHaveAttribute('data-kind', 'worktree', { timeout: 15_000 });
+    await expect(chip(page)).toContainText(WORKTREE_BRANCH);
+    await expect(page.locator('.git-stats-count')).toHaveText('1 file');
+    await expect(row(page, 'Plan the redirect fix').locator('.session-nav-item-worktree')).toHaveText(WORKTREE_BRANCH);
+    await screenshot('worktree-entered-by-agent.png');
+
+    // Main recorded it, so it outlives this window's view of the session.
+    const recorded = JSON.parse(fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'));
+    const enters = recorded.workspaces[0].sessions.find((s: { id: string }) => s.id === 's-enters');
+    expect(enters.agentCwd).toBe(tree);
+    expect(enters).not.toHaveProperty('cwd');
   });
 
   test('the sidebar marks worktree rows, and the mark can be switched off for good', async () => {
