@@ -1,5 +1,5 @@
 import { isShellShortcut } from '../../utils/shellShortcut';
-import { matchWorkspaceShortcut } from '../../utils/platform';
+import { isAssistantShortcut, matchWorkspaceShortcut } from '../../utils/platform';
 import { useEffect, useRef } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -118,7 +118,7 @@ export function useTerminal({
         terminal.attachCustomKeyEventHandler((event) => {
             // Application chords must reach the global listener without
             // sending numeric control sequences into the terminal.
-            if (isShellShortcut(event) || matchWorkspaceShortcut(event) !== null) {
+            if (isShellShortcut(event) || matchWorkspaceShortcut(event) !== null || isAssistantShortcut(event)) {
                 event.preventDefault();
                 return false;
             }

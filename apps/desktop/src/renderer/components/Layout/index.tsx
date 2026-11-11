@@ -1,4 +1,4 @@
-import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
+import { createQuickSession, openAssistant, openNewSessionDialog } from '../../utils/sessionActions';
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
@@ -19,6 +19,7 @@ import {
   subscribeToActivateSession,
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useAssistantStore } from '../../stores/assistantStore';
 import './styles.css';
@@ -51,6 +52,12 @@ export function Layout() {
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,
     onOpenScopedPalette: openPalette,
+    onOpenAssistant: () => {
+      if (!activeWorkspaceId) return;
+      // A workspace with no scope has nowhere to run it; the sidebar row says so.
+      const workspace = useWorkspaceStore.getState().getWorkspace(activeWorkspaceId);
+      if (workspace && workspace.scopes.length > 0) void openAssistant(activeWorkspaceId);
+    },
   });
   useTheme();
   useWindowDropGuard();

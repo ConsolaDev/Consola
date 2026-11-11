@@ -1093,3 +1093,65 @@
 .diff-unified-line-remove .diff-unified-line-number {
   background: rgba(235, 87, 87, 0.2);
 }
+
+/* The Assistant's header and the marker it leaves on sessions it touched. */
+.assistant-header-spark {
+  color: var(--color-worktree);
+  white-space: pre;
+}
+
+.assistant-header-sub {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.assistant-header-spacer {
+  flex: 1;
+}
+
+.assistant-header-menu {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.assistant-header-menu:hover,
+.assistant-header-menu[data-state='open'] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.assistant-header-menu:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.assistant-marker {
+  cursor: default;
+  animation: none;
+}
+
+.assistant-marker:hover {
+  border-color: var(--color-border-strong);
+  background: transparent;
+  color: var(--color-text-secondary);
+}
+
+.assistant-marker-label {
+  align-self: center;
+  padding: 0 8px;
+  font-size: var(--font-size-sm);
+  line-height: 20px;
+  white-space: nowrap;
+}

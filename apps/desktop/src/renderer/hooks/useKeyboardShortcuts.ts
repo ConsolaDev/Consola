@@ -4,7 +4,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { isCommandPaletteShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
+import { isAssistantShortcut, isCommandPaletteShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
 import { windowBridge } from '../services/windowBridge';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
@@ -14,6 +14,7 @@ interface UseKeyboardShortcutsOptions {
   onOpenSettings?: () => void;
   onTogglePalette?: () => void;
   onOpenScopedPalette?: (scope: PaletteScope) => void;
+  onOpenAssistant?: () => void;
 }
 
 /**
@@ -28,7 +29,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
-  const { onNewSession, onNewSessionWithOptions, onOpenSettings, onTogglePalette, onOpenScopedPalette } = options;
+  const { onNewSession, onNewSessionWithOptions, onOpenSettings, onTogglePalette, onOpenScopedPalette, onOpenAssistant } = options;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -56,6 +57,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (scope) {
         event.preventDefault();
         onOpenScopedPalette?.(scope);
+        return;
+      }
+
+      // Opens rather than toggles: from the Assistant itself it is a no-op.
+      if (isAssistantShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) onOpenAssistant?.();
         return;
       }
 
@@ -130,5 +138,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     onOpenSettings,
     onTogglePalette,
     onOpenScopedPalette,
+    onOpenAssistant,
   ]);
 }

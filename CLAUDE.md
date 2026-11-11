@@ -174,6 +174,25 @@ trust prompt is the person's to answer. Lifting the restriction means a
 fork the person starts (`SessionLauncher.forkWithFullTools`), never an edit
 of the session's `toolPolicy`.
 
+### The Assistant
+
+Each workspace has one `kind: 'assistant'` session: a conversation that sees
+every scope and runs the others. It is created on first open, and it lives in
+its own folder beside `factory.yml` (not a repo, so no git, explorer or review
+panels). `listedSessions` hides it from every list and count. A session needs a
+scope, so `removeScope` moves it to a remaining one, or drops it with the last.
+
+It adds three tools to the generic MCP endpoint: `consola_prompt_session`,
+`consola_read_session` and `consola_start_session` (the last replaces the
+generic one, which would start work inside the Assistant's own folder). The
+workspace is resolved from the endpoint on every call, never from an argument,
+so it cannot reach across workspaces or address itself.
+
+It wakes a session through `SessionLauncher.deliverPrompt`, which relaunches an
+exited terminal in place: the pane another window is showing keeps streaming.
+It hears back through `AssistantActivity`, which listens on `TerminalManager`'s
+status and exit listener sets and tells it when the sessions it touched settle.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and
