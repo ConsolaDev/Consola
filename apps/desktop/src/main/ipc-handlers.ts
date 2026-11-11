@@ -12,7 +12,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
-import { SessionLauncher } from './SessionLauncher';
+import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
@@ -31,7 +31,9 @@ import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
 import { AssistantActivity } from './assistant/AssistantActivity';
 import { AssistantService } from './assistant/AssistantService';
+import { AssistantTools } from './assistant/AssistantTools';
 import { ensureAssistantHome } from './assistant/assistantHome';
+import { startAssistantSession } from './assistant/startSession';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
@@ -792,7 +794,8 @@ export function setupIpcHandlers(): boolean {
     }).forEach((tool) => tools.register(tool));
 
     // Every session's private MCP endpoint (see SessionMcpHost): the Consola
-    // tools for all, plus the group tools for conductors.
+    // tools for all, plus the group tools for conductors and the workspace
+    // tools for the Assistant.
     const mcpHost = new SessionMcpHost({
         // In the packaged app the shim must be a real file on disk — the
         // claude CLI, an outside process, spawns it. Hence asarUnpack.
@@ -808,6 +811,7 @@ export function setupIpcHandlers(): boolean {
                     request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
                 },
                 conductorTools,
+                assistantTools,
                 getWorkspaces: () => workspaces.getAll(),
             }),
     });
@@ -831,6 +835,42 @@ export function setupIpcHandlers(): boolean {
     };
     // A re-run of a read-only review reads the PR as it is now.
     launcher.beforeRerun = (workspace, session) => refreshIdleWorktree(itemWorktreeDeps, workspace, session);
+
+    // The Assistant's workspace tools: prompt, read and start its sessions,
+    // and hear back when each settles. mcpHost's buildServer reads it only
+    // when a session connects, which is after this setup has run.
+    const assistantTools = new AssistantTools({
+        getWorkspaces: () => workspaces.getAll(),
+        status: sessionStatus,
+        deliverPrompt: (workspaceId, sessionId, prompt) => launcher.deliverPrompt(workspaceId, sessionId, prompt),
+        // Read from the session's own harness: its transcripts live in that
+        // harness's config directory.
+        recentReplies: async (session, count) => {
+            const fields = launchFieldsFor(harnesses.getAll().find((harness) => harness.id === session.harnessId));
+            const replies = getDriver(fields.driverId).getRecentReplies?.(
+                toHarnessConfig(fields),
+                session.claudeSessionId,
+                count
+            );
+            return (await replies) ?? null;
+        },
+        // An exited terminal's screen is a stale one.
+        screenText: (instanceId) => {
+            const terminal = manager.get(instanceId);
+            return terminal && !terminal.hasClaudeExited() ? terminal.screenText() : null;
+        },
+        start: (workspace, request) =>
+            startAssistantSession(
+                {
+                    ...itemWorktreeDeps,
+                    restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
+                    launchSession: (id, fields) => launcher.launchSession(id, fields),
+                },
+                workspace,
+                request
+            ),
+        watch: (assistantSessionId, targetSessionId) => assistantActivity.watch(assistantSessionId, targetSessionId),
+    });
 
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),

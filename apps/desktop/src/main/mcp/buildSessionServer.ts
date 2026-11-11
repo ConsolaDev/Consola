@@ -13,6 +13,8 @@ export interface SessionServerDeps {
     };
     /** Adds the group tools; called only for conductors. */
     conductorTools: { addTo(server: McpServer, conductorSessionId: string): void };
+    /** Adds prompt, read and the Assistant's own start_session; called only for the Assistant. */
+    assistantTools: { addTo(server: McpServer, sessionId: string): void };
     getWorkspaces(): Workspace[];
 }
 
@@ -25,10 +27,10 @@ const APPROVAL_NOTE =
  * The MCP server one session sees, built fresh for each connection.
  *
  * Every session gets the Consola tools, acting on its own workspace and never
- * on itself; a conductor also gets its group tools. The session id comes from
- * the endpoint the connection arrived on (SessionMcpHost), and the caller is
- * re-resolved on every call, so a deleted or moved session loses its
- * authority immediately.
+ * on itself; a conductor also gets its group tools, and the Assistant its
+ * workspace tools. The session id comes from the endpoint the connection
+ * arrived on (SessionMcpHost), and the caller is re-resolved on every call,
+ * so a deleted or moved session loses its authority immediately.
  *
  * An agent never runs a destructive tool itself, whatever its CLI's
  * permission settings: the call becomes a plan waiting for the person in
@@ -48,9 +50,13 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
     // starts another run. Whatever its item's text talks it into, it has no
     // hands here.
     const readOnly = caller?.toolPolicy === 'read-only';
+    const assistant = caller?.kind === 'assistant';
 
     for (const tool of deps.registry.list()) {
         if (readOnly && tool.mutating) continue;
+        // The Assistant's own start_session, added below, takes its place:
+        // the workspace's harness and work items rather than the caller's own.
+        if (assistant && tool.name === 'start_session') continue;
         server.registerTool(
             mcpToolName(tool.name),
             {
@@ -76,6 +82,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
     }
 
     if (caller?.kind === 'conductor' && !readOnly) deps.conductorTools.addTo(server, sessionId);
+    if (assistant && !readOnly) deps.assistantTools.addTo(server, sessionId);
 
     return server;
 }
