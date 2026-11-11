@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
-import { launchAgentRun, StartedByHandError, withoutGitHooks, type AgentLaunchDeps } from './launchAgentRun';
+import { launchAgentRun, prepareItemWorktree, refreshIdleWorktree, StartedByHandError, withoutGitHooks, type AgentLaunchDeps } from './launchAgentRun';
 
 let root: string;
 beforeEach(() => {
@@ -155,6 +155,56 @@ describe('launchAgentRun', () => {
         expect(d.launchSession).toHaveBeenCalledWith('ws-1', expect.objectContaining({ name: 'morning', scopeId: 'scope-api', toolPolicy: 'read-only', unattended: true }));
         expect(d.launchSession.mock.calls[0][1]).not.toHaveProperty('cwd');
         expect(d.ensureWorktree).not.toHaveBeenCalled();
+    });
+});
+
+describe('prepareItemWorktree', () => {
+    it('prepares an item worktree with hooks off and names the scope that holds the clone', async () => {
+        const d = deps();
+        const { cwd, scopeId } = await prepareItemWorktree(d, workspace(), workItem);
+        expect(cwd).toBe(path.join(root, 'api-pr-123'));
+        expect(d.ensureWorktree).toHaveBeenCalledWith('/code/api', workItem, expect.objectContaining({ GIT_CONFIG_VALUE_0: '/dev/null' }));
+        expect(scopeId).toBe('scope-api');
+    });
+
+    it('says to clone a repo it cannot find, and needs a bound account', async () => {
+        await expect(prepareItemWorktree(deps({ resolveRepo: () => null }), workspace(), workItem)).rejects.toThrow(
+            'Clone acme/api into one of this workspace’s scopes first.'
+        );
+        const unbound = { ...workspace(), provider: undefined } as Workspace;
+        await expect(prepareItemWorktree(deps(), unbound, workItem)).rejects.toThrow('This workspace has no provider account bound.');
+    });
+});
+
+describe('refreshIdleWorktree', () => {
+    const dir = () => path.join(root, 'api-pr-123');
+    const session = (overrides: Partial<Session> = {}) =>
+        ({ id: 'review', name: 'Review', workItem, cwd: dir(), toolPolicy: 'read-only', ...overrides }) as unknown as Session;
+
+    it('refreshes an idle PR worktree before a re-run, and leaves a busy one alone', async () => {
+        fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
+        const d = deps();
+        await refreshIdleWorktree(d, workspace(), session());
+        expect(d.refreshWorktree).toHaveBeenCalledWith(dir(), workItem, expect.objectContaining({ GIT_CONFIG_KEY_0: 'core.hooksPath' }));
+        vi.mocked(d.worktreeInUse).mockReturnValue(true);
+        vi.mocked(d.refreshWorktree).mockClear();
+        await refreshIdleWorktree(d, workspace(), session());
+        expect(d.refreshWorktree).not.toHaveBeenCalled();
+    });
+
+    it('ignores a session that is not on its item’s Consola worktree, or not on a PR', async () => {
+        fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
+        const d = deps();
+        await refreshIdleWorktree(d, workspace(), session({ cwd: '/code/api' }));
+        await refreshIdleWorktree(d, workspace(), session({ workItem: { ...workItem, type: 'issue' } as Session['workItem'] }));
+        await refreshIdleWorktree(d, workspace(), session({ workItem: undefined }));
+        expect(d.refreshWorktree).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the worktree is gone', async () => {
+        const d = deps();
+        await refreshIdleWorktree(d, workspace(), session());
+        expect(d.refreshWorktree).not.toHaveBeenCalled();
     });
 });
 

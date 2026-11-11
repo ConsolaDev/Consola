@@ -51,6 +51,64 @@ export function withoutGitHooks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     };
 }
 
+export type ItemWorktreeDeps = Pick<
+    AgentLaunchDeps,
+    'resolveDriver' | 'resolveRepo' | 'worktreePathFor' | 'ensureWorktree' | 'refreshWorktree' | 'worktreeInUse' | 'composeEnv'
+>;
+
+/**
+ * The item's Consola worktree, made ready: the clone resolved among the
+ * workspace's scopes, the worktree ensured under the per-item chain with git
+ * hooks off, and an existing one nobody is using brought to the PR's head.
+ * Shared by automations and the Assistant so both serialise with Inbox clicks.
+ */
+export async function prepareItemWorktree(
+    deps: ItemWorktreeDeps,
+    workspace: Workspace,
+    workItem: WorkItemRef
+): Promise<{ cwd: string; scopeId: string }> {
+    if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
+    const clonePath = deps.resolveRepo(workspace, workItem.repo);
+    if (!clonePath) throw new Error(`Clone ${workItem.repo} into one of this workspace’s scopes first.`);
+    const driver = deps.resolveDriver(workspace.provider.id);
+    // Checking a PR out runs git hooks, and a repo whose hooks path lives in
+    // its own tree (husky) would run the PR's — unattended, outside any
+    // sandbox, for whoever got a review requested of this person.
+    const env = withoutGitHooks(await deps.composeEnv(driver, workspace.provider.accountLogin));
+    const existed = fs.existsSync(path.join(deps.worktreePathFor(workItem), '.git'));
+    const cwd = await chainWorktreeStep(`${workspace.id}:${workItemKey(workItem)}`, async () => {
+        const dir = await deps.ensureWorktree(clonePath, workItem, env);
+        if (existed && !deps.worktreeInUse(dir)) {
+            // Best effort: a refresh that fails leaves the review on what is there.
+            await deps.refreshWorktree(dir, workItem, env).catch((error) =>
+                console.error(`Could not bring ${dir} up to date; reviewing it as it is.`, error)
+            );
+        }
+        return dir;
+    });
+    return { cwd, scopeId: scopeIdForPath(workspace, clonePath) };
+}
+
+/**
+ * Before a read-only session is re-run on its pull request: bring its
+ * Consola worktree to the PR's head, so the re-run reviews what is there now.
+ * Does nothing for any other session, or while a running session works in it.
+ */
+export async function refreshIdleWorktree(deps: ItemWorktreeDeps, workspace: Workspace, session: Session): Promise<void> {
+    const workItem = session.workItem;
+    const provider = workspace.provider;
+    if (workItem?.type !== 'pr' || !provider) return;
+    const cwd = session.cwd;
+    if (!cwd || cwd !== deps.worktreePathFor(workItem)) return;
+    if (!fs.existsSync(path.join(cwd, '.git')) || deps.worktreeInUse(cwd)) return;
+    const env = withoutGitHooks(await deps.composeEnv(deps.resolveDriver(provider.id), provider.accountLogin));
+    await chainWorktreeStep(`${workspace.id}:${workItemKey(workItem)}`, async () => {
+        // Checked again inside the chain: a session may have started while this waited.
+        if (deps.worktreeInUse(cwd)) return;
+        await deps.refreshWorktree(cwd, workItem, env);
+    });
+}
+
 /**
  * Start an automation's session: the steps of an Inbox click, but headless,
  * since there is no pane to mount — and read-only, whatever it runs.
@@ -87,17 +145,12 @@ export async function launchAgentRun(deps: AgentLaunchDeps, request: AgentLaunch
 
     const { workItem, title, label } = request.item;
     if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
-    const clonePath = deps.resolveRepo(workspace, workItem.repo);
-    if (!clonePath) {
+    // Checked here too, so an automation keeps its own wording: the shared
+    // step's message is not about automatic runs.
+    if (!deps.resolveRepo(workspace, workItem.repo)) {
         const what = workItem.type === 'pr' ? 'review its pull requests' : 'work on its issues';
         throw new Error(`Clone ${workItem.repo} into one of this workspace’s scopes to ${what} automatically.`);
     }
-    const driver = deps.resolveDriver(workspace.provider.id);
-    // Checking a PR out runs git hooks, and a repo whose hooks path lives in
-    // its own tree (husky) would run the PR's — unattended, outside any
-    // sandbox, for whoever got a review requested of this person.
-    const env = withoutGitHooks(await deps.composeEnv(driver, workspace.provider.accountLogin));
-    const expected = deps.worktreePathFor(workItem);
     const { startedByHandSince } = request.item;
     // The same lock an Inbox click on this item and action takes: whichever
     // comes second sees the other's session.
@@ -115,22 +168,12 @@ export async function launchAgentRun(deps: AgentLaunchDeps, request: AgentLaunch
                 );
             if (byHand) throw new StartedByHandError(byHand.name);
         }
-        const existed = fs.existsSync(path.join(expected, '.git'));
-        const cwd = await chainWorktreeStep(`${workspace.id}:${workItemKey(workItem)}`, async () => {
-            const dir = await deps.ensureWorktree(clonePath, workItem, env);
-            if (existed && !deps.worktreeInUse(dir)) {
-                // Best effort: a refresh that fails leaves the review on what is there.
-                await deps.refreshWorktree(dir, workItem, env).catch((error) =>
-                    console.error(`Could not bring ${dir} up to date; reviewing it as it is.`, error)
-                );
-            }
-            return dir;
-        });
+        const { cwd, scopeId } = await prepareItemWorktree(deps, workspace, workItem);
         const groupId = readyGroup(deps, workspace, request.item!.groupId);
         return deps.launchSession(workspace.id, {
             ...common,
             name: title,
-            scopeId: scopeIdForPath(workspace, clonePath),
+            scopeId,
             cwd,
             workItem,
             workItemAction: label,

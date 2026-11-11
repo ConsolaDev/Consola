@@ -35,7 +35,7 @@ import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
-import { launchAgentRun } from './automations/launchAgentRun';
+import { launchAgentRun, refreshIdleWorktree, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
@@ -788,6 +788,24 @@ export function setupIpcHandlers(): boolean {
     launcher.mcpHost = mcpHost;
     app.on('will-quit', () => mcpHost.dispose());
 
+    // What preparing a work item's worktree needs, shared by automations and
+    // the Assistant so both take the same chain and keep git hooks off.
+    const itemWorktreeDeps: ItemWorktreeDeps = {
+        resolveDriver: getProviderDriver,
+        resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+        worktreePathFor: (workItem) => worktrees.worktreePathFor(workItem),
+        ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
+        refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
+        worktreeInUse: (dir) =>
+            workspaces
+                .getAll()
+                .flatMap((workspace) => workspace.sessions)
+                .some((session) => session.cwd === dir && manager.get(session.instanceId)?.hasClaudeExited() === false),
+        composeEnv: composeProviderEnv,
+    };
+    // A re-run of a read-only review reads the PR as it is now.
+    launcher.beforeRerun = (workspace, session) => refreshIdleWorktree(itemWorktreeDeps, workspace, session);
+
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
         store: new RunStore(
@@ -827,17 +845,7 @@ export function setupIpcHandlers(): boolean {
             launchAgentRun(
                 {
                     getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
-                    resolveDriver: getProviderDriver,
-                    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
-                    worktreePathFor: (workItem) => worktrees.worktreePathFor(workItem),
-                    ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
-                    refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
-                    worktreeInUse: (dir) =>
-                        workspaces
-                            .getAll()
-                            .flatMap((workspace) => workspace.sessions)
-                            .some((session) => session.cwd === dir && manager.get(session.instanceId)?.hasClaudeExited() === false),
-                    composeEnv: composeProviderEnv,
+                    ...itemWorktreeDeps,
                     restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
                     launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
                 },
