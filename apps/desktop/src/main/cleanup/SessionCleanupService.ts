@@ -180,6 +180,9 @@ export class SessionCleanupService {
         if (scope.excludeSessionIds.includes(session.id)) {
             throw new Error('A session cannot delete itself.');
         }
+        if (session.kind === 'assistant') {
+            throw new Error('The Assistant is not deleted; start a fresh conversation from its ⋯ menu.');
+        }
         if (session.kind === 'conductor') {
             throw new Error('Conductors are deleted from the sidebar, together with their group.');
         }
@@ -247,6 +250,11 @@ export class SessionCleanupService {
             for (const session of workspace.sessions) {
                 if (requested && !requested.has(session.id)) continue;
                 seen.add(session.id);
+                // Never a candidate, so never looked up: it has no PR to explain it.
+                if (session.kind === 'assistant') {
+                    if (requested) skipped.push(skip(workspace, session, 'assistant', 'The Assistant is not deleted.'));
+                    continue;
+                }
                 const attribution = await this.attribute(workspace, session);
                 const status = this.deps.status(session.instanceId);
                 if (attribution === 'no-provider') {

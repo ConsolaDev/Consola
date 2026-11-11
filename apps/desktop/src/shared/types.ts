@@ -419,6 +419,15 @@ export interface ConductorAPI {
 }
 
 /**
+ * The workspace Assistant exposed to the renderer. It is an ordinary session
+ * once it exists; these calls only make or replace its record.
+ */
+export interface AssistantAPI {
+    open: (workspaceId: string) => Promise<Session>;
+    startFresh: (workspaceId: string) => Promise<Session>;
+}
+
+/**
  * Harness state exposed to the renderer. Main owns the records; the renderer
  * sends intents and listens for the result. Separate from `HarnessAPI`, which
  * probes health: a probe result is a live fact and is never persisted.
@@ -442,6 +451,7 @@ declare global {
         providerAPI: ProviderAPI;
         workspaceAPI: WorkspaceAPI;
         conductorAPI: ConductorAPI;
+        assistantAPI: AssistantAPI;
         harnessStateAPI: HarnessStateAPI;
         windowAPI: WindowAPI;
         automationsAPI: import('./automations').AutomationsAPI;

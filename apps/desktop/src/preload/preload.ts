@@ -291,6 +291,14 @@ contextBridge.exposeInMainWorld('conductorAPI', {
         ipcRenderer.invoke(IPC_CHANNELS.CONDUCTOR_CREATE, request),
 });
 
+// The workspace Assistant: its record is made or replaced in main; the
+// session itself rides the terminal and workspace APIs above.
+contextBridge.exposeInMainWorld('assistantAPI', {
+    open: (workspaceId: string): Promise<Session> => ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_OPEN, workspaceId),
+    startFresh: (workspaceId: string): Promise<Session> =>
+        ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_START_FRESH, workspaceId),
+});
+
 // Expose harness state to the renderer. Main owns the records; the renderer
 // sends intents and listens for the result. Separate from `harnessAPI`, which
 // probes health: a probe result is a live fact and is never persisted.

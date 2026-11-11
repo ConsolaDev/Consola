@@ -57,6 +57,10 @@ export const IPC_CHANNELS = {
     // Conductor orchestration (renderer -> main; main scaffolds, groups, launches)
     CONDUCTOR_CREATE: 'conductor:create',
 
+    // The workspace Assistant (renderer -> main; main makes or replaces its record)
+    ASSISTANT_OPEN: 'assistant:open',
+    ASSISTANT_START_FRESH: 'assistant:start-fresh',
+
     // Fleet creation (renderer -> main)
     SESSION_FAN_OUT: 'session:fan-out',              // N sessions into a fresh group
     SCOPE_LIST_REPOS: 'workspace:scope-list-repos',  // A scope's launch targets

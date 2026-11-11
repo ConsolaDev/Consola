@@ -29,6 +29,8 @@ import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
+import { AssistantService } from './assistant/AssistantService';
+import { ensureAssistantHome } from './assistant/assistantHome';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
@@ -231,6 +233,18 @@ export function setupIpcHandlers(): boolean {
         // listening socket and a config file nothing can name again.
         releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
     });
+
+    const assistants = new AssistantService({
+        workspaces,
+        ensureHome: ensureAssistantHome,
+        stop: (session) => sessionRemover.stop(session),
+    });
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_OPEN, (_event, workspaceId: string) =>
+        assistants.open(String(workspaceId))
+    );
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_START_FRESH, (_event, workspaceId: string) =>
+        assistants.startFresh(String(workspaceId))
+    );
 
     ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
         // Read the sessions while the record still exists. Once it is gone
@@ -1400,6 +1414,8 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
     ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_OPEN);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_START_FRESH);
     ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
     ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 

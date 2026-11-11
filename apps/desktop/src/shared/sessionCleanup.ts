@@ -9,6 +9,7 @@ export type StalePrStatus = 'merged' | 'closed';
 export type CleanupSkipReason =
     | 'caller'
     | 'conductor'
+    | 'assistant'
     | 'busy'
     | 'no-provider'
     | 'not-linked'

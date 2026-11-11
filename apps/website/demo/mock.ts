@@ -228,6 +228,10 @@ export function installMock() {
   };
   window.dialogAPI = { selectFolder: async () => { notify('A sample folder is selected. The demo cannot access your files.'); return { name: 'sample-project', path: '/demo/sample/project', isGitRepo: true }; }, selectFolders: async () => [{ name: 'sample-project', path: '/demo/sample/project', isGitRepo: true }] };
   window.conductorAPI = { create: async request => { notify('Sample group created. Automated orchestration is available in the desktop app.'); return window.workspaceAPI.createGroup(request.workspaceId, { name: request.name }); } };
+  window.assistantAPI = {
+    open: async workspaceId => structuredClone(workspace(workspaceId).sessions.find(s => s.kind === 'assistant') ?? createSession(workspaceId, { name: 'Assistant', nameIsUserSet: true, kind: 'assistant' })),
+    startFresh: async workspaceId => { notify('Fresh conversations run in the desktop app.'); return window.assistantAPI.open(workspaceId); },
+  };
   // Sample repository links are illustrative; do not take visitors to invented PRs.
   document.addEventListener('click', event => {
     const link = (event.target as Element).closest?.('a');
