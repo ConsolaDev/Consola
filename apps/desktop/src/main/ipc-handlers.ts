@@ -29,6 +29,7 @@ import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
+import { AssistantActivity } from './assistant/AssistantActivity';
 import { AssistantService } from './assistant/AssistantService';
 import { ensureAssistantHome } from './assistant/assistantHome';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
@@ -244,6 +245,30 @@ export function setupIpcHandlers(): boolean {
     );
     ipcMain.handle(IPC_CHANNELS.ASSISTANT_START_FRESH, (_event, workspaceId: string) =>
         assistants.startFresh(String(workspaceId))
+    );
+    // Only a running Assistant is ever told: a stopped one has no terminal to
+    // queue into, and nothing here may start a process.
+    const assistantActivity = new AssistantActivity({
+        getWorkspaces: () => workspaces.getAll(),
+        queuePrompt: (instanceId, prompt) => {
+            const terminal = terminalManager?.get(instanceId);
+            if (!terminal || terminal.hasClaudeExited()) return false;
+            terminal.queuePrompt(prompt);
+            return true;
+        },
+        broadcast: (workspaceId, activity) => {
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed()) {
+                    window.webContents.send(IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED, { workspaceId, activity });
+                }
+            }
+        },
+    });
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, (_event, workspaceId: string) =>
+        assistantActivity.snapshot(String(workspaceId))
+    );
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_MARK_SEEN, (_event, workspaceId: string) =>
+        assistantActivity.markSeen(String(workspaceId))
     );
 
     ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
@@ -653,6 +678,7 @@ export function setupIpcHandlers(): boolean {
     // → OS notification. Rings only for a session hitting needs-attention
     // while no Consola window is focused; the Inbox never notifies — only
     // terminals emit status. Clicking lands on the right window and session.
+    manager.addStatusListener((instanceId, status) => assistantActivity.statusChanged(instanceId, status));
     manager.addStatusListener((instanceId, status) => {
         const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
         if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
@@ -1424,6 +1450,8 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_OPEN);
     ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_START_FRESH);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_MARK_SEEN);
     ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
     ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 

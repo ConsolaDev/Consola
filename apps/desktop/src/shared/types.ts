@@ -422,9 +422,20 @@ export interface ConductorAPI {
  * The workspace Assistant exposed to the renderer. It is an ordinary session
  * once it exists; these calls only make or replace its record.
  */
+/** What the Assistant has touched in a workspace, and how much finished while unseen. */
+export interface AssistantActivitySnapshot {
+    touchedSessionIds: string[];
+    unseenFinished: number;
+}
+
 export interface AssistantAPI {
     open: (workspaceId: string) => Promise<Session>;
     startFresh: (workspaceId: string) => Promise<Session>;
+    getActivity: (workspaceId: string) => Promise<AssistantActivitySnapshot>;
+    markSeen: (workspaceId: string) => Promise<void>;
+    onActivityChanged: (
+        callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void
+    ) => () => void;
 }
 
 /**

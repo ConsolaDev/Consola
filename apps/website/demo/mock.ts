@@ -231,6 +231,7 @@ export function installMock() {
   window.assistantAPI = {
     open: async workspaceId => structuredClone(workspace(workspaceId).sessions.find(s => s.kind === 'assistant') ?? createSession(workspaceId, { name: 'Assistant', nameIsUserSet: true, kind: 'assistant' })),
     startFresh: async workspaceId => { notify('Fresh conversations run in the desktop app.'); return window.assistantAPI.open(workspaceId); },
+    getActivity: async () => ({ touchedSessionIds: [], unseenFinished: 0 }), markSeen: async () => {}, onActivityChanged: noSubscription,
   };
   // Sample repository links are illustrative; do not take visitors to invented PRs.
   document.addEventListener('click', event => {

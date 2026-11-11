@@ -60,6 +60,10 @@ export const IPC_CHANNELS = {
     // The workspace Assistant (renderer -> main; main makes or replaces its record)
     ASSISTANT_OPEN: 'assistant:open',
     ASSISTANT_START_FRESH: 'assistant:start-fresh',
+    ASSISTANT_GET_ACTIVITY: 'assistant:get-activity',
+    ASSISTANT_MARK_SEEN: 'assistant:mark-seen',
+    // main -> renderer: sessions the Assistant touched, and what finished unseen
+    ASSISTANT_ACTIVITY_CHANGED: 'assistant:activity-changed',
 
     // Fleet creation (renderer -> main)
     SESSION_FAN_OUT: 'session:fan-out',              // N sessions into a fresh group
