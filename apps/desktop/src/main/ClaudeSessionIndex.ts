@@ -193,6 +193,74 @@ function readFirstPrompt(sessionId: string, configDir?: string): string | null {
     return null;
 }
 
+/** Longest reply handed out; the tail is kept, since a reply's conclusion is its end. */
+export const MAX_REPLY_CHARS = 4_000;
+
+type TranscriptBlock = { type?: string; text?: string };
+
+function textBlocks(content: unknown): string[] {
+    if (!Array.isArray(content)) return [];
+    return (content as TranscriptBlock[])
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.trim())
+        .map((b) => b.text as string);
+}
+
+/**
+ * What the assistant last said, one entry per turn, oldest first.
+ *
+ * A turn opens at a real user prompt and runs through its tool calls: a user
+ * record holding only tool results continues the turn instead of ending it.
+ * Subagent sidechains are another conversation and are skipped. `null` means
+ * there is no transcript; a transcript with no replies yields `[]`.
+ */
+export function readRecentReplies(
+    sessionId: string,
+    configDir: string | undefined,
+    count: number
+): string[] | null {
+    const file = findSessionFile(sessionId, configDir);
+    if (!file) return null;
+
+    let raw: string;
+    try {
+        raw = fs.readFileSync(file, 'utf8');
+    } catch {
+        return null;
+    }
+
+    const turns: string[][] = [];
+    for (const line of raw.split('\n')) {
+        if (!line.trim()) continue;
+
+        let record: { type?: string; isSidechain?: boolean; message?: { content?: unknown } };
+        try {
+            record = JSON.parse(line);
+        } catch {
+            // The last line can be mid-write.
+            continue;
+        }
+        if (record.isSidechain === true) continue;
+
+        const content = record.message?.content;
+        if (record.type === 'user') {
+            const startsTurn =
+                typeof content === 'string' ? content.trim() !== '' : textBlocks(content).length > 0;
+            if (startsTurn) turns.push([]);
+        } else if (record.type === 'assistant') {
+            if (turns.length === 0) turns.push([]);
+            turns[turns.length - 1].push(...textBlocks(content));
+        }
+    }
+
+    return turns
+        .map((blocks) => blocks.join('\n\n'))
+        .filter((reply) => reply.trim() !== '')
+        .slice(-Math.max(0, count))
+        .map((reply) =>
+            reply.length > MAX_REPLY_CHARS ? '…' + reply.slice(-(MAX_REPLY_CHARS - 1)) : reply
+        );
+}
+
 /**
  * The best available display name for a session.
  *

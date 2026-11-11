@@ -78,6 +78,12 @@ export interface HarnessDriver {
     getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
 
     /**
+     * What the agent last said, one entry per turn, oldest first, read from the
+     * CLI's own transcript. `null` when there is no transcript.
+     */
+    getRecentReplies?(config: HarnessConfig, sessionId: string, count: number): Promise<string[] | null>;
+
+    /**
      * The commands, agents and models this CLI offers, asked of the CLI itself.
      *
      * Optional for the same reason as `getSessionDisplayName`: a CLI with no

@@ -33,3 +33,15 @@ describe('buildSessionArgs MCP registration', () => {
     expect(args).toEqual(['--resume', 'abc', '--mcp-config', '/tmp/c.json', '--verbose']);
   });
 });
+
+describe('getRecentReplies', () => {
+  it('refuses a session id that could escape the projects directory', async () => {
+    expect(await driver.getRecentReplies(config, '../etc/passwd', 3)).toBeNull();
+  });
+
+  it('is null when the session has no transcript', async () => {
+    expect(
+      await driver.getRecentReplies({ ...config, configDir: '/nonexistent-consola-dir' }, 'abc', 3)
+    ).toBeNull();
+  });
+});

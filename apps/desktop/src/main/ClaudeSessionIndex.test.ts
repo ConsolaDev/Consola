@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getDisplayName } from './ClaudeSessionIndex';
+import { getDisplayName, MAX_REPLY_CHARS, readRecentReplies } from './ClaudeSessionIndex';
 
 /**
  * Exercised through a real on-disk config directory: the module reads
@@ -131,5 +131,56 @@ describe('getDisplayName from the index', () => {
       name: 'Fix the login redirect loop',
       source: 'prompt',
     });
+  });
+});
+
+describe('readRecentReplies', () => {
+  const user = (content: unknown, extra = {}) =>
+    JSON.stringify({ type: 'user', message: { role: 'user', content }, ...extra });
+  const assistant = (content: unknown[], extra = {}) =>
+    JSON.stringify({ type: 'assistant', message: { role: 'assistant', content }, ...extra });
+  const text = (t: string) => ({ type: 'text', text: t });
+  const write = (lines: string[]) =>
+    fs.writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), lines.join('\n') + '\n');
+
+  it('returns the last replies, one per turn, oldest first', () => {
+    write([
+      user('review #4221'),
+      assistant([text('Looking.')]),
+      assistant([{ type: 'tool_use', id: 't1', name: 'Bash', input: {} }]),
+      user([{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }]),
+      assistant([text('Two issues found.')]),
+      user('thanks'),
+      assistant([text('Done.')]),
+    ]);
+    expect(readRecentReplies(SESSION_ID, configDir, 3)).toEqual([
+      'Looking.\n\nTwo issues found.',
+      'Done.',
+    ]);
+    expect(readRecentReplies(SESSION_ID, configDir, 1)).toEqual(['Done.']);
+  });
+
+  it('skips subagent sidechains, turns with no text and partial lines', () => {
+    write([
+      user('first'),
+      assistant([text('Real.')]),
+      assistant([text('Subagent chatter.')], { isSidechain: true }),
+      user('second'),
+      assistant([{ type: 'tool_use', id: 't2', name: 'Bash', input: {} }]),
+      '{"type":"assistant","message":{"content":[{"type":"te',
+    ]);
+    expect(readRecentReplies(SESSION_ID, configDir, 5)).toEqual(['Real.']);
+  });
+
+  it('keeps the end of a very long reply', () => {
+    write([user('go'), assistant([text('x'.repeat(MAX_REPLY_CHARS * 2) + 'THE END')])]);
+    const [reply] = readRecentReplies(SESSION_ID, configDir, 1)!;
+    expect(reply.length).toBe(MAX_REPLY_CHARS);
+    expect(reply.startsWith('…')).toBe(true);
+    expect(reply.endsWith('THE END')).toBe(true);
+  });
+
+  it('is null without a transcript', () => {
+    expect(readRecentReplies('missing', configDir, 3)).toBeNull();
   });
 });
