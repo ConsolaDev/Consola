@@ -2,7 +2,7 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorktreeService } from './WorktreeService';
 
 /**
@@ -248,5 +248,69 @@ describe('deleteBranchAt', () => {
       deleted: false,
       reason: expect.stringMatching(/checked out/),
     });
+  });
+});
+
+describe('checking a pull request out onto a branch an earlier checkout left behind', () => {
+  const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
+  // The fixture gh checks out origin's `feature` the way real gh does a
+  // same-repo PR: reusing a local `feature` and only fast-forwarding it.
+  const env = { ...process.env, STUB_GH_PR_BRANCH: 'feature' };
+
+  beforeEach(() => {
+    process.env.CONSOLA_GH_PATH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
+  });
+  afterEach(() => {
+    delete process.env.CONSOLA_GH_PATH;
+  });
+
+  /** The PR author's own clone, which pushes `feature` and can rewrite it. */
+  function author() {
+    const dir = tmp('consola-author-');
+    execFileSync('git', ['clone', '-q', r.origin, dir]);
+    git(dir, 'checkout', '-q', '-b', 'feature');
+    const push = () => {
+      git(dir, 'push', '-q', '-f', 'origin', 'feature');
+      return git(dir, 'rev-parse', 'HEAD');
+    };
+    return {
+      open: () => (commit(dir, 'feature.txt'), push()),
+      forcePush: () => (git(dir, 'commit', '-q', '--amend', '-m', 'feature, rebased'), push()),
+    };
+  }
+
+  it('moves the stale branch to the head the author force-pushed', async () => {
+    const pr = author();
+    pr.open();
+    // An earlier review checked the PR out; removing that worktree kept its branch.
+    await r.service.prune(await r.service.ensureWorktree(r.clone, pr51, env));
+    const rewritten = pr.forcePush();
+
+    const dir = await r.service.ensureWorktree(r.clone, pr51, env);
+
+    expect(git(dir, 'symbolic-ref', '--short', 'HEAD')).toBe('feature');
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(rewritten);
+  });
+
+  it('brings an existing worktree to a force-pushed head when the review is requested again', async () => {
+    const pr = author();
+    pr.open();
+    const dir = await r.service.ensureWorktree(r.clone, pr51, env);
+    const rewritten = pr.forcePush();
+
+    expect(await r.service.refreshPullRequest(dir, pr51, env)).toBe(true);
+    expect(git(dir, 'rev-parse', 'HEAD')).toBe(rewritten);
+  });
+
+  it('never resets a branch holding a commit that was never pushed', async () => {
+    const pr = author();
+    pr.open();
+    const first = await r.service.ensureWorktree(r.clone, pr51, env);
+    const unpushed = commit(first, 'local-only.txt');
+    await r.service.prune(first);
+    pr.forcePush();
+
+    await expect(r.service.ensureWorktree(r.clone, pr51, env)).rejects.toThrow(/never pushed/);
+    expect(git(r.clone, 'rev-parse', 'feature')).toBe(unpushed);
   });
 });

@@ -6,6 +6,8 @@
 # Env knobs:
 #   STUB_GH_FAIL=1                every invocation exits 1 with a canned stderr line
 #   STUB_GH_CLONE_FROM=path       `repo clone` clones from this local repo instead of GitHub
+#   STUB_GH_PR_BRANCH=name        `pr checkout` checks out origin's <name> the way gh does a
+#                                 same-repo PR (instead of a throwaway stub-pr-<n> branch)
 #   STUB_GH_LOG=path              append one line per invocation: argv (newlines
 #                                 flattened — the GraphQL query spans lines) then
 #                                 the GH_TOKEN the call saw
@@ -164,8 +166,26 @@ case "$cmd" in
     echo 'Action completed.'
     ;;
   "pr checkout")
-    # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.
-    git checkout -B "stub-pr-${3:?pr number}" --quiet
+    if [[ -n "${STUB_GH_PR_BRANCH:-}" ]]; then
+      # What real gh does for a same-repo PR: fetch the head branch into its
+      # remote-tracking ref, then reuse a local branch of that name if one
+      # exists — fast-forward only, or reset to it with --force.
+      branch="$STUB_GH_PR_BRANCH"
+      git fetch --quiet origin "+refs/heads/$branch:refs/remotes/origin/$branch" --no-tags
+      if git show-ref --verify --quiet "refs/heads/$branch"; then
+        git checkout --quiet "$branch"
+        if [[ " $* " == *" --force "* ]]; then
+          git reset --quiet --hard "refs/remotes/origin/$branch"
+        else
+          git merge --quiet --ff-only "refs/remotes/origin/$branch"
+        fi
+      else
+        git checkout --quiet -b "$branch" --track "origin/$branch"
+      fi
+    else
+      # Runs with the fresh worktree as cwd; simulate by switching to a PR branch.
+      git checkout -B "stub-pr-${3:?pr number}" --quiet
+    fi
     ;;
   "repo clone")
     # gh repo clone <owner/name> <dir> — clone from the local fixture instead.

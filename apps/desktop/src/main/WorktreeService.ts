@@ -233,7 +233,7 @@ export class WorktreeService {
       // session running against the wrong commit and no error ever
       // surfacing again. Undo the add and let the original error travel up.
       try {
-        await this.resolveDriver(workItem.provider).checkout(dir, workItem, env);
+        await this.checkoutPullRequest(dir, workItem, env);
       } catch (error) {
         await this.removeCreatedWorktree(clonePath, dir);
         throw error;
@@ -287,8 +287,59 @@ export class WorktreeService {
     if (workItem.type !== 'pr') return false;
     const status = await this.run('git', dir, ['status', '--porcelain'], env);
     if (status.trim()) return false;
-    await this.resolveDriver(workItem.provider).checkout(dir, workItem, env);
+    await this.checkoutPullRequest(dir, workItem, env);
     return true;
+  }
+
+  /**
+   * The provider's checkout, recovering from the one failure an earlier
+   * checkout sets up. Branches belong to the clone, not to a worktree, so
+   * removing a review's worktree keeps the branch its checkout made, and the
+   * next checkout of that PR reuses it — fast-forward only. Once the author
+   * has force-pushed (a rebase onto the base branch, say), no fast-forward
+   * exists and the checkout refuses.
+   *
+   * A branch whose every commit came from a remote is only a stale copy of
+   * the PR, and the checkout runs again told to reset it. A commit nobody
+   * pushed is someone's work: then the error stands, and says why.
+   */
+  private async checkoutPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<void> {
+    const driver = this.resolveDriver(workItem.provider);
+    try {
+      await driver.checkout(dir, workItem, env);
+    } catch (error) {
+      // Still detached: the checkout failed before reaching a reused branch.
+      const branch = await this.git(dir, ['symbolic-ref', '--quiet', '--short', 'HEAD'], env);
+      if (branch.code !== 0) throw error;
+      if (!(await this.holdsOnlyFetchedCommits(dir, env))) {
+        const message = error instanceof Error ? error.message : String(error);
+        throw new Error(
+          `${message}\n\nConsola left the local branch ${branch.stdout.trim()} as it is: it has commits that were never pushed.`
+        );
+      }
+      await driver.checkout(dir, workItem, env, { resetBranch: true });
+    }
+  }
+
+  /**
+   * Whether every commit on HEAD is one this clone saw on a remote: on a
+   * remote-tracking ref now, or somewhere HEAD's upstream pointed before a
+   * force-push moved it (that ref's reflog). Any doubt answers no.
+   */
+  private async holdsOnlyFetchedCommits(dir: string, env: NodeJS.ProcessEnv): Promise<boolean> {
+    const upstream = await this.git(dir, ['rev-parse', '--symbolic-full-name', '@{upstream}'], env);
+    const formerHeads =
+      upstream.code === 0
+        ? (await this.git(dir, ['reflog', 'show', '--format=%H', upstream.stdout.trim()], env)).stdout
+            .split('\n')
+            .filter(Boolean)
+        : [];
+    const unfetched = await this.git(
+      dir,
+      ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...new Set(formerHeads)],
+      env
+    );
+    return unfetched.code === 0 && Number(unfetched.stdout.trim()) === 0;
   }
 
   /**

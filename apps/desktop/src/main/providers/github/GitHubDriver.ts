@@ -42,7 +42,7 @@ import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { workItemUrl } from '../../../shared/workItems';
 import { renderSeedHeader } from '../../../shared/workItemPrompt';
 import { getLoginEnv } from '../../LoginEnvironment';
-import type { GitProviderDriver, WorkItemDetails } from '../GitProviderDriver';
+import type { CheckoutOptions, GitProviderDriver, WorkItemDetails } from '../GitProviderDriver';
 import type { PullRequestLookup, PullRequestQuery } from '../pullRequests';
 import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } from './inboxQuery';
 import { parsePullsResponse, pullsEndpoint } from './pullRequests';
@@ -551,10 +551,11 @@ export class GitHubDriver implements GitProviderDriver {
      * and the fetch, with GH_TOKEN in `env`. An issue has no branch on
      * GitHub to fetch; WorktreeService creates its local `consola/issue-<n>`
      * branch itself, so for an issue there is nothing to do here.
+     * `--force` is gh's own reset of a local branch it reuses.
      */
-    public async checkout(worktreeDir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<void> {
+    public async checkout(worktreeDir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv, options: CheckoutOptions = {}): Promise<void> {
         if (ref.type !== 'pr') return;
-        await this.exec(['pr', 'checkout', String(ref.number)], env, worktreeDir);
+        await this.exec(['pr', 'checkout', String(ref.number), ...(options.resetBranch ? ['--force'] : [])], env, worktreeDir);
     }
 
     /**
