@@ -1,5 +1,6 @@
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
+import { TERMINAL_SCROLLBACK_LINES } from '../shared/constants';
 
 /**
  * A headless terminal mirroring what a PTY is displaying.
@@ -11,9 +12,6 @@ import { SerializeAddon } from '@xterm/addon-serialize';
  * Feeding the stream through a real emulator gives exact answers to both.
  */
 
-/** Enough history for the pane's scrollback without holding a session's worth. */
-const SCROLLBACK_LINES = 2000;
-
 export class ScreenModel {
     private readonly terminal: HeadlessTerminal;
     private readonly serializer: SerializeAddon;
@@ -22,7 +20,8 @@ export class ScreenModel {
         this.terminal = new HeadlessTerminal({
             cols,
             rows,
-            scrollback: SCROLLBACK_LINES,
+            // As much as the pane keeps: a remounted pane has only this to show.
+            scrollback: TERMINAL_SCROLLBACK_LINES,
             allowProposedApi: true,
         });
         this.serializer = new SerializeAddon();
