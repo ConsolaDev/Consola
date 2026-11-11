@@ -140,6 +140,21 @@ export const DEFAULT_DIMENSIONS = {
     rows: 24,
 };
 
+/**
+ * Lines of history a terminal keeps, in the pane and in main's ScreenModel.
+ *
+ * One number for both because a pane that remounts (a tab or workspace
+ * switch) is repainted from the ScreenModel alone: whatever main holds less
+ * than the pane is history the person loses by looking away. A long working
+ * session in Claude prints a few thousand lines, mostly diffs.
+ *
+ * Memory grows with the history actually printed, not with this cap: about
+ * 1.5 KB a line at 120 columns, so roughly 30 MB for a full buffer, held once
+ * in main and once per mounted pane. Repainting a full buffer serializes it on
+ * main in about 120 ms.
+ */
+export const TERMINAL_SCROLLBACK_LINES = 20_000;
+
 /** Identifier of the harness every workspace and session falls back to. */
 export const BUILT_IN_HARNESS_ID = 'default';
 
