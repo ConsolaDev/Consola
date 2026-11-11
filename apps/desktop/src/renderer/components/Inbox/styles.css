@@ -788,6 +788,42 @@
   transform: scale(0.97);
 }
 
+/* Run an action in this row's session: Open's quieter neighbour, so the
+   row still reads as "go there" first. */
+.inbox-pane-run {
+  display: inline-flex;
+  align-items: center;
+  height: 26px;
+  padding: 0 6px 0 9px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    background-color 150ms var(--pane-ease),
+    border-color 150ms var(--pane-ease),
+    color 150ms var(--pane-ease);
+}
+
+.inbox-pane-session-row:hover .inbox-pane-run,
+.inbox-pane-run[data-state='open'] {
+  border-color: var(--color-border-strong);
+  color: var(--color-text-primary);
+}
+
+.inbox-pane-run:hover {
+  background: var(--color-bg-hover);
+}
+
+.inbox-pane-run:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
 /* Where the pane sits beside a session, that session's row: a fact, not a
    button, so it is plain words. An outline read as a disabled button. */
 .inbox-pane-current {

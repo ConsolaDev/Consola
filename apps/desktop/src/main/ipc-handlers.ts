@@ -21,6 +21,7 @@ import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { composeProviderEnv, getProviderDriver } from './providers';
 import { InboxService } from './providers/InboxService';
 import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
+import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
@@ -694,6 +695,26 @@ export function setupIpcHandlers(): boolean {
 
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
     const launcher = new SessionLauncher(workspaces, harnesses, manager);
+
+    // An action run in a work-item session that already exists — a follow-up
+    // pass on the same job, in the same tab. Coalesced per session and
+    // action, so a double-click cannot replace a conversation twice.
+    const runActionInSession = createRunInSessionCoalescer({
+        getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+        resolveDriver: getProviderDriver,
+        findItem: (id, ref) => inbox.findItem(id, ref),
+        runInSession: (workspaceId, sessionId, prompt, conversation) =>
+            launcher.runInSession(workspaceId, sessionId, prompt, conversation),
+    });
+    ipcMain.handle(
+        IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION,
+        (_event, workspaceId: unknown, sessionId: unknown, actionId: unknown) => {
+            if (typeof workspaceId !== 'string' || typeof sessionId !== 'string' || typeof actionId !== 'string') {
+                return { ok: false, message: 'Invalid request.' };
+            }
+            return runActionInSession(workspaceId, sessionId, actionId);
+        }
+    );
 
     // The same derivation the terminal:status event promotes, from the same
     // flags — so what a tool sees and what the fleet UI shows can never
@@ -1385,6 +1406,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_PROBE);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM);
+    ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
 
     automationService?.stop();

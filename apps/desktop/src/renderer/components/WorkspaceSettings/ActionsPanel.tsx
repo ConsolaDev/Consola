@@ -3,8 +3,10 @@ import { ArrowDown, ArrowUp, GripVertical, Pencil, Plus, RotateCcw, Trash2 } fro
 import { INBOX_SECTIONS, sectionItemType, type InboxSection } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import {
+  actionConversation,
   createDefaultActions,
   createDefaultSectionDefaults,
+  type ActionConversation,
   type WorkItemAction,
 } from '../../../shared/workItemActions';
 import { generateId } from '../../../shared/ids';
@@ -25,6 +27,7 @@ interface Draft {
   prompt: string;
   /** '' is "no group" — a <select> has no way to hold undefined. */
   groupId: string;
+  conversation: ActionConversation;
 }
 
 interface Editing {
@@ -161,6 +164,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
         appliesTo: [...action.appliesTo],
         prompt: action.prompt,
         groupId: action.groupId ?? '',
+        conversation: actionConversation(action),
       },
       isNew: false,
     });
@@ -168,7 +172,7 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
   const startAdd = () =>
     setEditing({
       id: generateId(),
-      draft: { name: '', appliesTo: ['pr'], prompt: '', groupId: '' },
+      draft: { name: '', appliesTo: ['pr'], prompt: '', groupId: '', conversation: 'continue' },
       isNew: true,
     });
 
@@ -200,6 +204,9 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
       // Omitted rather than set to '': main persists the key verbatim, and
       // an empty string is not a group id.
       ...(editing.draft.groupId ? { groupId: editing.draft.groupId } : {}),
+      // 'continue' is the default, stored as absence like every action
+      // written before the setting existed.
+      ...(editing.draft.conversation === 'fresh' ? { conversation: 'fresh' as const } : {}),
     };
     const nextActions = editing.isNew
       ? [...actions, record]
@@ -323,6 +330,21 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
           )}
         </div>
         <div className="ws-field">
+          <label className="ws-field-label" htmlFor={`action-conversation-${current.id}`}>
+            Run in an existing session
+          </label>
+          <select
+            id={`action-conversation-${current.id}`}
+            className="ws-select"
+            aria-label="What running this action in an existing session does to its conversation"
+            value={current.draft.conversation}
+            onChange={(event) => updateDraft({ conversation: event.target.value as ActionConversation })}
+          >
+            <option value="continue">Continue its conversation</option>
+            <option value="fresh">Start a fresh conversation (clean context)</option>
+          </select>
+        </div>
+        <div className="ws-field">
           <span className="ws-field-label">Context header · sent first by {providerName}</span>
           {/* Raw template on purpose: the editor shows what is stored, and
               the placeholders are what the body may use too. */}
@@ -403,9 +425,11 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
         </div>
       </div>
       <p className="ws-panel-hint">
-        What you can start on an Inbox item. The section default is the highlighted button in the
-        detail pane; drag to reorder. An action can land its sessions in a group, so they arrive
-        together instead of among everything else. Placeholders: <code>{PLACEHOLDERS}</code>.
+        What you can start on an Inbox item, or run again in a session already on one. The section
+        default is the highlighted button in the detail pane; drag to reorder. An action can land
+        its sessions in a group, so they arrive together instead of among everything else, and can
+        start a fresh conversation when run in an existing session, for a pass with a clean
+        context. Placeholders: <code>{PLACEHOLDERS}</code>.
       </p>
 
       <div className="ws-row-list">
@@ -448,6 +472,14 @@ export function ActionsPanel({ workspace }: ActionsPanelProps) {
               {landsIn && (
                 <span className="ws-row-chip ws-action-group" title="Sessions land in this group">
                   → {landsIn}
+                </span>
+              )}
+              {actionConversation(action) === 'fresh' && (
+                <span
+                  className="ws-row-chip"
+                  title="Run in an existing session, it starts a fresh conversation there"
+                >
+                  Fresh
                 </span>
               )}
               <span className="ws-row-path ws-action-preview" title={action.prompt}>

@@ -28,6 +28,27 @@ export interface WorkItemAction {
    * opposite requirement.
    */
   groupId?: string;
+  /**
+   * What running this action in a session that already exists does to the
+   * conversation there. Absent — every pre-existing action — means
+   * 'continue'. A brand-new session has no conversation yet, so launching
+   * one ignores it.
+   */
+  conversation?: ActionConversation;
+}
+
+/**
+ * 'continue': the prompt goes into the current conversation, as if typed.
+ * 'fresh': the session gets a new, empty conversation (same tab, same
+ * checkout, same harness) and the prompt starts it, header included.
+ */
+export type ActionConversation = 'continue' | 'fresh';
+
+export const ACTION_CONVERSATIONS: readonly ActionConversation[] = ['continue', 'fresh'];
+
+/** How an action treats an existing session's conversation, defaulted. */
+export function actionConversation(action: Pick<WorkItemAction, 'conversation'>): ActionConversation {
+  return action.conversation ?? 'continue';
 }
 
 const DEFAULT_ACTION_TEMPLATES: ReadonlyArray<Omit<WorkItemAction, 'id'>> = [
@@ -186,6 +207,9 @@ export function validateActionsWrite(
     // archived, never deleted, and launchWorkItem restores one on arrival.
     if (action.groupId !== undefined && !knownGroupIds.has(action.groupId)) {
       return { ok: false, message: `"${action.name}" lands in a group that does not exist.` };
+    }
+    if (action.conversation !== undefined && !ACTION_CONVERSATIONS.includes(action.conversation)) {
+      return { ok: false, message: `"${action.name}" has an unknown conversation setting.` };
     }
   }
 

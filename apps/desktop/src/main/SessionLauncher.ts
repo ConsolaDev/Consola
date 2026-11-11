@@ -1,10 +1,17 @@
 import * as fs from 'fs';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
-import { generateSessionInstanceId, type NewSessionFields, type Session, type Workspace } from '../shared/workspace';
+import type { ActionConversation } from '../shared/workItemActions';
+import {
+    generateSessionInstanceId,
+    generateUuid,
+    type NewSessionFields,
+    type Session,
+    type Workspace,
+} from '../shared/workspace';
 import { toolPolicyProblem } from './drivers';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';
-import type { TerminalServiceOptions } from './TerminalService';
+import type { TerminalService, TerminalServiceOptions } from './TerminalService';
 
 /**
  * Start a session with no renderer involved.
@@ -30,6 +37,7 @@ export interface SessionRecordStore {
         updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
     ): void;
     deleteSession(workspaceId: string, sessionId: string): void;
+    replaceConversation(workspaceId: string, sessionId: string, claudeSessionId?: string): Session;
 }
 
 /** The slice of HarnessService this launcher needs. */
@@ -37,11 +45,18 @@ export interface HarnessRecordStore {
     getAll(): Harness[];
 }
 
+/** What the launcher may do to a session's terminal that is already there. */
+export type ExistingTerminal = Pick<
+    TerminalService,
+    'queuePrompt' | 'startFreshConversation' | 'runningUnattended' | 'hasClaudeExited' | 'restartClaude'
+>;
+
 /** The slice of TerminalManager this launcher needs. */
 export interface HeadlessTerminalStarter {
     startHeadless(instanceId: string, options: TerminalServiceOptions): void;
     /** Whether a session already has a terminal, live or exited. */
     has(instanceId: string): boolean;
+    get(instanceId: string): ExistingTerminal | undefined;
 }
 
 /**
@@ -160,12 +175,67 @@ export class SessionLauncher {
         opened();
         const cwd = workingFolder(workspace, session);
         if (!cwd || !fs.existsSync(cwd)) throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
-        const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
-        // The harness may have changed since the session started.
-        const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
-        if (policyProblem) throw new Error(policyProblem);
         // Checked again after the await inside: a pane may have mounted meanwhile.
-        await this.spawn(workspace, session, cwd, harness, { resume: true, initialPrompt: prompt, unattended: true }, opened);
+        await this.spawnRecorded(workspace, session, cwd, { resume: true, initialPrompt: prompt, unattended: true }, opened);
+    }
+
+    /**
+     * Run `prompt` in a session that already exists, keeping it the same
+     * session: one tab per job, however many passes the job takes.
+     *
+     * 'continue' types the prompt into the current conversation through the
+     * guarded queue every prompt uses — it waits for Claude to go quiet and
+     * never answers a menu. 'fresh' moves the session onto a new, empty
+     * conversation first, so the pass starts with a clean context; harness,
+     * model, tool policy, checkout and linked item all stay, because they
+     * are the record's and only the conversation id changes.
+     *
+     * A session with no terminal yet spawns one headless, as opening it
+     * would, so an action started from the Inbox runs whether or not its
+     * pane is ever shown. An unattended turn is never interrupted or typed
+     * into: its automation run is waiting on that process.
+     */
+    public async runInSession(
+        workspaceId: string,
+        sessionId: string,
+        prompt: string,
+        conversation: ActionConversation
+    ): Promise<void> {
+        const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+        const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+        if (!workspace || !session) throw new Error('That session no longer exists.');
+        const cwd = workingFolder(workspace, session);
+        if (!cwd || !fs.existsSync(cwd)) throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+
+        const live = this.terminals.get(session.instanceId);
+        if (live?.runningUnattended()) {
+            throw new Error('An automation is still running its turn in this session. Wait for it to finish.');
+        }
+
+        if (conversation === 'continue') {
+            if (live) {
+                // An exited CLI resumes, and the queue holds the prompt until
+                // its composer is back.
+                if (live.hasClaudeExited()) live.restartClaude(cwd);
+                live.queuePrompt(prompt);
+                return;
+            }
+            await this.spawnRecorded(workspace, session, cwd, { resume: session.hasStarted, initialPrompt: prompt });
+            if (!session.hasStarted) this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });
+            return;
+        }
+
+        if (live) {
+            // The terminal first: it is what can refuse (a launch already
+            // under way), and a refusal must leave the record naming the
+            // conversation that is actually running.
+            const claudeSessionId = generateUuid();
+            live.startFreshConversation(claudeSessionId, prompt);
+            this.workspaces.replaceConversation(workspaceId, session.id, claudeSessionId);
+            return;
+        }
+        const replaced = this.workspaces.replaceConversation(workspaceId, session.id);
+        await this.spawnRecorded(workspace, replaced, cwd, { resume: false, initialPrompt: prompt });
     }
 
     /**
@@ -199,6 +269,24 @@ export class SessionLauncher {
             ...(source.workItemAction !== undefined ? { workItemAction: source.workItemAction } : {}),
             forkFrom: source.claudeSessionId,
         });
+    }
+
+    /**
+     * Start an existing record's terminal on its own harness, refusing first
+     * if that harness can no longer enforce the session's tool policy — it
+     * may have been edited since the session started.
+     */
+    private async spawnRecorded(
+        workspace: Workspace,
+        session: Session,
+        cwd: string,
+        launch: SpawnFields,
+        beforeStart?: () => void
+    ): Promise<void> {
+        const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
+        const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
+        if (policyProblem) throw new Error(policyProblem);
+        await this.spawn(workspace, session, cwd, harness, launch, beforeStart);
     }
 
     /** Start a recorded session's terminal, resolved from the record and its workspace. */

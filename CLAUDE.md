@@ -142,6 +142,17 @@ resume fails because the conversation is gone, `TerminalService` falls back to
 a fresh session automatically — so never gate resuming on a local existence
 check, Claude is the authority.
 
+A session's conversation can be replaced without replacing the session. An
+action set to start fresh (`WorkItemAction.conversation`), run in a session
+that already exists, gives that tab a new `claudeSessionId` through
+`WorkspaceService.replaceConversation` — the only writer of the field, which
+is why it is absent from `allowedSessionUpdates` — and
+`TerminalService.startFreshConversation` moves the live terminal onto it.
+Tab, harness, model, tool policy, checkout and linked item all stay. Do not
+reach for typing `/clear` instead: the Claude driver does not follow a
+conversation change made inside the CLI, so the record would keep naming
+the old conversation and the next relaunch would resume it.
+
 ### Git State Belongs to the Checkout
 
 A session runs in its scope's folder or in its own linked worktree

@@ -3,9 +3,11 @@ import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
+import { providerBridge } from '../services/providerBridge';
 import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
 import { forgetSessionLocally } from './forgetSession';
+import { ipcErrorMessage } from './ipcErrorMessage';
 import { generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import { useNewSessionDialogStore, type NewSessionDestination } from '../stores/newSessionDialogStore';
@@ -179,6 +181,29 @@ export async function deleteSessionCompletely(
 export function restartSession(instanceId: string): void {
   terminalBridge.restart(instanceId);
   useTerminalStore.getState().setState(instanceId, { hasExited: false });
+}
+
+/**
+ * Run one of the workspace's actions in a work-item session that already
+ * exists, and return why not, or null once main has taken it.
+ *
+ * Main relaunches an exited CLI for either kind of action, so a pane that
+ * was offering Restart is live again — the same local correction
+ * restartSession makes, since main reports only exits, never relaunches.
+ */
+export async function runActionInSession(
+  workspaceId: string,
+  session: Pick<Session, 'id' | 'instanceId'>,
+  actionId: string
+): Promise<string | null> {
+  try {
+    const result = await providerBridge.runActionInSession(workspaceId, session.id, actionId);
+    if (!result.ok) return result.message;
+    useTerminalStore.getState().setState(session.instanceId, { hasExited: false });
+    return null;
+  } catch (error) {
+    return ipcErrorMessage(error);
+  }
 }
 
 /**

@@ -1,0 +1,74 @@
+/* The trigger borrows its host's button class; this only spaces the chevron
+   and keeps it from shrinking in a crowded row. */
+.run-action-trigger {
+  flex: none;
+  gap: 4px;
+}
+
+.run-action-trigger svg {
+  color: var(--color-text-tertiary);
+}
+
+.run-action-menu {
+  min-width: 240px;
+  max-width: 320px;
+}
+
+.run-action-menu-label {
+  padding: var(--space-1) var(--space-3) var(--space-1);
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.run-action-item {
+  align-items: flex-start;
+}
+
+.run-action-icon {
+  flex: none;
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+}
+
+.run-action-item:hover .run-action-icon,
+.run-action-item:focus .run-action-icon {
+  color: var(--color-text-primary);
+}
+
+.run-action-icon--spin {
+  animation: run-action-spin 1s linear infinite;
+}
+
+@keyframes run-action-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.run-action-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.run-action-text small {
+  font-size: 11px;
+  color: var(--color-text-tertiary);
+}
+
+.run-action-menu-error {
+  margin: var(--space-1) var(--space-2) var(--space-1);
+  padding: var(--space-2) var(--space-2) 0;
+  border-top: 1px solid var(--color-border);
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-error);
+  overflow-wrap: anywhere;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .run-action-icon--spin {
+    animation: none;
+  }
+}
