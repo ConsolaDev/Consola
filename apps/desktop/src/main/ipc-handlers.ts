@@ -3,7 +3,7 @@ import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
-import { scopeForSession } from '../shared/workspace';
+import { scopeForSession, type WorkspaceUpdates } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
@@ -207,7 +207,7 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_UPDATE,
-        (_event, id: string, updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>) => {
+        (_event, id: string, updates: WorkspaceUpdates) => {
             // Filtering lives in updateFilters.ts, tested there: TypeScript's
             // `Pick<>` is gone by the time a payload crosses IPC.
             workspaces.updateWorkspace(id, allowedWorkspaceUpdates(updates));
@@ -302,6 +302,9 @@ export function setupIpcHandlers(): boolean {
         IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
         (_event, workspaceId: string, sessionId: string) => {
             const session = workspaces.getAll().find(w => w.id === workspaceId)?.sessions.find(s => s.id === sessionId);
+            if (session?.kind === 'assistant') {
+                throw new Error('The Assistant is not deleted; start a fresh conversation from its ⋯ menu.');
+            }
             // Record first, then the PTY, shell and MCP endpoint — in main,
             // so the delete is whole even when no renderer sends the rest.
             if (session) sessionRemover.remove(workspaceId, session);
@@ -326,11 +329,8 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE,
         (_event, workspaceId: string, scopeId: string) => {
-            const sessions = workspaces.getAll().find(workspace => workspace.id === workspaceId)
-                ?.sessions.filter(session => session.scopeId === scopeId) ?? [];
-            workspaces.removeScope(workspaceId, scopeId);
             // Stop the deleted sessions only after the entire change reaches disk.
-            sessions.forEach((session) => sessionRemover.stop(session));
+            workspaces.removeScope(workspaceId, scopeId).forEach((session) => sessionRemover.stop(session));
         }
     );
 

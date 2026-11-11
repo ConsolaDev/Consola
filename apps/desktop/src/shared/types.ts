@@ -10,6 +10,7 @@ import type {
     SessionUpdates,
     Workspace,
     WorkspaceProvider,
+    WorkspaceUpdates,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
 import type { InboxSection } from './inboxSections';
@@ -364,7 +365,7 @@ export interface WorkspaceAPI {
     ) => Promise<Workspace>;
     updateWorkspace: (
         id: string,
-        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
+        updates: WorkspaceUpdates
     ) => Promise<void>;
     deleteWorkspace: (id: string) => Promise<void>;
     moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;

@@ -48,8 +48,9 @@ export interface Session {
   // Why it exists alongside others. Mutable: dragging a session between
   // groups is an organizational act, not an identity change.
   groupId?: string;
-  // What drives this session: a person, or a conductor orchestrating others.
-  kind: 'interactive' | 'conductor';
+  // What drives this session: a person, a conductor orchestrating others, or
+  // the workspace's one Assistant (created only by WorkspaceService).
+  kind: 'interactive' | 'conductor' | 'assistant';
   // The remote item this session is about. Mutable since v7: a hand-made
   // session can be linked to an item after the fact, or unlinked — the
   // relation says why the session exists, never where it runs.
@@ -114,7 +115,16 @@ export interface WorkspaceProvider {
   org?: string;                    // Scopes the Inbox query; absent = all repos
 }
 
+/** What the Assistant may do in the sessions it starts on pull requests and issues. */
+export type AssistantItemMode = 'full-tools' | 'read-only' | 'assistant-picks';
+export const ASSISTANT_ITEM_MODES: readonly AssistantItemMode[] = ['full-tools', 'read-only', 'assistant-picks'];
+
+/** The Assistant's fixed row label; its record is user-named so nothing renames it. */
+export const ASSISTANT_SESSION_NAME = 'Assistant';
+
 export interface Workspace {
+  /** Absent means 'full-tools' (see assistantItemMode); no migration needed. */
+  assistantItemMode?: AssistantItemMode;
   /** Absent uses the neutral workspace icon, including on older records. */
   icon?: WorkspaceIconValue;
   id: string;
@@ -269,6 +279,25 @@ export type SessionUpdates = Partial<
  * "the workspace folder". Undefined after the last scope is deleted; add a
  * scope before starting another session.
  */
+export function assistantItemMode(workspace: Workspace): AssistantItemMode {
+  return workspace.assistantItemMode ?? 'full-tools';
+}
+
+/** The workspace's Assistant, if it has been created. */
+export function assistantSession(workspace: Workspace): Session | undefined {
+  return workspace.sessions.find((session) => session.kind === 'assistant');
+}
+
+/** Every session but the Assistant: what lists, counts and groups show. */
+export function listedSessions(workspace: Workspace): Session[] {
+  return workspace.sessions.filter((session) => session.kind !== 'assistant');
+}
+
+/** The workspace fields a window may change; the filter in main enforces it. */
+export type WorkspaceUpdates = Partial<
+  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'assistantItemMode'>
+>;
+
 export function primaryScope(workspace: Workspace): Scope | undefined {
   return workspace.scopes[0];
 }

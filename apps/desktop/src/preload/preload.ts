@@ -44,6 +44,7 @@ import type {
     SessionUpdates,
     Workspace,
     WorkspaceProvider,
+    WorkspaceUpdates,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 
@@ -210,7 +211,7 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
     updateWorkspace: (
         id: string,
-        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
+        updates: WorkspaceUpdates
     ): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE, id, updates),
 
     deleteWorkspace: (id: string): Promise<void> =>

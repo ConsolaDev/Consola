@@ -1,4 +1,10 @@
-import type { Group, Scope, SessionUpdates, Workspace } from '../../shared/workspace';
+import {
+    ASSISTANT_ITEM_MODES,
+    type Group,
+    type Scope,
+    type SessionUpdates,
+    type WorkspaceUpdates,
+} from '../../shared/workspace';
 import { isWorkspaceIconId, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
 import type { HarnessUpdates } from '../../shared/harness';
 
@@ -19,14 +25,18 @@ export type { SessionUpdates } from '../../shared/workspace';
  * without standing up Electron.
  */
 
-export function allowedWorkspaceUpdates(
-    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
-): Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>> {
-    const allowed: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>> = {};
+export function allowedWorkspaceUpdates(updates: WorkspaceUpdates): WorkspaceUpdates {
+    const allowed: WorkspaceUpdates = {};
     // Both keys are required on the record: `undefined` can only ever be a bug,
     // never an intent, so absence and explicit-undefined are treated alike.
     if (updates.name !== undefined) allowed.name = updates.name;
     if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
+    if (updates.assistantItemMode !== undefined) {
+        if (!ASSISTANT_ITEM_MODES.includes(updates.assistantItemMode)) {
+            throw new Error('Choose a valid Assistant mode.');
+        }
+        allowed.assistantItemMode = updates.assistantItemMode;
+    }
     // Presence distinguishes resetting the icon from leaving it unchanged.
     if ('icon' in updates) {
         if (updates.icon !== undefined && !isWorkspaceIconId(updates.icon) && !isWorkspaceImageIcon(updates.icon)) {

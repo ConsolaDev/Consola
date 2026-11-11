@@ -14,6 +14,7 @@ import {
   type SessionUpdates,
   type Workspace,
   type WorkspaceProvider,
+  type WorkspaceUpdates,
 } from '../../shared/workspace';
 
 export type { Group, Scope, Session, Workspace } from '../../shared/workspace';
@@ -31,7 +32,7 @@ interface WorkspaceState {
   moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;
   updateWorkspace: (
     id: string,
-    updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
+    updates: WorkspaceUpdates
   ) => Promise<void>;
   getWorkspace: (id: string) => Workspace | undefined;
   createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
