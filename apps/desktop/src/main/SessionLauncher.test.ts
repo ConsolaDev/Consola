@@ -75,6 +75,12 @@ const launchFields = {
     model: undefined,
 };
 
+type TerminalHandle = {
+    hasClaudeExited: () => boolean;
+    runningUnattended: () => boolean;
+    queuePrompt: (prompt: string) => void;
+};
+
 function buildLauncher(session: Session) {
     const workspaces = {
         getAll: vi.fn(() => [workspaceFixture()]),
@@ -83,7 +89,12 @@ function buildLauncher(session: Session) {
         deleteSession: vi.fn(),
     };
     const harnesses = { getAll: vi.fn(() => [harnessFixture]) };
-    const terminals = { startHeadless: vi.fn(), has: vi.fn(() => false) };
+    const terminals = {
+        startHeadless: vi.fn(),
+        has: vi.fn(() => false),
+        get: vi.fn((): TerminalHandle | undefined => undefined),
+        relaunch: vi.fn(),
+    };
     const launcher = new SessionLauncher(workspaces, harnesses, terminals);
     return { launcher, workspaces, harnesses, terminals };
 }
@@ -366,5 +377,98 @@ describe('SessionLauncher', () => {
         expect(options.driverId).toBeUndefined();
         expect(options.binaryOverride).toBeUndefined();
         expect(options.configDirOverride).toBeUndefined();
+    });
+
+    describe('deliverPrompt', () => {
+        function setup(overrides: Partial<Session>, terminal?: Partial<TerminalHandle>) {
+            const session = sessionFixture(overrides);
+            const built = buildLauncher(session);
+            built.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            const queuePrompt = vi.fn();
+            if (terminal) {
+                built.terminals.get.mockReturnValue({
+                    hasClaudeExited: () => false,
+                    runningUnattended: () => false,
+                    queuePrompt,
+                    ...terminal,
+                });
+            }
+            return { ...built, queuePrompt };
+        }
+        const exited = { hasClaudeExited: () => true };
+
+        it('queues on a live terminal and starts nothing', async () => {
+            const { launcher, terminals, queuePrompt } = setup({ hasStarted: true }, {});
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'hi')).resolves.toBe('queued');
+            expect(queuePrompt).toHaveBeenCalledWith('hi');
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+            expect(terminals.relaunch).not.toHaveBeenCalled();
+        });
+
+        it('relaunches an exited full-tools terminal in place, interactively', async () => {
+            const { launcher, terminals } = setup({ hasStarted: true }, exited);
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'hi')).resolves.toBe('woken');
+            expect(terminals.relaunch).toHaveBeenCalledWith('instance-1', { cwd: scopeDir, prompt: 'hi', unattended: false });
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+        });
+
+        it('resumes a session with no terminal headlessly, on its own harness, model and policy', async () => {
+            const { launcher, terminals } = setup({ hasStarted: true, model: 'opus' });
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'hi')).resolves.toBe('woken');
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({ resume: true, initialPrompt: 'hi', model: 'opus', binaryOverride: '/opt/claude/bin/claude' })
+            );
+            expect(terminals.startHeadless.mock.calls[0][1].unattended).toBeUndefined();
+        });
+
+        it('marks a never-started session started once it is woken fresh', async () => {
+            const { launcher, terminals, workspaces } = setup({ hasStarted: false });
+            await launcher.deliverPrompt('ws-1', 'session-1', 'hi');
+            expect(terminals.startHeadless).toHaveBeenCalledWith('instance-1', expect.objectContaining({ resume: false }));
+            expect(workspaces.updateSession).toHaveBeenCalledWith('ws-1', 'session-1', { hasStarted: true });
+        });
+
+        it('re-runs an exited read-only terminal unattended, after its worktree hook', async () => {
+            const { launcher, terminals } = setup({ toolPolicy: 'read-only', hasStarted: true }, exited);
+            const order: string[] = [];
+            launcher.beforeRerun = async () => { order.push('refresh'); };
+            terminals.relaunch.mockImplementation(() => { order.push('relaunch'); });
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'look again')).resolves.toBe('rerun');
+            expect(terminals.relaunch).toHaveBeenCalledWith('instance-1', { cwd: scopeDir, prompt: 'look again', unattended: true });
+            expect(order).toEqual(['refresh', 'relaunch']);
+        });
+
+        it('re-runs a read-only session with no terminal as a resumed unattended turn', async () => {
+            const { launcher, terminals } = setup({ toolPolicy: 'read-only', hasStarted: true });
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'look again')).resolves.toBe('rerun');
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({ resume: true, unattended: true, initialPrompt: 'look again', toolPolicy: 'read-only' })
+            );
+        });
+
+        it('still re-runs when the worktree hook fails', async () => {
+            const { launcher, terminals } = setup({ toolPolicy: 'read-only', hasStarted: true }, exited);
+            launcher.beforeRerun = async () => { throw new Error('gh down'); };
+            const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'x')).resolves.toBe('rerun');
+            expect(terminals.relaunch).toHaveBeenCalled();
+            error.mockRestore();
+        });
+
+        it('refuses a session in the middle of an unattended run', async () => {
+            const { launcher, terminals } = setup({ toolPolicy: 'read-only', hasStarted: true }, { runningUnattended: () => true });
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'x')).rejects.toThrow(
+                '"forum-admin" is in the middle of an unattended run; wait for it to finish.'
+            );
+            expect(terminals.relaunch).not.toHaveBeenCalled();
+        });
+
+        it('refuses a session whose folder is gone, and one it cannot find', async () => {
+            const { launcher } = setup({ cwd: missingDir, hasStarted: true }, exited);
+            await expect(launcher.deliverPrompt('ws-1', 'session-1', 'x')).rejects.toThrow(`Its working folder is gone: ${missingDir}.`);
+            await expect(launcher.deliverPrompt('ws-1', 'nope', 'x')).rejects.toThrow('No session nope in workspace ws-1.');
+        });
     });
 });

@@ -4,7 +4,7 @@ import type { HarnessLaunchFields } from '../shared/types';
 import { generateSessionInstanceId, type NewSessionFields, type Session, type Workspace } from '../shared/workspace';
 import { toolPolicyProblem } from './drivers';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';
-import type { TerminalServiceOptions } from './TerminalService';
+import type { RelaunchFields, TerminalService, TerminalServiceOptions } from './TerminalService';
 
 /**
  * Start a session with no renderer involved.
@@ -42,7 +42,14 @@ export interface HeadlessTerminalStarter {
     startHeadless(instanceId: string, options: TerminalServiceOptions): void;
     /** Whether a session already has a terminal, live or exited. */
     has(instanceId: string): boolean;
+    /** The terminal for a session, if it has one. */
+    get(instanceId: string): Pick<TerminalService, 'hasClaudeExited' | 'runningUnattended' | 'queuePrompt'> | undefined;
+    /** Start an exited terminal again in place, keeping the instance. */
+    relaunch(instanceId: string, launch: RelaunchFields): void;
 }
+
+/** How `deliverPrompt` reached the session: queued on a live terminal, woken interactively, or re-run unattended. */
+export type PromptDelivery = 'queued' | 'woken' | 'rerun';
 
 /**
  * A new session's record fields, plus how its first launch goes. The extras
@@ -66,7 +73,7 @@ type SpawnFields = Pick<TerminalServiceOptions, 'resume' | 'initialPrompt' | 'un
  * Absent or built-in pins nothing — the empty object resolves exactly the way
  * Consola did before harnesses existed, ambient CLAUDE_CONFIG_DIR included.
  */
-function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
+export function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
     if (!harness || harness.isBuiltIn) return {};
     return {
         driverId: harness.driverId,
@@ -82,6 +89,12 @@ export class SessionLauncher {
      * (ipc-handlers). Optional so unit tests and early boot need no MCP.
      */
     public mcpHost?: { register(session: Pick<Session, 'id'>): Promise<string> };
+
+    /**
+     * Runs before a read-only session is re-run, set at wiring so a worktree
+     * can be brought up to date first. Its failure never stops the re-run.
+     */
+    public beforeRerun?: (workspace: Workspace, session: Session) => Promise<void>;
 
     constructor(
         private readonly workspaces: SessionRecordStore,
@@ -166,6 +179,56 @@ export class SessionLauncher {
         if (policyProblem) throw new Error(policyProblem);
         // Checked again after the await inside: a pane may have mounted meanwhile.
         await this.spawn(workspace, session, cwd, harness, { resume: true, initialPrompt: prompt, unattended: true }, opened);
+    }
+
+    /**
+     * Deliver `prompt` to a session whatever state it is in: queued on a live
+     * terminal, an exited one started again in place, or a session with no
+     * terminal resumed from its own record. A read-only session is re-run
+     * unattended and stays read-only; nothing here lifts a restriction.
+     */
+    public async deliverPrompt(workspaceId: string, sessionId: string, prompt: string): Promise<PromptDelivery> {
+        const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+        const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+        if (!workspace || !session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
+
+        const terminal = this.terminals.get(session.instanceId);
+        if (terminal?.runningUnattended()) {
+            throw new Error(`"${session.name}" is in the middle of an unattended run; wait for it to finish.`);
+        }
+        // queuePrompt waits for an empty composer, so this never types into a menu.
+        if (terminal && !terminal.hasClaudeExited()) {
+            terminal.queuePrompt(prompt);
+            return 'queued';
+        }
+
+        const cwd = workingFolder(workspace, session);
+        if (!cwd || !fs.existsSync(cwd)) throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+        const harness = this.harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
+        const policyProblem = toolPolicyProblem(launchFieldsFor(harness), session.toolPolicy);
+        if (policyProblem) throw new Error(policyProblem);
+
+        if (session.toolPolicy === 'read-only') {
+            try {
+                await this.beforeRerun?.(workspace, session);
+            } catch (error) {
+                console.error(`Refreshing "${session.name}" before its re-run failed.`, error);
+            }
+            // An exited terminal is still in the map, which resumeUnattended
+            // refuses; relaunch reuses the instance a pane may be showing. A
+            // terminal that appeared during the await makes startHeadless throw.
+            if (terminal) this.terminals.relaunch(session.instanceId, { cwd, prompt, unattended: true });
+            else await this.spawn(workspace, session, cwd, harness, { resume: true, initialPrompt: prompt, unattended: true });
+            return 'rerun';
+        }
+
+        if (terminal) {
+            this.terminals.relaunch(session.instanceId, { cwd, prompt, unattended: false });
+        } else {
+            await this.spawn(workspace, session, cwd, harness, { resume: session.hasStarted, initialPrompt: prompt });
+            if (!session.hasStarted) this.workspaces.updateSession(workspaceId, sessionId, { hasStarted: true });
+        }
+        return 'woken';
     }
 
     /**
