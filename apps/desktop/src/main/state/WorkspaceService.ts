@@ -16,6 +16,7 @@ import {
   createSessionRecord,
   createWorkspaceRecord,
   migrateWorkspaceState,
+  scopeForSession,
   type Group,
   type NewGroupFields,
   type NewScopeFields,
@@ -448,6 +449,43 @@ export class WorkspaceService {
     );
   }
 
+  /**
+   * Record where a session's agent works now, as its CLI reported it.
+   *
+   * The one writer of `agentCwd`, which is why it is absent from
+   * `allowedSessionUpdates`: only the CLI knows that its agent moved itself
+   * — Claude's EnterWorktree moves the process into a worktree Consola never
+   * made. Kept only while it differs from where the session launches (its
+   * `cwd`, else its scope's folder), so an agent that comes back clears it.
+   * A report that changes nothing writes nothing: the CLI repeats itself
+   * after every turn, and each write here is an fsync and a broadcast.
+   */
+  public recordAgentCwd(workspaceId: string, sessionId: string, reported: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!workspace || !session || !path.isAbsolute(reported)) return;
+
+    const launchedIn = session.cwd ?? scopeForSession(workspace, session)?.path;
+    const agentCwd = launchedIn && samePath(reported, launchedIn) ? undefined : path.resolve(reported);
+    if (agentCwd === session.agentCwd) return;
+
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              sessions: candidate.sessions.map((existing) => {
+                if (existing.id !== sessionId) return existing;
+                const { agentCwd: _previous, ...rest } = existing;
+                return agentCwd ? { ...rest, agentCwd } : rest;
+              }),
+              updatedAt: Date.now(),
+            }
+          : candidate
+      )
+    );
+  }
+
   public onChange(listener: (workspaces: Workspace[]) => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
@@ -471,5 +509,20 @@ export class WorkspaceService {
     this.workspaces = next;
     this.established = true;
     for (const listener of this.listeners) listener(next);
+  }
+}
+
+/**
+ * Whether two absolute paths name the same folder. Resolved through symlinks
+ * only when the spellings differ: a CLI reports the folder it is in as the OS
+ * resolved it, which can spell a scope chosen through a link differently.
+ */
+function samePath(a: string, b: string): boolean {
+  if (path.resolve(a) === path.resolve(b)) return true;
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    // One of them is gone; a folder that no longer exists is not the other.
+    return false;
   }
 }

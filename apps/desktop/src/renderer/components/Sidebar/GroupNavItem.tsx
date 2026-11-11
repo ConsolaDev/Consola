@@ -59,9 +59,12 @@ export function GroupNavItem({
   const checkouts = useCheckoutStore((state) => state.byPath);
   const subtitleFor = (session: Session): string | undefined => {
     const scope = scopeFor(session.scopeId);
-    if (!session.cwd || session.cwd === scope?.path) return undefined;
-    if (showWorktree && checkouts[session.cwd]?.kind === 'worktree') return undefined;
-    return basename(session.cwd);
+    // Where the agent works, as checkoutPathForSession has it: a folder it
+    // moved itself into wins over the one it was launched in.
+    const worksIn = session.agentCwd ?? session.cwd;
+    if (!worksIn || worksIn === scope?.path) return undefined;
+    if (showWorktree && checkouts[worksIn]?.kind === 'worktree') return undefined;
+    return basename(worksIn);
   };
 
   // Archiving is how a group ends: the record outlives it so member sessions

@@ -98,7 +98,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // Git status follows the checkout the session runs in. A worktree has its
   // own branch, index and changes, so its scope's path would report a
   // different checkout than the one the agent is editing.
-  useGitStatusAutoRefresh(scope?.isGitRepo || session?.cwd ? cwd : null);
+  useGitStatusAutoRefresh(scope?.isGitRepo || session?.cwd || session?.agentCwd ? cwd : null);
 
   // Record that this tab has launched, so reopening it resumes the
   // conversation instead of trying to create a session ID Claude already has.

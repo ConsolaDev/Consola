@@ -140,6 +140,17 @@ function resolveAccountFile(config: HarnessConfig): string {
         : path.join(os.homedir(), '.claude.json');
 }
 
+/**
+ * Where Claude records a running process: `<config>/sessions/<pid>.json`,
+ * written by the CLI itself and kept current while it runs — `cwd` moves
+ * when EnterWorktree moves the process, `sessionId` when /clear starts a
+ * new conversation. Not a documented contract, so it is read strictly.
+ */
+function processRecordFile(config: HarnessConfig, pid: number): string {
+    const configDir = resolveConfigDir(config) ?? path.join(os.homedir(), '.claude');
+    return path.join(configDir, 'sessions', `${pid}.json`);
+}
+
 function readAccount(config: HarnessConfig): HarnessAccount | undefined {
     try {
         const raw = fs.readFileSync(resolveAccountFile(config), 'utf8');
@@ -329,6 +340,28 @@ export class ClaudeDriver implements HarnessDriver {
 
     public getSessionDisplayName(config: HarnessConfig, sessionId: string): SessionNameResult | null {
         return getDisplayName(sessionId, resolveConfigDir(config));
+    }
+
+    public readWorkingDirectory(config: HarnessConfig, pid: number): string | null {
+        let raw: string;
+        try {
+            raw = fs.readFileSync(processRecordFile(config, pid), 'utf8');
+        } catch {
+            // Not written yet, or the process is gone: nothing to say.
+            return null;
+        }
+        let record: unknown;
+        try {
+            record = JSON.parse(raw);
+        } catch {
+            // Caught mid-write. The next read sees the whole record.
+            return null;
+        }
+        const { pid: recordedPid, cwd } = (record ?? {}) as { pid?: unknown; cwd?: unknown };
+        if (recordedPid !== pid || typeof cwd !== 'string' || !path.isAbsolute(cwd)) {
+            throw new Error(`Unrecognised session record for process ${pid}.`);
+        }
+        return cwd;
     }
 
     /**

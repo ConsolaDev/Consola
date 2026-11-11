@@ -1,7 +1,7 @@
 import { sessionLabel } from '../../../shared/sessionLabel';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../../shared/workItems';
-import { scopeForSession, type Session, type Workspace } from '../../../shared/workspace';
+import { checkoutPathForSession, type Session, type Workspace } from '../../../shared/workspace';
 import type { TerminalState } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
@@ -34,7 +34,7 @@ export function sessionRowsFor(
     .filter((session) => session.kind !== 'conductor')
     .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
     .map((session) => {
-      const runsIn = session.cwd ?? scopeForSession(workspace, session)?.path ?? '';
+      const runsIn = checkoutPathForSession(workspace, session) ?? '';
       const row: LinkRow = {
         id: session.id,
         label: sessionLabel(session),

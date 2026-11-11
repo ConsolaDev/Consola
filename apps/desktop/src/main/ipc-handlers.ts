@@ -3,7 +3,7 @@ import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
-import { scopeForSession } from '../shared/workspace';
+import { checkoutPathForSession, scopeForSession } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
@@ -613,7 +613,9 @@ export function setupIpcHandlers(): boolean {
     const shellCwd = (instanceId: string): string => {
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) throw new Error('Session no longer exists.');
-        const cwd = located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path;
+        // Beside the agent, in whichever checkout it works — one it moved
+        // itself into included — rather than where it was launched.
+        const cwd = checkoutPathForSession(located.workspace, located.session);
         if (!cwd) throw new Error('Session has no working directory.');
         return cwd;
     };
@@ -673,6 +675,21 @@ export function setupIpcHandlers(): boolean {
             lastLine: info.lastLine,
             stopped: info.stopped,
         });
+    };
+
+    // An agent can move itself into another checkout (Claude's EnterWorktree)
+    // and git state belongs to the checkout it edits, so the record follows
+    // wherever its CLI says it went.
+    manager.onWorkingDirectory = (instanceId, cwd) => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (!located) return;
+        try {
+            workspaces.recordAgentCwd(located.workspace.id, located.session.id, cwd);
+        } catch (error) {
+            // Runs from a terminal's poll, where a throw would be uncaught.
+            // The record keeps its last checkout; the next move tries again.
+            console.error('Could not record where a session works:', error);
+        }
     };
 
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).

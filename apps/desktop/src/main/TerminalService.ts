@@ -22,6 +22,9 @@ import type { SessionToolPolicy } from '../shared/workspace';
 /** Silence after which a terminal is considered idle. */
 const IDLE_DEBOUNCE_MS = 500;
 
+/** How often a working CLI is asked where it works. Never while it is idle. */
+const WORKING_DIRECTORY_POLL_MS = 2_000;
+
 /**
  * How long an unattended turn may run before Consola stops it. A print-mode
  * process that never exits would hold one of the few automation slots
@@ -179,6 +182,11 @@ export class TerminalService extends EventEmitter {
     private unattendedStopReason: string | null = null;
     /** An exit waiting for the screen to catch up, run early if the screen goes first. */
     private screenSettling: (() => void) | null = null;
+    private workingDirectoryPoll: NodeJS.Timeout | null = null;
+    /** Where the live process last said it works. Cleared with every spawn. */
+    private reportedWorkingDirectory: string | null = null;
+    /** The CLI's answer could not be read once; asking again would only repeat that. */
+    private workingDirectoryUnreadable = false;
 
     constructor(options: TerminalServiceOptions) {
         super();
@@ -285,6 +293,7 @@ export class TerminalService extends EventEmitter {
             clearTimeout(this.idleTimer);
             this.idleTimer = null;
         }
+        this.stopWorkingDirectoryPoll();
         this.clearUnattendedLimit();
         this.claudePty?.kill();
         this.claudePty = null;
@@ -354,6 +363,9 @@ export class TerminalService extends EventEmitter {
             this.unattendedPending = false;
             this.forkPending = undefined;
             this.claudeExited = false;
+            // A new process says where it is for itself, even where the last
+            // one already had: the record may have moved in between.
+            this.reportedWorkingDirectory = null;
             if (unattended) this.beginUnattendedTurn();
             this.emitStatus();
 
@@ -673,6 +685,48 @@ export class TerminalService extends EventEmitter {
         if (this.isBusy === busy) return;
         this.isBusy = busy;
         this.emit('activity', busy);
+        this.followWorkingDirectory(busy);
+    }
+
+    /**
+     * Keep up with where the agent works, which its CLI can change on its own:
+     * Claude's EnterWorktree moves the whole process into a worktree, and every
+     * git view belongs on the checkout the agent edits. Only work moves it, so
+     * the CLI is asked while output flows — a long turn shows the move as it
+     * happens — and once more as the turn ends. An idle session costs nothing.
+     */
+    private followWorkingDirectory(busy: boolean): void {
+        if (!this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) return;
+        if (busy) {
+            this.workingDirectoryPoll ??= setInterval(() => this.readWorkingDirectory(), WORKING_DIRECTORY_POLL_MS);
+            return;
+        }
+        this.stopWorkingDirectoryPoll();
+        this.readWorkingDirectory();
+    }
+
+    /** Ask the live process where it works, and emit it when that changed. */
+    private readWorkingDirectory(): void {
+        const pid = this.claudePty?.pid;
+        if (pid === undefined || !this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) return;
+        let cwd: string | null;
+        try {
+            cwd = this.driver.readWorkingDirectory(this.harness, pid);
+        } catch (error) {
+            this.workingDirectoryUnreadable = true;
+            this.stopWorkingDirectoryPoll();
+            console.warn(`Not following where this ${this.driver.id} session works:`, error);
+            return;
+        }
+        if (!cwd || cwd === this.reportedWorkingDirectory) return;
+        this.reportedWorkingDirectory = cwd;
+        this.emit('working-directory', cwd);
+    }
+
+    private stopWorkingDirectoryPoll(): void {
+        if (!this.workingDirectoryPoll) return;
+        clearInterval(this.workingDirectoryPoll);
+        this.workingDirectoryPoll = null;
     }
 
     /**
