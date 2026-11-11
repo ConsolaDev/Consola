@@ -653,7 +653,7 @@ export function setupIpcHandlers(): boolean {
     // → OS notification. Rings only for a session hitting needs-attention
     // while no Consola window is focused; the Inbox never notifies — only
     // terminals emit status. Clicking lands on the right window and session.
-    manager.onStatusChanged = (instanceId, status) => {
+    manager.addStatusListener((instanceId, status) => {
         const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
         if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
         if (!Notification.isSupported()) return;
@@ -674,11 +674,11 @@ export function setupIpcHandlers(): boolean {
             focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
         });
         notification.show();
-    };
+    });
 
     // An automation session's unattended turn ending is its run finishing:
     // the findings are there, or the reason it stopped is.
-    manager.onExit = (instanceId, info) => {
+    manager.addExitListener((instanceId, info) => {
         if (!info.unattended) return;
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) return;
@@ -687,7 +687,7 @@ export function setupIpcHandlers(): boolean {
             lastLine: info.lastLine,
             stopped: info.stopped,
         });
-    };
+    });
 
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
     const launcher = new SessionLauncher(workspaces, harnesses, manager);
