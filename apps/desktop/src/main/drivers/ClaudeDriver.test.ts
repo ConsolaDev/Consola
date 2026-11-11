@@ -1,3 +1,6 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, expect, it } from 'vitest';
 import { ClaudeDriver } from './ClaudeDriver';
 import type { HarnessConfig } from './HarnessDriver';
@@ -37,6 +40,29 @@ describe('buildSessionArgs MCP registration', () => {
 describe('getRecentReplies', () => {
   it('refuses a session id that could escape the projects directory', async () => {
     expect(await driver.getRecentReplies(config, '../etc/passwd', 3)).toBeNull();
+  });
+
+  it('returns the replies from a transcript in the harness config directory', async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-driver-'));
+    try {
+      const project = path.join(dir, 'projects', '-Users-someone-repo');
+      fs.mkdirSync(project, { recursive: true });
+      const id = '22222222-2222-4222-8222-222222222222';
+      const line = (type: string, content: unknown) =>
+        JSON.stringify({ type, message: { role: type, content } });
+      fs.writeFileSync(
+        path.join(project, `${id}.jsonl`),
+        [
+          line('user', 'review it'),
+          line('assistant', [{ type: 'text', text: 'Two issues found.' }]),
+        ].join('\n') + '\n'
+      );
+      expect(await driver.getRecentReplies({ ...config, configDir: dir }, id, 3)).toEqual([
+        'Two issues found.',
+      ]);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it('is null when the session has no transcript', async () => {

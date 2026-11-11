@@ -143,7 +143,7 @@ describe('readRecentReplies', () => {
   const write = (lines: string[]) =>
     fs.writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), lines.join('\n') + '\n');
 
-  it('returns the last replies, one per turn, oldest first', () => {
+  it('returns the last replies, one per turn, oldest first', async () => {
     write([
       user('review #4221'),
       assistant([text('Looking.')]),
@@ -153,14 +153,14 @@ describe('readRecentReplies', () => {
       user('thanks'),
       assistant([text('Done.')]),
     ]);
-    expect(readRecentReplies(SESSION_ID, configDir, 3)).toEqual([
+    expect(await readRecentReplies(SESSION_ID, configDir, 3)).toEqual([
       'Looking.\n\nTwo issues found.',
       'Done.',
     ]);
-    expect(readRecentReplies(SESSION_ID, configDir, 1)).toEqual(['Done.']);
+    expect(await readRecentReplies(SESSION_ID, configDir, 1)).toEqual(['Done.']);
   });
 
-  it('skips subagent sidechains, turns with no text and partial lines', () => {
+  it('skips subagent sidechains, turns with no text and partial lines', async () => {
     write([
       user('first'),
       assistant([text('Real.')]),
@@ -169,18 +169,53 @@ describe('readRecentReplies', () => {
       assistant([{ type: 'tool_use', id: 't2', name: 'Bash', input: {} }]),
       '{"type":"assistant","message":{"content":[{"type":"te',
     ]);
-    expect(readRecentReplies(SESSION_ID, configDir, 5)).toEqual(['Real.']);
+    expect(await readRecentReplies(SESSION_ID, configDir, 5)).toEqual(['Real.']);
   });
 
-  it('keeps the end of a very long reply', () => {
+  it('keeps the end of a very long reply', async () => {
     write([user('go'), assistant([text('x'.repeat(MAX_REPLY_CHARS * 2) + 'THE END')])]);
-    const [reply] = readRecentReplies(SESSION_ID, configDir, 1)!;
+    const [reply] = (await readRecentReplies(SESSION_ID, configDir, 1))!;
     expect(reply.length).toBe(MAX_REPLY_CHARS);
     expect(reply.startsWith('…')).toBe(true);
     expect(reply.endsWith('THE END')).toBe(true);
   });
 
-  it('is null without a transcript', () => {
-    expect(readRecentReplies('missing', configDir, 3)).toBeNull();
+  it('counts a meta user record as context, never as a turn start', async () => {
+    write([
+      user('review #4221'),
+      assistant([text('Looking.')]),
+      user('<system-reminder>injected</system-reminder>', { isMeta: true }),
+      assistant([text('Two issues found.')]),
+    ]);
+    expect(await readRecentReplies(SESSION_ID, configDir, 5)).toEqual([
+      'Looking.\n\nTwo issues found.',
+    ]);
+  });
+
+  it('reads replies that span the backwards chunk boundary', async () => {
+    // Each turn is ~30 KB, so 6 turns cross several 64 KB chunks and lines
+    // straddle every boundary. Multi-byte text checks split characters too.
+    const lines: string[] = [];
+    for (let n = 0; n < 6; n++) {
+      lines.push(user(`prompt ${n}`));
+      lines.push(assistant([text(`reply ${n} ` + 'é✦'.repeat(5_000) + ` end${n}`)]));
+    }
+    write(lines);
+    const replies = (await readRecentReplies(SESSION_ID, configDir, 4))!;
+    expect(replies).toHaveLength(4);
+    replies.forEach((reply, i) => {
+      const n = i + 2;
+      expect(reply.endsWith(`end${n}`)).toBe(true);
+    });
+    expect(await readRecentReplies(SESSION_ID, configDir, 20)).toHaveLength(6);
+  });
+
+  it('returns nothing for a count of zero', async () => {
+    write([user('go'), assistant([text('Hi.')])]);
+    expect(await readRecentReplies(SESSION_ID, configDir, 0)).toEqual([]);
+  });
+
+  it('is null without a transcript', async () => {
+    expect(await readRecentReplies('missing', configDir, 3)).toBeNull();
   });
 });
