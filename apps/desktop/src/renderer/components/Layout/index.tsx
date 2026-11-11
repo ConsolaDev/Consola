@@ -20,6 +20,7 @@ import {
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useInboxStore } from '../../stores/inboxStore';
+import { useAssistantStore } from '../../stores/assistantStore';
 import './styles.css';
 
 export function Layout() {
@@ -61,6 +62,9 @@ export function Layout() {
   // Inbox snapshots arrive on main's push channel for every github-bound
   // workspace, including ones whose pane is not mounted.
   useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
+
+  // The Assistant's row shows what finished while its pane is closed.
+  useEffect(() => useAssistantStore.getState().subscribe(), []);
 
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.

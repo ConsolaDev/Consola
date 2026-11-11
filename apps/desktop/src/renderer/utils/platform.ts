@@ -50,6 +50,9 @@ export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
   );
 }
 
+/** How the Assistant's shortcut is written on its sidebar row. */
+export const ASSISTANT_SHORTCUT_LABEL = isMac ? '⌘J' : 'Ctrl+Shift+J';
+
 /** How the palette chord is written in menus and hint text. */
 export const COMMAND_PALETTE_SHORTCUT_LABEL = isMac ? '⌘K' : 'Ctrl+Shift+P';
 

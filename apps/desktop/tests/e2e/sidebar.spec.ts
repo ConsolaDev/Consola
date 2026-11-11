@@ -3,7 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { createProfileDir, launchElectron } from './helpers/electron';
+import { commandPaletteChord, createProfileDir, launchElectron } from './helpers/electron';
 import { createBuiltInHarness } from '../../src/shared/harness';
 
 let app: ElectronApplication;
@@ -229,12 +229,14 @@ test.describe('Home scopes and groups', () => {
 
   test('model and harness metadata toggle independently and stay hidden after relaunch', async () => {
     test.setTimeout(60_000);
-    await page.getByRole('tab', { name: 'All your sessions' }).click();
+    await chooseScope(page, 'catalog-portal');
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.session-nav-item-model').first()).toHaveText('claude-opus-4-6');
     await expect(page.locator('.sidebar [data-harness-type="claude"]')).toHaveCount(3);
+    await chooseScope(page, 'shared-lib');
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveCount(1);
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
+    await chooseScope(page, 'catalog-portal');
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
     const toggle = page.getByRole('menuitemcheckbox', { name: 'Model', exact: true });
     const harnessToggle = page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true });
@@ -243,14 +245,14 @@ test.describe('Home scopes and groups', () => {
     await toggle.click();
     await expect(toggle).not.toBeChecked();
     await expect(page.locator('.session-nav-item-model')).toHaveCount(0);
-    await expect(page.locator('.session-nav-item-harness')).toHaveCount(4);
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(3);
     await harnessToggle.click();
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
     await page.keyboard.press('Escape');
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
-    await page.getByRole('tab', { name: 'All your sessions' }).click();
+    await chooseScope(page, 'catalog-portal');
     await expect(page.locator('.session-nav-item-model')).toHaveCount(0);
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
@@ -259,7 +261,7 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
     await page.getByRole('menuitemcheckbox', { name: 'Harness icon', exact: true }).click();
-    await expect(page.locator('.session-nav-item-harness')).toHaveCount(4);
+    await expect(page.locator('.session-nav-item-harness')).toHaveCount(3);
   });
 
   test('the row follows runtime model changes without replacing the pinned launch model', async () => {
@@ -289,11 +291,12 @@ test.describe('Home scopes and groups', () => {
     await expect(page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Scopes', exact: true })).toHaveAttribute('aria-current', 'true');
   });
 
-  test('All your sessions spans scopes and selecting a session reveals its Home scope', async () => {
-    await page.getByRole('tab', { name: 'All your sessions' }).click();
-    await expect(page.locator('.session-nav-item')).toHaveCount(4);
-    await page.locator('.session-nav-item').filter({ hasText: 'Bump deps' }).click();
-    await page.getByRole('tab', { name: 'Home', exact: true }).click();
+  test('selecting a session in another scope from the palette reveals its scope', async () => {
+    await expect(page.locator('.sidebar .scope-selector')).toContainText('catalog-portal');
+    await page.keyboard.press(commandPaletteChord());
+    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
+    await palette.getByRole('combobox').fill('Bump deps');
+    await palette.getByRole('option', { name: /Bump deps/ }).click();
     await expect(page.locator('.sidebar .scope-selector')).toContainText('shared-lib');
     await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
   });

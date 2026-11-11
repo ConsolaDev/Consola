@@ -1,4 +1,5 @@
 import { useRef } from 'react';
+import { listedSessions } from '../../../shared/workspace';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -17,6 +18,7 @@ export function WorkspaceMenu() {
   const openingSettings = useRef(false);
 
   if (!workspace) return <span className="workspace-menu-placeholder">Select workspace</span>;
+  const sessionCount = listedSessions(workspace).length;
 
   const openSection = (section: WorkspaceSettingsSectionId) => {
     openingSettings.current = true;
@@ -45,7 +47,7 @@ export function WorkspaceMenu() {
               <span className="workspace-menu-title">{workspace.name}</span>
               <span className="workspace-menu-summary">
                 {workspace.scopes.length} {workspace.scopes.length === 1 ? 'scope' : 'scopes'}
-                {' · '}{workspace.sessions.length} {workspace.sessions.length === 1 ? 'session' : 'sessions'}
+                {' · '}{sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
               </span>
             </span>
           </DropdownMenu.Label>
