@@ -748,6 +748,52 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].actions[0]).not.toHaveProperty('groupId');
   });
 
+  it('setActions persists a conversation setting, and leaves the key off an action without one', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Re-review', appliesTo: ['pr'], prompt: 'Check again.', conversation: 'fresh' },
+      { id: 'a2', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' },
+    ];
+
+    service.setActions(workspace.id, actions, {});
+
+    const reloaded = build().getAll()[0].actions;
+    expect(reloaded).toEqual(actions);
+    expect(reloaded[1]).not.toHaveProperty('conversation');
+  });
+
+  it('replaceConversation gives a session a new conversation and keeps everything else', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Extract billing client',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'work',
+      model: 'opus',
+      scopeId: workspace.scopes[0].id,
+      cwd: '/code/consola/.worktrees/pr-51',
+      toolPolicy: 'read-only',
+      workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+      workItemAction: 'Review',
+    })!;
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    const replaced = service.replaceConversation(workspace.id, session.id);
+
+    expect(replaced.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(replaced.claudeSessionId).not.toBe(session.claudeSessionId);
+    expect(replaced).toEqual({ ...session, claudeSessionId: replaced.claudeSessionId, hasStarted: true });
+    expect(build().getAll()[0].sessions[0]).toEqual(replaced);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // A caller that already handed an id to a live terminal records that one.
+    const named = service.replaceConversation(workspace.id, session.id, 'chosen-id');
+    expect(named.claudeSessionId).toBe('chosen-id');
+
+    expect(() => service.replaceConversation(workspace.id, 'nope')).toThrow(/No session nope/);
+  });
+
   it('recordAgentCwd follows an agent into another checkout and back, writing only changes', () => {
     const repo = fs.realpathSync(dir);
     const tree = path.join(repo, '.claude', 'worktrees', 'assistant');

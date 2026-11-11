@@ -15,6 +15,7 @@ import {
   createScopeRecord,
   createSessionRecord,
   createWorkspaceRecord,
+  generateUuid,
   migrateWorkspaceState,
   scopeForSession,
   type Group,
@@ -268,14 +269,16 @@ export class WorkspaceService {
     const knownGroupIds = new Set(workspace.groups.map((group) => group.id));
     const verdict = validateActionsWrite({ actions, sectionDefaults }, knownGroupIds);
     if (!verdict.ok) throw new Error(verdict.message);
-    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId }) => ({
+    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId, conversation }) => ({
       id,
       name,
       appliesTo: [...appliesTo],
       prompt,
       // Presence-preserving: an unrouted action must persist without the
-      // key at all, so it round-trips byte-for-byte as it did before.
+      // key at all, so it round-trips byte-for-byte as it did before. The
+      // same for the conversation setting, absent meaning 'continue'.
       ...(groupId !== undefined ? { groupId } : {}),
+      ...(conversation !== undefined ? { conversation } : {}),
     }));
     const defaults: Partial<Record<InboxSection, string>> = {};
     for (const [section, actionId] of Object.entries(sectionDefaults)) {
@@ -433,6 +436,44 @@ export class WorkspaceService {
           : candidate
       )
     );
+  }
+
+  /**
+   * Point a session at a new, empty conversation and return the updated
+   * record. `claudeSessionId` defaults to a new UUID; a caller that has
+   * already handed one to a live terminal passes it, so the two agree.
+   *
+   * The one way `claudeSessionId` ever changes, which is why it is a verb
+   * here and absent from `allowedSessionUpdates`: everything that makes the
+   * session *this* session — tab, name, harness, model, tool policy,
+   * checkout, linked item — stays, and only the conversation the next spawn
+   * names is replaced. `hasStarted` is set because the caller spawns at once;
+   * should it never get that far, the next launch's resume of an id Claude
+   * does not have falls back to a fresh conversation, which is the same
+   * outcome. The old transcript is left where it is, in Claude's storage.
+   */
+  public replaceConversation(
+    workspaceId: string,
+    sessionId: string,
+    claudeSessionId: string = generateUuid()
+  ): Session {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
+
+    const replaced: Session = { ...session, claudeSessionId, hasStarted: true };
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              sessions: candidate.sessions.map((existing) => (existing.id === sessionId ? replaced : existing)),
+              updatedAt: Date.now(),
+            }
+          : candidate
+      )
+    );
+    return replaced;
   }
 
   public deleteSession(workspaceId: string, sessionId: string): void {

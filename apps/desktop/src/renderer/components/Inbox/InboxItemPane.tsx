@@ -27,6 +27,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
+import { RunActionMenu } from '../RunActionMenu';
 import { MOD_KEY, formatAge, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
 import { StateBadge } from './WorkItemDetailParts';
 import { itemStatus } from './workItemDetailPresentation';
@@ -82,7 +83,9 @@ function automationPhase(status: SessionStatus): string | null {
 /**
  * The right-hand detail pane (layout B): the item's sessions and the ways to
  * add one — an action, a custom prompt, or linking a session that already
- * exists — then the item itself, provided by WorkItemDetailPanel.
+ * exists — then the item itself, provided by WorkItemDetailPanel. A session
+ * row can also run an action in that session (RunActionMenu), for a
+ * follow-up pass that should not become another session.
  *
  * Sessions come first, in a dock under the title and the item's one-line
  * status strip. They are what Consola adds to the item and the reason to
@@ -309,6 +312,13 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                       {session.cwd ? ` · ${basename(session.cwd)}` : ''}
                     </span>
                   </div>
+                  <RunActionMenu
+                    workspace={workspace}
+                    session={session}
+                    triggerClassName="inbox-pane-run"
+                    // Beside its own session the run is already in view.
+                    onRan={current ? undefined : () => activateSession(workspace.id, session.id)}
+                  />
                   {current ? (
                     <span className="inbox-pane-current">This session</span>
                   ) : (

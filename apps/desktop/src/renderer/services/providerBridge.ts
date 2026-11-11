@@ -1,5 +1,5 @@
 import type { GitProviderId, ProviderProbeResult } from '../../shared/providers';
-import type { CloneRepoResult, WorkItemLaunchResult } from '../../shared/types';
+import type { CloneRepoResult, RunActionInSessionResult, WorkItemLaunchResult } from '../../shared/types';
 import type { WorkItemLaunchAction, WorkItemRef } from '../../shared/workItems';
 
 function getAPI() {
@@ -43,6 +43,20 @@ export const providerBridge = {
         const api = getAPI();
         if (!api) return null;
         return api.launchWorkItem(workspaceId, ref, action);
+    },
+
+    /**
+     * Run an action in a work-item session that already exists: its prompt
+     * into the current conversation, or into a fresh one in the same tab.
+     */
+    runActionInSession: async (
+        workspaceId: string,
+        sessionId: string,
+        actionId: string
+    ): Promise<RunActionInSessionResult> => {
+        const api = getAPI();
+        if (!api) return { ok: false, message: 'Could not reach the main process.' };
+        return api.runActionInSession(workspaceId, sessionId, actionId);
     },
 
     /** Clone an un-cloned inbox repo into a chosen directory. */

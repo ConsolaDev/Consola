@@ -188,6 +188,13 @@ export function installMock() {
       notify('Session started with your saved prompt. Try “fix the retry guard” in the terminal.');
       return { ok: true, session: s, seedPrompt };
     },
+    runActionInSession: async (id, _sessionId, actionId) => {
+      const action = workspace(id).actions.find(a => a.id === actionId);
+      notify(action?.conversation === 'fresh'
+        ? `“${action.name}” would start a fresh conversation in this session. No CLI runs in this demo.`
+        : `“${action?.name ?? 'This action'}” would continue this session’s conversation. No CLI runs in this demo.`);
+      return { ok: true };
+    },
     cloneRepo: async (id, repo, destination) => ({ ok: true, path: destination }),
   };
   changes.set('/demo/acme/platform', [{ path: 'src/lib/retry.ts', status: 'modified' }, { path: 'src/lib/retry.test.ts', status: 'untracked' }]);

@@ -100,6 +100,7 @@ export const IPC_CHANNELS = {
     PROVIDER_PROBE: 'provider:probe',                   // Is the CLI installed, who is signed in
     PROVIDER_RESOLVE_REPOS: 'provider:resolve-repos',   // Which remote repos have a local clone in this workspace
     PROVIDER_LAUNCH_WORK_ITEM: 'provider:launch-work-item', // Resolve -> worktree -> session record; returns the session
+    PROVIDER_RUN_ACTION_IN_SESSION: 'provider:run-action-in-session', // An action's prompt into an existing work-item session
     PROVIDER_CLONE_REPO: 'provider:clone-repo',         // Clone an un-cloned repo into a chosen directory
 
     // Inbox (renderer -> main; main owns the cache)

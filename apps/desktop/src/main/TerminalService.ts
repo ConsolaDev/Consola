@@ -273,6 +273,74 @@ export class TerminalService extends EventEmitter {
         this.screen?.resize(cols, rows);
     }
 
+    /** The conversation this terminal launches: the record's, unless replaced since. */
+    public conversationId(): string {
+        return this.options.claudeSessionId;
+    }
+
+    /** Whether an unattended turn is running, or is what the pending launch will run. */
+    public runningUnattended(): boolean {
+        return this.unattendedTurn || this.unattendedPending;
+    }
+
+    /**
+     * Replace the conversation this terminal runs with a new, empty one, and
+     * open it with `prompt`.
+     *
+     * The tab, its view and everything it launches with stay; only the
+     * session id the CLI is handed changes, and the launch creates instead
+     * of resuming. A running process is stopped first, and from then on it
+     * is not this terminal's: whatever it still prints and however it exits
+     * are ignored, so a non-zero exit can neither retry as fresh nor report.
+     * The prompt goes the way any first prompt goes — as an argument for a
+     * driver that takes one, otherwise queued for the empty composer, never
+     * into a menu. Prompts still queued for the old conversation are dropped
+     * with it: they were written for a context that is gone.
+     *
+     * Refused while an unattended turn runs (its automation run waits on that
+     * process's exit) and while a launch is already under way (it would
+     * spawn under whichever id it read first).
+     */
+    public startFreshConversation(claudeSessionId: string, prompt?: string): void {
+        if (this.isDestroyed) return;
+        if (this.runningUnattended()) {
+            throw new Error('An automation is still running its turn in this session. Wait for it to finish.');
+        }
+        if (this.isLaunching) throw new Error('This session is still starting. Try again in a moment.');
+
+        const previous = this.claudePty;
+        this.claudePty = null;
+        previous?.kill();
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer);
+            this.idleTimer = null;
+        }
+
+        this.options.claudeSessionId = claudeSessionId;
+        this.forkPending = undefined;
+        if (this.driver.initialPromptViaArgs) {
+            this.initialPromptArgument = prompt;
+            this.promptQueue = [];
+        } else {
+            this.initialPromptArgument = undefined;
+            this.promptQueue = prompt != null ? [prompt] : [];
+        }
+
+        // The old conversation's screen goes with it, in every view of it.
+        this.disposeScreen();
+        this.emit('data', CLEAR_SCREEN);
+        this.setBusy(false);
+        if (this.isAwaitingConfirmation) {
+            this.isAwaitingConfirmation = false;
+            this.emit('awaiting-confirmation', false);
+        }
+        // A launch is under way; a view attaching before it spawns must not
+        // offer a restart. Every way the launch can fail sets this back.
+        this.claudeExited = false;
+        this.emitStatus();
+        void this.initClaude(false);
+    }
+
     /** Restart Claude after it exited, resuming the same conversation. */
     public restartClaude(cwd?: string): void {
         if (this.claudePty || this.isLaunching) return;
@@ -370,7 +438,12 @@ export class TerminalService extends EventEmitter {
             this.emitStatus();
 
             const observeOutput = this.driver.createOutputObserver?.(this.harness, this.options.claudeSessionId);
-            this.claudePty.onData((data) => {
+            // Both handlers check that their process is still this terminal's:
+            // one stopped by startFreshConversation (or destroy) belongs to a
+            // conversation the session no longer has.
+            const spawned = this.claudePty;
+            spawned.onData((data) => {
+                if (this.claudePty !== spawned) return;
                 try { observeOutput?.(data); }
                 catch (error) {
                     console.error('Could not save the active conversation:', error);
@@ -379,7 +452,8 @@ export class TerminalService extends EventEmitter {
                 this.handleData(data);
             });
 
-            this.claudePty.onExit(({ exitCode, signal }) => {
+            spawned.onExit(({ exitCode, signal }) => {
+                if (this.claudePty !== spawned) return;
                 this.claudePty = null;
                 this.claudeExited = true;
                 const turn = this.endUnattendedTurn();

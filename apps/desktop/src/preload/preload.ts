@@ -21,6 +21,7 @@ import {
     WorkspaceView,
     ActivateWorkspaceResult,
     WorkItemLaunchResult,
+    RunActionInSessionResult,
     CloneRepoResult,
     SessionFanOutIntent,
     SessionFanOutResult,
@@ -182,6 +183,13 @@ contextBridge.exposeInMainWorld('providerAPI', {
         action: WorkItemLaunchAction
     ): Promise<WorkItemLaunchResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM, workspaceId, ref, action),
+
+    runActionInSession: (
+        workspaceId: string,
+        sessionId: string,
+        actionId: string
+    ): Promise<RunActionInSessionResult> =>
+        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION, workspaceId, sessionId, actionId),
 
     cloneRepo: (
         workspaceId: string,

@@ -288,6 +288,14 @@ export type WorkItemLaunchResult =
     /** An automation already reviews this item with this action: open that session instead. */
     | { ok: false; reason: 'automation-review'; sessionId: string };
 
+/**
+ * Outcome of running an action in a session that already exists. Never a
+ * new session: 'fresh' replaces the conversation inside the same one.
+ * A failure carries its message and is shown beside the control, never as
+ * a dialog.
+ */
+export type RunActionInSessionResult = { ok: true } | { ok: false; message: string };
+
 export interface CloneRepoResult {
     ok: boolean;
     /** Absolute path of the fresh clone when ok. */
@@ -345,6 +353,11 @@ export interface ProviderAPI {
         ref: WorkItemRef,
         action: WorkItemLaunchAction
     ) => Promise<WorkItemLaunchResult>;
+    runActionInSession: (
+        workspaceId: string,
+        sessionId: string,
+        actionId: string
+    ) => Promise<RunActionInSessionResult>;
     cloneRepo: (workspaceId: string, repo: string, destinationDir: string) => Promise<CloneRepoResult>;
 }
 
