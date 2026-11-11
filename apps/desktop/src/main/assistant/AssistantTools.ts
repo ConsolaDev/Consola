@@ -123,8 +123,10 @@ export class AssistantTools {
                 description:
                     "Start a new session in your workspace on its default harness, with a first prompt. Given " +
                     "work_item (a pull request or issue in the workspace's bound repository), it runs in that " +
-                    "item's Consola worktree — created, or moved to the latest pull request head when clean and " +
-                    'unused — and is linked to it; never make worktrees or branches yourself. Without one it ' +
+                    "item's Consola worktree, created if missing, and is linked to it; never make worktrees or " +
+                    "branches yourself. A read-only session's worktree is first moved to the latest pull request " +
+                    'head when clean and unused; a full-tools session starts on the worktree as it is, so tell it ' +
+                    'to pull the latest head if it needs it. Without a work item it ' +
                     "runs at the root of scope_path (default: the workspace's first folder), or in cwd inside " +
                     "it. Whether a work-item session gets full tools or runs read-only is the workspace's " +
                     'setting; read_only is honoured only when that setting lets you pick, and the result says ' +

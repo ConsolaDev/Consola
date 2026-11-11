@@ -161,18 +161,18 @@ describe('launchAgentRun', () => {
 describe('prepareItemWorktree', () => {
     it('prepares an item worktree with hooks off and names the scope that holds the clone', async () => {
         const d = deps();
-        const { cwd, scopeId } = await prepareItemWorktree(d, workspace(), workItem);
+        const { cwd, scopeId } = await prepareItemWorktree(d, workspace(), workItem, { refreshExisting: true });
         expect(cwd).toBe(path.join(root, 'api-pr-123'));
         expect(d.ensureWorktree).toHaveBeenCalledWith('/code/api', workItem, expect.objectContaining({ GIT_CONFIG_VALUE_0: '/dev/null' }));
         expect(scopeId).toBe('scope-api');
     });
 
     it('says to clone a repo it cannot find, and needs a bound account', async () => {
-        await expect(prepareItemWorktree(deps({ resolveRepo: () => null }), workspace(), workItem)).rejects.toThrow(
+        await expect(prepareItemWorktree(deps({ resolveRepo: () => null }), workspace(), workItem, { refreshExisting: true })).rejects.toThrow(
             'Clone acme/api into one of this workspace’s scopes first.'
         );
         const unbound = { ...workspace(), provider: undefined } as Workspace;
-        await expect(prepareItemWorktree(deps(), unbound, workItem)).rejects.toThrow('This workspace has no provider account bound.');
+        await expect(prepareItemWorktree(deps(), unbound, workItem, { refreshExisting: true })).rejects.toThrow('This workspace has no provider account bound.');
     });
 });
 

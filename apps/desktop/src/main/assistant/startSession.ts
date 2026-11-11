@@ -39,7 +39,9 @@ function itemMode(workspace: Workspace, readOnly: boolean | undefined): Assistan
  * runs in its Consola worktree, made through the path the Inbox and
  * automations use, so the Assistant never runs git; anything else runs in one
  * of the workspace's scope folders. Every argument is checked before the
- * worktree or the record exists, so a refusal leaves nothing behind.
+ * worktree or the record exists, so a refused argument leaves nothing behind.
+ * A launcher refusal (read-only on a harness that cannot enforce it) comes
+ * later and can leave a prepared worktree and a restored group.
  */
 export async function startAssistantSession(
   deps: AssistantStartDeps,
@@ -89,8 +91,12 @@ export async function startAssistantSession(
     scopePlace = { scopeId: scope.id, ...(request.cwd !== undefined ? { cwd: request.cwd } : {}) };
   }
 
-  const place = workItem ? await prepareItemWorktree(deps, workspace, workItem) : scopePlace!;
   const mode: AssistantSessionMode = workItem ? itemMode(workspace, request.readOnly) : 'full-tools';
+  // Only a read-only session may have its worktree moved to the latest head:
+  // a full-tools one would load newly pushed settings in a folder already trusted.
+  const place = workItem
+    ? await prepareItemWorktree(deps, workspace, workItem, { refreshExisting: mode === 'read-only' })
+    : scopePlace!;
   // Readied last: restoring an archived group is a write a refusal must not leave.
   const readiedGroup = readyGroup(deps, workspace, groupId);
 

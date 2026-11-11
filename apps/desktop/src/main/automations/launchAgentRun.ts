@@ -59,13 +59,20 @@ export type ItemWorktreeDeps = Pick<
 /**
  * The item's Consola worktree, made ready: the clone resolved among the
  * workspace's scopes, the worktree ensured under the per-item chain with git
- * hooks off, and an existing one nobody is using brought to the PR's head.
- * Shared by automations and the Assistant so both serialise with Inbox clicks.
+ * hooks off, and, when `refreshExisting`, an existing one nobody is using
+ * brought to the PR's head. Shared by automations and the Assistant so both
+ * serialise with Inbox clicks.
+ *
+ * Refreshing is for read-only sessions only. Claude records folder trust per
+ * path, so moving a worktree the person already trusted would load the PR
+ * author's newly pushed settings and hooks into a full-tools session with no
+ * trust prompt. A full-tools start uses the worktree exactly as it is.
  */
 export async function prepareItemWorktree(
     deps: ItemWorktreeDeps,
     workspace: Workspace,
-    workItem: WorkItemRef
+    workItem: WorkItemRef,
+    options: { refreshExisting: boolean }
 ): Promise<{ cwd: string; scopeId: string }> {
     if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
     const clonePath = deps.resolveRepo(workspace, workItem.repo);
@@ -78,7 +85,7 @@ export async function prepareItemWorktree(
     const existed = fs.existsSync(path.join(deps.worktreePathFor(workItem), '.git'));
     const cwd = await chainWorktreeStep(`${workspace.id}:${workItemKey(workItem)}`, async () => {
         const dir = await deps.ensureWorktree(clonePath, workItem, env);
-        if (existed && !deps.worktreeInUse(dir)) {
+        if (options.refreshExisting && existed && !deps.worktreeInUse(dir)) {
             // Best effort: a refresh that fails leaves the review on what is there.
             await deps.refreshWorktree(dir, workItem, env).catch((error) =>
                 console.error(`Could not bring ${dir} up to date; reviewing it as it is.`, error)
@@ -168,7 +175,9 @@ export async function launchAgentRun(deps: AgentLaunchDeps, request: AgentLaunch
                 );
             if (byHand) throw new StartedByHandError(byHand.name);
         }
-        const { cwd, scopeId } = await prepareItemWorktree(deps, workspace, workItem);
+        const { cwd, scopeId } = await prepareItemWorktree(deps, workspace, workItem, {
+            refreshExisting: true, // automations are read-only
+        });
         const groupId = readyGroup(deps, workspace, request.item!.groupId);
         return deps.launchSession(workspace.id, {
             ...common,

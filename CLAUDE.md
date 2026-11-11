@@ -193,6 +193,11 @@ exited terminal in place: the pane another window is showing keeps streaming.
 It hears back through `AssistantActivity`, which listens on `TerminalManager`'s
 status and exit listener sets and tells it when the sessions it touched settle.
 
+An Assistant start on a work item refreshes an existing worktree to the PR's
+latest head only for a read-only session. Claude trusts a folder per path, so
+refreshing one the person already trusted would load the author's newly pushed
+settings and hooks into a full-tools session with no trust prompt.
+
 ### Harnesses Are Launch Descriptions
 
 A harness is one configured agent CLI: a binary path, a config directory, and

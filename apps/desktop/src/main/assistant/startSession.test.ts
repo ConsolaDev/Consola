@@ -67,6 +67,20 @@ describe('startAssistantSession', () => {
     );
   });
 
+  it('never moves an existing worktree under a full-tools session', async () => {
+    // Claude trusts a folder per path; a refresh would load the PR author's
+    // newly pushed settings and hooks with no trust prompt.
+    await start({ workItem: prItem });
+    expect(deps.ensureWorktree).toHaveBeenCalled();
+    expect(deps.refreshWorktree).not.toHaveBeenCalled();
+  });
+
+  it('brings an existing, unused worktree to the latest head for a read-only session', async () => {
+    workspace.assistantItemMode = 'read-only';
+    await start({ workItem: prItem });
+    expect(deps.refreshWorktree).toHaveBeenCalledTimes(1);
+  });
+
   it('lets the Assistant pick only in assistant-picks mode', async () => {
     workspace.assistantItemMode = 'assistant-picks';
     expect((await start({ workItem: prItem, readOnly: true })).mode).toBe('read-only');
