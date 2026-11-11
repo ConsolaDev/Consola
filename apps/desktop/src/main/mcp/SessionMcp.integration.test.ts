@@ -55,6 +55,7 @@ const CONSOLA_TOOLS = [
   'consola_list_inbox',
   'consola_list_sessions',
   'consola_run_automation',
+  'consola_start_session',
   'consola_work_item_context',
 ];
 const CONDUCTOR_TOOLS = [
@@ -135,6 +136,7 @@ beforeEach(() => {
       diff: 'x'.repeat(MAX_DIFF_CHARS + 10),
     })),
     inbox: () => null,
+    launchSession: vi.fn(async () => makeSession({ id: 'started-1', instanceId: 'inst-started', kind: 'interactive' })),
   };
   const registry = new ToolRegistry();
   consolaTools(toolDeps).forEach((tool) => registry.register(tool));
@@ -213,6 +215,8 @@ describe('MCP surface (in-memory)', () => {
     expect(hints.consola_cleanup_stale_sessions).toMatchObject({ readOnlyHint: false, destructiveHint: true });
     expect(hints.consola_delete_session).toMatchObject({ destructiveHint: true });
     expect(hints.consola_run_automation).toMatchObject({ readOnlyHint: false, destructiveHint: false });
+    // Opens a tab for the person: the CLI asks them, nothing waits in Consola.
+    expect(hints.consola_start_session).toMatchObject({ readOnlyHint: false, destructiveHint: false });
     await client.close();
   });
 
