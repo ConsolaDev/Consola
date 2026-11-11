@@ -274,11 +274,7 @@ export type SessionUpdates = Partial<
   Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem'>
 >;
 
-/**
- * The workspace's first scope — what every pre-v6 flow implicitly meant by
- * "the workspace folder". Undefined after the last scope is deleted; add a
- * scope before starting another session.
- */
+/** How the Assistant's sessions on work items run; full tools unless the workspace says otherwise. */
 export function assistantItemMode(workspace: Workspace): AssistantItemMode {
   return workspace.assistantItemMode ?? 'full-tools';
 }
@@ -298,6 +294,11 @@ export type WorkspaceUpdates = Partial<
   Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'assistantItemMode'>
 >;
 
+/**
+ * The workspace's first scope — what every pre-v6 flow implicitly meant by
+ * "the workspace folder". Undefined after the last scope is deleted; add a
+ * scope before starting another session.
+ */
 export function primaryScope(workspace: Workspace): Scope | undefined {
   return workspace.scopes[0];
 }

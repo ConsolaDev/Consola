@@ -41,7 +41,7 @@ describe('consola_prompt_session', () => {
     expect(deps.watch).toHaveBeenCalledWith('a-1', 'w-1');
     expect(result).toEqual({
       delivery: 'woken',
-      summary: '"worker" was not running; Consola resumed its conversation and queued the prompt.',
+      summary: '"worker" was not running; Consola resumed it (or started it fresh if its conversation is gone) and queued the prompt.',
     });
   });
 

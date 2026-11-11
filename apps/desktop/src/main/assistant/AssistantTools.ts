@@ -64,7 +64,7 @@ function deliverySummary(delivery: PromptDelivery, name: string): string {
         case 'queued':
             return `Queued for "${name}"; it is delivered when its composer is free, never typed into a menu.`;
         case 'woken':
-            return `"${name}" was not running; Consola resumed its conversation and queued the prompt.`;
+            return `"${name}" was not running; Consola resumed it (or started it fresh if its conversation is gone) and queued the prompt.`;
         case 'rerun':
             return `"${name}" is read-only; Consola re-ran it unattended with this prompt. It can only read and report.`;
     }

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, CalendarClock, Folder, Info, Plug, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Boxes, CalendarClock, Folder, Info, Plug, Sparkle, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
@@ -53,7 +53,7 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
   automations: { label: () => 'Automations', icon: CalendarClock },
-  assistant: { label: () => 'Assistant', icon: Sparkles },
+  assistant: { label: () => 'Assistant', icon: Sparkle },
   groups: { label: () => 'Groups', icon: Boxes },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
 };

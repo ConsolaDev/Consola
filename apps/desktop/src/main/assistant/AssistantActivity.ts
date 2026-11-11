@@ -78,6 +78,8 @@ export class AssistantActivity {
     }
 
     statusChanged(instanceId: string, status: TerminalStatus): void {
+        // Every status flip in the app lands here; most have nothing to do with the Assistant.
+        if (this.watches.size === 0) return;
         const found = this.findByInstance(instanceId);
         const watch = found && this.watches.get(found.session.id);
         if (!found || !watch) return;

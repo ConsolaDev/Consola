@@ -179,7 +179,8 @@ of the session's `toolPolicy`.
 Each workspace has one `kind: 'assistant'` session: a conversation that sees
 every scope and runs the others. It is created on first open, and it lives in
 its own folder beside `factory.yml` (not a repo, so no git, explorer or review
-panels). `listedSessions` hides it from every list and count. A session needs a
+panels). `listedSessions` hides it from the renderer's session lists and pickers
+(`consola_list_sessions` deliberately lists it). A session needs a
 scope, so `removeScope` moves it to a remaining one, or drops it with the last.
 
 It adds three tools to the generic MCP endpoint: `consola_prompt_session`,
@@ -191,7 +192,7 @@ so it cannot reach across workspaces or address itself.
 It wakes a session through `SessionLauncher.deliverPrompt`, which relaunches an
 exited terminal in place: the pane another window is showing keeps streaming.
 It hears back through `AssistantActivity`, which listens on `TerminalManager`'s
-status and exit listener sets and tells it when the sessions it touched settle.
+status listener set and tells it when the sessions it touched settle.
 
 An Assistant start on a work item refreshes an existing worktree to the PR's
 latest head only for a read-only session. Claude trusts a folder per path, so

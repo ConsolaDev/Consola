@@ -418,16 +418,16 @@ export interface ConductorAPI {
     create: (request: ConductorCreateRequest) => Promise<Group>;
 }
 
-/**
- * The workspace Assistant exposed to the renderer. It is an ordinary session
- * once it exists; these calls only make or replace its record.
- */
 /** What the Assistant has touched in a workspace, and how much finished while unseen. */
 export interface AssistantActivitySnapshot {
     touchedSessionIds: string[];
     unseenFinished: number;
 }
 
+/**
+ * The workspace Assistant exposed to the renderer. It is an ordinary session
+ * once it exists; these calls only make or replace its record.
+ */
 export interface AssistantAPI {
     open: (workspaceId: string) => Promise<Session>;
     startFresh: (workspaceId: string) => Promise<Session>;
