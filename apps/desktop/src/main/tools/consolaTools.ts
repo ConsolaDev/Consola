@@ -1,11 +1,13 @@
+import * as path from 'path';
 import { z } from 'zod/v3';
 import type { RunRecord } from '@consola/factory-spec';
 import type { AutomationView } from '../../shared/automations';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
-import type { Workspace } from '../../shared/workspace';
+import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
 import type { WorkItemDetails } from '../providers/GitProviderDriver';
 import type { SessionCleanupService } from '../cleanup/SessionCleanupService';
+import type { LaunchSessionFields } from '../SessionLauncher';
 import {
     defineTool,
     workspacesInScope,
@@ -37,6 +39,8 @@ export interface ConsolaToolDeps {
     workItemContext(sessionId: string): Promise<WorkItemDetails>;
     /** A workspace's cached Inbox, or null before its first fetch. */
     inbox(workspaceId: string): InboxSnapshot | null;
+    /** Record and start a session headlessly (SessionLauncher.launchSession). */
+    launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
 }
 
 /** Diffs past this are cut, with a note: the files are in the session's folder to read. */
@@ -289,7 +293,94 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
                 };
             },
         }),
+
+        defineTool({
+            name: 'start_session',
+            description:
+                'Open a new session in your Consola workspace for the person, and send it a first prompt. ' +
+                'Use it when they ask to move a topic or a task into a session of its own. It runs on your ' +
+                'harness and model, in your folder (or at the root of another of the workspace’s folders, ' +
+                'given scope_path), and sits beside you in the sidebar. It starts in the background: the ' +
+                'person opens it when they choose, and you carry on here. Without fork it knows nothing ' +
+                'but the prompt, so make the prompt self-contained, for example by pointing it at a ' +
+                'handoff file. With fork: true it starts from a copy of this conversation so far, so the ' +
+                'prompt only needs to say which thread to carry on.',
+            input: {
+                name: z.string().trim().min(1).describe('What the new session is called in the sidebar.'),
+                prompt: z.string().trim().min(1).describe('Its first prompt, sent as if the person typed it.'),
+                fork: z
+                    .boolean()
+                    .default(false)
+                    .describe('Start from a copy of this conversation instead of a blank one.'),
+                scope_path: z
+                    .string()
+                    .min(1)
+                    .optional()
+                    .describe('Run at the root of this folder, one of the workspace’s. Default: your own folder.'),
+            },
+            mutating: true,
+            // A session an automation opened for nobody would only be noise.
+            automatable: false,
+            async run(args, context) {
+                const { caller } = context;
+                if (caller.kind !== 'agent') throw new Error('Only a session’s agent can start a session.');
+                const workspace = deps.getWorkspaces().find((candidate) => candidate.id === caller.workspaceId);
+                const self = workspace?.sessions.find((session) => session.id === caller.sessionId);
+                if (!workspace || !self) throw new Error('Calling session no longer exists.');
+                // The MCP server never offers this to a read-only session;
+                // this is the second lock, should another path ever reach it.
+                if (self.toolPolicy) throw new Error('A read-only session cannot start sessions.');
+
+                const place = startPlace(workspace, self, args);
+                const started = await deps.launchSession(workspace.id, {
+                    name: args.name,
+                    // The agent named it at the person's request; Claude's
+                    // own title would otherwise replace it — for a fork, with
+                    // the caller's, leaving two tabs with one name.
+                    nameIsUserSet: true,
+                    workspaceId: workspace.id,
+                    instanceId: generateSessionInstanceId(workspace.id),
+                    // A fork can only be read under the harness whose config
+                    // directory holds the transcript; a fresh one follows
+                    // suit, so a spin-off runs as the same login.
+                    harnessId: self.harnessId,
+                    ...(self.model !== undefined ? { model: self.model } : {}),
+                    ...place,
+                    ...(self.groupId !== undefined ? { groupId: self.groupId } : {}),
+                    kind: 'interactive',
+                    initialPrompt: args.prompt,
+                    ...(args.fork ? { forkFrom: self.claudeSessionId } : {}),
+                });
+                return {
+                    summary:
+                        `Started "${started.name}" in Consola` +
+                        `${args.fork ? ', from a copy of this conversation' : ''}. The person can open it from the sidebar.`,
+                    data: { sessionId: started.id, name: started.name, forked: args.fork },
+                };
+            },
+        }),
     ];
+}
+
+/**
+ * Where a started session runs: the caller's own scope and folder, or the
+ * root of another of the workspace's scopes. A fork always stays put, since
+ * the CLI finds the conversation it copies from the folder it was written in.
+ */
+function startPlace(
+    workspace: Workspace,
+    self: Session,
+    args: { fork: boolean; scope_path?: string }
+): Pick<Session, 'scopeId'> & Partial<Pick<Session, 'cwd'>> {
+    if (args.scope_path === undefined) {
+        return { scopeId: self.scopeId, ...(self.cwd !== undefined ? { cwd: self.cwd } : {}) };
+    }
+    if (args.fork) {
+        throw new Error('A fork runs in your own folder, where this conversation was written; leave out scope_path.');
+    }
+    const scope = workspace.scopes.find((candidate) => path.resolve(candidate.path) === path.resolve(args.scope_path!));
+    if (!scope) throw new Error(`${args.scope_path} is not one of this workspace’s folders.`);
+    return { scopeId: scope.id };
 }
 
 /** The workspace whose automations an agent may see and run: its own. */

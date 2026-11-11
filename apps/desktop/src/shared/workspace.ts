@@ -230,7 +230,10 @@ export type NewSessionFields = Pick<
   'name' | 'workspaceId' | 'instanceId' | 'harnessId' | 'model' | 'scopeId'
 > &
   Partial<
-    Pick<Session, 'cwd' | 'groupId' | 'kind' | 'workItem' | 'workItemAction' | 'toolPolicy' | 'automation'>
+    Pick<
+      Session,
+      'cwd' | 'groupId' | 'kind' | 'workItem' | 'workItemAction' | 'toolPolicy' | 'automation' | 'nameIsUserSet'
+    >
   >;
 
 export function createSessionRecord(fields: NewSessionFields): Session {

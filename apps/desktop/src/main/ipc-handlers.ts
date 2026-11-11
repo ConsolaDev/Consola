@@ -748,6 +748,7 @@ export function setupIpcHandlers(): boolean {
             return driver.describeWorkItem(workItem, await composeProviderEnv(driver, workspace.provider.accountLogin));
         },
         inbox: (workspaceId) => inbox.getSnapshot(workspaceId),
+        launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
     }).forEach((tool) => tools.register(tool));
 
     // Every session's private MCP endpoint (see SessionMcpHost): the Consola
