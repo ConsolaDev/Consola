@@ -14,6 +14,7 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
 import { openTerminalLink } from './terminalLinks';
 import { terminalKeyOverride } from './terminalKeys';
+import { restoreScreen, whenSettled } from './restoreScreen';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
@@ -49,16 +50,20 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
     fit.fit();
     let disposed = false;
     let ready = false;
+    // Until the screen main kept is in this view, the view stays the size
+    // that screen was captured at; after that it follows its pane once the
+    // pane's size has settled. See restoreScreen and whenSettled for why.
+    let restored = false;
     let exitReceived = false;
     let pending: ShellData[] = [];
     setExited(false);
     setError('');
-    const refit = () => {
-      if (disposed || !containerRef.current?.clientHeight) return;
+    const settled = whenSettled(() => {
+      if (disposed || !restored || !containerRef.current?.clientHeight) return;
       fit.fit();
-      if (ready) api.resize(instanceId, terminal.cols, terminal.rows);
-    };
-    fitRef.current = refit;
+      api.resize(instanceId, terminal.cols, terminal.rows);
+    });
+    fitRef.current = settled.request;
     const input = terminal.onData(data => { if (ready) api.input(instanceId, data); });
     terminal.attachCustomKeyEventHandler(event => {
       if (isShellShortcut(event) || isAssistantShortcut(event)) {
@@ -86,7 +91,10 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
     const attach = generation > 0 ? api.restart : api.attach;
     void attach({ instanceId, cols: terminal.cols, rows: terminal.rows }).then(snapshot => {
       if (disposed) return;
-      terminal.write(snapshot.replay);
+      restoreScreen(terminal, snapshot, () => {
+        restored = true;
+        settled.request();
+      });
       // Events can arrive before the IPC reply. Replay already contains every
       // event up to its sequence; append only the newer bytes, exactly once.
       pending.filter(message => message.sequence > snapshot.sequence).forEach(message => terminal.write(message.data));
@@ -94,18 +102,18 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
       ready = true;
       setCwd(snapshot.cwd);
       setExited(snapshot.exited || exitReceived);
-      refit();
       terminal.focus();
     }).catch(reason => {
       if (!disposed) setError(reason instanceof Error ? reason.message : String(reason));
     });
-    const observer = new ResizeObserver(refit);
+    const observer = new ResizeObserver(() => settled.request());
     observer.observe(containerRef.current);
     void document.fonts.load(`${font.fontWeight} ${font.fontSize}px "${TERMINAL_FONT_FAMILY}"`).then(() => {
-      if (!disposed) { terminal.clearTextureAtlas(); refit(); }
+      if (!disposed) { terminal.clearTextureAtlas(); settled.request(); }
     }).catch(() => {});
     return () => {
       disposed = true;
+      settled.cancel();
       observer.disconnect();
       offData();
       offExit();

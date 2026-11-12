@@ -101,6 +101,15 @@ reconstruct the current screen exactly. Do not try to reason about a TUI from
 the raw byte stream: Claude paints with cursor movement and overwrites in
 place, so recent bytes are not the current screen. Ask the `ScreenModel`.
 
+A snapshot is exact only in a view of the size it was captured at, so it
+carries that size, and `restoreScreen` lays it into the fresh view at that size
+before the view follows its pane. Panes follow their container only once its
+size has settled (`whenSettled`). Both guard one failure: xterm drops the rows
+below the cursor when it shrinks, and Claude keeps its prompt's frame there,
+so a view that shrinks and returns to the size the CLI already knows has lost
+rows the CLI will never repaint. Its relative cursor moves then land typing
+above the prompt.
+
 ### Each Workspace Remembers Where It Was Left
 
 Switching workspaces returns to the view that workspace was last on, rather

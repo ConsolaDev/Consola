@@ -2,6 +2,7 @@
 // imported unchanged from the desktop renderer. Nothing executes or leaves the browser.
 import { workspaces as seedWorkspaces, harnesses as seedHarnesses, inboxes, files, diff, details, mergeStateOf } from './fixtures';
 import { substitutePlaceholders } from '../../desktop/src/shared/workItemPrompt';
+import { DEFAULT_DIMENSIONS } from '../../desktop/src/shared/constants';
 import type { Workspace, Session, NewSessionFields } from '../../desktop/src/shared/workspace';
 import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/shared/types';
 import type { WorkItemRef } from '../../desktop/src/shared/workItems';
@@ -222,13 +223,13 @@ export function installMock() {
     },
   };
   window.terminalAPI = {
-    create: async options => { if (!transcripts.has(options.instanceId)) transcripts.set(options.instanceId, initialTerminal(options)); return { replay: transcripts.get(options.instanceId)!, exited: false }; },
+    create: async options => { if (!transcripts.has(options.instanceId)) transcripts.set(options.instanceId, initialTerminal(options)); return { replay: transcripts.get(options.instanceId)!, cols: options.cols ?? DEFAULT_DIMENSIONS.cols, rows: options.rows ?? DEFAULT_DIMENSIONS.rows, exited: false }; },
     sendInput: input, paste: input, resize: () => {}, restart: id => { write(id, '\r\nSession resumed.\r\n❯ '); }, destroy: id => { transcripts.delete(id); inputs.delete(id); }, pathForFile: () => '',
     onData: dataEvents.subscribe, onActivity: noSubscription, onAwaitingConfirmation: noSubscription, onExit: noSubscription, onStatus: noSubscription, getStatusSnapshot: async () => ({}),
   };
   const shellEvents = channel<any>();
   window.shellAPI = {
-    attach: async ({ instanceId }) => ({ replay: 'Demo shell · commands are simulated.\r\n$ ', sequence, exited: false, cwd: cwdFor(instanceId) }),
+    attach: async ({ instanceId, cols, rows }) => ({ replay: 'Demo shell · commands are simulated.\r\n$ ', cols, rows, sequence, exited: false, cwd: cwdFor(instanceId) }),
     restart: async options => window.shellAPI.attach(options),
     input: (instanceId, data) => { shellEvents.emit({ instanceId, data: data === '\r' ? '\r\nThis sample shell does not execute commands.\r\n$ ' : data, sequence: ++sequence }); },
     resize: () => {}, onData: shellEvents.subscribe, onExit: noSubscription,

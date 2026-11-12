@@ -1,11 +1,12 @@
+import type { ScreenReplay } from './types';
+
 export interface ShellOptions {
   instanceId: string;
   cols: number;
   rows: number;
 }
 
-export interface ShellSnapshot {
-  replay: string;
+export interface ShellSnapshot extends ScreenReplay {
   sequence: number;
   exited: boolean;
   cwd: string;
