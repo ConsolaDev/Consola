@@ -10,6 +10,7 @@ import { listedSessions } from '../../../shared/workspace';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import { AssistantNavItem } from './AssistantNavItem';
+import { SidebarSearch } from './SidebarSearch';
 import { SessionNavItem } from './SessionNavItem';
 import { NavigationSettings } from './NavigationSettings';
 import { GroupNavItem } from './GroupNavItem';
@@ -84,6 +85,7 @@ export function Sidebar() {
   return (
     <aside className="sidebar" aria-label={isInboxOpen ? 'Inbox sidebar' : 'Home sidebar'}>
       <div className="sidebar-workspace"><WorkspaceMenu /><NavigationSettings /><NewMenu /></div>
+      <SidebarSearch />
       <nav className="app-navigation" aria-label="Main navigation">
         <button className={`app-navigation-item ${!isInboxOpen ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={!isInboxOpen ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span className="app-navigation-label">Home</span></button>

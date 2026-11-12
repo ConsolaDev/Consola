@@ -17,6 +17,13 @@
      Content differs per row (icons, dots, hover triggers), so the min-height
      is what keeps the list reading as one rhythm. */
   --sidebar-row-height: 28px;
+  /* The controls above the lists — Home / Inbox, Assistant, scope — run a
+     step taller than a row: they are where you start, not items in a list. */
+  --sidebar-nav-height: 30px;
+  /* Everything at the top shares one left edge: boxes inset one step from
+     the sidebar, their icons one step further. A bordered field gives up a
+     pixel of padding to its border so its icon lands on the same line. */
+  --sidebar-field-padding-x: calc(var(--space-2) - 1px);
 
   display: flex;
   flex-direction: column;
@@ -534,14 +541,15 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  width: calc(100% - var(--space-4) * 2);
-  min-height: var(--sidebar-row-height);
-  margin: 0 var(--space-4);
+  width: calc(100% - var(--space-2) * 2);
+  /* A touch larger than a session row: it is the workspace's front door. */
+  min-height: var(--sidebar-nav-height);
+  margin: var(--space-1) var(--space-2) 0;
   padding: var(--sidebar-row-padding-y) var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  font-size: var(--sidebar-font-size);
+  font-size: 14px;
   text-align: left;
   color: var(--color-text-primary);
   cursor: pointer;
@@ -553,7 +561,9 @@
 .assistant-nav-item[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 .assistant-nav-item[aria-disabled='true']:hover { background: transparent; }
 .assistant-nav-item:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-.assistant-spark { width: 14px; text-align: center; color: var(--color-worktree); }
+/* A 14px slot like the search and scope icons, so the label lines up with
+   theirs; flex centring lets the slightly wider glyph spill evenly. */
+.assistant-spark { display: inline-flex; flex-shrink: 0; justify-content: center; width: 14px; font-size: 16px; line-height: 1; color: var(--color-worktree); }
 .assistant-nav-label { flex: 1; font-weight: 500; }
 .assistant-nav-shortcut { font: 11px ui-monospace, Menlo, monospace; color: var(--color-text-tertiary); }
 .assistant-nav-word { font-size: var(--sidebar-font-size-small); color: var(--color-text-secondary); }
@@ -1129,8 +1139,8 @@
   align-items: center;
   justify-content: center;
   gap: var(--space-1);
-  min-width: var(--sidebar-row-height);
-  min-height: var(--sidebar-row-height);
+  min-width: var(--sidebar-nav-height);
+  min-height: var(--sidebar-nav-height);
   padding: var(--space-1);
   border: 0;
   border-radius: var(--radius-md);
@@ -1164,10 +1174,46 @@
   min-height: 40px;
   padding: var(--space-1) var(--space-2);
 }
+/* Search field above Home / Inbox: opens the command palette. */
+.sidebar-search { flex-shrink: 0; padding: var(--space-1) var(--space-2) var(--space-3); }
+.sidebar-search-field {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 32px;
+  padding: var(--space-1) var(--sidebar-field-padding-x);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  font-size: var(--sidebar-font-size);
+  text-align: left;
+  cursor: pointer;
+  transition: background var(--transition-fast), border-color var(--transition-fast);
+}
+.sidebar-search-field:hover { background: var(--color-bg-hover); border-color: var(--color-border-hover); }
+.sidebar-search-field:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.sidebar-search-field > svg { flex-shrink: 0; }
+.sidebar-search-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-search-shortcut {
+  flex-shrink: 0;
+  padding: 1px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font: 11px ui-monospace, Menlo, monospace;
+  color: var(--color-text-tertiary);
+}
 .sidebar-workspace .workspace-menu-trigger { flex: 1; }
 .sidebar-workspace .new-menu-trigger { flex-shrink: 0; }
 .home-navigation { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-.sidebar-scope-picker { padding: var(--space-2) var(--space-4) var(--space-3); }
+.sidebar-scope-picker { padding: var(--space-3) var(--space-2); }
+/* Paired with the search field above it: same edge, same corners. */
+.sidebar-scope-picker .scope-selector {
+  min-height: var(--sidebar-nav-height);
+  padding-inline: var(--sidebar-field-padding-x);
+  border-radius: var(--radius-lg);
+}
 .scope-selector {
   display: flex;
   align-items: center;
