@@ -14,7 +14,7 @@ export function NavigationSettings() {
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button className="sidebar-navigation-settings" aria-label="Navigation settings" title="Navigation settings">
-          <SlidersHorizontal size={16} />
+          <SlidersHorizontal size={14} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>

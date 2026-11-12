@@ -33,7 +33,8 @@ export function AssistantHeader({ workspace, session }: { workspace: Workspace; 
         <span className="assistant-header-spark" aria-hidden="true">✦ </span>
         <span>Assistant</span>
       </h1>
-      <span className="assistant-header-sub">{workspace.name} · {sees}</span>
+      {/* The workspace menu beside it already names the workspace. */}
+      <span className="assistant-header-sub">{sees}</span>
       <span className="assistant-header-spacer" />
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>

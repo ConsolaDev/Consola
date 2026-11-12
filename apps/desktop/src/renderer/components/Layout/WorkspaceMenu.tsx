@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { listedSessions } from '../../../shared/workspace';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, ChevronRight } from 'lucide-react';
@@ -9,6 +9,7 @@ import { windowBridge } from '../../services/windowBridge';
 import type { WorkspaceSettingsSectionId } from '../WorkspaceSettings/WorkspaceSettingsModal';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
 import { WorkspaceIcon } from '../WorkspaceIcon';
+import { MenuHint } from './MenuHint';
 
 /** The named workspace owns this menu; switching lives in the navigation rail. */
 export function WorkspaceMenu() {
@@ -16,6 +17,7 @@ export function WorkspaceMenu() {
   const workspace = useWorkspaceStore(state => state.workspaces.find(item => item.id === activeWorkspaceId));
   const { openWorkspaceSettings } = useWorkspaceSettings();
   const openingSettings = useRef(false);
+  const [isOpen, setOpen] = useState(false);
 
   if (!workspace) return <span className="workspace-menu-placeholder">Select workspace</span>;
   const sessionCount = listedSessions(workspace).length;
@@ -26,13 +28,28 @@ export function WorkspaceMenu() {
   };
 
   return (
-    <DropdownMenu.Root onOpenChange={open => { if (open) openingSettings.current = false; }}>
-      <DropdownMenu.Trigger asChild>
-        <button className="workspace-menu-trigger" aria-label={`${workspace.name} workspace menu`}>
-          <span className="workspace-menu-name">{workspace.name}</span>
-          <ChevronDown size={14} />
-        </button>
-      </DropdownMenu.Trigger>
+    <DropdownMenu.Root open={isOpen} onOpenChange={open => { setOpen(open); if (open) openingSettings.current = false; }}>
+      <MenuHint
+        menuOpen={isOpen}
+        title="Workspace"
+        content={<>
+          <p className="title-hint-lead">Everything in this window: its scopes, sessions and settings. Switch workspaces in the rail.</p>
+          <span className="title-hint-meta">
+            {workspace.scopes.length} {workspace.scopes.length === 1 ? 'scope' : 'scopes'}
+            {' · '}{sessionCount} {sessionCount === 1 ? 'session' : 'sessions'}
+          </span>
+        </>}
+      >
+        <DropdownMenu.Trigger asChild>
+          <button className="workspace-menu-trigger" aria-label={`${workspace.name} workspace menu`}>
+            {/* The rail's tile for this workspace, so the two read as one
+                thing and the scope beside it reads as a folder. */}
+            <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={16} borderRadius={5} />
+            <span className="workspace-menu-name">{workspace.name}</span>
+            <ChevronDown size={14} />
+          </button>
+        </DropdownMenu.Trigger>
+      </MenuHint>
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           className="dropdown-content workspace-menu-content"

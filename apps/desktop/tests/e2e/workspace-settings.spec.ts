@@ -279,8 +279,8 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     const railBox = (await rail.boundingBox())!;
     const homeBox = (await home.boundingBox())!;
     expect(railBox.x + railBox.width).toBeLessThanOrEqual(homeBox.x);
-    const workspaceHeaderBox = (await page.locator('.sidebar-workspace').boundingBox())!;
-    expect(homeBox.y).toBeGreaterThanOrEqual(workspaceHeaderBox.y + workspaceHeaderBox.height);
+    const searchRowBox = (await page.locator('.sidebar-search').boundingBox())!;
+    expect(homeBox.y).toBeGreaterThanOrEqual(searchRowBox.y + searchRowBox.height);
     await expect(page.locator('.sidebar').getByRole('navigation', { name: 'Main navigation' })).toBeVisible();
     await expect(home.locator('[data-workspace-icon]')).toHaveCount(0);
     const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
@@ -717,10 +717,11 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     await app.evaluate(({ dialog }, folder) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
     }, root);
-    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Add scope', exact: true }).click();
+    // The empty list offers the way back as well as the scope row's menu.
+    await page.locator('.sidebar-ungrouped').getByRole('button', { name: 'Add a scope', exact: true }).click();
     await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeEnabled();
-    await expect(page.locator('.sidebar').getByRole('button', { name: 'Choose scope', exact: true })).toHaveText(path.basename(root));
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await expect(page.getByRole('region', { name: 'Before your first session' })).toContainText(`Runs in the ${path.basename(root)} scope`);
     const restored = JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
     expect(restored.scopes).toHaveLength(1);
     expect(restored.groups).toEqual(seeded.groups);

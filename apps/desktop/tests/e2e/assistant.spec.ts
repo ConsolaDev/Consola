@@ -102,7 +102,7 @@ test('the Assistant row opens a full-width Assistant pane', async () => {
 
   const header = page.locator('.workspace-view-header');
   await expect(header).toContainText('✦ Assistant');
-  await expect(header).toContainText('catalog-portal · sees 1 session in 2 scopes');
+  await expect(header).toContainText('sees 1 session in 2 scopes');
   // Not a repo, so none of the checkout controls are offered.
   await expect(header.locator('.checkout-chip')).toHaveCount(0);
   await expect(header.getByRole('button', { name: /explorer|terminal/i })).toHaveCount(0);
