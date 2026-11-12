@@ -18,8 +18,9 @@ vi.mock('../services/windowBridge', () => ({
 }));
 
 const openPanel = vi.fn();
+const closePanel = vi.fn();
 vi.mock('./automationsStore', () => ({
-  useAutomationsStore: { getState: () => ({ openPanel }) },
+  useAutomationsStore: { getState: () => ({ openPanel, closePanel }) },
 }));
 
 import {
@@ -355,6 +356,49 @@ describe('remembering where each workspace was left', () => {
     expect(useNavigationStore.getState().overlay).toBe('automations');
     expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
     expect(openPanel).toHaveBeenCalledWith({ kind: 'run', runId: 'run-9' });
+  });
+
+  it('switching workspace closes the Automations side panel', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: 'automations' });
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, overlay: 'automations' },
+    });
+    closePanel.mockClear();
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(closePanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the side panel when the workspace stays, or another window takes it', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: 'automations' });
+    closePanel.mockClear();
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, overlay: 'automations' },
+    });
+    await useNavigationStore.getState().setActiveWorkspace('workspace-1');
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({ verdict: 'focused-elsewhere' });
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(closePanel).not.toHaveBeenCalled();
+  });
+
+  it('main handing this window another workspace closes the side panel', () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: 'automations' });
+    closePanel.mockClear();
+    subscribeToWindowWorkspace();
+    vi.mocked(windowBridge.onWorkspaceChanged).mock.calls.at(-1)?.[0]?.('workspace-2');
+    expect(closePanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('a notification opening its run leaves the panel open', () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: null });
+    closePanel.mockClear();
+    subscribeToShowAutomations();
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1', runId: 'run-9' });
+    expect(closePanel).not.toHaveBeenCalled();
   });
 
   it('a notification without a run opens Automations and leaves the panel alone', () => {

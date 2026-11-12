@@ -15,8 +15,15 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
-import { activateSession, createQuickSession, createSessionAndOpen, openNewSessionDialog } from './sessionActions';
+import {
+  activateSession,
+  activateSessionAnywhere,
+  createQuickSession,
+  createSessionAndOpen,
+  openNewSessionDialog,
+} from './sessionActions';
 import { windowBridge } from '../services/windowBridge';
+import { useAutomationsStore } from '../stores/automationsStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useNewSessionDialogStore } from '../stores/newSessionDialogStore';
@@ -155,5 +162,30 @@ describe('activateSession', () => {
       activeSessionId: 'session-3',
       overlay: null,
     });
+  });
+});
+
+describe('activateSessionAnywhere', () => {
+  it('closes the Automations side panel when it moves the window to another workspace', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1' });
+    useAutomationsStore.setState({ panel: { kind: 'run', runId: 'run-1' } });
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, overlay: null },
+    });
+
+    await activateSessionAnywhere('workspace-2', 'session-3');
+
+    expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
+    expect(useAutomationsStore.getState().panel).toBeNull();
+  });
+
+  it('keeps it for a session in the workspace already shown', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1' });
+    useAutomationsStore.setState({ panel: { kind: 'run', runId: 'run-1' } });
+
+    await activateSessionAnywhere('workspace-1', 'session-3');
+
+    expect(useAutomationsStore.getState().panel).toEqual({ kind: 'run', runId: 'run-1' });
   });
 });

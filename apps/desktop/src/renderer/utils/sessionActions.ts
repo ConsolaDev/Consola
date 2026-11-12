@@ -1,5 +1,5 @@
 import { homeScope, useHomeStore } from '../stores/homeStore';
-import { useNavigationStore } from '../stores/navigationStore';
+import { closePanelOnWorkspaceSwitch, useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
@@ -79,6 +79,7 @@ export async function activateSessionAnywhere(
 
   const result = await windowBridge.activateWorkspace(workspaceId);
   if (result.verdict === 'took') {
+    closePanelOnWorkspaceSwitch(useNavigationStore.getState().activeWorkspaceId, workspaceId);
     // The remembered view is deliberately discarded: the caller named a
     // session, and that choice replaces whatever the workspace was left on.
     activateSession(workspaceId, sessionId);
@@ -113,6 +114,7 @@ export async function createSessionAndOpen(
   if (useNavigationStore.getState().activeWorkspaceId !== workspaceId) {
     const result = await windowBridge.activateWorkspace(workspaceId);
     if (result.verdict !== 'took') return undefined;
+    closePanelOnWorkspaceSwitch(useNavigationStore.getState().activeWorkspaceId, workspaceId);
     useNavigationStore.setState({ activeWorkspaceId: workspaceId, ...result.view });
   }
   const session = await useWorkspaceStore.getState().createSession(workspaceId, {

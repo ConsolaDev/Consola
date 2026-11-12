@@ -127,6 +127,7 @@ export const useNavigationStore = create<NavigationState>()(
         // 'focused-elsewhere' means another window already holds it and has
         // been brought forward. This window keeps showing what it was showing.
         if (result.verdict !== 'took') return;
+        closePanelOnWorkspaceSwitch(get().activeWorkspaceId, id);
         // Adopted, not cleared: main answered with what this workspace was
         // last showing, already narrowed to what it can still show. Nothing is
         // reported back — main is where this just came from.
@@ -185,9 +186,21 @@ export const useNavigationStore = create<NavigationState>()(
   )
 );
 
+/**
+ * The Automations side panel names a run or an automation of the workspace it
+ * was opened in, so the window moving to another workspace closes it.
+ * Selecting the workspace it already shows leaves it open. A notification
+ * opens its panel without switching (`subscribeToShowAutomations`), so it is
+ * never closed by this.
+ */
+export function closePanelOnWorkspaceSwitch(previous: string | null, next: string | null): void {
+  if (previous !== next) useAutomationsStore.getState().closePanel();
+}
+
 /** React to main dropping this window's workspace, e.g. after a delete. */
 export function subscribeToWindowWorkspace(): () => void {
   return windowBridge.onWorkspaceChanged((workspaceId) => {
+    closePanelOnWorkspaceSwitch(useNavigationStore.getState().activeWorkspaceId, workspaceId);
     useNavigationStore.setState({
       activeWorkspaceId: workspaceId,
       activeSessionId: null,
