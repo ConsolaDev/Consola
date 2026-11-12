@@ -86,7 +86,7 @@ export class RunStore {
             // A log is oldest first, so reversing puts runs created in the same
             // instant newest first, as `byNewest` leaves ties alone.
             groups = new Map([...this.history.load()].map(([workspaceId, runs]) => [workspaceId, [...runs].reverse()]));
-            // A version-1 record is the newer word on a run both name.
+            // On a run both name, the log is the newer word: its lines are as new as the version-1 record, or newer.
             if (migrating) groups = mergeMigrated(groups, migrating);
         } catch (error) {
             console.error('Automation run history unreadable; starting empty.', error);
@@ -275,7 +275,11 @@ export class RunStore {
     }
 }
 
-/** Version-1 runs laid over what the logs already hold, with approvals of ended runs stripped. */
+/**
+ * Version-1 runs added to what the logs already hold, with approvals of ended
+ * runs stripped. A run the logs already name keeps its log record: a log line
+ * is written as the run changes, so it is never older than the version-1 copy.
+ */
 function mergeMigrated(
     logged: Map<string | undefined, RunRecord[]>,
     migrated: RunRecord[]
@@ -286,8 +290,15 @@ function mergeMigrated(
         byId.set(workspaceId, existing);
         return existing;
     };
-    for (const [workspaceId, runs] of logged) for (const run of runs) into(workspaceId).set(run.id, run);
+    const logIds = new Set<string>();
+    for (const [workspaceId, runs] of logged) {
+        for (const run of runs) {
+            into(workspaceId).set(run.id, run);
+            logIds.add(run.id);
+        }
+    }
     for (const run of migrated) {
+        if (logIds.has(run.id)) continue;
         if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;
         into(run.attribution?.workspaceId).set(run.id, run);
     }

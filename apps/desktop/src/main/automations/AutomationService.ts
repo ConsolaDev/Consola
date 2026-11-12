@@ -6,6 +6,7 @@ import {
     parseAutomationEntry,
     parseFactorySpec,
     stableStringify,
+    TERMINAL_RUN_STATUSES,
     type Automation,
     type AutomationMode,
     type CronTrigger,
@@ -263,6 +264,13 @@ export class AutomationService {
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
+    /**
+     * When `saveEntry` last wrote each entry, by automation key. A run asked
+     * for before then was approved for what the entry said before, so its
+     * approval accepts nothing: a schedule-only change keeps the version, and
+     * would otherwise run unasked on the strength of the old entry's approval.
+     */
+    private readonly savedAt = new Map<string, number>();
 
     constructor(private readonly deps: AutomationServiceDeps) {}
 
@@ -461,8 +469,11 @@ export class AutomationService {
         }
         const key = automationKey({ workspaceId, automation });
         this.deps.store.revokeAcceptance(key);
+        this.savedAt.set(key, this.deps.now().getTime());
         if (options.by) this.deps.store.markAdded(key, { ...options.by, at: this.iso() });
         await this.reload(workspaceId);
+        // Again once it is live: a run fired while the file was being reloaded was of the entry before.
+        this.savedAt.set(key, this.deps.now().getTime());
         const line = this.factories
             .get(workspaceId)
             ?.loaded.spec.automations.find((candidate) => candidate.name === automation.name)?.line;
@@ -755,7 +766,7 @@ export class AutomationService {
         const key = automationKey(entry);
         if (entry.agent) {
             this.deps.store.update(run.id, { status: 'queued', updatedAt: this.iso() });
-            if (entry.automation.mode === 'auto') this.deps.store.accept(key, entry.version);
+            this.acceptApproved(key, entry, run);
             this.broadcastRun(run.id);
             // As approved: in line. The queue may start it at once.
             const queued = { ...this.deps.store.get(run.id)! };
@@ -771,10 +782,23 @@ export class AutomationService {
                 const args = run.approval?.args ?? entry.args;
                 const result = await this.deps.registry.invoke(entry.tool!.name, args, this.contextFor(entry), 'run');
                 this.finish(run.id, 'completed', { result });
-                if (entry.automation.mode === 'auto') this.deps.store.accept(key, entry.version);
+                // Checked now, not at approval: a save may have landed while it ran.
+                this.acceptApproved(key, entry, run);
             },
             entry.automation.name
         );
+    }
+
+    /**
+     * An approved run of an `auto` entry lets it run on its own from now on —
+     * unless `saveEntry` wrote the entry since the run was asked for, or in
+     * the same instant: that approval was for the entry before.
+     */
+    private acceptApproved(key: string, entry: Resolved, run: RunRecord): void {
+        if (entry.automation.mode !== 'auto') return;
+        const saved = this.savedAt.get(key);
+        if (saved !== undefined && !(Date.parse(run.createdAt) > saved)) return;
+        this.deps.store.accept(key, entry.version);
     }
 
     /** Turn down a run waiting for approval, or take a queued one out of the line. */
@@ -825,9 +849,12 @@ export class AutomationService {
      * End a running agent turn, as Ctrl+C would. The turn's own end then
      * fails the run ("It stopped before finishing: you stopped it."); when
      * no turn is running any more, nothing will report, so the run ends here.
+     * An agent run that already ended — its turn beat the click — is left as
+     * it ended.
      */
     public stop(runId: string): void {
         const run = this.deps.store.get(runId);
+        if (run && isAgentRun(run) && TERMINAL_RUN_STATUSES.includes(run.status)) return;
         if (!run || run.status !== 'running' || !isAgentRun(run)) throw new Error(`Run ${runId} is not a running agent run.`);
         if (this.starting.has(runId)) {
             // No turn exists yet: remember, and end it the moment it does.
@@ -997,7 +1024,7 @@ export class AutomationService {
                     id: session.claudeSessionId,
                     cwd: session.cwd ?? scopePath ?? agent.scope?.path,
                 },
-                summary: `Running in “${session.name}”.`,
+                summary: runningIn(session.name),
                 updatedAt: this.iso(),
             });
             this.broadcastRun(run.id);
@@ -1020,7 +1047,7 @@ export class AutomationService {
             if (!session) throw new Error('Its session was closed.');
             await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
             if (!this.stillRunning(run.id)) return;
-            this.deps.store.update(run.id, { summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
+            this.deps.store.update(run.id, { summary: runningIn(session.name), updatedAt: this.iso() });
             this.broadcastRun(run.id);
             this.honourStop(run.id, session);
         } catch (error) {
@@ -1492,8 +1519,11 @@ export class AutomationService {
         outcome: { result?: ToolResult; summary?: string; error?: string }
     ): void {
         const now = this.iso();
+        // A failed agent run's launch-time "Running in …" says nothing true any more.
+        const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(this.deps.store.get(runId)) : null;
         this.deps.store.update(runId, {
             status,
+            ...(stale !== null ? { summary: `Did not finish in “${stale}”.` } : {}),
             ...(outcome.result ? { summary: outcome.result.summary, result: compact(outcome.result.data) } : {}),
             ...(outcome.summary ? { summary: outcome.summary } : {}),
             ...(outcome.error ? { error: outcome.error } : {}),
@@ -1528,6 +1558,17 @@ function describeRun(automation: Automation): string {
     const { run } = automation;
     if (run.kind === 'tool') return `Tool: ${run.tool}`;
     return run.kind === 'action' ? `${run.name} action` : 'Prompt';
+}
+
+/** What an agent run says while its turn runs. */
+function runningIn(sessionName: string): string {
+    return `Running in “${sessionName}”.`;
+}
+
+/** The session an agent run's summary still says it is running in; null once it says anything else. */
+function sessionRunningIn(run: RunRecord | undefined): string | null {
+    if (!run || !isAgentRun(run)) return null;
+    return /^Running in “(.*)”\.$/.exec(run.summary ?? '')?.[1] ?? null;
 }
 
 /** A run that starts a session: its result is the preview of what it starts. */

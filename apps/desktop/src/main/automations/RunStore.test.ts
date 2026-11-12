@@ -135,14 +135,17 @@ describe('RunStore history', () => {
         }
     });
 
-    it('keeps logs a version-1 file does not name, and lets its own record win a clash', () => {
+    it('keeps logs a version-1 file does not name, and lets the log’s record win a clash', () => {
         const { store, history } = loaded(
             { 'ws-9': [run('other', 'ws-9')], 'ws-1': [run('same', 'ws-1', { summary: 'from the log' })] },
-            { version: 1, lastFired: {}, runs: [run('same', 'ws-1', { summary: 'from v1' })] }
+            { version: 1, lastFired: {}, runs: [run('same', 'ws-1', { summary: 'from v1' }), run('only-v1', 'ws-1')] }
         );
         expect(store.get('other')).toBeDefined();
-        expect(store.get('same')?.summary).toBe('from v1');
+        expect(store.get('only-v1')).toBeDefined();
+        // A log line is as new as the version-1 record of the same run, or newer.
+        expect(store.get('same')?.summary).toBe('from the log');
         expect(store.runs().filter((r) => r.id === 'same')).toHaveLength(1);
+        expect(history.logs.get('ws-1')?.find((r) => r.id === 'same')?.summary).toBe('from the log');
         expect(history.logs.get('ws-9')?.map((r) => r.id)).toEqual(['other']);
     });
 

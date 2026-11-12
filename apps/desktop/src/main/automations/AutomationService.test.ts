@@ -1618,6 +1618,63 @@ automations:
         expect(t.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'session-1' }), 'you stopped it');
     });
 
+    it('a failed agent run no longer says it is running, whichever way it failed', async () => {
+        // Its turn exited with an error.
+        const exited = reviewing();
+        await exited.start();
+        await exited.poll([]);
+        await exited.poll([pr(1)]);
+        await exited.endTurn('session-1', 1, 'Error: boom');
+        expect(exited.store.runs()[0]).toMatchObject({ status: 'failed', summary: 'Did not finish in “PR 1”.' });
+
+        // Its turn was stopped.
+        const stopped = await launched();
+        await stopped.t.endTurn('session-1', 0, undefined, 'you stopped it');
+        expect(stopped.t.store.get(stopped.run.id)).toMatchObject({
+            status: 'failed',
+            summary: 'Did not finish in “morning-pr-summary”.',
+        });
+
+        // Stop found no turn to end.
+        const gone = await launched({ stopAgent: vi.fn(() => false) });
+        gone.t.service.stop(gone.run.id);
+        expect(gone.t.store.get(gone.run.id)).toMatchObject({
+            status: 'failed',
+            summary: 'Did not finish in “morning-pr-summary”.',
+        });
+
+        // A stop asked for during the launch found no turn once launched.
+        const pending = setup({ yaml: scheduled, accepted: true, workspaces: [bound()], now: new Date(2026, 10, 4, 9, 0, 10), stopAgent: vi.fn(() => false) });
+        const gate = deferred();
+        pending.world.launchGate = gate.promise;
+        await pending.start();
+        const held = await pending.trigger('ws-1', 'morning-pr-summary');
+        await flush();
+        pending.service.stop(held.id);
+        gate.resolve();
+        await flush();
+        expect(pending.store.get(held.id)).toMatchObject({ status: 'failed', summary: 'Did not finish in “morning-pr-summary”.' });
+
+        // A clean finish keeps its own.
+        const done = await launched();
+        await done.t.endTurn('session-1', 0);
+        expect(done.t.store.get(done.run.id)).toMatchObject({ status: 'completed', summary: 'Ready in “morning-pr-summary”.' });
+    });
+
+    it('stop on an agent run that has already finished does nothing', async () => {
+        const { t, run } = await launched();
+        await t.endTurn('session-1', 0);
+        expect(() => t.service.stop(run.id)).not.toThrow();
+        expect(t.stopAgent).not.toHaveBeenCalled();
+        expect(t.store.get(run.id)).toMatchObject({ status: 'completed', summary: 'Ready in “morning-pr-summary”.' });
+
+        const failed = await launched();
+        await failed.t.endTurn('session-1', 1, 'Error: boom');
+        const before = { ...failed.t.store.get(failed.run.id)! };
+        expect(() => failed.t.service.stop(failed.run.id)).not.toThrow();
+        expect(failed.t.store.get(failed.run.id)).toEqual(before);
+    });
+
     it('stop refuses a queued or tool run', async () => {
         const t = setup({ yaml: entry('    mode: auto\n'), accepted: true });
         await t.start();
@@ -1815,6 +1872,81 @@ automations:
         hand.setClock(new Date(2026, 10, 4, 10, 0, 10));
         await hand.service.tick();
         expect(hand.store.runs()).toMatchObject([{ automationId: 'sweep', status: 'completed', mode: 'auto' }]);
+    });
+
+    it('approving a run asked for before the tool rewrote its entry does not let the rewrite run unasked', async () => {
+        const t = setup({ now: new Date(2026, 10, 4, 8, 0) });
+        await t.start();
+        const asked = await t.trigger('ws-1', 'sweep');
+        expect(asked).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+
+        // Only the schedule changes, so the version the run was asked at still matches.
+        t.setClock(new Date(2026, 10, 4, 8, 5));
+        const moved = '- name: sweep\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#sweep }\n  mode: auto\n';
+        await t.service.saveEntry('ws-1', moved, { replace: true });
+        t.setClock(new Date(2026, 10, 4, 8, 10));
+        expect(await t.service.approve(asked.id)).toMatchObject({ status: 'completed' });
+        expect(t.service.list('ws-1')[0]).toMatchObject({ schedule: '0 10 * * *', asksFirst: true });
+
+        t.setClock(new Date(2026, 10, 4, 10, 0, 10));
+        await t.service.tick();
+        const next = t.store.runs()[0];
+        expect(next).toMatchObject({ trigger: { kind: 'cron' }, status: 'needs-approval', mode: 'confirm' });
+
+        // Asked after the save, it is the new entry's approval.
+        await t.service.approve(next.id);
+        expect(t.service.list('ws-1')[0].asksFirst).toBeUndefined();
+    });
+
+    it('a tool run approved before the tool rewrote its entry, still running when it lands, does not accept the rewrite', async () => {
+        const t = setup({ now: new Date(2026, 10, 4, 8, 0) });
+        await t.start();
+        const asked = await t.trigger('ws-1', 'sweep');
+        const release = t.holdRuns();
+        const approving = t.service.approve(asked.id);
+        await vi.waitFor(() => expect(t.calls.map((call) => call.mode)).toEqual(['preview', 'run']));
+
+        t.setClock(new Date(2026, 10, 4, 8, 5));
+        const moved = '- name: sweep\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#sweep }\n  mode: auto\n';
+        await t.service.saveEntry('ws-1', moved, { replace: true });
+        release();
+        expect(await approving).toMatchObject({ status: 'completed' });
+        expect(t.service.list('ws-1')[0]).toMatchObject({ schedule: '0 10 * * *', asksFirst: true });
+
+        t.setClock(new Date(2026, 10, 4, 10, 0, 10));
+        await t.service.tick();
+        expect(t.store.runs()[0]).toMatchObject({ trigger: { kind: 'cron' }, status: 'needs-approval', mode: 'confirm' });
+    });
+
+    it('approving an agent run asked for before the tool rewrote its entry does not let the rewrite run unasked', async () => {
+        const t = setup({ workspaces: [bound()], now: new Date(2026, 10, 4, 8, 0) });
+        await t.start();
+        await t.service.saveEntry('ws-1', digest(), { replace: false });
+        t.setClock(new Date(2026, 10, 4, 8, 1));
+        const asked = await t.trigger('ws-1', 'morning-digest');
+        expect(asked).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+
+        t.setClock(new Date(2026, 10, 4, 8, 5));
+        const moved = digest().replace('0 9 * * 1-5', '0 10 * * 1-5');
+        await t.service.saveEntry('ws-1', moved, { replace: true });
+        await t.service.approve(asked.id);
+        await flush();
+        await t.endTurn('session-1', 0);
+        expect(t.store.get(asked.id)).toMatchObject({ status: 'completed' });
+        expect(t.service.list('ws-1').find((view) => view.name === 'morning-digest')).toMatchObject({
+            schedule: '0 10 * * 1-5',
+            asksFirst: true,
+        });
+
+        t.setClock(new Date(2026, 10, 4, 10, 0, 10));
+        await t.service.tick();
+        expect(t.store.runs()[0]).toMatchObject({
+            automationId: 'morning-digest',
+            trigger: { kind: 'cron' },
+            status: 'needs-approval',
+            mode: 'confirm',
+        });
+        expect(t.world.launches).toHaveLength(1);
     });
 
     it('marks an agent’s addition until the person looks', async () => {
