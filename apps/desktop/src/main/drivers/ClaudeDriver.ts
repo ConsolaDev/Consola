@@ -4,8 +4,9 @@ import * as os from 'os';
 import * as path from 'path';
 import { getLoginEnv } from '../LoginEnvironment';
 import { readSessionModel } from './sessionModel';
-import { findSessionFile, getDisplayName, readRecentReplies } from '../ClaudeSessionIndex';
+import { findSessionFile, getDisplayName, readConversation, readRecentReplies } from '../ClaudeSessionIndex';
 import { probeClaudeCapabilities } from './claudeCapabilities';
+import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type {
     HarnessAccount,
     HarnessCapabilities,
@@ -221,6 +222,15 @@ export class ClaudeDriver implements HarnessDriver {
     ): Promise<string[] | null> {
         if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
         return readRecentReplies(sessionId, resolveConfigDir(config), count);
+    }
+
+    public async readConversation(
+        config: HarnessConfig,
+        conversationId: string,
+        window?: ConversationWindow
+    ): Promise<ConversationRecord | null> {
+        if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
+        return readConversation(conversationId, resolveConfigDir(config), window);
     }
 
     public resolveBinary(config: HarnessConfig): string {

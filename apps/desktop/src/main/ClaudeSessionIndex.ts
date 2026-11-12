@@ -2,6 +2,8 @@ import * as fs from 'fs';
 import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
+import * as readline from 'readline';
+import type { ConversationEntry, ConversationRecord, ConversationWindow } from '../shared/conversation';
 import type { SessionNameResult } from '../shared/types';
 import { getLoginEnv } from './LoginEnvironment';
 
@@ -312,6 +314,126 @@ export async function readRecentReplies(
     } finally {
         await handle?.close();
     }
+}
+
+export const MAX_CONVERSATION_ENTRIES = 2000;
+export const MAX_ENTRY_CHARS = 20_000;
+const MAX_DETAIL_CHARS = 120;
+
+/** Argument names tried, in order, for the one-line detail of a tool call. */
+const DETAIL_KEYS = ['file_path', 'path', 'pattern', 'command', 'url', 'skill', 'description', 'query'];
+
+function capText(text: string): string {
+    return text.length > MAX_ENTRY_CHARS ? text.slice(0, MAX_ENTRY_CHARS - 1) + '…' : text;
+}
+
+function toolDetail(input: unknown): string | undefined {
+    if (!input || typeof input !== 'object') return undefined;
+    for (const key of DETAIL_KEYS) {
+        const value = (input as Record<string, unknown>)[key];
+        if (typeof value === 'string' && value.trim() !== '') {
+            return value.trim().split('\n')[0].slice(0, MAX_DETAIL_CHARS);
+        }
+    }
+    return undefined;
+}
+
+/**
+ * A conversation's prompts, tool calls and replies, oldest first, read from
+ * the transcript. Only records inside `window` count; a record without a
+ * timestamp counts as inside. `null` means there is no transcript.
+ *
+ * Streamed line by line: a transcript can be tens of megabytes, and a running
+ * session is still appending to it, so an unparsable line (the last one,
+ * mid-write) is skipped rather than failing the read. Stops at
+ * `MAX_CONVERSATION_ENTRIES`. Thinking, tool results, subagent sidechains and
+ * injected meta records are not part of what the person sees.
+ */
+export async function readConversation(
+    sessionId: string,
+    configDir: string | undefined,
+    window: ConversationWindow = {}
+): Promise<ConversationRecord | null> {
+    const file = findSessionFile(sessionId, configDir);
+    if (!file) return null;
+
+    const since = window.since ? Date.parse(window.since) : NaN;
+    const until = window.until ? Date.parse(window.until) : NaN;
+    const entries: ConversationEntry[] = [];
+    let truncated = false;
+
+    const stream = fs.createReadStream(file, { encoding: 'utf8' });
+    const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
+    try {
+        for await (const line of lines) {
+            if (!line.trim()) continue;
+
+            let record: {
+                type?: string;
+                isSidechain?: boolean;
+                isMeta?: boolean;
+                timestamp?: string;
+                message?: { content?: unknown };
+            };
+            try {
+                record = JSON.parse(line);
+            } catch {
+                continue;
+            }
+            if (!record || record.isSidechain === true || record.isMeta === true) continue;
+            if (record.type !== 'user' && record.type !== 'assistant') continue;
+
+            const at = typeof record.timestamp === 'string' ? record.timestamp : undefined;
+            const time = at ? Date.parse(at) : NaN;
+            if (!Number.isNaN(time)) {
+                if (!Number.isNaN(since) && time < since) continue;
+                if (!Number.isNaN(until) && time > until) continue;
+            }
+            const stamp = at ? { at } : {};
+
+            const found: ConversationEntry[] = [];
+            const content = record.message?.content;
+            if (record.type === 'user') {
+                const text = typeof content === 'string' ? content : textBlocks(content).join('\n\n');
+                if (text.trim() !== '') found.push({ kind: 'prompt', text: capText(text), ...stamp });
+            } else if (Array.isArray(content)) {
+                for (const block of content as Array<{
+                    type?: string;
+                    text?: unknown;
+                    name?: unknown;
+                    input?: unknown;
+                }>) {
+                    if (!block) continue;
+                    if (block.type === 'text' && typeof block.text === 'string' && block.text.trim() !== '') {
+                        found.push({ kind: 'text', text: capText(block.text), ...stamp });
+                    } else if (block.type === 'tool_use' && typeof block.name === 'string') {
+                        const detail = toolDetail(block.input);
+                        found.push({
+                            kind: 'step',
+                            tool: block.name.replace(/^mcp__.+?__/, ''),
+                            ...(detail ? { detail } : {}),
+                            ...stamp,
+                        });
+                    }
+                }
+            }
+
+            for (const entry of found) {
+                if (entries.length >= MAX_CONVERSATION_ENTRIES) {
+                    truncated = true;
+                    break;
+                }
+                entries.push(entry);
+            }
+            if (truncated) break;
+        }
+    } catch {
+        // Unreadable part-way: show what was read.
+    } finally {
+        lines.close();
+        stream.destroy();
+    }
+    return { entries, truncated };
 }
 
 /**

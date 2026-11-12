@@ -2,7 +2,14 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { getDisplayName, MAX_REPLY_CHARS, readRecentReplies } from './ClaudeSessionIndex';
+import {
+  getDisplayName,
+  MAX_CONVERSATION_ENTRIES,
+  MAX_ENTRY_CHARS,
+  MAX_REPLY_CHARS,
+  readConversation,
+  readRecentReplies,
+} from './ClaudeSessionIndex';
 
 /**
  * Exercised through a real on-disk config directory: the module reads
@@ -217,5 +224,123 @@ describe('readRecentReplies', () => {
 
   it('is null without a transcript', async () => {
     expect(await readRecentReplies('missing', configDir, 3)).toBeNull();
+  });
+});
+
+describe('readConversation', () => {
+  function writeRecords(records: unknown[], raw = ''): void {
+    fs.writeFileSync(
+      path.join(projectDir, `${SESSION_ID}.jsonl`),
+      records.map((r) => JSON.stringify(r)).join('\n') + '\n' + raw
+    );
+  }
+  const assistant = (content: unknown[], timestamp?: string, extra = {}) => ({
+    type: 'assistant',
+    timestamp,
+    message: { role: 'assistant', content },
+    ...extra,
+  });
+  const toolUse = (name: string, input: unknown) => ({ type: 'tool_use', name, input });
+
+  it('reads the prompt, each tool call with its main argument, and the text, in order', async () => {
+    writeRecords([
+      { type: 'user', timestamp: '2026-11-12T10:00:00Z', message: { role: 'user', content: 'Review PR 12' } },
+      { type: 'user', isMeta: true, message: { role: 'user', content: 'injected context' } },
+      assistant([{ type: 'thinking', thinking: 'hmm' }], '2026-11-12T10:00:01Z'),
+      assistant(
+        [{ type: 'text', text: 'Looking.' }, toolUse('Read', { file_path: '/repo/a.ts' })],
+        '2026-11-12T10:00:02Z'
+      ),
+      {
+        type: 'user',
+        timestamp: '2026-11-12T10:00:03Z',
+        message: { role: 'user', content: [{ type: 'tool_result', content: 'file body' }] },
+      },
+      assistant([toolUse('Bash', { command: 'ls' })], '2026-11-12T10:00:03Z', { isSidechain: true }),
+      assistant(
+        [toolUse('mcp__consola__consola_work_item_context', {}), { type: 'text', text: 'Done.' }],
+        '2026-11-12T10:00:04Z'
+      ),
+    ]);
+
+    const result = await readConversation(SESSION_ID, configDir);
+
+    expect(result).toEqual({
+      truncated: false,
+      entries: [
+        { kind: 'prompt', text: 'Review PR 12', at: '2026-11-12T10:00:00Z' },
+        { kind: 'text', text: 'Looking.', at: '2026-11-12T10:00:02Z' },
+        { kind: 'step', tool: 'Read', detail: '/repo/a.ts', at: '2026-11-12T10:00:02Z' },
+        { kind: 'step', tool: 'consola_work_item_context', at: '2026-11-12T10:00:04Z' },
+        { kind: 'text', text: 'Done.', at: '2026-11-12T10:00:04Z' },
+      ],
+    });
+  });
+
+  it("picks a step's detail from file_path, path, pattern, command, url, skill, description, query, in that order", async () => {
+    const keys = ['file_path', 'path', 'pattern', 'command', 'url', 'skill', 'description', 'query'];
+    const calls = keys.map((_, i) => {
+      // Everything from key i onwards is present: the earliest must win.
+      const input: Record<string, string> = {};
+      for (const key of keys.slice(i)) input[key] = `${key} value`;
+      return toolUse('T', input);
+    });
+    calls.push(toolUse('T', { command: `first line ${'x'.repeat(200)}\nsecond line` }));
+    writeRecords([assistant(calls)]);
+
+    const result = await readConversation(SESSION_ID, configDir);
+
+    const details = result!.entries.map((e) => (e.kind === 'step' ? e.detail : undefined));
+    expect(details.slice(0, 8)).toEqual(keys.map((key) => `${key} value`));
+    expect(details[8]).toBe(`first line ${'x'.repeat(200)}`.slice(0, 120));
+  });
+
+  it('keeps only records inside the window', async () => {
+    const at = (second: number) => `2026-11-12T10:00:0${second}Z`;
+    writeRecords([
+      assistant([{ type: 'text', text: 'before' }], at(1)),
+      assistant([{ type: 'text', text: 'inside' }], at(3)),
+      assistant([{ type: 'text', text: 'after' }], at(5)),
+    ]);
+
+    const bounded = await readConversation(SESSION_ID, configDir, { since: at(2), until: at(4) });
+    const open = await readConversation(SESSION_ID, configDir, { since: at(2) });
+
+    expect(bounded!.entries.map((e) => (e as { text: string }).text)).toEqual(['inside']);
+    expect(open!.entries.map((e) => (e as { text: string }).text)).toEqual(['inside', 'after']);
+  });
+
+  it('treats a record without a timestamp as inside the window', async () => {
+    writeRecords([assistant([{ type: 'text', text: 'undated' }])]);
+
+    const result = await readConversation(SESSION_ID, configDir, { since: '2026-11-12T10:00:00Z' });
+
+    expect(result!.entries).toHaveLength(1);
+  });
+
+  it('skips an unparsable line, such as one mid-write', async () => {
+    writeRecords([assistant([{ type: 'text', text: 'complete' }])], '{"type":"assistant","message":{"con');
+
+    const result = await readConversation(SESSION_ID, configDir);
+
+    expect(result!.entries).toEqual([{ kind: 'text', text: 'complete' }]);
+  });
+
+  it('caps entries and text', async () => {
+    writeRecords([assistant(Array.from({ length: 2500 }, (_, i) => toolUse('Read', { file_path: `/f${i}` })))]);
+    const capped = await readConversation(SESSION_ID, configDir);
+    expect(capped!.entries).toHaveLength(MAX_CONVERSATION_ENTRIES);
+    expect(capped!.truncated).toBe(true);
+
+    writeRecords([assistant([{ type: 'text', text: 'y'.repeat(30_000) }])]);
+    const long = await readConversation(SESSION_ID, configDir);
+    const text = (long!.entries[0] as { text: string }).text;
+    expect(text).toHaveLength(MAX_ENTRY_CHARS);
+    expect(text.endsWith('…')).toBe(true);
+    expect(long!.truncated).toBe(false);
+  });
+
+  it('is null when there is no transcript', async () => {
+    expect(await readConversation(SESSION_ID, configDir)).toBeNull();
   });
 });
