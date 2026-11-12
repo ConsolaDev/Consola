@@ -45,6 +45,12 @@ export function coversAssignedReviews(automation: Automation): boolean {
     );
 }
 
+/** An entry that starts a session when a pull request asks for the person's review. */
+function onReviewRequest(automation: Automation): boolean {
+    const { trigger } = automation;
+    return trigger.kind === 'event' && trigger.connection === 'github' && trigger.events.includes('pull_request.review_requested');
+}
+
 const NEEDS_GITHUB = 'A GitHub connection';
 const MISSING_GITHUB = 'Connect a GitHub account in Workspace settings';
 
@@ -93,7 +99,8 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
             (defaultActionFor(workspace.actions ?? [], 'pr') ? null : 'Add an action for pull requests'),
         // Without an action the entry is the template's own example; "Add" is refused before it is written.
         entry: (workspace) => assignedReviewsEntry(defaultActionFor(workspace.actions ?? [], 'pr')?.name ?? 'Review'),
-        matches: coversAssignedReviews,
+        // A review by an action: a prompt on the same events is a brief, another template.
+        matches: (automation) => coversAssignedReviews(automation) && automation.run.kind === 'action',
     },
     {
         id: 'clean-up-stale-sessions',
@@ -150,7 +157,8 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
                 ...promptBlock(BRIEF_PROMPT),
                 '  mode: auto',
             ].join('\n'),
-        matches: (automation) => automation.name === 'brief-review-requests' || runsPrompt(automation, BRIEF_PROMPT),
+        // A prompt on review requests, whatever it says: an action there is a review, another template.
+        matches: (automation) => onReviewRequest(automation) && automation.run.kind === 'prompt',
     },
 ];
 

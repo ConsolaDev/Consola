@@ -161,6 +161,17 @@ automations:
         expect(view(workspace(), 'morning-inbox-digest', file)).not.toHaveProperty('addedAs');
     });
 
+    it('a review request’s prompt and its action are different templates', () => {
+        const on = '    on: { github: pull_request.review_requested }\n';
+        const briefs = `version: 1\nautomations:\n  - name: pr-briefs\n${on}    run: { prompt: "Brief me with work_item_context." }\n`;
+        expect(view(workspace(), 'brief-review-requests', briefs).addedAs).toBe('pr-briefs');
+        expect(view(workspace(), 'review-assigned-prs', briefs)).not.toHaveProperty('addedAs');
+
+        const reviews = `version: 1\nautomations:\n  - name: reviews\n${on}    run: { action: Review }\n`;
+        expect(view(workspace(), 'review-assigned-prs', reviews).addedAs).toBe('reviews');
+        expect(view(workspace(), 'brief-review-requests', reviews)).not.toHaveProperty('addedAs');
+    });
+
     it('addTemplate writes a template through the runner’s checks, and refuses one with something missing', async () => {
         const unbound = workspace({ provider: undefined });
         const t = await runner(unbound);
