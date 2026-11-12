@@ -73,6 +73,17 @@ export interface RunRecord {
     approval?: { args: Record<string, unknown> };
     /** The agent session the run started, once it launched. */
     sessionId?: string;
+    /**
+     * When the run started working: its tool's `run` call, or its agent
+     * session's turn. Duration counts from here, not from `createdAt`, which
+     * also covers time spent waiting for a person or a slot.
+     */
+    startedAt?: string;
+    /**
+     * The session's conversation, recorded at launch so the run stays
+     * readable after the session is removed.
+     */
+    conversation?: { harnessId: string; id: string; cwd?: string };
     error?: string;
     attribution: {
         automationId: string;

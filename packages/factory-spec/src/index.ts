@@ -8,7 +8,8 @@
  * registry.
  */
 export { cronError, nextCronOccurrence } from './cron';
-export { appendAutomationEntry } from './edit';
+export { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+export { parseAutomationEntry, type AutomationEntryResult } from './entry';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
     TERMINAL_RUN_STATUSES,
