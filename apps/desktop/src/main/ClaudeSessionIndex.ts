@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import * as fsp from 'fs/promises';
 import * as os from 'os';
 import * as path from 'path';
 import type { SessionNameResult } from '../shared/types';
@@ -191,6 +192,126 @@ function readFirstPrompt(sessionId: string, configDir?: string): string | null {
         // Transcript unreadable or mid-write.
     }
     return null;
+}
+
+/** Longest reply handed out; the tail is kept, since a reply's conclusion is its end. */
+export const MAX_REPLY_CHARS = 4_000;
+
+type TranscriptBlock = { type?: string; text?: string };
+
+function textBlocks(content: unknown): string[] {
+    if (!Array.isArray(content)) return [];
+    return (content as TranscriptBlock[])
+        .filter((b) => b && b.type === 'text' && typeof b.text === 'string' && b.text.trim())
+        .map((b) => b.text as string);
+}
+
+/** Backwards read size, and the most one call reads looking for `count` turns. */
+const REPLY_CHUNK_BYTES = 64 * 1024;
+const REPLY_SCAN_LIMIT_BYTES = 16 * 1024 * 1024;
+
+/**
+ * What the assistant last said, one entry per turn, oldest first.
+ *
+ * A turn opens at a real user prompt and runs through its tool calls: a user
+ * record holding only tool results continues the turn instead of ending it,
+ * and a meta record (injected context, not something the person typed) never
+ * opens one. Subagent sidechains are another conversation and are skipped.
+ * `null` means there is no transcript; a transcript with no replies yields `[]`.
+ *
+ * Read backwards in chunks, like `readSessionModel`, so a long conversation
+ * costs its last few turns instead of freezing the main process on the whole
+ * file. A turn is complete once its opening prompt is reached.
+ */
+export async function readRecentReplies(
+    sessionId: string,
+    configDir: string | undefined,
+    count: number
+): Promise<string[] | null> {
+    const file = findSessionFile(sessionId, configDir);
+    if (!file) return null;
+    if (count <= 0) return [];
+
+    let handle: Awaited<ReturnType<typeof fsp.open>> | undefined;
+    try {
+        handle = await fsp.open(file, 'r');
+        const { size } = await handle.stat();
+
+        const replies: string[] = []; // newest first while scanning
+        let pending: string[][] = []; // the open turn's text blocks, newest first
+
+        const closeTurn = (): void => {
+            const reply = pending.reverse().flat().join('\n\n');
+            pending = [];
+            if (reply.trim() !== '') replies.push(reply);
+        };
+
+        /** Returns true once `count` turns are collected. */
+        const readLine = (line: string): boolean => {
+            if (!line.trim()) return false;
+
+            let record: {
+                type?: string;
+                isSidechain?: boolean;
+                isMeta?: boolean;
+                message?: { content?: unknown };
+            };
+            try {
+                record = JSON.parse(line);
+            } catch {
+                // The last line can be mid-write.
+                return false;
+            }
+            if (record.isSidechain === true) return false;
+
+            const content = record.message?.content;
+            if (record.type === 'user') {
+                if (record.isMeta === true) return false;
+                const startsTurn =
+                    typeof content === 'string' ? content.trim() !== '' : textBlocks(content).length > 0;
+                if (startsTurn) {
+                    closeTurn();
+                    return replies.length >= count;
+                }
+            } else if (record.type === 'assistant') {
+                pending.push(textBlocks(content));
+            }
+            return false;
+        };
+
+        let position = size;
+        let scanned = 0;
+        let remainder = Buffer.alloc(0);
+        let done = false;
+        while (position > 0 && !done && scanned < REPLY_SCAN_LIMIT_BYTES) {
+            const length = Math.min(position, REPLY_CHUNK_BYTES);
+            position -= length;
+            scanned += length;
+            const chunk = Buffer.alloc(length);
+            const { bytesRead } = await handle.read(chunk, 0, length, position);
+            const data = Buffer.concat([chunk.subarray(0, bytesRead), remainder]);
+            const start = position === 0 ? 0 : data.indexOf(10) + 1;
+            // Keep an incomplete first line for the next chunk. Buffers preserve
+            // UTF-8 characters split at a chunk boundary.
+            remainder = start === 0 && position > 0 ? data : data.subarray(0, start);
+            if (start === 0 && position > 0) continue;
+            const lines = data.subarray(start).toString('utf8').split('\n');
+            for (let i = lines.length - 1; i >= 0 && !done; i--) done = readLine(lines[i]);
+        }
+        // Reached the start of the file: whatever is still open is the first turn.
+        if (!done && position === 0) closeTurn();
+
+        return replies
+            .slice(0, count)
+            .reverse()
+            .map((reply) =>
+                reply.length > MAX_REPLY_CHARS ? '…' + reply.slice(-(MAX_REPLY_CHARS - 1)) : reply
+            );
+    } catch {
+        return null;
+    } finally {
+        await handle?.close();
+    }
 }
 
 /**

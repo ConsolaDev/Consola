@@ -1,5 +1,5 @@
 import { BrowserWindow, WebContents } from 'electron';
-import { TerminalService, TerminalExitInfo, TerminalServiceOptions } from './TerminalService';
+import { TerminalService, TerminalExitInfo, TerminalServiceOptions, RelaunchFields } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
@@ -25,15 +25,28 @@ export class TerminalManager {
     /** Called whenever getAttentionCount() may have changed. */
     public onAttentionChanged?: () => void;
 
-    /** Called on every status transition, after the broadcast. Drives OS notifications. */
-    public onStatusChanged?: (instanceId: string, status: TerminalStatus) => void;
+    private readonly statusListeners = new Set<(instanceId: string, status: TerminalStatus) => void>();
+    private readonly exitListeners = new Set<(instanceId: string, info: TerminalExitInfo) => void>();
 
     /**
-     * Called when a session's process exits, after the broadcast: an
-     * unattended turn ending is an automation run finishing. Never called
-     * for a terminal `destroy` removed, whose listeners go with it.
+     * Hear every status transition, after the broadcast. Many listeners may
+     * subscribe (OS notifications, the Assistant), so none displaces another.
+     * Returns the unsubscribe.
      */
-    public onExit?: (instanceId: string, info: TerminalExitInfo) => void;
+    public addStatusListener(listener: (instanceId: string, status: TerminalStatus) => void): () => void {
+        this.statusListeners.add(listener);
+        return () => { this.statusListeners.delete(listener); };
+    }
+
+    /**
+     * Hear a session's process exit, after the broadcast: an unattended turn
+     * ending is an automation run finishing. Never called for a terminal
+     * `destroy` removed, whose listeners go with it. Returns the unsubscribe.
+     */
+    public addExitListener(listener: (instanceId: string, info: TerminalExitInfo) => void): () => void {
+        this.exitListeners.add(listener);
+        return () => { this.exitListeners.delete(listener); };
+    }
 
     /**
      * Called when a session's CLI says it now works somewhere else — an
@@ -144,6 +157,17 @@ export class TerminalManager {
         return snapshot;
     }
 
+    /**
+     * Start an exited terminal again, in place, resuming its conversation.
+     * The instance stays, so a window showing it keeps streaming and its
+     * "exited" overlay clears when the status moves.
+     */
+    public relaunch(instanceId: string, launch: RelaunchFields): void {
+        const terminal = this.terminals.get(instanceId);
+        if (!terminal) throw new Error(`No terminal for ${instanceId}.`);
+        terminal.relaunch(launch);
+    }
+
     public destroy(instanceId: string): void {
         const terminal = this.terminals.get(instanceId);
         if (!terminal) return;
@@ -188,6 +212,17 @@ export class TerminalManager {
         }
     }
 
+    /** One listener throwing must not silence the others, or the emitter. */
+    private notify<T>(listeners: Set<T>, call: (listener: T) => void): void {
+        for (const listener of [...listeners]) {
+            try {
+                call(listener);
+            } catch (error) {
+                console.error('A terminal listener failed:', error);
+            }
+        }
+    }
+
     private wireEvents(instanceId: string, terminal: TerminalService): void {
         terminal.on('data', (data: string) => {
             this.sendToOwner(instanceId, IPC_CHANNELS.TERMINAL_DATA, { instanceId, data });
@@ -212,7 +247,7 @@ export class TerminalManager {
             this.awaiting.delete(instanceId);
             this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
             this.onAttentionChanged?.();
-            this.onExit?.(instanceId, info);
+            this.notify(this.exitListeners, listener => listener(instanceId, info));
         });
 
         terminal.on('working-directory', (cwd: string) => {
@@ -223,7 +258,7 @@ export class TerminalManager {
             // Light state, per the windows design: any window may need it for
             // group counts and attention dots, so it goes to all of them.
             this.broadcast(IPC_CHANNELS.TERMINAL_STATUS, { instanceId, status });
-            this.onStatusChanged?.(instanceId, status);
+            this.notify(this.statusListeners, listener => listener(instanceId, status));
         });
     }
 }

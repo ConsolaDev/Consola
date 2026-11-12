@@ -70,8 +70,8 @@ test('first run explains the model and creates a multi-scope workspace', async (
     await expect(elsewhere).toBeVisible();
     await page.screenshot({ path: 'test-results/onboarding-other-scopes.png' });
     await elsewhere.click();
-    await expect(page.getByRole('tab', { name: 'All your sessions' })).toHaveAttribute('aria-selected', 'true');
-    await expect(page.getByRole('navigation', { name: 'All sessions' })).toContainText('Fix login');
+    await expect(page.getByRole('menu')).toBeVisible();
+    await expect(page.getByRole('menu')).toContainText('web');
   } finally {
     await app.close();
   }

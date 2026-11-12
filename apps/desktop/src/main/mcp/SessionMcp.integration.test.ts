@@ -9,6 +9,7 @@ import { ReadBuffer, serializeMessage } from '@modelcontextprotocol/sdk/shared/s
 import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import type { RunRecord } from '@consola/factory-spec';
+import { AssistantTools, type AssistantToolsDeps } from '../assistant/AssistantTools';
 import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import { consolaTools, MAX_DIFF_CHARS, type ConsolaToolDeps } from '../tools/consolaTools';
@@ -68,6 +69,7 @@ const CONDUCTOR_TOOLS = [
 let configDir: string;
 let host: SessionMcpHost;
 let conductorDeps: ConductorToolsDeps;
+let assistantDeps: AssistantToolsDeps;
 let toolDeps: ConsolaToolDeps;
 let requestApproval: Mock<SessionServerDeps['approvals']['request']>;
 let build: (sessionId: string) => ReturnType<typeof buildSessionServer>;
@@ -95,6 +97,7 @@ const workspaces = () => [
     sessions: [
       makeSession(),
       makeSession({ id: 'w-1', name: 'worker', instanceId: 'inst-w1', kind: 'interactive' }),
+      makeSession({ id: 'a-1', name: 'Assistant', instanceId: 'inst-a1', kind: 'assistant', groupId: undefined }),
     ],
   }),
   makeWorkspace({ id: 'ws-2', name: 'Other', sessions: [makeSession({ id: 'x-1', workspaceId: 'ws-2', kind: 'interactive' })] }),
@@ -141,6 +144,16 @@ beforeEach(() => {
   const registry = new ToolRegistry();
   consolaTools(toolDeps).forEach((tool) => registry.register(tool));
   const conductorTools = new ConductorTools(conductorDeps);
+  assistantDeps = {
+    getWorkspaces: workspaces,
+    status: () => 'ready',
+    deliverPrompt: vi.fn(async () => 'queued' as const),
+    recentReplies: vi.fn(async () => []),
+    screenText: () => null,
+    start: vi.fn(),
+    watch: vi.fn(),
+  };
+  const assistantTools = new AssistantTools(assistantDeps);
   // Like AutomationService.requestApproval: preview with the agent's authority, then wait.
   requestApproval = vi.fn(async (toolName: string, args: unknown, sessionId: string) => ({
     preview: await registry.invoke(toolName, args, agentContext(sessionId, workspaces()), 'preview'),
@@ -151,6 +164,7 @@ beforeEach(() => {
       registry,
       approvals: { request: requestApproval },
       conductorTools,
+      assistantTools,
       getWorkspaces: workspaces,
     });
   host = new SessionMcpHost({ shimEntryPath: () => '/fake/shim.js', configDir: () => configDir, buildServer: build });
@@ -227,6 +241,50 @@ describe('MCP surface (in-memory)', () => {
     await client.close();
   });
 
+  it('gives the Assistant the Consola tools, with its own start_session, plus prompt and read', async () => {
+    const client = await clientFor('a-1');
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name).sort()).toEqual(
+      [...CONSOLA_TOOLS, 'consola_prompt_session', 'consola_read_session'].sort()
+    );
+    // The Assistant's own start_session replaces the generic one: it takes a work item, and no fork.
+    const start = tools.find((tool) => tool.name === 'consola_start_session');
+    expect(start?.inputSchema.properties).toHaveProperty('work_item');
+    expect(start?.inputSchema.properties).not.toHaveProperty('fork');
+    const hints = Object.fromEntries(tools.map((tool) => [tool.name, tool.annotations]));
+    expect(hints.consola_read_session).toMatchObject({ readOnlyHint: true });
+    expect(hints.consola_prompt_session).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
+    expect(hints.consola_start_session).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: false });
+    await client.close();
+  });
+
+  it('offers prompt and read to no one else', async () => {
+    for (const sessionId of ['w-1', 'cond-1', 'r-1']) {
+      const client = await clientFor(sessionId);
+      const { tools } = await client.listTools();
+      const names = tools.map((tool) => tool.name);
+      expect(names).not.toContain('consola_prompt_session');
+      expect(names).not.toContain('consola_read_session');
+      // Anyone else's start_session is the generic one.
+      const start = tools.find((tool) => tool.name === 'consola_start_session');
+      expect(start?.inputSchema.properties ?? {}).not.toHaveProperty('work_item');
+      await client.close();
+    }
+  });
+
+  it('answers a cross-workspace id as a tool error', async () => {
+    const client = await clientFor('a-1');
+    const read = await client.callTool({ name: 'consola_read_session', arguments: { session_id: 'x-1' } });
+    expect(read.isError).toBe(true);
+    expect(firstText(read)).toMatch(/No session x-1 in this workspace/);
+    const prompted = await client.callTool({ name: 'consola_prompt_session', arguments: { session_id: 'x-1', prompt: 'hi' } });
+    expect(prompted.isError).toBe(true);
+    expect(firstText(prompted)).toMatch(/No session x-1 in this workspace/);
+    expect(assistantDeps.deliverPrompt).not.toHaveBeenCalled();
+    expect(assistantDeps.recentReplies).not.toHaveBeenCalled();
+    await client.close();
+  });
+
   it('scopes Consola tools to the caller’s own workspace, minus itself — from the endpoint, not the args', async () => {
     const client = await clientFor('w-1');
     const result = await client.callTool({ name: 'consola_find_stale_sessions', arguments: {} });
@@ -241,7 +299,8 @@ describe('MCP surface (in-memory)', () => {
   it('lists only the caller’s workspace, marking the caller', async () => {
     const client = await clientFor('w-1');
     const listed = JSON.parse(firstText(await client.callTool({ name: 'consola_list_sessions', arguments: {} })));
-    expect(listed.sessions.map((s: { sessionId: string }) => s.sessionId)).toEqual(['cond-1', 'w-1']);
+    // The Assistant is a real session in the workspace, so it is listed too.
+    expect(listed.sessions.map((s: { sessionId: string }) => s.sessionId)).toEqual(['cond-1', 'w-1', 'a-1']);
     expect(listed.sessions[1]).toMatchObject({ sessionId: 'w-1', you: true, status: 'ready' });
     await client.close();
   });

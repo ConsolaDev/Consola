@@ -3,7 +3,7 @@ import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
-import { checkoutPathForSession, scopeForSession } from '../shared/workspace';
+import { checkoutPathForSession, scopeForSession, type WorkspaceUpdates } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
@@ -30,11 +30,17 @@ import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
+import { AssistantActivity } from './assistant/AssistantActivity';
+import { AssistantService } from './assistant/AssistantService';
+import { AssistantTools } from './assistant/AssistantTools';
+import { ensureAssistantHome } from './assistant/assistantHome';
+import { recentRepliesFor } from './assistant/recentReplies';
+import { startAssistantSession } from './assistant/startSession';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
-import { launchAgentRun } from './automations/launchAgentRun';
+import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
@@ -208,7 +214,7 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_UPDATE,
-        (_event, id: string, updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>) => {
+        (_event, id: string, updates: WorkspaceUpdates) => {
             // Filtering lives in updateFilters.ts, tested there: TypeScript's
             // `Pick<>` is gone by the time a payload crosses IPC.
             workspaces.updateWorkspace(id, allowedWorkspaceUpdates(updates));
@@ -232,6 +238,42 @@ export function setupIpcHandlers(): boolean {
         // listening socket and a config file nothing can name again.
         releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
     });
+
+    const assistants = new AssistantService({
+        workspaces,
+        ensureHome: ensureAssistantHome,
+        stop: (session) => sessionRemover.stop(session),
+    });
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_OPEN, (_event, workspaceId: string) =>
+        assistants.open(String(workspaceId))
+    );
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_START_FRESH, (_event, workspaceId: string) =>
+        assistants.startFresh(String(workspaceId))
+    );
+    // Only a running Assistant is ever told: a stopped one has no terminal to
+    // queue into, and nothing here may start a process.
+    const assistantActivity = new AssistantActivity({
+        getWorkspaces: () => workspaces.getAll(),
+        queuePrompt: (instanceId, prompt) => {
+            const terminal = terminalManager?.get(instanceId);
+            if (!terminal || terminal.hasClaudeExited()) return false;
+            terminal.queuePrompt(prompt);
+            return true;
+        },
+        broadcast: (workspaceId, activity) => {
+            for (const window of BrowserWindow.getAllWindows()) {
+                if (!window.isDestroyed()) {
+                    window.webContents.send(IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED, { workspaceId, activity });
+                }
+            }
+        },
+    });
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, (_event, workspaceId: string) =>
+        assistantActivity.snapshot(String(workspaceId))
+    );
+    ipcMain.handle(IPC_CHANNELS.ASSISTANT_MARK_SEEN, (_event, workspaceId: string) =>
+        assistantActivity.markSeen(String(workspaceId))
+    );
 
     ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
         // Read the sessions while the record still exists. Once it is gone
@@ -303,6 +345,9 @@ export function setupIpcHandlers(): boolean {
         IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
         (_event, workspaceId: string, sessionId: string) => {
             const session = workspaces.getAll().find(w => w.id === workspaceId)?.sessions.find(s => s.id === sessionId);
+            if (session?.kind === 'assistant') {
+                throw new Error('The Assistant is not deleted; start a fresh conversation from its ⋯ menu.');
+            }
             // Record first, then the PTY, shell and MCP endpoint — in main,
             // so the delete is whole even when no renderer sends the rest.
             if (session) sessionRemover.remove(workspaceId, session);
@@ -327,11 +372,8 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE,
         (_event, workspaceId: string, scopeId: string) => {
-            const sessions = workspaces.getAll().find(workspace => workspace.id === workspaceId)
-                ?.sessions.filter(session => session.scopeId === scopeId) ?? [];
-            workspaces.removeScope(workspaceId, scopeId);
             // Stop the deleted sessions only after the entire change reaches disk.
-            sessions.forEach((session) => sessionRemover.stop(session));
+            workspaces.removeScope(workspaceId, scopeId).forEach((session) => sessionRemover.stop(session));
         }
     );
 
@@ -642,7 +684,8 @@ export function setupIpcHandlers(): boolean {
     // → OS notification. Rings only for a session hitting needs-attention
     // while no Consola window is focused; the Inbox never notifies — only
     // terminals emit status. Clicking lands on the right window and session.
-    manager.onStatusChanged = (instanceId, status) => {
+    manager.addStatusListener((instanceId, status) => assistantActivity.statusChanged(instanceId, status));
+    manager.addStatusListener((instanceId, status) => {
         const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
         if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
         if (!Notification.isSupported()) return;
@@ -663,11 +706,11 @@ export function setupIpcHandlers(): boolean {
             focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
         });
         notification.show();
-    };
+    });
 
     // An automation session's unattended turn ending is its run finishing:
     // the findings are there, or the reason it stopped is.
-    manager.onExit = (instanceId, info) => {
+    manager.addExitListener((instanceId, info) => {
         if (!info.unattended) return;
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) return;
@@ -676,7 +719,7 @@ export function setupIpcHandlers(): boolean {
             lastLine: info.lastLine,
             stopped: info.stopped,
         });
-    };
+    });
 
     // An agent can move itself into another checkout (Claude's EnterWorktree)
     // and git state belongs to the checkout it edits, so the record follows
@@ -790,7 +833,8 @@ export function setupIpcHandlers(): boolean {
     }).forEach((tool) => tools.register(tool));
 
     // Every session's private MCP endpoint (see SessionMcpHost): the Consola
-    // tools for all, plus the group tools for conductors.
+    // tools for all, plus the group tools for conductors and the workspace
+    // tools for the Assistant.
     const mcpHost = new SessionMcpHost({
         // In the packaged app the shim must be a real file on disk — the
         // claude CLI, an outside process, spawns it. Hence asarUnpack.
@@ -806,11 +850,62 @@ export function setupIpcHandlers(): boolean {
                     request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
                 },
                 conductorTools,
+                assistantTools,
                 getWorkspaces: () => workspaces.getAll(),
             }),
     });
     launcher.mcpHost = mcpHost;
     app.on('will-quit', () => mcpHost.dispose());
+
+    // What preparing a work item's worktree needs, shared by automations and
+    // the Assistant so both take the same chain and keep git hooks off.
+    const itemWorktreeDeps: ItemWorktreeDeps = {
+        resolveDriver: getProviderDriver,
+        resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
+        worktreePathFor: (workItem) => worktrees.worktreePathFor(workItem),
+        ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
+        refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
+        worktreeInUse: (dir) =>
+            worktreeHeld(
+                workspaces.getAll().flatMap((workspace) => workspace.sessions),
+                dir,
+                (session) => manager.get(session.instanceId)?.hasClaudeExited() === false
+            ),
+        composeEnv: composeProviderEnv,
+    };
+    // A re-run of a read-only review reads the PR as it is now.
+    launcher.beforeRerun = (workspace, session) => refreshIdleWorktree(itemWorktreeDeps, workspace, session);
+
+    // The Assistant's workspace tools: prompt, read and start its sessions,
+    // and hear back when each settles. mcpHost's buildServer reads it only
+    // when a session connects, which is after this setup has run.
+    const assistantTools = new AssistantTools({
+        getWorkspaces: () => workspaces.getAll(),
+        status: sessionStatus,
+        deliverPrompt: (workspaceId, sessionId, prompt) => launcher.deliverPrompt(workspaceId, sessionId, prompt),
+        recentReplies: (session, count) =>
+            recentRepliesFor(
+                harnesses.getAll().find((harness) => harness.id === session.harnessId),
+                session,
+                count
+            ),
+        // An exited terminal's screen is a stale one.
+        screenText: (instanceId) => {
+            const terminal = manager.get(instanceId);
+            return terminal && !terminal.hasClaudeExited() ? terminal.screenText() : null;
+        },
+        start: (workspace, request) =>
+            startAssistantSession(
+                {
+                    ...itemWorktreeDeps,
+                    restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
+                    launchSession: (id, fields) => launcher.launchSession(id, fields),
+                },
+                workspace,
+                request
+            ),
+        watch: (assistantSessionId, targetSessionId) => assistantActivity.watch(assistantSessionId, targetSessionId),
+    });
 
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
@@ -851,17 +946,7 @@ export function setupIpcHandlers(): boolean {
             launchAgentRun(
                 {
                     getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
-                    resolveDriver: getProviderDriver,
-                    resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
-                    worktreePathFor: (workItem) => worktrees.worktreePathFor(workItem),
-                    ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
-                    refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
-                    worktreeInUse: (dir) =>
-                        workspaces
-                            .getAll()
-                            .flatMap((workspace) => workspace.sessions)
-                            .some((session) => session.cwd === dir && manager.get(session.instanceId)?.hasClaudeExited() === false),
-                    composeEnv: composeProviderEnv,
+                    ...itemWorktreeDeps,
                     restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
                     launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
                 },
@@ -1439,6 +1524,10 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
     ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
     ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_OPEN);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_START_FRESH);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY);
+    ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_MARK_SEEN);
     ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
     ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 

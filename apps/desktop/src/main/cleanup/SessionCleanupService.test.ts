@@ -457,4 +457,25 @@ describe('deleteSession', () => {
         ).rejects.toThrow(/No session/);
         expect(rig.sessionIds()).toHaveLength(3);
     });
+
+    it('never deletes the Assistant, and skips it in a stale sweep without looking it up', async () => {
+        // Linked to a merged PR: any other session would be removed.
+        rig.pr('#8', 8, 'merged', 'c'.repeat(40));
+        const assistant = rig.session({
+            name: 'Assistant',
+            kind: 'assistant',
+            workItem: { provider: 'github', repo: 'acme/app', type: 'pr', number: 8 },
+        });
+        const scope = { workspaceIds: ['ws-1'], excludeSessionIds: [] };
+        const service = rig.service();
+
+        await expect(service.previewDelete(scope, assistant.id)).rejects.toThrow(/The Assistant is not deleted/);
+        await expect(service.deleteSession(scope, assistant.id)).rejects.toThrow(/The Assistant is not deleted/);
+
+        // A lookup failure would surface as a different skip reason if attribution ran.
+        rig.lookupError = new Error('should not be asked');
+        const preview = await service.previewStale(scope, { prStates: ['merged'], sessionIds: [assistant.id] });
+        expect(preview.skipped.map((entry) => [entry.sessionId, entry.reason])).toEqual([[assistant.id, 'assistant']]);
+        expect(rig.sessionIds()).toEqual([assistant.id]);
+    });
 });

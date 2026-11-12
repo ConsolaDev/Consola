@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { WorkspaceIconPicker } from './WorkspaceIconPicker';
+import { listedSessions } from '../../../shared/workspace';
 import { PROVIDER_META } from '../../../shared/providers';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -49,7 +50,7 @@ export function ManifestHeader({ workspace }: ManifestHeaderProps) {
 
   const harness = harnesses.find((candidate) => candidate.id === workspace.defaultHarnessId);
   const scopeCount = workspace.scopes.length;
-  const sessionCount = workspace.sessions.length;
+  const sessionCount = listedSessions(workspace).length;
 
   return (
     <div className="ws-manifest">

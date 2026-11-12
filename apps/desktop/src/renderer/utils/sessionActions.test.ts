@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.mocked(windowBridge.setView).mockClear();
   vi.mocked(windowBridge.activateWorkspace).mockReset();
   useWorkspaceStore.setState({ workspaces: [] });
-  useHomeStore.setState({ scopeIds: {}, tabs: {}, draftGroupIds: {} });
+  useHomeStore.setState({ scopeIds: {}, draftGroupIds: {} });
   useNavigationStore.setState({
     activeWorkspaceId: null,
     activeSessionId: null,

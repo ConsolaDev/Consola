@@ -50,6 +50,23 @@ export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
   );
 }
 
+/**
+ * The Assistant chord: Cmd+J on macOS, Ctrl+Shift+J elsewhere.
+ *
+ * Split for the same reason as the palette chord: a bare Ctrl+J is U+000A in
+ * the PTY, so off macOS the chord has to carry Shift to stay ours.
+ */
+export function isAssistantShortcut(event: KeyboardEvent): boolean {
+  const isJ = event.key.toLowerCase() === 'j';
+  if (isMac) {
+    return event.metaKey && !event.ctrlKey && !event.shiftKey && !event.altKey && isJ;
+  }
+  return event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && isJ;
+}
+
+/** How the Assistant's shortcut is written on its sidebar row. */
+export const ASSISTANT_SHORTCUT_LABEL = isMac ? '⌘J' : 'Ctrl+Shift+J';
+
 /** How the palette chord is written in menus and hint text. */
 export const COMMAND_PALETTE_SHORTCUT_LABEL = isMac ? '⌘K' : 'Ctrl+Shift+P';
 

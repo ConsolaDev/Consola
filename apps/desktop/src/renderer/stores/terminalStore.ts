@@ -128,7 +128,9 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
                 setState(instanceId, { hasExited: true, isBusy: false });
             }),
             terminalBridge.onStatus(({ instanceId, status }) => {
-                setState(instanceId, { status });
+                // Only an exit event marks a pane exited; any other status means
+                // main brought the terminal back (a relaunch), so the overlay goes.
+                setState(instanceId, status === 'exited' ? { status } : { status, hasExited: false });
             }),
         ];
 

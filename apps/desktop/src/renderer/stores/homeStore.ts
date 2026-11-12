@@ -3,10 +3,8 @@ import { primaryScope, type Workspace } from '../../shared/workspace';
 
 interface HomeState {
   scopeIds: Record<string, string>;
-  tabs: Record<string, 'home' | 'all'>;
   draftGroupIds: Record<string, string | undefined>;
   selectScope: (workspaceId: string, scopeId: string) => void;
-  selectTab: (workspaceId: string, tab: 'home' | 'all') => void;
   setDraftGroup: (workspaceId: string, groupId?: string) => void;
 }
 
@@ -14,10 +12,8 @@ interface HomeState {
 // sharing a window's current filter or draft destination with other windows.
 export const useHomeStore = create<HomeState>((set) => ({
   scopeIds: {},
-  tabs: {},
   draftGroupIds: {},
   selectScope: (id, scopeId) => set(state => ({ scopeIds: { ...state.scopeIds, [id]: scopeId } })),
-  selectTab: (id, tab) => set(state => ({ tabs: { ...state.tabs, [id]: tab } })),
   setDraftGroup: (id, groupId) => set(state => ({ draftGroupIds: { ...state.draftGroupIds, [id]: groupId } })),
 }));
 

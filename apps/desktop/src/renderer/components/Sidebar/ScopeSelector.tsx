@@ -7,8 +7,10 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 
-export function ScopeSelector({ workspace, disabled = false, className = '' }: {
+/** `open` / `onOpenChange` are optional: without them the menu manages itself. */
+export function ScopeSelector({ workspace, disabled = false, className = '', open, onOpenChange }: {
   workspace: Workspace; disabled?: boolean; className?: string;
+  open?: boolean; onOpenChange?: (open: boolean) => void;
 }) {
   const selectedId = useHomeStore(state => state.scopeIds[workspace.id]);
   const activeSessionId = useNavigationStore(state => state.activeSessionId);
@@ -25,7 +27,7 @@ export function ScopeSelector({ workspace, disabled = false, className = '' }: {
   };
 
   return <>
-    <DropdownMenu.Root>
+    <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
       <DropdownMenu.Trigger asChild>
         <button className={`scope-selector ${className}`} aria-label="Choose scope" title={scope?.path} disabled={disabled}>
           {scope?.isGitRepo ? <GitBranch size={14} /> : <Folder size={14} />}

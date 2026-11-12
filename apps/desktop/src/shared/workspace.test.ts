@@ -5,7 +5,10 @@ import {
   createWorkspaceRecord,
   generateUuid,
   migrateWorkspaceState,
+  assistantItemMode,
+  assistantSession,
   checkoutPathForSession,
+  listedSessions,
   primaryScope,
   scopeForSession,
   type Workspace,
@@ -722,5 +725,34 @@ describe('scope helpers', () => {
         agentCwd: entered,
       })
     ).toBe(entered);
+  });
+});
+
+describe('the Assistant helpers', () => {
+  function workspaceWith(kinds: Array<'interactive' | 'assistant'>): Workspace {
+    const ws = createWorkspaceRecord('catalog-portal', '/code/catalog-portal', true, 'default');
+    ws.sessions = kinds.map((kind) =>
+      createSessionRecord({
+        name: kind,
+        workspaceId: ws.id,
+        instanceId: `i-${kind}`,
+        harnessId: 'default',
+        scopeId: ws.scopes[0].id,
+        kind,
+      })
+    );
+    return ws;
+  }
+
+  it('assistantItemMode is full-tools when absent and returns a set value unchanged', () => {
+    const ws = workspaceWith([]);
+    expect(assistantItemMode(ws)).toBe('full-tools');
+    expect(assistantItemMode({ ...ws, assistantItemMode: 'assistant-picks' })).toBe('assistant-picks');
+  });
+
+  it('listedSessions drops only the assistant record', () => {
+    const ws = workspaceWith(['interactive', 'assistant']);
+    expect(listedSessions(ws).map((s) => s.kind)).toEqual(['interactive']);
+    expect(assistantSession(ws)?.kind).toBe('assistant');
   });
 });

@@ -1,4 +1,5 @@
 import { isShellShortcut } from '../../utils/shellShortcut';
+import { isAssistantShortcut } from '../../utils/platform';
 import { useEffect, useRef, useState } from 'react';
 import { Terminal } from '@xterm/xterm';
 import { FitAddon } from '@xterm/addon-fit';
@@ -60,7 +61,7 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
     fitRef.current = refit;
     const input = terminal.onData(data => { if (ready) api.input(instanceId, data); });
     terminal.attachCustomKeyEventHandler(event => {
-      if (isShellShortcut(event)) {
+      if (isShellShortcut(event) || isAssistantShortcut(event)) {
         event.preventDefault();
         return false;
       }

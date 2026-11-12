@@ -11,6 +11,8 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { harnessBridge } from '../../services/harnessBridge';
+import { assistantBridge } from '../../services/assistantBridge';
+import { useAssistantStore } from '../../stores/assistantStore';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
@@ -18,6 +20,8 @@ import { WorkItemStrip } from '../WorkItemStrip';
 import { WorkItemPanel } from '../WorkItemPanel';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
+import { AssistantHeader } from './AssistantHeader';
+import { AssistantMarker } from './AssistantMarker';
 import { useCheckout } from '../../stores/checkoutStore';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
@@ -56,6 +60,13 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
   const cwd = (workspace && checkoutPathForSession(workspace, session)) ?? '';
+  // Its folder is not a repo and holds only its brief, so none of the
+  // checkout-shaped panels (explorer, git review) have anything to show.
+  const isAssistant = session?.kind === 'assistant';
+  const hasUnseenFinished = useAssistantStore((state) => (state.activity[workspaceId]?.unseenFinished ?? 0) > 0);
+  const touchedByAssistant = useAssistantStore((state) =>
+    Boolean(session && state.activity[workspaceId]?.touchedSessionIds.includes(session.id))
+  );
   // Re-read on every switch: the agent on screen may just have changed branch.
   const checkout = useCheckout(cwd || null, { fresh: true });
   // Details are read as the workspace's account, so a workspace without one
@@ -66,11 +77,11 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // Conditional panels must have separate saved layouts: hiding the explorer
   // must not overwrite the layout that remembers its width.
   const panelIds = [
-    ...(isExplorerVisible && cwd ? ['explorer'] : []),
+    ...(isExplorerVisible && cwd && !isAssistant ? ['explorer'] : []),
     'agent',
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
-    ...(isGitReviewOpen ? ['git-review'] : []),
+    ...(isGitReviewOpen && !isAssistant ? ['git-review'] : []),
   ];
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
     id: 'content-view-split',
@@ -98,7 +109,15 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // Git status follows the checkout the session runs in. A worktree has its
   // own branch, index and changes, so its scope's path would report a
   // different checkout than the one the agent is editing.
-  useGitStatusAutoRefresh(scope?.isGitRepo || session?.cwd || session?.agentCwd ? cwd : null);
+  useGitStatusAutoRefresh(!isAssistant && (scope?.isGitRepo || session?.cwd || session?.agentCwd) ? cwd : null);
+
+  // The Assistant's finished count means "since you last looked". Looking is
+  // this pane being on screen, so it clears on arrival and again whenever
+  // more finishes while it stays up.
+  useEffect(() => {
+    if (!isAssistant) return;
+    void assistantBridge.markSeen(workspaceId);
+  }, [isAssistant, workspaceId, hasUnseenFinished]);
 
   // Record that this tab has launched, so reopening it resumes the
   // conversation instead of trying to create a session ID Claude already has.
@@ -185,6 +204,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   return (
     <div className="workspace-view">
       <div className="workspace-view-header">
+        {isAssistant ? (
+          <AssistantHeader workspace={workspace} session={session} />
+        ) : (
+          <>
         <h1 className="workspace-view-title">
           <span>{workspace.name}</span>
           {session.name && (
@@ -195,6 +218,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           )}
         </h1>
         <CheckoutChip checkout={checkout} />
+        {touchedByAssistant && <AssistantMarker />}
         {cwd && (
           <PathDisplay
             path={cwd}
@@ -209,6 +233,8 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             onToggleTerminal={() => toggleTerminal(instanceId)}
           />
         )}
+          </>
+        )}
       </div>
       {session.workItem && <WorkItemStrip workspaceId={workspaceId} session={session} />}
       <div className="workspace-view-content">
@@ -217,7 +243,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
           defaultLayout={defaultLayout}
           onLayoutChanged={onLayoutChanged}
         >
-          {isExplorerVisible && cwd && (
+          {isExplorerVisible && cwd && !isAssistant && (
             <>
               <Panel id="explorer" defaultSize="240px" minSize="160px" maxSize="40%">
                 <FileExplorer
@@ -267,7 +293,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               </Panel>
             </>
           )}
-          {isGitReviewOpen && (
+          {isGitReviewOpen && !isAssistant && (
             <>
               <Separator className="resize-handle" />
               <Panel id="git-review" defaultSize="40%" minSize="20%">

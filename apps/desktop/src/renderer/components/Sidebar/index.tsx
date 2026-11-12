@@ -1,14 +1,16 @@
 import { useEffect, useState } from 'react';
 import { GitPullRequest, Home, Inbox, MoreVertical, Plus } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import * as Tabs from '@radix-ui/react-tabs';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { homeScope, useHomeStore } from '../../stores/homeStore';
+import { listedSessions } from '../../../shared/workspace';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
+import { AssistantNavItem } from './AssistantNavItem';
+import { SidebarSearch } from './SidebarSearch';
 import { SessionNavItem } from './SessionNavItem';
 import { NavigationSettings } from './NavigationSettings';
 import { GroupNavItem } from './GroupNavItem';
@@ -28,9 +30,9 @@ export function Sidebar() {
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const workspace = workspaces.find(candidate => candidate.id === activeWorkspaceId);
   const selectedScopeId = useHomeStore(state => state.scopeIds[activeWorkspaceId ?? '']);
-  const tab = useHomeStore(state => state.tabs[activeWorkspaceId ?? ''] ?? 'home');
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [isDropTarget, setIsDropTarget] = useState(false);
+  const [isScopePickerOpen, setScopePickerOpen] = useState(false);
   const inboxCount = useInboxStore(state => workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0);
   const providerAccount = workspace?.provider?.accountLogin;
 
@@ -43,7 +45,8 @@ export function Sidebar() {
   useEffect(() => {
     const current = useWorkspaceStore.getState().workspaces.find(candidate => candidate.id === activeWorkspaceId);
     const session = current?.sessions.find(candidate => candidate.id === activeSessionId);
-    if (!current || !session) return;
+    // The Assistant belongs to no scope the picker could show.
+    if (!current || !session || session.kind === 'assistant') return;
     useHomeStore.getState().selectScope(current.id, session.scopeId);
     if (session.groupId) useSettingsStore.getState().expandSidebarSection(session.groupId);
   }, [activeWorkspaceId, activeSessionId]);
@@ -53,7 +56,7 @@ export function Sidebar() {
   const scope = workspace && homeScope(workspace, selectedScopeId, activeSessionId);
   const groups = workspace?.groups.filter(group => !group.archivedAt) ?? [];
   const liveGroupIds = new Set(groups.map(group => group.id));
-  const allSessions = workspace?.sessions.filter(session => session.name.length > 0) ?? [];
+  const allSessions = workspace ? listedSessions(workspace).filter(session => session.name.length > 0) : [];
   const sessions = allSessions.filter(session => session.scopeId === scope?.id);
   const ungrouped = sessions.filter(session => !session.groupId || !liveGroupIds.has(session.groupId));
   const startSession = (groupId?: string) => {
@@ -67,22 +70,22 @@ export function Sidebar() {
     const elsewhere = allSessions.length - sessions.length;
     if (!sessions.length && elsewhere > 0) {
       return <>Nothing in {scope.name} yet.{' '}
-        <button type="button" className="sidebar-empty-link" onClick={() => useHomeStore.getState().selectTab(workspace!.id, 'all')}>
+        <button type="button" className="sidebar-empty-link" onClick={() => setScopePickerOpen(true)}>
           {elsewhere} {elsewhere === 1 ? 'session' : 'sessions'} in other scopes
         </button></>;
     }
     return 'No ungrouped sessions in this scope.';
   };
-  const renderSession = (session: typeof allSessions[number], showScope = false) => <SessionNavItem
+  const renderSession = (session: typeof allSessions[number]) => <SessionNavItem
     key={session.id} session={session} workspaceId={workspace!.id}
     isActive={!isInboxOpen && activeSessionId === session.id}
     onClick={() => activateSession(workspace!.id, session.id)}
-    subtitle={showScope ? workspace?.scopes.find(candidate => candidate.id === session.scopeId)?.name ?? 'Unavailable scope' : undefined}
   />;
 
   return (
     <aside className="sidebar" aria-label={isInboxOpen ? 'Inbox sidebar' : 'Home sidebar'}>
       <div className="sidebar-workspace"><WorkspaceMenu /><NavigationSettings /><NewMenu /></div>
+      <SidebarSearch />
       <nav className="app-navigation" aria-label="Main navigation">
         <button className={`app-navigation-item ${!isInboxOpen ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={!isInboxOpen ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span className="app-navigation-label">Home</span></button>
@@ -102,13 +105,10 @@ export function Sidebar() {
         </div>
       </div>}
       {workspace && !isInboxOpen && <>
-        <Tabs.Root className="home-navigation" value={tab} onValueChange={value => useHomeStore.getState().selectTab(workspace.id, value as 'home' | 'all')}>
-          <Tabs.List className="home-tabs" aria-label="Session views">
-            <Tabs.Trigger className="home-tab" value="home">Home</Tabs.Trigger>
-            <Tabs.Trigger className="home-tab" value="all">All your sessions</Tabs.Trigger>
-          </Tabs.List>
-          {tab === 'home' && <div className="sidebar-scope-picker"><ScopeSelector workspace={workspace} /></div>}
-          <Tabs.Content className="home-session-panel" value="home">
+        <div className="home-navigation">
+          <AssistantNavItem workspace={workspace} />
+          <div className="sidebar-scope-picker"><ScopeSelector workspace={workspace} open={isScopePickerOpen} onOpenChange={setScopePickerOpen} /></div>
+          <div className="home-session-panel">
             <div className="sidebar-section">
               <div className="sidebar-section-header"><span className="sidebar-section-title">Your groups</span><button className="sidebar-section-button" aria-label="Add group" onClick={() => setIsCreatingGroup(true)}><Plus size={14} /></button></div>
               <nav className="session-list" aria-label="Session groups">
@@ -139,15 +139,8 @@ export function Sidebar() {
               <nav className="session-list" aria-label="Ungrouped sessions">{ungrouped.map(session => renderSession(session))}</nav>
               {!ungrouped.length && <p className="sidebar-empty">{ungroupedEmptyMessage()}</p>}
             </div>
-          </Tabs.Content>
-          <Tabs.Content className="home-session-panel" value="all">
-            <div className="sidebar-section">
-              <div className="sidebar-section-header"><span className="sidebar-section-title">All scopes · {allSessions.length}</span><button className="sidebar-section-button" aria-label="New session" disabled={!scope} onClick={() => startSession()}><Plus size={14} /></button></div>
-              <nav className="session-list" aria-label="All sessions">{[...allSessions].sort((a, b) => b.lastActiveAt - a.lastActiveAt).map(session => renderSession(session, true))}</nav>
-              {!allSessions.length && <p className="sidebar-empty">Your sessions will appear here.</p>}
-            </div>
-          </Tabs.Content>
-        </Tabs.Root>
+          </div>
+        </div>
         {isCreatingGroup && <NewGroupDialog key={workspace.id} workspaceId={workspace.id} onClose={() => setIsCreatingGroup(false)} />}
       </>}
     </aside>

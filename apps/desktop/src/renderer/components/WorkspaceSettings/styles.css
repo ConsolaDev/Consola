@@ -694,3 +694,12 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
+
+/* A choice's one-line explanation, under its name. */
+.ws-choice-description {
+  display: block;
+  margin-top: 2px;
+  font-weight: var(--font-weight-normal);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}

@@ -662,6 +662,105 @@ describe('bracketedPaste', () => {
     });
 });
 
+describe('TerminalService relaunch', () => {
+    const SESSION = '00000000-0000-4000-8000-000000000000';
+
+    it('relaunches an exited terminal in place, resuming, with the prompt queued for the composer', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0);
+
+        const next = installFakePty();
+        service.relaunch({ cwd: os.tmpdir(), prompt: 'pull latest', unattended: false });
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).toHaveBeenCalledTimes(2);
+        expect(buildArgsMock.mock.calls[1][1]).toMatchObject({ resume: true, sessionId: SESSION, unattended: false });
+        expect(buildArgsMock.mock.calls[1][1].initialPrompt).toBeUndefined();
+
+        // Nothing is typed until the composer is empty.
+        expect(next.writes).toEqual([]);
+        next.feed('❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(next.writes).toEqual(pasted('pull latest'));
+        service.destroy();
+    });
+
+    it('never types an interactive relaunch prompt into a confirmation menu', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0);
+
+        const next = installFakePty();
+        service.relaunch({ cwd: os.tmpdir(), prompt: 'pull latest', unattended: false });
+        await vi.advanceTimersByTimeAsync(0);
+        next.feed('Do you trust the files in this folder?\r\n❯ 1. Yes, proceed\r\n  2. No, exit\r\n');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(next.writes).toEqual([]);
+        service.destroy();
+    });
+
+    it('relaunches an exited read-only terminal as an unattended turn with the prompt as its argument', async () => {
+        const pty = installFakePty();
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: SESSION, resume: false, toolPolicy: 'read-only',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.exit(0);
+        expect(service.runningUnattended()).toBe(false);
+
+        const next = installFakePty();
+        service.relaunch({ cwd: os.tmpdir(), prompt: 'review it', unattended: true });
+        expect(service.runningUnattended()).toBe(true);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+            resume: true, unattended: true, initialPrompt: 'review it', toolPolicy: 'read-only',
+        });
+        expect(service.runningUnattended()).toBe(true);
+        next.feed('❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(next.writes).toEqual([]);
+
+        next.exit(0);
+        expect(service.runningUnattended()).toBe(false);
+        service.destroy();
+    });
+
+    it('refuses to relaunch a running terminal', async () => {
+        installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(() => service.relaunch({ cwd: os.tmpdir(), prompt: 'x', unattended: false })).toThrow('It is already running.');
+        service.destroy();
+    });
+
+    it('refuses to relaunch while a launch is still starting', async () => {
+        installFakePty();
+        const service = await buildService();
+        expect(() => service.relaunch({ cwd: os.tmpdir(), prompt: 'x', unattended: false })).toThrow('It is already running.');
+        service.destroy();
+    });
+});
+
+describe('TerminalService screenText', () => {
+    it('reports the screen without trailing blank lines', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.feed('hello\r\n\r\n\r\n');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(service.screenText()).toBe('hello');
+        service.destroy();
+    });
+
+    it('is empty when there is no screen', () => {
+        const service = new TerminalService({ cwd: os.tmpdir(), claudeSessionId: 'x', resume: false });
+        expect(service.screenText()).toBe('');
+    });
+});
+
 describe('TerminalService working directory', () => {
     /** How often a working CLI is asked; one poll is unambiguous past it. */
     const POLL_MS = 2_000;

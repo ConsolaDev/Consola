@@ -5,6 +5,7 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { providerBridge } from '../services/providerBridge';
 import { terminalBridge } from '../services/terminalBridge';
+import { assistantBridge } from '../services/assistantBridge';
 import { windowBridge } from '../services/windowBridge';
 import { forgetSessionLocally } from './forgetSession';
 import { ipcErrorMessage } from './ipcErrorMessage';
@@ -48,6 +49,15 @@ export function activateSession(workspaceId: string, sessionId: string): void {
     isInboxOpen: false,
   });
   windowBridge.setView(workspaceId, { activeSessionId: sessionId, isInboxOpen: false });
+}
+
+/**
+ * Open the workspace's Assistant, making its record the first time. Nothing
+ * launches here: the pane does, like any other session.
+ */
+export async function openAssistant(workspaceId: string): Promise<void> {
+  const session = await assistantBridge.open(workspaceId);
+  activateSession(workspaceId, session.id);
 }
 
 /**

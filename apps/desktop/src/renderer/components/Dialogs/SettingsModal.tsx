@@ -11,7 +11,7 @@ import {
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
-import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
+import { ASSISTANT_SHORTCUT_LABEL, COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import './styles.css';
 
@@ -188,6 +188,7 @@ function ShortcutsSection() {
   const shift = isMac ? '⇧' : 'Shift+';
   const shortcuts = [
     { label: 'Command palette', key: COMMAND_PALETTE_SHORTCUT_LABEL },
+    { label: 'Open the Assistant', key: ASSISTANT_SHORTCUT_LABEL },
     { label: 'New session', key: `${mod}N` },
     { label: 'New session with options', key: isMac ? '⇧⌘N' : 'Ctrl+Shift+N' },
     { label: 'New window', key: isMac ? '⌥⌘N' : 'Ctrl+Alt+N' },

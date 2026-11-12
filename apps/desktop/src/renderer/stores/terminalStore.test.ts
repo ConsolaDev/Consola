@@ -84,3 +84,24 @@ describe('hydrateTerminalStatus', () => {
     expect(store().getState('t2').status).toBe('ready');
   });
 });
+
+describe('subscribeToEvents', () => {
+  it('a status other than exited clears hasExited, so a pane woken from main loses its restart overlay', () => {
+    let onStatus: (message: { instanceId: string; status: string }) => void = () => {};
+    vi.mocked(terminalBridge.onStatus).mockImplementationOnce(((callback: typeof onStatus) => {
+      onStatus = callback;
+      return () => {};
+    }) as never);
+    const unsubscribe = store().subscribeToEvents();
+
+    store().setState('i', { hasExited: true });
+    onStatus({ instanceId: 'i', status: 'working' });
+    expect(store().getState('i')).toMatchObject({ hasExited: false, status: 'working' });
+
+    // The exit event owns setting it; a status of exited must not undo that.
+    store().setState('i', { hasExited: true });
+    onStatus({ instanceId: 'i', status: 'exited' });
+    expect(store().getState('i')).toMatchObject({ hasExited: true, status: 'exited' });
+    unsubscribe();
+  });
+});

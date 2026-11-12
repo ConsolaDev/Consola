@@ -17,6 +17,7 @@ import type {
     SessionUpdates,
     Workspace,
     WorkspaceProvider,
+    WorkspaceUpdates,
 } from '../../shared/workspace';
 
 /**
@@ -46,7 +47,7 @@ export const workspaceBridge = {
 
     updateWorkspace(
         id: string,
-        updates: Partial<Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon'>>
+        updates: WorkspaceUpdates
     ): Promise<void> {
         return window.workspaceAPI.updateWorkspace(id, updates);
     },

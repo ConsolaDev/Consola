@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Folder, FolderPlus, GitFork, Inbox } from 'lucide-react';
-import type { Workspace, Scope } from '../../../shared/workspace';
+import { listedSessions, type Workspace, type Scope } from '../../../shared/workspace';
 import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
@@ -19,7 +19,7 @@ export function WorkspaceEmptyView({ workspace }: { workspace: Workspace }) {
         <button className="dialog-button-primary" disabled={!scope} onClick={() => void createQuickSession(workspace.id)}>New session</button>
         <button className="dialog-button-secondary" onClick={() => openNewSessionDialog(workspace.id)}>New session with options…</button>
       </div>
-      {workspace.sessions.length === 0 && scope && <FirstSessionTips workspace={workspace} scope={scope} />}
+      {listedSessions(workspace).length === 0 && scope && <FirstSessionTips workspace={workspace} scope={scope} />}
     </div>
   </div>;
 }

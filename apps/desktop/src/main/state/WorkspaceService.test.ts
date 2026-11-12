@@ -4,7 +4,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { JsonStateFile } from './JsonStateFile';
 import { WorkspaceService, type WorkspaceStateFile } from './WorkspaceService';
-import type { Workspace } from '../../shared/workspace';
+import { assistantSession, type Workspace } from '../../shared/workspace';
 import type { WorkItemAction } from '../../shared/workItemActions';
 
 let dir: string;
@@ -950,5 +950,102 @@ describe('group emojis', () => {
     expect(build().getAll()[0].groups[0].emoji).toBe('👩🏽‍💻');
     service.updateGroup(workspace.id, group.id, { emoji: undefined });
     expect(build().getAll()[0].groups[0]).not.toHaveProperty('emoji');
+  });
+});
+
+describe('the Assistant record', () => {
+  const fields = { harnessId: 'builtin', cwd: '/home/.consola/workspaces/x/assistant' };
+  const pr51 = { provider: 'github' as const, repo: 'sprocket/catalog-portal', type: 'pr' as const, number: 51 };
+
+  function interactiveOn(workspace: Workspace, scopeId: string) {
+    const session = service.createSession(workspace.id, {
+      name: 'By hand',
+      workspaceId: workspace.id,
+      instanceId: `instance-${scopeId}`,
+      harnessId: 'default',
+      scopeId,
+    });
+    if (!session) throw new Error('fixture session was refused');
+    return session;
+  }
+
+  it('creates one per workspace, on the first scope, named and user-set', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    const first = service.ensureAssistant(ws.id, fields);
+    expect(first).toMatchObject({
+      kind: 'assistant',
+      name: 'Assistant',
+      nameIsUserSet: true,
+      scopeId: ws.scopes[0].id,
+      cwd: fields.cwd,
+      harnessId: 'builtin',
+      hasStarted: false,
+    });
+    expect(service.ensureAssistant(ws.id, { harnessId: 'other', cwd: '/elsewhere' }).id).toBe(first.id);
+    expect(service.getAll()[0].sessions.filter((s) => s.kind === 'assistant')).toHaveLength(1);
+  });
+
+  it('refuses a workspace with no scopes', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    service.removeScope(ws.id, ws.scopes[0].id);
+    expect(() => service.ensureAssistant(ws.id, fields)).toThrow('Add a scope to use the Assistant.');
+  });
+
+  it('never mints an assistant through createSession', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    expect(
+      service.createSession(ws.id, {
+        name: 'x',
+        workspaceId: ws.id,
+        instanceId: 'i',
+        harnessId: 'default',
+        scopeId: ws.scopes[0].id,
+        kind: 'assistant',
+      })
+    ).toBeUndefined();
+  });
+
+  it('replaces the record in one write', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    const first = service.ensureAssistant(ws.id, fields);
+    const listener = vi.fn();
+    service.onChange(listener);
+    const { previous, next } = service.replaceAssistant(ws.id, { harnessId: 'h2', cwd: fields.cwd });
+    expect(previous?.id).toBe(first.id);
+    expect(next.id).not.toBe(first.id);
+    expect(next.harnessId).toBe('h2');
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(service.getAll()[0].sessions.filter((s) => s.kind === 'assistant')).toEqual([next]);
+  });
+
+  it('refuses to rename, group or link the Assistant but still records activity', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    const assistant = service.ensureAssistant(ws.id, fields);
+    for (const updates of [{ name: 'x' }, { nameIsUserSet: false }, { groupId: 'g' }, { workItem: pr51 }]) {
+      expect(() => service.updateSession(ws.id, assistant.id, updates)).toThrow(
+        'The Assistant cannot be renamed, grouped or linked.'
+      );
+    }
+    service.updateSession(ws.id, assistant.id, { hasStarted: true, lastActiveAt: 5 });
+    expect(assistantSession(service.getAll()[0])).toMatchObject({ hasStarted: true, lastActiveAt: 5 });
+  });
+
+  it('moves the Assistant to a remaining scope when its scope is removed, and reports only the removed sessions', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    const scopeB = service.addScope(ws.id, { name: 'media', path: '/code/media', isGitRepo: true });
+    if (!scopeB) throw new Error('fixture scope was refused');
+    service.ensureAssistant(ws.id, fields);
+    const interactiveOnA = interactiveOn(ws, ws.scopes[0].id);
+    const removed = service.removeScope(ws.id, ws.scopes[0].id);
+    expect(removed.map((s) => s.id)).toEqual([interactiveOnA.id]);
+    expect(assistantSession(service.getAll()[0])?.scopeId).toBe(scopeB.id);
+  });
+
+  it('removes the Assistant with the last scope', () => {
+    const ws = service.createWorkspace('catalog-portal', '/code/catalog-portal', true);
+    const assistant = service.ensureAssistant(ws.id, fields);
+    const removed = service.removeScope(ws.id, ws.scopes[0].id);
+    expect(removed.map((s) => s.id)).toContain(assistant.id);
+    expect(assistantSession(service.getAll()[0])).toBeUndefined();
   });
 });

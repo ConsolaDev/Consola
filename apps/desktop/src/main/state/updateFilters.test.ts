@@ -292,3 +292,12 @@ describe('group emoji updates', () => {
     expect(allowedGroupUpdates({ emoji: undefined })).toHaveProperty('emoji', undefined);
   });
 });
+
+describe('allowedWorkspaceUpdates: the Assistant mode', () => {
+  it('passes a known Assistant mode and refuses anything else', () => {
+    expect(allowedWorkspaceUpdates({ assistantItemMode: 'read-only' })).toEqual({ assistantItemMode: 'read-only' });
+    expect(() => allowedWorkspaceUpdates({ assistantItemMode: 'yolo' as never })).toThrow(
+      'Choose a valid Assistant mode.'
+    );
+  });
+});

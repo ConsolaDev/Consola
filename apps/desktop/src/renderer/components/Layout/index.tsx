@@ -1,4 +1,4 @@
-import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
+import { createQuickSession, openAssistant, openNewSessionDialog } from '../../utils/sessionActions';
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
@@ -19,7 +19,9 @@ import {
   subscribeToActivateSession,
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
+import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
+import { useAssistantStore } from '../../stores/assistantStore';
 import './styles.css';
 
 export function Layout() {
@@ -50,6 +52,12 @@ export function Layout() {
     onOpenSettings: openSettings,
     onTogglePalette: togglePalette,
     onOpenScopedPalette: openPalette,
+    onOpenAssistant: () => {
+      if (!activeWorkspaceId) return;
+      // A workspace with no scope has nowhere to run it; the sidebar row says so.
+      const workspace = useWorkspaceStore.getState().getWorkspace(activeWorkspaceId);
+      if (workspace && workspace.scopes.length > 0) void openAssistant(activeWorkspaceId);
+    },
   });
   useTheme();
   useWindowDropGuard();
@@ -61,6 +69,9 @@ export function Layout() {
   // Inbox snapshots arrive on main's push channel for every github-bound
   // workspace, including ones whose pane is not mounted.
   useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
+
+  // The Assistant's row shows what finished while its pane is closed.
+  useEffect(() => useAssistantStore.getState().subscribe(), []);
 
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.
