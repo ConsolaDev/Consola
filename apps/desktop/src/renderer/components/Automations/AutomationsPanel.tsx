@@ -5,6 +5,7 @@ import {
   type AgentRunPreview,
   type AutomationsSnapshot,
   type AutomationView,
+  type RunListEntry,
   type RunRecord,
 } from '../../../shared/automations';
 import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
@@ -416,8 +417,8 @@ function diskEffect(verdict: SessionVerdict): string {
  * finished and the findings are in its session, or it stopped short.
  * Queued runs have their own section ("Waiting to start").
  */
-function agentRunState(run: RunRecord): string | null {
-  if ((run.result as { kind?: unknown } | undefined)?.kind !== 'agent-run') return null;
+function agentRunState(run: RunListEntry): string | null {
+  if (run.kind !== 'agent') return null;
   if (run.status === 'running') return 'Running';
   if (run.status === 'completed') return 'Ready';
   if (run.status === 'failed') return 'Failed';

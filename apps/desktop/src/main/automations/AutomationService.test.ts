@@ -51,6 +51,10 @@ interface Setup {
     workspaces?: Workspace[];
     /** Automation sessions that may work at once. */
     cap?: number;
+    /** The default harness, as the agent check sees it. */
+    harness?: { name: string; problem: string | null };
+    /** Whether a running turn could be stopped. */
+    stopAgent?: (session: Session, reason: string) => boolean;
 }
 
 /** What the fake main side recorded and decides for agent runs. */
@@ -94,6 +98,8 @@ function setup({
     workspaces = [{ id: 'ws-1', name: 'Acme', sessions: [] } as unknown as Workspace],
     files = {},
     cap,
+    harness = { name: 'Claude', problem: null },
+    stopAgent = vi.fn(() => true),
 }: Setup = {}) {
     let clock = now;
     const world: AgentWorld = { inbox: new Map(), launches: [], refreshes: [], liveTerminals: new Set(), resumed: [] };
@@ -217,6 +223,9 @@ function setup({
                 workspaceId: request.workspaceId,
                 automation: { name: request.run.automation, runId: request.run.id },
                 toolPolicy: 'read-only',
+                harnessId: 'claude',
+                claudeSessionId: `claude-${world.launches.length}`,
+                cwd: request.scopeId ? '/code/api' : '/code/worktrees/pr',
                 ...(request.item ? { workItem: request.item.workItem, workItemAction: request.item.label } : {}),
                 createdAt: clock.getTime(),
             } as unknown as Session;
@@ -227,6 +236,8 @@ function setup({
             world.resumed.push({ sessionId: session.id, prompt });
         },
         hasLiveTerminal: (session) => world.liveTerminals.has(session.id),
+        agentHarness: () => harness,
+        stopAgent,
         ...(cap !== undefined ? { maxConcurrentAgents: cap } : {}),
     });
     const t = {
@@ -238,6 +249,7 @@ function setup({
         calls,
         watched,
         world,
+        stopAgent,
         /** Run now, for automations that return a run (every one but an event automation). */
         trigger: async (workspaceId: string, name: string, actor?: { sessionId?: string }) =>
             (await service.trigger(workspaceId, name, actor))!,
@@ -646,8 +658,20 @@ describe('one file per workspace', () => {
         workspaces.splice(2, 1);
         await t.service.syncWorkspaces();
         expect(t.watched).toEqual(new Set(['ws-1', 'ws-2']));
-        expect(t.store.get(pending.id)).toMatchObject({ status: 'rejected', summary: 'Its workspace was deleted.' });
+        expect(t.store.get(pending.id)).toBeUndefined(); // Its history goes with it.
         expect(() => t.service.snapshot('ws-3')).toThrow(/No workspace/);
+    });
+
+    it('forgets a deleted workspace’s history', async () => {
+        const workspaces = pair();
+        const t = setup({ workspaces, yaml: entry(''), files: { 'ws-2': entry('') } });
+        await t.start();
+        const theirs = await t.trigger('ws-2', 'sweep');
+        const mine = await t.trigger('ws-1', 'sweep');
+        expect(t.store.runs().map((run) => run.id).sort()).toEqual([mine.id, theirs.id].sort());
+        workspaces.splice(1, 1);
+        await t.service.syncWorkspaces();
+        expect(t.store.runs().map((run) => run.id)).toEqual([mine.id]);
     });
 
     it('keeps each workspace’s missed occurrences across a relaunch', async () => {
@@ -816,7 +840,7 @@ describe('event runs', () => {
         const first = reviewing();
         await first.start();
         await first.poll([pr(1)]);
-        first.service.stop();
+        first.service.shutdown();
 
         const relaunched = reviewing({ state: first.file.stored, history: first.history, accepted: false });
         await relaunched.start();
@@ -1156,7 +1180,7 @@ describe('the queue', () => {
         await first.start();
         await first.poll([]);
         await first.poll([pr(1), pr(2)]);
-        first.service.stop();
+        first.service.shutdown();
 
         const relaunched = reviewing({ cap: 1, state: first.file.stored, history: first.history, accepted: false });
         await relaunched.start();
@@ -1182,7 +1206,7 @@ describe('the queue', () => {
         await first.start();
         await first.poll([]);
         await first.poll([pr(1), pr(2)]);
-        first.service.stop();
+        first.service.shutdown();
         const t = reviewing({ cap: 2, state: first.file.stored, history: first.history, accepted: false });
         await t.start();
 
@@ -1410,5 +1434,149 @@ describe('agent run problems', () => {
         expect(await t.service.trigger('ws-1', 'review-requests')).toBeNull();
         expect(t.world.refreshes).toEqual(['ws-1']);
         await expect(t.service.trigger('ws-1', 'review-requests', { sessionId: 's-9' })).rejects.toThrow(/not on request/);
+    });
+});
+
+describe('agent entries and the harness', () => {
+    const prompt = `version: 1
+automations:
+  - name: morning-pr-summary
+    on: { cron: "0 9 * * 1-5" }
+    run:
+      prompt: List my open pull requests.
+    scope: api
+    mode: auto
+  - name: sweep
+    on: { cron: "0 9 * * 1-5" }
+    run: { tool: consola#sweep }
+    mode: auto
+`;
+
+    it('an agent entry the default harness cannot run reports a problem and never fires', async () => {
+        const t = setup({
+            yaml: prompt,
+            accepted: true,
+            workspaces: [bound()],
+            now: new Date(2026, 10, 4, 8, 0),
+            harness: { name: 'Codex', problem: 'Codex sessions cannot be made read-only yet.' },
+        });
+        await t.start();
+        const [agent, tool] = t.service.list('ws-1');
+        expect(agent.problem).toBe('Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet');
+        expect(tool.problem).toBeUndefined();
+        t.setClock(new Date(2026, 10, 4, 9, 0, 10));
+        await t.service.tick();
+        expect(t.store.runs().map((run) => run.automationId)).not.toContain('morning-pr-summary');
+        await expect(t.service.trigger('ws-1', 'morning-pr-summary')).rejects.toThrow(
+            'morning-pr-summary cannot run: Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet'
+        );
+    });
+});
+
+describe('run start, conversation and stop', () => {
+    const scheduled = `version: 1
+automations:
+  - name: morning-pr-summary
+    on: { cron: "0 9 * * 1-5" }
+    run:
+      prompt: List my open pull requests.
+    scope: api
+    mode: auto
+`;
+    const launched = async (fields: Partial<Setup> = {}) => {
+        const t = setup({ yaml: scheduled, accepted: true, workspaces: [bound()], now: new Date(2026, 10, 4, 9, 0, 10), ...fields });
+        await t.start();
+        const run = await t.trigger('ws-1', 'morning-pr-summary');
+        await flush();
+        return { t, run };
+    };
+
+    it('records when an agent run started working and which conversation it holds', async () => {
+        const { t, run } = await launched();
+        const started = new Date(2026, 10, 4, 9, 0, 10).toISOString();
+        expect(t.store.get(run.id)).toMatchObject({
+            startedAt: started,
+            conversation: { harnessId: 'claude', id: 'claude-1', cwd: '/code/api' },
+        });
+    });
+
+    it('a resumed interrupted run keeps its first startedAt', async () => {
+        const { t, run } = await launched();
+        const first = t.store.get(run.id)!.startedAt;
+        // Consola quit mid-turn: the run goes back in line, keeping its session.
+        t.store.update(run.id, { status: 'queued' });
+        t.setClock(new Date(2026, 10, 4, 9, 30));
+        await t.service.tick();
+        await flush();
+        expect(t.world.resumed).toHaveLength(1);
+        expect(t.store.get(run.id)).toMatchObject({ status: 'running', startedAt: first });
+    });
+
+    it('a tool run starts working when its tool runs', async () => {
+        const auto = setup({ accepted: true });
+        await auto.start();
+        const ran = await auto.trigger('ws-1', 'sweep');
+        expect(ran.startedAt).toBe(new Date(2026, 10, 4, 8, 0).toISOString());
+
+        const confirm = setup({ yaml: entry('    mode: confirm\n') });
+        await confirm.start();
+        const waiting = await confirm.trigger('ws-1', 'sweep');
+        expect(waiting.status).toBe('needs-approval');
+        expect(waiting.startedAt).toBeUndefined();
+        confirm.setClock(new Date(2026, 10, 4, 8, 5));
+        const approved = await confirm.service.approve(waiting.id);
+        expect(approved.startedAt).toBe(new Date(2026, 10, 4, 8, 5).toISOString());
+    });
+
+    it('stop ends a running agent turn through the session', async () => {
+        const { t, run } = await launched();
+        t.service.stop(run.id);
+        expect(t.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'session-1' }), 'you stopped it');
+        // The turn's own end reports the reason.
+        await t.endTurn('session-1', 0, undefined, 'you stopped it');
+        expect(t.store.get(run.id)).toMatchObject({ status: 'failed', error: 'It stopped before finishing: you stopped it.' });
+    });
+
+    it('stop fails the run when its session was no longer running', async () => {
+        const { t, run } = await launched({ stopAgent: vi.fn(() => false) });
+        t.service.stop(run.id);
+        expect(t.store.get(run.id)).toMatchObject({ status: 'failed', error: 'Stopped: its session was no longer running.' });
+    });
+
+    it('stop refuses a queued or tool run', async () => {
+        const t = setup({ yaml: entry('    mode: auto\n'), accepted: true });
+        await t.start();
+        const tool = await t.trigger('ws-1', 'sweep');
+        expect(() => t.service.stop(tool.id)).toThrow(/not a running agent run/);
+        const queued = await launched({ cap: 0 });
+        expect(queued.t.store.get(queued.run.id)!.status).toBe('queued');
+        expect(() => queued.t.service.stop(queued.run.id)).toThrow(/not a running agent run/);
+    });
+
+    it('snapshots carry light runs; getRun the whole record', async () => {
+        const { t, run } = await launched();
+        await t.endTurn('session-1', 0);
+        const [light] = t.service.snapshot('ws-1').runs;
+        expect(light).toMatchObject({ id: run.id, kind: 'agent', status: 'completed' });
+        expect(light).not.toHaveProperty('result');
+        expect(light).not.toHaveProperty('approval');
+        const full = t.service.getRun(run.id)!;
+        expect(full.result).toMatchObject({ kind: 'agent-run' });
+        expect(full.approval).toBeUndefined(); // Stripped once terminal.
+        expect(t.service.getRun('nope')).toBeNull();
+    });
+
+    it('a run waiting for approval keeps its result in the list, and a request is kind request', async () => {
+        const t = setup({
+            yaml: entry('    mode: confirm\n'),
+            workspaces: [{ id: 'ws-1', name: 'Acme', sessions: [{ id: 's-1', name: 'worker' }, { id: 's-2', name: 'old' }] } as unknown as Workspace],
+        });
+        await t.start();
+        const waiting = await t.trigger('ws-1', 'sweep');
+        const { run: request } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        const runs = t.service.snapshot('ws-1').runs;
+        expect(runs.find((r) => r.id === waiting.id)).toMatchObject({ kind: 'tool', result: { would: 2 } });
+        expect(runs.find((r) => r.id === waiting.id)).not.toHaveProperty('approval');
+        expect(runs.find((r) => r.id === request!.id)).toMatchObject({ kind: 'request', result: { target: 's-2' } });
     });
 });

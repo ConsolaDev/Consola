@@ -10,7 +10,7 @@ import {
     type RunStatus,
     type RunTrigger,
 } from '@consola/factory-spec';
-import type { AgentRunPreview, AutomationsSnapshot, AutomationView } from '../../shared/automations';
+import type { AgentRunPreview, AutomationsSnapshot, AutomationView, RunListEntry } from '../../shared/automations';
 import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
 import { defaultActionFor } from '../../shared/workItemActions';
 import { sameWorkItem } from '../../shared/workItems';
@@ -125,6 +125,13 @@ export interface AutomationServiceDeps {
     resumeAgent(session: Session, prompt: string): Promise<void>;
     /** Whether a session has a terminal whose process is still running: someone opened it. */
     hasLiveTerminal(session: Session): boolean;
+    /**
+     * The workspace's default harness: its display name, and why it cannot
+     * run a read-only unattended session (null when it can).
+     */
+    agentHarness(workspaceId: string): { name: string; problem: string | null };
+    /** End a running unattended turn the way Ctrl+C does. False when none is running. */
+    stopAgent(session: Session, reason: string): boolean;
     /** Agent sessions automations may have working at once, across every workspace. */
     maxConcurrentAgents?: number;
 }
@@ -237,7 +244,8 @@ export class AutomationService {
         await this.tick();
     }
 
-    public stop(): void {
+    /** Quit: stop ticking and let go of every workspace's file. */
+    public shutdown(): void {
         this.started = false;
         this.stopTicking?.();
         this.stopTicking = null;
@@ -265,6 +273,7 @@ export class AutomationService {
                     this.finish(run.id, 'rejected', { summary: 'Its workspace was deleted.' });
                 }
             }
+            this.deps.store.forgetWorkspace(workspaceId);
         }
 
         // Registered before anything is awaited, so a second sync arriving
@@ -603,7 +612,7 @@ export class AutomationService {
             return queued;
         }
         this.assertIdle(key, entry.automation.name);
-        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        this.deps.store.update(run.id, { status: 'running', startedAt: this.iso(), updatedAt: this.iso() });
         return this.guarded(
             key,
             run.id,
@@ -652,9 +661,31 @@ export class AutomationService {
         });
     }
 
+    /** One run, whole: its result and approval too, which the activity list leaves out. */
+    public getRun(runId: string): RunRecord | null {
+        return this.deps.store.get(runId) ?? null;
+    }
+
+    /**
+     * End a running agent turn, as Ctrl+C would. The turn's own end then
+     * fails the run ("It stopped before finishing: you stopped it."); when
+     * no turn is running any more, nothing will report, so the run ends here.
+     */
+    public stop(runId: string): void {
+        const run = this.deps.store.get(runId);
+        if (!run || run.status !== 'running' || !isAgentRun(run)) throw new Error(`Run ${runId} is not a running agent run.`);
+        const session = this.sessionOf(run);
+        if (session && this.deps.stopAgent(session, 'you stopped it')) return;
+        this.finish(runId, 'failed', { error: 'Stopped: its session was no longer running.' });
+        void this.pump();
+    }
+
     public snapshot(workspaceId: string): AutomationsSnapshot {
         const factory = this.factoryOf(workspaceId);
-        const runs = this.deps.store.runs().filter((run) => run.attribution.workspaceId === workspaceId);
+        const runs = this.deps.store
+            .runs()
+            .filter((run) => run.attribution.workspaceId === workspaceId)
+            .map(toListEntry);
         // A place in the one line every workspace shares.
         const queue: Record<string, number> = {};
         this.queuedRuns().forEach((run, index) => {
@@ -746,7 +777,8 @@ export class AutomationService {
      * turn ends (`turnEnded`): the run is the turn, and what holds a slot.
      */
     private async startAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
-        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        // An interrupted run picked up again keeps the time it first started.
+        this.deps.store.update(run.id, { status: 'running', startedAt: run.startedAt ?? this.iso(), updatedAt: this.iso() });
         this.broadcastRun(run.id);
         if (run.sessionId) return this.resumeAgentRun(run);
         const entry = this.entryOf(run)!;
@@ -769,7 +801,12 @@ export class AutomationService {
                       }
                     : { scopeId: agent.scope?.id }),
             });
-            this.deps.store.update(run.id, { sessionId: session.id, summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
+            this.deps.store.update(run.id, {
+                sessionId: session.id,
+                conversation: { harnessId: session.harnessId, id: session.claudeSessionId, cwd: session.cwd ?? agent.scope?.path },
+                summary: `Running in “${session.name}”.`,
+                updatedAt: this.iso(),
+            });
             this.broadcastRun(run.id);
         } catch (error) {
             // The person got there first: nothing failed, the review exists.
@@ -864,7 +901,7 @@ export class AutomationService {
             this.finish(run.id, 'failed', { error: `Not run: ${problem}.` });
             throw new Error(`Not run: ${problem}.`);
         }
-        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        this.deps.store.update(run.id, { status: 'running', startedAt: this.iso(), updatedAt: this.iso() });
         return this.guarded(
             run.id,
             run.id,
@@ -987,6 +1024,8 @@ export class AutomationService {
             if (event && !action.appliesTo.includes(event.itemType)) {
                 return unable(`the ${run.name} action does not apply to ${event.itemType === 'pr' ? 'pull requests' : 'issues'}`);
             }
+            const refused = this.harnessProblem(workspaceId);
+            if (refused) return unable(refused);
             return {
                 workspaceId,
                 automation,
@@ -1010,6 +1049,8 @@ export class AutomationService {
                 return unable(`no scope named "${automation.scope}" in this workspace${names ? `; it has: ${names}` : ''}`);
             }
         }
+        const refused = this.harnessProblem(workspaceId);
+        if (refused) return unable(refused);
         return {
             workspaceId,
             automation,
@@ -1017,6 +1058,12 @@ export class AutomationService {
             event,
             agent: { body: run.prompt, ...(event ? { label: automation.name } : {}), ...(scope ? { scope } : {}), runs: 'Prompt' },
         };
+    }
+
+    /** Why the workspace's default harness cannot run an agent entry, as the entry's problem; null when it can. */
+    private harnessProblem(workspaceId: string): string | null {
+        const { name, problem } = this.deps.agentHarness(workspaceId);
+        return problem ? `${name} can’t run read-only automation sessions: ${problem.replace(/\.$/, '')}` : null;
     }
 
     /** An automation acts on its own workspace, as itself. */
@@ -1060,6 +1107,7 @@ export class AutomationService {
                 const toolName = entry.tool!.name;
                 const context = this.contextFor(entry);
                 if (mode === 'auto') {
+                    this.deps.store.update(run.id, { startedAt: this.iso() });
                     const result = await this.deps.registry.invoke(toolName, entry.args, context, 'run');
                     this.finish(run.id, 'completed', { result });
                     if ((result.actionable ?? 1) > 0) this.notify(automation.name, result.summary, run.id);
@@ -1285,6 +1333,16 @@ function describeRun(automation: Automation): string {
 /** A run that starts a session: its result is the preview of what it starts. */
 function isAgentRun(run: RunRecord): boolean {
     return (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run';
+}
+
+/**
+ * A run as the activity list shows it: its kind, and its result only while
+ * it waits for a person or a slot. Everything else is `getRun`'s.
+ */
+function toListEntry(run: RunRecord): RunListEntry {
+    const { result, approval: _approval, ...rest } = run;
+    const kind = isAgentRequest(run) ? 'request' : isAgentRun(run) ? 'agent' : 'tool';
+    return { ...rest, kind, ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}) };
 }
 
 /** An event trigger that did not resolve, said as written. */

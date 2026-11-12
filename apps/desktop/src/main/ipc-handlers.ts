@@ -957,6 +957,9 @@ export function setupIpcHandlers(): boolean {
         // A turn Consola quit in the middle of picks up in its own session.
         resumeAgent: (session, prompt) => launcher.resumeUnattended(session.workspaceId, session.id, prompt),
         hasLiveTerminal: (session) => manager.get(session.instanceId)?.hasClaudeExited() === false,
+        // Placeholders until the driver check and the stop are wired for real.
+        agentHarness: () => ({ name: '', problem: null }),
+        stopAgent: () => false,
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));
@@ -1496,7 +1499,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
 
-    automationService?.stop();
+    automationService?.shutdown();
     automationService = null;
     if (onPowerResume) {
         powerMonitor.removeListener('resume', onPowerResume);

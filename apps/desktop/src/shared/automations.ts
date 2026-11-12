@@ -34,6 +34,16 @@ export interface AutomationView {
     problem?: string;
 }
 
+/** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */
+export type RunKind = 'agent' | 'tool' | 'request';
+
+/**
+ * A run as the activity list shows it: no approval, and its result only
+ * while it waits (the Waiting card's preview). The panel reads the rest
+ * with getRun.
+ */
+export type RunListEntry = Omit<RunRecord, 'result' | 'approval'> & { kind: RunKind; result?: unknown };
+
 /**
  * What an agent run will start, kept on its run as `result`: shown before a
  * person approves it, and what approving sends — the prompt exactly.
@@ -86,7 +96,7 @@ export interface AutomationsSnapshot {
     /** Problems with the file itself or with individual entries. */
     issues: FactorySpecIssue[];
     /** This workspace's runs, newest first, capped. Includes runs waiting for approval or a slot. */
-    runs: RunRecord[];
+    runs: RunListEntry[];
     /** Each queued run's place in the one line every workspace shares, 1 first. */
     queue: Record<string, number>;
     /**
