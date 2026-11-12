@@ -459,11 +459,20 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
   try {
     const dashboard = await openAutomations(sprocket.page);
     await writeAutomations(sprocket, CATALOG_CHECK, 'catalog-check');
-    await runNow(sprocket, 'catalog-check');
+    const started = await runNow(sprocket, 'catalog-check');
     await dashboard.getByRole('region', { name: 'Waiting for you' }).getByRole('button', { name: 'Review…' }).click();
     const firstPanel = sidePanel(sprocket.page);
     await firstPanel.getByRole('button', { name: 'Start', exact: true }).click();
     await expect(firstPanel.locator('.automations-fact-status')).toContainText('completed', { timeout: 30_000 });
+
+    // The run's session: its id, from the run's own record.
+    const runSessionId = await sprocket.page.evaluate((runId) => window.automationsAPI.getRun(runId).then((run) => run?.sessionId ?? null), started.id);
+    expect(runSessionId).toBeTruthy();
+
+    // The history is on disk, per workspace, and holds this run.
+    const historyFile = path.join(`${sprocket.userDataDir} Test`, 'automation-runs', `${sprocket.workspaceId}.jsonl`);
+    expect(fs.existsSync(historyFile)).toBe(true);
+    expect(fs.readFileSync(historyFile, 'utf8')).toContain(started.id);
 
     // Close with the dashboard open, then come back on the same user data.
     await sprocket.app.close();
@@ -489,7 +498,21 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     // Open session leaves the dashboard and selects the run's session.
     await expect(again).toHaveCount(0);
     await expect(automationsRow(page)).not.toHaveAttribute('aria-current');
-    await expect(page.locator('.session-nav-item.active')).toHaveCount(1);
+    await expect(
+      again.getByRole('heading', { name: 'Automations · Sprocket' })
+    ).toHaveCount(0);
+    const active = page.locator('.session-nav-item.active');
+    await expect(active).toHaveCount(1);
+    // Its label, as the sidebar reads it now: a row's name can move on after the run.
+    const label = await page.evaluate(
+      async ([workspaceId, sessionId]) => {
+        const snapshot = await window.workspaceAPI.getSnapshot();
+        return snapshot.workspaces.find((w) => w.id === workspaceId)?.sessions.find((s) => s.id === sessionId)?.name ?? null;
+      },
+      [sprocket.workspaceId, runSessionId as string] as const
+    );
+    expect(label).toBeTruthy();
+    await expect(active.locator('.session-nav-item-name')).toHaveText(label as string);
   } finally {
     await relaunched?.close().catch(() => {});
     await sprocket.close();
