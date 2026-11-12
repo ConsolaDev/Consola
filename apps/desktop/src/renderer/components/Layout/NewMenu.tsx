@@ -43,15 +43,18 @@ export function NewMenu() {
         <button className="new-menu-trigger" aria-label="New session" title={plusTitle} onClick={() => void createQuickSession(activeWorkspaceId)}><Plus size={14} /></button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
-            <button className="new-menu-trigger" aria-label="New">
+            <button className="new-menu-trigger new-menu-more" aria-label="New">
               <ChevronDown size={12} />
             </button>
           </DropdownMenu.Trigger>
           <DropdownMenu.Portal>
+            {/* Hung from the control's right edge, so it opens over the
+                sidebar it belongs to (or inside the window, from the title
+                bar's far end) rather than out across the pane. */}
             <DropdownMenu.Content
               className="dropdown-content"
               sideOffset={6}
-              align="start"
+              align="end"
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
               {workspace && hasScopeChoice(workspace) && <>

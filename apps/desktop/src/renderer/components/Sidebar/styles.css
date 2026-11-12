@@ -224,20 +224,28 @@
   align-items: center;
   justify-content: center;
   flex: none;
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 32px;
   padding: 0;
   border: none;
-  border-radius: var(--radius-md);
+  border-radius: var(--radius-lg);
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 }
 
 .sidebar-navigation-settings:hover,
 .sidebar-navigation-settings[data-state='open'] {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
+}
+.sidebar-navigation-settings:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+/* The same small sink on press as ＋ and ▾ beside it. */
+.sidebar-navigation-settings > svg { transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1); }
+.sidebar-navigation-settings:active > svg { transform: scale(0.86); transition-duration: 60ms; }
+@media (prefers-reduced-motion: reduce) {
+  .sidebar-navigation-settings > svg { transition: none; }
 }
 
 .navigation-settings-check {
@@ -1356,13 +1364,17 @@
 
 /* Search field above Home / Inbox: opens the command palette. The sidebar's
    display settings and the New menu ride along at its end. */
+/* One height for the whole row: the field, ⚟ and the ＋▾ pair all stand 32px,
+   so their outlines and glyphs share a centre line. */
 .sidebar-search {
+  container-type: inline-size;
   display: flex;
   flex-shrink: 0;
   align-items: center;
   gap: var(--space-1);
   padding: var(--space-3) var(--space-2);
 }
+.sidebar-search .new-menu-buttons { --new-menu-height: 32px; }
 .sidebar-search-field {
   display: flex;
   flex: 1;
@@ -1383,8 +1395,16 @@
 .sidebar-search-field:hover { background: var(--color-bg-hover); border-color: var(--color-border-hover); }
 .sidebar-search-field:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .sidebar-search-field > svg { flex-shrink: 0; }
-.sidebar-search .new-menu-trigger { color: var(--color-text-secondary); }
 .sidebar-search-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* On a narrow sidebar the chord hint gives way first, and the buttons close
+   in, so the field keeps its word: ⌘K alone in a squeezed box only looks
+   broken. */
+@container (max-width: 215px) {
+  .sidebar-search-shortcut { display: none; }
+  .sidebar-navigation-settings { width: 24px; }
+  .sidebar-search .new-menu-trigger { width: 24px; }
+  .sidebar-search .new-menu-trigger.new-menu-more { width: 18px; }
+}
 .sidebar-search-shortcut {
   flex-shrink: 0;
   padding: 1px 6px;
