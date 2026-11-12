@@ -230,6 +230,10 @@ export class AutomationService {
     private ticking = false;
     private started = false;
     private pumping = false;
+    /** Running agent runs whose session is still being launched or resumed: no live turn to stop yet. */
+    private readonly starting = new Set<string>();
+    /** Of those, the ones a person asked to stop; honoured as soon as the turn exists. */
+    private readonly stopRequested = new Set<string>();
     private pumpAgain = false;
 
     constructor(private readonly deps: AutomationServiceDeps) {}
@@ -674,6 +678,11 @@ export class AutomationService {
     public stop(runId: string): void {
         const run = this.deps.store.get(runId);
         if (!run || run.status !== 'running' || !isAgentRun(run)) throw new Error(`Run ${runId} is not a running agent run.`);
+        if (this.starting.has(runId)) {
+            // No turn exists yet: remember, and end it the moment it does.
+            this.stopRequested.add(runId);
+            return;
+        }
         const session = this.sessionOf(run);
         if (session && this.deps.stopAgent(session, 'you stopped it')) return;
         this.finish(runId, 'failed', { error: 'Stopped: its session was no longer running.' });
@@ -780,7 +789,30 @@ export class AutomationService {
         // An interrupted run picked up again keeps the time it first started.
         this.deps.store.update(run.id, { status: 'running', startedAt: run.startedAt ?? this.iso(), updatedAt: this.iso() });
         this.broadcastRun(run.id);
-        if (run.sessionId) return this.resumeAgentRun(run);
+        this.starting.add(run.id);
+        try {
+            if (run.sessionId) return await this.resumeAgentRun(run);
+            await this.launchAgentRun(run, item);
+        } finally {
+            this.starting.delete(run.id);
+            this.stopRequested.delete(run.id);
+        }
+    }
+
+    /** Whether the run is still the one running: it may have ended, or its workspace been forgotten, while a launch was awaited. */
+    private stillRunning(runId: string): boolean {
+        return this.deps.store.get(runId)?.status === 'running';
+    }
+
+    /** A stop asked for while the turn was starting: end it now that there is one to end. */
+    private honourStop(runId: string, session: Session): void {
+        if (!this.stopRequested.delete(runId)) return;
+        if (this.deps.stopAgent(session, 'you stopped it')) return; // Its exit records the stop.
+        this.finish(runId, 'failed', { error: 'Stopped: its session was no longer running.' });
+        void this.pump();
+    }
+
+    private async launchAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
         const entry = this.entryOf(run)!;
         const agent = entry.agent!;
         const name = entry.automation.name;
@@ -801,13 +833,23 @@ export class AutomationService {
                       }
                     : { scopeId: agent.scope?.id }),
             });
+            if (!this.stillRunning(run.id)) return;
+            const scopePath = this.deps
+                .getWorkspaces()
+                .find((workspace) => workspace.id === entry.workspaceId)
+                ?.scopes.find((scope) => scope.id === session.scopeId)?.path;
             this.deps.store.update(run.id, {
                 sessionId: session.id,
-                conversation: { harnessId: session.harnessId, id: session.claudeSessionId, cwd: session.cwd ?? agent.scope?.path },
+                conversation: {
+                    harnessId: session.harnessId,
+                    id: session.claudeSessionId,
+                    cwd: session.cwd ?? scopePath ?? agent.scope?.path,
+                },
                 summary: `Running in “${session.name}”.`,
                 updatedAt: this.iso(),
             });
             this.broadcastRun(run.id);
+            this.honourStop(run.id, session);
         } catch (error) {
             // The person got there first: nothing failed, the review exists.
             if (error instanceof StartedByHandError) {
@@ -825,8 +867,10 @@ export class AutomationService {
         try {
             if (!session) throw new Error('Its session was closed.');
             await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
+            if (!this.stillRunning(run.id)) return;
             this.deps.store.update(run.id, { summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
             this.broadcastRun(run.id);
+            this.honourStop(run.id, session);
         } catch (error) {
             this.finish(run.id, 'failed', { error: describeError(error) });
             this.notify(`${run.automationId} could not continue`, describeError(error), run.id);

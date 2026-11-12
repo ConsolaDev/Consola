@@ -72,6 +72,10 @@ interface AgentWorld {
     launchThrows?: Error;
     /** Hold every launch until this settles. */
     launchGate?: Promise<void>;
+    /** Hold every resume until this settles. */
+    resumeGate?: Promise<void>;
+    /** Launch sessions in their scope's folder, with no worktree of their own. */
+    inScopeFolder?: boolean;
 }
 
 /** Let queued launches (awaited one after another) run to completion. */
@@ -225,7 +229,8 @@ function setup({
                 toolPolicy: 'read-only',
                 harnessId: 'claude',
                 claudeSessionId: `claude-${world.launches.length}`,
-                cwd: request.scopeId ? '/code/api' : '/code/worktrees/pr',
+                scopeId: 'scope-api',
+                ...(world.inScopeFolder ? {} : { cwd: request.scopeId ? '/code/api' : '/code/worktrees/pr' }),
                 ...(request.item ? { workItem: request.item.workItem, workItemAction: request.item.label } : {}),
                 createdAt: clock.getTime(),
             } as unknown as Session;
@@ -233,6 +238,7 @@ function setup({
             return session;
         },
         resumeAgent: async (session, prompt) => {
+            if (world.resumeGate) await world.resumeGate;
             world.resumed.push({ sessionId: session.id, prompt });
         },
         hasLiveTerminal: (session) => world.liveTerminals.has(session.id),
@@ -1541,6 +1547,63 @@ automations:
         const { t, run } = await launched({ stopAgent: vi.fn(() => false) });
         t.service.stop(run.id);
         expect(t.store.get(run.id)).toMatchObject({ status: 'failed', error: 'Stopped: its session was no longer running.' });
+    });
+
+    it('an action run without a worktree records its scope’s folder', async () => {
+        const t = reviewing();
+        t.world.inScopeFolder = true;
+        await t.start();
+        await t.poll([]);
+        await t.poll([pr(1)]);
+        expect(t.store.runs()[0].conversation).toEqual({ harnessId: 'claude', id: 'claude-1', cwd: '/code/api' });
+    });
+
+    it('a stop during a pending launch ends the turn once launched, and keeps the run counted until then', async () => {
+        const t = setup({ yaml: scheduled, accepted: true, workspaces: [bound()], now: new Date(2026, 10, 4, 9, 0, 10), cap: 1 });
+        const gate = deferred();
+        t.world.launchGate = gate.promise;
+        await t.start();
+        const run = await t.trigger('ws-1', 'morning-pr-summary');
+        await flush();
+        expect(t.store.get(run.id)!.status).toBe('running');
+        t.service.stop(run.id);
+        expect(t.stopAgent).not.toHaveBeenCalled();
+        expect(t.store.get(run.id)!.status).toBe('running');
+        gate.resolve();
+        await flush();
+        expect(t.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'session-1' }), 'you stopped it');
+        expect(t.store.get(run.id)).toMatchObject({ status: 'running', sessionId: 'session-1' });
+        await t.endTurn('session-1', 0, undefined, 'you stopped it');
+        expect(t.store.get(run.id)).toMatchObject({ status: 'failed', error: 'It stopped before finishing: you stopped it.' });
+    });
+
+    it('a stop during a pending launch fails the run when the session is not running once launched', async () => {
+        const t = setup({ yaml: scheduled, accepted: true, workspaces: [bound()], now: new Date(2026, 10, 4, 9, 0, 10), stopAgent: vi.fn(() => false) });
+        const gate = deferred();
+        t.world.launchGate = gate.promise;
+        await t.start();
+        const run = await t.trigger('ws-1', 'morning-pr-summary');
+        await flush();
+        t.service.stop(run.id);
+        gate.resolve();
+        await flush();
+        expect(t.store.get(run.id)).toMatchObject({ status: 'failed', error: 'Stopped: its session was no longer running.' });
+    });
+
+    it('a stop during a pending resume ends the turn once it is resumed', async () => {
+        const { t, run } = await launched();
+        const gate = deferred();
+        t.world.resumeGate = gate.promise;
+        t.store.update(run.id, { status: 'queued' });
+        t.setClock(new Date(2026, 10, 4, 9, 30));
+        void t.service.tick(); // Held at the resume, so not awaited.
+        await flush();
+        expect(t.store.get(run.id)!.status).toBe('running');
+        t.service.stop(run.id);
+        expect(t.stopAgent).not.toHaveBeenCalled();
+        gate.resolve();
+        await flush();
+        expect(t.stopAgent).toHaveBeenCalledWith(expect.objectContaining({ id: 'session-1' }), 'you stopped it');
     });
 
     it('stop refuses a queued or tool run', async () => {
