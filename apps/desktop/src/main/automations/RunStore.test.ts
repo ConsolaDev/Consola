@@ -97,11 +97,69 @@ describe('RunStore history', () => {
         expect(store.get('waiting')).toBeDefined();
     });
 
-    it('applies retention when a run is added, using its createdAt as now', () => {
+    it('drops expired runs from memory when a run is added, and appends rather than rewrites', () => {
         const { store, history } = loaded({ 'ws-1': [run('old', 'ws-1', { createdAt: daysAgo(10), finishedAt: daysAgo(10) })] });
         store.add(run('new', 'ws-1', { createdAt: new Date(Date.parse(NOW) + 25 * DAY).toISOString(), status: 'queued' }));
         expect(store.runs().map((r) => r.id)).toEqual(['new']);
-        expect(history.logs.get('ws-1')?.map((r) => r.id)).toEqual(['new']);
+        expect(history.rewrites).toEqual([]);
+        expect(history.appends.map((call) => call.run.id)).toEqual(['new']);
+    });
+
+    it('keeps the order of runs created in the same instant across a migration and a compaction', async () => {
+        const fs = await import('fs');
+        const os = await import('os');
+        const path = await import('path');
+        const { RunHistoryFiles } = await import('./RunHistoryFiles');
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-ties-'));
+        try {
+            const at = daysAgo(1);
+            const ids = ['a', 'b', 'c'];
+            const tied = ids.map((id) => run(id, 'ws-1', { status: 'queued', createdAt: at, finishedAt: undefined }));
+            // Version 1 lists newest first.
+            const first = new RunStore(memoryFile({ version: 1, lastFired: {}, runs: [...tied].reverse() }), new RunHistoryFiles(dir));
+            first.load(NOW);
+            expect(first.runs().map((r) => r.id)).toEqual(['c', 'b', 'a']);
+            const reloaded = () => {
+                const store = new RunStore(memoryFile({ version: 2, lastFired: {} }), new RunHistoryFiles(dir));
+                store.load(NOW);
+                return store.runs().map((r) => r.id);
+            };
+            expect(reloaded()).toEqual(['c', 'b', 'a']);
+
+            // Enough updates to cross 2 x live + 50 lines and compact.
+            for (let index = 0; index < 60; index++) first.update('b', { updatedAt: `2026-11-12T10:00:${String(index).padStart(2, '0')}.000Z` });
+            expect(fs.readFileSync(path.join(dir, 'ws-1.jsonl'), 'utf8').split('\n').filter(Boolean).length).toBeLessThan(60);
+            expect(reloaded()).toEqual(['c', 'b', 'a']);
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    });
+
+    it('keeps logs a version-1 file does not name, and lets its own record win a clash', () => {
+        const { store, history } = loaded(
+            { 'ws-9': [run('other', 'ws-9')], 'ws-1': [run('same', 'ws-1', { summary: 'from the log' })] },
+            { version: 1, lastFired: {}, runs: [run('same', 'ws-1', { summary: 'from v1' })] }
+        );
+        expect(store.get('other')).toBeDefined();
+        expect(store.get('same')?.summary).toBe('from v1');
+        expect(store.runs().filter((r) => r.id === 'same')).toHaveLength(1);
+        expect(history.logs.get('ws-9')?.map((r) => r.id)).toEqual(['other']);
+    });
+
+    it('strips approval from runs that are already over, or that load ends as interrupted', () => {
+        const approval = { args: { x: 1 } };
+        const migrated = loaded(
+            {},
+            {
+                version: 1,
+                lastFired: {},
+                runs: [run('done', 'ws-1', { approval }), run('cut', 'ws-1', { status: 'running', approval, finishedAt: undefined })],
+            }
+        );
+        expect(migrated.store.get('done')?.approval).toBeUndefined();
+        expect(migrated.store.get('cut')).toMatchObject({ status: 'failed' });
+        expect(migrated.store.get('cut')?.approval).toBeUndefined();
+        expect(migrated.history.logs.get('ws-1')?.find((r) => r.id === 'cut')?.approval).toBeUndefined();
     });
 
     it('drops approval once a run ends', () => {

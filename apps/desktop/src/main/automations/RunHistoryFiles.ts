@@ -23,6 +23,13 @@ export class RunHistoryFiles implements RunHistory {
     /** Lines each log holds, so an append can tell when to compact without rereading. */
     private readonly lines = new Map<string, number>();
 
+    /**
+     * Logs whose whole content this process has seen (loaded, rewritten or
+     * created). Only these are compacted on append: `live` holds only what
+     * the store knows, and rewriting any other log from it would delete runs.
+     */
+    private readonly owned = new Set<string>();
+
     constructor(private readonly dir: string) {}
 
     public load(): Map<string, RunRecord[]> {
@@ -38,7 +45,14 @@ export class RunHistoryFiles implements RunHistory {
             if (!name.endsWith('.jsonl')) continue;
             const workspaceId = name.slice(0, -'.jsonl'.length);
             if (!WORKSPACE_ID.test(workspaceId)) continue;
-            const text = fs.readFileSync(path.join(this.dir, name), 'utf8');
+            let text: string;
+            try {
+                text = fs.readFileSync(path.join(this.dir, name), 'utf8');
+            } catch (error) {
+                // One unreadable log must not hide the others, and it is never compacted from a partial view.
+                console.error(`Could not read run history ${name}; skipping it.`, error);
+                continue;
+            }
             const lines = text.split('\n').filter((line) => line !== '');
             const latest = new Map<string, RunRecord>();
             let damaged = text !== '' && !text.endsWith('\n');
@@ -53,8 +67,17 @@ export class RunHistoryFiles implements RunHistory {
             }
             const runs = [...latest.values()];
             if (runs.length > 0) result.set(workspaceId, runs);
-            if (damaged || lines.length > compactionThreshold(runs.length)) this.rewrite(workspaceId, runs);
-            else this.lines.set(workspaceId, lines.length);
+            if (damaged || lines.length > compactionThreshold(runs.length)) {
+                try {
+                    this.rewrite(workspaceId, runs);
+                } catch (error) {
+                    // Its runs are still good; leave the file as it was.
+                    console.error(`Could not compact run history ${name}.`, error);
+                }
+            } else {
+                this.lines.set(workspaceId, lines.length);
+                this.owned.add(workspaceId);
+            }
         }
         return result;
     }
@@ -66,6 +89,7 @@ export class RunHistoryFiles implements RunHistory {
         const count = this.lines.get(workspaceId) ?? this.adopt(file, workspaceId);
         fs.appendFileSync(file, `${JSON.stringify(run)}\n`);
         this.lines.set(workspaceId, count + 1);
+        if (!this.owned.has(workspaceId)) return;
         const runs = live();
         if (count + 1 > compactionThreshold(runs.length)) this.rewrite(workspaceId, runs);
     }
@@ -83,11 +107,13 @@ export class RunHistoryFiles implements RunHistory {
         fs.writeFileSync(temporary, persisted.map((run) => `${JSON.stringify(run)}\n`).join(''));
         fs.renameSync(temporary, file);
         this.lines.set(workspaceId, persisted.length);
+        this.owned.add(workspaceId);
     }
 
     public remove(workspaceId: string): void {
         const file = this.fileFor(workspaceId);
         this.lines.delete(workspaceId);
+        this.owned.delete(workspaceId);
         try {
             fs.unlinkSync(file);
         } catch (error) {
@@ -106,7 +132,11 @@ export class RunHistoryFiles implements RunHistory {
         try {
             text = fs.readFileSync(file, 'utf8');
         } catch (error) {
-            if (isMissing(error)) return 0;
+            if (isMissing(error)) {
+                // A log this process starts holds only what it writes.
+                this.owned.add(workspaceId);
+                return 0;
+            }
             throw error;
         }
         if (text !== '' && !text.endsWith('\n')) fs.appendFileSync(file, '\n');

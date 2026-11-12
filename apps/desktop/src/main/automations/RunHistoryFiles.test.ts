@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunRecord } from '@consola/factory-spec';
 import { RunHistoryFiles } from './RunHistoryFiles';
 
@@ -50,6 +50,40 @@ describe('RunHistoryFiles', () => {
         const history = new RunHistoryFiles(dir);
         history.append('ws-1', run('r3'), () => []);
         expect(new RunHistoryFiles(dir).load().get('ws-1')?.map((r) => r.id)).toEqual(['r1', 'r3']);
+    });
+
+    it('skips a log it cannot read, and never compacts a log it did not load', () => {
+        const long = path.join(dir, 'ws-2.jsonl');
+        const runs = Array.from({ length: 60 }, (_, index) => run(`r${index}`, { attribution: { workspaceId: 'ws-2' } as never }));
+        fs.writeFileSync(long, runs.map((r) => `${JSON.stringify(r)}\n`).join(''));
+        fs.writeFileSync(path.join(dir, 'ws-1.jsonl'), `${JSON.stringify(run('a'))}\n`);
+        fs.chmodSync(long, 0);
+        const history = new RunHistoryFiles(dir);
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            expect(history.load().get('ws-1')?.map((r) => r.id)).toEqual(['a']);
+            expect(history.load().has('ws-2')).toBe(false);
+            expect(errors).toHaveBeenCalled();
+        } finally {
+            errors.mockRestore();
+        }
+        fs.chmodSync(long, 0o644);
+        // The store holds one ws-2 run; compacting from it would delete the other 60.
+        history.append('ws-2', run('new', { attribution: { workspaceId: 'ws-2' } as never }), () => [run('new')]);
+        expect(fs.readFileSync(long, 'utf8').split('\n').filter(Boolean)).toHaveLength(61);
+    });
+
+    it('still returns the runs of a log whose compaction fails', () => {
+        const file = path.join(dir, 'ws-1.jsonl');
+        fs.writeFileSync(file, `${JSON.stringify(run('a'))}\n{"id":"b"`);
+        // A directory where the temporary file goes makes the rewrite fail.
+        fs.mkdirSync(`${file}.${process.pid}.tmp`);
+        const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+        try {
+            expect(new RunHistoryFiles(dir).load().get('ws-1')?.map((r) => r.id)).toEqual(['a']);
+        } finally {
+            errors.mockRestore();
+        }
     });
 
     it('refuses a workspace id that is not a token', () => {

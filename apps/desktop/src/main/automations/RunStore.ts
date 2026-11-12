@@ -85,9 +85,9 @@ export class RunStore {
         try {
             // A log is oldest first, so reversing puts runs created in the same
             // instant newest first, as `byNewest` leaves ties alone.
-            groups = migrating
-                ? groupByWorkspace(migrating)
-                : new Map([...this.history.load()].map(([workspaceId, runs]) => [workspaceId, [...runs].reverse()]));
+            groups = new Map([...this.history.load()].map(([workspaceId, runs]) => [workspaceId, [...runs].reverse()]));
+            // A version-1 record is the newer word on a run both name.
+            if (migrating) groups = mergeMigrated(groups, migrating);
         } catch (error) {
             console.error('Automation run history unreadable; starting empty.', error);
         }
@@ -99,7 +99,7 @@ export class RunStore {
             const kept = retained(newestFirst, now);
             // A migration writes every log; a later load rewrites only what retention shortened.
             if (workspaceId !== undefined && (migrating || kept.length < newestFirst.length)) {
-                this.guarded(() => this.history.rewrite(workspaceId, kept));
+                this.guarded(() => this.history.rewrite(workspaceId, [...kept].reverse()));
             }
             merged.push(...kept);
         }
@@ -121,6 +121,7 @@ export class RunStore {
                     updatedAt: nowIso,
                     finishedAt: nowIso,
                 });
+                delete run.approval;
                 this.record(run);
             }
         }
@@ -219,13 +220,13 @@ export class RunStore {
         const workspaceId = run.attribution?.workspaceId;
         // The new run's own clock is "now": a run is only ever added as it happens.
         const now = Date.parse(run.createdAt);
-        const before = this.runsOf(workspaceId);
-        const kept = retained([run, ...before], now);
+        const kept = retained([run, ...this.runsOf(workspaceId)], now);
         const keep = new Set(kept);
         this.all = [run, ...this.all].filter((candidate) => keep.has(candidate) || candidate.attribution?.workspaceId !== workspaceId);
-        // A workspace that lost runs is rewritten; otherwise the new run is one more line.
-        if (workspaceId && kept.length < before.length + 1) this.guarded(() => this.history.rewrite(workspaceId, kept));
-        else this.record(run);
+        // Expired runs leave memory only. Rewriting the log on every new run
+        // once history is 30 days old would make each one a whole-file write;
+        // their dead lines count toward compaction, and the next load drops them.
+        this.record(run);
     }
 
     public update(id: string, changes: Partial<RunRecord>): RunRecord {
@@ -252,7 +253,8 @@ export class RunStore {
     private record(run: RunRecord): void {
         const workspaceId = run.attribution?.workspaceId;
         if (!workspaceId) return;
-        this.guarded(() => this.history.append(workspaceId, run, () => this.runsOf(workspaceId)));
+        // A log is oldest first, so the order a reload sees is the order runs were appended.
+        this.guarded(() => this.history.append(workspaceId, run, () => this.runsOf(workspaceId).reverse()));
     }
 
     private persist(): void {
@@ -269,13 +271,23 @@ export class RunStore {
     }
 }
 
-function groupByWorkspace(runs: RunRecord[]): Map<string | undefined, RunRecord[]> {
-    const groups = new Map<string | undefined, RunRecord[]>();
-    for (const run of runs) {
-        const workspaceId = run.attribution?.workspaceId;
-        groups.set(workspaceId, [...(groups.get(workspaceId) ?? []), run]);
+/** Version-1 runs laid over what the logs already hold, with approvals of ended runs stripped. */
+function mergeMigrated(
+    logged: Map<string | undefined, RunRecord[]>,
+    migrated: RunRecord[]
+): Map<string | undefined, RunRecord[]> {
+    const byId = new Map<string | undefined, Map<string, RunRecord>>();
+    const into = (workspaceId: string | undefined) => {
+        const existing = byId.get(workspaceId) ?? new Map<string, RunRecord>();
+        byId.set(workspaceId, existing);
+        return existing;
+    };
+    for (const [workspaceId, runs] of logged) for (const run of runs) into(workspaceId).set(run.id, run);
+    for (const run of migrated) {
+        if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;
+        into(run.attribution?.workspaceId).set(run.id, run);
     }
-    return groups;
+    return new Map([...byId].map(([workspaceId, runs]) => [workspaceId, [...runs.values()]]));
 }
 
 /** Newest first; runs without a usable `createdAt` keep their relative order. */

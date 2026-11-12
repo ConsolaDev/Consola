@@ -6,9 +6,17 @@ export function memoryHistory(initial: Record<string, RunRecord[]> = {}) {
     const logs = new Map<string, RunRecord[]>(Object.entries(initial));
     const appends: Array<{ workspaceId: string; run: RunRecord }> = [];
     const removed: string[] = [];
+    /** Workspace ids of every `rewrite`, in order. */
+    const rewrites: string[] = [];
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
-    const history: RunHistory & { logs: typeof logs; appends: typeof appends; removed: typeof removed } = {
+    const history: RunHistory & {
+        logs: typeof logs;
+        appends: typeof appends;
+        removed: typeof removed;
+        rewrites: typeof rewrites;
+    } = {
         logs,
+        rewrites,
         appends,
         removed,
         load: () => new Map([...logs].map(([workspaceId, runs]) => [workspaceId, clone(runs)])),
@@ -21,6 +29,7 @@ export function memoryHistory(initial: Record<string, RunRecord[]> = {}) {
             logs.set(workspaceId, runs);
         },
         rewrite: (workspaceId, runs) => {
+            rewrites.push(workspaceId);
             logs.set(workspaceId, clone(runs));
         },
         remove: (workspaceId) => {
