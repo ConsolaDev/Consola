@@ -1170,3 +1170,27 @@
   line-height: 20px;
   white-space: nowrap;
 }
+
+/* The tray's place once hidden: the count, and a way back. A literal pill radius, since --radius-full draws square inside .radix-themes. */
+.assistant-header-waiting {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--color-warning);
+  border-radius: 999px;
+  background: transparent;
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.assistant-header-waiting:hover {
+  background: var(--color-bg-hover);
+}
+
+.assistant-header-waiting:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
+}

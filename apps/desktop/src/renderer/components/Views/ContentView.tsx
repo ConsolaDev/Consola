@@ -12,6 +12,8 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { harnessBridge } from '../../services/harnessBridge';
 import { assistantBridge } from '../../services/assistantBridge';
 import { useAssistantStore } from '../../stores/assistantStore';
+import { useAssistantRequests } from '../../hooks/useAssistantRequests';
+import { AssistantTray } from '../AssistantTray/AssistantTray';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
@@ -56,6 +58,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // checkout-shaped panels (explorer, git review) have anything to show.
   const isAssistant = session?.kind === 'assistant';
   const hasUnseenFinished = useAssistantStore((state) => (state.activity[workspaceId]?.unseenFinished ?? 0) > 0);
+  // What the Assistant asked for that waits for the person sits beside it,
+  // until hidden; a request it has not shown yet brings it back.
+  const assistantRequests = useAssistantRequests(isAssistant ? workspace : undefined);
+  const trayHidden = useAssistantStore((state) => state.tray[workspaceId]?.hidden ?? false);
+  const reconcileTray = useAssistantStore((state) => state.reconcileTray);
+  const setTrayHidden = useAssistantStore((state) => state.setTrayHidden);
+  const requestIds = assistantRequests.map((run) => run.id).join('\n');
+  useEffect(() => {
+    if (isAssistant) reconcileTray(workspaceId, requestIds ? requestIds.split('\n') : []);
+  }, [isAssistant, workspaceId, requestIds, reconcileTray]);
+  const isTrayOpen = isAssistant && assistantRequests.length > 0 && !trayHidden;
   // Details are read as the workspace's account, so a workspace without one
   // has nothing to show even when the session still names an item.
   const showWorkItemPanel =
@@ -66,6 +79,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const panelIds = [
     ...(isExplorerVisible && cwd && !isAssistant ? ['explorer'] : []),
     'agent',
+    ...(isTrayOpen ? ['approvals'] : []),
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
     ...(isGitReviewOpen && !isAssistant ? ['git-review'] : []),
@@ -232,6 +246,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               />
             </SessionTerminalLayout>
           </Panel>
+          {isTrayOpen && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="approvals" defaultSize="320px" minSize="260px" maxSize="45%">
+                <AssistantTray requests={assistantRequests} onHide={() => setTrayHidden(workspaceId, true)} />
+              </Panel>
+            </>
+          )}
           {showWorkItemPanel && (
             <>
               <Separator className="resize-handle" />

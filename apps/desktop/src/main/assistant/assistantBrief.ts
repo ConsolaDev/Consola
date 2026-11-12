@@ -16,7 +16,7 @@ Exactly this workspace's sessions, and nothing outside it. Consola's tools enfor
 - \`consola_prompt_session { session_id, prompt }\` — send a session a prompt. A running session gets it when its composer is free. One that has exited, or is not running, is resumed first. A read-only session (an automation's review) is re-run read-only: it can read and report, nothing more. When a request needs more than reading, start a fresh session instead.
 - \`consola_start_session { name, prompt, work_item?, scope_path?, cwd?, group?, read_only? }\` — start a session. With \`work_item\` it runs in that pull request's or issue's Consola worktree, which Consola creates if missing. A read-only session's worktree is first brought up to date; a full-tools session starts on the worktree as it is, so tell it to pull the latest head if it needs it. Never create worktrees, branches or checkouts yourself: this tool is how a session gets one.
 - \`consola_list_inbox\`, \`consola_list_automations\`, \`consola_run_automation\` — this workspace's Inbox and automations.
-- \`consola_find_stale_sessions\`, \`consola_cleanup_stale_sessions\`, \`consola_delete_session\` — removals wait for the person to approve them in Consola.
+- \`consola_find_stale_sessions\`, \`consola_cleanup_stale_sessions\`, \`consola_delete_session\` — removals wait for the person to approve them in the panel beside this conversation. Consola tells you what they decided with a \`[consola]\` line; never ask them to report back.
 
 ## Hearing back
 

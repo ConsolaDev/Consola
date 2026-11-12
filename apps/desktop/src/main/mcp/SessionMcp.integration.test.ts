@@ -353,6 +353,38 @@ describe('MCP surface (in-memory)', () => {
     await client.close();
   });
 
+  it('tells the Assistant its removals wait beside it, and that it will hear back', async () => {
+    const client = await clientFor('a-1');
+    const { tools } = await client.listTools();
+    const description = tools.find((tool) => tool.name === 'consola_delete_session')?.description;
+    expect(description).toMatch(/panel beside your conversation/);
+    expect(description).toMatch(/runs only once they approve it there/);
+    expect(description).toMatch(/never ask them to report back/);
+
+    const answer = JSON.parse(
+      firstText(await client.callTool({ name: 'consola_delete_session', arguments: { session_id: 'w-1' } }))
+    );
+    expect(answer).toMatchObject({
+      summary:
+        'Would delete "worker". Waiting for the person in the panel beside your conversation; nothing has changed yet. Consola will tell you what they decide.',
+      status: 'needs-approval',
+    });
+    await client.close();
+  });
+
+  it('tells the Assistant that an automation it runs waits beside it, and that it will hear back', async () => {
+    const assistant = await clientFor('a-1');
+    const mine = (await assistant.listTools()).tools.find((tool) => tool.name === 'consola_run_automation')?.description;
+    expect(mine).toMatch(/panel beside your conversation/);
+    expect(mine).toMatch(/never ask them to report back/);
+    await assistant.close();
+
+    const conductor = await clientFor('cond-1');
+    const theirs = (await conductor.listTools()).tools.find((tool) => tool.name === 'consola_run_automation')?.description;
+    expect(theirs).not.toMatch(/panel beside your conversation/);
+    await conductor.close();
+  });
+
   it('answers bad arguments as a tool error, not a crash', async () => {
     const client = await clientFor('w-1');
     const result = await client.callTool({

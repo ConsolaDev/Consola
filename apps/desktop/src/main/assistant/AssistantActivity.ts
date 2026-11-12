@@ -25,9 +25,10 @@ interface Watch {
 }
 
 interface Entry {
-    sessionId: string;
-    /** `"<name>" <is ready | needs you | has exited>` */
+    /** `"<name>" <is ready | needs you | has exited>`, or a report's own text. */
     text: string;
+    /** The session a notice is about, when it is one to read. */
+    sessionId?: string;
 }
 
 const VERDICT: Record<'ready' | 'needs-attention' | 'exited', string> = {
@@ -41,7 +42,7 @@ const VERDICT: Record<'ready' | 'needs-attention' | 'exited', string> = {
  * becomes a pasted prompt in the Assistant. Keep the name to one short quoted
  * run so it cannot close the quote, start a new line or carry a paragraph.
  */
-function quoteName(name: string): string {
+export function quoteName(name: string): string {
     const flat = name.replace(/\s+/g, ' ').trim().replace(/"/g, '’');
     const cut = flat.length > MAX_NAME_LENGTH ? `${flat.slice(0, MAX_NAME_LENGTH - 1)}…` : flat;
     return `"${cut}"`;
@@ -107,6 +108,15 @@ export class AssistantActivity {
         };
     }
 
+    /**
+     * Tell the Assistant something that is not a session settling — what the
+     * person decided about its request. Batched with the notices about
+     * finished sessions, and never counted among them.
+     */
+    report(assistantSessionId: string, text: string): void {
+        this.enqueue(assistantSessionId, { text });
+    }
+
     markSeen(workspaceId: string): void {
         if (!this.unseen.get(workspaceId)) return;
         this.unseen.delete(workspaceId);
@@ -123,13 +133,21 @@ export class AssistantActivity {
         this.emit(watch.workspaceId);
 
         const target = this.findById(targetId)?.session;
-        const batch = this.pending.get(watch.assistantSessionId) ?? {
+        this.enqueue(watch.assistantSessionId, {
+            sessionId: targetId,
+            text: `${quoteName(target?.name ?? targetId)} ${VERDICT[status]}`,
+        });
+    }
+
+    /** Notices landing within COALESCE_MS of the first go out as one line. */
+    private enqueue(assistantSessionId: string, entry: Entry): void {
+        const batch = this.pending.get(assistantSessionId) ?? {
             entries: [],
-            timer: setTimeout(() => this.flush(watch.assistantSessionId), COALESCE_MS),
+            timer: setTimeout(() => this.flush(assistantSessionId), COALESCE_MS),
         };
         batch.timer.unref?.();
-        batch.entries.push({ sessionId: targetId, text: `${quoteName(target?.name ?? targetId)} ${VERDICT[status]}` });
-        this.pending.set(watch.assistantSessionId, batch);
+        batch.entries.push(entry);
+        this.pending.set(assistantSessionId, batch);
     }
 
     private flush(assistantSessionId: string): void {
@@ -139,10 +157,15 @@ export class AssistantActivity {
         if (!batch || !assistant) return;
 
         const [only] = batch.entries;
+        const toRead = batch.entries.filter((entry) => entry.sessionId).length;
+        const tail =
+            toRead === 0 ? '.' : ` — read ${toRead === 1 ? 'it' : 'them'} with consola_read_session.`;
         const line =
-            batch.entries.length === 1
+            batch.entries.length === 1 && only.sessionId
                 ? `[consola] ${only.text} — read it with consola_read_session (session_id: ${only.sessionId}).`
-                : `[consola] ${batch.entries.map((e) => `${e.text} (session_id: ${e.sessionId})`).join('; ')} — read them with consola_read_session.`;
+                : `[consola] ${batch.entries
+                      .map((entry) => (entry.sessionId ? `${entry.text} (session_id: ${entry.sessionId})` : entry.text))
+                      .join('; ')}${tail}`;
         // A stopped Assistant drops the notice; the unseen count carries it.
         this.deps.queuePrompt(assistant.instanceId, line);
     }
