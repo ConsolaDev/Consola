@@ -53,7 +53,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
     const assistant = caller?.kind === 'assistant';
 
     for (const tool of deps.registry.list()) {
-        if (readOnly && tool.mutating) continue;
+        if (readOnly && (tool.mutating || tool.fullToolsOnly)) continue;
         // The Assistant's own start_session, added below, takes its place:
         // the workspace's harness and work items rather than the caller's own.
         if (assistant && tool.name === 'start_session') continue;

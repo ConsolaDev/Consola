@@ -93,6 +93,8 @@ export interface ToolDefinition<Shape extends z.ZodRawShape = z.ZodRawShape> {
      * would let an automation start automations, are not.
      */
     automatable: boolean;
+    /** Never offered to a read-only session, even when it changes nothing. */
+    fullToolsOnly?: boolean;
     /** What `run` would do, changing nothing. */
     preview?(args: z.infer<z.ZodObject<Shape>>, context: ToolContext): Promise<ToolResult>;
     run(args: z.infer<z.ZodObject<Shape>>, context: ToolContext): Promise<ToolResult>;
