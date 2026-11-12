@@ -121,8 +121,8 @@ export function installMock() {
   storage.setItem('consola-settings', JSON.stringify({ state: { theme: 'dark', terminalFontSize: 12 }, version: 0 }));
 
   window.windowAPI = {
-    context: { workspaceId: 'acme', activeSessionId: 'onboarding', isInboxOpen: false },
-    activateWorkspace: async id => ({ verdict: 'took', view: views.get(id || '') || { activeSessionId: workspaces.find(w => w.id === id)?.sessions[0]?.id || null, isInboxOpen: true } }),
+    context: { workspaceId: 'acme', activeSessionId: 'onboarding', overlay: null },
+    activateWorkspace: async id => ({ verdict: 'took', view: views.get(id || '') || { activeSessionId: workspaces.find(w => w.id === id)?.sessions[0]?.id || null, overlay: 'inbox' } }),
     setView: (id, view) => { if (id) views.set(id, view); },
     onWorkspaceChanged: workspaceChanged.subscribe, onActivateSession: noSubscription, onOpenSettings: noSubscription, onOpenWorkspaceSettings: noSubscription,
     openWindow: async id => { if (id) workspaceChanged.emit(id); else notify('The desktop app can open additional windows. This demo stays in one browser frame.'); },

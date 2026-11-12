@@ -104,7 +104,7 @@ place, so recent bytes are not the current screen. Ask the `ScreenModel`.
 ### Each Workspace Remembers Where It Was Left
 
 Switching workspaces returns to the view that workspace was last on, rather
-than the blank composer. A "view" is the pair `(activeSessionId, isInboxOpen)`
+than the blank composer. A "view" is the pair `(activeSessionId, overlay)`
 — exactly what `MainContent` routes on. Both travel together because opening
 the Inbox does not clear the session: it overlays the pane while the session
 keeps running behind it, so remembering one without the other loses half the

@@ -46,9 +46,9 @@ export function activateSession(workspaceId: string, sessionId: string): void {
   useNavigationStore.setState({
     activeWorkspaceId: workspaceId,
     activeSessionId: sessionId,
-    isInboxOpen: false,
+    overlay: null,
   });
-  windowBridge.setView(workspaceId, { activeSessionId: sessionId, isInboxOpen: false });
+  windowBridge.setView(workspaceId, { activeSessionId: sessionId, overlay: null });
 }
 
 /**

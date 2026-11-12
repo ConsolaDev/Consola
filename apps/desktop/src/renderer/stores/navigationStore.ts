@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { windowBridge } from '../services/windowBridge';
+import type { WorkspaceOverlay } from '../../shared/types';
 
 /**
  * Bounds for the sidebar width, in pixels.
@@ -44,10 +45,10 @@ export interface NavigationState {
   activeWorkspaceId: string | null;
   activeSessionId: string | null;
   /**
-   * The Inbox view is showing over the pane; the session below stays active.
+   * The Inbox or Automations is showing over the pane; the session below stays active.
    * Per-window like the session, and remembered by main against the workspace.
    */
-  isInboxOpen: boolean;
+  overlay: WorkspaceOverlay;
   toggleSidebar: () => void;
   setSidebarHidden: (hidden: boolean) => void;
   setSidebarWidth: (width: number) => void;
@@ -59,6 +60,7 @@ export interface NavigationState {
   setActiveWorkspace: (id: string | null) => Promise<void>;
   setActiveSession: (id: string | null) => void;
   openInbox: () => void;
+  openAutomations: () => void;
 }
 
 /**
@@ -108,7 +110,7 @@ export const useNavigationStore = create<NavigationState>()(
       // Both arrive with the window, so the first paint already shows what
       // this workspace was left on rather than an empty view it corrects later.
       activeSessionId: windowBridge.context.activeSessionId,
-      isInboxOpen: windowBridge.context.isInboxOpen,
+      overlay: windowBridge.context.overlay,
 
       toggleSidebar: () => set((state) => ({ isSidebarHidden: !state.isSidebarHidden })),
       setSidebarHidden: (hidden) => set({ isSidebarHidden: hidden }),
@@ -130,27 +132,35 @@ export const useNavigationStore = create<NavigationState>()(
         set({
           activeWorkspaceId: id,
           activeSessionId: result.view.activeSessionId,
-          isInboxOpen: result.view.isInboxOpen,
+          overlay: result.view.overlay,
         });
       },
 
       setActiveSession: (id) => {
-        set({ activeSessionId: id, isInboxOpen: false });
+        set({ activeSessionId: id, overlay: null });
         // Reported even when `id` is null: backing out to the workspace on
         // purpose is a state worth returning to, not an absence of one.
         windowBridge.setView(get().activeWorkspaceId, {
           activeSessionId: id,
-          isInboxOpen: false,
+          overlay: null,
         });
       },
 
       openInbox: () => {
-        set({ isInboxOpen: true });
-        // The session stays active behind the Inbox, so it travels with it —
+        set({ overlay: 'inbox' });
+        // The session stays active behind the overlay, so it travels with it —
         // dropping it here would lose the pane this window returns to.
         windowBridge.setView(get().activeWorkspaceId, {
           activeSessionId: get().activeSessionId,
-          isInboxOpen: true,
+          overlay: 'inbox',
+        });
+      },
+
+      openAutomations: () => {
+        set({ overlay: 'automations' });
+        windowBridge.setView(get().activeWorkspaceId, {
+          activeSessionId: get().activeSessionId,
+          overlay: 'automations',
         });
       },
     }),
@@ -180,7 +190,7 @@ export function subscribeToWindowWorkspace(): () => void {
     useNavigationStore.setState({
       activeWorkspaceId: workspaceId,
       activeSessionId: null,
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 }
@@ -196,6 +206,6 @@ export function subscribeToWindowWorkspace(): () => void {
  */
 export function subscribeToActivateSession(): () => void {
   return windowBridge.onActivateSession((sessionId) => {
-    useNavigationStore.setState({ activeSessionId: sessionId, isInboxOpen: false });
+    useNavigationStore.setState({ activeSessionId: sessionId, overlay: null });
   });
 }

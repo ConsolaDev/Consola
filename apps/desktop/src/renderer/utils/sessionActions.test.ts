@@ -6,7 +6,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 // same workaround navigationStore.test.ts uses.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
-    context: { workspaceId: null, activeSessionId: null, isInboxOpen: false },
+    context: { workspaceId: null, activeSessionId: null, overlay: null },
     activateWorkspace: vi.fn(),
     openWindow: vi.fn(),
     setView: vi.fn(),
@@ -33,7 +33,7 @@ beforeEach(() => {
   useNavigationStore.setState({
     activeWorkspaceId: null,
     activeSessionId: null,
-    isInboxOpen: false,
+    overlay: null,
   });
 });
 
@@ -44,7 +44,7 @@ describe('session creation', () => {
     workspace.scopes.push(secondary);
     useWorkspaceStore.setState({ workspaces: [workspace] });
     useHomeStore.getState().selectScope(workspace.id, secondary.id);
-    useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: 'existing', isInboxOpen: true });
+    useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: 'existing', overlay: 'inbox' });
     const create = vi.spyOn(useWorkspaceStore.getState(), 'createSession').mockImplementation(async (_id, fields) => ({
       ...fields, id: 'new-session', claudeSessionId: 'cli-id', hasStarted: false,
       kind: 'interactive', createdAt: 0, lastActiveAt: 0,
@@ -59,7 +59,7 @@ describe('session creation', () => {
     expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
       harnessId: 'default-agent', scopeId: secondary.id, model: undefined, groupId: undefined,
     }), undefined);
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'new-session', isInboxOpen: false });
+    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'new-session', overlay: null });
     expect(useNewSessionDialogStore.getState().destination).toBeNull();
   });
 
@@ -79,7 +79,7 @@ describe('session creation', () => {
     });
     useNewSessionDialogStore.getState().close();
     expect(create).not.toHaveBeenCalled();
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'existing', isInboxOpen: true });
+    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'existing', overlay: 'inbox' });
     expect(useHomeStore.getState().scopeIds[workspace.id]).toBe(secondary.id);
     expect(windowBridge.setView).not.toHaveBeenCalled();
   });
@@ -141,19 +141,19 @@ describe('activateSession', () => {
     expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: 'session-3',
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 
   it('closes the Inbox, since a session was chosen over it', () => {
-    useNavigationStore.setState({ isInboxOpen: true });
+    useNavigationStore.setState({ overlay: 'inbox' });
 
     activateSession('workspace-1', 'session-3');
 
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: 'session-3',
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 });

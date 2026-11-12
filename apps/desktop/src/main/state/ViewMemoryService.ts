@@ -8,21 +8,30 @@ export interface ViewMemoryStateFile {
 }
 
 /** What a workspace shows with nothing remembered — today's blank composer. */
-export const EMPTY_VIEW: WorkspaceView = { activeSessionId: null, isInboxOpen: false };
+export const EMPTY_VIEW: WorkspaceView = { activeSessionId: null, overlay: null };
 
 /**
- * Whether a stored entry is shaped the way we wrote it.
+ * Read a stored entry as the view it describes, or null when it is malformed.
  *
  * `view-memory.json` is an ordinary file: a user can edit it and a crash can
  * truncate it. One malformed entry is skipped on its own rather than costing
  * every other workspace its memory, the same way `isStoredWindow` treats one
  * bad window entry.
+ *
+ * Entries written before Automations existed carry `isInboxOpen` instead of
+ * `overlay`; `true` is the Inbox overlay and `false` none.
  */
-export function isValidView(value: unknown): value is WorkspaceView {
-  if (typeof value !== 'object' || value === null) return false;
-  const { activeSessionId, isInboxOpen } = value as Record<string, unknown>;
-  if (activeSessionId !== null && typeof activeSessionId !== 'string') return false;
-  return typeof isInboxOpen === 'boolean';
+export function normalizeView(value: unknown): WorkspaceView | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const { activeSessionId, overlay, isInboxOpen } = value as Record<string, unknown>;
+  if (activeSessionId !== null && typeof activeSessionId !== 'string') return null;
+  if (overlay === null || overlay === 'inbox' || overlay === 'automations') {
+    return { activeSessionId, overlay };
+  }
+  if (overlay === undefined && typeof isInboxOpen === 'boolean') {
+    return { activeSessionId, overlay: isInboxOpen ? 'inbox' : null };
+  }
+  return null;
 }
 
 /**
@@ -52,8 +61,9 @@ export function resolveRememberedView(
   return {
     activeSessionId: sessionStillExists ? view.activeSessionId : null,
     // Inbox also hosts integration setup, so it remains a valid destination
-    // before an account is connected and after one is disconnected.
-    isInboxOpen: view.isInboxOpen,
+    // before an account is connected and after one is disconnected, and
+    // Automations offers templates before there is anything to run.
+    overlay: view.overlay,
   };
 }
 
@@ -97,9 +107,15 @@ export class ViewMemoryService {
     const views = stored?.views;
     if (typeof views !== 'object' || views === null) return;
 
-    for (const [workspaceId, view] of Object.entries(views)) {
-      if (isValidView(view)) this.views.set(workspaceId, view);
+    let migrated = false;
+    for (const [workspaceId, entry] of Object.entries(views)) {
+      const view = normalizeView(entry);
+      if (!view) continue;
+      this.views.set(workspaceId, view);
+      if ((entry as Record<string, unknown>).overlay === undefined) migrated = true;
     }
+    // Rewritten once, so the legacy shape does not linger on disk.
+    if (migrated) this.write();
   }
 
   /** Whether anything has ever been remembered. */
@@ -141,7 +157,7 @@ export class ViewMemoryService {
     if (
       current &&
       current.activeSessionId === view.activeSessionId &&
-      current.isInboxOpen === view.isInboxOpen
+      current.overlay === view.overlay
     ) {
       return;
     }

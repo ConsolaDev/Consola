@@ -63,7 +63,7 @@ function reportView() {
   const navigation = useNavigationStore.getState();
   const view = navigation.activeWorkspaceId === 'personal' ? 'personal'
     : navigation.activeWorkspaceId !== 'acme' ? null
-    : navigation.isInboxOpen ? 'inbox'
+    : navigation.overlay === 'inbox' ? 'inbox'
     : useGitReviewStore.getState().isOpen && navigation.activeSessionId ? 'changes' : 'home';
   window.parent.postMessage({ type: 'consola:demo-view', view }, location.origin);
 }

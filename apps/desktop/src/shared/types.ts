@@ -483,16 +483,22 @@ declare global {
 }
 
 /**
+ * What covers the session pane, if anything. One field rather than a flag per
+ * overlay, so the Inbox and Automations cannot both be open.
+ */
+export type WorkspaceOverlay = 'inbox' | 'automations' | null;
+
+/**
  * What a workspace is showing.
  *
  * Exactly the pair MainContent routes on. The two travel together because
- * opening the Inbox does not clear the session — it overlays the pane while
+ * opening an overlay does not clear the session — it covers the pane while
  * the session keeps running behind it — so remembering one without the other
  * would silently drop half the answer to "where was I?".
  */
 export interface WorkspaceView {
     activeSessionId: string | null;
-    isInboxOpen: boolean;
+    overlay: WorkspaceOverlay;
 }
 
 /**

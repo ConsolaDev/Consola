@@ -6,10 +6,11 @@ import { JsonStateFile } from './JsonStateFile';
 import {
   EMPTY_VIEW,
   ViewMemoryService,
-  isValidView,
+  normalizeView,
   resolveRememberedView,
   type ViewMemoryStateFile,
 } from './ViewMemoryService';
+import type { WorkspaceView } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
 
 let dir: string;
@@ -57,8 +58,17 @@ function session(id: string) {
 }
 
 describe('resolveRememberedView', () => {
+  it('keeps the automations overlay while dropping a dangling session', () => {
+    const workspace = { sessions: [session('s1')] } as Workspace;
+
+    expect(resolveRememberedView({ activeSessionId: 'gone', overlay: 'automations' }, workspace)).toEqual({
+      activeSessionId: null,
+      overlay: 'automations',
+    });
+  });
+
   it('returns the empty view when the workspace is gone', () => {
-    const view = { activeSessionId: 's1', isInboxOpen: true };
+    const view: WorkspaceView = { activeSessionId: 's1', overlay: 'inbox' };
 
     expect(resolveRememberedView(view, undefined)).toEqual(EMPTY_VIEW);
   });
@@ -66,9 +76,9 @@ describe('resolveRememberedView', () => {
   it('keeps a session that still exists', () => {
     const workspace = makeWorkspace({ sessions: [session('s1'), session('s2')] });
 
-    expect(resolveRememberedView({ activeSessionId: 's2', isInboxOpen: false }, workspace)).toEqual({
+    expect(resolveRememberedView({ activeSessionId: 's2', overlay: null }, workspace)).toEqual({
       activeSessionId: 's2',
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 
@@ -78,15 +88,15 @@ describe('resolveRememberedView', () => {
     // answer here.
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: 'gone', isInboxOpen: false }, workspace)).toEqual(
-      { activeSessionId: null, isInboxOpen: false }
+    expect(resolveRememberedView({ activeSessionId: 'gone', overlay: null }, workspace)).toEqual(
+      { activeSessionId: null, overlay: null }
     );
   });
 
   it('treats a remembered composer as a real answer, not as nothing remembered', () => {
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: null, isInboxOpen: false }, workspace)).toEqual(
+    expect(resolveRememberedView({ activeSessionId: null, overlay: null }, workspace)).toEqual(
       EMPTY_VIEW
     );
   });
@@ -97,88 +107,125 @@ describe('resolveRememberedView', () => {
       provider: { id: 'github', accountLogin: 'someone' },
     } as Partial<Workspace>);
 
-    expect(resolveRememberedView({ activeSessionId: 's1', isInboxOpen: true }, workspace)).toEqual({
+    expect(resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace)).toEqual({
       activeSessionId: 's1',
-      isInboxOpen: true,
+      overlay: 'inbox',
     });
   });
 
   it('keeps integration onboarding open without a provider binding', () => {
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: 's1', isInboxOpen: true }, workspace)).toEqual({
+    expect(resolveRememberedView({ activeSessionId: 's1', overlay: 'inbox' }, workspace)).toEqual({
       activeSessionId: 's1',
-      isInboxOpen: true,
+      overlay: 'inbox',
     });
   });
 });
 
-describe('isValidView', () => {
-  it('accepts both shapes we write', () => {
-    expect(isValidView({ activeSessionId: 's1', isInboxOpen: true })).toBe(true);
-    expect(isValidView({ activeSessionId: null, isInboxOpen: false })).toBe(true);
+describe('normalizeView', () => {
+  it('accepts every shape we write', () => {
+    expect(normalizeView({ activeSessionId: 's1', overlay: 'inbox' })).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
+    expect(normalizeView({ activeSessionId: 's1', overlay: 'automations' })).toEqual({ activeSessionId: 's1', overlay: 'automations' });
+    expect(normalizeView({ activeSessionId: null, overlay: null })).toEqual({ activeSessionId: null, overlay: null });
+  });
+
+  it('reads the legacy inbox flag as an overlay', () => {
+    expect(normalizeView({ activeSessionId: 's1', isInboxOpen: true })).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
+    expect(normalizeView({ activeSessionId: null, isInboxOpen: false })).toEqual({ activeSessionId: null, overlay: null });
   });
 
   it('rejects anything that is not an object', () => {
-    expect(isValidView(null)).toBe(false);
-    expect(isValidView('s1')).toBe(false);
-    expect(isValidView(undefined)).toBe(false);
+    expect(normalizeView(null)).toBeNull();
+    expect(normalizeView('s1')).toBeNull();
+    expect(normalizeView(undefined)).toBeNull();
   });
 
   it('rejects a session id that is neither a string nor null', () => {
-    expect(isValidView({ activeSessionId: 7, isInboxOpen: false })).toBe(false);
+    expect(normalizeView({ activeSessionId: 7, overlay: null })).toBeNull();
   });
 
-  it('rejects a missing or non-boolean inbox flag', () => {
-    expect(isValidView({ activeSessionId: null })).toBe(false);
-    expect(isValidView({ activeSessionId: null, isInboxOpen: 'yes' })).toBe(false);
+  it('rejects a missing overlay and a non-boolean legacy flag', () => {
+    expect(normalizeView({ activeSessionId: null })).toBeNull();
+    expect(normalizeView({ activeSessionId: null, isInboxOpen: 'yes' })).toBeNull();
+  });
+
+  it('rejects an unknown overlay value', () => {
+    expect(normalizeView({ activeSessionId: null, overlay: 'settings' })).toBeNull();
   });
 });
 
 describe('ViewMemoryService', () => {
+  it('reads a legacy isInboxOpen entry as the inbox overlay, and writes the new shape', () => {
+    fs.writeFileSync(
+      filePath(),
+      JSON.stringify({
+        views: {
+          w1: { activeSessionId: 's1', isInboxOpen: true },
+          w2: { activeSessionId: null, isInboxOpen: false },
+        },
+      })
+    );
+
+    const rebuilt = build();
+    expect(rebuilt.get('w1')).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
+    expect(rebuilt.get('w2')).toEqual({ activeSessionId: null, overlay: null });
+
+    const stored = JSON.parse(fs.readFileSync(filePath(), 'utf8'));
+    expect(stored.views.w1).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
+    expect(stored.views.w2).toEqual({ activeSessionId: null, overlay: null });
+  });
+
+  it('tells apart two views that differ only in their overlay', () => {
+    service.set('w1', { activeSessionId: 's1', overlay: 'inbox' });
+    service.set('w1', { activeSessionId: 's1', overlay: 'automations' });
+
+    expect(build().get('w1')).toEqual({ activeSessionId: 's1', overlay: 'automations' });
+  });
+
   it('returns the empty view for a workspace it has never been told about', () => {
     expect(service.get('unknown')).toEqual(EMPTY_VIEW);
   });
 
   it('reads back what it was told', () => {
-    service.set('w1', { activeSessionId: 's1', isInboxOpen: true });
+    service.set('w1', { activeSessionId: 's1', overlay: 'inbox' });
 
-    expect(service.get('w1')).toEqual({ activeSessionId: 's1', isInboxOpen: true });
+    expect(service.get('w1')).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
   });
 
   it('persists a view immediately, so a force-quit cannot lose it', () => {
-    service.set('w1', { activeSessionId: 's1', isInboxOpen: false });
+    service.set('w1', { activeSessionId: 's1', overlay: null });
 
     // No save() call in between: the write happens on set, which is the whole
     // point of not deferring it to quit.
-    expect(build().get('w1')).toEqual({ activeSessionId: 's1', isInboxOpen: false });
+    expect(build().get('w1')).toEqual({ activeSessionId: 's1', overlay: null });
   });
 
   it('remembers the composer as its own state, distinct from never having visited', () => {
-    service.set('w1', { activeSessionId: null, isInboxOpen: false });
+    service.set('w1', { activeSessionId: null, overlay: null });
 
     const stored = JSON.parse(fs.readFileSync(filePath(), 'utf8')) as ViewMemoryStateFile;
-    expect(stored.views.w1).toEqual({ activeSessionId: null, isInboxOpen: false });
+    expect(stored.views.w1).toEqual({ activeSessionId: null, overlay: null });
   });
 
   it('skips the write when the view has not actually changed', () => {
-    service.set('w1', { activeSessionId: 's1', isInboxOpen: false });
+    service.set('w1', { activeSessionId: 's1', overlay: null });
     const firstWrite = fs.statSync(filePath()).mtimeMs;
 
-    service.set('w1', { activeSessionId: 's1', isInboxOpen: false });
+    service.set('w1', { activeSessionId: 's1', overlay: null });
 
     // Clicking the session you are already on should cost nothing.
     expect(fs.statSync(filePath()).mtimeMs).toBe(firstWrite);
   });
 
   it('drops workspaces that no longer exist, and keeps the rest', () => {
-    service.set('w1', { activeSessionId: 's1', isInboxOpen: false });
-    service.set('w2', { activeSessionId: 's2', isInboxOpen: false });
+    service.set('w1', { activeSessionId: 's1', overlay: null });
+    service.set('w2', { activeSessionId: 's2', overlay: null });
 
     service.prune(new Set(['w2']));
 
     expect(service.get('w1')).toEqual(EMPTY_VIEW);
-    expect(service.get('w2')).toEqual({ activeSessionId: 's2', isInboxOpen: false });
+    expect(service.get('w2')).toEqual({ activeSessionId: 's2', overlay: null });
     expect(build().get('w1')).toEqual(EMPTY_VIEW);
   });
 
@@ -200,14 +247,14 @@ describe('ViewMemoryService', () => {
       filePath(),
       JSON.stringify({
         views: {
-          w1: { activeSessionId: 's1', isInboxOpen: false },
-          w2: { activeSessionId: 7, isInboxOpen: false },
+          w1: { activeSessionId: 's1', overlay: null },
+          w2: { activeSessionId: 7, overlay: null },
         },
       })
     );
 
     const rebuilt = build();
-    expect(rebuilt.get('w1')).toEqual({ activeSessionId: 's1', isInboxOpen: false });
+    expect(rebuilt.get('w1')).toEqual({ activeSessionId: 's1', overlay: null });
     expect(rebuilt.get('w2')).toEqual(EMPTY_VIEW);
   });
 
@@ -219,12 +266,12 @@ describe('ViewMemoryService', () => {
 
   it('seeds carried-over views in one write, and persists them', () => {
     service.seed({
-      w1: { activeSessionId: 's1', isInboxOpen: false },
-      w2: { activeSessionId: 's2', isInboxOpen: false },
+      w1: { activeSessionId: 's1', overlay: null },
+      w2: { activeSessionId: 's2', overlay: null },
     });
 
-    expect(build().get('w1')).toEqual({ activeSessionId: 's1', isInboxOpen: false });
-    expect(build().get('w2')).toEqual({ activeSessionId: 's2', isInboxOpen: false });
+    expect(build().get('w1')).toEqual({ activeSessionId: 's1', overlay: null });
+    expect(build().get('w2')).toEqual({ activeSessionId: 's2', overlay: null });
   });
 
   it('writes nothing when there is nothing to seed', () => {

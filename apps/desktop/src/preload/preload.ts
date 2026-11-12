@@ -431,10 +431,13 @@ contextBridge.exposeInMainWorld('gitAPI', {
 function readWindowContext(): WindowContext {
     const prefix = '--consola-window=';
     const arg = process.argv.find((value) => value.startsWith(prefix));
-    const empty: WindowContext = { workspaceId: null, activeSessionId: null, isInboxOpen: false };
+    const empty: WindowContext = { workspaceId: null, activeSessionId: null, overlay: null };
     if (!arg) return empty;
     try {
-        return JSON.parse(arg.slice(prefix.length)) as WindowContext;
+        const context = JSON.parse(arg.slice(prefix.length)) as WindowContext;
+        // Main always sends a known overlay; anything else is read as none.
+        const overlay = context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
+        return { ...context, overlay };
     } catch {
         return empty;
     }

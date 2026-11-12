@@ -23,7 +23,7 @@ const contexts = new Map<number, { workspaceId: string | null }>();
 const EMPTY_CONTEXT: WindowContext = {
     workspaceId: null,
     activeSessionId: null,
-    isInboxOpen: false,
+    overlay: null,
 };
 
 /**
@@ -176,7 +176,7 @@ export function focusOrCreate(
 ): BrowserWindow {
     let view = viewMemory.get(workspaceId);
     if (forcedSessionId) {
-        view = { activeSessionId: forcedSessionId, isInboxOpen: false };
+        view = { activeSessionId: forcedSessionId, overlay: null };
         viewMemory.set(workspaceId, view);
     }
 
@@ -305,9 +305,9 @@ export function viewsFromStoredLayout(): Record<string, WorkspaceView> {
         if (typeof entry !== 'object' || entry === null) continue;
         const { workspaceId, activeSessionId } = entry as Record<string, unknown>;
         if (typeof workspaceId !== 'string' || typeof activeSessionId !== 'string') continue;
-        // The Inbox was never recorded per window, so it starts closed —
+        // An overlay was never recorded per window, so it starts closed —
         // the one detail an upgrade cannot carry over.
-        views[workspaceId] = { activeSessionId, isInboxOpen: false };
+        views[workspaceId] = { activeSessionId, overlay: null };
     }
     return views;
 }
