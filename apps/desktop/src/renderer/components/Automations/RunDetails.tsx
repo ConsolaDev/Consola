@@ -64,7 +64,7 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
   return (
     <div className="automations-run-details">
       <RunFactsList workspace={workspace} run={run} />
-      {/* An agent run's summary repeats its facts ("Running in …"), and outlives them once it fails. */}
+      {/* An agent run's summary repeats its facts ("Running in …", "Did not finish in …"). */}
       {run.summary && (stage === 'tool' || stage === 'agent-unstarted') && (
         <p className="automations-summary">{run.summary}</p>
       )}

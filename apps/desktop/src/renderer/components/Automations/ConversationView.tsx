@@ -19,7 +19,8 @@ const dropImage = () => undefined;
  * A run's part of its conversation, read from the transcript on disk: the
  * prompt, one line per step, and the closing answer. Reading it never starts
  * or resumes anything. With `follow`, it is read again every two seconds
- * until the run settles; the parent turns `follow` off then, which reads it
+ * until the run settles — paused while the window is hidden, and read at
+ * once on coming back; the parent turns `follow` off then, which reads it
  * once more for the end.
  *
  * Everything in it is the agent's, or text it read, so it is shown as text —
@@ -32,9 +33,21 @@ export function ConversationView({ runId, follow }: { runId: string; follow: boo
 
   useEffect(() => {
     let live = true;
+    let reading = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
+    const visible = () => document.visibilityState === 'visible';
+    // The next read, while following and someone can see this window. A
+    // hidden window waits for `visibilitychange` instead of reading for nobody.
+    const schedule = () => {
+      if (!live || !follow || reading || timer !== undefined || !visible()) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        void read();
+      }, FOLLOW_INTERVAL_MS);
+    };
     // Each read waits for the last, so a slow disk never stacks them up.
     const read = async () => {
+      reading = true;
       try {
         const next = await automationsBridge.readConversation(runId);
         if (!live) return;
@@ -42,13 +55,26 @@ export function ConversationView({ runId, follow }: { runId: string; follow: boo
         setError(null);
       } catch (failure) {
         if (live) setError(ipcErrorMessage(failure));
+      } finally {
+        reading = false;
       }
-      if (live && follow) timer = setTimeout(() => void read(), FOLLOW_INTERVAL_MS);
+      schedule();
+    };
+    // Coming back reads at once, then follows again; going away stops the clock.
+    const onVisibilityChange = () => {
+      if (!visible()) {
+        if (timer !== undefined) clearTimeout(timer);
+        timer = undefined;
+      } else if (!reading && timer === undefined) {
+        void read();
+      }
     };
     void read();
+    if (follow) document.addEventListener('visibilitychange', onVisibilityChange);
     return () => {
       live = false;
-      if (timer) clearTimeout(timer);
+      if (timer !== undefined) clearTimeout(timer);
+      document.removeEventListener('visibilitychange', onVisibilityChange);
     };
   }, [runId, follow]);
 

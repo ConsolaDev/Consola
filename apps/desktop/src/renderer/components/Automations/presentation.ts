@@ -96,20 +96,38 @@ export function formatDuration(run: RunFacts, now: Date): string | null {
     return `${Math.floor(minutes / 60)}h ${String(minutes % 60).padStart(2, '0')}m`;
 }
 
-/** What a run was about: the item an event run looked at, else its summary, else where it stands. */
+/**
+ * What a run was about: the item an event run looked at; for a failure, the
+ * first line of why it failed; else its summary, else where it stands.
+ */
 export function runAbout(run: RunFacts): string {
     if (run.trigger.kind === 'event' && run.trigger.item?.title) return run.trigger.item.title;
+    if (run.status === 'failed') {
+        const why = run.error?.split('\n').find((line) => line.trim())?.trim();
+        if (why) return why;
+    }
     return run.summary || run.status;
 }
 
 export type RunFilter = 'all' | 'agent' | 'tool' | 'failed';
 
-/** The last 30 days of runs, newest first, narrowed by a filter and a text query. */
+/** Waiting for a person or a slot, or working: history never drops these, so neither does the list. */
+const LIVE_STATUSES: ReadonlySet<RunFacts['status']> = new Set(['needs-approval', 'queued', 'running']);
+
+/**
+ * The runs history keeps, newest first, narrowed by a filter and a text
+ * query. The same rule as retention (`RunStore`): a run that ended in the
+ * last 30 days, by when it ended, and every live run however old.
+ */
 export function filterRuns(runs: RunListEntry[], query: string, filter: RunFilter, now: Date): RunListEntry[] {
     const cutoff = now.getTime() - HISTORY_DAYS * DAY_MS;
     const needle = query.trim().toLowerCase();
     return runs
-        .filter((run) => Date.parse(run.createdAt) >= cutoff)
+        .filter((run) => {
+            if (LIVE_STATUSES.has(run.status)) return true;
+            const ended = endedAt(run);
+            return Number.isNaN(ended) || ended >= cutoff;
+        })
         .filter((run) => {
             if (filter === 'agent') return run.kind === 'agent';
             if (filter === 'tool') return run.kind === 'tool' || run.kind === 'request';

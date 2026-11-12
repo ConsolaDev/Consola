@@ -33,13 +33,39 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
   const tab = useAutomationsStore((state) => state.tab);
   const setTab = useAutomationsStore((state) => state.setTab);
   const openPanel = useAutomationsStore((state) => state.openPanel);
+  const closePanel = useAutomationsStore((state) => state.closePanel);
   const panel = useAutomationsStore((state) => state.panel);
+  const hasPanel = panel !== null;
+  const sectionRef = useRef<HTMLElement>(null);
   const { busy, error, act } = useIntent();
 
   // The sidebar row loads it too, but a notification can open this with the sidebar hidden.
   useEffect(() => {
     void useAutomationsStore.getState().load(workspace.id);
   }, [workspace.id]);
+
+  // Escape closes the side panel from anywhere on the dashboard, not only
+  // from inside it: a click on the list, or on nothing, takes focus out of
+  // the panel. This is the one listener, so Escape closes the panel once and
+  // never the dashboard. A dialog above it, or a control that handled Escape
+  // itself, keeps the key; so does focus elsewhere in the window.
+  useEffect(() => {
+    if (!hasPanel) return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape' || event.defaultPrevented) return;
+      if (document.querySelector('[role="dialog"][data-state="open"]')) return;
+      const target = event.target;
+      const onDashboard =
+        target === document.body ||
+        target === document.documentElement ||
+        (target instanceof Node && sectionRef.current?.contains(target) === true);
+      if (!onDashboard) return;
+      event.preventDefault();
+      closePanel();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [hasPanel, closePanel]);
 
   // The tablist pattern with automatic activation, as the Inbox's views.
   const handleTabKey = (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -55,7 +81,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
   };
 
   return (
-    <section className="automations-view" aria-label="Automations">
+    <section ref={sectionRef} className="automations-view" aria-label="Automations">
       <header className="automations-header">
         <Zap size={16} className="automations-header-icon" aria-hidden="true" />
         <h1 className="automations-title">Automations · {workspace.name}</h1>

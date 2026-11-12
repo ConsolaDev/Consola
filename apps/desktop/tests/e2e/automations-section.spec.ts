@@ -378,6 +378,15 @@ test('a finished run shows its conversation without starting anything', async ()
     await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
     await panel.getByRole('button', { name: 'Close' }).click();
     await expect(panel).toHaveCount(0);
+
+    // Escape closes it from anywhere on the dashboard, not only from inside it.
+    await dashboard.locator('.automations-run-row', { hasText: 'catalog-check' }).click();
+    await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
+    await dashboard.locator('.automations-title').click();
+    await expect.poll(() => panel.evaluate((element) => element.contains(document.activeElement))).toBe(false);
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await expect(dashboard).toBeVisible();
     expect(launchLines(sprocket)).toHaveLength(1);
   } finally {
     await sprocket.close();

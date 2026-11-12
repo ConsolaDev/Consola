@@ -12,9 +12,9 @@ import { runTitle } from './presentation';
  * automation. It slides in from the right over about two thirds of it, and
  * leaves the rest of the dashboard usable — opening another run swaps it.
  *
- * ✕ or Escape closes it. Escape is handled here and goes no further, so it
- * closes only the panel and never the dashboard under it. Focus moves in
- * when it opens, and back where it was when it closes.
+ * ✕ or Escape closes it; Escape is the dashboard's (`AutomationsView`), so
+ * it works wherever on the dashboard focus is. Focus moves in when it opens,
+ * and back where it was when it closes.
  */
 export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: AutomationsPanel }) {
   const closePanel = useAutomationsStore((state) => state.closePanel);
@@ -38,9 +38,9 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
   }, [panelKey]);
 
   // Focus in the panel stays in it when what held it goes — Start gives way
-  // to Stop, a button disables while it works — or Escape would reach
-  // nothing. Only while the person has not moved on: a click or Tab outside
-  // lets it go.
+  // to Stop, a button disables while it works — or the keyboard would be
+  // left on nothing. Only while the person has not moved on: a click or Tab
+  // outside lets it go.
   useEffect(() => {
     const element = ref.current;
     if (!element) return;
@@ -78,11 +78,6 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
       aria-modal="false"
       aria-labelledby={titleId}
       tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key !== 'Escape' || event.defaultPrevented) return;
-        event.stopPropagation();
-        closePanel();
-      }}
     >
       <header className="automations-side-panel-header">
         <h2 id={titleId} className="automations-side-panel-title">

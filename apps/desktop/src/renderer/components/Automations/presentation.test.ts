@@ -93,16 +93,42 @@ describe('runAbout', () => {
         expect(runAbout(run({ summary: 'Removed 3 sessions' }))).toBe('Removed 3 sessions');
         expect(runAbout(run({ status: 'failed' }))).toBe('failed');
     });
+
+    it('says why a failed run failed, in the first line of its error, over its summary', () => {
+        const failed = run({
+            status: 'failed',
+            summary: 'Running in “Morning digest”.',
+            error: 'It stopped before finishing (exit 1): Error: boom.\n    at main (cli.js:1)',
+        });
+        expect(runAbout(failed)).toBe('It stopped before finishing (exit 1): Error: boom.');
+        // An event run is still about its item.
+        const item = { key: 'k', url: 'u', title: 'Fix the cart' };
+        expect(runAbout({ ...failed, trigger: { kind: 'event', at: '', item } })).toBe('Fix the cart');
+        // With no error to say, the summary still does.
+        expect(runAbout(run({ status: 'failed', summary: 'Did not finish in “Morning digest”.' }))).toBe(
+            'Did not finish in “Morning digest”.',
+        );
+        // Only a failure prefers its error.
+        expect(runAbout(run({ status: 'completed', summary: 'Ready.', error: 'old' }))).toBe('Ready.');
+    });
 });
 
 describe('filterRuns', () => {
-    it('drops runs older than 30 days and sorts newest first', () => {
+    it('keeps what history keeps: a run that ended in the last 30 days, and every live one; newest first', () => {
         const runs = [
             run({ id: 'old', createdAt: ago(31 * DAY) }),
+            // Created long ago, but it ended within 30 days.
+            run({ id: 'long', createdAt: ago(40 * DAY), updatedAt: ago(29 * DAY), finishedAt: ago(29 * DAY) }),
+            // When it finished is what counts, not when it was last touched.
+            run({ id: 'ended', createdAt: ago(40 * DAY), updatedAt: ago(DAY), finishedAt: ago(31 * DAY) }),
             run({ id: 'a', createdAt: ago(2 * DAY) }),
             run({ id: 'b', createdAt: ago(HOUR) }),
+            // Waiting for a person or a slot, or working: never hidden, however old.
+            run({ id: 'waiting', status: 'needs-approval', createdAt: ago(45 * DAY) }),
+            run({ id: 'queued', status: 'queued', createdAt: ago(46 * DAY) }),
+            run({ id: 'running', status: 'running', createdAt: ago(47 * DAY) }),
         ];
-        expect(filterRuns(runs, '', 'all', NOW).map((r) => r.id)).toEqual(['b', 'a']);
+        expect(filterRuns(runs, '', 'all', NOW).map((r) => r.id)).toEqual(['b', 'a', 'long', 'waiting', 'queued', 'running']);
     });
 
     it('matches an item title case-insensitively', () => {
