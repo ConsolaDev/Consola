@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AutomationsSnapshot, RunListEntry } from '../../../shared/automations';
+import type { AgentRunPreview, AutomationsSnapshot, RunListEntry, RunRecord } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
     activityCounts,
@@ -7,7 +7,10 @@ import {
     filterRuns,
     finalAnswer,
     formatDuration,
+    modeInWords,
+    ranInWords,
     runAbout,
+    runStage,
     sidebarRowState,
     statusWord,
     triggerLabel,
@@ -227,5 +230,53 @@ describe('finalAnswer', () => {
 
     it('has no answer when the run ended on a step', () => {
         expect(finalAnswer([prompt, step(1)]).answer).toBeNull();
+    });
+});
+
+describe('modeInWords', () => {
+    it('says what each mode does when it fires', () => {
+        expect(modeInWords('confirm')).toBe('Asks you before each run');
+        expect(modeInWords('notify')).toBe('Tells you what it would do, and starts nothing');
+        expect(modeInWords('auto')).toBe('Runs on its own');
+        expect(modeInWords('auto', true)).toBe('Runs on its own once you approve its next run');
+    });
+});
+
+const preview: AgentRunPreview = { kind: 'agent-run', runs: 'Review action', prompt: 'Review #4' };
+
+function record(overrides: Partial<RunRecord> = {}): RunRecord {
+    const { kind: _kind, ...base } = run();
+    return { ...base, ...overrides };
+}
+
+describe('ranInWords', () => {
+    it("names an agent run's target from its preview, and a tool by its name", () => {
+        expect(ranInWords(record({ result: preview }))).toBe('Review action');
+        expect(ranInWords(record({ actionName: 'consola#cleanup_stale_sessions' }))).toBe('Tool: cleanup_stale_sessions');
+    });
+});
+
+describe('runStage', () => {
+    it('places an agent run by where it stands', () => {
+        expect(runStage(record({ result: preview, status: 'needs-approval' }))).toBe('agent-waiting');
+        expect(runStage(record({ result: preview, status: 'queued' }))).toBe('agent-queued');
+        expect(runStage(record({ result: preview, status: 'running' }))).toBe('agent-running');
+    });
+
+    it('has a conversation to show once a session ran it', () => {
+        expect(runStage(record({ result: preview, status: 'completed', sessionId: 's1' }))).toBe('agent-finished');
+        const conversation = { harnessId: 'h', id: 'c' };
+        expect(runStage(record({ result: preview, status: 'failed', conversation }))).toBe('agent-finished');
+    });
+
+    it('has none when nothing started: dismissed, notify, or it could not start', () => {
+        expect(runStage(record({ result: preview, status: 'rejected' }))).toBe('agent-unstarted');
+        expect(runStage(record({ result: preview, status: 'completed' }))).toBe('agent-unstarted');
+        expect(runStage(record({ result: preview, status: 'failed', error: 'No folder' }))).toBe('agent-unstarted');
+    });
+
+    it('treats everything else as a tool run, whatever its result', () => {
+        expect(runStage(record({ status: 'needs-approval', result: { skipped: [] } }))).toBe('tool');
+        expect(runStage(record({ status: 'completed' }))).toBe('tool');
     });
 });

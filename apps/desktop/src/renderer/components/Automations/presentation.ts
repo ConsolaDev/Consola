@@ -1,4 +1,10 @@
-import type { AutomationsSnapshot, RunListEntry, RunRecord } from '../../../shared/automations';
+import {
+    isAgentRunPreview,
+    type AutomationMode,
+    type AutomationsSnapshot,
+    type RunListEntry,
+    type RunRecord,
+} from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 
 /** What a run says about itself: a full record and a list entry both have it. */
@@ -26,6 +32,40 @@ const STATUS_WORDS: Record<RunFacts['status'], string> = {
 /** Where a run stands, in one word: "waiting" for a person, "dismissed" when they turned it down. */
 export function statusWord(status: RunFacts['status']): string {
     return STATUS_WORDS[status];
+}
+
+/** What an automation does when it fires, in words. */
+export function modeInWords(mode: AutomationMode, asksFirst = false): string {
+    if (mode === 'confirm') return 'Asks you before each run';
+    if (mode === 'notify') return 'Tells you what it would do, and starts nothing';
+    return asksFirst ? 'Runs on its own once you approve its next run' : 'Runs on its own';
+}
+
+/** What a run ran: an agent run's "Review action" or "Prompt", else its tool. */
+export function ranInWords(run: RunRecord): string {
+    if (isAgentRunPreview(run.result)) return run.result.runs;
+    return `Tool: ${run.actionName.split('#').pop()}`;
+}
+
+/**
+ * What the side panel shows of a run below its facts. An agent run has a
+ * conversation only once a session ran it; one dismissed, only reported
+ * (notify), or that could not start never had one.
+ */
+export type RunStage =
+    | 'agent-waiting'
+    | 'agent-queued'
+    | 'agent-running'
+    | 'agent-finished'
+    | 'agent-unstarted'
+    | 'tool';
+
+export function runStage(run: RunRecord): RunStage {
+    if (!isAgentRunPreview(run.result)) return 'tool';
+    if (run.status === 'needs-approval') return 'agent-waiting';
+    if (run.status === 'queued') return 'agent-queued';
+    if (run.status === 'running') return 'agent-running';
+    return run.conversation || run.sessionId ? 'agent-finished' : 'agent-unstarted';
 }
 
 export function triggerLabel(run: RunFacts): string {

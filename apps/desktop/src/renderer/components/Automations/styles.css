@@ -667,3 +667,240 @@
 .automations-template-missing {
   opacity: 0.6;
 }
+
+/* The side panel: over about two thirds of the dashboard, from the right. */
+.automations-side-panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  width: max(66%, min(100%, 420px));
+  border-left: 1px solid var(--color-border);
+  background: var(--color-bg-primary);
+  box-shadow: var(--shadow-lg);
+  animation: automations-panel-in 160ms ease-out;
+}
+
+.automations-side-panel:focus {
+  outline: none;
+}
+
+@keyframes automations-panel-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automations-side-panel {
+    animation: none;
+  }
+}
+
+.automations-side-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.automations-side-panel-title {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-icon-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.automations-icon-button:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.automations-icon-button:focus-visible {
+  outline: 1px solid var(--color-accent);
+}
+
+.automations-side-panel-body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--space-4);
+}
+
+.automations-run-details,
+.automations-new {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+/* A run's or an automation's facts: a label column, then what it says. */
+.automations-facts {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+.automations-fact {
+  display: contents;
+}
+
+.automations-fact dt {
+  color: var(--color-text-tertiary);
+}
+
+.automations-fact dd {
+  min-width: 0;
+  margin: 0;
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.automations-fact-status dd {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.automations-fact-session {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.automations-run-error {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.automations-panel-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.automations-panel-label {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.automations-session-removed {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* The conversation from the transcript: the agent's, never instructions. */
+.automations-conversation {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--color-border);
+}
+
+.automations-conversation-caption {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-style: italic;
+  color: var(--color-text-tertiary);
+}
+
+.automations-steps {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-xs);
+}
+
+.automations-step,
+.automations-step-more {
+  padding: 2px 0 2px var(--space-2);
+  border-left: 2px solid var(--color-border);
+}
+
+.automations-step {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-step-tool {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.automations-step-detail {
+  font-family: var(--font-mono);
+}
+
+.automations-step-text {
+  font-style: italic;
+  color: var(--color-text-tertiary);
+}
+
+.automations-answer {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+}
+
+.automations-following {
+  color: var(--color-info);
+}
+
+/* New automation */
+.automations-textarea {
+  width: 100%;
+  min-height: 84px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-primary);
+  resize: vertical;
+}
+
+.automations-textarea::placeholder {
+  color: var(--color-text-tertiary);
+}
+
+.automations-textarea:focus-visible {
+  outline: none;
+  border-color: var(--color-accent);
+  box-shadow: 0 0 0 3px var(--color-accent-muted);
+}

@@ -5,6 +5,7 @@ import { useAutomationsStore, type AutomationsTab } from '../../stores/automatio
 import type { Workspace } from '../../stores/workspaceStore';
 import { ActivityTab } from './ActivityTab';
 import { AutomationsTab as AutomationsList } from './AutomationsTab';
+import { SidePanel } from './SidePanel';
 import { TemplatesTab } from './TemplatesTab';
 import { useIntent } from './parts';
 import './styles.css';
@@ -32,6 +33,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
   const tab = useAutomationsStore((state) => state.tab);
   const setTab = useAutomationsStore((state) => state.setTab);
   const openPanel = useAutomationsStore((state) => state.openPanel);
+  const panel = useAutomationsStore((state) => state.panel);
   const { busy, error, act } = useIntent();
 
   // The sidebar row loads it too, but a notification can open this with the sidebar hidden.
@@ -113,6 +115,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
             <TemplatesTab key={workspace.id} workspace={workspace} snapshot={snapshot} />
           )}
         </div>
+        {panel && <SidePanel workspace={workspace} panel={panel} />}
       </div>
     </section>
   );
