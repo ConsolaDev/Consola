@@ -550,6 +550,25 @@ describe('TerminalService unattended turns', () => {
         service.destroy();
     });
 
+    it('stopUnattendedTurn before the PTY spawns returns true, skips the spawn and the exit says why', async () => {
+        installFakePty();
+        let release: (args: string[]) => void = () => {};
+        buildArgsMock.mockReturnValueOnce(new Promise<string[]>((resolve) => (release = resolve)));
+        const service = unattended();
+        const exits: unknown[] = [];
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).not.toHaveBeenCalled();
+        expect(service.stopUnattendedTurn('you stopped it')).toBe(true);
+        release([]);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(spawnMock).not.toHaveBeenCalled();
+        expect(service.runningUnattended()).toBe(false);
+        expect(exits).toEqual([{ exitCode: 1, unattended: true, stopped: 'you stopped it' }]);
+        service.destroy();
+    });
+
     it('stopUnattendedTurn does nothing without an unattended turn', async () => {
         const pty = installFakePty();
         const service = unattended({ unattended: false, initialPrompt: undefined });
