@@ -1,9 +1,10 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { AlertTriangle, Search, Zap } from 'lucide-react';
 import type { AutomationsSnapshot, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
+import { isLookedAt } from '../../utils/windowAttention';
 import { StatusDot, useIntent } from './parts';
 import {
   activityCounts,
@@ -23,6 +24,11 @@ const FILTERS: ReadonlyArray<{ id: RunFilter; label: string }> = [
   { id: 'failed', label: 'Failed' },
 ];
 
+/** The person has looked at this workspace's Activity now. */
+function markSeen(workspaceId: string): void {
+  useAutomationsStore.getState().markActivitySeen(workspaceId, new Date().toISOString());
+}
+
 /**
  * What the workspace's automations have been doing: problems with the file,
  * the counts, what waits for the person, then every run of the last 30 days.
@@ -35,10 +41,29 @@ export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; sna
   const setTab = useAutomationsStore((state) => state.setTab);
   const { busy, error, act } = useIntent();
 
-  // A run that changes while Activity is showing has been seen.
+  // Opening Activity is looking at it. After that, a run that changes counts
+  // as seen only if someone can see this window: main keeps pushing to a
+  // minimized or background one, and those failures are exactly what the
+  // sidebar's "N failed" is for.
+  const hasMarked = useRef(false);
   useEffect(() => {
-    useAutomationsStore.getState().markActivitySeen(workspace.id, new Date().toISOString());
+    if (hasMarked.current && !isLookedAt()) return;
+    hasMarked.current = true;
+    markSeen(workspace.id);
   }, [workspace.id, snapshot]);
+
+  // Coming back to the window while Activity is showing is looking at it.
+  useEffect(() => {
+    const onReturn = () => {
+      if (isLookedAt()) markSeen(workspace.id);
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [workspace.id]);
 
   const isEmpty = snapshot.automations.length === 0 && snapshot.runs.length === 0;
   const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval');
