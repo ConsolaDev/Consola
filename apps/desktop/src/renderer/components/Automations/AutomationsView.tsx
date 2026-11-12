@@ -4,6 +4,8 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore, type AutomationsTab } from '../../stores/automationsStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { ActivityTab } from './ActivityTab';
+import { AutomationsTab as AutomationsList } from './AutomationsTab';
+import { TemplatesTab } from './TemplatesTab';
 import { useIntent } from './parts';
 import './styles.css';
 
@@ -104,6 +106,12 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
         <div className="automations-tabpanel" role="tabpanel" id={panelId} aria-labelledby={`${panelId}-tab-${tab}`}>
           {/* Keyed: one workspace's search and filter are not another's. */}
           {snapshot && tab === 'activity' && <ActivityTab key={workspace.id} workspace={workspace} snapshot={snapshot} />}
+          {snapshot && tab === 'automations' && (
+            <AutomationsList key={workspace.id} workspace={workspace} snapshot={snapshot} />
+          )}
+          {snapshot && tab === 'templates' && (
+            <TemplatesTab key={workspace.id} workspace={workspace} snapshot={snapshot} />
+          )}
         </div>
       </div>
     </section>

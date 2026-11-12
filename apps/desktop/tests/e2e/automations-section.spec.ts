@@ -225,8 +225,9 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
     const empty = dashboard.locator('.automations-empty-state');
     await expect(empty).toContainText('Automations');
     await expect(empty.getByRole('button', { name: 'New automation' })).toBeVisible();
-    await empty.getByRole('button', { name: 'Browse templates' }).click();
-    await expect(dashboard.getByRole('tab', { name: 'Templates' })).toHaveAttribute('aria-selected', 'true');
+    // The templates are offered right there, below it.
+    await expect(empty.locator('.automations-template')).toHaveCount(4);
+    await expect(empty.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' })).toBeVisible();
   } finally {
     await sprocket.close();
   }
@@ -252,6 +253,50 @@ test('a run waiting for the person shows on the row and at the top of Activity',
     await expect(dashboard.locator('.automations-run-row', { hasText: 'catalog-check' })).toHaveCount(1);
     // Nothing has started: confirm mode waits for the person.
     expect(fs.existsSync(sprocket.launches)).toBe(false);
+  } finally {
+    await sprocket.close();
+  }
+});
+
+test('templates add through the runner, and say what is missing', async () => {
+  test.setTimeout(90_000);
+  const sprocket = await setUpSprocket();
+  const { page } = sprocket;
+  try {
+    const dashboard = await openAutomations(page);
+    const header = '# Sprocket automations, kept by hand.\n# Edit freely.\n';
+    await writeAutomations(sprocket, header + CATALOG_CHECK, 'catalog-check');
+
+    await dashboard.getByRole('tab', { name: 'Templates' }).click();
+    // No GitHub account: the review template says what to do, and cannot be added.
+    const review = dashboard.locator('.automations-template').filter({ hasText: 'Review pull requests assigned to you' });
+    await expect(review).toHaveCount(1);
+    await expect(review).toContainText('Connect a GitHub account');
+    await expect(review).toHaveClass(/automations-template-missing/);
+    await expect(review.getByRole('button', { name: 'Add' })).toBeDisabled();
+    await expect(review.getByRole('button', { name: 'Customize…' })).toBeDisabled();
+
+    // The cleanup is never dimmed.
+    const cleanup = dashboard.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' });
+    await expect(cleanup).toHaveCount(1);
+    await expect(cleanup).not.toHaveClass(/automations-template-missing/);
+    await cleanup.getByRole('button', { name: 'Add' }).click();
+    await expect(cleanup).toContainText('✓ Added as clean-up-stale-sessions');
+    await expect(cleanup.getByRole('button', { name: 'Add' })).toHaveCount(0);
+
+    const file = fs.readFileSync(path.join(sprocket.factoryDir, sprocket.workspaceId, 'factory.yml'), 'utf8');
+    expect(file).toContain(header);
+    expect(file).toContain('name: clean-up-stale-sessions');
+    expect(file).toContain('name: catalog-check');
+
+    // The Automations tab lists it, asking first, in words and as written.
+    await dashboard.getByRole('tab', { name: 'Automations' }).click();
+    const card = dashboard.locator('.automations-card', { hasText: 'clean-up-stale-sessions' });
+    await expect(card).toHaveCount(1);
+    await expect(card).toContainText('confirm');
+    await expect(card).toContainText('Weekdays at 9:00');
+    await expect(card).toContainText('0 9 * * 1-5');
+    await expect(card.getByRole('button', { name: 'Run now' })).toBeEnabled();
   } finally {
     await sprocket.close();
   }

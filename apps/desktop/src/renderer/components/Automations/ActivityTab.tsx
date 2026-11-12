@@ -6,6 +6,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { isLookedAt } from '../../utils/windowAttention';
 import { StatusDot, useIntent } from './parts';
+import { TemplateCards } from './TemplatesTab';
 import {
   activityCounts,
   filterRuns,
@@ -38,7 +39,6 @@ function markSeen(workspaceId: string): void {
  */
 export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
   const openPanel = useAutomationsStore((state) => state.openPanel);
-  const setTab = useAutomationsStore((state) => state.setTab);
   const { busy, error, act } = useIntent();
 
   // Opening Activity is looking at it. After that, a run that changes counts
@@ -121,10 +121,8 @@ export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; sna
             <button type="button" className="dialog-button-primary" onClick={() => openPanel({ kind: 'new' })}>
               New automation
             </button>
-            <button type="button" className="dialog-button-secondary" onClick={() => setTab('templates')}>
-              Browse templates
-            </button>
           </div>
+          <TemplateCards workspace={workspace} snapshot={snapshot} />
         </div>
       ) : (
         <>

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { AlertTriangle, ExternalLink, Play, RefreshCw } from 'lucide-react';
+import { AlertTriangle, ExternalLink } from 'lucide-react';
 import {
   isAgentRunPreview,
   type AutomationsSnapshot,
@@ -10,7 +10,7 @@ import {
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { AgentRunDetails, CleanupDetails, RunItemLink } from './parts';
+import { AgentRunDetails, CleanupDetails, RunItemLink, RunNowButton } from './parts';
 import { formatTime, runTitle, triggerLabel } from './presentation';
 import './styles.css';
 
@@ -309,22 +309,7 @@ function AutomationCard({
           </div>
         )}
       </div>
-      <button
-        type="button"
-        className="dialog-button-secondary automations-small-button"
-        disabled={disabled || running || Boolean(automation.problem)}
-        onClick={onRun}
-        title={
-          checks
-            ? 'Refresh the Inbox now; only what is new since the last check fires'
-            : automation.mode === 'auto' && !automation.asksFirst
-              ? 'Runs now'
-              : 'Previews now; nothing changes until you approve'
-        }
-      >
-        {checks ? <RefreshCw size={12} /> : <Play size={12} />}
-        {running ? (checks ? 'Checking…' : 'Running…') : checks ? 'Check now' : 'Run now'}
-      </button>
+      <RunNowButton automation={automation} running={running} disabled={disabled} onRun={onRun} />
     </div>
   );
 }

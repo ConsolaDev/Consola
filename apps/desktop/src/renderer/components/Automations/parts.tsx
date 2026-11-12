@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import type { AgentRunPreview, RunRecord } from '../../../shared/automations';
+import { Play, RefreshCw } from 'lucide-react';
+import type { AgentRunPreview, AutomationView, RunRecord } from '../../../shared/automations';
 import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import type { RunFacts } from './presentation';
@@ -31,6 +32,43 @@ export function useIntent() {
     }
   };
   return { busy, error, act };
+}
+
+/**
+ * An automation's Run now, or Check now for one fired by events. Disabled
+ * while another intent is in flight, while it runs, or when it is not
+ * running at all (`problem`).
+ */
+export function RunNowButton({
+  automation,
+  running,
+  disabled,
+  onRun,
+}: {
+  automation: AutomationView;
+  running: boolean;
+  disabled: boolean;
+  onRun: () => void;
+}) {
+  const checks = automation.onEvent;
+  return (
+    <button
+      type="button"
+      className="dialog-button-secondary automations-small-button"
+      disabled={disabled || running || Boolean(automation.problem)}
+      onClick={onRun}
+      title={
+        checks
+          ? 'Refresh the Inbox now; only what is new since the last check fires'
+          : automation.mode === 'auto' && !automation.asksFirst
+            ? 'Runs now'
+            : 'Previews now; nothing changes until you approve'
+      }
+    >
+      {checks ? <RefreshCw size={12} /> : <Play size={12} />}
+      {running ? (checks ? 'Checking…' : 'Running…') : checks ? 'Check now' : 'Run now'}
+    </button>
+  );
 }
 
 /** What an agent run will start: the item it is about, what it runs, and the exact prompt. */

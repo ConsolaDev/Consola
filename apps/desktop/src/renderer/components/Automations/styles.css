@@ -630,3 +630,40 @@
   display: flex;
   gap: var(--space-2);
 }
+
+.automations-empty-state .automations-templates {
+  align-self: stretch;
+}
+
+/* Automations and Templates tabs: one card per entry. */
+.automations-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-card-clickable {
+  cursor: pointer;
+}
+
+.automations-card-clickable:hover {
+  border-color: var(--color-text-tertiary);
+}
+
+.automations-new {
+  font-size: var(--font-size-xs);
+  color: var(--color-accent-text);
+}
+
+.automations-added {
+  font-size: var(--font-size-xs);
+  color: var(--color-success);
+}
+
+/* A template this workspace cannot run yet: dimmed, with what to do about it. */
+.automations-template-missing {
+  opacity: 0.6;
+}
