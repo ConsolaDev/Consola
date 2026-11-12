@@ -1,10 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod/v3';
-import { appendAutomationEntry, automationVersion, parseFactorySpec } from '@consola/factory-spec';
+import { appendAutomationEntry, automationVersion, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
 import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
 import type { Session, Workspace } from '../../shared/workspace';
-import { defineTool, ToolRegistry, type ToolContext } from '../tools/Tool';
+import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
+import { defineTool, ToolRegistry, type ToolContext, type ToolDefinition } from '../tools/Tool';
 import { AutomationService, INTERRUPTED_PROMPT, type AgentLaunchRequest, type AutomationNotice } from './AutomationService';
+import { EMPTY_FACTORY_FILE } from './FactoryFile';
 import { StartedByHandError } from './launchAgentRun';
 import { inboxItem } from './inboxItems.test-helpers';
 import { RunStore, type AutomationStateFile } from './RunStore';
@@ -55,6 +57,8 @@ interface Setup {
     harness?: { name: string; problem: string | null };
     /** Whether a running turn could be stopped. */
     stopAgent?: (session: Session, reason: string) => boolean;
+    /** More tools to register beside the fakes. */
+    tools?: ToolDefinition[];
 }
 
 /** What the fake main side recorded and decides for agent runs. */
@@ -104,6 +108,7 @@ function setup({
     cap,
     harness = { name: 'Claude', problem: null },
     stopAgent = vi.fn(() => true),
+    tools = [],
 }: Setup = {}) {
     let clock = now;
     const world: AgentWorld = { inbox: new Map(), launches: [], refreshes: [], liveTerminals: new Set(), resumed: [] };
@@ -168,6 +173,7 @@ function setup({
             run: async () => ({ summary: '', data: null }),
         })
     );
+    for (const tool of tools) registry.register(tool);
     if (accepted) {
         const [automation] = parseFactorySpec(yaml).automations;
         state = {
@@ -200,6 +206,10 @@ function setup({
                 appendAutomation: async (entryYaml) => {
                     texts.set(workspaceId, appendAutomationEntry(texts.get(workspaceId)!, entryYaml));
                 },
+                replaceAutomation: async (name, entryYaml) => {
+                    texts.set(workspaceId, replaceAutomationEntry(texts.get(workspaceId)!, name, entryYaml));
+                },
+                readText: async () => texts.get(workspaceId) ?? null,
             };
         },
         store,
@@ -278,6 +288,8 @@ function setup({
         setClock: (date: Date) => {
             clock = date;
         },
+        /** A workspace's factory.yml as it is now; undefined when there is none. */
+        text: (workspaceId = 'ws-1') => texts.get(workspaceId),
         async edit(next: string, workspaceId = 'ws-1') {
             texts.set(workspaceId, next);
             await service.reload(workspaceId);
@@ -1641,5 +1653,257 @@ automations:
         expect(runs.find((r) => r.id === waiting.id)).toMatchObject({ kind: 'tool', result: { would: 2 } });
         expect(runs.find((r) => r.id === waiting.id)).not.toHaveProperty('approval');
         expect(runs.find((r) => r.id === request!.id)).toMatchObject({ kind: 'request', result: { target: 's-2' } });
+    });
+});
+
+describe('saving an entry', () => {
+    /** A prompt of its own on weekday mornings, in the `api` scope. */
+    const digest = (fields = '  scope: api\n  mode: auto\n') =>
+        '- name: morning-digest\n' +
+        '  on: { cron: "0 9 * * 1-5" }\n' +
+        '  run: { prompt: "Use list_inbox and summarise what waits for me." }\n' +
+        fields;
+    const CODEX = { name: 'Codex', problem: 'Codex sessions cannot be made read-only yet.' };
+
+    it('saveEntry appends a new entry through the validated path and asks once before it acts on its own', async () => {
+        const t = setup({ workspaces: [bound()], now: new Date(2026, 10, 4, 8, 0) });
+        await t.start();
+        const before = t.text()!;
+        const saved = await t.service.saveEntry('ws-1', digest(), { replace: false });
+        expect(saved).toEqual({ name: 'morning-digest', replaced: false, entry: digest().trimEnd(), line: 7 });
+        // Spliced in after what was there, nothing else moved.
+        expect(t.text()!.startsWith(before)).toBe(true);
+        expect(t.service.list('ws-1').find((view) => view.name === 'morning-digest')).toMatchObject({
+            kind: 'agent',
+            schedule: '0 9 * * 1-5',
+            asksFirst: true,
+        });
+
+        t.setClock(new Date(2026, 10, 4, 9, 0, 10));
+        await t.service.tick();
+        expect(t.store.runs().find((run) => run.automationId === 'morning-digest')).toMatchObject({
+            status: 'needs-approval',
+            mode: 'confirm',
+        });
+        expect(t.world.launches).toEqual([]);
+    });
+
+    it('saveEntry refuses an entry that would not run, and leaves the file untouched', async () => {
+        const t = setup({ workspaces: [bound()] });
+        await t.start();
+        const before = t.text();
+        const ITEM = '- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#sweep }\n';
+        const cases: Array<[string, RegExp]> = [
+            ['- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#nope }\n', /no Consola tool named "nope"/],
+            ['- name: a\n  on: { github: pull_request.opened }\n  run: { action: Review }\n', /github has no event "pull_request\.opened"/],
+            ['- name: a\n  on: { cron: "0 9 * * *" }\n  run: { prompt: "Summarise." }\n  scope: web\n', /no scope named "web" in this workspace; it has: api/],
+            ['- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#zap, with: { target: x } }\n', /consola#zap cannot be run by an automation/],
+            ['- name: a\n  on: { github: pull_request.review_requested }\n  run: { action: Triage }\n', /no action named Triage in this workspace/],
+            // Not one entry (Review Focus 3): each with a reason the agent can act on.
+            [`${ITEM}${ITEM.replace('name: a', 'name: b')}`, /exactly one automation/],
+            [`---\n${ITEM}---\n${ITEM}`, /exactly one automation/],
+            ['just words', /exactly one automation/],
+            ['name: a\n\ton: { cron: "0 9 * * *" }\n\trun: { tool: consola#sweep }\n', /tab/i],
+            [`${ITEM}  color: red\n`, /color/],
+            [`${ITEM}  mode: sometimes\n`, /mode: /],
+        ];
+        for (const [yaml, reason] of cases) {
+            const error = await t.service.saveEntry('ws-1', yaml, { replace: false }).then(
+                () => null,
+                (failure: Error) => failure
+            );
+            expect(error?.message, yaml).toMatch(/^Not saved: /);
+            expect(error?.message, yaml).toMatch(reason);
+            expect(t.text()).toBe(before);
+        }
+
+        // The harness, in the runner's own words.
+        const codex = setup({ workspaces: [bound()], harness: CODEX });
+        await codex.start();
+        await expect(codex.service.saveEntry('ws-1', digest(), { replace: false })).rejects.toThrow(
+            'Not saved: Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet.'
+        );
+        expect(codex.text()).toBe(before);
+    });
+
+    it('saveEntry refuses into a file that does not load as a whole', async () => {
+        const broken = 'version: 1\nautomations: [\n';
+        const t = setup({ yaml: broken, workspaces: [bound()] });
+        await t.start();
+        await expect(t.service.saveEntry('ws-1', digest(), { replace: false })).rejects.toThrow(
+            /^Not saved: factory\.yml does not load/
+        );
+        expect(t.text()).toBe(broken);
+    });
+
+    it('saveEntry refuses a taken name unless replace, and replaces in place', async () => {
+        const yaml = `# Mine, by hand.
+version: 1
+automations:
+  # Every morning.
+  - name: a
+    on: { cron: "0 9 * * *" }
+    run: { tool: consola#sweep }
+    mode: confirm
+  - name: b
+    on: { cron: "0 10 * * *" }
+    run: { tool: consola#sweep }
+  # - name: someday
+`;
+        const t = setup({ yaml });
+        await t.start();
+        const next = '- name: a\n  on: { cron: "30 9 * * *" }\n  run: { tool: consola#sweep, with: { level: 2 } }\n  mode: confirm\n';
+        await expect(t.service.saveEntry('ws-1', next, { replace: false })).rejects.toThrow(
+            /^Not saved: factory\.yml already has an automation named "a"; pass replace: true/
+        );
+        expect(t.text()).toBe(yaml);
+
+        const saved = await t.service.saveEntry('ws-1', next, { replace: true });
+        expect(saved).toEqual({ name: 'a', replaced: true, entry: next.trimEnd(), line: 5 });
+        expect(t.text()).toBe(
+            yaml.replace(
+                '    on: { cron: "0 9 * * *" }\n    run: { tool: consola#sweep }\n    mode: confirm\n',
+                '    on: { cron: "30 9 * * *" }\n    run: { tool: consola#sweep, with: { level: 2 } }\n    mode: confirm\n'
+            )
+        );
+        expect(t.service.list('ws-1').map((view) => [view.name, view.schedule])).toEqual([
+            ['a', '30 9 * * *'],
+            ['b', '0 10 * * *'],
+        ]);
+
+        // A name not in the file is added, replace or not.
+        const added = await t.service.saveEntry('ws-1', next.replace('name: a', 'name: c'), { replace: true });
+        expect(added).toMatchObject({ name: 'c', replaced: false });
+    });
+
+    it('two saves never interleave', async () => {
+        const t = setup({ workspaces: [bound()] });
+        await t.start();
+        const names = ['one', 'two', 'three'];
+        await Promise.all(
+            names.map((name) => t.service.saveEntry('ws-1', digest().replace('morning-digest', name), { replace: false }))
+        );
+        expect(t.service.list('ws-1').map((view) => view.name)).toEqual(['sweep', ...names]);
+        // The same new name twice at once: the second sees the first's, and a
+        // refusal does not stop the next save in line.
+        const [first, second, third] = await Promise.allSettled([
+            t.service.saveEntry('ws-1', digest().replace('morning-digest', 'four'), { replace: false }),
+            t.service.saveEntry('ws-1', digest().replace('morning-digest', 'four'), { replace: false }),
+            t.service.saveEntry('ws-1', digest().replace('morning-digest', 'five'), { replace: false }),
+        ]);
+        expect(first).toMatchObject({ status: 'fulfilled', value: { name: 'four' } });
+        expect(second).toMatchObject({ status: 'rejected', reason: { message: expect.stringMatching(/already has an automation named "four"/) } });
+        expect(third).toMatchObject({ status: 'fulfilled', value: { name: 'five' } });
+        expect(t.service.snapshot('ws-1').issues).toEqual([]);
+    });
+
+    it('an entry the tool writes asks again even for a schedule-only change', async () => {
+        const t = setup({ accepted: true, now: new Date(2026, 10, 4, 8, 0) });
+        await t.start();
+        expect(t.service.list('ws-1')[0].asksFirst).toBeUndefined();
+        const moved = '- name: sweep\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#sweep }\n  mode: auto\n';
+        await t.service.saveEntry('ws-1', moved, { replace: true });
+        expect(t.service.list('ws-1')[0]).toMatchObject({ schedule: '0 10 * * *', asksFirst: true });
+        t.setClock(new Date(2026, 10, 4, 10, 0, 10));
+        await t.service.tick();
+        expect(t.store.runs()).toMatchObject([{ automationId: 'sweep', status: 'needs-approval', mode: 'confirm' }]);
+
+        // The same change by hand runs on its own, as it always has.
+        const hand = setup({ accepted: true, now: new Date(2026, 10, 4, 8, 0) });
+        await hand.start();
+        await hand.edit(entry('    mode: auto\n', '0 10 * * *'));
+        hand.setClock(new Date(2026, 10, 4, 10, 0, 10));
+        await hand.service.tick();
+        expect(hand.store.runs()).toMatchObject([{ automationId: 'sweep', status: 'completed', mode: 'auto' }]);
+    });
+
+    it('marks an agent’s addition until the person looks', async () => {
+        const t = setup({ workspaces: [bound()] });
+        await t.start();
+        await t.service.saveEntry('ws-1', digest(), {
+            replace: false,
+            by: { sessionId: 's-7', sessionName: 'Plan automations' },
+        });
+        const view = (name: string) => t.service.list('ws-1').find((candidate) => candidate.name === name)!;
+        expect(view('morning-digest').addedBy).toEqual({ sessionName: 'Plan automations', sessionId: 's-7', isNew: true });
+        expect(view('sweep').addedBy).toBeUndefined();
+
+        t.service.acknowledge('ws-1', 'morning-digest');
+        expect(view('morning-digest').addedBy).toEqual({ sessionName: 'Plan automations', sessionId: 's-7', isNew: false });
+
+        // Removed from the file: forgotten.
+        await t.edit(entry('    mode: auto\n'));
+        expect(t.store.addedBy('ws-1 morning-digest')).toBeUndefined();
+    });
+
+    it('saveEntry creates a minimal file when there is none', async () => {
+        const t = setup({ files: { 'ws-1': undefined as unknown as string }, workspaces: [bound()] });
+        await t.start();
+        const tidy = '- name: tidy\n  on: { cron: "0 9 * * 1-5" }\n  run: { tool: consola#sweep }\n  mode: confirm';
+        const saved = await t.service.saveEntry('ws-1', tidy, { replace: false });
+        expect(t.text()).toBe(`${EMPTY_FACTORY_FILE}${tidy.replace(/^/gm, '  ')}\n`);
+        // Not the "Open file" template: its live review entry is not added unasked.
+        expect(t.text()).not.toContain('review-assigned-prs');
+        expect(saved).toMatchObject({ name: 'tidy', line: EMPTY_FACTORY_FILE.split('\n').length });
+        expect(t.service.snapshot('ws-1')).toMatchObject({ fileExists: true, automations: [{ name: 'tidy' }] });
+
+        // A file there but with nothing in it yet loads afterwards, its comment kept.
+        const blank = setup({ yaml: '# Mine, for later.\n', workspaces: [bound()] });
+        await blank.start();
+        await blank.service.saveEntry('ws-1', tidy, { replace: false });
+        expect(blank.text()!.startsWith('# Mine, for later.\n')).toBe(true);
+        expect(blank.service.snapshot('ws-1')).toMatchObject({ issues: [], automations: [{ name: 'tidy' }] });
+    });
+
+    it('entryText reads one entry as written', async () => {
+        const t = setup();
+        await t.start();
+        expect(await t.service.entryText('ws-1', 'sweep')).toBe(
+            '- name: sweep\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#sweep }\n  mode: auto'
+        );
+        expect(await t.service.entryText('ws-1', 'missing')).toBeNull();
+        const none = setup({ files: { 'ws-1': undefined as unknown as string } });
+        await none.start();
+        expect(await none.service.entryText('ws-1', 'sweep')).toBeNull();
+    });
+
+    it('capabilities lists what this workspace can use', async () => {
+        const t = setup({ workspaces: [bound()], tools: consolaTools({} as ConsolaToolDeps) });
+        await t.start();
+        const capabilities = t.service.capabilities('ws-1');
+        expect(capabilities.file).toEqual({ path: '/home/me/.consola/workspaces/ws-1/factory.yml', exists: true });
+        expect(capabilities.taken).toEqual(['sweep']);
+        expect(capabilities.scopes).toEqual([{ name: 'api', path: '/code/api' }]);
+        expect(capabilities.triggers.connections).toEqual([
+            expect.objectContaining({
+                id: 'github',
+                bound: true,
+                events: [
+                    expect.objectContaining({ name: 'pull_request.review_requested', itemType: 'pr' }),
+                    expect.objectContaining({ name: 'pull_request.assigned', itemType: 'pr' }),
+                ],
+            }),
+        ]);
+        const cleanup = capabilities.targets.tools.find((tool) => tool.ref === 'consola#cleanup_stale_sessions');
+        expect(cleanup?.arguments).toContainEqual({ name: 'pr_states', description: expect.stringMatching(/stale/) });
+        // Only what an automation may name.
+        expect(capabilities.targets.tools.map((tool) => tool.ref)).not.toContain('consola#delete_session');
+        expect(capabilities.targets.tools.map((tool) => tool.ref)).not.toContain('consola#list_inbox');
+        expect(capabilities.targets.actions).toEqual([
+            { name: 'Review', appliesTo: ['pr'] },
+            { name: 'Implement', appliesTo: ['issue'] },
+        ]);
+        expect(capabilities.harness).toEqual({ name: 'Claude', canRunAgents: true });
+
+        // Unbound, on a harness that cannot run agent entries.
+        const other = setup({ workspaces: [{ ...bound(), provider: undefined } as Workspace], harness: CODEX });
+        await other.start();
+        const theirs = other.service.capabilities('ws-1');
+        expect(theirs.triggers.connections[0].bound).toBe(false);
+        expect(theirs.harness).toEqual({
+            name: 'Codex',
+            canRunAgents: false,
+            problem: 'Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet',
+        });
     });
 });

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { automationEntryText, replaceAutomationEntry } from './edit';
+import { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+import { parseFactorySpec } from './parse';
 
 const FILE = `# factory.yml
 version: 1
@@ -50,6 +51,19 @@ describe('replaceAutomationEntry', () => {
         expect(() => replaceAutomationEntry(FILE, 'x', NEW_B)).toThrow(/no automation named "x"/);
         expect(() => replaceAutomationEntry('automations: [\n', 'b', NEW_B)).toThrow(/does not parse/);
         expect(() => replaceAutomationEntry(FILE, 'b', NEW_B.replace('name: b', 'name: other'))).toThrow(/name/);
+    });
+});
+
+describe('appendAutomationEntry', () => {
+    it('gives an empty or comments-only file the version line it needs, keeping what it holds', () => {
+        const entry = '- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#x }';
+        for (const empty of ['', '\n', '# Mine, for later.\n', '# No newline at the end']) {
+            const result = appendAutomationEntry(empty, entry);
+            expect(result.startsWith(empty)).toBe(true);
+            expect(parseFactorySpec(result), JSON.stringify(empty)).toMatchObject({ issues: [], automations: [{ name: 'a' }] });
+        }
+        // A file that already says its version gets only the list.
+        expect(appendAutomationEntry('version: 1\n', entry)).toBe(`version: 1\nautomations:\n${entry.replace(/^/gm, '  ')}\n`);
     });
 });
 

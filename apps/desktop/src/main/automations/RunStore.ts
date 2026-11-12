@@ -199,6 +199,10 @@ export class RunStore {
         this.persist();
     }
 
+    public addedKeys(): string[] {
+        return Object.keys(this.state.added);
+    }
+
     /** Forget entries no file names any more. */
     public keepAdded(automationKeys: ReadonlySet<string>): void {
         const stale = Object.keys(this.state.added).filter((key) => !automationKeys.has(key));

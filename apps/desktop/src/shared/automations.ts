@@ -32,6 +32,45 @@ export interface AutomationView {
      * action, scope or event, or arguments the tool rejects.
      */
     problem?: string;
+    /** The session whose agent wrote it into the file; new until a person opens its details. */
+    addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
+}
+
+/** A ready-made automation Consola ships, as the Templates tab shows it. */
+export interface TemplateView {
+    id: string;
+    title: string;
+    description: string;
+    /** What the workspace must have for it to run: "A GitHub connection", "A scope". */
+    needs: string[];
+    /** What this workspace lacks for it, said as what to do: it is shown dimmed. */
+    missing?: string;
+    /** The entry in the file that already does this, by name. */
+    addedAs?: string;
+}
+
+/** What saving one entry into factory.yml wrote. */
+export interface SavedAutomation {
+    name: string;
+    /** It replaced an entry of that name rather than adding one. */
+    replaced: boolean;
+    /** The entry as written: one `- name: …` list item. */
+    entry: string;
+    /** 1-based line of the entry in factory.yml. */
+    line?: number;
+}
+
+/** What a new automation's session starts from: one of the file's entries, or a template. */
+export type AuthoringBasis = { automation: string } | { template: string };
+
+/** "New automation", "Change with agent" and "Customize…": a session that writes an entry with the person. */
+export interface AuthoringRequest {
+    workspaceId: string;
+    /** The person's own words: what it should do, and when. Empty only with a basis. */
+    description: string;
+    /** The scope the session starts in; the workspace's first when absent or unknown. */
+    scopeId?: string;
+    basis?: AuthoringBasis;
 }
 
 /** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */
@@ -105,4 +144,6 @@ export interface AutomationsSnapshot {
      * them, its file does not load, or the file already has them.
      */
     suggestAssignedReviews: { action: string } | null;
+    /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
+    templates: TemplateView[];
 }

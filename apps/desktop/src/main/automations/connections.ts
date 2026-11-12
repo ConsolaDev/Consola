@@ -98,14 +98,20 @@ interface EventDefinition {
     goneClause: string;
 }
 
+/** Each field's description is what `connectionCatalog` tells an agent writing a filter. */
 const GITHUB_FILTER = z
     .object({
-        /** Globs on `owner/name`; `*` stays within one segment. */
-        repos: z.array(z.string().min(1)).optional(),
-        authors: z.array(z.string().min(1)).optional(),
-        authors_not: z.array(z.string().min(1)).optional(),
-        /** A draft asking for review is rare and usually premature. */
-        drafts: z.boolean().default(false),
+        repos: z
+            .array(z.string().min(1))
+            .optional()
+            .describe('Only items in these repositories: globs on owner/name, where * stays within one segment (my-org/*).'),
+        authors: z.array(z.string().min(1)).optional().describe('Only items opened by these GitHub logins.'),
+        authors_not: z
+            .array(z.string().min(1))
+            .optional()
+            .describe('Leave out items opened by these GitHub logins, e.g. "dependabot[bot]".'),
+        // A draft asking for review is rare and usually premature.
+        drafts: z.boolean().default(false).describe('Whether draft pull requests fire too. Default: false.'),
     })
     .strict();
 
@@ -165,9 +171,35 @@ function githubMatcher(filter: GitHubFilter): (item: InboxItem) => boolean {
     };
 }
 
-const CONNECTIONS: Record<string, { events: Record<string, EventDefinition>; resolve: typeof resolveGitHub }> = {
-    github: { events: GITHUB_EVENTS, resolve: resolveGitHub },
+const CONNECTIONS: Record<
+    string,
+    { events: Record<string, EventDefinition>; filter: z.AnyZodObject; resolve: typeof resolveGitHub }
+> = {
+    github: { events: GITHUB_EVENTS, filter: GITHUB_FILTER, resolve: resolveGitHub },
 };
+
+/** One connection as an agent writing an `on:` and a `filter:` needs to know it. */
+export interface ConnectionCatalogEntry {
+    id: string;
+    events: Array<{ name: string; when: string; itemType: 'pr' | 'issue' }>;
+    filter: Array<{ field: string; means: string }>;
+}
+
+/** Every connection, its events and its filter fields: what an event trigger may name. */
+export function connectionCatalog(): ConnectionCatalogEntry[] {
+    return Object.entries(CONNECTIONS).map(([id, connection]) => ({
+        id,
+        events: Object.entries(connection.events).map(([name, definition]) => ({
+            name,
+            when: `a ${ITEM_NOUN[definition.itemType]} ${definition.phrase}`,
+            itemType: definition.itemType,
+        })),
+        filter: Object.entries(connection.filter.shape).map(([field, schema]) => ({
+            field,
+            means: (schema as z.ZodTypeAny).description ?? '',
+        })),
+    }));
+}
 
 function resolveGitHub(
     trigger: EventTrigger,

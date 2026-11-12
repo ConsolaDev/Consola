@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EventTrigger } from '@consola/factory-spec';
-import { resolveEventSource, scheduledPrompt } from './connections';
+import { connectionCatalog, resolveEventSource, scheduledPrompt } from './connections';
 import { inboxItem } from './inboxItems.test-helpers';
 
 const reviewRequested: EventTrigger = {
@@ -137,6 +137,32 @@ describe('resolveEventSource', () => {
 
     it('says items carry their repo, so runs need no scope', () => {
         expect(source().itemsHaveRepo).toBe(true);
+    });
+});
+
+describe('connectionCatalog', () => {
+    it('lists each connection’s events and the filter fields it takes, described', () => {
+        expect(connectionCatalog()).toEqual([
+            {
+                id: 'github',
+                events: [
+                    { name: 'pull_request.review_requested', when: 'a pull request asks for your review', itemType: 'pr' },
+                    { name: 'pull_request.assigned', when: 'a pull request is assigned to you', itemType: 'pr' },
+                ],
+                filter: [
+                    { field: 'repos', means: expect.stringMatching(/owner\/name/) },
+                    { field: 'authors', means: expect.any(String) },
+                    { field: 'authors_not', means: expect.any(String) },
+                    { field: 'drafts', means: expect.stringMatching(/draft/i) },
+                ],
+            },
+        ]);
+        // Every field says what it means: the catalog is what an agent writes a filter from.
+        for (const { means } of connectionCatalog()[0].filter) expect(means.length).toBeGreaterThan(10);
+        // Each event it lists resolves.
+        for (const { name } of connectionCatalog()[0].events) {
+            expect(resolveEventSource({ kind: 'event', connection: 'github', events: [name], params: {} }).ok).toBe(true);
+        }
     });
 });
 

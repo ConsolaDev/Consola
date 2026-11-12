@@ -45,9 +45,11 @@ function splice(text: string, doc: Document, lines: string[]): string {
     const pair = isMap(doc.contents) ? doc.contents.items.find((item) => isPair(item) && isScalar(item.key) && item.key.value === 'automations') : undefined;
     const key = pair && isPair(pair) && isScalar(pair.key) ? pair.key : undefined;
     if (!key?.range) {
-        // No list at all: a new one at the end of the file.
+        // No list at all: a new one at the end of the file. A file with
+        // nothing in it yet (empty, or only comments) needs its version too.
         const separator = text.length === 0 || text.endsWith('\n') ? '' : '\n';
-        return `${text}${separator}automations:\n${block(2)}`;
+        const version = doc.contents === null ? 'version: 1\n' : '';
+        return `${text}${separator}${version}automations:\n${block(2)}`;
     }
     if (list === null || list === undefined || (isScalar(list) && list.value === null)) {
         // `automations:` and nothing under it: the entry goes right below the key.
