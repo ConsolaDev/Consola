@@ -1,7 +1,7 @@
 import * as pty from 'node-pty';
 import { EventEmitter } from 'events';
 import * as fs from 'fs';
-import { TerminalDimensions, HarnessLaunchFields } from '../shared/types';
+import { TerminalDimensions, HarnessLaunchFields, type ScreenReplay } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
@@ -240,9 +240,9 @@ export class TerminalService extends EventEmitter {
         return this.isBusy;
     }
 
-    /** Escape sequences that repaint the PTY's current screen. */
-    public getReplayBuffer(): string {
-        return this.screen?.snapshot() ?? '';
+    /** Escape sequences that repaint the PTY's current screen, and its size. */
+    public getReplay(): ScreenReplay {
+        return this.screen?.snapshot() ?? { replay: '', ...this.dimensions };
     }
 
     public hasClaudeExited(): boolean {

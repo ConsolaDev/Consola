@@ -1,6 +1,7 @@
 import { Terminal as HeadlessTerminal } from '@xterm/headless';
 import { SerializeAddon } from '@xterm/addon-serialize';
 import { TERMINAL_SCROLLBACK_LINES } from '../shared/constants';
+import type { ScreenReplay } from '../shared/types';
 
 /**
  * A headless terminal mirroring what a PTY is displaying.
@@ -37,13 +38,18 @@ export class ScreenModel {
     }
 
     /**
-     * Escape sequences that reconstruct the current screen.
+     * Escape sequences that reconstruct the current screen, and its size.
      *
-     * Written into a fresh xterm view, this restores what the PTY is showing —
-     * including alternate-screen TUIs — without replaying the whole session.
+     * Written into a fresh xterm view of that size, this restores what the
+     * PTY is showing — including alternate-screen TUIs — without replaying
+     * the whole session. Into a view of any other size it does not.
      */
-    public snapshot(): string {
-        return this.serializer.serialize();
+    public snapshot(): ScreenReplay {
+        return {
+            replay: this.serializer.serialize(),
+            cols: this.terminal.cols,
+            rows: this.terminal.rows,
+        };
     }
 
     /** The text currently visible in the viewport, one line per row. */

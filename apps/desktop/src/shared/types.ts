@@ -72,9 +72,20 @@ export interface TerminalCreateOptions extends HarnessLaunchFields {
     model?: string;
 }
 
-/** State needed to repaint a terminal view on mount. */
-export interface TerminalSnapshot {
+/**
+ * A screen main kept, and the size it was laid out at.
+ *
+ * The replay reproduces that screen only in a view of exactly that size, so
+ * the two travel together (`restoreScreen` in the renderer).
+ */
+export interface ScreenReplay {
     replay: string;
+    cols: number;
+    rows: number;
+}
+
+/** State needed to repaint a terminal view on mount. */
+export interface TerminalSnapshot extends ScreenReplay {
     exited: boolean;
 }
 
