@@ -1,6 +1,8 @@
 import { create } from 'zustand';
 import type { AuthoringBasis, AutomationsSnapshot } from '../../shared/automations';
+import type { WindowContext } from '../../shared/types';
 import { automationsBridge } from '../services/automationsBridge';
+import { windowBridge } from '../services/windowBridge';
 
 export type AutomationsTab = 'activity' | 'automations' | 'templates';
 
@@ -9,6 +11,16 @@ export type AutomationsPanel =
     | { kind: 'run'; runId: string }
     | { kind: 'automation'; name: string }
     | { kind: 'new'; basis?: AuthoringBasis };
+
+/**
+ * The panel a window opens with: the run a notification was about, when that
+ * notification opened this window on the dashboard. A window that was already
+ * open hears it as a push (`subscribeToShowAutomations`) instead.
+ */
+export function panelFromWindowContext(context: WindowContext): AutomationsPanel | null {
+    if (context.overlay !== 'automations' || !context.automationsRunId) return null;
+    return { kind: 'run', runId: context.automationsRunId };
+}
 
 const SEEN_KEY = 'consola-automations-seen';
 
@@ -52,7 +64,7 @@ interface AutomationsState {
 export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     snapshots: {},
     tab: 'activity',
-    panel: null,
+    panel: panelFromWindowContext(windowBridge.context),
     lastSeen: readSeen(),
 
     load: async (workspaceId) => {

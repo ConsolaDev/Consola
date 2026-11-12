@@ -206,7 +206,10 @@ export function getAnyWindow(): BrowserWindow | null {
  * about an automation lands on the run it is about.
  *
  * The overlay is written to view memory first, so a window created here opens
- * on it and a later switch back to the workspace returns to it.
+ * on it and a later switch back to the workspace returns to it. A window
+ * created here carries the run in its context: its renderer subscribes only
+ * once it has mounted, well after `did-finish-load`, so a push would be lost.
+ * A window already open hears it as a push.
  */
 export function showAutomations(
     workspaceId: string,
@@ -214,6 +217,15 @@ export function showAutomations(
     viewMemory: ViewMemoryAccess
 ): void {
     viewMemory.set(workspaceId, { ...viewMemory.get(workspaceId), overlay: 'automations' });
+    if (!findWindowForWorkspace(workspaceId)) {
+        const created = createWindow({
+            workspaceId,
+            ...viewMemory.get(workspaceId),
+            ...(runId ? { automationsRunId: runId } : {}),
+        });
+        if (!isBackgroundTest) created.show();
+        return;
+    }
     const target = focusOrCreate(workspaceId, viewMemory);
     const request: AutomationsRequest = { workspaceId, runId };
     const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, request);

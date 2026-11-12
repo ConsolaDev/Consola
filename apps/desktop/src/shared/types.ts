@@ -511,6 +511,12 @@ export interface WorkspaceView {
  */
 export interface WindowContext extends WorkspaceView {
     workspaceId: string | null;
+    /**
+     * The run to open beside the Automations dashboard: a window opened by a
+     * notification about it. A push would arrive before the renderer listens,
+     * so the run travels with the window instead.
+     */
+    automationsRunId?: string;
 }
 
 /**

@@ -1,17 +1,27 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AutomationsChange, AutomationsSnapshot } from '../../shared/automations';
+import type { WindowContext } from '../../shared/types';
 
-const { getSnapshot, onChanged, storage } = vi.hoisted(() => {
+const { getSnapshot, onChanged, storage, windowContext } = vi.hoisted(() => {
     const data = new Map<string, string>();
     (globalThis as { localStorage?: unknown }).localStorage = {
         getItem: (key: string) => data.get(key) ?? null,
         setItem: (key: string, value: string) => void data.set(key, value),
         removeItem: (key: string) => void data.delete(key),
     };
-    return { getSnapshot: vi.fn(), onChanged: vi.fn(), storage: data };
+    const context: WindowContext = { workspaceId: null, activeSessionId: null, overlay: null };
+    return { getSnapshot: vi.fn(), onChanged: vi.fn(), storage: data, windowContext: context };
 });
 vi.mock('../services/automationsBridge', () => ({ automationsBridge: { getSnapshot, onChanged } }));
-import { useAutomationsStore } from './automationsStore';
+// The store reads the window's context once, when it is created.
+vi.mock('../services/windowBridge', () => ({
+    windowBridge: {
+        get context() {
+            return windowContext;
+        },
+    },
+}));
+import { panelFromWindowContext, useAutomationsStore } from './automationsStore';
 
 function snap(filePath: string): AutomationsSnapshot {
     return {
@@ -78,5 +88,29 @@ describe('automationsStore', () => {
         const { snapshots } = useAutomationsStore.getState();
         expect(snapshots.w1.filePath).toBe('/one');
         expect(snapshots.w2.filePath).toBe('/two');
+    });
+});
+
+describe('a window opened by a notification about a run', () => {
+    it('opens on that run when the window opened on the dashboard with one', () => {
+        const base: WindowContext = { workspaceId: 'w1', activeSessionId: null, overlay: 'automations' };
+        expect(panelFromWindowContext({ ...base, automationsRunId: 'run-7' })).toEqual({ kind: 'run', runId: 'run-7' });
+        expect(panelFromWindowContext(base)).toBeNull();
+        // A run id with the dashboard closed names nothing to show.
+        expect(panelFromWindowContext({ ...base, overlay: null, automationsRunId: 'run-7' })).toBeNull();
+    });
+
+    it('the store starts with that run open in the side panel', async () => {
+        Object.assign(windowContext, { workspaceId: 'w1', overlay: 'automations', automationsRunId: 'run-7' });
+        try {
+            vi.resetModules();
+            const fresh = await import('./automationsStore');
+            expect(fresh.useAutomationsStore.getState().panel).toEqual({ kind: 'run', runId: 'run-7' });
+        } finally {
+            Object.assign(windowContext, { workspaceId: null, overlay: null, automationsRunId: undefined });
+        }
+        vi.resetModules();
+        const plain = await import('./automationsStore');
+        expect(plain.useAutomationsStore.getState().panel).toBeNull();
     });
 });
