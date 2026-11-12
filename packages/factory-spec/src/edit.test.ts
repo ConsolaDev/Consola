@@ -38,6 +38,14 @@ describe('replaceAutomationEntry', () => {
         expect(result).toBe('version: 1\nautomations:\n  - name: c\n    on: { cron: "1 1 * * *" }\n    run: { tool: consola#z }\n  # tail\n');
     });
 
+    it('keeps the blank line after an entry that ends in a block scalar', () => {
+        const file = 'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    scope: s\n    run:\n      prompt: |\n        line one\n        line two\n\n  - name: b\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#y }\n';
+        const entry = '- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#x }';
+        expect(replaceAutomationEntry(file, 'a', entry)).toBe(
+            'version: 1\nautomations:\n  - name: a\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#x }\n\n  - name: b\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#y }\n'
+        );
+    });
+
     it('throws when the name is missing, the file does not parse, or the new entry has a different name', () => {
         expect(() => replaceAutomationEntry(FILE, 'x', NEW_B)).toThrow(/no automation named "x"/);
         expect(() => replaceAutomationEntry('automations: [\n', 'b', NEW_B)).toThrow(/does not parse/);

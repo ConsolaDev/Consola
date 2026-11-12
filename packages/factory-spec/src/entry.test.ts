@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { appendAutomationEntry } from './edit';
 import { parseAutomationEntry } from './entry';
+import { parseFactorySpec } from './parse';
 
 const LIST_ITEM = '- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#x }\n';
 const BARE = 'name: a\non: { cron: "0 9 * * *" }\nrun: { tool: consola#x }\n';
@@ -24,14 +26,33 @@ describe('parseAutomationEntry', () => {
 
     it('refuses anything but exactly one entry', () => {
         expect(refusal(`${LIST_ITEM}${LIST_ITEM.replace('name: a', 'name: b')}`)[0].message).toMatch(/exactly one automation/);
-        expect(refusal('---\n- name: a\n---\n- name: b')[0].message).toBeTruthy();
-        expect(refusal('just text')[0].message).toBeTruthy();
+        expect(refusal('---\n- name: a\n---\n- name: b')[0].message).toMatch(/exactly one automation/);
+        expect(refusal('just text')[0].message).toMatch(/exactly one automation/);
         expect(refusal('')[0].message).toBeTruthy();
         const unknown = refusal(`${BARE}color: red\n`)[0];
         expect(unknown.path).toBe('color');
         expect(unknown.message).toBeTruthy();
         const noScope = refusal('name: a\non: { cron: "0 9 * * *" }\nrun: { prompt: "do it" }\n');
         expect(noScope.some((issue) => issue.path === 'scope')).toBe(true);
+    });
+
+    it('refuses tab indentation with a reason that names it', () => {
+        const issues = refusal('name: a\n\ton: { cron: "0 9 * * *" }\n\trun: { tool: consola#x }\n');
+        expect(issues[0].message).toMatch(/tab/i);
+        expect(issues[0].line).toBe(2);
+    });
+
+    it('gives a valid column-0 item for an indented bare mapping and an indented list item', () => {
+        const bare = parseAutomationEntry('  name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#x }\n');
+        const listed = parseAutomationEntry('    - name: a\n      on: { cron: "0 9 * * *" }\n      run: { tool: consola#x }\n');
+        for (const result of [bare, listed]) {
+            expect(result.ok).toBe(true);
+            if (!result.ok) return;
+            expect(result.item).toBe('- name: a\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#x }');
+            expect(parseFactorySpec(`version: 1\nautomations:\n${result.item.replace(/^/gm, '  ')}\n`).issues).toEqual([]);
+            const appended = appendAutomationEntry('version: 1\nautomations: []\n', result.item);
+            expect(parseFactorySpec(appended)).toMatchObject({ issues: [], automations: [{ name: 'a' }] });
+        }
     });
 
     it('reports the line within the given text', () => {

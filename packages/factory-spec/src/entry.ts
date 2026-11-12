@@ -27,10 +27,13 @@ export function parseAutomationEntry(yaml: string): AutomationEntryResult {
     const first = lines.findIndex((line) => line.trim() !== '');
     if (first === -1) return refuse(NOT_ONE_ENTRY);
 
-    const startsItem = /^\s*(-(\s|$)|---)/.test(lines[first]);
+    // Strip the common indent first, so both forms end up at column 0 by one rule.
+    const indent = lines[first].length - lines[first].trimStart().length;
+    const dedented = lines.map((line) => line.slice(Math.min(indent, line.length - line.trimStart().length)));
+    const startsItem = /^(-(\s|$)|---)/.test(dedented[first]);
     const normalized = startsItem
-        ? lines
-        : lines.map((line, index) => (index === first ? `- ${line}` : line === '' ? line : `  ${line}`));
+        ? dedented
+        : dedented.map((line, index) => (index === first ? `- ${line}` : line === '' ? line : `  ${line}`));
     const source = normalized.join('\n');
 
     const lineCounter = new LineCounter();
@@ -38,6 +41,7 @@ export function parseAutomationEntry(yaml: string): AutomationEntryResult {
     const lineOf = (offset: number | undefined) =>
         offset === undefined ? undefined : lineCounter.linePos(offset).line;
 
+    if (doc.errors.some((error) => error.code === 'MULTIPLE_DOCS')) return refuse(NOT_ONE_ENTRY);
     if (doc.errors.length > 0) {
         return {
             ok: false,
@@ -63,12 +67,7 @@ export function parseAutomationEntry(yaml: string): AutomationEntryResult {
         };
     }
 
-    const indent = lines[first].length - lines[first].trimStart().length;
-    const item = normalized
-        .slice(first)
-        .map((line) => line.slice(Math.min(indent, line.length - line.trimStart().length)))
-        .join('\n')
-        .trimEnd();
+    const item = normalized.slice(first).join('\n').trimEnd();
     return { ok: true, automation: parsed.data, item };
 }
 
