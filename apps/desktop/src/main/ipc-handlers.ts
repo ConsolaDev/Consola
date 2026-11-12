@@ -43,6 +43,7 @@ import { AutomationService } from './automations/AutomationService';
 import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import type { AutomationsChange } from '../shared/automations';
+import { RunHistoryFiles } from './automations/RunHistoryFiles';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
@@ -910,7 +911,8 @@ export function setupIpcHandlers(): boolean {
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
         store: new RunStore(
-            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json'))
+            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
+            new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
         ),
         registry: tools,
         getWorkspaces: () => workspaces.getAll(),

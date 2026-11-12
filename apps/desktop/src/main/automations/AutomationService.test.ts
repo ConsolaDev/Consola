@@ -8,6 +8,7 @@ import { AutomationService, INTERRUPTED_PROMPT, type AgentLaunchRequest, type Au
 import { StartedByHandError } from './launchAgentRun';
 import { inboxItem } from './inboxItems.test-helpers';
 import { RunStore, type AutomationStateFile } from './RunStore';
+import { memoryHistory } from './runHistory.test-helpers';
 
 function memoryFile(initial: AutomationStateFile | null = null) {
     let stored = initial;
@@ -41,6 +42,8 @@ interface Setup {
     /** Local wall-clock start. */
     now?: Date;
     state?: AutomationStateFile | null;
+    /** Run history to start from: a relaunch passes the first run's. */
+    history?: ReturnType<typeof memoryHistory>;
     actionable?: number;
     runFails?: boolean;
     /** Pretend a person already approved the file's `auto` entry at this version. */
@@ -84,6 +87,7 @@ function setup({
     yaml = entry('    mode: auto\n'),
     now = new Date(2026, 10, 4, 8, 0),
     state = null,
+    history = memoryHistory(),
     actionable = 2,
     runFails = false,
     accepted = false,
@@ -162,7 +166,7 @@ function setup({
         };
     }
     const file = memoryFile(state);
-    const store = new RunStore(file);
+    const store = new RunStore(file, history);
     const texts = new Map<string, string>(Object.entries({ 'ws-1': yaml, ...files }));
     const watched = new Set<string>();
     let id = 0;
@@ -228,6 +232,7 @@ function setup({
     const t = {
         service,
         file,
+        history,
         store,
         notices,
         calls,
@@ -670,11 +675,12 @@ describe('one file per workspace', () => {
 
 describe('RunStore', () => {
     it('marks runs cut off by a quit as failed when it loads', () => {
-        const file = memoryFile({ version: 1, lastFired: {}, runs: [{ id: 'r', status: 'running' } as never] });
-        const store = new RunStore(file);
+        const history = memoryHistory();
+        const runs = [{ id: 'r', status: 'running', attribution: { workspaceId: 'ws-1' } } as never];
+        const store = new RunStore(memoryFile({ version: 1, lastFired: {}, runs }), history);
         store.load('2026-11-04T10:00:00.000Z');
         expect(store.get('r')).toMatchObject({ status: 'failed', error: expect.stringMatching(/Interrupted/) });
-        expect(file.stored?.runs[0].status).toBe('failed');
+        expect(history.logs.get('ws-1')?.[0].status).toBe('failed');
     });
 
     it('sends an agent run cut off mid-turn back to the line, keeping its session', () => {
@@ -682,31 +688,25 @@ describe('RunStore', () => {
             { id: 'review', status: 'running', sessionId: 's-1', result: { kind: 'agent-run' } },
             { id: 'sweep', status: 'running', result: { swept: 1 } },
         ] as never;
-        const store = new RunStore(memoryFile({ version: 1, lastFired: {}, runs }));
+        const store = new RunStore(memoryFile({ version: 1, lastFired: {}, runs }), memoryHistory());
         store.load('2026-11-04T10:00:00.000Z');
         expect(store.get('review')).toMatchObject({ status: 'queued', sessionId: 's-1', updatedAt: '2026-11-04T10:00:00.000Z' });
         expect(store.get('sweep')).toMatchObject({ status: 'failed', error: expect.stringMatching(/Interrupted/) });
     });
 
     it('starts empty, without throwing, when the file is unreadable', () => {
-        const store = new RunStore({
-            read: () => {
-                throw new Error('corrupt');
+        const store = new RunStore(
+            {
+                read: () => {
+                    throw new Error('corrupt');
+                },
+                write: () => {},
             },
-            write: () => {},
-        });
+            memoryHistory()
+        );
         vi.spyOn(console, 'error').mockImplementation(() => {});
         expect(() => store.load('2026-11-04T10:00:00.000Z')).not.toThrow();
         expect(store.runs()).toEqual([]);
-    });
-
-    it('never drops a run waiting for approval to make room', () => {
-        const store = new RunStore(memoryFile());
-        store.load('2026-11-04T10:00:00.000Z');
-        store.add({ id: 'waiting', status: 'needs-approval' } as never);
-        for (let index = 0; index < 120; index++) store.add({ id: `done-${index}`, status: 'completed' } as never);
-        expect(store.runs()).toHaveLength(100);
-        expect(store.get('waiting')).toBeDefined();
     });
 });
 
@@ -818,7 +818,7 @@ describe('event runs', () => {
         await first.poll([pr(1)]);
         first.service.stop();
 
-        const relaunched = reviewing({ state: first.file.stored, accepted: false });
+        const relaunched = reviewing({ state: first.file.stored, history: first.history, accepted: false });
         await relaunched.start();
         await relaunched.poll([pr(1), pr(2)]);
         expect(relaunched.world.launches.map((launch) => launch.item?.workItem.number)).toEqual([2]);
@@ -1158,7 +1158,7 @@ describe('the queue', () => {
         await first.poll([pr(1), pr(2)]);
         first.service.stop();
 
-        const relaunched = reviewing({ cap: 1, state: first.file.stored, accepted: false });
+        const relaunched = reviewing({ cap: 1, state: first.file.stored, history: first.history, accepted: false });
         await relaunched.start();
         expect(relaunched.world.launches).toEqual([]);
         await relaunched.poll([pr(1), pr(2)]);
@@ -1183,7 +1183,7 @@ describe('the queue', () => {
         await first.poll([]);
         await first.poll([pr(1), pr(2)]);
         first.service.stop();
-        const t = reviewing({ cap: 2, state: first.file.stored, accepted: false });
+        const t = reviewing({ cap: 2, state: first.file.stored, history: first.history, accepted: false });
         await t.start();
 
         // The first launch takes a while (a worktree, a checkout).
