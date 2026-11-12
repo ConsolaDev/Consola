@@ -15,13 +15,13 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
-import { activateSession, createQuickSession, createSessionAndOpen, openNewSessionDialog } from './sessionActions';
+import { activateSession, chooseScope, createQuickSession, createSessionAndOpen, defaultSessionScopeId, openNewSessionDialog, revealCreatedScope, revealSessionScope } from './sessionActions';
 import { windowBridge } from '../services/windowBridge';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useNewSessionDialogStore } from '../stores/newSessionDialogStore';
 import { useHomeStore } from '../stores/homeStore';
-import { createWorkspaceRecord, createScopeRecord } from '../../shared/workspace';
+import { createWorkspaceRecord, createScopeRecord, createSessionRecord } from '../../shared/workspace';
 
 beforeEach(() => {
   vi.restoreAllMocks();
@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.mocked(windowBridge.setView).mockClear();
   vi.mocked(windowBridge.activateWorkspace).mockReset();
   useWorkspaceStore.setState({ workspaces: [] });
-  useHomeStore.setState({ scopeIds: {}, draftGroupIds: {} });
+  useHomeStore.setState({ scopeFilters: {}, draftGroupIds: {} });
   useNavigationStore.setState({
     activeWorkspaceId: null,
     activeSessionId: null,
@@ -43,7 +43,7 @@ describe('session creation', () => {
     const secondary = createScopeRecord({ name: 'API', path: '/api', isGitRepo: false });
     workspace.scopes.push(secondary);
     useWorkspaceStore.setState({ workspaces: [workspace] });
-    useHomeStore.getState().selectScope(workspace.id, secondary.id);
+    useHomeStore.getState().setScopeFilter(workspace.id, secondary.id);
     useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: 'existing', isInboxOpen: true });
     const create = vi.spyOn(useWorkspaceStore.getState(), 'createSession').mockImplementation(async (_id, fields) => ({
       ...fields, id: 'new-session', claudeSessionId: 'cli-id', hasStarted: false,
@@ -80,7 +80,7 @@ describe('session creation', () => {
     useNewSessionDialogStore.getState().close();
     expect(create).not.toHaveBeenCalled();
     expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'existing', isInboxOpen: true });
-    expect(useHomeStore.getState().scopeIds[workspace.id]).toBe(secondary.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(secondary.id);
     expect(windowBridge.setView).not.toHaveBeenCalled();
   });
 
@@ -93,9 +93,35 @@ describe('session creation', () => {
 
   it('falls back to the primary scope when a selected scope was removed', async () => {
     const { workspace, create } = setup();
-    useHomeStore.getState().selectScope(workspace.id, 'removed');
+    useHomeStore.getState().setScopeFilter(workspace.id, 'removed');
     await createQuickSession(workspace.id);
     expect(create.mock.calls[0][1].scopeId).toBe(workspace.scopes[0].id);
+  });
+
+  it('under All, + starts in the open session\'s scope', async () => {
+    const { workspace, secondary, create } = setup();
+    const open = createSessionRecord({
+      name: 'Open', workspaceId: workspace.id, instanceId: 'open', harnessId: 'default-agent',
+      model: undefined, scopeId: secondary.id,
+    });
+    workspace.sessions.push(open);
+    useHomeStore.getState().setScopeFilter(workspace.id, null);
+    useNavigationStore.setState({ activeSessionId: open.id, isInboxOpen: false });
+    await createQuickSession(workspace.id);
+    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ scopeId: secondary.id }), undefined);
+  });
+
+  it('under All with the Assistant open, + starts in the primary scope', async () => {
+    const { workspace, secondary, create } = setup();
+    const assistant = createSessionRecord({
+      name: 'Assistant', workspaceId: workspace.id, instanceId: 'assistant', harnessId: 'default-agent',
+      model: undefined, scopeId: secondary.id, kind: 'assistant',
+    });
+    workspace.sessions.push(assistant);
+    useHomeStore.getState().setScopeFilter(workspace.id, null);
+    useNavigationStore.setState({ activeSessionId: assistant.id, isInboxOpen: false });
+    await createQuickSession(workspace.id);
+    expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ scopeId: workspace.scopes[0].id }), undefined);
   });
 
   it('does not create or steal a workspace held by another window', async () => {
@@ -155,5 +181,132 @@ describe('activateSession', () => {
       activeSessionId: 'session-3',
       isInboxOpen: false,
     });
+  });
+});
+
+// A workspace with two scopes and one open session, filtered to that session's scope.
+function openSessionSetup(open: { scope: 'root' | 'api'; kind?: 'interactive' | 'assistant' }) {
+  const workspace = createWorkspaceRecord('App', '/app', false, 'default-agent');
+  const root = workspace.scopes[0];
+  const api = createScopeRecord({ name: 'API', path: '/api', isGitRepo: false });
+  workspace.scopes.push(api);
+  const session = createSessionRecord({
+    name: 'Open session', workspaceId: workspace.id, instanceId: 'instance', harnessId: 'default-agent',
+    model: undefined, scopeId: open.scope === 'root' ? root.id : api.id, kind: open.kind,
+  });
+  workspace.sessions.push(session);
+  useWorkspaceStore.setState({ workspaces: [workspace] });
+  useHomeStore.getState().setScopeFilter(workspace.id, session.scopeId);
+  useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: session.id, isInboxOpen: false });
+  return { workspace, root, api, session };
+}
+
+describe('chooseScope', () => {
+  const setup = openSessionSetup;
+
+  it('leaves a session from another scope for the new scope\'s composer, launching nothing', () => {
+    const { workspace, api } = setup({ scope: 'root' });
+    chooseScope(workspace.id, api.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
+    expect(useNavigationStore.getState().activeSessionId).toBeNull();
+    // Written through, so returning to the workspace lands on the composer too.
+    expect(windowBridge.setView).toHaveBeenCalledWith(workspace.id, { activeSessionId: null, isInboxOpen: false });
+  });
+
+  it('keeps a session open when it already belongs to the chosen scope', () => {
+    const { workspace, root, session } = setup({ scope: 'root' });
+    chooseScope(workspace.id, root.id);
+    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
+    expect(windowBridge.setView).not.toHaveBeenCalled();
+  });
+
+  it('keeps the Assistant open: it belongs to no scope, so no scope contradicts it', () => {
+    const { workspace, api, session } = setup({ scope: 'root', kind: 'assistant' });
+    chooseScope(workspace.id, api.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
+    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
+  });
+
+  it('only filters while the Inbox covers the pane', () => {
+    const { workspace, api, session } = setup({ scope: 'root' });
+    useNavigationStore.setState({ isInboxOpen: true });
+    chooseScope(workspace.id, api.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
+    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
+    expect(useNavigationStore.getState().isInboxOpen).toBe(true);
+  });
+
+  it('returns to All without navigating', () => {
+    const { workspace, session } = setup({ scope: 'root' });
+    chooseScope(workspace.id, null);
+    expect(workspace.id in useHomeStore.getState().scopeFilters).toBe(false);
+    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
+    expect(windowBridge.setView).not.toHaveBeenCalled();
+  });
+});
+
+describe('revealSessionScope', () => {
+  it('moves the filter to an opened session from another scope', () => {
+    const { workspace, root, api, session } = openSessionSetup({ scope: 'api' });
+    useHomeStore.getState().setScopeFilter(workspace.id, root.id);
+    revealSessionScope(workspace.id, session.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
+  });
+
+  it('leaves All alone', () => {
+    const { workspace, session } = openSessionSetup({ scope: 'api' });
+    useHomeStore.getState().setScopeFilter(workspace.id, null);
+    revealSessionScope(workspace.id, session.id);
+    expect(workspace.id in useHomeStore.getState().scopeFilters).toBe(false);
+  });
+
+  it('never filters to the Assistant\'s scope', () => {
+    const { workspace, root, session } = openSessionSetup({ scope: 'api', kind: 'assistant' });
+    useHomeStore.getState().setScopeFilter(workspace.id, root.id);
+    revealSessionScope(workspace.id, session.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(root.id);
+  });
+
+  it('treats a filter whose scope was removed as All, so a click never narrows the list', () => {
+    const { workspace, session } = openSessionSetup({ scope: 'api' });
+    useHomeStore.getState().setScopeFilter(workspace.id, 'removed-scope');
+    revealSessionScope(workspace.id, session.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).not.toBe(session.scopeId);
+  });
+
+  it('keeps a filter that already shows the session', () => {
+    const { workspace, root, session } = openSessionSetup({ scope: 'root' });
+    revealSessionScope(workspace.id, session.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(root.id);
+  });
+});
+
+describe('defaultSessionScopeId', () => {
+  it('under All, follows the open session like +', () => {
+    const { workspace, api } = openSessionSetup({ scope: 'api' });
+    useHomeStore.getState().setScopeFilter(workspace.id, null);
+    expect(defaultSessionScopeId(workspace.id)).toBe(api.id);
+  });
+
+  it('prefers the filter', () => {
+    const { workspace, root } = openSessionSetup({ scope: 'api' });
+    useHomeStore.getState().setScopeFilter(workspace.id, root.id);
+    expect(defaultSessionScopeId(workspace.id)).toBe(root.id);
+  });
+});
+
+describe('revealCreatedScope', () => {
+  it('widens a filter on another scope to All without navigating', () => {
+    const { workspace, root, api, session } = openSessionSetup({ scope: 'api' });
+    revealCreatedScope(workspace.id, root.id);
+    expect(workspace.id in useHomeStore.getState().scopeFilters).toBe(false);
+    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
+    expect(api.id).not.toBe(root.id);
+  });
+
+  it('keeps a filter that already shows the new work', () => {
+    const { workspace, api } = openSessionSetup({ scope: 'api' });
+    revealCreatedScope(workspace.id, api.id);
+    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
   });
 });

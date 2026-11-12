@@ -1,11 +1,13 @@
 import { useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { ChevronDown, Plus } from 'lucide-react';
+import { ChevronDown, Folder, GitBranch, Plus } from 'lucide-react';
 import { isMac } from '../../utils/platform';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { hasScopeChoice, newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
+import { scopeTrail } from '../../utils/scopeTrail';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { FanOutDialog } from '../Dialogs/FanOutDialog';
 import { OrchestrationDialog } from '../Dialogs/OrchestrationDialog';
@@ -14,23 +16,31 @@ import { OrchestrationDialog } from '../Dialogs/OrchestrationDialog';
  * The ＋ New menu: everything that creates work, in one place, in increasing
  * order of machinery — a session, a group, a fan-out, and an orchestration.
  * This is the whole creation surface a casual user ever sees.
+ *
+ * ＋ starts a session straight into its terminal and names where: the picked
+ * scope, else the open session's, else the primary one. ▾ leads with every
+ * scope, for the times a session belongs somewhere else.
  */
 export function NewMenu() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
-  // The orchestration door generates a conductor directory inside a scope, so
-  // a workspace with none has nowhere to put one.
-  const scopeCount = useWorkspaceStore(
-    (state) =>
-      state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.scopes.length ?? 0
+  const activeSessionId = useNavigationStore((state) => state.activeSessionId);
+  const workspace = useWorkspaceStore((state) =>
+    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId)
   );
+  const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
   const [openDialog, setOpenDialog] = useState<'group' | 'fan-out' | 'orchestration' | null>(null);
 
   if (!activeWorkspaceId) return null;
+  // The orchestration door generates a conductor directory inside a scope, so
+  // a workspace with none has nowhere to put one.
+  const scopeCount = workspace?.scopes.length ?? 0;
+  const target = workspace && newSessionScope(workspace, filterId, activeSessionId);
+  const plusTitle = target && workspace ? `New session in ${scopeTrail(workspace.scopes, target).label}` : 'New session';
 
   return (
     <>
       <div className="new-menu-buttons">
-        <button className="new-menu-trigger" aria-label="New session" title="New session" onClick={() => void createQuickSession(activeWorkspaceId)}><Plus size={14} /></button>
+        <button className="new-menu-trigger" aria-label="New session" title={plusTitle} onClick={() => void createQuickSession(activeWorkspaceId)}><Plus size={14} /></button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button className="new-menu-trigger" aria-label="New">
@@ -44,6 +54,27 @@ export function NewMenu() {
               align="start"
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
+              {workspace && hasScopeChoice(workspace) && <>
+                <DropdownMenu.Label className="navigation-settings-label">New session in</DropdownMenu.Label>
+                {workspace.scopes.map((scope) => {
+                  const trail = scopeTrail(workspace.scopes, scope);
+                  return (
+                    <DropdownMenu.Item
+                      key={scope.id}
+                      className="dropdown-item"
+                      title={scope.path}
+                      onSelect={() => void createQuickSession(activeWorkspaceId, { scopeId: scope.id })}
+                    >
+                      {scope.isGitRepo ? <GitBranch size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
+                      <span className="new-menu-scope">
+                        {trail.parent && <span className="new-menu-scope-parent">{trail.parent} / </span>}
+                        {trail.label}
+                      </span>
+                    </DropdownMenu.Item>
+                  );
+                })}
+                <DropdownMenu.Separator className="dropdown-separator" />
+              </>}
               <DropdownMenu.Item
                 className="dropdown-item"
                 onSelect={() => void createQuickSession(activeWorkspaceId)}

@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { workspaceBridge } from '../../services/workspaceBridge';
 import type { ScopeRepo } from '../../../shared/types';
+import { defaultSessionScopeId, revealCreatedScope } from '../../utils/sessionActions';
 import './styles.css';
 
 interface FanOutDialogProps {
@@ -23,7 +23,7 @@ export function FanOutDialog({ workspaceId, onClose }: FanOutDialogProps) {
   );
   const scopes = workspace?.scopes ?? [];
 
-  const [scopeId, setScopeId] = useState<string | undefined>(() => workspace ? homeScope(workspace, useHomeStore.getState().scopeIds[workspaceId])?.id : undefined);
+  const [scopeId, setScopeId] = useState<string | undefined>(() => defaultSessionScopeId(workspaceId));
   const [repos, setRepos] = useState<ScopeRepo[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [groupName, setGroupName] = useState('');
@@ -92,6 +92,8 @@ export function FanOutDialog({ workspaceId, onClose }: FanOutDialogProps) {
           prompt: prompt.trim(),
           groupName: groupName.trim(),
         });
+        // The group and its sessions exist even after a partial failure.
+        revealCreatedScope(workspaceId, scope.id);
         if (result.failed.length > 0) {
           // Partial success: the group and the launched sessions exist. Show
           // what did not launch, and let the user close after reading it.

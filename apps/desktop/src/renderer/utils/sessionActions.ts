@@ -1,4 +1,4 @@
-import { homeScope, useHomeStore } from '../stores/homeStore';
+import { filteredScope, newSessionScope, useHomeStore } from '../stores/homeStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
@@ -52,6 +52,43 @@ export function activateSession(workspaceId: string, sessionId: string): void {
 }
 
 /**
+ * Narrow the sidebar's session list to one scope, or widen it to All with null.
+ *
+ * While one scope is picked, the open session is in the list. So picking a
+ * scope the open session doesn't run in moves the view to the new-session
+ * view, written through like any other backing-out. It never moves to one of
+ * that scope's sessions: mounting a session launches its CLI, and choosing a
+ * filter asked for no such thing. All hides nothing, so it never navigates.
+ *
+ * The Assistant belongs to no scope, so no filter hides it; the Inbox covers
+ * the pane, so the choice only filters the list behind it.
+ */
+export function chooseScope(workspaceId: string, scopeId: string | null): void {
+  useHomeStore.getState().setScopeFilter(workspaceId, scopeId);
+  if (scopeId === null) return;
+  const navigation = useNavigationStore.getState();
+  if (navigation.activeWorkspaceId !== workspaceId || navigation.isInboxOpen) return;
+  const open = useWorkspaceStore.getState().getSession(workspaceId, navigation.activeSessionId ?? '');
+  if (open && open.kind !== 'assistant' && open.scopeId !== scopeId) navigation.setActiveSession(null);
+}
+
+/**
+ * Keep a session that just became active in the list: when one scope is
+ * picked and the session runs in another (the palette, a notification, the
+ * Assistant, the ▾ "New session in" menu), the filter follows it. Under All
+ * the list already shows it, so clicking a row never narrows the list.
+ */
+export function revealSessionScope(workspaceId: string, sessionId: string | null): void {
+  const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
+  // Resolved as the list resolves it: a filter whose scope was removed is All.
+  const scope = workspace && filteredScope(workspace, useHomeStore.getState().scopeFilters[workspaceId]);
+  if (!scope || !sessionId) return;
+  const session = useWorkspaceStore.getState().getSession(workspaceId, sessionId);
+  if (!session || session.kind === 'assistant' || session.scopeId === scope.id) return;
+  useHomeStore.getState().setScopeFilter(workspaceId, session.scopeId);
+}
+
+/**
  * Open the workspace's Assistant, making its record the first time. Nothing
  * launches here: the pane does, like any other session.
  */
@@ -85,14 +122,29 @@ export async function activateSessionAnywhere(
   }
 }
 
-/** Resolve the selected scope without changing the current view or filters. */
+/** Resolve where a new session starts without changing the current view or filters. */
 function sessionDestination(workspaceId: string, destination: NewSessionDestination) {
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
   if (!workspace) return destination;
   const navigation = useNavigationStore.getState();
-  const scope = homeScope(workspace, destination.scopeId ?? useHomeStore.getState().scopeIds[workspaceId],
+  const scope = newSessionScope(workspace, destination.scopeId ?? useHomeStore.getState().scopeFilters[workspaceId],
     navigation.activeWorkspaceId === workspaceId ? navigation.activeSessionId : null);
   return { ...destination, scopeId: scope?.id };
+}
+
+/** The scope a new session in this workspace starts in by default, for dialogs that offer a choice. */
+export function defaultSessionScopeId(workspaceId: string): string | undefined {
+  return sessionDestination(workspaceId, {}).scopeId;
+}
+
+/**
+ * Keep work created without opening it (a fan-out, an orchestration) in
+ * view: a filter on another scope would hide it, so it widens to All.
+ * Widening never navigates.
+ */
+export function revealCreatedScope(workspaceId: string, scopeId: string): void {
+  const filterId = useHomeStore.getState().scopeFilters[workspaceId];
+  if (filterId !== undefined && filterId !== scopeId) chooseScope(workspaceId, null);
 }
 
 /** Open options without creating a session or replacing the view underneath. */

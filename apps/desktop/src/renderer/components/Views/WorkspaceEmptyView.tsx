@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Folder, FolderPlus, GitFork, Inbox } from 'lucide-react';
 import { listedSessions, type Workspace, type Scope } from '../../../shared/workspace';
-import { homeScope, useHomeStore } from '../../stores/homeStore';
+import { newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
@@ -9,8 +9,8 @@ import './styles.css';
 import './new-session.css';
 
 export function WorkspaceEmptyView({ workspace }: { workspace: Workspace }) {
-  const selectedScopeId = useHomeStore(state => state.scopeIds[workspace.id]);
-  const scope = homeScope(workspace, selectedScopeId);
+  const selectedScopeId = useHomeStore(state => state.scopeFilters[workspace.id]);
+  const scope = newSessionScope(workspace, selectedScopeId);
   return <div className="workspace-empty-view">
     <div className="workspace-empty-content">
       <h1 className="workspace-empty-heading">{workspace.name}</h1>
@@ -36,7 +36,7 @@ function FirstSessionTips({ workspace, scope }: { workspace: Workspace; scope: S
     setError('');
     try {
       const added = await addScopeViaDialog(workspace.id);
-      if (added) useHomeStore.getState().selectScope(workspace.id, added.id);
+      if (added) useHomeStore.getState().setScopeFilter(workspace.id, added.id);
     } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
   };
 
@@ -45,7 +45,7 @@ function FirstSessionTips({ workspace, scope }: { workspace: Workspace; scope: S
       <Folder size={14} aria-hidden="true" />
       <p>Runs in the <strong>{scope.name}</strong> scope.{' '}
         {workspace.scopes.length > 1
-          ? 'Choose a different folder from the scope menu in the sidebar.'
+          ? 'To start in another folder, pick it under ▾ beside + in the sidebar.'
           : <>Working across repos? <button type="button" className="first-session-link" onClick={() => void addScope()}><FolderPlus size={12} aria-hidden="true" />Add another folder</button> as a scope.</>}
       </p>
     </div>

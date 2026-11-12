@@ -3,6 +3,7 @@ import type { DragEvent } from 'react';
 import {
   droppedSessionId,
   homeScopeType,
+  isGroupedSessionDrag,
   isSessionDrag,
   isSessionFromScope,
   startSessionDrag,
@@ -113,5 +114,23 @@ describe('droppedSessionId', () => {
     const event = { dataTransfer: { getData: () => '' } } as unknown as DragEvent;
 
     expect(droppedSessionId(event)).toBeNull();
+  });
+});
+
+describe('isGroupedSessionDrag', () => {
+  it('accepts a grouped session from one scope', () => {
+    expect(isGroupedSessionDrag(fakeDragOver([SESSION_DRAG_TYPE, homeScopeType('scope-a')]))).toBe(true);
+  });
+
+  it('accepts a grouped session from any other scope too: leaving a group never changes a scope', () => {
+    expect(isGroupedSessionDrag(fakeDragOver([SESSION_DRAG_TYPE, homeScopeType('scope-b')]))).toBe(true);
+  });
+
+  it('refuses an ungrouped session, which is already there', () => {
+    expect(isGroupedSessionDrag(fakeDragOver([SESSION_DRAG_TYPE]))).toBe(false);
+  });
+
+  it('refuses a drag that is not one of our rows at all', () => {
+    expect(isGroupedSessionDrag(fakeDragOver(['Files']))).toBe(false);
   });
 });

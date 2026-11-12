@@ -143,9 +143,7 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
     };
   });
 
-  await expect(
-    page.locator('.sidebar .scope-selector')
-  ).toBeVisible();
+  await expect(page.locator('.sidebar-scope-filter')).toBeVisible();
   return scopes;
 }
 
@@ -168,37 +166,109 @@ test('a group header keeps the move dropEffect it sets, so the drop is not vetoe
   }
 });
 
-test('Ungrouped accepts its selected scope and the scope selector never moves sessions', async () => {
+test('Ungrouped takes a grouped session from any scope under All, only its own when filtered, and the scope row takes no drop', async () => {
   test.setTimeout(90_000);
   const fixture = makeFixture();
   const { app, page } = await launchElectron();
 
   try {
     const { homeScopeId, otherScopeId } = await seedGroupedWorkspace(page, fixture);
-    const grouped: [string, string][] = [
+    const fromElsewhere: [string, string][] = [
       [SESSION_DRAG_TYPE, 'a-grouped-session'],
       // Valueless, exactly as the row sets it: the meaning is in the name.
-      [homeScopeType(homeScopeId), ''],
+      [homeScopeType(otherScopeId), ''],
     ];
+    const ungroupedHeader = '.sidebar-ungrouped .sidebar-section-header';
 
-    const home = await dropEffectWrites(
-      page,
-      '.sidebar-ungrouped .sidebar-section-header',
-      grouped
-    );
-    const other = await dropEffectWrites(
-      page,
-      '.sidebar .scope-selector',
-      grouped
-    );
+    // Under All every session is listed, and leaving a group never changes a
+    // scope, so Ungrouped takes a grouped session from any scope.
+    expect(await dropEffectWrites(page, ungroupedHeader, fromElsewhere)).toEqual(['move']);
 
-    // Home takes it, and keeps the effect it chose.
-    expect(home).toEqual(['move']);
-    // Every other scope declines: it writes nothing at all, and the lone
-    // `none` is the window guard vetoing a drag no target claimed. A session's
-    // scope is fixed for its lifetime, so a scope row that lit up here would
-    // promise a move the record refuses to make.
-    expect(other).toEqual(['none']);
+    // Filtered to the home scope, a session from elsewhere would land as a
+    // row the list then hides. The lone `none` is the window guard vetoing a
+    // drag no target claimed.
+    const home = await page.evaluate(async (id) => {
+      const snapshot = await window.workspaceAPI.getSnapshot();
+      return snapshot.workspaces.flatMap(workspace => workspace.scopes).find(scope => scope.id === id)!.name;
+    }, homeScopeId);
+    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('menuitem', { name: new RegExp(home) }).click();
+    expect(await dropEffectWrites(page, ungroupedHeader, fromElsewhere)).toEqual(['none']);
+
+    // The scope row is a filter, not a place: it takes nothing.
+    expect(await dropEffectWrites(page, '.sidebar-scope-filter', fromElsewhere)).toEqual(['none']);
+  } finally {
+    await app.close();
+  }
+});
+
+/** A workspace with the repos container as its scope and "elsewhere" as a second one, no group yet. */
+async function seedTwoScopes(page: Page, fixture: ReturnType<typeof makeFixture>) {
+  await page.evaluate(
+    ([binaryPath]) =>
+      window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#4f5bd5', binaryPath }),
+    [fixture.stubPath] as const
+  );
+  const ids = await page.evaluate(async ([folder, elsewhere]) => {
+    const workspace = await window.workspaceAPI.createWorkspace('fleet', folder as string, false, 'stub');
+    const other = await window.workspaceAPI.addScope(workspace.id, { name: 'elsewhere', path: elsewhere as string, isGitRepo: false });
+    return { homeId: workspace.scopes[0].id, otherId: other.id };
+  }, [fixture.containerDir, fixture.elsewhereDir] as const);
+  await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
+  await expect(page.locator('.sidebar-scope-filter')).toBeVisible();
+  return ids;
+}
+
+/** Start a session in "elsewhere" from ▾, which opens it. */
+async function openSessionElsewhere(page: Page) {
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'elsewhere', exact: true }).click();
+  await expect(page.locator('.session-nav-item.active')).toBeVisible();
+}
+
+async function openFanOut(page: Page) {
+  await page.getByRole('button', { name: 'New', exact: true }).click();
+  await page.getByRole('menuitem', { name: 'Fan-out…' }).click();
+}
+
+test('a fan-out starts in the open session\'s scope under All', async () => {
+  test.setTimeout(90_000);
+  const fixture = makeFixture();
+  const { app, page } = await launchElectron();
+
+  try {
+    const { otherId } = await seedTwoScopes(page, fixture);
+    await openSessionElsewhere(page);
+    await openFanOut(page);
+    // The same rule as +: the open session's scope, not the primary one.
+    await expect(page.getByLabel('Scope', { exact: true })).toHaveValue(otherId);
+  } finally {
+    await app.close();
+  }
+});
+
+test('a fan-out into another scope widens a filtered list to All, so its sessions are not hidden', async () => {
+  test.setTimeout(90_000);
+  const fixture = makeFixture();
+  const { app, page } = await launchElectron();
+
+  try {
+    const { homeId } = await seedTwoScopes(page, fixture);
+    await openSessionElsewhere(page);
+    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('menuitem', { name: /elsewhere/ }).click();
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('elsewhere');
+
+    await openFanOut(page);
+    await page.getByLabel('Scope', { exact: true }).selectOption(homeId);
+    await page.getByRole('checkbox', { name: 'repo-a' }).check();
+    await page.getByLabel('Group name').fill('bump-deps');
+    await page.getByLabel(/Prompt/).fill('Say hello.');
+    await page.getByRole('button', { name: /Create group/ }).click();
+
+    await expect(page.locator('.group-nav-header')).toBeVisible({ timeout: 15_000 });
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
   } finally {
     await app.close();
   }

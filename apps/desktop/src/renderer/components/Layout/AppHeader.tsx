@@ -5,10 +5,12 @@ import { NewMenu } from './NewMenu';
 import { AppUpdateNotice } from '../AppUpdates';
 
 /**
- * The title bar strip: the traffic lights, the sidebar toggle and, while the
- * sidebar is hidden, the workspace and New menus it would otherwise hold.
- * With the sidebar shown it spans only the navigation columns, and the main
- * pane runs to the window's top edge beside it.
+ * The title bar strip over the navigation columns: traffic lights, the
+ * sidebar toggle and the workspace menu. Beside it the main pane runs to the
+ * window's top edge, so the open session's own row is the title bar there,
+ * as in production. With the sidebar hidden the strip spans the window and
+ * also carries the New menu. The scope filter sits in the sidebar, over the
+ * list it narrows.
  */
 export function AppHeader() {
   const isSidebarHidden = useNavigationStore((state) => state.isSidebarHidden);
@@ -16,17 +18,14 @@ export function AppHeader() {
   return (
     <header className="app-header">
       <div className="app-header-drag-region" />
-      <div className={`app-header-sidebar ${isSidebarHidden ? 'hidden' : ''}`}>
-        <SidebarToggle />
-        {!isSidebarHidden && <AppUpdateNotice />}
+      <SidebarToggle />
+      <div className="app-header-context">
+        <WorkspaceMenu />
       </div>
-      {isSidebarHidden && (
-        <div className="app-header-content sidebar-hidden">
-          <WorkspaceMenu />
-          <NewMenu />
-          <AppUpdateNotice />
-        </div>
-      )}
+      <span className="app-header-spacer" />
+      {/* The sidebar's own + buttons go with it. */}
+      {isSidebarHidden && <NewMenu />}
+      <AppUpdateNotice />
     </header>
   );
 }

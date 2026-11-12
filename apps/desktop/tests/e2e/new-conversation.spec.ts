@@ -3,7 +3,13 @@ import { execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import type { Page } from '@playwright/test';
 import { launchElectron } from './helpers/electron';
+
+const chooseScope = async (target: Page, name: string) => {
+  await target.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+  await target.getByRole('menuitem', { name: new RegExp(name) }).click();
+};
 
 test('session options create and reuse worktrees, with searchable refs and recoverable errors', async () => {
   test.setTimeout(90_000);
@@ -71,8 +77,7 @@ test('session options create and reuse worktrees, with searchable refs and recov
       const group = await window.workspaceAPI.createGroup(ws.id, { name: 'Inbox work' });
       return { scopeId: scope.id, groupId: group.id };
     }, { folder: existing });
-    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope' }).click();
-    await page.getByRole('menuitem', { name: /inbox-checkout/ }).click();
+    await chooseScope(page, 'inbox-checkout');
     await page.locator('.group-nav-header').hover();
     await page.getByRole('button', { name: 'Group actions for Inbox work' }).click();
     await page.getByRole('menuitem', { name: 'New session with options…' }).click();
@@ -118,9 +123,8 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
     }, { root, secondary, profile, binary: path.resolve('tests/fixtures/codex.cjs') });
     const sessions = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions);
     await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Quick sessions/ }).click();
-    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope' }).click();
-    await page.getByRole('menuitem', { name: /API/ }).click();
-    await page.locator('.sidebar-workspace').getByRole('button', { name: 'New session', exact: true }).click();
+    await chooseScope(page, 'API');
+    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
     await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
     expect(await sessions()).toHaveLength(1);
     expect((await sessions())[0]).toMatchObject({ harnessId: 'fixture', scopeId: setup.scopeId });
@@ -187,6 +191,46 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
     await expect(modal.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
     await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await sessions()).toHaveLength(5);
+  } finally {
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true });
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
+  }
+});
+
+test('▾ starts a session in any scope, straight into its terminal', async () => {
+  test.setTimeout(60_000);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-new-in-scope-'));
+  const profile = path.join(root, 'codex');
+  const secondary = path.join(root, 'api');
+  fs.mkdirSync(profile);
+  fs.mkdirSync(secondary);
+  const { app, page, userDataDir } = await launchElectron();
+  try {
+    const setup = await page.evaluate(async ({ root, secondary, profile, binary }) => {
+      await window.harnessStateAPI.addHarness({ id: 'fixture', name: 'Development agent', driverId: 'codex', accentColor: '#da9775', binaryPath: binary, configDir: profile });
+      const workspace = await window.workspaceAPI.createWorkspace('Quick sessions', root, false, 'fixture');
+      const scope = await window.workspaceAPI.addScope(workspace.id, { name: 'API', path: secondary, isGitRepo: false });
+      return { scopeId: scope.id, rootName: workspace.scopes[0].name };
+    }, { root, secondary, profile, binary: path.resolve('tests/fixtures/codex.cjs') });
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Quick sessions/ }).click();
+
+    // No filter and nothing open: + starts in the primary scope, and says so.
+    const plus = page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true });
+    await expect(plus).toHaveAttribute('title', `New session in ${setup.rootName}`);
+
+    await page.locator('.sidebar-search').getByRole('button', { name: 'New', exact: true }).click();
+    // API's folder sits inside the root scope's, so it reads after it.
+    await page.getByRole('menuitem', { name: `${setup.rootName} / API`, exact: true }).click();
+    await expect(page.getByRole('textbox', { name: 'Terminal input' })).toBeVisible();
+    const sessions = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions);
+    expect(sessions).toHaveLength(1);
+    expect(sessions[0]).toMatchObject({ scopeId: setup.scopeId });
+    await expect(page.locator('.session-nav-item .session-nav-item-scope')).toContainText('API');
+
+    // Under All, + follows the open session.
+    await expect(plus).toHaveAttribute('title', 'New session in API');
   } finally {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });

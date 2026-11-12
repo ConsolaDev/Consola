@@ -13,6 +13,7 @@ import { SessionActionsMenu } from './SessionActionsMenu';
 import { startSessionDrag } from './sessionDrag';
 import { deleteSessionCompletely } from '../../utils/sessionActions';
 import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
+import type { ScopeTrail } from '../../utils/scopeTrail';
 
 interface SessionNavItemProps {
   session: Session;
@@ -24,6 +25,11 @@ interface SessionNavItemProps {
    * grouped session belongs to.
    */
   subtitle?: string;
+  /**
+   * The scope the session runs in, on a small line above the title. Set only
+   * while the list mixes scopes; a filtered list already says which one.
+   */
+  scopeLabel?: ScopeTrail;
 }
 
 /** Spoken form of each status, for the row's accessible name and tooltip. */
@@ -50,6 +56,7 @@ export function SessionNavItem({
   isActive,
   onClick,
   subtitle,
+  scopeLabel,
 }: SessionNavItemProps) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -104,6 +111,7 @@ export function SessionNavItem({
     : 'Read-only';
   const accessibleName = [
     label,
+    scopeLabel && `in ${scopeLabel.parent ? `${scopeLabel.parent} / ` : ''}${scopeLabel.label}`,
     readOnly && 'read-only',
     STATUS_LABELS[displayStatus],
     worktreeRef && `worktree ${worktreeRef}`,
@@ -184,7 +192,8 @@ export function SessionNavItem({
     <div
       role="button"
       tabIndex={0}
-      className={`session-nav-item ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
+      // The rename field replaces the scope line too, so the row is a plain one while it shows.
+      className={`session-nav-item ${scopeLabel && !isRenaming ? 'session-nav-item--scoped' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
       onContextMenu={(event) => {
@@ -228,6 +237,12 @@ export function SessionNavItem({
         />
       ) : (
         <span className="session-nav-item-text">
+          {scopeLabel && (
+            <span className="session-nav-item-scope">
+              {scopeLabel.parent && <span className="session-nav-item-scope-parent">{scopeLabel.parent} / </span>}
+              <span className="session-nav-item-scope-name">{scopeLabel.label}</span>
+            </span>
+          )}
           <span className="session-nav-item-title">
             {readOnly && (
               <span

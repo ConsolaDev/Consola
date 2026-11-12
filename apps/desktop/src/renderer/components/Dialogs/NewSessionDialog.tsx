@@ -7,7 +7,7 @@ import { WorkspaceIcon } from '../WorkspaceIcon';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
 import { useNewSessionDialogStore, type NewSessionDestination } from '../../stores/newSessionDialogStore';
-import { homeScope, useHomeStore } from '../../stores/homeStore';
+import { newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
 import { createSessionAndOpen } from '../../utils/sessionActions';
 import { CheckoutPicker } from '../CheckoutPicker/CheckoutPicker';
@@ -36,7 +36,7 @@ function SessionOptions({ workspace: initialWorkspace, destination, initialError
   const [workspaceId, setWorkspaceId] = useState(initialWorkspace.id);
   const workspace = workspaces.find(ws => ws.id === workspaceId) ?? initialWorkspace;
   const [scopeId, setScopeId] = useState(destination.scopeId);
-  const scope = homeScope(workspace, scopeId);
+  const scope = newSessionScope(workspace, scopeId);
   const [groupId, setGroupId] = useState(destination.groupId);
   const groups = workspace.groups.filter(group => !group.archivedAt);
   const group = groups.find(candidate => candidate.id === groupId);
@@ -82,7 +82,7 @@ function SessionOptions({ workspace: initialWorkspace, destination, initialError
               const next = workspaces.find(ws => ws.id === value);
               if (!next) return;
               setWorkspaceId(next.id);
-              setScopeId(homeScope(next, useHomeStore.getState().scopeIds[next.id])?.id);
+              setScopeId(newSessionScope(next, useHomeStore.getState().scopeFilters[next.id])?.id);
               setGroupId(undefined);
               setHarnessId(next.defaultHarnessId);
               setModel(undefined);
