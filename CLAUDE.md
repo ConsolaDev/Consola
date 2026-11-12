@@ -217,7 +217,10 @@ status listener set and tells it when the sessions it touched settle.
 An Assistant start on a work item refreshes an existing worktree to the PR's
 latest head only for a read-only session. Claude trusts a folder per path, so
 refreshing one the person already trusted would load the author's newly pushed
-settings and hooks into a full-tools session with no trust prompt.
+settings and hooks into a full-tools session with no trust prompt. The worktree
+is one per item, so the same holds for every read-only refresh (automation
+runs, Assistant starts and re-runs): it is skipped while any full-tools session
+was launched there, running or not (`worktreeHeld`).
 
 ### Harnesses Are Launch Descriptions
 

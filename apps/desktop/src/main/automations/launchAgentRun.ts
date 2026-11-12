@@ -18,7 +18,7 @@ export interface AgentLaunchDeps {
     ensureWorktree(clonePath: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<string>;
     /** Bring a clean existing PR worktree to the PR's head; false when it was left as is. */
     refreshWorktree(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<boolean>;
-    /** Whether a running session works in `dir`: its files must not move under it. */
+    /** Whether `dir` must stay as it is: see `worktreeHeld`. */
     worktreeInUse(dir: string): boolean;
     composeEnv(driver: GitProviderDriver, accountLogin: string): Promise<NodeJS.ProcessEnv>;
     restoreGroup(workspaceId: string, groupId: string): void;
@@ -51,6 +51,27 @@ export function withoutGitHooks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
     };
 }
 
+/**
+ * Whether an item worktree must stay as it is, so nothing refreshes it.
+ *
+ * - A running session works in it, launched there or moved in since: its
+ *   files must not move under it.
+ * - A full-tools session was launched there, running or not. Claude trusts
+ *   a folder per path, so moving a worktree it already trusts would load
+ *   the PR author's newly pushed settings and hooks into that session's
+ *   next launch with no trust prompt. A read-only session launches
+ *   `--restricted`, which never loads them, so only a running one holds it.
+ *
+ * The worktree is one per item, so this is about every session on it, not
+ * only the one about to run.
+ */
+export function worktreeHeld(sessions: readonly Session[], dir: string, isRunning: (session: Session) => boolean): boolean {
+    return sessions.some((session) => {
+        if (session.cwd === dir && session.toolPolicy !== 'read-only') return true;
+        return (session.cwd === dir || session.agentCwd === dir) && isRunning(session);
+    });
+}
+
 export type ItemWorktreeDeps = Pick<
     AgentLaunchDeps,
     'resolveDriver' | 'resolveRepo' | 'worktreePathFor' | 'ensureWorktree' | 'refreshWorktree' | 'worktreeInUse' | 'composeEnv'
@@ -59,14 +80,15 @@ export type ItemWorktreeDeps = Pick<
 /**
  * The item's Consola worktree, made ready: the clone resolved among the
  * workspace's scopes, the worktree ensured under the per-item chain with git
- * hooks off, and, when `refreshExisting`, an existing one nobody is using
- * brought to the PR's head. Shared by automations and the Assistant so both
- * serialise with Inbox clicks.
+ * hooks off, and, when `refreshExisting`, an existing one nothing holds
+ * (`worktreeHeld`) brought to the PR's head. Shared by automations and the
+ * Assistant so both serialise with Inbox clicks.
  *
  * Refreshing is for read-only sessions only. Claude records folder trust per
  * path, so moving a worktree the person already trusted would load the PR
  * author's newly pushed settings and hooks into a full-tools session with no
- * trust prompt. A full-tools start uses the worktree exactly as it is.
+ * trust prompt. A full-tools start uses the worktree exactly as it is, and a
+ * read-only start leaves alone one a full-tools session was launched in.
  */
 export async function prepareItemWorktree(
     deps: ItemWorktreeDeps,
@@ -99,7 +121,8 @@ export async function prepareItemWorktree(
 /**
  * Before a read-only session is re-run on its pull request: bring its
  * Consola worktree to the PR's head, so the re-run reviews what is there now.
- * Does nothing for any other session, or while a running session works in it.
+ * Does nothing for any other session, or while something holds the worktree
+ * (`worktreeHeld`): a full-tools session on the same PR shares it.
  */
 export async function refreshIdleWorktree(deps: ItemWorktreeDeps, workspace: Workspace, session: Session): Promise<void> {
     const workItem = session.workItem;

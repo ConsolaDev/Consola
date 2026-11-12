@@ -5,7 +5,7 @@ import * as os from 'os';
 import * as path from 'path';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
-import { launchAgentRun, prepareItemWorktree, refreshIdleWorktree, StartedByHandError, withoutGitHooks, type AgentLaunchDeps } from './launchAgentRun';
+import { launchAgentRun, prepareItemWorktree, refreshIdleWorktree, StartedByHandError, withoutGitHooks, worktreeHeld, type AgentLaunchDeps } from './launchAgentRun';
 
 let root: string;
 beforeEach(() => {
@@ -205,6 +205,42 @@ describe('refreshIdleWorktree', () => {
         const d = deps();
         await refreshIdleWorktree(d, workspace(), session());
         expect(d.refreshWorktree).not.toHaveBeenCalled();
+    });
+});
+
+describe('worktreeHeld', () => {
+    const dir = '/worktrees/api-pr-123';
+    const session = (overrides: Partial<Session>) =>
+        ({ id: 'one', instanceId: 'one', name: 'One', ...overrides }) as unknown as Session;
+    const running = (...ids: string[]) => (candidate: Session) => ids.includes(candidate.id);
+    const nothingRuns = running();
+
+    it('holds a worktree a full-tools session was launched in, even after its terminal exited', () => {
+        // The person's own session on the PR: the folder is trusted, so a
+        // refresh would hand it the author's new hooks on its next resume.
+        expect(worktreeHeld([session({ cwd: dir })], dir, nothingRuns)).toBe(true);
+        expect(worktreeHeld([session({ cwd: dir })], dir, running('one'))).toBe(true);
+    });
+
+    it('holds one a running session works in, launched there or moved in', () => {
+        const readOnly = session({ cwd: dir, toolPolicy: 'read-only' });
+        expect(worktreeHeld([readOnly], dir, running('one'))).toBe(true);
+        const movedIn = session({ cwd: '/code/api', agentCwd: dir });
+        expect(worktreeHeld([movedIn], dir, running('one'))).toBe(true);
+    });
+
+    it('frees it once only stopped read-only sessions, or sessions elsewhere, are left', () => {
+        expect(worktreeHeld([session({ cwd: dir, toolPolicy: 'read-only' })], dir, nothingRuns)).toBe(false);
+        // A full-tools session that only visited relaunches in its own folder.
+        expect(worktreeHeld([session({ cwd: '/code/api', agentCwd: dir })], dir, nothingRuns)).toBe(false);
+        expect(worktreeHeld([session({ cwd: '/worktrees/api-pr-9' })], dir, running('one'))).toBe(false);
+        expect(worktreeHeld([], dir, nothingRuns)).toBe(false);
+    });
+
+    it('answers for every session on the worktree, not only the one about to run', () => {
+        const review = session({ id: 'review', cwd: dir, toolPolicy: 'read-only' });
+        const mine = session({ id: 'mine', cwd: dir });
+        expect(worktreeHeld([review, mine], dir, nothingRuns)).toBe(true);
     });
 });
 

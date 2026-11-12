@@ -40,7 +40,7 @@ import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
-import { launchAgentRun, refreshIdleWorktree, type ItemWorktreeDeps } from './automations/launchAgentRun';
+import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import type { AutomationsChange } from '../shared/automations';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
@@ -866,10 +866,11 @@ export function setupIpcHandlers(): boolean {
         ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
         refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
         worktreeInUse: (dir) =>
-            workspaces
-                .getAll()
-                .flatMap((workspace) => workspace.sessions)
-                .some((session) => session.cwd === dir && manager.get(session.instanceId)?.hasClaudeExited() === false),
+            worktreeHeld(
+                workspaces.getAll().flatMap((workspace) => workspace.sessions),
+                dir,
+                (session) => manager.get(session.instanceId)?.hasClaudeExited() === false
+            ),
         composeEnv: composeProviderEnv,
     };
     // A re-run of a read-only review reads the PR as it is now.
