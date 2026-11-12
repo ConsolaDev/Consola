@@ -48,6 +48,13 @@ export class TerminalManager {
         return () => { this.exitListeners.delete(listener); };
     }
 
+    /**
+     * Called when a session's CLI says it now works somewhere else — an
+     * agent that entered a worktree on its own. Main records it on the
+     * session, and every window learns of it from the workspace broadcast.
+     */
+    public onWorkingDirectory?: (instanceId: string, cwd: string) => void;
+
     /** How many sessions are waiting on a human, across every workspace. */
     public getAttentionCount(): number {
         return this.awaiting.size;
@@ -101,6 +108,14 @@ export class TerminalManager {
             // terminal a person opened, it would be typed into their composer,
             // and its run would wait for an exit that is not its.
             if (options.unattended) throw new Error('This session already has a terminal, so its turn cannot run unattended.');
+            // Asked for a new conversation while a pane, mounted during the
+            // caller's await, started the old one: the record names the new
+            // one, so the terminal moves to it rather than taking a prompt
+            // that was written for a fresh context.
+            if (!options.resume && existing.conversationId() !== options.claudeSessionId) {
+                existing.startFreshConversation(options.claudeSessionId, options.initialPrompt);
+                return;
+            }
             // Already running — the start is idempotent, but a prompt that
             // rode in with the call must not be dropped.
             if (options.initialPrompt) existing.queuePrompt(options.initialPrompt);
@@ -233,6 +248,10 @@ export class TerminalManager {
             this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
             this.onAttentionChanged?.();
             this.notify(this.exitListeners, listener => listener(instanceId, info));
+        });
+
+        terminal.on('working-directory', (cwd: string) => {
+            this.onWorkingDirectory?.(instanceId, cwd);
         });
 
         terminal.on('status', (status: TerminalStatus) => {

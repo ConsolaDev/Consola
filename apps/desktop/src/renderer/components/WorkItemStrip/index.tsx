@@ -12,6 +12,7 @@ import { tildePath } from '../../utils/displayPath';
 import { activateSession } from '../../utils/sessionActions';
 import { sessionStatusFor } from '../../utils/sessionStatus';
 import { metaLineFor } from '../Inbox/inboxPresentation';
+import { RunActionMenu } from '../RunActionMenu';
 import './styles.css';
 
 interface WorkItemStripProps {
@@ -23,9 +24,10 @@ interface WorkItemStripProps {
  * The thin strip above a work-item session's terminal: live PR/issue facts,
  * the action this session was started as, its siblings on the same item,
  * and where it physically runs. It reads the same cache as the Inbox — one
- * fetcher, one rate-limit budget — and is read-only. Its Details toggle opens
- * the item beside the terminal (WorkItemPanel), which is where it can be
- * acted on directly.
+ * fetcher, one rate-limit budget. Run sends one of the workspace's actions
+ * into this session (a follow-up pass, in this tab); its Details toggle
+ * opens the item beside the terminal (WorkItemPanel), which is where the
+ * item itself can be acted on.
  *
  * Only what can be pressed has an edge: the action and the worktree are
  * facts about this session, so they read as text, never as buttons.
@@ -87,6 +89,9 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
             </span>
           )}
         </span>
+      )}
+      {workspace && (
+        <RunActionMenu workspace={workspace} session={session} triggerClassName="work-item-strip-button" />
       )}
       {siblings.length > 0 && (
         <DropdownMenu.Root>

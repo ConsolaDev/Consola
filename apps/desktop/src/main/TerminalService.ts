@@ -22,6 +22,9 @@ import type { SessionToolPolicy } from '../shared/workspace';
 /** Silence after which a terminal is considered idle. */
 const IDLE_DEBOUNCE_MS = 500;
 
+/** How often a working CLI is asked where it works. Never while it is idle. */
+const WORKING_DIRECTORY_POLL_MS = 2_000;
+
 /**
  * How long an unattended turn may run before Consola stops it. A print-mode
  * process that never exits would hold one of the few automation slots
@@ -187,6 +190,11 @@ export class TerminalService extends EventEmitter {
     private unattendedStopReason: string | null = null;
     /** An exit waiting for the screen to catch up, run early if the screen goes first. */
     private screenSettling: (() => void) | null = null;
+    private workingDirectoryPoll: NodeJS.Timeout | null = null;
+    /** Where the live process last said it works. Cleared with every spawn. */
+    private reportedWorkingDirectory: string | null = null;
+    /** The CLI's answer could not be read once; asking again would only repeat that. */
+    private workingDirectoryUnreadable = false;
 
     constructor(options: TerminalServiceOptions) {
         super();
@@ -273,6 +281,74 @@ export class TerminalService extends EventEmitter {
         this.screen?.resize(cols, rows);
     }
 
+    /** The conversation this terminal launches: the record's, unless replaced since. */
+    public conversationId(): string {
+        return this.options.claudeSessionId;
+    }
+
+    /** Whether an unattended turn is running, or is what the pending launch will run. */
+    public runningUnattended(): boolean {
+        return this.unattendedTurn || this.unattendedPending;
+    }
+
+    /**
+     * Replace the conversation this terminal runs with a new, empty one, and
+     * open it with `prompt`.
+     *
+     * The tab, its view and everything it launches with stay; only the
+     * session id the CLI is handed changes, and the launch creates instead
+     * of resuming. A running process is stopped first, and from then on it
+     * is not this terminal's: whatever it still prints and however it exits
+     * are ignored, so a non-zero exit can neither retry as fresh nor report.
+     * The prompt goes the way any first prompt goes — as an argument for a
+     * driver that takes one, otherwise queued for the empty composer, never
+     * into a menu. Prompts still queued for the old conversation are dropped
+     * with it: they were written for a context that is gone.
+     *
+     * Refused while an unattended turn runs (its automation run waits on that
+     * process's exit) and while a launch is already under way (it would
+     * spawn under whichever id it read first).
+     */
+    public startFreshConversation(claudeSessionId: string, prompt?: string): void {
+        if (this.isDestroyed) return;
+        if (this.runningUnattended()) {
+            throw new Error('An automation is still running its turn in this session. Wait for it to finish.');
+        }
+        if (this.isLaunching) throw new Error('This session is still starting. Try again in a moment.');
+
+        const previous = this.claudePty;
+        this.claudePty = null;
+        previous?.kill();
+        if (this.idleTimer) {
+            clearTimeout(this.idleTimer);
+            this.idleTimer = null;
+        }
+
+        this.options.claudeSessionId = claudeSessionId;
+        this.forkPending = undefined;
+        if (this.driver.initialPromptViaArgs) {
+            this.initialPromptArgument = prompt;
+            this.promptQueue = [];
+        } else {
+            this.initialPromptArgument = undefined;
+            this.promptQueue = prompt != null ? [prompt] : [];
+        }
+
+        // The old conversation's screen goes with it, in every view of it.
+        this.disposeScreen();
+        this.emit('data', CLEAR_SCREEN);
+        this.setBusy(false);
+        if (this.isAwaitingConfirmation) {
+            this.isAwaitingConfirmation = false;
+            this.emit('awaiting-confirmation', false);
+        }
+        // A launch is under way; a view attaching before it spawns must not
+        // offer a restart. Every way the launch can fail sets this back.
+        this.claudeExited = false;
+        this.emitStatus();
+        void this.initClaude(false);
+    }
+
     /** Restart Claude after it exited, resuming the same conversation. */
     public restartClaude(cwd?: string): void {
         if (this.claudePty || this.isLaunching) return;
@@ -305,11 +381,6 @@ export class TerminalService extends EventEmitter {
         this.restartClaude(launch.cwd);
     }
 
-    /** Whether an unattended turn is running or about to launch. */
-    public runningUnattended(): boolean {
-        return this.unattendedTurn || (this.isLaunching && this.unattendedPending);
-    }
-
     /** The visible screen, without trailing blank lines; empty with no screen. */
     public screenText(): string {
         return (this.screen?.visibleText() ?? '').replace(/\s+$/, '');
@@ -321,6 +392,7 @@ export class TerminalService extends EventEmitter {
             clearTimeout(this.idleTimer);
             this.idleTimer = null;
         }
+        this.stopWorkingDirectoryPoll();
         this.clearUnattendedLimit();
         this.claudePty?.kill();
         this.claudePty = null;
@@ -390,11 +462,19 @@ export class TerminalService extends EventEmitter {
             this.unattendedPending = false;
             this.forkPending = undefined;
             this.claudeExited = false;
+            // A new process says where it is for itself, even where the last
+            // one already had: the record may have moved in between.
+            this.reportedWorkingDirectory = null;
             if (unattended) this.beginUnattendedTurn();
             this.emitStatus();
 
             const observeOutput = this.driver.createOutputObserver?.(this.harness, this.options.claudeSessionId);
-            this.claudePty.onData((data) => {
+            // Both handlers check that their process is still this terminal's:
+            // one stopped by startFreshConversation (or destroy) belongs to a
+            // conversation the session no longer has.
+            const spawned = this.claudePty;
+            spawned.onData((data) => {
+                if (this.claudePty !== spawned) return;
                 try { observeOutput?.(data); }
                 catch (error) {
                     console.error('Could not save the active conversation:', error);
@@ -403,7 +483,8 @@ export class TerminalService extends EventEmitter {
                 this.handleData(data);
             });
 
-            this.claudePty.onExit(({ exitCode, signal }) => {
+            spawned.onExit(({ exitCode, signal }) => {
+                if (this.claudePty !== spawned) return;
                 this.claudePty = null;
                 this.claudeExited = true;
                 const turn = this.endUnattendedTurn();
@@ -709,6 +790,48 @@ export class TerminalService extends EventEmitter {
         if (this.isBusy === busy) return;
         this.isBusy = busy;
         this.emit('activity', busy);
+        this.followWorkingDirectory(busy);
+    }
+
+    /**
+     * Keep up with where the agent works, which its CLI can change on its own:
+     * Claude's EnterWorktree moves the whole process into a worktree, and every
+     * git view belongs on the checkout the agent edits. Only work moves it, so
+     * the CLI is asked while output flows — a long turn shows the move as it
+     * happens — and once more as the turn ends. An idle session costs nothing.
+     */
+    private followWorkingDirectory(busy: boolean): void {
+        if (!this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) return;
+        if (busy) {
+            this.workingDirectoryPoll ??= setInterval(() => this.readWorkingDirectory(), WORKING_DIRECTORY_POLL_MS);
+            return;
+        }
+        this.stopWorkingDirectoryPoll();
+        this.readWorkingDirectory();
+    }
+
+    /** Ask the live process where it works, and emit it when that changed. */
+    private readWorkingDirectory(): void {
+        const pid = this.claudePty?.pid;
+        if (pid === undefined || !this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) return;
+        let cwd: string | null;
+        try {
+            cwd = this.driver.readWorkingDirectory(this.harness, pid);
+        } catch (error) {
+            this.workingDirectoryUnreadable = true;
+            this.stopWorkingDirectoryPoll();
+            console.warn(`Not following where this ${this.driver.id} session works:`, error);
+            return;
+        }
+        if (!cwd || cwd === this.reportedWorkingDirectory) return;
+        this.reportedWorkingDirectory = cwd;
+        this.emit('working-directory', cwd);
+    }
+
+    private stopWorkingDirectoryPoll(): void {
+        if (!this.workingDirectoryPoll) return;
+        clearInterval(this.workingDirectoryPoll);
+        this.workingDirectoryPoll = null;
     }
 
     /**

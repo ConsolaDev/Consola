@@ -109,7 +109,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // Git status follows the checkout the session runs in. A worktree has its
   // own branch, index and changes, so its scope's path would report a
   // different checkout than the one the agent is editing.
-  useGitStatusAutoRefresh(!isAssistant && (scope?.isGitRepo || session?.cwd) ? cwd : null);
+  useGitStatusAutoRefresh(!isAssistant && (scope?.isGitRepo || session?.cwd || session?.agentCwd) ? cwd : null);
 
   // The Assistant's finished count means "since you last looked". Looking is
   // this pane being on screen, so it clears on arrival and again whenever

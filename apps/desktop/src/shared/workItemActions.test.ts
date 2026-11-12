@@ -183,6 +183,23 @@ describe('validateActionsWrite', () => {
     });
   });
 
+  it('accepts either conversation setting, and an action without one', () => {
+    const set = [
+      { ...actions[0], conversation: 'fresh' as const },
+      { ...actions[1], conversation: 'continue' as const },
+      ...actions.slice(2),
+    ];
+    expect(validateActionsWrite({ actions: set, sectionDefaults }, NO_GROUPS)).toEqual({ ok: true });
+  });
+
+  it('rejects a conversation setting it does not know', () => {
+    const odd = [{ ...actions[0], conversation: 'clear' as unknown as 'fresh' }, ...actions.slice(1)];
+    expect(validateActionsWrite({ actions: odd, sectionDefaults }, NO_GROUPS)).toEqual({
+      ok: false,
+      message: '"Review" has an unknown conversation setting.',
+    });
+  });
+
   it('rejects payloads that are not a list and an object — what IPC can deliver', () => {
     expect(
       validateActionsWrite({ actions: 'nope' as unknown as WorkItemAction[], sectionDefaults: {} }, NO_GROUPS)

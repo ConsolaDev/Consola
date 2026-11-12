@@ -45,6 +45,13 @@ export interface Session {
   // worktree session's cwd is the worktree, its scope is the repo it belongs
   // to. Rebased when its scope moves if it is inside the old folder.
   cwd?: string;
+  // Where the agent has since moved itself, when its CLI says that differs
+  // from where Consola launches it — Claude's EnterWorktree moves the whole
+  // process into a worktree Consola never made. Written only by main, from
+  // the CLI's own report (`WorkspaceService.recordAgentCwd`), and cleared when
+  // the agent comes back. Git state follows it; launching never does: every
+  // spawn still starts in `cwd`, and the CLI reports again from there.
+  agentCwd?: string;
   // Why it exists alongside others. Mutable: dragging a session between
   // groups is an organizational act, not an identity change.
   groupId?: string;
@@ -268,7 +275,8 @@ export function createSessionRecord(fields: NewSessionFields): Session {
  * `workItem` is the mutable link, with presence semantics: an explicitly
  * undefined key means unlink. Everything that fixes a session's identity
  * (`scopeId`, `cwd`, `kind`, `harnessId`, `model`, `toolPolicy`,
- * `automation`) is absent on purpose.
+ * `automation`) is absent on purpose, and so is `agentCwd`: only the CLI
+ * knows where its agent went.
  */
 export type SessionUpdates = Partial<
   Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem'>
@@ -318,16 +326,18 @@ export function scopeForSession(
 }
 
 /**
- * The folder a session runs in — its own checkout when it has one (a
- * worktree), else its scope's. Git state is read from here, never from the
- * scope: a worktree has its own branch, index and changes, so the scope's path
- * would describe a different checkout than the one the agent is editing.
+ * The folder a session's agent works in — wherever it moved itself (a
+ * worktree its CLI entered), else its own checkout when it has one (a
+ * worktree Consola made), else its scope's. Git state is read from here,
+ * never from the scope: a worktree has its own branch, index and changes, so
+ * the scope's path would describe a different checkout than the one the agent
+ * is editing.
  */
 export function checkoutPathForSession(
   workspace: Workspace,
-  session: Pick<Session, 'scopeId' | 'cwd'> | undefined
+  session: Pick<Session, 'scopeId' | 'cwd' | 'agentCwd'> | undefined
 ): string | undefined {
-  return session?.cwd ?? scopeForSession(workspace, session)?.path;
+  return session?.agentCwd ?? session?.cwd ?? scopeForSession(workspace, session)?.path;
 }
 
 /**

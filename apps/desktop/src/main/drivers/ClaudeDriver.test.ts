@@ -1,7 +1,7 @@
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { describe, expect, it } from 'vitest';
 import { ClaudeDriver } from './ClaudeDriver';
 import type { HarnessConfig } from './HarnessDriver';
 
@@ -69,5 +69,56 @@ describe('getRecentReplies', () => {
     expect(
       await driver.getRecentReplies({ ...config, configDir: '/nonexistent-consola-dir' }, 'abc', 3)
     ).toBeNull();
+  });
+});
+
+describe('readWorkingDirectory', () => {
+  let configDir: string;
+  const harness = (): HarnessConfig => ({ configDir, extraArgs: [] });
+  const record = (pid: number, entry: unknown) => {
+    fs.mkdirSync(path.join(configDir, 'sessions'), { recursive: true });
+    fs.writeFileSync(path.join(configDir, 'sessions', `${pid}.json`), JSON.stringify(entry));
+  };
+
+  beforeEach(() => {
+    configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-claude-config-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(configDir, { recursive: true, force: true });
+  });
+
+  it('reads where the process works from what the CLI records for it under its config dir', () => {
+    // The shape Claude writes, abridged: it moves `cwd` when EnterWorktree
+    // moves the process, and `sessionId` on /clear.
+    record(4242, {
+      pid: 4242,
+      sessionId: 'ca8781ca-4ceb-46ae-b482-e7d784fd84b2',
+      cwd: '/code/consola/.claude/worktrees/assistant',
+      kind: 'interactive',
+      status: 'busy',
+    });
+    expect(driver.readWorkingDirectory(harness(), 4242)).toBe('/code/consola/.claude/worktrees/assistant');
+  });
+
+  it('says nothing for a process the CLI has not recorded yet', () => {
+    expect(driver.readWorkingDirectory(harness(), 4242)).toBeNull();
+    record(1111, { pid: 1111, cwd: '/elsewhere' });
+    expect(driver.readWorkingDirectory(harness(), 4242)).toBeNull();
+  });
+
+  it('refuses a record it does not recognise rather than guess from it', () => {
+    record(4242, { pid: 4242, workingDirectory: '/code/consola' });
+    expect(() => driver.readWorkingDirectory(harness(), 4242)).toThrow(/Unrecognised/);
+    record(4242, { pid: 4242, cwd: 'relative/dir' });
+    expect(() => driver.readWorkingDirectory(harness(), 4242)).toThrow(/Unrecognised/);
+    record(4242, { pid: 9999, cwd: '/code/consola' });
+    expect(() => driver.readWorkingDirectory(harness(), 4242)).toThrow(/Unrecognised/);
+  });
+
+  it('treats a record caught half-written as no answer yet, not as a new format', () => {
+    record(4242, {});
+    fs.writeFileSync(path.join(configDir, 'sessions', '4242.json'), '{"pid":4242,"cwd":"/co');
+    expect(driver.readWorkingDirectory(harness(), 4242)).toBeNull();
   });
 });

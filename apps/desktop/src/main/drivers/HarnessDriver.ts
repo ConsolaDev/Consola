@@ -59,6 +59,19 @@ export interface HarnessDriver {
     /** Observe one PTY's output to persist native conversation switches. */
     createOutputObserver?(config: HarnessConfig, sessionId: string): (data: string) => void;
 
+    /**
+     * The folder a running session's process says it works in, read from
+     * the CLI's own record of it — never inferred from what it printed.
+     *
+     * Optional: an agent can move itself (Claude's EnterWorktree moves the
+     * whole process into a worktree), and a CLI that keeps no such record
+     * simply omits this, leaving its sessions shown where they launched.
+     * Null while the CLI has nothing to say for `pid`; throws when the record
+     * is there but not one this driver recognises, since a guess would put
+     * every git view on the wrong checkout.
+     */
+    readWorkingDirectory?(config: HarnessConfig, pid: number): string | null;
+
     /** The ambient environment plus this harness's own variables. */
     composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 

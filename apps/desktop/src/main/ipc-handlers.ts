@@ -3,7 +3,7 @@ import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
-import { scopeForSession, type WorkspaceUpdates } from '../shared/workspace';
+import { checkoutPathForSession, scopeForSession, type WorkspaceUpdates } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
@@ -21,6 +21,7 @@ import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { composeProviderEnv, getProviderDriver } from './providers';
 import { InboxService } from './providers/InboxService';
 import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
+import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
@@ -655,7 +656,9 @@ export function setupIpcHandlers(): boolean {
     const shellCwd = (instanceId: string): string => {
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) throw new Error('Session no longer exists.');
-        const cwd = located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path;
+        // Beside the agent, in whichever checkout it works — one it moved
+        // itself into included — rather than where it was launched.
+        const cwd = checkoutPathForSession(located.workspace, located.session);
         if (!cwd) throw new Error('Session has no working directory.');
         return cwd;
     };
@@ -718,8 +721,43 @@ export function setupIpcHandlers(): boolean {
         });
     });
 
+    // An agent can move itself into another checkout (Claude's EnterWorktree)
+    // and git state belongs to the checkout it edits, so the record follows
+    // wherever its CLI says it went.
+    manager.onWorkingDirectory = (instanceId, cwd) => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (!located) return;
+        try {
+            workspaces.recordAgentCwd(located.workspace.id, located.session.id, cwd);
+        } catch (error) {
+            // Runs from a terminal's poll, where a throw would be uncaught.
+            // The record keeps its last checkout; the next move tries again.
+            console.error('Could not record where a session works:', error);
+        }
+    };
+
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
     const launcher = new SessionLauncher(workspaces, harnesses, manager);
+
+    // An action run in a work-item session that already exists — a follow-up
+    // pass on the same job, in the same tab. Coalesced per session and
+    // action, so a double-click cannot replace a conversation twice.
+    const runActionInSession = createRunInSessionCoalescer({
+        getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+        resolveDriver: getProviderDriver,
+        findItem: (id, ref) => inbox.findItem(id, ref),
+        runInSession: (workspaceId, sessionId, prompt, conversation) =>
+            launcher.runInSession(workspaceId, sessionId, prompt, conversation),
+    });
+    ipcMain.handle(
+        IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION,
+        (_event, workspaceId: unknown, sessionId: unknown, actionId: unknown) => {
+            if (typeof workspaceId !== 'string' || typeof sessionId !== 'string' || typeof actionId !== 'string') {
+                return { ok: false, message: 'Invalid request.' };
+            }
+            return runActionInSession(workspaceId, sessionId, actionId);
+        }
+    );
 
     // The same derivation the terminal:status event promotes, from the same
     // flags — so what a tool sees and what the fleet UI shows can never
@@ -1452,6 +1490,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_PROBE);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM);
+    ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION);
     ipcMain.removeHandler(IPC_CHANNELS.PROVIDER_CLONE_REPO);
 
     automationService?.stop();

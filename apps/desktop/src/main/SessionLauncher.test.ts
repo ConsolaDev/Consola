@@ -2,7 +2,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { SessionLauncher } from './SessionLauncher';
+import { SessionLauncher, type ExistingTerminal } from './SessionLauncher';
 import type { Session, Workspace } from '../shared/workspace';
 import type { Harness } from '../shared/harness';
 
@@ -75,28 +75,40 @@ const launchFields = {
     model: undefined,
 };
 
-type TerminalHandle = {
-    hasClaudeExited: () => boolean;
-    runningUnattended: () => boolean;
-    queuePrompt: (prompt: string) => void;
-};
-
 function buildLauncher(session: Session) {
     const workspaces = {
         getAll: vi.fn(() => [workspaceFixture()]),
         createSession: vi.fn(() => session),
         updateSession: vi.fn(),
         deleteSession: vi.fn(),
+        replaceConversation: vi.fn(
+            (_workspaceId: string, _sessionId: string, claudeSessionId = '22222222-2222-4222-8222-222222222222') => ({
+                ...session,
+                claudeSessionId,
+                hasStarted: true,
+            })
+        ),
     };
     const harnesses = { getAll: vi.fn(() => [harnessFixture]) };
     const terminals = {
         startHeadless: vi.fn(),
         has: vi.fn(() => false),
-        get: vi.fn((): TerminalHandle | undefined => undefined),
+        get: vi.fn((): ExistingTerminal | undefined => undefined),
         relaunch: vi.fn(),
     };
     const launcher = new SessionLauncher(workspaces, harnesses, terminals);
     return { launcher, workspaces, harnesses, terminals };
+}
+
+/** A terminal the session already has, live unless `exited`. */
+function existingTerminal(state: { exited?: boolean; unattended?: boolean } = {}) {
+    return {
+        queuePrompt: vi.fn(),
+        startFreshConversation: vi.fn(),
+        runningUnattended: vi.fn(() => state.unattended ?? false),
+        hasClaudeExited: vi.fn(() => state.exited ?? false),
+        restartClaude: vi.fn(),
+    };
 }
 
 describe('SessionLauncher', () => {
@@ -367,6 +379,164 @@ describe('SessionLauncher', () => {
         expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
+    describe('runInSession', () => {
+        const linked = () => sessionFixture({ hasStarted: true, cwd: targetDir });
+
+        it('continue: queues the prompt into the live terminal and leaves the conversation alone', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            const terminal = existingTerminal();
+            terminals.get.mockReturnValue(terminal);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+
+            expect(terminal.queuePrompt).toHaveBeenCalledWith('Check again.');
+            expect(terminal.restartClaude).not.toHaveBeenCalled();
+            expect(terminal.startFreshConversation).not.toHaveBeenCalled();
+            expect(workspaces.replaceConversation).not.toHaveBeenCalled();
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+        });
+
+        it('continue: resumes an exited CLI in its working folder before queueing', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            const terminal = existingTerminal({ exited: true });
+            terminals.get.mockReturnValue(terminal);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+
+            expect(terminal.restartClaude).toHaveBeenCalledWith(targetDir);
+            expect(terminal.queuePrompt).toHaveBeenCalledWith('Check again.');
+        });
+
+        it('continue: with no terminal, spawns one resuming the recorded conversation', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({
+                    cwd: targetDir,
+                    claudeSessionId: '11111111-1111-4111-8111-111111111111',
+                    resume: true,
+                    initialPrompt: 'Check again.',
+                    configDirOverride: '/Users/me/.claude-work',
+                })
+            );
+            expect(workspaces.replaceConversation).not.toHaveBeenCalled();
+        });
+
+        it('continue: a session that never ran creates its conversation and is marked started', async () => {
+            const session = sessionFixture({ hasStarted: false, cwd: targetDir });
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+
+            expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({ resume: false });
+            expect(workspaces.updateSession).toHaveBeenCalledWith('ws-1', 'session-1', { hasStarted: true });
+        });
+
+        it('fresh: moves the live terminal onto the id it then records', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            const terminal = existingTerminal();
+            terminals.get.mockReturnValue(terminal);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Header\n\nReview again.', 'fresh');
+
+            const [newId, prompt] = terminal.startFreshConversation.mock.calls[0];
+            expect(newId).not.toBe(session.claudeSessionId);
+            expect(prompt).toBe('Header\n\nReview again.');
+            expect(workspaces.replaceConversation).toHaveBeenCalledWith('ws-1', 'session-1', newId);
+            expect(terminal.queuePrompt).not.toHaveBeenCalled();
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+        });
+
+        it('fresh: a terminal that refuses leaves the record on the running conversation', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            const terminal = existingTerminal();
+            terminal.startFreshConversation.mockImplementation(() => {
+                throw new Error('This session is still starting. Try again in a moment.');
+            });
+            terminals.get.mockReturnValue(terminal);
+
+            await expect(launcher.runInSession('ws-1', 'session-1', 'Review again.', 'fresh')).rejects.toThrow(
+                /still starting/
+            );
+            expect(workspaces.replaceConversation).not.toHaveBeenCalled();
+        });
+
+        it('fresh: with no terminal, records a new conversation and spawns it as a create', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Review again.', 'fresh');
+
+            expect(workspaces.replaceConversation).toHaveBeenCalledWith('ws-1', 'session-1');
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({
+                    claudeSessionId: '22222222-2222-4222-8222-222222222222',
+                    resume: false,
+                    initialPrompt: 'Review again.',
+                })
+            );
+        });
+
+        it('keeps the record’s tool policy, and refuses a harness that would loosen it', async () => {
+            const session = sessionFixture({ hasStarted: true, cwd: targetDir, toolPolicy: 'read-only' });
+            const { launcher, workspaces, harnesses, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+
+            await launcher.runInSession('ws-1', 'session-1', 'Review again.', 'fresh');
+            expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({ toolPolicy: 'read-only' });
+
+            harnesses.getAll.mockReturnValue([{ ...harnessFixture, extraArgs: ['--dangerously-skip-permissions'] }]);
+            await expect(launcher.runInSession('ws-1', 'session-1', 'Go on.', 'continue')).rejects.toThrow(
+                /--dangerously-skip-permissions/
+            );
+        });
+
+        it('never interrupts or types into an unattended turn', async () => {
+            const session = linked();
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            const terminal = existingTerminal({ unattended: true });
+            terminals.get.mockReturnValue(terminal);
+
+            for (const conversation of ['continue', 'fresh'] as const) {
+                await expect(launcher.runInSession('ws-1', 'session-1', 'Go on.', conversation)).rejects.toThrow(
+                    /automation is still running/
+                );
+            }
+            expect(terminal.queuePrompt).not.toHaveBeenCalled();
+            expect(terminal.startFreshConversation).not.toHaveBeenCalled();
+            expect(workspaces.replaceConversation).not.toHaveBeenCalled();
+        });
+
+        it('refuses a session that is gone, or whose folder is', async () => {
+            const session = sessionFixture({ hasStarted: true, cwd: missingDir });
+            const { launcher, workspaces, terminals } = buildLauncher(session);
+
+            await expect(launcher.runInSession('ws-1', 'session-1', 'Go on.', 'fresh')).rejects.toThrow(/no longer exists/);
+
+            workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            await expect(launcher.runInSession('ws-1', 'session-1', 'Go on.', 'fresh')).rejects.toThrow(/folder is gone/);
+            expect(workspaces.replaceConversation).not.toHaveBeenCalled();
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+        });
+    });
+
     it('pins nothing for the built-in or an unknown harness', async () => {
         const session = sessionFixture({ harnessId: 'default' });
         const { launcher, terminals } = buildLauncher(session);
@@ -380,18 +550,13 @@ describe('SessionLauncher', () => {
     });
 
     describe('deliverPrompt', () => {
-        function setup(overrides: Partial<Session>, terminal?: Partial<TerminalHandle>) {
+        function setup(overrides: Partial<Session>, terminal?: Partial<ExistingTerminal>) {
             const session = sessionFixture(overrides);
             const built = buildLauncher(session);
             built.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
             const queuePrompt = vi.fn();
             if (terminal) {
-                built.terminals.get.mockReturnValue({
-                    hasClaudeExited: () => false,
-                    runningUnattended: () => false,
-                    queuePrompt,
-                    ...terminal,
-                });
+                built.terminals.get.mockReturnValue({ ...existingTerminal(), queuePrompt, ...terminal });
             }
             return { ...built, queuePrompt };
         }

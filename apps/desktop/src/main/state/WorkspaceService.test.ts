@@ -748,6 +748,113 @@ describe('WorkspaceService', () => {
     expect(service.getAll()[0].actions[0]).not.toHaveProperty('groupId');
   });
 
+  it('setActions persists a conversation setting, and leaves the key off an action without one', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const actions: WorkItemAction[] = [
+      { id: 'a1', name: 'Re-review', appliesTo: ['pr'], prompt: 'Check again.', conversation: 'fresh' },
+      { id: 'a2', name: 'Review', appliesTo: ['pr'], prompt: 'Review it.' },
+    ];
+
+    service.setActions(workspace.id, actions, {});
+
+    const reloaded = build().getAll()[0].actions;
+    expect(reloaded).toEqual(actions);
+    expect(reloaded[1]).not.toHaveProperty('conversation');
+  });
+
+  it('replaceConversation gives a session a new conversation and keeps everything else', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Extract billing client',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'work',
+      model: 'opus',
+      scopeId: workspace.scopes[0].id,
+      cwd: '/code/consola/.worktrees/pr-51',
+      toolPolicy: 'read-only',
+      workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+      workItemAction: 'Review',
+    })!;
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    const replaced = service.replaceConversation(workspace.id, session.id);
+
+    expect(replaced.claudeSessionId).toMatch(/^[0-9a-f-]{36}$/i);
+    expect(replaced.claudeSessionId).not.toBe(session.claudeSessionId);
+    expect(replaced).toEqual({ ...session, claudeSessionId: replaced.claudeSessionId, hasStarted: true });
+    expect(build().getAll()[0].sessions[0]).toEqual(replaced);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // A caller that already handed an id to a live terminal records that one.
+    const named = service.replaceConversation(workspace.id, session.id, 'chosen-id');
+    expect(named.claudeSessionId).toBe('chosen-id');
+
+    expect(() => service.replaceConversation(workspace.id, 'nope')).toThrow(/No session nope/);
+  });
+
+  it('recordAgentCwd follows an agent into another checkout and back, writing only changes', () => {
+    const repo = fs.realpathSync(dir);
+    const tree = path.join(repo, '.claude', 'worktrees', 'assistant');
+    fs.mkdirSync(tree, { recursive: true });
+    const workspace = service.createWorkspace('consola', repo, true);
+    const session = service.createSession(workspace.id, {
+      name: 'Build the assistant',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
+    })!;
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    // Where it was launched is no news: nothing to write.
+    service.recordAgentCwd(workspace.id, session.id, repo);
+    expect(listener).not.toHaveBeenCalled();
+
+    service.recordAgentCwd(workspace.id, session.id, tree);
+    expect(build().getAll()[0].sessions[0]).toEqual({ ...session, agentCwd: tree });
+    service.recordAgentCwd(workspace.id, session.id, tree);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // Coming back clears it, the key gone rather than left undefined, and
+    // a spelling of the launch folder through a symlink still counts as it.
+    const link = path.join(fs.realpathSync(os.tmpdir()), `consola-link-${path.basename(repo)}`);
+    fs.symlinkSync(repo, link);
+    try {
+      service.recordAgentCwd(workspace.id, session.id, link);
+    } finally {
+      fs.unlinkSync(link);
+    }
+    expect(build().getAll()[0].sessions[0]).toEqual(session);
+    expect(build().getAll()[0].sessions[0]).not.toHaveProperty('agentCwd');
+    expect(listener).toHaveBeenCalledTimes(2);
+
+    // A report that is not an absolute path, or for a session that is gone, is ignored.
+    service.recordAgentCwd(workspace.id, session.id, 'relative/dir');
+    service.recordAgentCwd(workspace.id, 'gone', tree);
+    expect(listener).toHaveBeenCalledTimes(2);
+  });
+
+  it('recordAgentCwd measures against the checkout Consola launched the session in', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Review',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
+      cwd: '/home/me/.consola/worktrees/consola-pr-51',
+    })!;
+
+    service.recordAgentCwd(workspace.id, session.id, '/home/me/.consola/worktrees/consola-pr-51');
+    expect(service.getAll()[0].sessions[0]).not.toHaveProperty('agentCwd');
+    // Its scope's folder is somewhere else from that worktree's point of view.
+    service.recordAgentCwd(workspace.id, session.id, '/code/consola');
+    expect(service.getAll()[0].sessions[0].agentCwd).toBe('/code/consola');
+  });
+
   it('createGroup and archiveGroup manage the group list', () => {
     const workspace = service.createWorkspace('consola', '/code/consola', true);
 

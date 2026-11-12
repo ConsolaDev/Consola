@@ -7,6 +7,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import { Unicode11Addon } from '@xterm/addon-unicode11';
 import { WebglAddon } from '@xterm/addon-webgl';
 import type { HarnessLaunchFields } from '../../../shared/types';
+import { TERMINAL_SCROLLBACK_LINES } from '../../../shared/constants';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
@@ -64,8 +65,8 @@ export function useTerminal({
             theme: buildXtermTheme(resolvedTheme === 'dark'),
             cursorBlink: true,
             allowProposedApi: true,
-            // Claude repaints its own view; the PTY is the source of truth.
-            scrollback: 5000,
+            // Matches main's ScreenModel, which repaints this pane on remount.
+            scrollback: TERMINAL_SCROLLBACK_LINES,
             macOptionIsMeta: true,
             // OSC 8 hyperlinks; plain URLs in the output are the addon's below.
             linkHandler: { activate: openTerminalLink },

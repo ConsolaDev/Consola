@@ -9,6 +9,7 @@ import { RotateCw, X } from 'lucide-react';
 import { useShellStore } from '../../stores/shellStore';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import type { ShellData } from '../../../shared/shell';
+import { TERMINAL_SCROLLBACK_LINES } from '../../../shared/constants';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
 import { openTerminalLink } from './terminalLinks';
@@ -35,7 +36,7 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
     const font = readTerminalFont(settings.terminalFontSize);
     const terminal = new Terminal({
       ...font, theme: buildXtermTheme(settings.resolvedTheme === 'dark'),
-      cursorBlink: true, scrollback: 2000, macOptionIsMeta: true,
+      cursorBlink: true, scrollback: TERMINAL_SCROLLBACK_LINES, macOptionIsMeta: true,
       allowProposedApi: true, linkHandler: { activate: openTerminalLink },
     });
     const fit = new FitAddon();

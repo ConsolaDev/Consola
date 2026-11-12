@@ -142,6 +142,17 @@ resume fails because the conversation is gone, `TerminalService` falls back to
 a fresh session automatically — so never gate resuming on a local existence
 check, Claude is the authority.
 
+A session's conversation can be replaced without replacing the session. An
+action set to start fresh (`WorkItemAction.conversation`), run in a session
+that already exists, gives that tab a new `claudeSessionId` through
+`WorkspaceService.replaceConversation` — the only writer of the field, which
+is why it is absent from `allowedSessionUpdates` — and
+`TerminalService.startFreshConversation` moves the live terminal onto it.
+Tab, harness, model, tool policy, checkout and linked item all stay. Do not
+reach for typing `/clear` instead: the Claude driver does not follow a
+conversation change made inside the CLI, so the record would keep naming
+the old conversation and the next relaunch would resume it.
+
 ### Git State Belongs to the Checkout
 
 A session runs in its scope's folder or in its own linked worktree
@@ -149,6 +160,15 @@ A session runs in its scope's folder or in its own linked worktree
 explorer's colours, palette commits — reads `checkoutPathForSession`, never
 the scope's path. A worktree has its own branch, index and changes, so the
 scope would report (and commit) a different checkout than the agent edits.
+
+The agent can also move itself: Claude's `EnterWorktree` moves the whole
+process into a worktree Consola never made. While a session works, its
+terminal asks the driver where the process is (`readWorkingDirectory`,
+Claude's own `<config>/sessions/<pid>.json`), and main records a difference
+as `Session.agentCwd` (`WorkspaceService.recordAgentCwd`, its only writer).
+`checkoutPathForSession` prefers it, so every git view follows the agent.
+Launching never does: spawns still start in `cwd`, and the CLI reports again
+from there.
 
 Whether a folder *is* a worktree is asked of git (`readCheckout`, cached per
 folder in `checkoutStore`), not inferred from the record: a scope can itself

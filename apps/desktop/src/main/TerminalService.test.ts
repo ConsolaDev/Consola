@@ -1,7 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'os';
 
-const { spawnMock, buildArgsMock } = vi.hoisted(() => ({ spawnMock: vi.fn(), buildArgsMock: vi.fn() }));
+const { spawnMock, buildArgsMock, readCwdMock } = vi.hoisted(() => ({
+    spawnMock: vi.fn(),
+    buildArgsMock: vi.fn(),
+    readCwdMock: vi.fn(),
+}));
 
 vi.mock('node-pty', () => ({ spawn: spawnMock }));
 vi.mock('./LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: '/usr/bin' }) }));
@@ -13,6 +17,7 @@ vi.mock('./drivers', () => ({
         resolveBinary: () => 'claude-stub',
         buildSessionArgs: buildArgsMock,
         composeEnv: (_harness: unknown, env: Record<string, string | undefined>) => env,
+        readWorkingDirectory: readCwdMock,
     }),
     toHarnessConfig: (options: unknown) => options,
 }));
@@ -40,6 +45,7 @@ function installFakePty(): PtyHarness {
     let onData: ((data: string) => void) | undefined;
     let onExit: ((event: { exitCode: number; signal?: number }) => void) | undefined;
     spawnMock.mockReturnValue({
+        pid: 4242,
         onData: (callback: (data: string) => void) => { onData = callback; },
         onExit: (callback: (event: { exitCode: number; signal?: number }) => void) => { onExit = callback; },
         write: (data: string) => { writes.push(data); },
@@ -76,6 +82,7 @@ beforeEach(() => {
     vi.useFakeTimers();
     spawnMock.mockReset();
     buildArgsMock.mockReset().mockReturnValue([]);
+    readCwdMock.mockReset().mockReturnValue(null);
     return () => vi.useRealTimers();
 });
 
@@ -253,6 +260,106 @@ describe('TerminalService prompt FIFO', () => {
         await vi.advanceTimersByTimeAsync(SETTLE_MS);
         expect(pty.writes).toEqual(pasted('seeded'));
 
+        service.destroy();
+    });
+});
+
+describe('TerminalService fresh conversation', () => {
+    it('stops the running CLI and creates the new conversation with only the new prompt', async () => {
+        const old = installFakePty();
+        const service = await buildService();
+        const output: string[] = [];
+        const exits: unknown[] = [];
+        service.on('data', (data) => output.push(data));
+        service.on('exit', (info) => exits.push(info));
+
+        // Mid-turn, with a prompt still waiting for the old composer.
+        old.feed('working on it...');
+        service.queuePrompt('written for the old context');
+
+        const fresh = installFakePty();
+        service.startFreshConversation('22222222-2222-4222-8222-222222222222', 'Review again.');
+        expect(old.kills()).toBe(1);
+        expect(output).toContain('\x1b[2J\x1b[3J\x1b[H');
+        expect(service.conversationId()).toBe('22222222-2222-4222-8222-222222222222');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+            sessionId: '22222222-2222-4222-8222-222222222222',
+            resume: false,
+        });
+
+        // The stopped process is not this terminal's any more: its non-zero
+        // exit neither retries as fresh nor reports, and its output is dropped.
+        old.exit(1);
+        old.feed('late output from the old process');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(spawnMock).toHaveBeenCalledTimes(2);
+        expect(exits).toEqual([]);
+        expect(output.join('')).not.toContain('late output');
+
+        fresh.feed('❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(fresh.writes).toEqual(pasted('Review again.'));
+        expect(old.writes).toEqual([]);
+        service.destroy();
+    });
+
+    it('hands the prompt to a driver that takes it as an argument, and types nothing', async () => {
+        installFakePty();
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: true, driverId: 'codex',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+
+        const fresh = installFakePty();
+        service.startFreshConversation('new-id', 'Review again.');
+        await vi.advanceTimersByTimeAsync(0);
+        expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+            sessionId: 'new-id', resume: false, initialPrompt: 'Review again.',
+        });
+        fresh.feed('› ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(fresh.writes).toEqual([]);
+        service.destroy();
+    });
+
+    it('relaunches an exited terminal, live at once and with no menu left to answer', async () => {
+        const old = installFakePty();
+        const service = await buildService();
+        old.feed('Do you want to proceed?');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        old.exit(1);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(service.hasClaudeExited()).toBe(true);
+        expect(service.awaitingConfirmation()).toBe(true);
+
+        const awaiting: boolean[] = [];
+        service.on('awaiting-confirmation', (value: boolean) => awaiting.push(value));
+        installFakePty();
+        service.startFreshConversation('new-id', 'Review again.');
+        // A view attaching before the spawn must not be offered a restart.
+        expect(service.hasClaudeExited()).toBe(false);
+        expect(service.awaitingConfirmation()).toBe(false);
+        expect(awaiting).toEqual([false]);
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).toHaveBeenCalledTimes(2);
+        service.destroy();
+    });
+
+    it('refuses while an unattended turn runs, and touches nothing', async () => {
+        const pty = installFakePty();
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: false,
+            toolPolicy: 'read-only', unattended: true, initialPrompt: 'review it',
+        });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(service.runningUnattended()).toBe(true);
+
+        expect(() => service.startFreshConversation('new-id', 'Review again.')).toThrow(/automation/);
+        expect(pty.kills()).toBe(0);
+        expect(service.conversationId()).toBe('consola-id');
         service.destroy();
     });
 });
@@ -651,5 +758,93 @@ describe('TerminalService screenText', () => {
     it('is empty when there is no screen', () => {
         const service = new TerminalService({ cwd: os.tmpdir(), claudeSessionId: 'x', resume: false });
         expect(service.screenText()).toBe('');
+    });
+});
+
+describe('TerminalService working directory', () => {
+    /** How often a working CLI is asked; one poll is unambiguous past it. */
+    const POLL_MS = 2_000;
+
+    it('reports where the CLI says it works, once per change, as soon as it moves mid-turn', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        const reported: string[] = [];
+        service.on('working-directory', (cwd) => reported.push(cwd));
+        await vi.advanceTimersByTimeAsync(0);
+
+        readCwdMock.mockReturnValue('/code/consola');
+        pty.feed('booting');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(readCwdMock).toHaveBeenLastCalledWith(expect.anything(), 4242);
+        expect(reported).toEqual(['/code/consola']);
+
+        // A long turn: output keeps flowing, and the agent enters a worktree.
+        pty.feed('working');
+        readCwdMock.mockReturnValue('/code/consola/.claude/worktrees/assistant');
+        for (let elapsed = 0; elapsed < POLL_MS; elapsed += 400) {
+            await vi.advanceTimersByTimeAsync(400);
+            pty.feed('still working');
+        }
+        expect(reported).toEqual(['/code/consola', '/code/consola/.claude/worktrees/assistant']);
+
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(reported).toHaveLength(2);
+        service.destroy();
+    });
+
+    it('asks nothing while the session sits idle', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        pty.feed('ready');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        const asked = readCwdMock.mock.calls.length;
+
+        await vi.advanceTimersByTimeAsync(POLL_MS * 10);
+        expect(readCwdMock.mock.calls.length).toBe(asked);
+        service.destroy();
+    });
+
+    it('a relaunched process reports afresh, even where the last one already said', async () => {
+        const pty = installFakePty();
+        const service = await buildService();
+        const reported: string[] = [];
+        service.on('working-directory', (cwd) => reported.push(cwd));
+        await vi.advanceTimersByTimeAsync(0);
+        readCwdMock.mockReturnValue('/code/consola/.claude/worktrees/assistant');
+        pty.feed('working');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+        pty.exit(0);
+        const relaunched = installFakePty();
+        service.restartClaude();
+        await vi.advanceTimersByTimeAsync(0);
+        relaunched.feed('resumed');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(reported).toEqual([
+            '/code/consola/.claude/worktrees/assistant',
+            '/code/consola/.claude/worktrees/assistant',
+        ]);
+        service.destroy();
+    });
+
+    it('stops asking a CLI whose answer it cannot read, and reports nothing from it', async () => {
+        const pty = installFakePty();
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+        readCwdMock.mockImplementation(() => { throw new Error('Unrecognised session record'); });
+        const service = await buildService();
+        const reported: string[] = [];
+        service.on('working-directory', (cwd) => reported.push(cwd));
+        await vi.advanceTimersByTimeAsync(0);
+
+        pty.feed('working');
+        await vi.advanceTimersByTimeAsync(POLL_MS * 3);
+        pty.feed('more');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(readCwdMock).toHaveBeenCalledTimes(1);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(reported).toEqual([]);
+        service.destroy();
+        warn.mockRestore();
     });
 });

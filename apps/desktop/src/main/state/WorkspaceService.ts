@@ -16,9 +16,11 @@ import {
   createSessionRecord,
   createWorkspaceRecord,
   generateSessionInstanceId,
+  generateUuid,
   ASSISTANT_SESSION_NAME,
   assistantSession,
   migrateWorkspaceState,
+  scopeForSession,
   type Group,
   type NewGroupFields,
   type NewScopeFields,
@@ -284,14 +286,16 @@ export class WorkspaceService {
     const knownGroupIds = new Set(workspace.groups.map((group) => group.id));
     const verdict = validateActionsWrite({ actions, sectionDefaults }, knownGroupIds);
     if (!verdict.ok) throw new Error(verdict.message);
-    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId }) => ({
+    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId, conversation }) => ({
       id,
       name,
       appliesTo: [...appliesTo],
       prompt,
       // Presence-preserving: an unrouted action must persist without the
-      // key at all, so it round-trips byte-for-byte as it did before.
+      // key at all, so it round-trips byte-for-byte as it did before. The
+      // same for the conversation setting, absent meaning 'continue'.
       ...(groupId !== undefined ? { groupId } : {}),
+      ...(conversation !== undefined ? { conversation } : {}),
     }));
     const defaults: Partial<Record<InboxSection, string>> = {};
     for (const [section, actionId] of Object.entries(sectionDefaults)) {
@@ -522,6 +526,44 @@ export class WorkspaceService {
     );
   }
 
+  /**
+   * Point a session at a new, empty conversation and return the updated
+   * record. `claudeSessionId` defaults to a new UUID; a caller that has
+   * already handed one to a live terminal passes it, so the two agree.
+   *
+   * The one way `claudeSessionId` ever changes, which is why it is a verb
+   * here and absent from `allowedSessionUpdates`: everything that makes the
+   * session *this* session — tab, name, harness, model, tool policy,
+   * checkout, linked item — stays, and only the conversation the next spawn
+   * names is replaced. `hasStarted` is set because the caller spawns at once;
+   * should it never get that far, the next launch's resume of an id Claude
+   * does not have falls back to a fresh conversation, which is the same
+   * outcome. The old transcript is left where it is, in Claude's storage.
+   */
+  public replaceConversation(
+    workspaceId: string,
+    sessionId: string,
+    claudeSessionId: string = generateUuid()
+  ): Session {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
+
+    const replaced: Session = { ...session, claudeSessionId, hasStarted: true };
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              sessions: candidate.sessions.map((existing) => (existing.id === sessionId ? replaced : existing)),
+              updatedAt: Date.now(),
+            }
+          : candidate
+      )
+    );
+    return replaced;
+  }
+
   public deleteSession(workspaceId: string, sessionId: string): void {
     this.commit(
       this.workspaces.map((workspace) =>
@@ -532,6 +574,43 @@ export class WorkspaceService {
               updatedAt: Date.now(),
             }
           : workspace
+      )
+    );
+  }
+
+  /**
+   * Record where a session's agent works now, as its CLI reported it.
+   *
+   * The one writer of `agentCwd`, which is why it is absent from
+   * `allowedSessionUpdates`: only the CLI knows that its agent moved itself
+   * — Claude's EnterWorktree moves the process into a worktree Consola never
+   * made. Kept only while it differs from where the session launches (its
+   * `cwd`, else its scope's folder), so an agent that comes back clears it.
+   * A report that changes nothing writes nothing: the CLI repeats itself
+   * after every turn, and each write here is an fsync and a broadcast.
+   */
+  public recordAgentCwd(workspaceId: string, sessionId: string, reported: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!workspace || !session || !path.isAbsolute(reported)) return;
+
+    const launchedIn = session.cwd ?? scopeForSession(workspace, session)?.path;
+    const agentCwd = launchedIn && samePath(reported, launchedIn) ? undefined : path.resolve(reported);
+    if (agentCwd === session.agentCwd) return;
+
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              sessions: candidate.sessions.map((existing) => {
+                if (existing.id !== sessionId) return existing;
+                const { agentCwd: _previous, ...rest } = existing;
+                return agentCwd ? { ...rest, agentCwd } : rest;
+              }),
+              updatedAt: Date.now(),
+            }
+          : candidate
       )
     );
   }
@@ -559,5 +638,20 @@ export class WorkspaceService {
     this.workspaces = next;
     this.established = true;
     for (const listener of this.listeners) listener(next);
+  }
+}
+
+/**
+ * Whether two absolute paths name the same folder. Resolved through symlinks
+ * only when the spellings differ: a CLI reports the folder it is in as the OS
+ * resolved it, which can spell a scope chosen through a link differently.
+ */
+function samePath(a: string, b: string): boolean {
+  if (path.resolve(a) === path.resolve(b)) return true;
+  try {
+    return fs.realpathSync(a) === fs.realpathSync(b);
+  } catch {
+    // One of them is gone; a folder that no longer exists is not the other.
+    return false;
   }
 }

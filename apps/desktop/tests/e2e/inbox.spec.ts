@@ -897,3 +897,143 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     fs.rmSync(fixtureDir, { recursive: true, force: true });
   }
 });
+
+test('an action runs again in its own session: Continue types into it, Fresh starts its conversation over in the same tab', async () => {
+  test.setTimeout(120_000);
+  const userDataDir = createProfileDir();
+  const fixtureDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-run-in-session-'));
+  const fixturePath = path.join(fixtureDir, 'inbox.json');
+  const argsPath = path.join(fixtureDir, 'args.log');
+  const inputPath = path.join(fixtureDir, 'input.log');
+  const agent = path.join(fixtureDir, 'agent.sh');
+  // Each launch logs its argv, paints an empty composer — what prompt
+  // delivery waits for — and appends every byte it is sent. Appending,
+  // because a probe and both conversations write to the same files.
+  fs.writeFileSync(
+    agent,
+    [
+      '#!/bin/sh',
+      'case "$*" in *--version*) echo "2.1.0 (Claude Code)"; exit 0;; esac',
+      `printf '%s\\n' "$*" >> "${argsPath}"`,
+      'printf "Agent ready\\r\\n❯ "',
+      'stty raw -echo 2>/dev/null',
+      `exec cat >> "${inputPath}"`,
+    ].join('\n'),
+    { mode: 0o755 }
+  );
+  fs.writeFileSync(fixturePath, JSON.stringify(buildInboxFixture()));
+  const repoDir = path.join(fixtureDir, 'catalog-portal');
+  initClone(repoDir);
+  const workspaceId = seedWorkspaceState(userDataDir, repoDir);
+  const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
+  const record = () =>
+    (JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].sessions as Array<{
+      id: string;
+      claudeSessionId: string;
+      workItem?: { number: number };
+    }>).filter((session) => session.workItem?.number === 51);
+  const read = (file: string) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
+
+  let app: ElectronApplication | undefined;
+  try {
+    const launched = await launchElectron({ userDataDir, env: {
+      CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'), GRAPHQL_INBOX_FIXTURE: fixturePath,
+    } });
+    app = launched.app;
+    const { page } = launched;
+    await page.evaluate(
+      async ({ workspaceId, binaryPath }) => {
+        await window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#555555', binaryPath });
+        await window.workspaceAPI.createSession(workspaceId, {
+          name: 'New Session', workspaceId, instanceId: 'run-in-session-e2e', harnessId: 'stub', scopeId: 'scope-controller',
+          workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+          workItemAction: 'Review',
+        });
+      },
+      { workspaceId, binaryPath: agent }
+    );
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+
+    // A follow-up action that starts fresh, made in the action editor.
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const modal = page.getByRole('dialog');
+    await modal.getByRole('button', { name: 'Actions', exact: true }).click();
+    const actionsPanel = modal.getByTestId('actions-panel');
+    await actionsPanel.getByRole('button', { name: 'Add action' }).click();
+    await actionsPanel.getByLabel('Action name').fill('Re-review');
+    await actionsPanel
+      .getByLabel('What running this action in an existing session does to its conversation')
+      .selectOption('fresh');
+    await actionsPanel.getByLabel('Action prompt').fill('Pull the latest and check #{{number}} again.');
+    await actionsPanel.getByRole('button', { name: 'Save', exact: true }).click();
+    await expect(actionsPanel.locator('.ws-action-row', { hasText: 'Re-review' })).toContainText('Fresh');
+    await expect
+      .poll(() => readState(stateFile).actions.find((action) => action.name === 'Re-review'), { timeout: 10_000 })
+      .toMatchObject({ conversation: 'fresh', appliesTo: ['pr'] });
+    // An action left on the default stores no setting at all.
+    expect(readState(stateFile).actions.find((action) => action.name === 'Review')).not.toHaveProperty('conversation');
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
+
+    // Open the session: its first launch creates the recorded conversation.
+    await page.locator('.session-nav-item', { hasText: 'PR #51 · Review' }).click();
+    const [{ id: sessionId, claudeSessionId: first }] = record();
+    await expect.poll(() => read(argsPath), { timeout: 15_000 }).toContain(`--session-id ${first}`);
+
+    // Continue: the body alone goes into the running conversation.
+    const strip = page.locator('.work-item-strip');
+    await strip.getByRole('button', { name: /^Run an action in / }).click();
+    const menu = page.getByTestId('run-action-menu');
+    await expect(menu.getByText('Run in this session')).toBeVisible();
+    await expect(menu.locator('[data-action-id="review"]')).toContainText('Continues this conversation');
+    await expect(menu.locator('[data-action-id="implement"]')).toHaveCount(0);
+    const reReview = menu.locator('.run-action-item', { hasText: 'Re-review' });
+    await expect(reReview).toContainText('Starts a fresh conversation');
+    // Settled past the menu's fade-in, so the screenshot shows what is read.
+    await expect(menu).toHaveCSS('opacity', '1');
+    await page.screenshot({ path: path.join(test.info().outputDir, 'run-action-menu.png') });
+    await menu.locator('[data-action-id="review"]').click();
+    await expect(menu).toHaveCount(0);
+    await expect
+      .poll(() => read(inputPath), { timeout: 10_000 })
+      .toContain('\x1b[200~Review the changes and summarise your findings before writing any review comments.\x1b[201~\r');
+    expect(read(inputPath)).not.toContain('This session is for pull request #51');
+    expect(record()).toEqual([expect.objectContaining({ id: sessionId, claudeSessionId: first })]);
+
+    // Fresh: the same tab moves onto a new conversation, created rather than
+    // resumed, and it opens with the item's header and the action's body.
+    await strip.getByRole('button', { name: /^Run an action in / }).click();
+    await menu.locator('.run-action-item', { hasText: 'Re-review' }).click();
+    await expect.poll(() => record()[0]?.claudeSessionId, { timeout: 10_000 }).not.toBe(first);
+    const [{ id: sameId, claudeSessionId: second }] = record();
+    expect(sameId).toBe(sessionId);
+    expect(record()).toHaveLength(1);
+    await expect.poll(() => read(argsPath), { timeout: 15_000 }).toContain(`--session-id ${second}`);
+    expect(read(argsPath)).not.toContain(`--resume ${second}`);
+    await expect
+      .poll(() => read(inputPath), { timeout: 10_000 })
+      .toMatch(/\x1b\[200~This session is for pull request #51 \("Extract billing client"\)[^\x1b]*\n\nPull the latest and check #51 again\.\x1b\[201~/);
+    // The pane is live on the new conversation, not offering a restart.
+    await expect(page.locator('.terminal-restart-button')).toHaveCount(0);
+
+    // The same menu sits on the session's row in the Inbox, and running from
+    // there opens the session it ran in.
+    const pane = await openPaneFor51(page);
+    const row = pane.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Review' });
+    await row.hover();
+    await page.screenshot({ path: path.join(test.info().outputDir, 'run-action-inbox-row.png') });
+    await row.getByRole('button', { name: /^Run an action in / }).click();
+    await expect(menu.locator('.run-action-item', { hasText: 'Re-review' })).toBeVisible();
+    await menu.locator('[data-action-id="fix-ci"]').click();
+    await expect(page.locator('.work-item-strip')).toBeVisible();
+    await expect
+      .poll(() => read(inputPath), { timeout: 10_000 })
+      .toContain('Find the failing checks with `gh pr checks 51`, reproduce locally, fix, push.');
+    expect(record()).toEqual([expect.objectContaining({ id: sessionId, claudeSessionId: second })]);
+  } finally {
+    await app?.close();
+    fs.rmSync(userDataDir, { recursive: true, force: true });
+    fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
+    fs.rmSync(fixtureDir, { recursive: true, force: true });
+  }
+});

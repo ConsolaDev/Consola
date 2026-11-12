@@ -712,6 +712,20 @@ describe('scope helpers', () => {
     expect(checkoutPathForSession(workspace, { scopeId: scope.id })).toBe('/code/consola');
     expect(checkoutPathForSession(workspace, undefined)).toBe('/code/consola');
   });
+
+  it('checkoutPathForSession follows an agent that moved itself into another checkout', () => {
+    const scope = workspace.scopes[0];
+    const entered = '/code/consola/.claude/worktrees/assistant';
+    expect(checkoutPathForSession(workspace, { scopeId: scope.id, agentCwd: entered })).toBe(entered);
+    // Over a checkout Consola launched it in, too: the agent left that one.
+    expect(
+      checkoutPathForSession(workspace, {
+        scopeId: scope.id,
+        cwd: '/home/me/.consola/worktrees/consola-session-1',
+        agentCwd: entered,
+      })
+    ).toBe(entered);
+  });
 });
 
 describe('the Assistant helpers', () => {
