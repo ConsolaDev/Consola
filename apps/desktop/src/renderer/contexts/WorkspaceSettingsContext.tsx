@@ -46,13 +46,6 @@ export function WorkspaceSettingsProvider({ children }: { children: ReactNode })
 
   const closeWorkspaceSettings = useCallback(() => setOpenForWorkspaceId(null), []);
 
-  // Main opens a workspace's settings at a section — clicking a notification
-  // about an automation lands on that workspace's Automations panel.
-  useEffect(
-    () => windowBridge.onOpenWorkspaceSettings(({ workspaceId, section }) => openWorkspaceSettings(workspaceId, section)),
-    [openWorkspaceSettings]
-  );
-
   const handleOpenChange = useCallback(
     (open: boolean) => {
       if (!open) closeWorkspaceSettings();

@@ -128,7 +128,7 @@ export const IPC_CHANNELS = {
     // Window identity (main -> one renderer)
     WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
     WINDOW_OPEN_SETTINGS: 'window:open-settings',
-    WINDOW_OPEN_WORKSPACE_SETTINGS: 'window:open-workspace-settings', // At a section: an automation's approvals
+    WINDOW_SHOW_AUTOMATIONS: 'window:show-automations', // A notification click chose the Automations dashboard
     WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
 
     // Personal automations, one factory.yml per workspace (renderer -> main; main runs them)

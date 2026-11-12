@@ -17,6 +17,7 @@ import {
   useNavigationStore,
   subscribeToWindowWorkspace,
   subscribeToActivateSession,
+  subscribeToShowAutomations,
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -83,6 +84,9 @@ export function Layout() {
 
   // A notification click can land on a window that is already open.
   useEffect(() => subscribeToActivateSession(), []);
+
+  // So can one about an automation's run: it lands on the dashboard.
+  useEffect(() => subscribeToShowAutomations(), []);
 
   // The sidebar and the header strip above it both read this variable, so
   // the two cannot drift apart. It goes on the root as a style prop rather

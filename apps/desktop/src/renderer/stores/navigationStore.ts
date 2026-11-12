@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import { windowBridge } from '../services/windowBridge';
 import type { WorkspaceOverlay } from '../../shared/types';
+import { useAutomationsStore } from './automationsStore';
 
 /**
  * Bounds for the sidebar width, in pixels.
@@ -207,5 +208,18 @@ export function subscribeToWindowWorkspace(): () => void {
 export function subscribeToActivateSession(): () => void {
   return windowBridge.onActivateSession((sessionId) => {
     useNavigationStore.setState({ activeSessionId: sessionId, overlay: null });
+  });
+}
+
+/**
+ * React to main opening Automations — a notification click about a run. Main
+ * already wrote the overlay into the workspace's view memory, so only the
+ * store moves here. The session stays active behind the overlay, as it does
+ * for the Inbox, and the run the notice names opens in the side panel.
+ */
+export function subscribeToShowAutomations(): () => void {
+  return windowBridge.onShowAutomations(({ runId }) => {
+    useNavigationStore.setState({ overlay: 'automations' });
+    if (runId) useAutomationsStore.getState().openPanel({ kind: 'run', runId });
   });
 }

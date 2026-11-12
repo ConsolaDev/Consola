@@ -94,7 +94,7 @@ import {
     findWindowForWorkspace,
     focusOrCreate,
     getWorkspaceFor,
-    showWorkspaceSettings,
+    showAutomations,
     viewsFromStoredLayout,
     type ViewMemoryAccess,
 } from './window-manager';
@@ -926,12 +926,12 @@ export function setupIpcHandlers(): boolean {
             if (!Notification.isSupported()) return;
             const notification = new Notification({ title: notice.title, body: notice.body });
             // Lands on what the notice is about: the session a run started,
-            // or else that workspace's Automations panel, in the window
+            // or else that workspace's Automations dashboard, in the window
             // holding it.
             notification.on('click', () =>
                 notice.sessionId
                     ? focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId)
-                    : showWorkspaceSettings(notice.workspaceId, 'automations', viewMemoryPort())
+                    : showAutomations(notice.workspaceId, notice.runId, viewMemoryPort())
             );
             notification.show();
         },

@@ -13,13 +13,20 @@ vi.mock('../services/windowBridge', () => ({
     setView: vi.fn(),
     onWorkspaceChanged: vi.fn(() => () => {}),
     onActivateSession: vi.fn(() => () => {}),
+    onShowAutomations: vi.fn(() => () => {}),
   },
+}));
+
+const openPanel = vi.fn();
+vi.mock('./automationsStore', () => ({
+  useAutomationsStore: { getState: () => ({ openPanel }) },
 }));
 
 import {
   mergeNavigationState,
   useNavigationStore,
   subscribeToActivateSession,
+  subscribeToShowAutomations,
   subscribeToWindowWorkspace,
   clampSidebarWidth,
   SIDEBAR_WIDTH_DEFAULT,
@@ -338,5 +345,24 @@ describe('remembering where each workspace was left', () => {
       activeSessionId: 'session-4',
       overlay: 'inbox',
     });
+  });
+
+  it('a notification opens Automations with its run in the panel, keeping the session', () => {
+    useNavigationStore.setState({ overlay: 'inbox', activeSessionId: 'session-3' });
+    subscribeToShowAutomations();
+    const callback = vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0];
+    callback?.({ workspaceId: 'workspace-1', runId: 'run-9' });
+    expect(useNavigationStore.getState().overlay).toBe('automations');
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
+    expect(openPanel).toHaveBeenCalledWith({ kind: 'run', runId: 'run-9' });
+  });
+
+  it('a notification without a run opens Automations and leaves the panel alone', () => {
+    openPanel.mockClear();
+    useNavigationStore.setState({ overlay: null });
+    subscribeToShowAutomations();
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1' });
+    expect(useNavigationStore.getState().overlay).toBe('automations');
+    expect(openPanel).not.toHaveBeenCalled();
   });
 });

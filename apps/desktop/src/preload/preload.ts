@@ -28,7 +28,7 @@ import {
     SessionFanOutResult,
     ScopeRepo,
     ConductorCreateRequest,
-    WorkspaceSettingsRequest,
+    AutomationsRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { AutomationsAPI } from '../shared/automations';
@@ -465,8 +465,8 @@ contextBridge.exposeInMainWorld('windowAPI', {
     onOpenSettings: (callback: (section?: 'updates') => void) =>
         subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
 
-    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) =>
-        subscribe<WorkspaceSettingsRequest>(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, callback),
+    onShowAutomations: (callback: (request: AutomationsRequest) => void) =>
+        subscribe<AutomationsRequest>(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, callback),
 
     context: readWindowContext(),
 

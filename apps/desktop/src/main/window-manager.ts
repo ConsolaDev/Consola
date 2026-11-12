@@ -1,6 +1,6 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
-import type { WindowContext, WorkspaceSettingsRequest, WorkspaceView } from '../shared/types';
+import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
@@ -202,17 +202,21 @@ export function getAnyWindow(): BrowserWindow | null {
 
 /**
  * Bring forward the window holding a workspace — opening one if none does —
- * with that workspace's settings open at a section. How a notification about
- * an automation lands on the approvals it is about.
+ * with the Automations dashboard open over its session. How a notification
+ * about an automation lands on the run it is about.
+ *
+ * The overlay is written to view memory first, so a window created here opens
+ * on it and a later switch back to the workspace returns to it.
  */
-export function showWorkspaceSettings(
+export function showAutomations(
     workspaceId: string,
-    section: WorkspaceSettingsRequest['section'],
+    runId: string | undefined,
     viewMemory: ViewMemoryAccess
 ): void {
+    viewMemory.set(workspaceId, { ...viewMemory.get(workspaceId), overlay: 'automations' });
     const target = focusOrCreate(workspaceId, viewMemory);
-    const request: WorkspaceSettingsRequest = { workspaceId, section };
-    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, request);
+    const request: AutomationsRequest = { workspaceId, runId };
+    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, request);
     if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
     else open();
     if (!isBackgroundTest) target.show();

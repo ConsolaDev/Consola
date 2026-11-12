@@ -1,4 +1,4 @@
-import type { ActivateWorkspaceResult, WindowContext, WorkspaceSettingsRequest, WorkspaceView } from '../../shared/types';
+import type { ActivateWorkspaceResult, WindowContext, AutomationsRequest, WorkspaceView } from '../../shared/types';
 
 /**
  * Bridge to this window's identity.
@@ -12,9 +12,9 @@ export const windowBridge = {
         return window.windowAPI.onOpenSettings(callback);
     },
 
-    /** Main asked for a workspace's settings at a section: an automation notification was clicked. */
-    onOpenWorkspaceSettings(callback: (request: WorkspaceSettingsRequest) => void): () => void {
-        return window.windowAPI.onOpenWorkspaceSettings(callback);
+    /** Main asked for the Automations dashboard: an automation notification was clicked. */
+    onShowAutomations(callback: (request: AutomationsRequest) => void): () => void {
+        return window.windowAPI.onShowAutomations(callback);
     },
 
     get context(): WindowContext {

@@ -525,12 +525,12 @@ export type ActivateWorkspaceResult =
     | { verdict: 'focused-elsewhere' };
 
 /**
- * A workspace's settings, opened by main at a section: how a notification
- * about an automation lands on that workspace's approvals.
+ * The Automations dashboard, opened by main: how a notification about an
+ * automation lands on its run.
  */
-export interface WorkspaceSettingsRequest {
+export interface AutomationsRequest {
     workspaceId: string;
-    section: 'automations';
+    runId?: string;
 }
 
 /**
@@ -540,7 +540,7 @@ export interface WorkspaceSettingsRequest {
  */
 export interface WindowAPI {
     onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
-    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) => () => void;
+    onShowAutomations: (callback: (request: AutomationsRequest) => void) => () => void;
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;
