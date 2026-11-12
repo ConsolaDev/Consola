@@ -532,6 +532,34 @@ describe('TerminalService unattended turns', () => {
         service.destroy();
     });
 
+    it('stopUnattendedTurn stops a running turn and the exit reports why', async () => {
+        const pty = installFakePty();
+        const service = unattended();
+        const output: string[] = [];
+        const exits: unknown[] = [];
+        service.on('data', (data) => output.push(data));
+        service.on('exit', (info) => exits.push(info));
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(service.stopUnattendedTurn('you stopped it')).toBe(true);
+        expect(pty.kills()).toBe(1);
+        pty.exit(0, 1);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(output.join('')).toContain('Stopped: you stopped it.');
+        expect(exits).toEqual([{ exitCode: 0, unattended: true, stopped: 'you stopped it' }]);
+        service.destroy();
+    });
+
+    it('stopUnattendedTurn does nothing without an unattended turn', async () => {
+        const pty = installFakePty();
+        const service = unattended({ unattended: false, initialPrompt: undefined });
+        service.start();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(service.stopUnattendedTurn('you stopped it')).toBe(false);
+        expect(pty.kills()).toBe(0);
+        service.destroy();
+    });
+
     it('says a silent turn stopped, not that the CLI failed to start', async () => {
         const pty = installFakePty();
         const service = unattended();

@@ -12,11 +12,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { exec } from 'child_process';
 import { TerminalManager } from './TerminalManager';
-import { SessionLauncher } from './SessionLauncher';
+import { SessionLauncher, launchFieldsFor } from './SessionLauncher';
 import { fanOut } from './fanOut';
 import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
-import { getDriver, toHarnessConfig } from './drivers';
+import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
 import { composeProviderEnv, getProviderDriver } from './providers';
 import { InboxService } from './providers/InboxService';
@@ -957,14 +957,22 @@ export function setupIpcHandlers(): boolean {
         // A turn Consola quit in the middle of picks up in its own session.
         resumeAgent: (session, prompt) => launcher.resumeUnattended(session.workspaceId, session.id, prompt),
         hasLiveTerminal: (session) => manager.get(session.instanceId)?.hasClaudeExited() === false,
-        // Placeholders until the driver check and the stop are wired for real.
-        agentHarness: () => ({ name: '', problem: null }),
-        stopAgent: () => false,
+        agentHarness: (workspaceId) => {
+            const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+            const harness = harnesses.getAll().find((candidate) => candidate.id === workspace?.defaultHarnessId);
+            return {
+                name: harness?.name ?? 'Claude',
+                problem: toolPolicyProblem(launchFieldsFor(harness), 'read-only'),
+            };
+        },
+        stopAgent: (session, reason) => manager.get(session.instanceId)?.stopUnattendedTurn(reason) ?? false,
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));
     // A workspace's file is read from when it appears, and let go when it is deleted.
     workspaces.onChange(() => void automations.syncWorkspaces());
+    // An edited harness re-resolves the entries that run on it.
+    harnesses.onChange(() => void automations.syncWorkspaces());
     // A laptop asleep at 09:00 wakes into a due run: check right away rather
     // than at the next tick.
     onPowerResume = () => void automations.tick();

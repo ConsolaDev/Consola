@@ -653,15 +653,26 @@ export class TerminalService extends EventEmitter {
         this.clearUnattendedLimit();
         this.unattendedLimit = setTimeout(() => {
             this.unattendedLimit = null;
-            this.unattendedStopReason = UNATTENDED_LIMIT_REASON;
-            this.writeNotice(UNATTENDED_LIMIT_NOTICE);
-            this.claudePty?.kill();
-            // A process that ignores the hangup would hold its slot forever.
-            this.unattendedKill = setTimeout(() => {
-                this.unattendedKill = null;
-                this.claudePty?.kill('SIGKILL');
-            }, UNATTENDED_KILL_GRACE_MS);
+            this.stopUnattendedTurn(UNATTENDED_LIMIT_REASON, UNATTENDED_LIMIT_NOTICE);
         }, UNATTENDED_TURN_LIMIT_MS);
+    }
+
+    /**
+     * Ends the running unattended turn the way Ctrl+C does. False when none is
+     * running. The first reason wins, as with Ctrl+C.
+     */
+    public stopUnattendedTurn(reason: string, notice = `Stopped: ${reason}.`): boolean {
+        if (!this.unattendedTurn) return false;
+        this.unattendedStopReason ??= reason;
+        this.writeNotice(notice);
+        this.claudePty?.kill();
+        // A process that ignores the hangup would hold its slot forever.
+        if (this.unattendedKill) clearTimeout(this.unattendedKill);
+        this.unattendedKill = setTimeout(() => {
+            this.unattendedKill = null;
+            this.claudePty?.kill('SIGKILL');
+        }, UNATTENDED_KILL_GRACE_MS);
+        return true;
     }
 
     /**
