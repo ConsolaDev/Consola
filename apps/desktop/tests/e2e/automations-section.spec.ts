@@ -96,6 +96,8 @@ interface Sprocket {
   app: ElectronApplication;
   page: Page;
   base: string;
+  /** The profile directory the app runs on, for relaunching with the same user data. */
+  userDataDir: string;
   /** The `catalog-portal` clone, the workspace's one scope. */
   clone: string;
   factoryDir: string;
@@ -163,7 +165,7 @@ async function setUpSprocket(): Promise<Sprocket> {
     await railButton.click();
     await expect(railButton).toHaveAttribute('aria-current', 'true');
 
-    return { app, page, base, clone, factoryDir, workspaceId, launches, configDir, close };
+    return { app, page, base, userDataDir: launched.userDataDir, clone, factoryDir, workspaceId, launches, configDir, close };
   } catch (error) {
     await close().catch(() => {});
     throw error;
@@ -447,5 +449,51 @@ test('New automation starts a full-tools session for the person', async () => {
     expect(line).not.toContain('--restricted');
   } finally {
     await sprocket.close();
+  }
+});
+
+test('the dashboard is where the workspace was left, and Open session leaves it', async () => {
+  test.setTimeout(120_000);
+  const sprocket = await setUpSprocket();
+  let relaunched: ElectronApplication | undefined;
+  try {
+    const dashboard = await openAutomations(sprocket.page);
+    await writeAutomations(sprocket, CATALOG_CHECK, 'catalog-check');
+    await runNow(sprocket, 'catalog-check');
+    await dashboard.getByRole('region', { name: 'Waiting for you' }).getByRole('button', { name: 'Review…' }).click();
+    const firstPanel = sidePanel(sprocket.page);
+    await firstPanel.getByRole('button', { name: 'Start', exact: true }).click();
+    await expect(firstPanel.locator('.automations-fact-status')).toContainText('completed', { timeout: 30_000 });
+
+    // Close with the dashboard open, then come back on the same user data.
+    await sprocket.app.close();
+    const env = {
+      CONSOLA_WORKTREES_DIR: path.join(sprocket.base, 'worktrees'),
+      CONSOLA_FACTORY_DIR: sprocket.factoryDir,
+    };
+    const launched = await launchElectron({ userDataDir: sprocket.userDataDir, env });
+    relaunched = launched.app;
+    const { page } = launched;
+
+    const again = page.getByRole('region', { name: 'Automations', exact: true });
+    await expect(again.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({ timeout: 30_000 });
+    await expect(automationsRow(page)).toHaveAttribute('aria-current', 'page');
+    // The earlier run, read back from the workspace's history.
+    const row = again.locator('.automations-run-row', { hasText: 'catalog-check' });
+    await expect(row).toHaveCount(1);
+    await row.click();
+    const panel = sidePanel(page);
+    await expect(panel.locator('.automations-fact-status')).toContainText('completed');
+    await panel.getByRole('button', { name: 'Open session' }).click();
+
+    // Open session leaves the dashboard and selects the run's session.
+    await expect(again).toHaveCount(0);
+    await expect(automationsRow(page)).not.toHaveAttribute('aria-current');
+    await expect(page.locator('.session-nav-item.active')).toHaveCount(1);
+  } finally {
+    await relaunched?.close().catch(() => {});
+    await sprocket.close();
+    fs.rmSync(sprocket.userDataDir, { recursive: true, force: true });
+    fs.rmSync(`${sprocket.userDataDir} Test`, { recursive: true, force: true });
   }
 });
