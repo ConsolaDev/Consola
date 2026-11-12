@@ -138,6 +138,12 @@ export const IPC_CHANNELS = {
     AUTOMATIONS_DISMISS: 'automations:dismiss',           // Dismiss a run waiting in confirm mode
     AUTOMATIONS_OPEN_FILE: 'automations:open-file',       // Open a workspace's factory.yml, creating it from a template
     AUTOMATIONS_ADD_ASSIGNED_REVIEWS: 'automations:add-assigned-reviews', // Add review-assigned-prs to a workspace's factory.yml
+    AUTOMATIONS_GET_RUN: 'automations:get-run',           // One run's full record, for its side panel
+    AUTOMATIONS_READ_CONVERSATION: 'automations:read-conversation', // A run's part of its transcript, read from disk
+    AUTOMATIONS_STOP: 'automations:stop',                 // Stop a running run
+    AUTOMATIONS_ADD_TEMPLATE: 'automations:add-template', // Add a ready-made automation to a workspace's factory.yml
+    AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
+    AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge',   // Mark an agent-added automation as seen
 
     // Personal automations (main -> every renderer)
     AUTOMATIONS_CHANGED: 'automations:changed',           // A workspace's fresh AutomationsSnapshot

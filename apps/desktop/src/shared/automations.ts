@@ -1,6 +1,8 @@
 import type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
 
 export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
+import type { RunConversation } from './conversation';
+import type { Session } from './workspace';
 
 /** One automation from a workspace's factory.yml, as the app shows it. */
 export interface AutomationView {
@@ -118,6 +120,17 @@ export interface AutomationsAPI {
     openFile: (workspaceId: string) => Promise<void>;
     /** Add review-assigned-prs to the workspace's factory.yml, creating the file when it is missing. */
     addAssignedReviews: (workspaceId: string) => Promise<void>;
+    /** One run's full record; null once history has dropped it. */
+    getRun: (runId: string) => Promise<RunRecord | null>;
+    /** A run's part of its conversation, read from the transcript; never starts or resumes anything. */
+    readConversation: (runId: string) => Promise<RunConversation>;
+    stop: (runId: string) => Promise<void>;
+    /** Add a ready-made automation to the workspace's factory.yml. */
+    addTemplate: (workspaceId: string, templateId: string) => Promise<void>;
+    /** Start the session that drafts an entry with the person. */
+    startAuthoring: (request: AuthoringRequest) => Promise<Session>;
+    /** The person has seen an automation an agent added. */
+    acknowledge: (workspaceId: string, name: string) => Promise<void>;
     onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 

@@ -449,6 +449,12 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
     openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
     addAssignedReviews: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
+    getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
+    readConversation: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, runId),
+    stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
+    addTemplate: (workspaceId, templateId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),
+    startAuthoring: (request) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING, request),
+    acknowledge: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
     onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 

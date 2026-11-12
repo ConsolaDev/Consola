@@ -42,6 +42,10 @@ import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
 import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
+import { readRunConversation } from './automations/runConversation';
+import { startAuthoring } from './automations/authoring';
+import { parseAuthoringRequest } from './automations/authoringRequest';
+import { AUTOMATION_TEMPLATES } from './automations/templates';
 import type { AutomationsChange } from '../shared/automations';
 import { RunHistoryFiles } from './automations/RunHistoryFiles';
 import { RunStore, type AutomationStateFile } from './automations/RunStore';
@@ -992,6 +996,53 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, (_event, workspaceId: string) =>
         automations.addAssignedReviews(String(workspaceId))
     );
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_RUN, (_event, runId: string) => {
+        if (typeof runId !== 'string') throw new Error('Run id required.');
+        return automations.getRun(runId);
+    });
+    // Reads the transcript from disk; an unknown run is simply unreadable.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, async (_event, runId: string) => {
+        if (typeof runId !== 'string') throw new Error('Run id required.');
+        const run = automations.getRun(runId);
+        if (!run) return { readable: false };
+        return readRunConversation(run, {
+            harnesses: () => harnesses.getAll(),
+            sessions: (workspaceId) =>
+                workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.sessions ?? [],
+        });
+    });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_STOP, (_event, runId: string) => {
+        if (typeof runId !== 'string') throw new Error('Run id required.');
+        automations.stop(runId);
+    });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, (_event, workspaceId: string, templateId: string) => {
+        if (typeof workspaceId !== 'string' || typeof templateId !== 'string') {
+            throw new Error('Workspace id and template id required.');
+        }
+        return automations.addTemplate(workspaceId, templateId);
+    });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING, (_event, raw: unknown) =>
+        startAuthoring(
+            {
+                getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+                launchSession: (workspaceId, fields) => launcher.launchSession(workspaceId, fields),
+                filePath: (workspaceId) => workspaceFactoryPath(workspaceId),
+                basisEntry: async (workspaceId, basis) => {
+                    if ('automation' in basis) return automations.entryText(workspaceId, basis.automation);
+                    const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+                    const template = AUTOMATION_TEMPLATES.find((candidate) => candidate.id === basis.template);
+                    return workspace && template ? template.entry(workspace) : null;
+                },
+            },
+            parseAuthoringRequest(raw)
+        )
+    );
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, (_event, workspaceId: string, name: string) => {
+        if (typeof workspaceId !== 'string' || typeof name !== 'string') {
+            throw new Error('Workspace id and automation name required.');
+        }
+        automations.acknowledge(workspaceId, name);
+    });
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async (_event, workspaceId: string) => {
         const failure = await shell.openPath(await automations.ensureFile(String(workspaceId)));
         if (failure) throw new Error(failure);
@@ -1519,6 +1570,12 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_STOP);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE);
 
     // Clean up all terminal services
     ipcMain.removeHandler(IPC_CHANNELS.SHELL_ATTACH);

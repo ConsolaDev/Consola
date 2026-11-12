@@ -240,6 +240,20 @@ export function installMock() {
     startFresh: async workspaceId => { notify('Fresh conversations run in the desktop app.'); return window.assistantAPI.open(workspaceId); },
     getActivity: async () => ({ touchedSessionIds: [], unseenFinished: 0 }), markSeen: async () => {}, onActivityChanged: noSubscription,
   };
+  const automationsUnavailable = async (): Promise<never> => { throw new Error('Automations run in the desktop app.'); };
+  window.automationsAPI = {
+    getSnapshot: async () => ({
+      filePath: '', fileExists: false, automations: [], issues: [], runs: [], queue: {}, suggestAssignedReviews: null,
+      templates: [
+        { id: 'review-assigned-prs', title: 'Review PRs assigned to me', description: 'Reviews each pull request that asks for your review.', needs: ['A GitHub connection'] },
+        { id: 'morning-inbox-digest', title: 'Morning inbox digest', description: 'Summarises what needs you each weekday morning.', needs: ['A scope'] },
+      ],
+    }),
+    runNow: automationsUnavailable, approve: automationsUnavailable, dismiss: automationsUnavailable, openFile: automationsUnavailable,
+    addAssignedReviews: automationsUnavailable, getRun: async () => null, readConversation: async () => ({ readable: false }),
+    stop: async () => {}, addTemplate: automationsUnavailable, startAuthoring: automationsUnavailable, acknowledge: async () => {},
+    onChanged: () => () => {},
+  };
   // Sample repository links are illustrative; do not take visitors to invented PRs.
   document.addEventListener('click', event => {
     const link = (event.target as Element).closest?.('a');
