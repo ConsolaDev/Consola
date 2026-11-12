@@ -327,10 +327,17 @@ describe('readConversation', () => {
   });
 
   it('caps entries and text', async () => {
-    writeRecords([assistant(Array.from({ length: 2500 }, (_, i) => toolUse('Read', { file_path: `/f${i}` })))]);
+    writeRecords([
+      { type: 'user', message: { role: 'user', content: 'Do the thing' } },
+      assistant(Array.from({ length: 2500 }, (_, i) => toolUse('Read', { file_path: `/f${i}` }))),
+      assistant([{ type: 'text', text: 'final answer' }]),
+    ]);
     const capped = await readConversation(SESSION_ID, configDir);
     expect(capped!.entries).toHaveLength(MAX_CONVERSATION_ENTRIES);
     expect(capped!.truncated).toBe(true);
+    expect(capped!.entries[0]).toEqual({ kind: 'prompt', text: 'Do the thing' });
+    expect(capped!.entries[1]).toEqual({ kind: 'step', tool: 'Read', detail: '/f502' });
+    expect(capped!.entries.at(-1)).toEqual({ kind: 'text', text: 'final answer' });
 
     writeRecords([assistant([{ type: 'text', text: 'y'.repeat(30_000) }])]);
     const long = await readConversation(SESSION_ID, configDir);

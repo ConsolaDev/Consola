@@ -345,8 +345,9 @@ function toolDetail(input: unknown): string | undefined {
  *
  * Streamed line by line: a transcript can be tens of megabytes, and a running
  * session is still appending to it, so an unparsable line (the last one,
- * mid-write) is skipped rather than failing the read. Stops at
- * `MAX_CONVERSATION_ENTRIES`. Thinking, tool results, subagent sidechains and
+ * mid-write) is skipped rather than failing the read. Past
+ * `MAX_CONVERSATION_ENTRIES` the middle is dropped, keeping the opening
+ * prompt and the newest entries. Thinking, tool results, subagent sidechains and
  * injected meta records are not part of what the person sees.
  */
 export async function readConversation(
@@ -359,7 +360,9 @@ export async function readConversation(
 
     const since = window.since ? Date.parse(window.since) : NaN;
     const until = window.until ? Date.parse(window.until) : NaN;
-    const entries: ConversationEntry[] = [];
+    // The leading prompt(s), then a sliding window of the newest entries.
+    const head: ConversationEntry[] = [];
+    const tail: ConversationEntry[] = [];
     let truncated = false;
 
     const stream = fs.createReadStream(file, { encoding: 'utf8' });
@@ -419,13 +422,17 @@ export async function readConversation(
             }
 
             for (const entry of found) {
-                if (entries.length >= MAX_CONVERSATION_ENTRIES) {
-                    truncated = true;
-                    break;
+                if (tail.length === 0 && entry.kind === 'prompt') {
+                    head.push(entry);
+                    continue;
                 }
-                entries.push(entry);
+                tail.push(entry);
+                if (head.length + tail.length > MAX_CONVERSATION_ENTRIES) {
+                    // Drop from the middle: the run's prompt and its final answer are what matter.
+                    tail.shift();
+                    truncated = true;
+                }
             }
-            if (truncated) break;
         }
     } catch {
         // Unreadable part-way: show what was read.
@@ -433,7 +440,7 @@ export async function readConversation(
         lines.close();
         stream.destroy();
     }
-    return { entries, truncated };
+    return { entries: [...head, ...tail], truncated };
 }
 
 /**
