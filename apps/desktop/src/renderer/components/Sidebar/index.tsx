@@ -10,6 +10,7 @@ import { listedSessions } from '../../../shared/workspace';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import { AssistantNavItem } from './AssistantNavItem';
+import { AutomationsNavItem } from './AutomationsNavItem';
 import { SidebarSearch } from './SidebarSearch';
 import { SessionNavItem } from './SessionNavItem';
 import { NavigationSettings } from './NavigationSettings';
@@ -88,7 +89,7 @@ export function Sidebar() {
       <div className="sidebar-workspace"><WorkspaceMenu /><NavigationSettings /><NewMenu /></div>
       <SidebarSearch />
       <nav className="app-navigation" aria-label="Main navigation">
-        <button className={`app-navigation-item ${!isInbox ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={!isInbox ? 'page' : undefined}
+        <button className={`app-navigation-item ${!isInbox ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={overlay === null ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span className="app-navigation-label">Home</span></button>
         {workspace && <button className={`app-navigation-item ${isInbox ? 'active' : ''}`} aria-label="Inbox" title="Inbox" aria-current={isInbox ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().openInbox()}><Inbox size={18} /><span className="app-navigation-label">Inbox</span>{workspace.provider && inboxCount > 0 && <span className="app-navigation-badge">{inboxCount}</span>}</button>}
@@ -108,6 +109,7 @@ export function Sidebar() {
       {workspace && !isInbox && <>
         <div className="home-navigation">
           <AssistantNavItem workspace={workspace} />
+          <AutomationsNavItem workspace={workspace} />
           <div className="sidebar-scope-picker"><ScopeSelector workspace={workspace} open={isScopePickerOpen} onOpenChange={setScopePickerOpen} /></div>
           <div className="home-session-panel">
             <div className="sidebar-section">

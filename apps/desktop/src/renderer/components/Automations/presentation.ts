@@ -14,6 +14,20 @@ export function runTitle(run: RunFacts): string {
     return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
+const STATUS_WORDS: Record<RunFacts['status'], string> = {
+    queued: 'queued',
+    running: 'running',
+    'needs-approval': 'waiting',
+    completed: 'completed',
+    failed: 'failed',
+    rejected: 'dismissed',
+};
+
+/** Where a run stands, in one word: "waiting" for a person, "dismissed" when they turned it down. */
+export function statusWord(status: RunFacts['status']): string {
+    return STATUS_WORDS[status];
+}
+
 export function triggerLabel(run: RunFacts): string {
     if (run.trigger.kind === 'cron') return run.trigger.catchUp ? 'catch-up' : 'scheduled';
     if (run.trigger.kind === 'event') return 'event';

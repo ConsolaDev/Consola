@@ -9,6 +9,7 @@ import {
     formatDuration,
     runAbout,
     sidebarRowState,
+    statusWord,
     triggerLabel,
 } from './presentation';
 
@@ -49,6 +50,16 @@ function snapshot(runs: RunListEntry[], automations: AutomationsSnapshot['automa
         templates: [],
     };
 }
+
+describe('statusWord', () => {
+    it('says where a run stands in a word, using the run statuses the panel shows', () => {
+        expect(statusWord('needs-approval')).toBe('waiting');
+        expect(statusWord('rejected')).toBe('dismissed');
+        for (const status of ['queued', 'running', 'completed', 'failed'] as const) {
+            expect(statusWord(status)).toBe(status);
+        }
+    });
+});
 
 describe('triggerLabel', () => {
     it('uses the fixed words', () => {
