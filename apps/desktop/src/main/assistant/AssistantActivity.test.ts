@@ -117,6 +117,32 @@ describe('AssistantActivity', () => {
         );
     });
 
+    it('types a report as its own line, without counting it as a finished session', () => {
+        activity.report('a', 'You dismissed "Delete session" (run_id: r1)');
+        vi.advanceTimersByTime(COALESCE_MS);
+        expect(deps.queuePrompt).toHaveBeenCalledWith('inst-a', '[consola] You dismissed "Delete session" (run_id: r1).');
+        expect(activity.snapshot('ws-1').unseenFinished).toBe(0);
+    });
+
+    it('folds a report and a finished session landing together into one line', () => {
+        activity.report('a', 'You dismissed "Delete session" (run_id: r1)');
+        activity.watch('a', 's1');
+        activity.statusChanged('inst-1', 'exited');
+        vi.advanceTimersByTime(COALESCE_MS);
+        expect(deps.queuePrompt).toHaveBeenCalledTimes(1);
+        expect(deps.queuePrompt.mock.calls[0][1]).toBe(
+            '[consola] You dismissed "Delete session" (run_id: r1); "#4221 review" has exited (session_id: s1) — read it with consola_read_session.'
+        );
+    });
+
+    it('drops a report when the Assistant has no live process', () => {
+        deps.queuePrompt.mockReturnValue(false);
+        activity.report('a', 'You approved "Delete session" (run_id: r1): Deleted "worker"');
+        expect(() => vi.advanceTimersByTime(COALESCE_MS)).not.toThrow();
+        expect(deps.queuePrompt).toHaveBeenCalledTimes(1);
+        expect(deps.broadcast).not.toHaveBeenCalled();
+    });
+
     it('earns at most one notice per prompt', () => {
         activity.watch('a', 's1');
         activity.statusChanged('inst-1', 'working');

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useAssistantRequests } from '../../hooks/useAssistantRequests';
 import { assistantSession, type Workspace } from '../../../shared/workspace';
 import { useAssistantStore } from '../../stores/assistantStore';
 import { useNavigationStore } from '../../stores/navigationStore';
@@ -20,10 +21,11 @@ export function AssistantNavItem({ workspace }: { workspace: Workspace }) {
   const isActive = useNavigationStore(state => !state.isInboxOpen && !!assistant && state.activeSessionId === assistant.id);
   const status = useTerminalStore(state => assistant ? sessionStatusFor(state.terminals[assistant.instanceId]) : undefined);
   const unseenFinished = useAssistantStore(state => state.activity[workspace.id]?.unseenFinished ?? 0);
+  const waitingApprovals = useAssistantRequests(workspace).length;
 
   useEffect(() => { void useAssistantStore.getState().load(workspace.id); }, [workspace.id]);
 
-  const state = assistantRowState({ hasScopes: workspace.scopes.length > 0, status, unseenFinished, isActive });
+  const state = assistantRowState({ hasScopes: workspace.scopes.length > 0, status, unseenFinished, waitingApprovals, isActive });
   const disabled = state.kind === 'disabled';
 
   return <button type="button" className={`assistant-nav-item ${isActive ? 'active' : ''}`}
@@ -33,6 +35,7 @@ export function AssistantNavItem({ workspace }: { workspace: Workspace }) {
     <span className="assistant-spark" aria-hidden="true">✦</span>
     <span className="assistant-nav-label">Assistant</span>
     {state.kind === 'idle' && <kbd className="assistant-nav-shortcut">{ASSISTANT_SHORTCUT_LABEL}</kbd>}
+    {state.kind === 'waiting' && <><span className="session-status-indicator session-status-indicator--needs-attention" aria-hidden="true" /><span className="assistant-nav-word assistant-nav-word--attention">{state.count} waiting</span></>}
     {state.kind === 'working' && <><span className="session-status-indicator session-status-indicator--working" aria-hidden="true" /><span className="assistant-nav-word">working</span></>}
     {state.kind === 'needs-you' && <><span className="session-status-indicator session-status-indicator--needs-attention" aria-hidden="true" /><span className="assistant-nav-word assistant-nav-word--attention">needs you</span></>}
     {state.kind === 'done' && <><span className="session-status-indicator session-status-indicator--done" aria-hidden="true" /><span className="assistant-nav-word">{state.count} done</span></>}

@@ -22,6 +22,7 @@ import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useAssistantStore } from '../../stores/assistantStore';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import './styles.css';
 
 export function Layout() {
@@ -72,6 +73,9 @@ export function Layout() {
 
   // The Assistant's row shows what finished while its pane is closed.
   useEffect(() => useAssistantStore.getState().subscribe(), []);
+
+  // ...and what it asked for that waits for the person, which its tray holds.
+  useEffect(() => useAutomationsStore.getState().subscribe(), []);
 
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.

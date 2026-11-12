@@ -304,6 +304,13 @@ describe('an agent’s destructive call', () => {
         expect(t.notices).toMatchObject([{ needsApproval: true, runId: run!.id }]);
     });
 
+    it('names who asked on its notification', async () => {
+        const t = setup({ workspaces: team() });
+        await t.start();
+        await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
+        expect(t.notices[0]).toMatchObject({ needsApproval: true, actorId: 's-1' });
+    });
+
     it('runs exactly the previewed plan, with the agent’s authority, once a person approves', async () => {
         const t = setup({ workspaces: team() });
         await t.start();
@@ -531,6 +538,19 @@ describe('modes', () => {
             attribution: { actorId: 's-9' },
         });
         expect(t.calls.map((call) => call.mode)).toEqual(['preview']);
+    });
+
+    it('names the agent that asked on a confirm run’s notification, and no one when a person ran it', async () => {
+        const asked = setup({ yaml: entry('    mode: confirm\n') });
+        await asked.start();
+        await asked.trigger('ws-1', 'sweep', { sessionId: 's-9' });
+        expect(asked.notices.at(-1)).toMatchObject({ needsApproval: true, actorId: 's-9' });
+
+        const ran = setup({ yaml: entry('    mode: confirm\n') });
+        await ran.start();
+        await ran.trigger('ws-1', 'sweep');
+        expect(ran.notices.at(-1)).toMatchObject({ needsApproval: true });
+        expect(ran.notices.at(-1)).not.toHaveProperty('actorId');
     });
 
     it('an agent never supersedes a plan waiting for a person, nor notifies again', async () => {
@@ -1372,6 +1392,13 @@ ${fields}`;
         expect(t.world.launches[0].item).toBeUndefined();
         expect(t.world.launches[0].prompt).toMatch(/^This session was started on a schedule .* in api\./);
         expect(t.store.runs()[0]).toMatchObject({ status: 'running', trigger: { kind: 'cron' } });
+    });
+
+    it('name the agent that asked on their approval notification', async () => {
+        const t = setup({ yaml: daily('    scope: api\n    mode: confirm\n'), workspaces: [bound()] });
+        await t.start();
+        await t.trigger('ws-1', 'morning-pr-summary', { sessionId: 's-9' });
+        expect(t.notices.at(-1)).toMatchObject({ needsApproval: true, actorId: 's-9' });
     });
 
     it('name a scope the workspace has', async () => {
