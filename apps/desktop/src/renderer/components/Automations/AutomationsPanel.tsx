@@ -12,6 +12,7 @@ import type { CleanupResult, SessionVerdict, StalePreview } from '../../../share
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
+import { formatTime, runTitle, triggerLabel } from './presentation';
 import './styles.css';
 
 /**
@@ -429,25 +430,3 @@ function isRunning(snapshot: AutomationsSnapshot, name: string): boolean {
   return snapshot.runs.some((run) => run.automationId === name && run.status === 'running');
 }
 
-/** An automation's name; for an agent's request, what it asks to do ("Delete session"). */
-function runTitle(run: RunRecord): string {
-  if (run.source !== 'manual') return run.automationId;
-  const words = run.actionName.replace(/^consola#/, '').replace(/_/g, ' ');
-  return words.charAt(0).toUpperCase() + words.slice(1);
-}
-
-function triggerLabel(run: RunRecord): string {
-  if (run.trigger.kind === 'cron') return run.trigger.catchUp ? 'catch-up' : 'scheduled';
-  if (run.trigger.kind === 'event') return 'event';
-  return run.trigger.by === 'agent' ? 'asked by an agent' : 'run now';
-}
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    weekday: 'short',
-    month: 'short',
-    day: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}

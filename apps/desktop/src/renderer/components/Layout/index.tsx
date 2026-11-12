@@ -20,6 +20,7 @@ import {
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useAssistantStore } from '../../stores/assistantStore';
 import './styles.css';
@@ -69,6 +70,9 @@ export function Layout() {
   // Inbox snapshots arrive on main's push channel for every github-bound
   // workspace, including ones whose pane is not mounted.
   useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
+
+  // Automation snapshots likewise: the sidebar row reads them while the dashboard is closed.
+  useEffect(() => useAutomationsStore.getState().subscribe(), []);
 
   // The Assistant's row shows what finished while its pane is closed.
   useEffect(() => useAssistantStore.getState().subscribe(), []);
