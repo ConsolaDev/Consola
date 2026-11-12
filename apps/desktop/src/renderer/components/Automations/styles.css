@@ -51,29 +51,6 @@
   color: var(--color-text-tertiary);
 }
 
-.automations-group {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.automations-group-title {
-  margin: var(--space-2) 0 0;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-semibold);
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-  color: var(--color-text-tertiary);
-}
-
-.automations-empty {
-  padding: var(--space-3);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
-  color: var(--color-text-tertiary);
-}
-
 .automations-card {
   display: flex;
   align-items: center;
@@ -83,13 +60,6 @@
   background: var(--color-bg-primary);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-}
-
-/* Yellow is reserved for what needs a person: here, a run waiting for approval. */
-.automations-card-waiting {
-  flex-direction: column;
-  align-items: stretch;
-  border-color: var(--color-warning);
 }
 
 .automations-card-main {
@@ -160,29 +130,6 @@
   color: var(--color-text-tertiary);
 }
 
-.automations-history {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.automations-history-row {
-  display: grid;
-  grid-template-columns: 8px auto 1fr;
-  align-items: baseline;
-  column-gap: var(--space-2);
-  font-size: var(--font-size-xs);
-}
-
-.automations-history-summary {
-  grid-column: 2 / -1;
-  color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
-}
-
 /* A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
 .automations-dot {
   flex-shrink: 0;
@@ -228,24 +175,6 @@
   overflow-wrap: anywhere;
 }
 
-.automations-queue-row {
-  grid-template-columns: 1.5em auto 1fr auto;
-}
-
-.automations-queue-row .automations-history-summary {
-  grid-column: 3;
-}
-
-.automations-place {
-  color: var(--color-text-tertiary);
-  font-variant-numeric: tabular-nums;
-}
-
-.automations-row-action {
-  grid-column: 4;
-  grid-row: 1;
-}
-
 .automations-link-button {
   padding: 0;
   border: none;
@@ -277,21 +206,6 @@
   font-size: var(--font-size-sm);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
-}
-
-/* An agent run's state: Running, Ready or Failed. */
-.automations-state {
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-secondary);
-}
-
-.automations-state-completed {
-  color: var(--color-success);
-}
-
-.automations-state-failed {
-  color: var(--color-error);
 }
 
 /* ═══════════════════════════════════════════════════════════

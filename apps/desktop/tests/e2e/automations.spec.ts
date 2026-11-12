@@ -7,7 +7,7 @@ import { launchElectron } from './helpers/electron';
 
 /**
  * Personal automations, end to end: a workspace's own factory.yml with a
- * confirm-mode cleanup, run from that workspace's settings, previewed,
+ * confirm-mode cleanup, run from the Automations dashboard, previewed,
  * approved — and the one session whose PR merged is gone with its worktree
  * and branch, while the one with unsaved work is kept, untouched.
  */
@@ -37,18 +37,20 @@ function writeFactoryFile(factoryDir: string, workspaceId: string, yaml: string)
   fs.writeFileSync(path.join(factoryDir, workspaceId, 'factory.yml'), yaml);
 }
 
-/** Hold the workspace in this window and open its settings at Automations. */
-async function openAutomationsPanel(page: Page, workspaceName: string) {
+/** Hold the workspace in this window and open its Automations dashboard from the sidebar row. */
+async function openAutomations(page: Page, workspaceName: string) {
   const railButton = page
     .getByRole('navigation', { name: 'Workspaces', exact: true })
     .getByRole('button', { name: workspaceName, exact: true });
   await railButton.click();
   await expect(railButton).toHaveAttribute('aria-current', 'true');
-  await page.getByRole('button', { name: / workspace menu$/ }).click();
-  await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-  const modal = page.getByRole('dialog', { name: workspaceName, exact: true });
-  await modal.getByRole('button', { name: 'Automations', exact: true }).click();
-  return modal;
+  await page.locator('.home-navigation').getByRole('button', { name: /^Automations/ }).click();
+  return page.getByRole('region', { name: 'Automations', exact: true });
+}
+
+/** The side panel, over the dashboard. */
+function sidePanel(page: Page) {
+  return page.locator('.automations-side-panel');
 }
 
 function mergedPull(number: number, branch: string, head: string) {
@@ -144,18 +146,23 @@ automations:
 `
     );
 
-    const settings = await openAutomationsPanel(page, 'Acme');
-    await expect(settings.locator('.ws-panel-hint')).toContainText(path.join(factoryDir, workspaceId, 'factory.yml'));
+    const dashboard = await openAutomations(page, 'Acme');
+    await dashboard.getByRole('tab', { name: 'Automations' }).click();
 
-    const card = settings.locator('.automations-card', { hasText: 'clean-up-stale-sessions' }).first();
+    const card = dashboard.locator('.automations-card', { hasText: 'clean-up-stale-sessions' }).first();
     await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card).toContainText('confirm');
     await expect(card).toContainText('Next run');
     await card.getByRole('button', { name: 'Run now' }).click();
 
-    // Confirm mode: a preview waiting for approval, naming what would go.
-    const pending = settings.locator('.automations-card-waiting');
-    await expect(pending).toContainText('Would remove 1 session; 1 kept.', { timeout: 30_000 });
+    // Confirm mode: a preview waiting for approval, in "Waiting for you" on
+    // Activity; Review… opens it, naming what would go.
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
+    const waiting = dashboard.getByRole('region', { name: 'Waiting for you' });
+    await expect(waiting).toContainText('Would remove 1 session; 1 kept.', { timeout: 30_000 });
+    await waiting.getByRole('button', { name: 'Review…' }).click();
+    const pending = sidePanel(page);
+    await expect(pending).toContainText('Would remove 1 session; 1 kept.');
     await expect(pending).toContainText('Ship feature');
     await expect(pending).toContainText('#7 merged');
     // Nothing has been touched yet.
@@ -164,10 +171,8 @@ automations:
     // Approval acts on exactly what was previewed — the one session — so the
     // kept one is not even reconsidered.
     await pending.getByRole('button', { name: 'Approve' }).click();
-    await expect(settings.locator('.automations-history-row').first()).toContainText(
-      'Removed 1 session.',
-      { timeout: 30_000 }
-    );
+    await expect(pending).toContainText('Removed 1 session.', { timeout: 30_000 });
+    await expect(dashboard.locator('.automations-run-row').first()).toContainText('completed');
 
     const remaining = await page.evaluate(async () => {
       const { workspaces } = await window.workspaceAPI.getSnapshot();
@@ -201,11 +206,12 @@ test('a broken factory.yml is reported with its line, and nothing is scheduled',
       workspaceId,
       'version: 1\nautomations:\n  - name: sweep\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#cleanup_stale_sessions }\n    mode: sometimes\n'
     );
-    const settings = await openAutomationsPanel(page, 'Broken');
-    const issues = settings.locator('.automations-issues');
+    const dashboard = await openAutomations(page, 'Broken');
+    const issues = dashboard.locator('.automations-issues');
     await expect(issues).toContainText('line 6', { timeout: 15_000 });
     await expect(issues).toContainText('automations[0].mode');
-    await expect(settings.locator('.automations-card')).toHaveCount(0);
+    await dashboard.getByRole('tab', { name: 'Automations' }).click();
+    await expect(dashboard.locator('.automations-card')).toHaveCount(0);
   } finally {
     await app.close();
     fs.rmSync(base, { recursive: true, force: true });
@@ -317,8 +323,11 @@ automations:
 `
     );
 
-    const settings = await openAutomationsPanel(page, 'Acme');
-    const card = settings.locator('.automations-card', { hasText: 'review-requests' }).first();
+    const dashboard = await openAutomations(page, 'Acme');
+    const automationsTab = dashboard.getByRole('tab', { name: 'Automations' });
+    const activityTab = dashboard.getByRole('tab', { name: 'Activity' });
+    await automationsTab.click();
+    const card = dashboard.locator('.automations-card', { hasText: 'review-requests' }).first();
     await expect(card).toContainText('When a pull request asks for your review or is assigned to you', { timeout: 15_000 });
     await expect(card).toContainText('Review action, read-only');
     const checkNow = card.getByRole('button', { name: 'Check now' });
@@ -330,11 +339,14 @@ automations:
     // #2 asks. A new `auto` automation asks once before running on its own.
     writeInbox(inboxFile, [1, 2]);
     await checkNow.click();
-    const waiting = settings.locator('.automations-card-waiting');
+    await activityTab.click();
+    const waiting = dashboard.locator('.automations-waiting-card');
     await expect(waiting).toContainText('acme/app#2 “Add retries #2” by @alice', { timeout: 30_000 });
     await expect(waiting).toHaveCount(1);
     expect(fs.existsSync(launches)).toBe(false);
-    await waiting.getByRole('button', { name: 'Start' }).click();
+    await waiting.getByRole('button', { name: 'Review…' }).click();
+    const panel = sidePanel(page);
+    await panel.getByRole('button', { name: 'Start', exact: true }).click();
 
     // A headless session in #2's own worktree: one unattended turn, restricted,
     // with Consola's MCP only, and its prompt as the argument after `--`.
@@ -347,9 +359,9 @@ automations:
     }
     expect(first).toContain(' -- This session was started by the automation "review-requests" for pull request #2');
 
-    // The turn printed its findings and exited: the run is ready.
-    const row = settings.locator('.automations-history-row', { hasText: 'Add retries #2' }).first();
-    await expect(row.locator('.automations-state')).toHaveText('Ready', { timeout: 30_000 });
+    // The turn printed its findings and exited: the run is completed.
+    const row = dashboard.locator('.automations-run-row', { hasText: 'Add retries #2' }).first();
+    await expect(row).toContainText('completed', { timeout: 30_000 });
 
     const sessions = await page.evaluate(async () => {
       const { workspaces } = await window.workspaceAPI.getSnapshot();
@@ -369,13 +381,17 @@ automations:
 
     // Approved once: #3 — asking for a review and assigned — starts on its own, once.
     writeInbox(inboxFile, [1, 2, 3], [3]);
+    await page.keyboard.press('Escape');
+    await expect(panel).toHaveCount(0);
+    await automationsTab.click();
     await checkNow.click();
     await expect.poll(launched, { timeout: 30_000 }).toHaveLength(2);
     expect(launched()[1].startsWith(`${path.join(worktreesDir, 'app-pr-3')} :: -p `)).toBe(true);
     await checkNow.click();
     await expect(checkNow).toBeEnabled();
     expect(launched().filter((line) => line.includes('app-pr-3'))).toHaveLength(1);
-    await expect(settings.locator('.automations-card-waiting')).toHaveCount(0);
+    await activityTab.click();
+    await expect(dashboard.locator('.automations-waiting-card')).toHaveCount(0);
     // #1, waiting before the automation was turned on, never started.
     expect(launched().some((line) => line.includes('app-pr-1'))).toBe(false);
 
@@ -384,7 +400,8 @@ automations:
       const { workspaces } = await window.workspaceAPI.getSnapshot();
       return workspaces.flatMap((workspace) => workspace.sessions).find((session) => session.name === 'Add retries #2')!;
     });
-    await row.getByRole('button', { name: 'Open session' }).click();
+    await row.click();
+    await panel.getByRole('button', { name: 'Open session' }).click();
     const replay = await page.evaluate(
       async (session) =>
         (
