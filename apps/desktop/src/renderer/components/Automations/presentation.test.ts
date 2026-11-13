@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import type { AgentRunPreview, AutomationsSnapshot, RunListEntry, RunRecord } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
-    activityCounts,
     collapseSteps,
     filterRuns,
     finalAnswer,
@@ -27,6 +26,8 @@ import {
     triggerLabel,
     approvalStep,
     formatElapsed,
+    groupRunsByDay,
+    runKindCounts,
     templateModeWords,
     triggerInWords,
     runInsights,
@@ -264,35 +265,6 @@ describe('formatRunWhen', () => {
 
     it('says nothing for a time it cannot read', () => {
         expect(formatRunWhen('not a date', now)).toBe('');
-    });
-});
-
-describe('activityCounts', () => {
-    it('counts automations, waiting, running, queued and this week', () => {
-        const auto = (name: string, onEvent: boolean) => ({ name, onEvent }) as AutomationsSnapshot['automations'][number];
-        const counts = activityCounts(
-            snapshot(
-                [
-                    run({ id: '1', status: 'needs-approval' }),
-                    run({ id: '2', status: 'running' }),
-                    run({ id: '3', status: 'queued' }),
-                    run({ id: '4', status: 'completed', finishedAt: ago(DAY) }),
-                    run({ id: '5', status: 'failed', finishedAt: ago(2 * DAY) }),
-                    run({ id: '6', status: 'failed', finishedAt: ago(9 * DAY), createdAt: ago(9 * DAY) }),
-                ],
-                [auto('a', true), auto('b', false), auto('c', true)],
-            ),
-            NOW,
-        );
-        expect(counts).toEqual({
-            automations: 3,
-            onEvents: 2,
-            waiting: 1,
-            running: 1,
-            queued: 1,
-            ranThisWeek: 2,
-            failedThisWeek: 1,
-        });
     });
 });
 
@@ -654,6 +626,49 @@ describe('approvalStep', () => {
 
     it('is being told, for notify', () => {
         expect(approvalStep({ mode: 'notify', kind: 'agent' })).toMatchObject({ kind: 'notify', detail: 'Starts nothing' });
+    });
+});
+
+describe('runKindCounts', () => {
+    it('counts what each kind would list, keeping the rest of the filter', () => {
+        const runs = [
+            run({ id: 'a', kind: 'agent', automationId: 'review' }),
+            run({ id: 'b', kind: 'tool', automationId: 'tidy' }),
+            run({ id: 'c', kind: 'request', automationId: 'consola#delete_session', status: 'failed' }),
+            run({ id: 'd', kind: 'tool', automationId: 'tidy', status: 'failed' }),
+        ];
+        expect(runKindCounts(runs, by(), NOW)).toEqual({ all: 4, agent: 1, tool: 3, failed: 2 });
+        expect(runKindCounts(runs, by({ automation: 'tidy', kind: 'failed' }), NOW)).toEqual({
+            all: 2,
+            agent: 0,
+            tool: 2,
+            failed: 1,
+        });
+    });
+});
+
+describe('groupRunsByDay', () => {
+    const at = (daysBack: number, hour: number) =>
+        new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - daysBack, hour).toISOString();
+
+    it('splits a newest-first list by local day, keeping its order', () => {
+        const groups = groupRunsByDay(
+            [
+                run({ id: 'late', createdAt: at(0, 11) }),
+                run({ id: 'early', createdAt: at(0, 1) }),
+                run({ id: 'yesterday', createdAt: at(1, 9) }),
+                run({ id: 'week', createdAt: at(3, 9) }),
+                run({ id: 'old', createdAt: at(12, 9) }),
+            ],
+            NOW,
+        );
+        expect(groups.map((group) => [group.label.split(',')[0], group.runs.map((entry) => entry.id)])).toEqual([
+            ['Today', ['late', 'early']],
+            ['Yesterday', ['yesterday']],
+            [new Date(at(3, 9)).toLocaleDateString(undefined, { weekday: 'long' }), ['week']],
+            [new Date(at(12, 9)).toLocaleDateString(undefined, { month: 'short', day: 'numeric' }), ['old']],
+        ]);
+        expect(groupRunsByDay([], NOW)).toEqual([]);
     });
 });
 

@@ -51,31 +51,6 @@
   color: var(--color-text-tertiary);
 }
 
-.automations-card {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  background: var(--color-bg-primary);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.automations-card-main {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-1);
-  min-width: 0;
-}
-
-.automations-card-heading {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
 .automations-card-actions {
   display: flex;
   gap: var(--space-2);
@@ -302,6 +277,26 @@
   color: var(--color-text-primary);
 }
 
+/* What a tab holds, as GitHub counts its tabs; amber when it is runs waiting for you. */
+.automations-tab-badge {
+  display: inline-block;
+  min-width: 16px;
+  margin-left: 6px;
+  padding: 0 5px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+}
+
+.automations-tab-badge-waiting {
+  background: color-mix(in srgb, var(--color-warning) 22%, transparent);
+  color: var(--color-warning);
+}
+
 .automations-tab.active {
   border-bottom-color: var(--color-accent);
   font-weight: var(--font-weight-medium);
@@ -352,65 +347,86 @@
   color: var(--color-text-tertiary);
 }
 
-.automations-counts {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+/*
+ * Waiting for you: one amber band, first in the column, as CircleCI holds a
+ * workflow at an approval. Amber is reserved for what needs a person.
+ */
+.automations-waiting {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, var(--color-warning) 55%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-warning) 6%, var(--color-bg-primary));
+}
+
+.automations-waiting-title {
+  display: flex;
+  align-items: center;
   gap: var(--space-2);
+  margin: 0;
+  padding: 10px var(--space-4);
+  border-bottom: 1px solid color-mix(in srgb, var(--color-warning) 25%, transparent);
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-warning);
+}
+
+/* A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+.automations-waiting-count {
+  min-width: 18px;
+  padding: 0 6px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-warning) 20%, transparent);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  text-align: center;
+}
+
+.automations-waiting-list {
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.automations-count {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  padding: var(--space-2) var(--space-3);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
-}
-
-.automations-count-value {
-  font-size: var(--font-size-lg);
-  font-weight: var(--font-weight-semibold);
-  font-variant-numeric: tabular-nums;
-  color: var(--color-text-primary);
-}
-
-.automations-count-label {
-  font-size: var(--font-size-md);
-  color: var(--color-text-tertiary);
-}
-
-.automations-count-waiting .automations-count-value {
-  color: var(--color-warning);
-}
-
-.automations-count-failed .automations-count-value {
-  color: var(--color-error);
-}
-
-/* Yellow is reserved for what needs a person. */
 .automations-waiting-card {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-3);
-  padding: var(--space-3);
-  border: 1px solid var(--color-warning);
-  border-radius: var(--radius-md);
-  background: color-mix(in srgb, var(--color-warning) 6%, var(--color-bg-primary));
+  gap: var(--space-2) var(--space-4);
+  padding: 10px var(--space-3) 10px var(--space-4);
+}
+
+.automations-waiting-card + .automations-waiting-card {
+  border-top: 1px solid color-mix(in srgb, var(--color-warning) 18%, transparent);
 }
 
 .automations-waiting-text {
   display: flex;
-  flex: 1;
+  flex: 1 1 280px;
   flex-direction: column;
-  gap: var(--space-1);
+  gap: 2px;
   min-width: 0;
 }
 
-.automations-waiting-text .automations-summary {
+.automations-waiting-name {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.automations-waiting-summary {
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
   overflow-wrap: anywhere;
+}
+
+.automations-waiting-when {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
 }
 
 /* Runs: the heading and its count on the left, the filters on the right. */
@@ -569,59 +585,223 @@
   color: var(--color-text-primary);
 }
 
-/*
- * A run list is one grid, and each row lays its cells on the list's columns
- * (subgrid): whatever the names or statuses, status, about, trigger and time
- * start at the same x down the list. Named lists (Activity) add a name column.
- */
-.automations-runs-section {
-  container: automations-runs / inline-size;
+/* Each kind says how many it would show, quieter than its name. */
+.automations-segment {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.automations-runs {
+.automations-segment-count {
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+.automations-segment.active .automations-segment-count {
+  color: var(--color-text-secondary);
+}
+
+/*
+ * Activity, as GitHub Actions lays out a repository's runs: the automations
+ * down the left, and beside them the column of what waits, the month, and
+ * the runs. Narrower than the rail can afford, the rail goes and the run
+ * list's menu chooses the automation instead.
+ */
+.automations-activity {
+  container: automations-activity / inline-size;
+}
+
+.automations-board {
   display: grid;
-  grid-template-columns: 7px max-content minmax(0, 1fr) max-content max-content;
-  column-gap: var(--space-3);
+  grid-template-columns: 228px minmax(0, 1fr);
+  align-items: start;
+  gap: 28px;
+}
+
+.automations-board-main {
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+  min-width: 0;
+}
+
+.automations-filter-narrow {
+  display: none;
+}
+
+@container automations-activity (max-width: 820px) {
+  .automations-board {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  /* Doubled up: the rail's own rule comes later in the file. */
+  .automations-board > .automations-rail {
+    display: none;
+  }
+
+  .automations-filter-narrow {
+    display: contents;
+  }
+}
+
+/* The rail: it stays in view while the runs scroll past. */
+.automations-rail {
+  position: sticky;
+  top: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.automations-rail-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.automations-runs-named {
-  grid-template-columns: 7px fit-content(16rem) max-content minmax(0, 1fr) max-content max-content;
+.automations-rail-label {
+  margin: var(--space-3) 0 var(--space-1);
+  padding: 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
 }
 
-.automations-run,
-.automations-run-row {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: subgrid;
-}
-
-.automations-run-row {
-  align-items: baseline;
-  padding: 6px var(--space-2);
+.automations-rail-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: 30px;
+  padding: 0 var(--space-2);
   border: none;
-  border-radius: var(--radius-sm);
+  border-radius: var(--radius-md);
   background: transparent;
+  font: inherit;
   font-size: var(--font-size-md);
   text-align: left;
   color: var(--color-text-secondary);
   cursor: pointer;
+  transition:
+    background-color 120ms ease,
+    color 120ms ease;
 }
 
-.automations-run-row:hover {
+.automations-rail-item:hover {
   background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.automations-rail-item[aria-current='true'] {
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+  font-weight: var(--font-weight-medium);
+}
+
+.automations-rail-item:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
+.automations-rail-all svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.automations-rail-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-rail-count {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+/* An automation with nothing in the month: a ring, not a status. */
+.automations-dot-none {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-border-hover);
+}
+
+.automations-overview-scope {
+  margin-left: var(--space-2);
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-normal);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-secondary);
+}
+
+/* Something is running: the list says so, and that it keeps itself up to date. */
+.automations-live {
+  display: inline-flex;
+  align-self: center;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-info) 14%, transparent);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-info);
+}
+
+.automations-live-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: status-dot-pulse 1.5s ease-in-out infinite;
+}
+
+/* Runs by day: a heading per day, then the day's runs in one bordered list. */
+.automations-run-days {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.automations-run-day-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.automations-run-day-count {
+  font-weight: var(--font-weight-normal);
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--color-text-tertiary);
 }
 
 /* The run the side panel is showing. */
-.automations-run-row[aria-current='true'] {
+.automations-run-item[aria-current='true'] {
   background: var(--color-bg-active);
 }
 
-.automations-run-row:focus-visible {
-  outline: 1px solid var(--color-accent);
-  outline-offset: -1px;
+.automations-run-item-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
 }
 
 /* A run that landed while the list was showing: a brief wash, so the eye finds it. */
@@ -636,35 +816,13 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .automations-run-arrived {
+  .automations-run-arrived,
+  .automations-live-dot {
     animation: none;
   }
 }
 
-/* The dot sits nearer its name than the column gap would put it. */
-.automations-run-row .automations-dot {
-  align-self: center;
-  margin-right: calc(var(--space-1) * -1);
-}
-
-.automations-run-name,
-.automations-run-about {
-  min-width: 0;
-  overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.automations-run-name {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-}
-
-.automations-run-status {
-  white-space: nowrap;
-  color: var(--color-text-tertiary);
-}
-
+/* A run's status word, in its dot's colour (a run's facts). */
 .automations-run-status-running {
   color: var(--color-info);
 }
@@ -675,32 +833,6 @@
 
 .automations-run-status-needs-approval {
   color: var(--color-warning);
-}
-
-.automations-run-trigger,
-.automations-run-when {
-  white-space: nowrap;
-  color: var(--color-text-tertiary);
-}
-
-.automations-run-when {
-  font-variant-numeric: tabular-nums;
-  text-align: right;
-}
-
-/* Narrow: the trigger is the first to go; the run's details still say it. */
-@container automations-runs (max-width: 760px) {
-  .automations-runs {
-    grid-template-columns: 7px max-content minmax(0, 1fr) max-content;
-  }
-
-  .automations-runs-named {
-    grid-template-columns: 7px fit-content(10rem) max-content minmax(0, 1fr) max-content;
-  }
-
-  .automations-run-trigger {
-    display: none;
-  }
 }
 
 .automations-empty-state {

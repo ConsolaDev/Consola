@@ -172,7 +172,7 @@ automations:
     // kept one is not even reconsidered.
     await pending.getByRole('button', { name: 'Approve' }).click();
     await expect(pending).toContainText('Removed 1 session.', { timeout: 30_000 });
-    await expect(dashboard.locator('.automations-run-row').first()).toContainText('completed');
+    await expect(dashboard.locator('.automations-run-item').first()).toContainText('Completed');
 
     const remaining = await page.evaluate(async () => {
       const { workspaces } = await window.workspaceAPI.getSnapshot();
@@ -361,8 +361,8 @@ automations:
     expect(first).toContain(' -- This session was started by the automation "review-requests" for pull request #2');
 
     // The turn printed its findings and exited: the run is completed.
-    const row = dashboard.locator('.automations-run-row', { hasText: 'Add retries #2' }).first();
-    await expect(row).toContainText('completed', { timeout: 30_000 });
+    const row = dashboard.locator('.automations-run-item', { hasText: 'Add retries #2' }).first();
+    await expect(row).toContainText('Completed', { timeout: 30_000 });
 
     const sessions = await page.evaluate(async () => {
       const { workspaces } = await window.workspaceAPI.getSnapshot();

@@ -1,21 +1,26 @@
-import { useEffect, useId, useRef } from 'react';
-import { AlertTriangle, Search } from 'lucide-react';
+import { useEffect, useId, useRef, type KeyboardEvent } from 'react';
+import { AlertTriangle, Hand, Layers, Search } from 'lucide-react';
 import type { AutomationsSnapshot, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { isLookedAt } from '../../utils/windowAttention';
-import { AutomationFilterMenu, RunRow, useArrivals, useIntent } from './parts';
+import { AutomationInsights } from './AutomationInsights';
+import { AutomationFilterMenu, RunItem, StatusDot, useArrivals, useIntent, useNow } from './parts';
 import { GetStarted } from './TemplatesTab';
 import {
-  activityCounts,
   filterRuns,
+  formatAgo,
   formatTime,
+  groupRunsByDay,
   isRunFilterNarrowed,
+  latestRun,
   NO_RUN_FILTER,
   runAutomationOptions,
+  runInsights,
+  runKindCounts,
   runTitle,
-  triggerLabel,
+  triggerInWords,
   type RunAutomationOption,
   type RunFilter,
   type RunListFilter,
@@ -34,14 +39,14 @@ function markSeen(workspaceId: string): void {
 }
 
 /**
- * What the workspace's automations have been doing: problems with the file,
- * the counts, what waits for the person, then every run of the last 30 days.
- * Looking at it is what the sidebar's "failed since you last looked" counts
- * from. Everything a run says — summaries, item titles — is other people's
- * text, shown as text.
+ * What the workspace's automations have been doing, laid out as GitHub
+ * Actions lays out a repository's runs: the automations down the left as
+ * a filter, and beside them what waits for the person, how the last 30
+ * days went, and every run, by day. Looking at it is what the sidebar's
+ * "failed since you last looked" counts from. Everything a run says —
+ * summaries, item titles — is other people's text, shown as text.
  */
 export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
-  const openPanel = useAutomationsStore((state) => state.openPanel);
   const { busy, error, act } = useIntent();
 
   // Opening Activity is looking at it. After that, a run that changes counts
@@ -69,11 +74,14 @@ export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; sna
   }, [workspace.id]);
 
   const isEmpty = snapshot.automations.length === 0 && snapshot.runs.length === 0;
-  const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval');
 
   return (
     <div className="automations-activity">
-      {error && <div className="automations-error" role="alert">{error}</div>}
+      {error && (
+        <div className="automations-error" role="alert">
+          {error}
+        </div>
+      )}
 
       {snapshot.issues.length > 0 && (
         <div className="automations-issues" role="status">
@@ -116,118 +124,226 @@ export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; sna
       {isEmpty ? (
         <GetStarted workspace={workspace} snapshot={snapshot} />
       ) : (
-        <>
-          <Counts snapshot={snapshot} />
-          {waiting.length > 0 && (
-            <WaitingForYou runs={waiting} onReview={(runId) => openPanel({ kind: 'run', runId })} />
-          )}
-          <RunList snapshot={snapshot} workspaceId={workspace.id} />
-        </>
+        <ActivityBoard workspaceId={workspace.id} snapshot={snapshot} />
       )}
     </div>
   );
 }
 
-function Counts({ snapshot }: { snapshot: AutomationsSnapshot }) {
-  const counts = activityCounts(snapshot, new Date());
+/**
+ * The rail and the column beside it. One filter, kept in the store per
+ * workspace, drives both: the rail and the narrow layout's menu choose the
+ * automation, the column's buttons and search narrow the runs further.
+ */
+function ActivityBoard({ workspaceId, snapshot }: { workspaceId: string; snapshot: AutomationsSnapshot }) {
+  const filter = useAutomationsStore((state) => state.runFilters[workspaceId] ?? NO_RUN_FILTER);
+  const setRunFilter = useAutomationsStore((state) => state.setRunFilter);
+  const openPanel = useAutomationsStore((state) => state.openPanel);
+  const overviewHeading = useId();
+  // A running run's duration counts in seconds; the rest needs only the minute.
+  const now = useNow(snapshot.runs.some((run) => run.status === 'running') ? 1000 : 30_000);
+  const history = filterRuns(snapshot.runs, NO_RUN_FILTER, now);
+  const options = runAutomationOptions(snapshot, history, filter.automation);
+  const chosen = options.find((option) => option.id === filter.automation);
+  // The month of the automation chosen, whatever the kind or search: a rate of "Failed" runs says nothing.
+  const overview = filterRuns(snapshot.runs, { ...NO_RUN_FILTER, automation: filter.automation }, now);
+  const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval');
+  const change = (next: Partial<RunListFilter>) => setRunFilter(workspaceId, next);
+  const openRun = (runId: string) => openPanel({ kind: 'run', runId });
+
   return (
-    <ul className="automations-counts" aria-label="At a glance">
-      <Count
-        value={counts.automations}
-        label={counts.automations === 1 ? 'automation' : 'automations'}
-        detail={counts.onEvents > 0 ? `${counts.onEvents} on events` : undefined}
+    <div className="automations-board">
+      <AutomationRail
+        options={options}
+        history={history}
+        now={now}
+        value={filter.automation}
+        onChange={(automation) => change({ automation })}
       />
-      <Count value={counts.waiting} label="waiting for you" tone={counts.waiting > 0 ? 'waiting' : undefined} />
-      <Count
-        value={counts.running}
-        label="running"
-        detail={counts.queued > 0 ? `${counts.queued} queued` : undefined}
-      />
-      <Count value={counts.ranThisWeek} label={counts.ranThisWeek === 1 ? 'run in 7 days' : 'runs in 7 days'} />
-      <Count
-        value={counts.failedThisWeek}
-        label="failed in 7 days"
-        tone={counts.failedThisWeek > 0 ? 'failed' : undefined}
-      />
-    </ul>
+      <div className="automations-board-main">
+        {waiting.length > 0 && <WaitingForYou runs={waiting} now={now} onReview={openRun} />}
+        {overview.length > 0 && (
+          <section className="automations-detail-section" aria-labelledby={overviewHeading}>
+            <div className="automations-detail-section-head">
+              <h2 id={overviewHeading} className="automations-section-title">
+                Last 30 days
+                {chosen && <span className="automations-overview-scope">{chosen.label}</span>}
+              </h2>
+            </div>
+            <AutomationInsights insights={runInsights(overview)} runs={overview} now={now} onOpenRun={openRun} />
+          </section>
+        )}
+        <RunList
+          snapshot={snapshot}
+          filter={filter}
+          options={options}
+          history={history}
+          now={now}
+          onChange={change}
+        />
+      </div>
+    </div>
   );
 }
 
-function Count({
+/**
+ * The automations as GitHub Actions lists a repository's workflows: "All"
+ * first, then each entry of factory.yml with how its latest run went and
+ * how many it has, then anything else with runs — an entry since removed,
+ * an agent's request. Choosing one narrows everything beside it; choosing
+ * it again goes back to all.
+ */
+function AutomationRail({
+  options,
+  history,
+  now,
   value,
-  label,
-  detail,
-  tone,
+  onChange,
 }: {
-  value: number;
-  label: string;
-  detail?: string;
-  tone?: 'waiting' | 'failed';
+  options: RunAutomationOption[];
+  history: RunListEntry[];
+  now: Date;
+  value: string | null;
+  onChange: (automation: string | null) => void;
 }) {
+  const inFile = options.filter((option) => option.inFile);
+  const others = options.filter((option) => !option.inFile);
+  const item = (option: RunAutomationOption) => {
+    const latest = latestRun(
+      history.filter((run) => run.automationId === option.id).reverse(),
+      now,
+    );
+    const selected = value === option.id;
+    return (
+      <li key={option.id}>
+        <button
+          type="button"
+          className="automations-rail-item"
+          aria-current={selected ? 'true' : undefined}
+          title={latest ? `Last run: ${latest.label.toLowerCase()} ${latest.detail}` : 'No runs in the last 30 days'}
+          onClick={() => onChange(selected ? null : option.id)}
+        >
+          {latest ? (
+            <StatusDot status={latest.tone} />
+          ) : (
+            <span className="automations-dot automations-dot-none" aria-hidden="true" />
+          )}
+          <span className="automations-rail-name">{option.label}</span>
+          <span className="automations-rail-count">{option.count}</span>
+        </button>
+      </li>
+    );
+  };
   return (
-    <li className={`automations-count ${tone ? `automations-count-${tone}` : ''}`}>
-      <span className="automations-count-value">{value}</span>
-      <span className="automations-count-label">
-        {label}
-        {detail ? <span className="automations-count-detail"> · {detail}</span> : null}
-      </span>
-    </li>
+    <nav className="automations-rail" aria-label="Filter by automation">
+      <button
+        type="button"
+        className="automations-rail-item automations-rail-all"
+        aria-current={value === null ? 'true' : undefined}
+        onClick={() => onChange(null)}
+      >
+        <Layers size={13} aria-hidden="true" />
+        <span className="automations-rail-name">All automations</span>
+        <span className="automations-rail-count">{history.length}</span>
+      </button>
+      {inFile.length > 0 && (
+        <>
+          <div className="automations-rail-label">In factory.yml</div>
+          <ul className="automations-rail-list">{inFile.map(item)}</ul>
+        </>
+      )}
+      {others.length > 0 && (
+        <>
+          <div className="automations-rail-label">Other runs</div>
+          <ul className="automations-rail-list">{others.map(item)}</ul>
+        </>
+      )}
+    </nav>
   );
 }
 
-/** Every run waiting for a person, plans and agents' requests alike, each opening its details. */
-function WaitingForYou({ runs, onReview }: { runs: RunListEntry[]; onReview: (runId: string) => void }) {
+/**
+ * Every run waiting for a person, plans and agents' requests alike, as
+ * CircleCI holds a workflow at an approval: amber, first, each with its
+ * Review.
+ */
+function WaitingForYou({ runs, now, onReview }: { runs: RunListEntry[]; now: Date; onReview: (runId: string) => void }) {
   const headingId = useId();
   return (
-    <section className="automations-section" aria-labelledby={headingId}>
-      <h2 id={headingId} className="automations-section-title">
+    <section className="automations-waiting" aria-labelledby={headingId}>
+      <h2 id={headingId} className="automations-waiting-title">
+        <Hand size={14} aria-hidden="true" />
         Waiting for you
+        <span className="automations-waiting-count" aria-hidden="true">
+          {runs.length}
+        </span>
       </h2>
-      {runs.map((run) => (
-        <div key={run.id} className="automations-waiting-card">
-          <div className="automations-waiting-text">
-            <div className="automations-card-heading">
-              <span className="automations-name">{runTitle(run)}</span>
-              <span className="automations-meta">
-                {triggerLabel(run)} · {formatTime(run.createdAt)}
-              </span>
+      <ul className="automations-waiting-list">
+        {runs.map((run) => (
+          <li key={run.id} className="automations-waiting-card">
+            <div className="automations-waiting-text">
+              <span className="automations-waiting-name">{runTitle(run)}</span>
+              {run.summary && <span className="automations-waiting-summary">{run.summary}</span>}
             </div>
-            {run.summary && <p className="automations-summary">{run.summary}</p>}
-          </div>
-          <button
-            type="button"
-            className="dialog-button-primary automations-small-button"
-            onClick={() => onReview(run.id)}
-          >
-            Review…
-          </button>
-        </div>
-      ))}
+            <span className="automations-waiting-when" title={formatTime(run.createdAt)}>
+              {triggerInWords(run)} · {formatAgo(run.createdAt, now)}
+            </span>
+            <button
+              type="button"
+              className="dialog-button-primary automations-small-button"
+              onClick={() => onReview(run.id)}
+            >
+              Review…
+            </button>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
 
 /**
- * The last 30 days of runs, newest first: searchable, and narrowed by kind
- * and by automation. The filter lives in the store, per workspace, so an
- * automation's details can open this list already narrowed to it.
+ * The last 30 days of runs, newest first and split by day: searchable,
+ * narrowed by kind (each kind saying how many it would show) and by the
+ * automation the rail chose. ↑ and ↓ move between runs; Enter opens one.
  */
-function RunList({ snapshot, workspaceId }: { snapshot: AutomationsSnapshot; workspaceId: string }) {
+function RunList({
+  snapshot,
+  filter,
+  options,
+  history,
+  now,
+  onChange,
+}: {
+  snapshot: AutomationsSnapshot;
+  filter: RunListFilter;
+  options: RunAutomationOption[];
+  history: RunListEntry[];
+  now: Date;
+  onChange: (next: Partial<RunListFilter>) => void;
+}) {
   const headingId = useId();
-  const filter = useAutomationsStore((state) => state.runFilters[workspaceId] ?? NO_RUN_FILTER);
-  const setRunFilter = useAutomationsStore((state) => state.setRunFilter);
+  const listRef = useRef<HTMLDivElement>(null);
   const openPanel = useAutomationsStore((state) => state.openPanel);
   const openRunId = useAutomationsStore((state) => (state.panel?.kind === 'run' ? state.panel.runId : null));
   const arrivals = useArrivals(snapshot.runs);
-  const now = new Date();
-  const history = filterRuns(snapshot.runs, NO_RUN_FILTER, now);
   const runs = filterRuns(snapshot.runs, filter, now);
-  const options = runAutomationOptions(snapshot, history, filter.automation);
+  const kindCounts = runKindCounts(snapshot.runs, filter, now);
   const narrowed = isRunFilterNarrowed(filter);
-  const change = (next: Partial<RunListFilter>) => setRunFilter(workspaceId, next);
+  const running = history.filter((run) => run.status === 'running').length;
+  const queued = history.filter((run) => run.status === 'queued').length;
+
+  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
+    const items = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('.automations-run-item') ?? []);
+    const index = items.findIndex((item) => item === document.activeElement);
+    if (index === -1) return;
+    event.preventDefault();
+    items[Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+  };
 
   return (
-    <section className="automations-section automations-runs-section" aria-labelledby={headingId}>
+    <section className="automations-detail-section automations-activity-runs" aria-labelledby={headingId}>
       <div className="automations-runs-toolbar">
         <div className="automations-runs-heading">
           <h2 id={headingId} className="automations-section-title">
@@ -236,12 +352,19 @@ function RunList({ snapshot, workspaceId }: { snapshot: AutomationsSnapshot; wor
           <span className="automations-runs-count" aria-live="polite">
             {narrowed ? `${runs.length} of ${history.length}` : history.length}
           </span>
+          {running + queued > 0 && (
+            <span className="automations-live" title="Updates as runs start and finish">
+              <span className="automations-live-dot" aria-hidden="true" />
+              {[running > 0 ? `${running} running` : null, queued > 0 ? `${queued} queued` : null]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          )}
         </div>
-        <AutomationFilterMenu
-          options={options}
-          value={filter.automation}
-          onChange={(automation) => change({ automation })}
-        />
+        {/* The rail's job where there is no room for the rail. */}
+        <div className="automations-filter-narrow">
+          <AutomationFilterMenu options={options} value={filter.automation} onChange={(automation) => onChange({ automation })} />
+        </div>
         <div className="automations-segmented" role="group" aria-label="Filter runs">
           {FILTERS.map(({ id, label }) => (
             <button
@@ -249,9 +372,10 @@ function RunList({ snapshot, workspaceId }: { snapshot: AutomationsSnapshot; wor
               type="button"
               className={`automations-segment ${filter.kind === id ? 'active' : ''}`}
               aria-pressed={filter.kind === id}
-              onClick={() => change({ kind: id })}
+              onClick={() => onChange({ kind: id })}
             >
               {label}
+              <span className="automations-segment-count">{kindCounts[id]}</span>
             </button>
           ))}
         </div>
@@ -262,37 +386,58 @@ function RunList({ snapshot, workspaceId }: { snapshot: AutomationsSnapshot; wor
             placeholder="Search runs"
             aria-label="Search runs"
             value={filter.query}
-            onChange={(event) => change({ query: event.target.value })}
+            onChange={(event) => onChange({ query: event.target.value })}
           />
         </label>
       </div>
       {runs.length > 0 ? (
-        <ul className="automations-runs automations-runs-named">
-          {runs.map((run) => (
-            <RunRow
-              key={run.id}
-              run={run}
-              now={now}
-              showName
-              place={snapshot.queue[run.id]}
-              selected={run.id === openRunId}
-              arrived={arrivals.has(run.id)}
-              onOpen={() => openPanel({ kind: 'run', runId: run.id })}
-            />
+        <div ref={listRef} className="automations-run-days" onKeyDown={onKeyDown}>
+          {groupRunsByDay(runs, now).map((group) => (
+            <div key={group.key} className="automations-run-day">
+              <h3 className="automations-run-day-head">
+                {group.label}
+                <span className="automations-run-day-count">
+                  {group.runs.length} {group.runs.length === 1 ? 'run' : 'runs'}
+                </span>
+              </h3>
+              <ul className="automations-run-list">
+                {group.runs.map((run) => (
+                  <RunItem
+                    key={run.id}
+                    run={run}
+                    now={now}
+                    place={snapshot.queue[run.id]}
+                    showName
+                    when="time"
+                    selected={run.id === openRunId}
+                    arrived={arrivals.has(run.id)}
+                    onOpen={() => openPanel({ kind: 'run', runId: run.id })}
+                  />
+                ))}
+              </ul>
+            </div>
           ))}
-        </ul>
+        </div>
       ) : (
-        <p className="automations-hint">
-          {emptyRunsMessage(filter, options, history.length)}
-          {narrowed && (
-            <>
-              {' '}
-              <button type="button" className="automations-link-button" onClick={() => change(NO_RUN_FILTER)}>
-                Clear filters
-              </button>
-            </>
-          )}
-        </p>
+        <div className="automations-runs-empty">
+          <Search size={16} className="automations-status-icon" aria-hidden="true" />
+          <div>
+            <strong>{emptyRunsMessage(filter, options, history.length)}</strong>
+            <p>
+              {narrowed ? (
+                <button
+                  type="button"
+                  className="automations-link-button"
+                  onClick={() => onChange(NO_RUN_FILTER)}
+                >
+                  Clear filters
+                </button>
+              ) : (
+                'Runs show here as automations fire, and as you press Run now.'
+              )}
+            </p>
+          </div>
+        </div>
       )}
     </section>
   );

@@ -1,36 +1,19 @@
 import { useEffect, useId, useState } from 'react';
-import {
-  AlertTriangle,
-  ArrowRight,
-  Bot,
-  CalendarDays,
-  ChevronRight,
-  CircleDashed,
-  FileCode,
-  Hand,
-  Timer,
-  Workflow,
-} from 'lucide-react';
+import { AlertTriangle, ArrowRight, Bot, CircleDashed, FileCode, Hand, Workflow } from 'lucide-react';
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { AutomationInsights } from './AutomationInsights';
 import { EntrySource, PipelineGraph } from './AutomationPipeline';
-import { RunNowButton, StatusIcon, useArrivals, useArrivedOnMount, useIntent, useNow } from './parts';
+import { RunItem, RunNowButton, StatusIcon, useArrivals, useIntent, useNow } from './parts';
 import {
   filterRuns,
-  formatAgo,
   formatCountdown,
   formatDueAt,
-  formatDuration,
-  formatTime,
   latestRun,
   NO_RUN_FILTER,
-  runAbout,
   runInsights,
-  statusLabel,
-  triggerInWords,
   type LatestRun,
   type RunInsights,
 } from './presentation';
@@ -274,75 +257,6 @@ function LeadState({
         </p>
       </div>
     </div>
-  );
-}
-
-/**
- * One run as GitHub Actions lists a workflow's: what it did on top, how it
- * ended and what fired it under that, when and how long on the right. A
- * run that lands while the list shows washes in once.
- */
-function RunItem({
-  run,
-  now,
-  place,
-  arrived,
-  onOpen,
-}: {
-  run: RunListEntry;
-  now: Date;
-  place?: number;
-  arrived: boolean;
-  onOpen: () => void;
-}) {
-  const washed = useArrivedOnMount(arrived);
-  const about = runAbout(run);
-  const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
-  // With nothing to say about itself, a run's "about" is its status: the title says that instead.
-  const title = about !== run.status ? about : status;
-  const worked = run.status === 'completed' || run.status === 'failed' || run.status === 'running';
-  const duration = worked ? formatDuration(run, now) : null;
-  const fired = triggerInWords(run);
-  const when = formatTime(run.createdAt);
-  return (
-    <li>
-      <button
-        type="button"
-        className={`automations-run-item ${washed ? 'automations-run-arrived' : ''}`}
-        // The cells are laid out apart, so their text has no separators of its own to read out.
-        aria-label={[status, title !== status ? title : null, fired, when, duration ? `took ${duration}` : null]
-          .filter(Boolean)
-          .join(', ')}
-        onClick={onOpen}
-      >
-        <StatusIcon status={run.status} />
-        <span className="automations-run-item-main">
-          <span className="automations-run-item-title">{title}</span>
-          <span className="automations-run-item-meta">
-            {title !== status && (
-              <>
-                <span className={`automations-tone-${run.status}`}>{status}</span>
-                {' · '}
-              </>
-            )}
-            {fired}
-          </span>
-        </span>
-        <span className="automations-run-item-side">
-          <time dateTime={run.createdAt} title={when}>
-            <CalendarDays size={12} aria-hidden="true" />
-            {formatAgo(run.createdAt, now)}
-          </time>
-          {duration && (
-            <span>
-              <Timer size={12} aria-hidden="true" />
-              {duration}
-            </span>
-          )}
-        </span>
-        <ChevronRight size={14} className="automations-run-item-chevron" aria-hidden="true" />
-      </button>
-    </li>
   );
 }
 

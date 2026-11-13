@@ -147,6 +147,53 @@ export function isRunFilterNarrowed(filter: RunListFilter): boolean {
     return filter.query.trim() !== '' || filter.kind !== 'all' || filter.automation !== null;
 }
 
+/**
+ * How many runs each kind would list with the rest of the filter as it is,
+ * so the kind buttons can say so ("Failed 2") before they are pressed.
+ */
+export function runKindCounts(runs: RunListEntry[], filter: RunListFilter, now: Date): Record<RunFilter, number> {
+    const count = (kind: RunFilter) => filterRuns(runs, { ...filter, kind }, now).length;
+    return { all: count('all'), agent: count('agent'), tool: count('tool'), failed: count('failed') };
+}
+
+/** A local calendar day of a run list, as its heading says it, with its runs in the list's order. */
+export interface RunDayGroup<T extends RunFacts = RunFacts> {
+    key: string;
+    label: string;
+    runs: T[];
+}
+
+/**
+ * A run list (newest first) split by the local day each run started:
+ * "Today", "Yesterday", the weekday and date within the week, else the
+ * date. Each row then needs only its time of day.
+ */
+export function groupRunsByDay<T extends RunFacts>(runs: T[], now: Date): Array<RunDayGroup<T>> {
+    const groups: Array<RunDayGroup<T>> = [];
+    for (const run of runs) {
+        const at = new Date(run.createdAt);
+        const key = Number.isNaN(at.getTime()) ? 'unknown' : `${at.getFullYear()}-${at.getMonth()}-${at.getDate()}`;
+        const last = groups[groups.length - 1];
+        if (last?.key === key) last.runs.push(run);
+        else groups.push({ key, label: dayLabel(at, now), runs: [run] });
+    }
+    return groups;
+}
+
+function dayLabel(at: Date, now: Date): string {
+    if (Number.isNaN(at.getTime())) return 'Unknown day';
+    const days = calendarDaysBefore(at, now);
+    if (days === 0) return 'Today';
+    if (days === 1) return 'Yesterday';
+    const date = at.toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        ...(at.getFullYear() === now.getFullYear() ? {} : { year: 'numeric' }),
+    });
+    if (days > 1 && days < 7) return `${at.toLocaleDateString(undefined, { weekday: 'long' })}, ${date}`;
+    return date;
+}
+
 /** Waiting for a person or a slot, or working: history never drops these, so neither does the list. */
 const LIVE_STATUSES: ReadonlySet<RunFacts['status']> = new Set(['needs-approval', 'queued', 'running']);
 
@@ -633,31 +680,6 @@ function endedAt(run: RunFacts): number {
     return Date.parse(run.finishedAt ?? run.updatedAt ?? run.createdAt);
 }
 
-export function activityCounts(
-    snapshot: AutomationsSnapshot,
-    now: Date,
-): {
-    automations: number;
-    onEvents: number;
-    waiting: number;
-    running: number;
-    queued: number;
-    ranThisWeek: number;
-    failedThisWeek: number;
-} {
-    const weekAgo = now.getTime() - 7 * DAY_MS;
-    const count = (predicate: (run: RunListEntry) => boolean) => snapshot.runs.filter(predicate).length;
-    const thisWeek = (run: RunListEntry) => endedAt(run) >= weekAgo;
-    return {
-        automations: snapshot.automations.length,
-        onEvents: snapshot.automations.filter((automation) => automation.onEvent).length,
-        waiting: count((run) => run.status === 'needs-approval'),
-        running: count((run) => run.status === 'running'),
-        queued: count((run) => run.status === 'queued'),
-        ranThisWeek: count((run) => (run.status === 'completed' || run.status === 'failed') && thisWeek(run)),
-        failedThisWeek: count((run) => run.status === 'failed' && thisWeek(run)),
-    };
-}
 
 /**
  * What a workspace's Automations row says in the sidebar, strongest first:

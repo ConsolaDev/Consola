@@ -2,6 +2,7 @@ import { useEffect, useId, useRef } from 'react';
 import { ExternalLink, Plus, Zap } from 'lucide-react';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore, type AutomationsTab } from '../../stores/automationsStore';
+import type { AutomationsSnapshot } from '../../../shared/automations';
 import type { Workspace } from '../../stores/workspaceStore';
 import { ActivityTab } from './ActivityTab';
 import { AutomationsTab as AutomationsList } from './AutomationsTab';
@@ -125,6 +126,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
             onKeyDown={(event) => handleTabKey(event, index)}
           >
             {label}
+            <TabBadge tab={id} snapshot={snapshot} />
           </button>
         ))}
       </div>
@@ -145,4 +147,26 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
       </div>
     </section>
   );
+}
+
+/**
+ * What a tab holds, as GitHub counts "Pull requests 12": the runs waiting
+ * for you on Activity, in amber, so they are seen from the other tabs; how
+ * many automations the file has. Nothing for a count of nothing.
+ */
+function TabBadge({ tab, snapshot }: { tab: AutomationsTab; snapshot: AutomationsSnapshot | undefined }) {
+  if (!snapshot) return null;
+  if (tab === 'activity') {
+    const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval').length;
+    if (waiting === 0) return null;
+    return (
+      <span className="automations-tab-badge automations-tab-badge-waiting" title={`${waiting} waiting for you`}>
+        {waiting}
+      </span>
+    );
+  }
+  if (tab === 'automations' && snapshot.automations.length > 0) {
+    return <span className="automations-tab-badge">{snapshot.automations.length}</span>;
+  }
+  return null;
 }

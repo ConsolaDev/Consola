@@ -287,7 +287,7 @@ test('a run waiting for the person shows on the row and at the top of Activity',
     await expect(waiting.getByRole('button', { name: 'Review…' })).toBeVisible();
 
     // The run list has it too, waiting.
-    await expect(dashboard.locator('.automations-run-row', { hasText: 'catalog-check' })).toHaveCount(1);
+    await expect(dashboard.locator('.automations-run-item', { hasText: 'catalog-check' })).toHaveCount(1);
     // Nothing has started: confirm mode waits for the person.
     expect(fs.existsSync(sprocket.launches)).toBe(false);
   } finally {
@@ -387,13 +387,13 @@ test('a finished run shows its conversation without starting anything', async ()
     await expect(dashboard).toBeVisible();
 
     // Reopening reads it again, and still starts nothing.
-    await dashboard.locator('.automations-run-row', { hasText: 'catalog-check' }).click();
+    await dashboard.locator('.automations-run-item', { hasText: 'catalog-check' }).click();
     await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
     await panel.getByRole('button', { name: 'Close' }).click();
     await expect(panel).toHaveCount(0);
 
     // Escape closes it from anywhere on the dashboard, not only from inside it.
-    await dashboard.locator('.automations-run-row', { hasText: 'catalog-check' }).click();
+    await dashboard.locator('.automations-run-item', { hasText: 'catalog-check' }).click();
     await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
     await dashboard.locator('.automations-title').click();
     await expect.poll(() => panel.evaluate((element) => element.contains(document.activeElement))).toBe(false);
@@ -510,7 +510,7 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     await expect(again.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({ timeout: 30_000 });
     await expect(automationsRow(page)).toHaveAttribute('aria-current', 'page');
     // The earlier run, read back from the workspace's history.
-    const row = again.locator('.automations-run-row', { hasText: 'catalog-check' });
+    const row = again.locator('.automations-run-item', { hasText: 'catalog-check' });
     await expect(row).toHaveCount(1);
     await row.click();
     const panel = sidePanel(page);

@@ -1,8 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
+  CalendarDays,
   Check,
   ChevronDown,
+  ChevronRight,
   CircleCheck,
   CircleSlash,
   CircleX,
@@ -11,18 +13,20 @@ import {
   LoaderCircle,
   Play,
   RefreshCw,
+  Timer,
   type LucideIcon,
 } from 'lucide-react';
 import type { AgentRunPreview, AutomationView, RunListEntry, RunRecord } from '../../../shared/automations';
 import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import {
-  formatRunWhen,
+  formatAgo,
+  formatDuration,
   formatTime,
   runAbout,
   runTitle,
-  statusWord,
-  triggerLabel,
+  statusLabel,
+  triggerInWords,
   type RunAutomationOption,
   type RunFacts,
 } from './presentation';
@@ -57,55 +61,89 @@ export function StatusIcon({ status, size = 16 }: { status: RunFacts['status']; 
 }
 
 /**
- * One run as a row of a run list, its cells laid on the list's columns
- * (`.automations-runs`) so status, about, trigger and time line up down the
- * list. `showName` where the list mixes automations; a queued run says its
- * place in line when it has one. `arrived` washes a run that landed while
- * the list was showing, once.
+ * One run as GitHub Actions lists a workflow's: what it did on top; under
+ * it, which automation (where the list mixes them), how it ended and what
+ * fired it; when and how long on the right. `when` is how long ago, or the
+ * time of day where the list is already grouped by day. A queued run says
+ * its place in line; one that lands while the list shows washes in once.
  */
-export function RunRow({
+export function RunItem({
   run,
   now,
-  showName = false,
   place,
-  selected = false,
   arrived = false,
+  selected = false,
+  showName = false,
+  when = 'ago',
   onOpen,
 }: {
   run: RunListEntry;
   now: Date;
-  showName?: boolean;
   place?: number;
-  selected?: boolean;
   arrived?: boolean;
+  selected?: boolean;
+  showName?: boolean;
+  when?: 'ago' | 'time';
   onOpen: () => void;
 }) {
   const washed = useArrivedOnMount(arrived);
   const about = runAbout(run);
-  const status = `${statusWord(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
-  // With nothing to say about itself, a run's "about" is its status, already shown.
-  const aboutText = about !== run.status ? about : '';
-  const when = formatTime(run.createdAt);
+  const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
+  // With nothing to say about itself, a run's "about" is its status: the title says that instead.
+  const title = about !== run.status ? about : status;
+  const worked = run.status === 'completed' || run.status === 'failed' || run.status === 'running';
+  const duration = worked ? formatDuration(run, now) : null;
+  const fired = triggerInWords(run);
+  const name = showName ? runTitle(run) : null;
+  const full = formatTime(run.createdAt);
+  const at =
+    when === 'time'
+      ? new Date(run.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+      : formatAgo(run.createdAt, now);
   return (
-    <li className="automations-run">
+    <li>
       <button
         type="button"
-        className={`automations-run-row ${washed ? 'automations-run-arrived' : ''}`}
+        className={`automations-run-item ${washed ? 'automations-run-arrived' : ''}`}
         aria-current={selected ? 'true' : undefined}
-        // The cells are a grid, so their text has no separators of its own to read out.
-        aria-label={[showName ? runTitle(run) : null, status, aboutText || null, triggerLabel(run), when]
+        // The cells are laid out apart, so their text has no separators of its own to read out.
+        aria-label={[name, status, title !== status ? title : null, fired, full, duration ? `took ${duration}` : null]
           .filter(Boolean)
           .join(', ')}
         onClick={onOpen}
       >
-        <StatusDot status={run.status} />
-        {showName && <span className="automations-run-name">{runTitle(run)}</span>}
-        <span className={`automations-run-status automations-run-status-${run.status}`}>{status}</span>
-        <span className="automations-run-about">{aboutText}</span>
-        <span className="automations-run-trigger">{triggerLabel(run)}</span>
-        <time className="automations-run-when" dateTime={run.createdAt} title={when}>
-          {formatRunWhen(run.createdAt, now)}
-        </time>
+        <StatusIcon status={run.status} />
+        <span className="automations-run-item-main">
+          <span className="automations-run-item-title">{title}</span>
+          <span className="automations-run-item-meta">
+            {name && (
+              <>
+                <span className="automations-run-item-name">{name}</span>
+                {' · '}
+              </>
+            )}
+            {title !== status && (
+              <>
+                <span className={`automations-tone-${run.status}`}>{status}</span>
+                {' · '}
+              </>
+            )}
+            {fired}
+          </span>
+        </span>
+        <span className="automations-run-item-side">
+          <time dateTime={run.createdAt} title={full}>
+            <CalendarDays size={12} aria-hidden="true" />
+            {at}
+          </time>
+          {duration && (
+            <span>
+              <Timer size={12} aria-hidden="true" />
+              {duration}
+            </span>
+          )}
+        </span>
+        <ChevronRight size={14} className="automations-run-item-chevron" aria-hidden="true" />
       </button>
     </li>
   );
