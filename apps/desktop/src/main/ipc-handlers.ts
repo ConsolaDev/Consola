@@ -31,6 +31,8 @@ import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
 import { AssistantActivity } from './assistant/AssistantActivity';
+import { AssistantRequests } from './assistant/AssistantRequests';
+import { noticeTarget } from './automations/noticeTarget';
 import { AssistantService } from './assistant/AssistantService';
 import { AssistantTools } from './assistant/AssistantTools';
 import { ensureAssistantHome } from './assistant/assistantHome';
@@ -272,6 +274,13 @@ export function setupIpcHandlers(): boolean {
                 }
             }
         },
+    });
+    // What the person decided about the Assistant's own requests reaches it
+    // as a notice, however they decided: its tray, Settings, or a supersede.
+    const assistantRequests = new AssistantRequests({
+        getWorkspaces: () => workspaces.getAll(),
+        report: (assistantSessionId, text) => assistantActivity.report(assistantSessionId, text),
+        watch: (assistantSessionId, sessionId) => assistantActivity.watch(assistantSessionId, sessionId),
     });
     ipcMain.handle(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, (_event, workspaceId: string) =>
         assistantActivity.snapshot(String(workspaceId))
@@ -926,16 +935,18 @@ export function setupIpcHandlers(): boolean {
             if (!Notification.isSupported()) return;
             const notification = new Notification({ title: notice.title, body: notice.body });
             // Lands on what the notice is about: the session a run started,
-            // or else that workspace's Automations dashboard, in the window
-            // holding it.
-            notification.on('click', () =>
-                notice.sessionId
-                    ? focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId)
-                    : showAutomations(notice.workspaceId, notice.runId, viewMemoryPort())
-            );
+            // the Assistant for what it asked for (its tray holds it), or
+            // else that workspace's Automations dashboard with the run open,
+            // in the window holding it.
+            notification.on('click', () => {
+                const target = noticeTarget(notice, workspaces.getAll());
+                if (target.kind === 'session') focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
+                else showAutomations(notice.workspaceId, notice.runId, viewMemoryPort());
+            });
             notification.show();
         },
         broadcast: (workspaceId, snapshot) => {
+            assistantRequests.observe(workspaceId, snapshot.runs);
             const change: AutomationsChange = { workspaceId, snapshot };
             for (const window of BrowserWindow.getAllWindows()) {
                 if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, change);

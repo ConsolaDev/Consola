@@ -23,6 +23,23 @@ const APPROVAL_NOTE =
     ' Nothing is removed when you call this: Consola shows the plan to the person, and it runs only once ' +
     'they approve it there. The result is the plan waiting for them.';
 
+/** The Assistant's version: its requests wait in a tray beside it, and it is told what the person decided. */
+const ASSISTANT_APPROVAL_NOTE =
+    ' Nothing is removed when you call this: Consola shows the plan to the person in a panel beside your ' +
+    'conversation, and it runs only once they approve it there. When they decide, Consola tells you with a ' +
+    '[consola] line, so never ask them to report back.';
+
+/** Added to run_automation for the Assistant: a run that waits for approval waits in the same tray. */
+const ASSISTANT_RUN_NOTE =
+    ' A run that waits for approval waits in a panel beside your conversation. When the person decides, ' +
+    'Consola tells you with a [consola] line, so never ask them to report back.';
+
+function describeFor(tool: { name: string; description: string; destructive?: boolean }, assistant: boolean): string {
+    if (tool.destructive) return tool.description + (assistant ? ASSISTANT_APPROVAL_NOTE : APPROVAL_NOTE);
+    if (assistant && tool.name === 'run_automation') return tool.description + ASSISTANT_RUN_NOTE;
+    return tool.description;
+}
+
 /**
  * The MCP server one session sees, built fresh for each connection.
  *
@@ -34,7 +51,8 @@ const APPROVAL_NOTE =
  *
  * An agent never runs a destructive tool itself, whatever its CLI's
  * permission settings: the call becomes a plan waiting for the person in
- * Settings › Automations, and runs only when they approve it there.
+ * the Automations dashboard — and, for the Assistant, in the tray beside it —
+ * and runs only when they approve it there.
  */
 export function buildSessionServer(sessionId: string, deps: SessionServerDeps): McpServer {
     const server = new McpServer({ name: 'consola', version: '1.0.0' });
@@ -60,7 +78,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
         server.registerTool(
             mcpToolName(tool.name),
             {
-                description: tool.destructive ? tool.description + APPROVAL_NOTE : tool.description,
+                description: describeFor(tool, assistant),
                 inputSchema: tool.input,
                 // How the CLI should treat it when asking the person: a
                 // listing is safe to allow; a cleanup deletes things.
@@ -73,7 +91,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
             (args: unknown) =>
                 asToolResult(async () => {
                     if (tool.destructive) {
-                        return awaitingApproval(await deps.approvals.request(tool.name, args, sessionId));
+                        return awaitingApproval(await deps.approvals.request(tool.name, args, sessionId), assistant);
                     }
                     const context = agentContext(sessionId, deps.getWorkspaces());
                     return flatten(await deps.registry.invoke(tool.name, args, context));
@@ -88,12 +106,15 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
 }
 
 /** What an agent learns of its destructive call: the plan, and that the person decides. */
-function awaitingApproval({ preview, run }: { preview: ToolResult; run: RunRecord | null }) {
+function awaitingApproval({ preview, run }: { preview: ToolResult; run: RunRecord | null }, assistant: boolean) {
     if (!run) return flatten(preview); // Nothing to do, so nothing to approve.
+    const waiting = assistant
+        ? 'Waiting for the person in the panel beside your conversation; nothing has changed yet. Consola will tell you what they decide.'
+        : 'Waiting for the person to approve it in Consola; nothing has changed yet.';
     return {
         ...flatten({
             ...preview,
-            summary: `${preview.summary} Waiting for the person to approve it in Consola; nothing has changed yet.`,
+            summary: `${preview.summary} ${waiting}`,
         }),
         runId: run.id,
         status: run.status,

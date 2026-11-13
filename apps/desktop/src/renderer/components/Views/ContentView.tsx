@@ -1,4 +1,3 @@
-import { useShellStore } from '../../stores/shellStore';
 import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
@@ -13,16 +12,14 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { harnessBridge } from '../../services/harnessBridge';
 import { assistantBridge } from '../../services/assistantBridge';
 import { useAssistantStore } from '../../stores/assistantStore';
+import { useAssistantRequests } from '../../hooks/useAssistantRequests';
+import { AssistantTray } from '../AssistantTray/AssistantTray';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
 import { GitReviewPanel } from '../GitReviewPanel';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { WorkItemPanel } from '../WorkItemPanel';
-import { PathDisplay } from './PathDisplay';
-import { CheckoutChip } from './CheckoutChip';
-import { AssistantHeader } from './AssistantHeader';
-import { AssistantMarker } from './AssistantMarker';
-import { useCheckout } from '../../stores/checkoutStore';
+import { SessionHeader } from './SessionHeader';
 import { FileExplorer } from '../FileExplorer';
 import './styles.css';
 
@@ -36,7 +33,6 @@ const SESSION_NAME_POLL_MS = 5000;
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
-  const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
   const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
 
@@ -54,8 +50,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
 
   // Determine instanceId and cwd from workspace
   const instanceId = session?.instanceId ?? '';
-  const isTerminalVisible = useShellStore(state => state.open[instanceId] ?? false);
-  const toggleTerminal = useShellStore(state => state.toggle);
   // The session's home scope decides where it runs, unless the session
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
@@ -64,11 +58,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // checkout-shaped panels (explorer, git review) have anything to show.
   const isAssistant = session?.kind === 'assistant';
   const hasUnseenFinished = useAssistantStore((state) => (state.activity[workspaceId]?.unseenFinished ?? 0) > 0);
-  const touchedByAssistant = useAssistantStore((state) =>
-    Boolean(session && state.activity[workspaceId]?.touchedSessionIds.includes(session.id))
-  );
-  // Re-read on every switch: the agent on screen may just have changed branch.
-  const checkout = useCheckout(cwd || null, { fresh: true });
+  // What the Assistant asked for that waits for the person sits beside it,
+  // until hidden; a request it has not shown yet brings it back.
+  const assistantRequests = useAssistantRequests(isAssistant ? workspace : undefined);
+  const trayHidden = useAssistantStore((state) => state.tray[workspaceId]?.hidden ?? false);
+  const reconcileTray = useAssistantStore((state) => state.reconcileTray);
+  const setTrayHidden = useAssistantStore((state) => state.setTrayHidden);
+  const requestIds = assistantRequests.map((run) => run.id).join('\n');
+  useEffect(() => {
+    if (isAssistant) reconcileTray(workspaceId, requestIds ? requestIds.split('\n') : []);
+  }, [isAssistant, workspaceId, requestIds, reconcileTray]);
+  const isTrayOpen = isAssistant && assistantRequests.length > 0 && !trayHidden;
   // Details are read as the workspace's account, so a workspace without one
   // has nothing to show even when the session still names an item.
   const showWorkItemPanel =
@@ -79,6 +79,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const panelIds = [
     ...(isExplorerVisible && cwd && !isAssistant ? ['explorer'] : []),
     'agent',
+    ...(isTrayOpen ? ['approvals'] : []),
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
     ...(isGitReviewOpen && !isAssistant ? ['git-review'] : []),
@@ -203,39 +204,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
 
   return (
     <div className="workspace-view">
-      <div className="workspace-view-header">
-        {isAssistant ? (
-          <AssistantHeader workspace={workspace} session={session} />
-        ) : (
-          <>
-        <h1 className="workspace-view-title">
-          <span>{workspace.name}</span>
-          {session.name && (
-            <>
-              <span className="workspace-view-separator">/</span>
-              <span className="workspace-view-session">{session.name}</span>
-            </>
-          )}
-        </h1>
-        <CheckoutChip checkout={checkout} />
-        {touchedByAssistant && <AssistantMarker />}
-        {cwd && (
-          <PathDisplay
-            path={cwd}
-            className="workspace-view-path"
-            // The checkout chip's tooltip already names the folder; only a
-            // folder outside git, which gets no chip, needs it printed here.
-            showPath={checkout?.kind === 'none'}
-            showExplorerToggle
-            isExplorerVisible={isExplorerVisible}
-            onToggleExplorer={toggleExplorer}
-            isTerminalVisible={isTerminalVisible}
-            onToggleTerminal={() => toggleTerminal(instanceId)}
-          />
-        )}
-          </>
-        )}
-      </div>
+      <SessionHeader key={session.id} workspace={workspace} session={session} />
       {session.workItem && <WorkItemStrip workspaceId={workspaceId} session={session} />}
       <div className="workspace-view-content">
         <Group
@@ -277,6 +246,14 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               />
             </SessionTerminalLayout>
           </Panel>
+          {isTrayOpen && (
+            <>
+              <Separator className="resize-handle" />
+              <Panel id="approvals" defaultSize="320px" minSize="260px" maxSize="45%">
+                <AssistantTray requests={assistantRequests} onHide={() => setTrayHidden(workspaceId, true)} />
+              </Panel>
+            </>
+          )}
           {showWorkItemPanel && (
             <>
               <Separator className="resize-handle" />

@@ -4,7 +4,7 @@ import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useHarnessStore } from '../../stores/harnessStore';
-import { homeScope, useHomeStore } from '../../stores/homeStore';
+import { newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { activateSession } from '../../utils/sessionActions';
 import { useIntent } from './parts';
@@ -31,7 +31,9 @@ export function NewAutomation({ workspace, basis }: { workspace: Workspace; basi
     void act('start', async () => {
       const navigation = useNavigationStore.getState();
       const activeSessionId = navigation.activeWorkspaceId === workspace.id ? navigation.activeSessionId : null;
-      const scope = homeScope(workspace, useHomeStore.getState().scopeIds[workspace.id], activeSessionId);
+      // Where any new session would start: the sidebar's filter, else the
+      // open session's scope, else the primary one.
+      const scope = newSessionScope(workspace, useHomeStore.getState().scopeFilters[workspace.id], activeSessionId);
       const session = await automationsBridge.startAuthoring({
         workspaceId: workspace.id,
         description: description.trim(),

@@ -53,7 +53,7 @@ test('first run explains the model and creates a multi-scope workspace', async (
     await expect(tips).toContainText('Runs in the web scope');
     await expect(tips).toContainText('New worktree');
     await expect(tips.getByRole('button', { name: 'Connect GitHub' })).toBeVisible();
-    await expect(page.locator('.sidebar-ungrouped')).toContainText('Sessions you start in web appear here.');
+    await expect(page.locator('.sidebar-ungrouped')).toContainText('Sessions you start appear here.');
     await page.screenshot({ path: 'test-results/onboarding-first-session.png' });
 
     // A session in one scope must not look lost from another.
@@ -64,14 +64,16 @@ test('first run explains the model and creates a multi-scope workspace', async (
       });
     }, { id: created.id, scopeId: created.scopes[0].id });
     await expect(tips).toHaveCount(0);
-    await page.getByRole('button', { name: 'Choose scope' }).first().click();
+    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
     await page.getByRole('menuitem', { name: /api/ }).click();
-    const elsewhere = page.getByRole('button', { name: '1 session in other scopes' });
-    await expect(elsewhere).toBeVisible();
+    // Scoped to the empty state: the scope row's × has the same name.
+    const showAll = page.locator('.sidebar-ungrouped').getByRole('button', { name: 'Show all scopes', exact: true });
+    await expect(showAll).toBeVisible();
     await page.screenshot({ path: 'test-results/onboarding-other-scopes.png' });
-    await elsewhere.click();
-    await expect(page.getByRole('menu')).toBeVisible();
-    await expect(page.getByRole('menu')).toContainText('web');
+    await showAll.click();
+    const row = page.locator('.session-nav-item').filter({ hasText: 'Fix login' });
+    await expect(row).toBeVisible();
+    await expect(row.locator('.session-nav-item-scope')).toContainText('web');
   } finally {
     await app.close();
   }

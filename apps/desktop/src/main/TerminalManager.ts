@@ -1,7 +1,7 @@
 import { BrowserWindow, WebContents } from 'electron';
 import { TerminalService, TerminalExitInfo, TerminalServiceOptions, RelaunchFields } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { TerminalStatusSnapshot } from '../shared/types';
+import type { TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
 
 /**
@@ -63,13 +63,13 @@ export class TerminalManager {
     /**
      * Get the terminal for a session, starting it if needed.
      *
-     * @returns Buffered output to repaint, plus the terminal's current state.
+     * @returns The screen to repaint and its size, plus the terminal's current state.
      */
     public ensure(
         instanceId: string,
         options: TerminalServiceOptions,
         owner: WebContents
-    ): { replay: string; exited: boolean } {
+    ): TerminalSnapshot {
         // Set before starting: a terminal that emits during start() would
         // otherwise have nowhere to send its first bytes.
         this.owners.set(instanceId, owner);
@@ -87,7 +87,7 @@ export class TerminalManager {
         }
 
         return {
-            replay: terminal.getReplayBuffer(),
+            ...terminal.getReplay(),
             exited: terminal.hasClaudeExited(),
         };
     }

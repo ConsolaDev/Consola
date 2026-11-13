@@ -288,15 +288,19 @@
   height: 100%;
 }
 
+/* The top of a session's pane. Everything on it changes with the session. */
 .workspace-view-header {
   display: flex;
+  flex: none;
   align-items: center;
   gap: var(--space-2);
+  min-width: 0;
+  min-height: 36px;
   padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--color-border);
-  min-height: 36px;
 }
 
+/* The name gives way first; the chips beside it are short and say more. */
 .workspace-view-title {
   margin: 0;
   font-size: var(--font-size-sm);
@@ -305,17 +309,28 @@
   display: flex;
   align-items: center;
   gap: 0;
-  flex-shrink: 0;
+  min-width: 48px;
+  flex-shrink: 1;
+}
+
+/* Scope and name shrink alike, so the longer one gives up more width. */
+.workspace-view-title > .workspace-view-scope,
+.workspace-view-title > .workspace-view-session {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-view-separator {
+  flex: none;
+  color: var(--color-text-tertiary);
+  margin: 0 var(--space-2);
+  font-weight: var(--font-weight-normal);
 }
 
 .workspace-view-breadcrumb {
   color: var(--color-text-tertiary);
-  font-weight: var(--font-weight-normal);
-}
-
-.workspace-view-separator {
-  color: var(--color-text-tertiary);
-  margin: 0 var(--space-2);
   font-weight: var(--font-weight-normal);
 }
 
@@ -1154,4 +1169,28 @@
   font-size: var(--font-size-sm);
   line-height: 20px;
   white-space: nowrap;
+}
+
+/* The tray's place once hidden: the count, and a way back. A literal pill radius, since --radius-full draws square inside .radix-themes. */
+.assistant-header-waiting {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  padding: 1px var(--space-2);
+  border: 1px solid var(--color-warning);
+  border-radius: 999px;
+  background: transparent;
+  font-size: var(--font-size-xs);
+  color: var(--color-warning);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.assistant-header-waiting:hover {
+  background: var(--color-bg-hover);
+}
+
+.assistant-header-waiting:focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 1px;
 }

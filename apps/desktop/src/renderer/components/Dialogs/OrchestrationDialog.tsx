@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { homeScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { conductorBridge } from '../../services/conductorBridge';
+import { defaultSessionScopeId, revealCreatedScope } from '../../utils/sessionActions';
 import './styles.css';
 
 /** Mirrors CONDUCTOR_NAME_PATTERN in main's ConductorScaffold. */
@@ -31,7 +31,7 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
 
   const [name, setName] = useState('');
   const [kickoff, setKickoff] = useState('');
-  const [scopeId, setScopeId] = useState<string | undefined>(() => workspace ? homeScope(workspace, useHomeStore.getState().scopeIds[workspaceId])?.id : undefined);
+  const [scopeId, setScopeId] = useState<string | undefined>(() => defaultSessionScopeId(workspaceId));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -50,6 +50,7 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
         name,
         kickoff: kickoff.trim(),
       });
+      revealCreatedScope(workspaceId, hostScope.id);
       onClose();
     } catch (raised) {
       // Nothing was created — main refuses an existing conductor directory

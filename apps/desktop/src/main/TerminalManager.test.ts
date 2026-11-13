@@ -33,8 +33,8 @@ vi.mock('./TerminalService', async () => {
         startFreshConversation(claudeSessionId: string, prompt?: string) {
             this.fresh.push([claudeSessionId, prompt]);
         }
-        getReplayBuffer() {
-            return '';
+        getReplay() {
+            return { replay: '', cols: 80, rows: 24 };
         }
         hasClaudeExited() {
             return false;

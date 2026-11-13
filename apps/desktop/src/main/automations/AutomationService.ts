@@ -93,6 +93,8 @@ export interface AutomationNotice {
     needsApproval: boolean;
     /** The session a run started: a click opens it instead of the panel. */
     sessionId?: string;
+    /** The agent session that asked for a run waiting for approval, when one did. */
+    actorId?: string;
 }
 
 /** One workspace's spec file. */
@@ -741,6 +743,7 @@ export class AutomationService {
             runId: run.id,
             workspaceId,
             needsApproval: true,
+            actorId: sessionId,
         });
         return { preview, run };
     }
@@ -1366,6 +1369,7 @@ export class AutomationService {
                     runId: run.id,
                     workspaceId: entry.workspaceId,
                     needsApproval: true,
+                    ...(run.trigger.actorId ? { actorId: run.trigger.actorId } : {}),
                 });
             },
             automation.name
@@ -1443,6 +1447,7 @@ export class AutomationService {
                 runId: run.id,
                 workspaceId: entry.workspaceId,
                 needsApproval: true,
+                ...(run.trigger.actorId ? { actorId: run.trigger.actorId } : {}),
             });
         } else {
             this.deps.store.add({ ...run, status: 'queued', summary: `${entry.agent!.runs}: ${described}.` });

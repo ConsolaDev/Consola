@@ -67,6 +67,17 @@ export function isSessionFromScope(event: DragEvent, scopeId: string): boolean {
   return event.dataTransfer.types.includes(homeScopeType(scopeId));
 }
 
+/**
+ * Whether the drag is a grouped session from any scope.
+ *
+ * What Ungrouped takes while the list shows every scope: leaving a group never
+ * changes a session's scope, and the row it lands as is visible either way.
+ */
+export function isGroupedSessionDrag(event: DragEvent): boolean {
+  const prefix = `${SESSION_DRAG_TYPE}-home-`.toLowerCase();
+  return event.dataTransfer.types.some(type => type.startsWith(prefix));
+}
+
 /** The dragged session's id, or null when the drop carried nothing usable. */
 export function droppedSessionId(event: DragEvent): string | null {
   return event.dataTransfer.getData(SESSION_DRAG_TYPE) || null;

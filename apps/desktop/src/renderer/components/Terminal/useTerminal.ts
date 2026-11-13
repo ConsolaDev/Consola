@@ -14,6 +14,7 @@ import { terminalBridge } from '../../services/terminalBridge';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
 import { openTerminalLink } from './terminalLinks';
 import { terminalKeyOverride } from './terminalKeys';
+import { restoreScreen, whenSettled } from './restoreScreen';
 
 interface UseTerminalOptions {
     instanceId: string;
@@ -33,8 +34,9 @@ interface UseTerminalOptions {
  * Attach an xterm view to a session's PTY.
  *
  * The PTY belongs to the main process and outlives this hook: unmounting (a tab
- * switch) tears down only the view, and remounting repaints from the buffered
- * output the main process kept. Closing a session is what destroys the PTY.
+ * switch) tears down only the view, and remounting repaints from the screen
+ * the main process kept (`restoreScreen`). Closing a session is what destroys
+ * the PTY.
  */
 export function useTerminal({
     instanceId,
@@ -47,7 +49,8 @@ export function useTerminal({
 }: UseTerminalOptions) {
     const containerRef = useRef<HTMLDivElement>(null);
     const terminalRef = useRef<Terminal | null>(null);
-    const fitAddonRef = useRef<FitAddon | null>(null);
+    /** Asks the view to follow its pane; null while unmounted. */
+    const fitRef = useRef<(() => void) | null>(null);
 
     const resolvedTheme = useSettingsStore((state) => state.resolvedTheme);
     const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
@@ -100,11 +103,18 @@ export function useTerminal({
         }
 
         terminalRef.current = terminal;
-        fitAddonRef.current = fitAddon;
 
         fitAddon.fit();
 
         let disposed = false;
+        // Until the screen main kept is in this view, the view stays the size
+        // that screen was captured at; after that it follows its pane once the
+        // pane's size has settled. See restoreScreen and whenSettled for why.
+        let restored = false;
+        const settled = whenSettled(() => {
+            if (!disposed && restored) refit(terminal, fitAddon, instanceId);
+        });
+        fitRef.current = settled.request;
 
         // Forward keystrokes to the PTY.
         const dataDisposable = terminal.onData((data) => {
@@ -150,7 +160,7 @@ export function useTerminal({
             .then(() => {
                 if (disposed) return;
                 terminal.clearTextureAtlas();
-                refit(terminal, fitAddon, instanceId);
+                settled.request();
             })
             .catch(() => {
                 // Fallback metrics are still usable; nothing to recover here.
@@ -179,10 +189,12 @@ export function useTerminal({
             })
             .then((snapshot) => {
                 if (disposed) return;
-                // Repaint whatever the PTY produced while this view was gone.
-                if (snapshot.replay) {
-                    terminal.write(snapshot.replay);
-                }
+                // Repaint whatever the PTY produced while this view was gone,
+                // then follow the pane.
+                restoreScreen(terminal, snapshot, () => {
+                    restored = true;
+                    settled.request();
+                });
                 setTerminalState(instanceId, { hasExited: snapshot.exited });
                 terminal.focus();
             })
@@ -191,23 +203,23 @@ export function useTerminal({
                 terminal.write(
                     "\r\n\x1b[31mFailed to start this session's CLI. Check the harness in Settings — is the binary installed and on your PATH?\x1b[0m\r\n"
                 );
+                restored = true;
+                settled.request();
             });
 
         // Keep the PTY's dimensions in step with the pane.
-        const resizeObserver = new ResizeObserver(() => {
-            if (disposed) return;
-            refit(terminal, fitAddon, instanceId);
-        });
+        const resizeObserver = new ResizeObserver(() => settled.request());
         resizeObserver.observe(container);
 
         return () => {
             disposed = true;
+            settled.cancel();
             resizeObserver.disconnect();
             unsubscribeData();
             dataDisposable.dispose();
             terminal.dispose();
             terminalRef.current = null;
-            fitAddonRef.current = null;
+            fitRef.current = null;
         };
         // The PTY identity is what matters here; theme and font are applied below.
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -223,15 +235,14 @@ export function useTerminal({
     // number of rows and columns — the PTY has to be told.
     useEffect(() => {
         const terminal = terminalRef.current;
-        const fitAddon = fitAddonRef.current;
-        if (!terminal || !fitAddon) return;
+        if (!terminal) return;
 
         const font = readTerminalFont(terminalFontSize);
         if (terminal.options.fontSize === font.fontSize) return;
 
         terminal.options.fontSize = font.fontSize;
-        refit(terminal, fitAddon, instanceId);
-    }, [terminalFontSize, instanceId]);
+        fitRef.current?.();
+    }, [terminalFontSize]);
 
     const focus = () => terminalRef.current?.focus();
 

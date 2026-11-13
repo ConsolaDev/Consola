@@ -101,6 +101,15 @@ reconstruct the current screen exactly. Do not try to reason about a TUI from
 the raw byte stream: Claude paints with cursor movement and overwrites in
 place, so recent bytes are not the current screen. Ask the `ScreenModel`.
 
+A snapshot is exact only in a view of the size it was captured at, so it
+carries that size, and `restoreScreen` lays it into the fresh view at that size
+before the view follows its pane. Panes follow their container only once its
+size has settled (`whenSettled`). Both guard one failure: xterm drops the rows
+below the cursor when it shrinks, and Claude keeps its prompt's frame there,
+so a view that shrinks and returns to the size the CLI already knows has lost
+rows the CLI will never repaint. Its relative cursor moves then land typing
+above the prompt.
+
 ### Each Workspace Remembers Where It Was Left
 
 Switching workspaces returns to the view that workspace was last on, rather
@@ -342,5 +351,19 @@ Architecture decisions are documented in `docs/research/`:
 - `2026-02-05-git-status-file-explorer.md` - Git feature design
 - `2026-02-03-workspace-feature-architecture.md` - Workspace system
 
-Direction (where the product is heading, not a spec) lives in `docs/north-star/`:
-- `docs/north-star/consola-factories.md` - Local + cloud automations ("factories"): the invariants and decisions to consult before designing anything that touches sessions-as-runs, actions, triggers, spec files, the cloud, or identity
+Direction (where the product is heading, not a spec) lives in `docs/north-star/`.
+`docs/` is gitignored, so it exists only in the main checkout; from a worktree,
+read it there.
+- `docs/north-star/consola-automations.md` - **The north star for automations**: CI-shaped pipelines defined in files, run by desktop, headless and cloud runners. Read its invariants and decisions before designing anything that touches automations, triggers, connections, runs, agents, factory files, environments, runners, or sharing across an org
+- `docs/north-star/consola-factories.md` - The earlier local + cloud direction ("factories"). Its cloud runner, identity and Run record still stand; its "no workflow engine", "confirm every run" and "org ⊕ repo merge" rules are superseded by the automations north star
+
+The automations direction in brief:
+- An automation is a trigger plus steps, all in YAML/Markdown files (`factory.yml`, `agents/`, `automations/`, `skills/`, `environments/`). Nothing only the UI can express.
+- The file decides the route (`if`, `repeat`, `wait`, `gate`). An agent affects it only through declared, schema-validated outputs, never through prose.
+- Every agent step is a new session, so each starts with a clean context. Only three things cross to the next step: typed outputs, declared artifacts (documents written and read through Consola's artifact tools, with the handover as the default one), and the shared checkout.
+- The files name every side effect, and Consola implements none of them. A push, PR, review, ticket move or Slack post is a `run:` command (a vendor CLI such as `gh` or `acli`), an MCP tool the engine calls (`uses:`), or an agent granted write tools in its definition. Item values reach commands only as environment variables. How strongly an agent with a shell is contained is its environment's declared isolation (`host`, `sandbox`, `container`), never silently downgraded.
+- Triggers are generic, `poll` (a command or MCP tool diffed by key) and `webhook`. Built-in vendor events are YAML manifests over them, not vendor code. Agents name MCP servers, which resolve in the harness's own CLI config.
+- Trust is approved per definition version; after that a run is unattended except at gates the file or org policy declares.
+- A run is a durable row anchored on an item. A write or `uses:` step is never silently repeated.
+- The same files run on every runner. Across an org, factories share by pinned `uses:` references, and only policy flows down.
+- Agent files are harness-neutral requirements (tools, MCP server names, skills, outputs, isolation). Each `HarnessDriver` compiles them into its CLI's flags or refuses, and the refusal is checked when the factory applies, never mid-run. Anything Consola reads back (artifacts, outputs) goes through Consola's MCP tools, which every CLI speaks.

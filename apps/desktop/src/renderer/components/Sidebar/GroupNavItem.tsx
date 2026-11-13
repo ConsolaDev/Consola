@@ -12,6 +12,7 @@ import { activateSession, moveSessionToGroup } from '../../utils/sessionActions'
 import { droppedSessionId, isSessionDrag, leftDropTarget } from './sessionDrag';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { SessionNavItem } from './SessionNavItem';
+import type { ScopeTrail } from '../../utils/scopeTrail';
 
 interface GroupNavItemProps {
   group: Group;
@@ -19,17 +20,20 @@ interface GroupNavItemProps {
   workspaceId: string;
   /** The scope a member session belongs to, for its subtitle. */
   scopeFor: (scopeId: string) => Scope | undefined;
+  /** The scope line above a member's title, while the list mixes scopes. */
+  scopeLabelFor?: (session: Session) => ScopeTrail | undefined;
   activeSessionId: string | null;
   onNewSession: () => void;
   onNewSessionWithOptions: () => void;
 }
 
-/** A collapsible group of sessions in the selected scope, with live status counts. */
+/** A collapsible group of the listed sessions, with live status counts. */
 export function GroupNavItem({
   group,
   sessions,
   workspaceId,
   scopeFor,
+  scopeLabelFor,
   activeSessionId,
   onNewSession,
   onNewSessionWithOptions,
@@ -51,7 +55,7 @@ export function GroupNavItem({
     ? [conductor, ...sessions.filter((session) => session !== conductor)]
     : sessions;
 
-  // The scope is already selected above. Fan-out members still name the repo
+  // The scope line names the scope itself. Fan-out members still name the repo
   // they run in when their working folder differs from the scope's root —
   // unless that folder is a worktree the row already names on its worktree
   // line, by branch, which says more than a generated folder name.
@@ -177,6 +181,7 @@ export function GroupNavItem({
             isActive={activeSessionId === session.id}
             onClick={() => activateSession(workspaceId, session.id)}
             subtitle={subtitleFor(session)}
+            scopeLabel={scopeLabelFor?.(session)}
           />
         ))}
     </div>

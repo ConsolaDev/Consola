@@ -1,7 +1,9 @@
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { MoreHorizontal } from 'lucide-react';
 import { listedSessions, type Session, type Workspace } from '../../../shared/workspace';
+import { useAssistantRequests } from '../../hooks/useAssistantRequests';
 import { assistantBridge } from '../../services/assistantBridge';
+import { useAssistantStore } from '../../stores/assistantStore';
 import { activateSession } from '../../utils/sessionActions';
 
 const FRESH_CONFIRMATION =
@@ -20,6 +22,9 @@ function count(n: number, noun: string): string {
  */
 export function AssistantHeader({ workspace, session }: { workspace: Workspace; session: Session }) {
   const sees = `sees ${count(listedSessions(workspace).length, 'session')} in ${count(workspace.scopes.length, 'scope')}`;
+  const waiting = useAssistantRequests(workspace).length;
+  const trayHidden = useAssistantStore((state) => state.tray[workspace.id]?.hidden ?? false);
+  const setTrayHidden = useAssistantStore((state) => state.setTrayHidden);
 
   const startFresh = async () => {
     if (!window.confirm(FRESH_CONFIRMATION)) return;
@@ -33,8 +38,19 @@ export function AssistantHeader({ workspace, session }: { workspace: Workspace; 
         <span className="assistant-header-spark" aria-hidden="true">✦ </span>
         <span>Assistant</span>
       </h1>
-      <span className="assistant-header-sub">{workspace.name} · {sees}</span>
+      {/* The workspace menu beside it already names the workspace. */}
+      <span className="assistant-header-sub">{sees}</span>
       <span className="assistant-header-spacer" />
+      {waiting > 0 && trayHidden && (
+        <button
+          type="button"
+          className="assistant-header-waiting"
+          aria-label={`Show ${waiting} waiting for your approval`}
+          onClick={() => setTrayHidden(workspace.id, false)}
+        >
+          {waiting} waiting ▸
+        </button>
+      )}
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
           <button type="button" className="assistant-header-menu" aria-label="Assistant actions" data-session-id={session.id}>

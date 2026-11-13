@@ -1,9 +1,9 @@
 /*
- * Main layout. The title bar strip (traffic lights, sidebar toggle) caps the
- * navigation columns only; the main pane runs to the window's top edge, and
- * its own header row is the title bar there. With the sidebar hidden the
- * strip spans the window instead, because it then also carries the workspace
- * and New menus, which have nowhere else to live.
+ * Main layout. The title bar strip (traffic lights, sidebar toggle, workspace
+ * menu) caps the navigation columns only; the main pane runs to the window's
+ * top edge, and its own header row is the title bar there. With the sidebar
+ * hidden the strip spans the window instead, because it then also carries
+ * the New menu, which has nowhere else to live.
  */
 .layout {
   --workspace-rail-width: 56px;
@@ -38,10 +38,14 @@
 
 /* App header */
 .app-header {
-  position: relative; /* Contains the drag region, which must not cover the main pane. */
+  position: relative; /* Contains the drag region. */
   display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
   height: var(--header-height);
   min-height: var(--header-height);
+  padding: 0 var(--space-3) 0 72px; /* Clear of the macOS traffic lights. */
   background: var(--color-bg-sidebar);
   border-bottom: 1px solid var(--color-border);
 }
@@ -51,6 +55,7 @@
   box-shadow: inset -1px 0 0 var(--color-border);
 }
 
+/* The whole strip drags the window; anything you can press opts out. */
 .app-header-drag-region {
   position: absolute;
   inset: 0;
@@ -58,34 +63,69 @@
   pointer-events: none;
 }
 
-.app-header-sidebar {
+.app-header :is(button, a, input, select, textarea, [role='button']) {
+  -webkit-app-region: no-drag;
+}
+
+/* The workspace menu. It truncates before the window can push it off. */
+.app-header-context {
   display: flex;
   align-items: center;
-  justify-content: flex-start;
-  width: calc(var(--sidebar-width) + var(--workspace-rail-width));
-  min-width: calc(var(--sidebar-width) + var(--workspace-rail-width));
-  padding: var(--space-2) var(--space-3);
-  padding-left: 72px; /* Always position right next to macOS traffic light buttons */
+  gap: var(--space-1);
+  min-width: 0;
+  flex-shrink: 1;
+  margin-left: var(--space-1);
 }
 
-.app-header-sidebar.hidden {
-  width: auto;
-  min-width: auto;
-}
+.app-header-context .workspace-menu-trigger { max-width: 220px; }
 
-/* The strip is as wide as the navigation columns: the notice gives way first. */
-.app-header-sidebar .app-update-notice { min-width: 0; }
-.app-header-sidebar .app-update-action { max-width: 100%; }
-.app-header-sidebar .app-update-action > span { overflow: hidden; text-overflow: ellipsis; }
-
-/* Only rendered while the sidebar is hidden. */
-.app-header-content {
-  flex: 1;
+/*
+ * A title-bar menu's hint, in the checkout chip's voice: a small-caps title,
+ * one sentence, then the fact it rests on. Doubled class: .tooltip-content is
+ * declared in other sheets that may load later.
+ */
+.tooltip-content.title-hint {
   display: flex;
-  align-items: center;
-  padding: var(--space-1) var(--space-2);
-  background: var(--color-bg-primary);
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  width: max-content;
+  max-width: 320px;
+  padding: 10px 12px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  text-align: left;
+  word-break: normal;
 }
+.title-hint-title {
+  font-size: 10px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+.title-hint-lead { margin: 0; max-width: 40ch; font-size: var(--font-size-sm); line-height: 1.45; color: var(--color-text-secondary); }
+.title-hint-lead strong { font-weight: var(--font-weight-medium); color: var(--color-text-primary); }
+.title-hint-meta { color: var(--color-text-tertiary); }
+.title-hint-path {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  line-height: 18px;
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+.title-hint-path > svg { flex-shrink: 0; margin-top: 3px; color: var(--color-text-tertiary); }
+
+.app-header-spacer { flex: 1; }
+
+/* The bar's last item: the notice gives way before anything to its left. */
+.app-header .app-update-notice { min-width: 0; flex-shrink: 1; }
+.app-header .app-update-action { max-width: 100%; }
+.app-header .app-update-action > span { overflow: hidden; text-overflow: ellipsis; }
 
 /* Content area */
 .content-area {
@@ -305,7 +345,7 @@
 }
 
 .workspace-menu-trigger:hover,
-.workspace-menu-trigger[data-state='open'] {
+.workspace-menu-trigger[aria-expanded='true'] {
   background: var(--color-bg-hover);
 }
 
@@ -367,28 +407,67 @@
 .workspace-menu-tools[data-state='open'] { background: var(--color-bg-hover); }
 .workspace-tools-content { min-width: 200px; }
 
-.app-header-content > .workspace-menu-trigger { max-width: 240px; margin-left: var(--space-2); }
-
 /* New menu trigger */
+/*
+ * ＋ and ▾ are one control — create, or create with a choice — so they share
+ * one outline, split by a hairline that stops short of it. Each half lights
+ * on its own, and the seam gives way while the pair is in hand, so the lit
+ * half's own edge is the only line left.
+ */
+.new-menu-buttons {
+  --new-menu-height: 28px;
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  height: var(--new-menu-height);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition: border-color 120ms ease-out;
+}
+.new-menu-buttons:hover,
+.new-menu-buttons:has([data-state='open']) { border-color: var(--color-border-hover); }
+
 .new-menu-trigger {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 24px;
-  height: 24px;
-  margin-left: 4px;
+  width: 28px;
+  padding: 0;
   border: none;
-  border-radius: 5px;
   background: none;
-  color: inherit;
-  opacity: 0.7;
+  color: var(--color-text-secondary);
   cursor: pointer;
   -webkit-app-region: no-drag;
+  transition: background-color 120ms ease-out, color 120ms ease-out;
 }
-
-.new-menu-trigger:hover {
-  opacity: 1;
+/* ▾ is the lesser half, so it is the narrower one. */
+.new-menu-trigger.new-menu-more { width: 20px; }
+.new-menu-more::before {
+  content: '';
+  position: absolute;
+  top: 7px;
+  bottom: 7px;
+  left: 0;
+  width: 1px;
+  background: var(--color-border);
+  transition: opacity 120ms ease-out;
 }
+.new-menu-buttons:hover .new-menu-more::before,
+.new-menu-more[data-state='open']::before { opacity: 0; }
 
-.new-menu-buttons { display: flex; align-items: center; flex-shrink: 0; }
-.new-menu-buttons .new-menu-trigger { width: 24px; }
+.new-menu-trigger:hover,
+.new-menu-trigger[data-state='open'] { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.new-menu-trigger:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -2px; }
+
+/* A press sinks the glyph a touch; ▾ turns over while its menu is open. */
+.new-menu-trigger > svg { transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1); }
+.new-menu-trigger:active > svg { transform: scale(0.86); transition-duration: 60ms; }
+.new-menu-more[data-state='open'] > svg { transform: rotate(180deg); }
+@media (prefers-reduced-motion: reduce) {
+  .new-menu-trigger > svg { transition: none; }
+}
+/* ▾'s "New session in" entries: a nested scope's parent dimmed, as in the scope row. */
+.new-menu-scope { flex: 1; min-width: 0; max-width: 260px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.new-menu-scope-parent { color: var(--color-text-tertiary); }

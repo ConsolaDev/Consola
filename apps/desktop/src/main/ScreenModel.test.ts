@@ -36,7 +36,7 @@ describe('ScreenModel', () => {
         await write(model, output);
 
         const remounted = pane();
-        await write(remounted, model.snapshot());
+        await write(remounted, model.snapshot().replay);
 
         expect(oldestLine(remounted)).toBe(oldestLine(live));
         live.dispose();
@@ -50,7 +50,7 @@ describe('ScreenModel', () => {
         await write(model, lines(6000));
 
         const remounted = pane();
-        await write(remounted, model.snapshot());
+        await write(remounted, model.snapshot().replay);
 
         expect(oldestLine(remounted)).toBe('line 0');
         model.dispose();

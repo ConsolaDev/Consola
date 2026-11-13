@@ -197,3 +197,24 @@ export interface AutomationsSnapshot {
     /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
     templates: TemplateView[];
 }
+
+/** Whether the workspace's Assistant asked for this run: its own request, or an automation it fired. */
+export function isAssistantRequest(run: RunRecord, assistantSessionId: string): boolean {
+    return run.trigger.actorId === assistantSessionId;
+}
+
+/** What the Assistant asked for that is still waiting for a person, in the order given (newest first). */
+export function waitingAssistantRequests(
+    runs: readonly RunRecord[],
+    assistantSessionId: string | undefined
+): RunRecord[] {
+    if (!assistantSessionId) return [];
+    return runs.filter((run) => run.status === 'needs-approval' && isAssistantRequest(run, assistantSessionId));
+}
+
+/** An automation's name; for an agent's request, what it asks to do ("Delete session"). */
+export function runTitle(run: RunRecord): string {
+    if (run.source !== 'manual') return run.automationId;
+    const words = run.actionName.replace(/^consola#/, '').replace(/_/g, ' ');
+    return words.charAt(0).toUpperCase() + words.slice(1);
+}

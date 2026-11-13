@@ -51,7 +51,7 @@ export class ShellManager {
     const current = shell;
     return new Promise(resolve => {
       current.screen.write('', () => resolve({
-        replay: current.screen.snapshot(), sequence: current.sequence,
+        ...current.screen.snapshot(), sequence: current.sequence,
         exited: current.process === null, cwd: current.cwd,
       }));
     });

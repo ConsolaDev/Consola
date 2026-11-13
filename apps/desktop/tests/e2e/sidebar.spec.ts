@@ -20,10 +20,12 @@ async function sidebarWidth(target: Page): Promise<number> {
   return box.width;
 }
 
-async function headerStripWidth(target: Page): Promise<number> {
-  const box = await target.locator('.app-header-sidebar').boundingBox();
-  if (!box) throw new Error('the header strip is not on screen');
-  return box.width;
+/** Where the title bar's menus sit: the part a sidebar drag must not move. */
+async function titleBarLayout(target: Page) {
+  const header = await target.locator('.app-header').boundingBox();
+  const menus = await target.locator('.app-header-context').boundingBox();
+  if (!header || !menus) throw new Error('the title bar is not on screen');
+  return { headerWidth: header.width, menusX: menus.x };
 }
 
 /**
@@ -52,13 +54,17 @@ test.describe('resizing', () => {
     await app.close();
   });
 
-  test('dragging the edge resizes the sidebar and the header strip above it', async () => {
+  test('dragging the edge resizes the sidebar and the strip above it, and leaves the workspace menu where it was', async () => {
     expect(await sidebarWidth(page)).toBe(DEFAULT_WIDTH);
+    const before = await titleBarLayout(page);
+    expect(before.headerWidth).toBe(DEFAULT_WIDTH + 56);
 
     await dragSidebarEdge(page, 80);
 
     expect(await sidebarWidth(page)).toBe(DEFAULT_WIDTH + 80);
-    expect(await headerStripWidth(page)).toBe(DEFAULT_WIDTH + 80 + 56);
+    const after = await titleBarLayout(page);
+    expect(after.headerWidth).toBe(DEFAULT_WIDTH + 80 + 56);
+    expect(after.menusX).toBe(before.menusX);
   });
 
   test('the width stops at its bounds instead of hiding the sidebar', async () => {
@@ -114,6 +120,9 @@ function seedScopes(profileDir: string, scopeDir: string): void {
     harnesses: [builtIn, {
       ...builtIn, id: 'codex-test', driverId: 'codex', name: 'Codex archived',
       isBuiltIn: false, archived: true, configDir: path.join(scopeDir, 'codex-profile'),
+      // The offline fixture, not whatever codex is installed: a real one keeps
+      // writing its profile after the app closes, racing the teardown.
+      binaryPath: path.resolve('tests/fixtures/codex.cjs'),
     }],
   }));
   const session = (id: string, name: string, scopeId: string, groupId?: string) => ({
@@ -184,12 +193,17 @@ test.describe('Home scopes and groups', () => {
     await app.close();
     fs.rmSync(userDataDir, { recursive: true, force: true });
     fs.rmSync(`${userDataDir} Test`, { recursive: true, force: true });
-    fs.rmSync(scopeDir, { recursive: true, force: true });
+    // A session the test opened launched a CLI that may still be writing its
+    // profile here as the app closes; retry rather than race it.
+    fs.rmSync(scopeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
   const ungrouped = (target: Page) => target.locator('.sidebar-ungrouped');
+  /** A sidebar row, by the name it renders. */
+  const rowFor = (target: Page, name: string) =>
+    target.locator('.session-nav-item').filter({ hasText: name });
   const chooseScope = async (target: Page, name: string) => {
-    await target.locator('.sidebar').getByRole('button', { name: 'Choose scope', exact: true }).click();
+    await target.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
     await target.getByRole('menuitem', { name: new RegExp(name) }).click();
   };
 
@@ -277,28 +291,81 @@ test.describe('Home scopes and groups', () => {
   });
 
   test('scope selection filters both groups and ungrouped sessions', async () => {
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
+    // All scopes by default: every session, each naming the scope it runs in.
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
     await expect(page.locator('.group-nav-count')).toHaveText('1');
+    await expect(rowFor(page, 'Bump deps').locator('.session-nav-item-scope')).toContainText('shared-lib');
     await chooseScope(page, 'shared-lib');
     await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(1);
     await expect(ungrouped(page)).toContainText('Bump deps');
     await expect(page.locator('.group-nav-count')).toHaveText('0');
     await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(0);
+    // A filtered list says its scope once, in the scope row, never per row.
+    await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
     await chooseScope(page, 'catalog-portal');
     await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
-    await page.locator('.sidebar').getByRole('button', { name: 'Choose scope' }).click();
+    await page.locator('.sidebar-scope-filter').getByRole('button', { name: 'Show all scopes', exact: true }).click();
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
     await expect(page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Scopes', exact: true })).toHaveAttribute('aria-current', 'true');
   });
 
+  const jumpWithPalette = async (target: Page, name: string) => {
+    await target.keyboard.press(commandPaletteChord());
+    const palette = target.getByRole('dialog', { name: 'Command palette', exact: true });
+    await palette.getByRole('combobox').fill(name);
+    await palette.getByRole('option', { name: new RegExp(name) }).click();
+  };
+
   test('selecting a session in another scope from the palette reveals its scope', async () => {
-    await expect(page.locator('.sidebar .scope-selector')).toContainText('catalog-portal');
-    await page.keyboard.press(commandPaletteChord());
-    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
-    await palette.getByRole('combobox').fill('Bump deps');
-    await palette.getByRole('option', { name: /Bump deps/ }).click();
-    await expect(page.locator('.sidebar .scope-selector')).toContainText('shared-lib');
+    await chooseScope(page, 'catalog-portal');
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('catalog-portal');
+    await jumpWithPalette(page, 'Bump deps');
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('shared-lib');
     await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
+  });
+
+  test('a palette jump under All leaves the list showing every scope', async () => {
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await jumpWithPalette(page, 'Bump deps');
+    await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+  });
+
+  test('the scope row sits under the Assistant on Home only, never in the title bar', async () => {
+    await expect(page.locator('.app-header').getByRole('button', { name: 'Filter sessions by scope' })).toHaveCount(0);
+    await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
+    await expect(page.locator('.sidebar-scope-filter')).toHaveCount(1);
+    await page.getByRole('button', { name: 'Inbox', exact: true }).click();
+    await expect(page.locator('.sidebar-scope-filter')).toHaveCount(0);
+    await expect(page.locator('.sidebar-scope-divider')).toHaveCount(0);
+    await page.getByRole('button', { name: 'Home', exact: true }).click();
+    await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
+    await expect(page.locator('.sidebar-scope-filter')).toHaveCount(1);
+  });
+
+  test('a workspace with one scope still shows the scope row', async () => {
+    await app.close();
+    const file = path.join(`${userDataDir} Test`, 'workspaces.json');
+    const data = JSON.parse(fs.readFileSync(file, 'utf8'));
+    const workspace = data.workspaces[0];
+    workspace.scopes = workspace.scopes.filter((candidate: { id: string }) => candidate.id === 'scope-app');
+    for (const session of workspace.sessions) session.scopeId = 'scope-app';
+    fs.writeFileSync(file, JSON.stringify(data), 'utf8');
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+
+    await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: /catalog-portal/ })).toBeVisible();
+    await expect(page.getByRole('menuitem', { name: 'Add scope', exact: true })).toBeVisible();
+    // One scope has nothing to tell apart, so rows stay unlabelled.
+    await page.keyboard.press('Escape');
+    await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
   });
 
   test('group and ungrouped options share the selected scope without creating a session early', async () => {
@@ -319,7 +386,7 @@ test.describe('Home scopes and groups', () => {
     await page.getByLabel('Scope', { exact: true }).click();
     await page.getByRole('option', { name: 'catalog-portal', exact: true }).click();
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.locator('.sidebar .scope-selector')).toContainText('shared-lib');
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('shared-lib');
     await expect(page.locator('.dropdown-content')).toHaveCount(0);
     await page.mouse.move(500, 100);
     await page.emulateMedia({ colorScheme: 'light' });
@@ -328,6 +395,67 @@ test.describe('Home scopes and groups', () => {
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(page.locator('.radix-themes')).toHaveClass(/dark/);
     await page.screenshot({ path: 'test-results/home-sidebar-dark.png', animations: 'disabled' });
+
+    // The same sidebar under All, with a session open so the pane names its scope.
+    await page.locator('.sidebar-scope-filter').getByRole('button', { name: 'Show all scopes', exact: true }).click();
+    await rowFor(page, 'Bump deps').click();
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await page.mouse.move(500, 300);
+    await page.emulateMedia({ colorScheme: 'light' });
+    await expect(page.locator('.radix-themes')).toHaveClass(/light/);
+    await page.screenshot({ path: 'test-results/home-sidebar-all-light.png', animations: 'disabled' });
+    await page.emulateMedia({ colorScheme: 'dark' });
+    await expect(page.locator('.radix-themes')).toHaveClass(/dark/);
+    await page.screenshot({ path: 'test-results/home-sidebar-all-dark.png', animations: 'disabled' });
+  });
+
+  test('the pane names the scope the open session runs in', async () => {
+    await rowFor(page, 'Bump deps').click();
+    const title = page.locator('.workspace-view-header .workspace-view-title');
+    await expect(title).toHaveText(/^shared-lib\s*\/\s*Bump deps$/);
+    // Production's breadcrumb: the scope in primary text, never dimmed.
+    const colors = await title.evaluate(element => ({
+      title: getComputedStyle(element).color,
+      scope: getComputedStyle(element.firstElementChild!).color,
+    }));
+    expect(colors.scope).toBe(colors.title);
+  });
+
+  test("the open session's row is the title bar beside the sidebar's strip, as in production", async () => {
+    await rowFor(page, 'Bump deps').click();
+    const header = page.locator('.workspace-view-header');
+    await expect(header).toContainText('Bump deps');
+    const row = (await header.boundingBox())!;
+    const strip = (await page.locator('.app-header').boundingBox())!;
+    const sidebar = (await page.locator('.sidebar').boundingBox())!;
+    expect(row.y).toBe(0);
+    expect(row.x).toBeCloseTo(sidebar.x + sidebar.width, 0);
+    expect(strip.x + strip.width).toBeCloseTo(row.x, 0);
+    // Its blank space drags the window, as the strip beside it does.
+    expect(await header.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('drag');
+  });
+
+  test('a row that names its scope keeps its dot beside the rename field', async () => {
+    const row = rowFor(page, 'Fix flaky test');
+    await expect(row.locator('.session-nav-item-scope')).toContainText('catalog-portal');
+    // Measured the moment the field mounts: the open session's terminal can
+    // take focus right after, which commits the rename and closes the field.
+    await page.evaluate(() => {
+      const observer = new MutationObserver(() => {
+        const input = document.querySelector('.session-rename-input');
+        const dot = input?.closest('.session-nav-item')?.querySelector('.session-status-indicator');
+        if (!input || !dot) return;
+        const centre = (element: Element) => { const box = element.getBoundingClientRect(); return box.top + box.height / 2; };
+        (window as any).__renameOffset = Math.abs(centre(dot) - centre(input));
+        observer.disconnect();
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Rename' }).click();
+    // The scope line gives way to the field, so the dot must not stay below it.
+    await expect.poll(() => page.evaluate(() => (window as any).__renameOffset)).toBeLessThanOrEqual(2);
   });
 
   test('a group folds and retains its scope-filtered count', async () => {
@@ -343,10 +471,6 @@ test.describe('Home scopes and groups', () => {
     // The badge is the group's own and stays put whether folded or not.
     await expect(page.locator('.group-nav-count')).toHaveText('1');
   });
-
-  /** A sidebar row, by the name it renders. */
-  const rowFor = (target: Page, name: string) =>
-    target.locator('.session-nav-item').filter({ hasText: name });
 
   test('the session × and menu share confirmation without activating the row', async () => {
     const row = rowFor(page, 'Controller boot');
@@ -382,7 +506,7 @@ test.describe('Home scopes and groups', () => {
     await expect(close).toBeFocused();
     await page.keyboard.press('Enter');
     await expect(row).toHaveCount(0);
-    await expect(page.locator('.session-nav-item')).toHaveCount(2);
+    await expect(page.locator('.session-nav-item')).toHaveCount(3);
   });
 
   test('the group menu archives the group and returns its sessions to Ungrouped', async () => {
@@ -391,7 +515,7 @@ test.describe('Home scopes and groups', () => {
     await header.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Archive group', exact: true }).click();
     await expect(page.locator('.group-nav-item')).toHaveCount(0);
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(rowFor(page, 'Fan member')).toHaveCount(1);
   });
 
@@ -413,7 +537,7 @@ test.describe('Home scopes and groups', () => {
     const appScope = ungrouped(page);
     const groupRows = page.locator('.group-nav-item .session-nav-item');
 
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
+    await expect(appScope.locator('.session-nav-item')).toHaveCount(3);
     await expect(groupRows).toHaveCount(1);
 
     // Folded first: a move into a group nobody can see must unfold it, or the
@@ -432,7 +556,7 @@ test.describe('Home scopes and groups', () => {
     // The group owns the row now, so the scope it still runs in stops
     // drawing it — the partition keeps a session on exactly one row.
     await expect(groupRows).toHaveCount(2);
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(1);
+    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
     await expect(groupRows.filter({ hasText: 'Controller boot' })).toHaveCount(1);
 
     // Leaving sits beside the submenu, not inside it: the way out must not be
@@ -443,7 +567,7 @@ test.describe('Home scopes and groups', () => {
     await page.getByRole('menuitem', { name: 'Remove from group' }).click();
 
     await expect(groupRows).toHaveCount(1);
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
+    await expect(appScope.locator('.session-nav-item')).toHaveCount(3);
   });
 
   test('a move survives a relaunch — it is a record, not a view preference', async () => {
@@ -474,6 +598,6 @@ test.describe('Home scopes and groups', () => {
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
     await expect(page.locator('.group-nav-toggle')).toHaveAttribute('aria-expanded', 'false');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
+    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
   });
 });

@@ -72,7 +72,8 @@ export function Layout() {
   // workspace, including ones whose pane is not mounted.
   useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
 
-  // Automation snapshots likewise: the sidebar row reads them while the dashboard is closed.
+  // Automation snapshots likewise: the sidebar row reads them while the
+  // dashboard is closed, and the Assistant's tray holds the ones it asked for.
   useEffect(() => useAutomationsStore.getState().subscribe(), []);
 
   // The Assistant's row shows what finished while its pane is closed.
