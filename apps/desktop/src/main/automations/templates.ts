@@ -1,7 +1,15 @@
-import type { Automation } from '@consola/factory-spec';
-import type { TemplateView } from '../../shared/automations';
+import { nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
+import type {
+    TemplateNeedSection,
+    TemplatePreview,
+    TemplateService,
+    TemplateView,
+} from '../../shared/automations';
 import { defaultActionFor } from '../../shared/workItemActions';
 import { primaryScope, type Workspace } from '../../shared/workspace';
+import { resolveEventSource } from './connections';
+import { describeRun, describeTriggerAsWritten } from './describeEntry';
+import { describeSchedule } from './describeSchedule';
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './FactoryFile';
 
 /**
@@ -18,8 +26,12 @@ export interface AutomationTemplate {
     id: string;
     title: string;
     description: string;
-    /** What the workspace must have, in words; `missing` says which it lacks. */
-    needs: string[];
+    /** What it is for, as the gallery labels it. */
+    category: string;
+    /** What it works with, where it listens first. */
+    services: TemplateService[];
+    /** What the workspace must have, in order; `missing` says the first it lacks. */
+    needs: TemplateRequirement[];
     /** What this workspace lacks for it to run, said as what to do; null when nothing. */
     missing(workspace: Workspace): string | null;
     /** The entry "Add" writes: one list item, named `id`. */
@@ -27,6 +39,44 @@ export interface AutomationTemplate {
     /** Whether an entry already in the file does this, so adding it again would only duplicate it. */
     matches(automation: Automation): boolean;
 }
+
+/** Something a template needs from the workspace, and where Workspace settings provides it. */
+export interface TemplateRequirement {
+    label: string;
+    met(workspace: Workspace): boolean;
+    /** What "Add" says when it is not met, and what the gallery says to do about it. */
+    missing: string;
+    fix: { label: string; section: TemplateNeedSection };
+}
+
+/** A template whose `missing` is the first of its needs the workspace lacks. */
+function template(definition: Omit<AutomationTemplate, 'missing'>): AutomationTemplate {
+    return {
+        ...definition,
+        missing: (workspace) => definition.needs.find((need) => !need.met(workspace))?.missing ?? null,
+    };
+}
+
+const GITHUB: TemplateRequirement = {
+    label: 'GitHub connection',
+    met: (workspace) => workspace.provider?.id === 'github',
+    missing: 'Connect a GitHub account in Workspace settings',
+    fix: { label: 'Connect a GitHub account', section: 'provider' },
+};
+
+const PR_ACTION: TemplateRequirement = {
+    label: 'Action for pull requests',
+    met: (workspace) => Boolean(defaultActionFor(workspace.actions ?? [], 'pr')),
+    missing: 'Add an action for pull requests',
+    fix: { label: 'Add an action for pull requests', section: 'actions' },
+};
+
+const SCOPE: TemplateRequirement = {
+    label: 'A scope to run in',
+    met: (workspace) => Boolean(primaryScope(workspace)),
+    missing: 'Add a scope',
+    fix: { label: 'Add a scope', section: 'scopes' },
+};
 
 /** The events automatic reviews listen to: a review asked of the person, or the pull request assigned to them. */
 const ASSIGNED_REVIEW_EVENTS = ['pull_request.review_requested', 'pull_request.assigned'];
@@ -49,13 +99,6 @@ export function coversAssignedReviews(automation: Automation): boolean {
 function onReviewRequest(automation: Automation): boolean {
     const { trigger } = automation;
     return trigger.kind === 'event' && trigger.connection === 'github' && trigger.events.includes('pull_request.review_requested');
-}
-
-const NEEDS_GITHUB = 'A GitHub connection';
-const MISSING_GITHUB = 'Connect a GitHub account in Workspace settings';
-
-function githubMissing(workspace: Workspace): string | null {
-    return workspace.provider?.id === 'github' ? null : MISSING_GITHUB;
 }
 
 /** A prompt as a folded block under `run:`, one line of the prompt per line of YAML. */
@@ -87,29 +130,29 @@ const BRIEF_PROMPT = [
 ];
 
 export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
-    {
+    template({
         id: ASSIGNED_REVIEWS_NAME,
         title: 'Review pull requests assigned to you',
         description:
             'When a pull request asks for your review or is assigned to you, your pull request action reviews it, ' +
             'read-only, in its own worktree, so the findings are waiting when you sit down. Asks once before the first review.',
-        needs: [NEEDS_GITHUB, 'An action for pull requests'],
-        missing: (workspace) =>
-            githubMissing(workspace) ??
-            (defaultActionFor(workspace.actions ?? [], 'pr') ? null : 'Add an action for pull requests'),
+        category: 'Code review',
+        services: ['github', 'git'],
+        needs: [GITHUB, PR_ACTION],
         // Without an action the entry is the template's own example; "Add" is refused before it is written.
         entry: (workspace) => assignedReviewsEntry(defaultActionFor(workspace.actions ?? [], 'pr')?.name ?? 'Review'),
         // A review by an action: a prompt on the same events is a brief, another template.
         matches: (automation) => coversAssignedReviews(automation) && automation.run.kind === 'action',
-    },
-    {
+    }),
+    template({
         id: 'clean-up-stale-sessions',
         title: 'Clean up stale sessions',
         description:
             'Every weekday at 9:00, remove sessions whose pull request was merged or closed, with their Consola ' +
             'worktrees and branches. Anything with unsaved or unpushed work is kept. You approve each run.',
+        category: 'Housekeeping',
+        services: ['consola', 'git', 'github'],
         needs: [],
-        missing: () => null,
         entry: () =>
             [
                 '- name: clean-up-stale-sessions',
@@ -120,15 +163,16 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
         matches: ({ name, run }) =>
             name === 'clean-up-stale-sessions' ||
             (run.kind === 'tool' && run.namespace === 'consola' && run.tool === 'cleanup_stale_sessions'),
-    },
-    {
+    }),
+    template({
         id: 'morning-inbox-digest',
         title: 'Morning Inbox digest',
         description:
             'Every weekday at 8:30, a read-only session reads your Inbox and writes a short digest: what asks for ' +
             'your review, which of your pull requests are stuck, and what is assigned to you.',
-        needs: [NEEDS_GITHUB, 'A scope'],
-        missing: (workspace) => githubMissing(workspace) ?? (primaryScope(workspace) ? null : 'Add a scope'),
+        category: 'Briefing',
+        services: ['github'],
+        needs: [GITHUB, SCOPE],
         entry: (workspace) => {
             const scope = primaryScope(workspace);
             return [
@@ -141,15 +185,16 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
             ].join('\n');
         },
         matches: (automation) => automation.name === 'morning-inbox-digest' || runsPrompt(automation, DIGEST_PROMPT),
-    },
-    {
+    }),
+    template({
         id: 'brief-review-requests',
         title: 'Brief me on review requests',
         description:
             'When a pull request asks for your review, a read-only session reads it and writes a short brief — what ' +
             'it changes, where to look first, what looks risky — so you start the review knowing the shape of it.',
-        needs: [NEEDS_GITHUB],
-        missing: githubMissing,
+        category: 'Code review',
+        services: ['github'],
+        needs: [GITHUB],
         entry: () =>
             [
                 '- name: brief-review-requests',
@@ -159,24 +204,64 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
             ].join('\n'),
         // A prompt on review requests, whatever it says: an action there is a review, another template.
         matches: (automation) => onReviewRequest(automation) && automation.run.kind === 'prompt',
-    },
+    }),
 ];
 
 /** The templates as the Templates tab shows them for this workspace and the automations its file has. */
-export function templateViews(workspace: Workspace, automations: Automation[]): TemplateView[] {
+export function templateViews(workspace: Workspace, automations: Automation[], now = new Date()): TemplateView[] {
     return AUTOMATION_TEMPLATES.map((template) => {
         const missing = template.missing(workspace);
         // Its own name first: another entry that only covers it is the fallback.
         const added =
             automations.find((automation) => automation.name === template.id) ??
             automations.find((automation) => template.matches(automation));
+        const preview = previewFor(template, workspace, now);
         return {
             id: template.id,
             title: template.title,
             description: template.description,
-            needs: [...template.needs],
+            category: template.category,
+            services: [...template.services],
+            needs: template.needs.map((need) => ({ label: need.label, met: need.met(workspace), fix: { ...need.fix } })),
             ...(missing ? { missing } : {}),
             ...(added ? { addedAs: added.name } : {}),
+            ...(preview ? { preview } : {}),
         };
     });
+}
+
+/**
+ * The entry "Add" would write, described as the Automations tab describes
+ * one: the gallery shows what a template does before it is in the file.
+ * Only the gallery reads it, so a template that cannot be previewed loses
+ * its preview, never the snapshot every automation's schedule rides on.
+ */
+function previewFor(template: AutomationTemplate, workspace: Workspace, now: Date): TemplatePreview | null {
+    try {
+        return previewOf(template.entry(workspace), now);
+    } catch (error) {
+        console.error(`automations: template ${template.id} has no preview:`, error);
+        return null;
+    }
+}
+
+function previewOf(entry: string, now: Date): TemplatePreview | null {
+    const parsed = parseAutomationEntry(entry);
+    if (!parsed.ok) return null;
+    const { automation } = parsed;
+    const { trigger } = automation;
+    const cron = trigger.kind === 'cron' ? trigger.cron : undefined;
+    const event = trigger.kind === 'event' ? resolveEventSource(trigger, automation.filter) : null;
+    const next = cron ? nextCronOccurrence(cron, now) : null;
+    return {
+        trigger: event?.ok ? event.source.describe : cron ? describeSchedule(cron) : describeTriggerAsWritten(automation),
+        ...(cron ? { schedule: cron } : {}),
+        onEvent: trigger.kind === 'event',
+        kind: automation.run.kind === 'tool' ? 'tool' : 'agent',
+        runs: describeRun(automation),
+        target: automation.run.ref,
+        mode: automation.mode,
+        nextRunAt: next ? next.toISOString() : null,
+        entry: parsed.item,
+    };
 }

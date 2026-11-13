@@ -310,16 +310,29 @@ test('templates add through the runner, and say what is missing', async () => {
     await expect(review).toHaveCount(1);
     await expect(review).toContainText('Connect a GitHub account');
     await expect(review).toHaveClass(/automations-template-missing/);
-    await expect(review.getByRole('button', { name: 'Add' })).toBeDisabled();
+    await expect(review.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await expect(review.getByRole('button', { name: 'Customize…' })).toBeDisabled();
+    // What it lacks is a way to get it: straight to that part of Workspace settings.
+    await expect(review.getByRole('button', { name: 'Connect a GitHub account' })).toBeEnabled();
 
-    // The cleanup is never dimmed.
+    // The cleanup is never dimmed, and needs nothing.
     const cleanup = dashboard.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' });
     await expect(cleanup).toHaveCount(1);
     await expect(cleanup).not.toHaveClass(/automations-template-missing/);
-    await cleanup.getByRole('button', { name: 'Add' }).click();
-    await expect(cleanup).toContainText('✓ Added as clean-up-stale-sessions');
-    await expect(cleanup.getByRole('button', { name: 'Add' })).toHaveCount(0);
+    await expect(cleanup).toContainText('No setup needed');
+    await expect(cleanup).toContainText('Weekdays at 9:00');
+
+    // Opening it shows exactly what Add writes, before anything is written.
+    await cleanup.getByRole('button', { name: 'Clean up stale sessions' }).click();
+    const panel = sidePanel(page);
+    await expect(panel.getByRole('heading', { name: 'Clean up stale sessions' })).toBeVisible();
+    await panel.getByRole('button', { name: 'YAML' }).click();
+    await expect(panel.locator('.automations-entry-addition')).toContainText('consola#cleanup_stale_sessions');
+    await panel.getByRole('button', { name: 'Close' }).click();
+
+    await cleanup.getByRole('button', { name: 'Add', exact: true }).click();
+    await expect(cleanup).toContainText('Added as clean-up-stale-sessions');
+    await expect(cleanup.getByRole('button', { name: 'Add', exact: true })).toHaveCount(0);
 
     const file = fs.readFileSync(path.join(sprocket.factoryDir, sprocket.workspaceId, 'factory.yml'), 'utf8');
     expect(file).toContain(header);

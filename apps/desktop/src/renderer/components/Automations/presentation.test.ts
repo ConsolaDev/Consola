@@ -27,6 +27,7 @@ import {
     triggerLabel,
     approvalStep,
     formatElapsed,
+    templateModeWords,
     triggerInWords,
     runInsights,
     runsByDay,
@@ -643,8 +644,24 @@ describe('approvalStep', () => {
         expect(approvalStep({ mode: 'auto', kind: 'tool' })).toBeNull();
     });
 
+    it('is approving the first run for a template that runs on its own', () => {
+        expect(approvalStep({ mode: 'auto', kind: 'agent' }, true)).toMatchObject({
+            title: 'You approve its first run',
+            detail: 'Then it runs on its own',
+        });
+        expect(approvalStep({ mode: 'confirm', kind: 'tool' }, true)?.title).toBe('You approve each run');
+    });
+
     it('is being told, for notify', () => {
         expect(approvalStep({ mode: 'notify', kind: 'agent' })).toMatchObject({ kind: 'notify', detail: 'Starts nothing' });
+    });
+});
+
+describe('templateModeWords', () => {
+    it('says how an added template treats the person', () => {
+        expect(templateModeWords('confirm')).toBe('You approve each run');
+        expect(templateModeWords('auto')).toBe('Asks once, then runs on its own');
+        expect(templateModeWords('notify')).toBe('Only tells you what it would do');
     });
 });
 

@@ -245,8 +245,24 @@ export function installMock() {
     getSnapshot: async () => ({
       filePath: '', fileExists: false, automations: [], issues: [], runs: [], queue: {}, suggestAssignedReviews: null,
       templates: [
-        { id: 'review-assigned-prs', title: 'Review PRs assigned to me', description: 'Reviews each pull request that asks for your review.', needs: ['A GitHub connection'] },
-        { id: 'morning-inbox-digest', title: 'Morning inbox digest', description: 'Summarises what needs you each weekday morning.', needs: ['A scope'] },
+        {
+          id: 'review-assigned-prs', title: 'Review PRs assigned to me', description: 'Reviews each pull request that asks for your review.',
+          category: 'Code review', services: ['github', 'git'],
+          needs: [{ label: 'GitHub connection', met: true, fix: { label: 'Connect a GitHub account', section: 'provider' } }],
+          preview: {
+            trigger: 'When a pull request asks for your review', onEvent: true, kind: 'agent', runs: 'Review action', target: 'Review',
+            mode: 'auto', nextRunAt: null, entry: '- name: review-assigned-prs\n  on: { github: pull_request.review_requested }\n  run: { action: Review }\n  mode: auto',
+          },
+        },
+        {
+          id: 'morning-inbox-digest', title: 'Morning inbox digest', description: 'Summarises what needs you each weekday morning.',
+          category: 'Briefing', services: ['github'],
+          needs: [{ label: 'A scope to run in', met: true, fix: { label: 'Add a scope', section: 'scopes' } }],
+          preview: {
+            trigger: 'Weekdays at 8:30', schedule: '30 8 * * 1-5', onEvent: false, kind: 'agent', runs: 'Prompt', target: 'prompt',
+            mode: 'auto', nextRunAt: null, entry: '- name: morning-inbox-digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: Write a short digest of my Inbox. }\n  mode: auto',
+          },
+        },
       ],
     }),
     runNow: automationsUnavailable, approve: automationsUnavailable, dismiss: automationsUnavailable, openFile: automationsUnavailable,

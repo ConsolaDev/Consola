@@ -43,12 +43,47 @@ export interface TemplateView {
     id: string;
     title: string;
     description: string;
-    /** What the workspace must have for it to run: "A GitHub connection", "A scope". */
-    needs: string[];
+    /** What it is for, as the gallery groups it: "Code review", "Housekeeping". */
+    category: string;
+    /** What it works with, where it listens first. The agent CLI that runs a prompt is the workspace's, not the template's. */
+    services: TemplateService[];
+    /** What the workspace must have for it to run, each with whether it does. */
+    needs: TemplateNeed[];
     /** What this workspace lacks for it, said as what to do: it is shown dimmed. */
     missing?: string;
     /** The entry in the file that already does this, by name. */
     addedAs?: string;
+    /** The entry "Add" would write for this workspace, described as the Automations tab describes one. */
+    preview?: TemplatePreview;
+}
+
+/** A service a template works with. */
+export type TemplateService = 'github' | 'git' | 'consola';
+
+/** Where in Workspace settings a template's need is met. */
+export type TemplateNeedSection = 'provider' | 'actions' | 'scopes';
+
+export interface TemplateNeed {
+    /** What it is: "GitHub connection". */
+    label: string;
+    met: boolean;
+    /** What to do when it is not, and the Workspace settings section where it is done. */
+    fix: { label: string; section: TemplateNeedSection };
+}
+
+/** What adding a template would put in factory.yml, in the words an `AutomationView` uses. */
+export interface TemplatePreview {
+    trigger: string;
+    schedule?: string;
+    onEvent: boolean;
+    kind: 'tool' | 'agent';
+    runs: string;
+    target: string;
+    mode: AutomationMode;
+    /** Its first scheduled run if it were added now (ISO); null when not on a schedule. */
+    nextRunAt: string | null;
+    /** The entry exactly as "Add" writes it: one `- name: …` list item. */
+    entry: string;
 }
 
 /** What saving one entry into factory.yml wrote. */

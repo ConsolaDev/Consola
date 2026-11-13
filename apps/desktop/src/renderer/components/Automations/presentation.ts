@@ -441,7 +441,18 @@ export interface ApprovalStep {
     detail: string;
 }
 
-export function approvalStep(automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind'>): ApprovalStep | null {
+/** How a template's entry will treat the person once added: a card's line, where `approvalStep` is a pipeline's node. */
+export function templateModeWords(mode: AutomationMode): string {
+    if (mode === 'confirm') return 'You approve each run';
+    if (mode === 'notify') return 'Only tells you what it would do';
+    return 'Asks once, then runs on its own';
+}
+
+export function approvalStep(
+    automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind'>,
+    /** Not in the file yet (a template): an `auto` entry's first run is the one it asks about. */
+    draft = false,
+): ApprovalStep | null {
     if (automation.mode === 'notify') {
         return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };
     }
@@ -454,6 +465,9 @@ export function approvalStep(automation: Pick<AutomationView, 'mode' | 'asksFirs
                     ? 'Its session starts when you press Start'
                     : 'It previews first; nothing changes until you approve',
         };
+    }
+    if (draft && automation.mode === 'auto') {
+        return { kind: 'approve', title: 'You approve its first run', detail: 'Then it runs on its own' };
     }
     if (automation.asksFirst) {
         return {

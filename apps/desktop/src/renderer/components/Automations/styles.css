@@ -733,47 +733,435 @@
 }
 
 /*
- * Templates: a grid of cards as wide as the pane allows, each reading top to
- * bottom with its buttons at the foot. Narrow (the empty state, the New
- * automation panel), one column.
+ * Templates, as a gallery (n8n's templates, GitHub's starter workflows): a
+ * grid of cards that fills the pane — auto-fit, so a few cards stretch
+ * rather than leave empty columns — each reading top to bottom: what it
+ * works with, what it is, what it does, and at its foot whether this
+ * workspace is ready for it. Narrow (the empty state, the New automation
+ * panel), one column.
  */
+.automations-templates {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.automations-templates-intro {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+}
+
+.automations-templates-intro p {
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.automations-templates-tally {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
 .automations-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
   gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.automations-template {
-  box-sizing: border-box;
-  flex-direction: column;
-  align-items: stretch;
-  height: 100%;
+.automations-template-grid > li {
+  display: flex;
+  min-width: 0;
 }
 
-.automations-template .automations-card-main {
+.automations-template {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-primary);
+  cursor: pointer;
+  transition:
+    border-color 150ms ease,
+    background-color 150ms ease;
+}
+
+.automations-template:hover {
+  border-color: var(--color-border-hover);
+  background: color-mix(in srgb, var(--color-text-primary) 2%, var(--color-bg-primary));
+}
+
+/* The template the side panel is showing. */
+.automations-template[aria-current='true'] {
+  border-color: var(--color-accent);
+}
+
+.automations-template-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 10px;
+  padding: var(--space-4) var(--space-4) 14px;
+}
+
+/* Not ready here: what it is stays readable, quieter; what to do about it stays at full strength. */
+.automations-template-missing .automations-template-body > :not(.automations-template-status) {
+  opacity: 0.55;
+}
+
+/* Ready, what to set up, or the entry it became: the body's last line, wherever the text above ends. */
+.automations-template-status {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  margin-top: auto;
+  padding-top: var(--space-1);
+  cursor: default;
+}
+
+.automations-template-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: var(--space-2);
 }
 
-.automations-template .automations-summary {
+.automations-template-category {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+}
+
+.automations-template-title {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: 15px;
+  font-weight: var(--font-weight-semibold);
+  line-height: var(--line-height-tight);
+  text-align: left;
+  color: var(--color-text-primary);
+  cursor: pointer;
+}
+
+.automations-template-title:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.automations-template-description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  font-size: 13px;
   line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
 }
 
-.automations-template .automations-card-actions {
+/* The pipeline in three lines, with the icons its nodes wear. */
+.automations-template-facts {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 2px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.automations-template-facts li {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.automations-template-facts svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+.automations-template-fact-text {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-template-facts code {
+  font-size: var(--font-size-xs);
+  overflow-wrap: normal;
+}
+
+.automations-template-facts .automations-cron {
+  flex-shrink: 0;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.automations-template-foot {
+  display: flex;
   justify-content: flex-end;
-  margin-top: auto;
+  padding: 10px var(--space-3);
+  border-top: 1px solid var(--color-border);
+  cursor: default;
 }
 
-.automations-added {
+.automations-template-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-left: auto;
+}
+
+.automations-template .automations-small-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* What it works with: tiles, as n8n's cards show a workflow's nodes. Hovering the card lifts them in turn. */
+.automations-services {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-service {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.automations-service-tile {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border: 1px solid var(--color-border-strong);
+  border-radius: 7px;
+  background: color-mix(in srgb, var(--color-text-primary) 5%, var(--color-bg-primary));
+  color: var(--color-text-primary);
+  transition:
+    transform 260ms cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 200ms ease;
+}
+
+.automations-template:hover .automations-service-tile {
+  border-color: var(--color-border-hover);
+  transform: translateY(-2px);
+  transition-delay: calc(var(--order, 0) * 45ms);
+}
+
+.automations-services-labelled {
+  gap: var(--space-2) 14px;
+}
+
+.automations-service-name {
   font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+/* Setup: each need ticked when the workspace has it; one it lacks is the way to get it. */
+.automations-setup {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-2);
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-setup li,
+.automations-setup-none {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.automations-setup-met svg,
+.automations-setup-none svg {
+  flex-shrink: 0;
   color: var(--color-success);
 }
 
-/* A template this workspace cannot run yet: dimmed, with what to do about it. */
-.automations-template-missing {
-  opacity: 0.6;
+.automations-setup-unmet > svg {
+  flex-shrink: 0;
+  color: var(--color-warning);
+}
+
+.automations-setup-fix {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-accent);
+  cursor: pointer;
+}
+
+.automations-setup-fix:hover {
+  text-decoration: underline;
+}
+
+.automations-setup-fix:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.automations-setup-detailed {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+/* Already in the file: by the entry that does it, which it opens. */
+.automations-added-as {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.automations-added-as:hover {
+  color: var(--color-text-primary);
+}
+
+.automations-added-as:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.automations-added-check {
+  flex-shrink: 0;
+  color: var(--color-success);
+}
+
+.automations-added-name {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+}
+
+.automations-added-arrow {
+  flex-shrink: 0;
+  transition: transform 150ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+.automations-added-as:hover .automations-added-arrow {
+  transform: translateX(2px);
+}
+
+/* Just added: the card washes green once and the check settles in, so the eye sees which one landed. */
+.automations-template.automations-template-just-added {
+  animation: automations-template-landed 1400ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes automations-template-landed {
+  from {
+    border-color: var(--color-success);
+    background: color-mix(in srgb, var(--color-success) 10%, var(--color-bg-primary));
+  }
+}
+
+.automations-template-just-added .automations-added-check {
+  animation: automations-check-in 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes automations-check-in {
+  from {
+    opacity: 0;
+    transform: scale(0.4) rotate(-25deg);
+  }
+}
+
+/* A template's panel: what it works with and is, then what to do; the actions on the right. */
+.automations-template-lead {
+  display: flex;
+  flex: 1 1 360px;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+  max-width: 76ch;
+}
+
+.automations-template-lead .automations-template-top {
+  justify-content: flex-start;
+  gap: var(--space-3);
+}
+
+.automations-template-lead-text {
+  margin: 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-relaxed);
+  color: var(--color-text-secondary);
+}
+
+.automations-template-lead-added {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automations-service-tile,
+  .automations-added-arrow {
+    transition: none;
+  }
+
+  .automations-template:hover .automations-service-tile {
+    transform: none;
+  }
+
+  .automations-template.automations-template-just-added,
+  .automations-template-just-added .automations-added-check {
+    animation: none;
+  }
 }
 
 /*
@@ -1959,6 +2347,8 @@
   font-family: var(--font-mono);
   font-size: 12.5px;
   line-height: 20px;
+  /* As written: JetBrains Mono would draw YAML's ">-" and "->" as arrows. */
+  font-variant-ligatures: none;
 }
 
 .automations-entry-code code {
@@ -1979,6 +2369,15 @@
   text-align: right;
   color: var(--color-text-disabled);
   user-select: none;
+}
+
+/* Not in the file yet: drawn as a diff draws an addition, a "+" and a green tint on every line. */
+.automations-entry-addition .automations-entry-code {
+  background: color-mix(in srgb, var(--color-success) 7%, var(--color-bg-primary));
+}
+
+.automations-entry-addition .automations-entry-num {
+  color: var(--color-success);
 }
 
 .automations-yaml-key {

@@ -38,6 +38,7 @@ import {
 } from '../tools/Tool';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
+import { describeRun, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import {
     ASSIGNED_REVIEWS_NAME,
@@ -534,7 +535,7 @@ export class AutomationService {
     /** The templates as this workspace's Templates tab shows them. */
     private templatesOf(workspaceId: string, factory: WorkspaceFactory): TemplateView[] {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-        return workspace ? templateViews(workspace, factory.loaded.spec.automations) : [];
+        return workspace ? templateViews(workspace, factory.loaded.spec.automations, this.deps.now()) : [];
     }
 
     /** Fire everything that is due, and start what the queue has room for. Public so wake-from-sleep can call it. */
@@ -1553,13 +1554,6 @@ export class AutomationService {
     }
 }
 
-/** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions". */
-function describeRun(automation: Automation): string {
-    const { run } = automation;
-    if (run.kind === 'tool') return `Tool: ${run.tool}`;
-    return run.kind === 'action' ? `${run.name} action` : 'Prompt';
-}
-
 /** What an agent run says while its turn runs. */
 function runningIn(sessionName: string): string {
     return `Running in “${sessionName}”.`;
@@ -1600,12 +1594,6 @@ function describeIssue(issue: FactorySpecIssue): string {
 /** A save refused, with every reason: what the agent reads and acts on. */
 function notSaved(reasons: string[]): Error {
     return new Error(`Not saved: ${reasons.map((reason) => reason.trim().replace(/\.$/, '')).join('; ')}.`);
-}
-
-/** An event trigger that did not resolve, said as written. */
-function describeTriggerAsWritten(automation: Automation): string {
-    const { trigger } = automation;
-    return trigger.kind === 'event' ? `${trigger.connection}: ${trigger.events.join(', ')}` : trigger.cron;
 }
 
 /** A run of this automation, in this workspace. */

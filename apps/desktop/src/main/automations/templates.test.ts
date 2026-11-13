@@ -140,9 +140,53 @@ describe('templates', () => {
             expect(template.description).toBeTruthy();
         }
         expect(views.find((template) => template.id === 'review-assigned-prs')?.needs).toEqual([
-            'A GitHub connection',
-            'An action for pull requests',
+            { label: 'GitHub connection', met: false, fix: { label: 'Connect a GitHub account', section: 'provider' } },
+            { label: 'Action for pull requests', met: false, fix: { label: 'Add an action for pull requests', section: 'actions' } },
         ]);
+        // Each need says whether this workspace has it, not only the first missing one.
+        expect(view(workspace({ actions: [] }), 'review-assigned-prs').needs.map((need) => need.met)).toEqual([true, false]);
+        expect(view(workspace(), 'clean-up-stale-sessions').needs).toEqual([]);
+    });
+
+    it('previews the entry Add would write, as the Automations tab would describe it', () => {
+        const owner = workspace();
+        const now = new Date(2026, 10, 13, 10, 0); // a Friday
+        const views = templateViews(owner, [], now);
+        for (const template of views) {
+            expect(template.preview, template.id).toBeDefined();
+            expect(template.category, template.id).toBeTruthy();
+            expect(template.services.length, template.id).toBeGreaterThan(0);
+            expect(template.preview?.entry).toBe(
+                AUTOMATION_TEMPLATES.find((candidate) => candidate.id === template.id)!.entry(owner),
+            );
+        }
+        const cleanup = views.find((template) => template.id === 'clean-up-stale-sessions')!;
+        expect(cleanup.preview).toMatchObject({
+            trigger: 'Weekdays at 9:00',
+            schedule: '0 9 * * 1-5',
+            onEvent: false,
+            kind: 'tool',
+            runs: 'Tool: cleanup_stale_sessions',
+            target: 'consola#cleanup_stale_sessions',
+            mode: 'confirm',
+            // Friday 10:00: the next weekday at 9:00 is Monday.
+            nextRunAt: new Date(2026, 10, 16, 9, 0).toISOString(),
+        });
+        const brief = views.find((template) => template.id === 'brief-review-requests')!;
+        expect(brief.preview).toMatchObject({
+            trigger: 'When a pull request asks for your review',
+            onEvent: true,
+            kind: 'agent',
+            runs: 'Prompt',
+            mode: 'auto',
+            nextRunAt: null,
+        });
+        expect(brief.preview).not.toHaveProperty('schedule');
+        // Filled in for this workspace: its scope, its pull request action.
+        expect(views.find((template) => template.id === 'morning-inbox-digest')?.preview?.entry).toContain(
+            'scope: catalog-portal',
+        );
+        expect(views.find((template) => template.id === 'review-assigned-prs')?.preview?.runs).toBe('Review action');
     });
 
     it('an entry already in the file shows as added', () => {

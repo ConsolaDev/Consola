@@ -103,7 +103,7 @@ function setup({
     actionable = 2,
     runFails = false,
     accepted = false,
-    workspaces = [{ id: 'ws-1', name: 'Acme', sessions: [] } as unknown as Workspace],
+    workspaces = [{ id: 'ws-1', name: 'Acme', sessions: [], scopes: [] } as unknown as Workspace],
     files = {},
     cap,
     harness = { name: 'Claude', problem: null },
@@ -317,6 +317,7 @@ describe('an agent’s destructive call', () => {
                 { id: 's-1', name: 'worker' },
                 { id: 's-2', name: 'old' },
             ],
+            scopes: [],
         } as unknown as Workspace,
     ];
     const OWN_WORKSPACE = { workspaceIds: ['ws-1'], excludeSessionIds: ['s-1'] };
@@ -633,8 +634,8 @@ automations:
 describe('one file per workspace', () => {
     const pair = () =>
         [
-            { id: 'ws-1', name: 'Acme', sessions: [] },
-            { id: 'ws-2', name: 'Globex', sessions: [] },
+            { id: 'ws-1', name: 'Acme', sessions: [], scopes: [] },
+            { id: 'ws-2', name: 'Globex', sessions: [], scopes: [] },
         ] as unknown as Workspace[];
 
     it('runs each workspace’s own automations on that workspace alone', async () => {
@@ -667,7 +668,7 @@ describe('one file per workspace', () => {
         const waiting = await t.trigger('ws-2', 'sweep').catch(() => null);
         expect(waiting).toBeNull(); // ws-2 has no file: nothing to run.
 
-        workspaces.push({ id: 'ws-3', name: 'Initech', sessions: [] } as unknown as Workspace);
+        workspaces.push({ id: 'ws-3', name: 'Initech', sessions: [], scopes: [] } as unknown as Workspace);
         await t.service.syncWorkspaces();
         expect(t.watched).toEqual(new Set(['ws-1', 'ws-2', 'ws-3']));
         const pending = await t.trigger('ws-3', 'sweep');
@@ -1701,7 +1702,7 @@ automations:
     it('a run waiting for approval keeps its result in the list, and a request is kind request', async () => {
         const t = setup({
             yaml: entry('    mode: confirm\n'),
-            workspaces: [{ id: 'ws-1', name: 'Acme', sessions: [{ id: 's-1', name: 'worker' }, { id: 's-2', name: 'old' }] } as unknown as Workspace],
+            workspaces: [{ id: 'ws-1', name: 'Acme', sessions: [{ id: 's-1', name: 'worker' }, { id: 's-2', name: 'old' }], scopes: [] } as unknown as Workspace],
         });
         await t.start();
         const waiting = await t.trigger('ws-1', 'sweep');

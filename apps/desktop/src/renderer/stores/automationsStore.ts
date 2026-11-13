@@ -11,6 +11,7 @@ export type AutomationsTab = 'activity' | 'automations' | 'templates';
 export type AutomationsPanel =
     | { kind: 'run'; runId: string }
     | { kind: 'automation'; name: string }
+    | { kind: 'template'; id: string }
     | { kind: 'new'; basis?: AuthoringBasis };
 
 /**

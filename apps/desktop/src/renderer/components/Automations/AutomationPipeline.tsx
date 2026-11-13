@@ -37,6 +37,7 @@ export function PipelineGraph({
   now,
   place,
   onOpenRun,
+  draft = false,
 }: {
   automation: AutomationView;
   /** What history keeps for it, newest first. */
@@ -44,8 +45,10 @@ export function PipelineGraph({
   now: Date;
   place: (runId: string) => number | undefined;
   onOpenRun: (runId: string) => void;
+  /** Not in factory.yml yet (a template): its trigger says what would happen once added. */
+  draft?: boolean;
 }) {
-  const step = approvalStep(automation);
+  const step = approvalStep(automation, draft);
   const waiting = runs.find((run) => run.status === 'needs-approval');
   const running = runs.find((run) => run.status === 'running');
   const queued = runs.find((run) => run.status === 'queued');
@@ -65,7 +68,17 @@ export function PipelineGraph({
       title={automation.trigger}
       code={automation.schedule}
     >
-      {automation.problem ? (
+      {draft ? (
+        automation.onEvent ? (
+          'Checked on each Inbox refresh, once added'
+        ) : automation.nextRunAt && Date.parse(automation.nextRunAt) > now.getTime() ? (
+          <span title={formatTime(automation.nextRunAt)}>
+            First run <span className="automations-node-quiet">· {formatDueAt(automation.nextRunAt, now)}</span>
+          </span>
+        ) : (
+          'On its schedule, once added'
+        )
+      ) : automation.problem ? (
         'Not scheduled while it has a problem'
       ) : automation.onEvent ? (
         'Checked on each Inbox refresh'
@@ -185,8 +198,6 @@ export function EntrySource({
 }) {
   const [entry, setEntry] = useState<string | null | undefined>(undefined);
   const [loadError, setLoadError] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let live = true;
@@ -205,6 +216,58 @@ export function EntrySource({
     };
   }, [workspaceId, automation]);
 
+  const note =
+    loadError && entry === undefined
+      ? loadError
+      : entry === undefined
+        ? 'Loading…'
+        : entry === null
+          ? 'factory.yml no longer has this entry as written.'
+          : null;
+
+  return (
+    <EntryCode
+      text={entry ?? null}
+      note={note}
+      firstLine={automation.line}
+      tools={
+        <button
+          type="button"
+          className="dialog-button-secondary automations-small-button"
+          disabled={opening}
+          onClick={onOpenFile}
+        >
+          <ExternalLink size={12} aria-hidden="true" />
+          Open in editor
+        </button>
+      }
+    />
+  );
+}
+
+/**
+ * One factory.yml entry as code, with a copy button. Numbered from the line
+ * it starts on in the file — or, for an entry that is not in the file yet
+ * (`addition`), marked line by line as what adding it writes, as a diff
+ * marks an addition.
+ */
+export function EntryCode({
+  text,
+  note = null,
+  firstLine,
+  addition = false,
+  tools,
+}: {
+  text: string | null;
+  /** Said in place of the code: loading, gone, failed. */
+  note?: string | null;
+  firstLine?: number;
+  addition?: boolean;
+  tools?: ReactNode;
+}) {
+  const [copied, setCopied] = useState(false);
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
   useEffect(
     () => () => {
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
@@ -213,62 +276,53 @@ export function EntrySource({
   );
 
   const copy = () => {
-    if (!entry) return;
-    void navigator.clipboard.writeText(entry).then(() => {
+    if (!text) return;
+    void navigator.clipboard.writeText(text).then(() => {
       setCopied(true);
       if (copiedTimer.current) clearTimeout(copiedTimer.current);
       copiedTimer.current = setTimeout(() => setCopied(false), 1600);
     });
   };
 
-  const lines = entry ? yamlTokens(entry.replace(/\n+$/, '')) : [];
-  const first = automation.line ?? 1;
+  const lines = text ? yamlTokens(text.replace(/\n+$/, '')) : [];
+  const first = firstLine ?? 1;
+  const where = addition
+    ? `+${lines.length} ${lines.length === 1 ? 'line' : 'lines'}, at the end`
+    : firstLine !== undefined && lines.length > 0
+      ? lines.length === 1
+        ? `line ${first}`
+        : `lines ${first}–${first + lines.length - 1}`
+      : null;
 
   return (
-    <div className="automations-entry">
+    <div className={`automations-entry ${addition ? 'automations-entry-addition' : ''}`}>
       <div className="automations-entry-head">
         <FileCode size={13} aria-hidden="true" />
         <span className="automations-entry-file">factory.yml</span>
-        {automation.line !== undefined && lines.length > 0 && (
-          <span className="automations-entry-lines">
-            {lines.length === 1 ? `line ${first}` : `lines ${first}–${first + lines.length - 1}`}
-          </span>
-        )}
+        {where && <span className="automations-entry-lines">{where}</span>}
         <span className="automations-entry-tools">
           <button
             type="button"
             className="automations-icon-button"
             aria-label={copied ? 'Copied' : 'Copy the entry'}
             title={copied ? 'Copied' : 'Copy the entry'}
-            disabled={!entry}
+            disabled={!text}
             onClick={copy}
           >
             {copied ? <Check size={13} className="automations-copied" /> : <Copy size={13} />}
           </button>
-          <button
-            type="button"
-            className="dialog-button-secondary automations-small-button"
-            disabled={opening}
-            onClick={onOpenFile}
-          >
-            <ExternalLink size={12} aria-hidden="true" />
-            Open in editor
-          </button>
+          {tools}
         </span>
       </div>
-      {loadError && entry === undefined ? (
-        <p className="automations-hint automations-entry-note">{loadError}</p>
-      ) : entry === undefined ? (
-        <p className="automations-hint automations-entry-note">Loading…</p>
-      ) : entry === null ? (
-        <p className="automations-hint automations-entry-note">factory.yml no longer has this entry as written.</p>
+      {note !== null || !text ? (
+        <p className="automations-hint automations-entry-note">{note}</p>
       ) : (
         <pre className="automations-entry-code">
           <code>
             {lines.map((tokens, index) => (
               <span key={index} className="automations-entry-line">
                 <span className="automations-entry-num" aria-hidden="true">
-                  {first + index}
+                  {addition ? '+' : first + index}
                 </span>
                 {tokens.map((token, part) => (
                   <span key={part} className={`automations-yaml-${token.kind}`}>

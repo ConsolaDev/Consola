@@ -5,6 +5,7 @@ import { useAutomationsStore, type AutomationsPanel } from '../../stores/automat
 import { AutomationDetails } from './AutomationDetails';
 import { NewAutomation } from './NewAutomation';
 import { RunDetails } from './RunDetails';
+import { TemplateDetails } from './TemplateDetails';
 import { runTitle } from './presentation';
 
 /**
@@ -21,7 +22,14 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
   const title = usePanelTitle(workspace.id, panel);
   const titleId = useId();
   const ref = useRef<HTMLElement>(null);
-  const panelKey = panel.kind === 'run' ? `run:${panel.runId}` : panel.kind === 'automation' ? `automation:${panel.name}` : 'new';
+  const panelKey =
+    panel.kind === 'run'
+      ? `run:${panel.runId}`
+      : panel.kind === 'automation'
+        ? `automation:${panel.name}`
+        : panel.kind === 'template'
+          ? `template:${panel.id}`
+          : 'new';
 
   // Declared before the effect that moves focus, so it sees where focus was.
   useEffect(() => {
@@ -96,6 +104,7 @@ export function SidePanel({ workspace, panel }: { workspace: Workspace; panel: A
       <div className="automations-side-panel-body">
         {panel.kind === 'run' && <RunDetails key={panel.runId} workspace={workspace} runId={panel.runId} />}
         {panel.kind === 'automation' && <AutomationDetails key={panel.name} workspace={workspace} name={panel.name} />}
+        {panel.kind === 'template' && <TemplateDetails key={panel.id} workspace={workspace} id={panel.id} />}
         {panel.kind === 'new' && <NewAutomation workspace={workspace} basis={panel.basis} />}
       </div>
     </aside>
@@ -107,7 +116,11 @@ function usePanelTitle(workspaceId: string, panel: AutomationsPanel): string {
   const run = useAutomationsStore((state) =>
     panel.kind === 'run' ? state.snapshots[workspaceId]?.runs.find((candidate) => candidate.id === panel.runId) : undefined
   );
+  const template = useAutomationsStore((state) =>
+    panel.kind === 'template' ? state.snapshots[workspaceId]?.templates.find((candidate) => candidate.id === panel.id) : undefined
+  );
   if (panel.kind === 'run') return run ? runTitle(run) : 'Run';
   if (panel.kind === 'automation') return panel.name;
+  if (panel.kind === 'template') return template?.title ?? 'Template';
   return panel.basis && 'automation' in panel.basis ? `Change ${panel.basis.automation}` : 'New automation';
 }
