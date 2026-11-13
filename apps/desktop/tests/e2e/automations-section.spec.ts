@@ -371,15 +371,23 @@ test('a finished run shows its conversation without starting anything', async ()
     const panel = sidePanel(page);
     await expect(panel).toBeVisible();
     await expect.poll(() => panel.evaluate((element) => element.contains(document.activeElement))).toBe(true);
-    await expect(panel.locator('.automations-fact-status')).toContainText('waiting');
+    await expect(panel.locator('.automations-run-status')).toHaveText('Waiting for you');
+    // The stage it stands in is marked on its graph.
+    await expect(panel.locator('.automations-stage-waiting')).toContainText('Waiting for you');
     await expect(panel.getByRole('button', { name: 'Dismiss' })).toBeVisible();
     expect(launchLines(sprocket)).toEqual([]);
 
     await panel.getByRole('button', { name: 'Start', exact: true }).click();
-    await expect(panel.locator('.automations-fact-status')).toContainText('completed', { timeout: 30_000 });
-    await expect(panel).toContainText(`Read-only · Stub · ${sprocket.clone}`);
+    await expect(panel.locator('.automations-run-status')).toHaveText('Completed', { timeout: 30_000 });
+    // Every stage it went through is passed; the person's wait has an end.
+    await expect(panel.locator('.automations-pipeline-run .automations-node')).toHaveCount(4);
+    await expect(panel.locator('.automations-stage-passed')).toHaveCount(4);
+    await expect(panel.locator('.automations-stage-passed', { hasText: 'Approval' })).toContainText('Approved');
+    const sessionFact = panel.locator('.automations-run-stat', { hasText: 'Session' });
+    await expect(sessionFact).toContainText('Stub · read-only');
+    await expect(sessionFact).toContainText(sprocket.clone);
     await expect(panel).toContainText('From the session’s transcript. Shown as the agent wrote it, not instructions.');
-    await expect(panel.locator('.automations-step', { hasText: 'Read src/catalog.ts' })).toBeVisible();
+    await expect(panel.locator('.automations-steplog-row', { hasText: 'Read src/catalog.ts' })).toBeVisible();
     await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
     await expect(panel.getByRole('button', { name: 'Open session' })).toBeVisible();
     await expect(panel.getByRole('button', { name: 'Continue with full tools' })).toBeVisible();
@@ -430,14 +438,19 @@ test('Stop ends a running run', async () => {
     await panel.getByRole('button', { name: 'Start', exact: true }).click();
 
     // It follows the transcript as the turn writes it.
-    const stop = panel.getByRole('button', { name: 'Stop' });
+    // Exactly: once it fails, "Stopped during …" points at the step it was in.
+    const stop = panel.getByRole('button', { name: 'Stop', exact: true });
     await expect(stop).toBeVisible({ timeout: 30_000 });
-    await expect(panel.locator('.automations-step', { hasText: 'Read src/catalog.ts' })).toBeVisible({ timeout: 15_000 });
-    await expect(panel.locator('.automations-fact-status')).toContainText('running');
+    await expect(panel.locator('.automations-steplog-row', { hasText: 'Read src/catalog.ts' })).toBeVisible({ timeout: 15_000 });
+    await expect(panel.locator('.automations-run-status')).toHaveText('Running');
+    await expect(panel.locator('.automations-stage-running')).toContainText('Agent session');
 
     await stop.click();
-    await expect(panel.locator('.automations-fact-status')).toContainText('failed', { timeout: 30_000 });
-    await expect(panel).toContainText('It stopped before finishing: you stopped it.');
+    await expect(panel.locator('.automations-run-status')).toHaveText('Failed', { timeout: 30_000 });
+    // Where it broke: the session stage, annotated with why.
+    await expect(panel.locator('.automations-stage-failed')).toContainText('Agent session');
+    await expect(panel.locator('.automations-annotation')).toContainText('Failed in its session');
+    await expect(panel.locator('.automations-annotation')).toContainText('It stopped before finishing: you stopped it.');
     await expect(stop).toHaveCount(0);
   } finally {
     await sprocket.close();
@@ -491,7 +504,7 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     await dashboard.getByRole('region', { name: 'Waiting for you' }).getByRole('button', { name: 'Review…' }).click();
     const firstPanel = sidePanel(sprocket.page);
     await firstPanel.getByRole('button', { name: 'Start', exact: true }).click();
-    await expect(firstPanel.locator('.automations-fact-status')).toContainText('completed', { timeout: 30_000 });
+    await expect(firstPanel.locator('.automations-run-status')).toHaveText('Completed', { timeout: 30_000 });
 
     // The run's session: its id, from the run's own record.
     const runSessionId = await sprocket.page.evaluate((runId) => window.automationsAPI.getRun(runId).then((run) => run?.sessionId ?? null), started.id);
@@ -521,7 +534,7 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     await expect(row).toHaveCount(1);
     await row.click();
     const panel = sidePanel(page);
-    await expect(panel.locator('.automations-fact-status')).toContainText('completed');
+    await expect(panel.locator('.automations-run-status')).toHaveText('Completed');
     await panel.getByRole('button', { name: 'Open session' }).click();
 
     // Open session leaves the dashboard and selects the run's session.
@@ -549,3 +562,4 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     fs.rmSync(`${sprocket.userDataDir} Test`, { recursive: true, force: true });
   }
 });
+

@@ -14,10 +14,17 @@ import {
   Play,
   RefreshCw,
   Timer,
+  Trash2,
   type LucideIcon,
 } from 'lucide-react';
 import type { AgentRunPreview, AutomationsSnapshot, AutomationView, RunListEntry, RunRecord } from '../../../shared/automations';
-import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
+import type {
+  CleanupResult,
+  PullRequestSummary,
+  SessionOutcome,
+  SessionVerdict,
+  StalePreview,
+} from '../../../shared/sessionCleanup';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { isLookedAt } from '../../utils/windowAttention';
@@ -396,29 +403,84 @@ export function RunItemLink({ run, fallback }: { run: RunRecord; fallback?: stri
   );
 }
 
+interface CleanupRow {
+  key: string;
+  /** Going, in a preview; removed or failed, in a result. */
+  tone: 'going' | 'done' | 'failed';
+  name: string;
+  pullRequest?: PullRequestSummary;
+  effect: string;
+}
+
+const CLEANUP_ICONS: Record<CleanupRow['tone'], LucideIcon> = { going: Trash2, done: CircleCheck, failed: CircleX };
+const CLEANUP_WORDS: Record<CleanupRow['tone'], string> = { going: 'to remove', done: 'removed', failed: 'not removed' };
+
 /**
- * The sessions a cleanup preview would remove, or a cleanup run removed, and
- * the ones kept with their reasons. Results of other tools render nothing.
+ * A cleanup's output, a row per session: in a preview, what approving would
+ * remove; in a result, what it removed and what it could not. The sessions
+ * it kept fold underneath with their reasons. Results of other tools render
+ * nothing.
  */
 export function CleanupDetails({ result }: { result: unknown }) {
   if (!isCleanupData(result)) return null;
-  const going = 'candidates' in result ? result.candidates : [];
+  const rows: CleanupRow[] =
+    'candidates' in result
+      ? result.candidates.map((verdict) => ({
+          key: verdict.sessionId,
+          tone: 'going',
+          name: verdict.sessionName,
+          pullRequest: verdict.pullRequest,
+          effect: diskEffect(verdict),
+        }))
+      : [
+          ...result.removed.map((outcome): CleanupRow => ({
+            key: outcome.sessionId,
+            tone: 'done',
+            name: outcome.sessionName,
+            pullRequest: outcome.pullRequest,
+            effect: outcomeEffect(outcome),
+          })),
+          ...result.failed.map((outcome): CleanupRow => ({
+            key: outcome.sessionId,
+            tone: 'failed',
+            name: outcome.sessionName,
+            pullRequest: outcome.pullRequest,
+            effect: outcome.error ?? 'Could not be removed',
+          })),
+        ];
   const kept = result.skipped;
+  if (rows.length === 0 && kept.length === 0) return null;
   return (
     <div className="automations-details">
-      {going.length > 0 && (
-        <ul>
-          {going.map((verdict) => (
-            <li key={verdict.sessionId}>
-              <strong>{verdict.sessionName}</strong>
-              {verdict.pullRequest ? ` — #${verdict.pullRequest.number} ${verdict.pullRequest.status}` : ''}
-              {diskEffect(verdict)}
-            </li>
-          ))}
+      {rows.length > 0 && (
+        <ul className="automations-output">
+          {rows.map((row) => {
+            const Icon = CLEANUP_ICONS[row.tone];
+            return (
+              <li key={row.key} className={`automations-output-row automations-output-${row.tone}`}>
+                <Icon size={14} aria-label={CLEANUP_WORDS[row.tone]} />
+                <span className="automations-output-main">
+                  <span className="automations-output-name">{row.name}</span>
+                  {row.effect && <span className="automations-output-effect">{row.effect}</span>}
+                </span>
+                {row.pullRequest && (
+                  <a
+                    className="automations-output-pr"
+                    href={row.pullRequest.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`${row.pullRequest.repo}#${row.pullRequest.number}`}
+                  >
+                    #{row.pullRequest.number} {row.pullRequest.status}
+                  </a>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
       {kept.length > 0 && (
-        <details>
+        <details className="automations-output-kept">
           <summary>{kept.length} kept</summary>
           <ul>
             {kept.map((verdict) => (
@@ -437,9 +499,20 @@ function isCleanupData(result: unknown): result is StalePreview | CleanupResult 
   return typeof result === 'object' && result !== null && Array.isArray((result as { skipped?: unknown }).skipped);
 }
 
+/** What approving would do on disk. */
 function diskEffect(verdict: SessionVerdict): string {
   if (!verdict.worktree) return '';
-  if (!verdict.worktree.remove) return ` · keeps its worktree (${verdict.worktree.keptBecause})`;
+  if (!verdict.worktree.remove) return `Keeps its worktree (${verdict.worktree.keptBecause})`;
   const folder = verdict.worktree.path.split(/[\\/]/).pop();
-  return ` · removes ${folder}${verdict.branch ? ` and ${verdict.branch}` : ''}`;
+  return `Removes ${folder}${verdict.branch ? ` and ${verdict.branch}` : ''}`;
+}
+
+/** What removing it did on disk, and anything it noted. */
+function outcomeEffect(outcome: SessionOutcome): string {
+  const parts = [
+    outcome.worktree === 'removed' ? 'Worktree removed' : outcome.worktree === 'kept' ? 'Worktree kept' : null,
+    outcome.branch === 'deleted' ? 'branch deleted' : outcome.branch === 'kept' ? 'branch kept' : null,
+    ...outcome.notes,
+  ].filter((part): part is string => Boolean(part));
+  return parts.join(' · ');
 }

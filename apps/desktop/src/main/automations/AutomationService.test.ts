@@ -344,7 +344,9 @@ describe('an agent’s destructive call', () => {
         const t = setup({ workspaces: team() });
         await t.start();
         const { run } = await t.service.requestApproval('zap', { target: 's-2' }, 's-1');
-        expect(await t.service.approve(run!.id)).toMatchObject({ status: 'completed', summary: 'Zapped s-2.' });
+        const approved = await t.service.approve(run!.id);
+        expect(approved).toMatchObject({ status: 'completed', summary: 'Zapped s-2.' });
+        expect(approved.approvedAt).toBe(approved.startedAt);
         expect(t.calls[1]).toMatchObject({
             mode: 'run',
             args: { target: 's-2' },
@@ -519,6 +521,20 @@ describe('modes', () => {
             ['run', { level: 1, only: ['a', 'b'] }],
         ]);
         await expect(t.service.approve(waiting.id)).rejects.toThrow(/not waiting for approval/);
+    });
+
+    it('confirm: records when a person approved, so its wait for them has an end', async () => {
+        const t = setup({ yaml: entry(''), now: new Date(2026, 10, 4, 9, 0) });
+        await t.start();
+        const waiting = await t.trigger('ws-1', 'sweep');
+        expect(waiting.approvedAt).toBeUndefined();
+
+        t.setClock(new Date(2026, 10, 4, 9, 4));
+        const done = await t.service.approve(waiting.id);
+        expect(done).toMatchObject({
+            approvedAt: new Date(2026, 10, 4, 9, 4).toISOString(),
+            startedAt: new Date(2026, 10, 4, 9, 4).toISOString(),
+        });
     });
 
     it('confirm: refuses to approve a preview of a definition that changed since', async () => {
@@ -915,7 +931,11 @@ describe('event runs', () => {
         expect(prompt).toContain('<untrusted-data>');
         expect(t.world.launches).toEqual([]);
 
-        expect(await t.service.approve(waiting.id)).toMatchObject({ status: 'queued' });
+        t.setClock(new Date(2026, 10, 4, 9, 6));
+        expect(await t.service.approve(waiting.id)).toMatchObject({
+            status: 'queued',
+            approvedAt: new Date(2026, 10, 4, 9, 6).toISOString(),
+        });
         await flush();
         expect(t.world.launches.map((launch) => launch.prompt)).toEqual([prompt]);
         expect(t.store.get(waiting.id)).toMatchObject({ status: 'running', sessionId: 'session-1' });

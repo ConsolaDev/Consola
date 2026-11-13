@@ -765,8 +765,9 @@ export class AutomationService {
             throw new Error(`Not run: ${problem}.`);
         }
         const key = automationKey(entry);
+        const approvedAt = this.iso();
         if (entry.agent) {
-            this.deps.store.update(run.id, { status: 'queued', updatedAt: this.iso() });
+            this.deps.store.update(run.id, { status: 'queued', approvedAt, updatedAt: approvedAt });
             this.acceptApproved(key, entry, run);
             this.broadcastRun(run.id);
             // As approved: in line. The queue may start it at once.
@@ -775,7 +776,7 @@ export class AutomationService {
             return queued;
         }
         this.assertIdle(key, entry.automation.name);
-        this.deps.store.update(run.id, { status: 'running', startedAt: this.iso(), updatedAt: this.iso() });
+        this.deps.store.update(run.id, { status: 'running', approvedAt, startedAt: this.iso(), updatedAt: this.iso() });
         return this.guarded(
             key,
             run.id,
@@ -1125,7 +1126,8 @@ export class AutomationService {
             this.finish(run.id, 'failed', { error: `Not run: ${problem}.` });
             throw new Error(`Not run: ${problem}.`);
         }
-        this.deps.store.update(run.id, { status: 'running', startedAt: this.iso(), updatedAt: this.iso() });
+        const approvedAt = this.iso();
+        this.deps.store.update(run.id, { status: 'running', approvedAt, startedAt: approvedAt, updatedAt: approvedAt });
         return this.guarded(
             run.id,
             run.id,

@@ -277,6 +277,47 @@ describe('readConversation', () => {
     });
   });
 
+  it('marks when each step came back, and the steps whose result was an error', async () => {
+    const result = (id: string, timestamp: string, isError?: boolean) => ({
+      type: 'user',
+      timestamp,
+      message: {
+        role: 'user',
+        content: [{ type: 'tool_result', tool_use_id: id, content: 'out', ...(isError ? { is_error: true } : {}) }],
+      },
+    });
+    writeRecords([
+      assistant(
+        [
+          { ...toolUse('Read', { file_path: '/a' }), id: 'call-1' },
+          { ...toolUse('Bash', { command: 'pnpm test' }), id: 'call-2' },
+        ],
+        '2026-11-12T10:00:01Z'
+      ),
+      result('call-1', '2026-11-12T10:00:02Z'),
+      result('call-2', '2026-11-12T10:00:40Z', true),
+      // Still running when the transcript was read: no result yet.
+      assistant([{ ...toolUse('Grep', { pattern: 'x' }), id: 'call-3' }], '2026-11-12T10:00:41Z'),
+      // A result for a call outside what was read changes nothing.
+      result('call-elsewhere', '2026-11-12T10:00:42Z', true),
+    ]);
+
+    const conversation = await readConversation(SESSION_ID, configDir);
+
+    expect(conversation!.entries).toEqual([
+      { kind: 'step', tool: 'Read', detail: '/a', at: '2026-11-12T10:00:01Z', endedAt: '2026-11-12T10:00:02Z' },
+      {
+        kind: 'step',
+        tool: 'Bash',
+        detail: 'pnpm test',
+        at: '2026-11-12T10:00:01Z',
+        endedAt: '2026-11-12T10:00:40Z',
+        failed: true,
+      },
+      { kind: 'step', tool: 'Grep', detail: 'x', at: '2026-11-12T10:00:41Z' },
+    ]);
+  });
+
   it("picks a step's detail from file_path, path, pattern, command, url, skill, description, query, in that order", async () => {
     const keys = ['file_path', 'path', 'pattern', 'command', 'url', 'skill', 'description', 'query'];
     const calls = keys.map((_, i) => {

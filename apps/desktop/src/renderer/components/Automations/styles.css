@@ -1684,51 +1684,10 @@
   padding: var(--space-4);
 }
 
-.automations-run-details,
 .automations-new {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
-}
-
-/* A run's or an automation's facts: a label column, then what it says. */
-.automations-facts {
-  display: grid;
-  grid-template-columns: max-content 1fr;
-  gap: var(--space-1) var(--space-3);
-  margin: 0;
-  font-size: var(--font-size-md);
-}
-
-.automations-fact {
-  display: contents;
-}
-
-.automations-fact dt {
-  color: var(--color-text-tertiary);
-}
-
-.automations-fact dd {
-  min-width: 0;
-  margin: 0;
-  color: var(--color-text-secondary);
-  overflow-wrap: anywhere;
-}
-
-.automations-fact-status dd {
-  display: flex;
-  align-items: center;
-  gap: var(--space-1);
-}
-
-.automations-fact-session {
-  font-family: var(--font-mono);
-  font-size: var(--font-size-md);
-}
-
-.automations-run-error {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .automations-panel-row {
@@ -1744,59 +1703,10 @@
   color: var(--color-text-secondary);
 }
 
-.automations-session-removed {
-  font-size: var(--font-size-md);
-  color: var(--color-text-tertiary);
-}
-
 /* The conversation from the transcript: the agent's, never instructions. */
-.automations-conversation {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
-  padding-top: var(--space-3);
-  border-top: 1px solid var(--color-border);
-}
-
 .automations-conversation-caption {
   margin: 0;
-  font-size: var(--font-size-md);
-  font-style: italic;
-  color: var(--color-text-tertiary);
-}
-
-.automations-steps {
-  display: flex;
-  flex-direction: column;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-  font-size: var(--font-size-md);
-}
-
-.automations-step,
-.automations-step-more {
-  padding: 2px 0 2px var(--space-2);
-  border-left: 2px solid var(--color-border);
-}
-
-.automations-step {
-  overflow: hidden;
-  color: var(--color-text-secondary);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.automations-step-tool {
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-}
-
-.automations-step-detail {
-  font-family: var(--font-mono);
-}
-
-.automations-step-text {
+  font-size: var(--font-size-sm);
   font-style: italic;
   color: var(--color-text-tertiary);
 }
@@ -2690,5 +2600,763 @@
 
   .automations-run-item-chevron {
     transition: none;
+  }
+}
+
+/*
+ * One run, laid out as a CI service lays out a run of a pipeline: the lead,
+ * its facts, the stages it went through, what broke, then what it did.
+ */
+.automations-run {
+  gap: 24px;
+}
+
+.automations-run-lead-icon {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+/* A run being watched lands: its check settles in, and a ring spreads once. */
+.automations-landed > svg {
+  animation: automations-land 520ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.automations-landed::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 2px solid var(--color-success);
+  border-radius: 999px;
+  pointer-events: none;
+  animation: automations-land-ring 760ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes automations-land {
+  from {
+    opacity: 0.4;
+    transform: scale(0.7);
+  }
+}
+
+@keyframes automations-land-ring {
+  from {
+    opacity: 0.8;
+    transform: scale(0.7);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+.automations-run-about {
+  margin: 6px 0 0;
+  font-size: var(--font-size-md);
+  line-height: var(--line-height-normal);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.automations-run-about a {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.automations-run-about a:hover {
+  color: var(--color-accent);
+}
+
+.automations-run-about-quiet {
+  color: var(--color-text-tertiary);
+}
+
+/* Notes against the automation's other runs: a recovery, a streak, a best. */
+.automations-run-notes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: var(--space-2) 0 0;
+}
+
+.automations-note {
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
+  white-space: nowrap;
+}
+
+.automations-note-good {
+  background: color-mix(in srgb, var(--color-success) 13%, var(--color-bg-primary));
+  color: var(--color-success);
+}
+
+.automations-note-bad {
+  background: color-mix(in srgb, var(--color-error) 12%, var(--color-bg-primary));
+  color: var(--color-error);
+}
+
+.automations-note-neutral {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-secondary);
+}
+
+.automations-run-nav {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: var(--space-1);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border);
+}
+
+.automations-run-nav .automations-icon-button {
+  width: 28px;
+  height: 28px;
+}
+
+.automations-run-nav .automations-icon-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+  background: none;
+}
+
+/* The facts, as GitHub Actions heads a run: a framed strip of label and value. */
+.automations-run-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 16px 24px;
+  margin: 0;
+  padding: 14px 0;
+  border-block: 1px solid var(--color-border);
+}
+
+.automations-run-stat {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.automations-run-stat dt {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.automations-run-stat dd {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  margin: 0;
+}
+
+.automations-run-stat-value {
+  overflow: hidden;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-run-stat-sub {
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+/* Slower than usual: the comparison says so in amber, the number stays plain. */
+.automations-run-stat-slow .automations-run-stat-sub {
+  color: var(--color-warning);
+}
+
+.automations-run-stat-path {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+.automations-run-stat-id {
+  font-family: var(--font-mono);
+  font-weight: var(--font-weight-normal);
+  font-variant-ligatures: none;
+}
+
+.automations-run-copy.automations-link-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  align-self: flex-start;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  text-decoration: none;
+}
+
+.automations-run-copy.automations-link-button:hover {
+  color: var(--color-text-primary);
+}
+
+/* A tool's output, a row per thing it acted on, as a CI job lists what it produced. */
+.automations-output {
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+}
+
+.automations-details ul.automations-output {
+  margin: 0;
+  padding: 4px 0;
+}
+
+.automations-output-row {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: var(--space-3);
+  padding: 6px var(--space-3);
+}
+
+.automations-output-row > svg {
+  align-self: start;
+  margin-top: 3px;
+  color: var(--color-text-tertiary);
+}
+
+.automations-output-done > svg {
+  color: var(--color-success);
+}
+
+.automations-output-failed > svg {
+  color: var(--color-error);
+}
+
+.automations-output-going > svg {
+  color: var(--color-warning);
+}
+
+.automations-output-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.automations-output-name {
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-output-effect {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  overflow-wrap: anywhere;
+}
+
+.automations-output-failed .automations-output-effect {
+  color: var(--color-error);
+}
+
+.automations-output-pr {
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--color-bg-tertiary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  line-height: 18px;
+  color: var(--color-text-secondary);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.automations-output-pr:hover {
+  color: var(--color-text-primary);
+}
+
+.automations-output-kept {
+  margin-top: var(--space-2);
+}
+
+/*
+ * A run's stages: the pipeline's canvas and nodes, each marked with how
+ * the run went through it. The arrow into a stage takes its colour: green
+ * along the path it took, red into where it broke, dashed where it never got.
+ */
+.automations-pipeline-run .automations-node {
+  min-width: 136px;
+}
+
+.automations-pipeline-run .automations-node-title {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.automations-stage-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-text-tertiary);
+}
+
+/* The outcome stays beside its mark, wrapping under itself. */
+.automations-pipeline-run .automations-node-foot {
+  flex-wrap: nowrap;
+  align-items: flex-start;
+}
+
+.automations-pipeline-run .automations-node-foot > span {
+  min-width: 0;
+}
+
+.automations-stage-passed {
+  --edge-color: color-mix(in srgb, var(--color-success) 60%, var(--color-border-strong));
+}
+
+.automations-stage-passed .automations-stage-icon {
+  color: var(--color-success);
+}
+
+.automations-stage-failed {
+  --edge-color: var(--color-error);
+  border-color: var(--color-error);
+  background: color-mix(in srgb, var(--color-error) 8%, var(--color-bg-primary));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-error) 14%, transparent);
+}
+
+.automations-stage-failed .automations-stage-icon,
+.automations-stage-failed .automations-node-foot > span {
+  color: var(--color-error);
+}
+
+.automations-stage-stopped {
+  --edge-color: var(--color-text-tertiary);
+  border-color: color-mix(in srgb, var(--color-text-tertiary) 55%, var(--color-border-strong));
+}
+
+.automations-stage-waiting .automations-stage-icon,
+.automations-stage-queued .automations-stage-icon {
+  color: var(--color-warning);
+}
+
+.automations-stage-waiting .automations-node-foot > span,
+.automations-stage-queued .automations-node-foot > span {
+  color: var(--color-warning);
+}
+
+.automations-stage-running .automations-stage-icon,
+.automations-stage-running .automations-node-foot > span {
+  color: var(--color-info);
+}
+
+/* Never reached, or not yet: an outline of a step, the arrow into it only drawn. */
+.automations-stage-skipped,
+.automations-stage-pending {
+  --edge-color: var(--color-border-strong);
+  border-style: dashed;
+  background: var(--color-bg-primary);
+  box-shadow: none;
+}
+
+.automations-stage-skipped > *,
+.automations-stage-pending > * {
+  opacity: 0.6;
+}
+
+.automations-pipeline-run .automations-stage-skipped::before,
+.automations-pipeline-run .automations-stage-pending::before {
+  background: repeating-linear-gradient(90deg, var(--edge-color) 0 4px, transparent 4px 8px);
+}
+
+/* A stage with a section on the page links to it; the whole node is the target. */
+.automations-node-link {
+  padding: 0;
+  border: none;
+  background: none;
+  font: inherit;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
+.automations-node-link::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+}
+
+.automations-node-link:focus-visible {
+  outline: none;
+}
+
+.automations-node:has(.automations-node-link:hover) {
+  box-shadow: var(--shadow-md);
+}
+
+.automations-stage-failed:has(.automations-node-link:hover) {
+  box-shadow:
+    0 0 0 3px color-mix(in srgb, var(--color-error) 22%, transparent),
+    var(--shadow-md);
+}
+
+.automations-node:has(.automations-node-link:focus-visible) {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+@container automations-detail (max-width: 620px) {
+  .automations-pipeline-run .automations-stage-skipped::before,
+  .automations-pipeline-run .automations-stage-pending::before {
+    background: repeating-linear-gradient(180deg, var(--edge-color) 0 4px, transparent 4px 8px);
+  }
+}
+
+/* What broke, as CI annotates a failed job: where, the error as it was said, and the step it broke at. */
+.automations-annotation {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid color-mix(in srgb, var(--color-error) 45%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--color-error) 6%, var(--color-bg-primary));
+}
+
+.automations-annotation:focus,
+.automations-run-section:focus,
+.automations-steplog-row:focus {
+  outline: none;
+}
+
+.automations-annotation > svg {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--color-error);
+}
+
+.automations-annotation-body {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.automations-annotation-body strong {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-error);
+}
+
+.automations-annotation-message {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  line-height: 1.55;
+  color: var(--color-text-primary);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-variant-ligatures: none;
+}
+
+.automations-annotation-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 2px;
+  padding: 3px 8px 3px 10px;
+  border: 1px solid color-mix(in srgb, var(--color-error) 30%, var(--color-border));
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+
+.automations-annotation-step:hover {
+  border-color: var(--color-error);
+  color: var(--color-text-primary);
+}
+
+.automations-annotation-step:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+.automations-annotation-step code {
+  overflow: hidden;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-annotation-step-label {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+/* Where a stage pointed: the section lights once as the eye lands on it. */
+.automations-flash {
+  animation: automations-flash 1300ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes automations-flash {
+  from {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-accent) 45%, transparent);
+  }
+  to {
+    box-shadow: 0 0 0 3px transparent;
+  }
+}
+
+.automations-steplog-row.automations-flash {
+  animation-name: automations-flash-row;
+}
+
+@keyframes automations-flash-row {
+  from {
+    background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  }
+}
+
+/* The steps, as a CI job lists its steps, each placed on the run's timeline. */
+.automations-steplog-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-steplog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-secondary);
+}
+
+.automations-tool-chip {
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--color-bg-tertiary);
+  font-size: var(--font-size-xs);
+  line-height: 18px;
+  color: var(--color-text-secondary);
+}
+
+.automations-tool-chip-count {
+  color: var(--color-text-tertiary);
+}
+
+.automations-steplog-failed-count {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-error);
+}
+
+.automations-steplog {
+  container: automations-steplog / inline-size;
+  margin: 0;
+  padding: 4px 0;
+  overflow: hidden;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  font-size: var(--font-size-md);
+}
+
+.automations-steplog-row,
+.automations-steplog-axis {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) minmax(96px, 30%) 52px;
+  align-items: center;
+  column-gap: var(--space-3);
+  padding: 4px var(--space-3);
+}
+
+.automations-steplog-untimed .automations-steplog-row {
+  grid-template-columns: 16px minmax(0, 1fr) 52px;
+}
+
+.automations-steplog-untimed .automations-steplog-track {
+  display: none;
+}
+
+.automations-steplog-row:hover {
+  background: var(--color-bg-hover);
+}
+
+.automations-steplog-icon {
+  color: var(--color-text-tertiary);
+}
+
+.automations-steplog-passed .automations-steplog-icon {
+  color: color-mix(in srgb, var(--color-success) 75%, var(--color-text-tertiary));
+}
+
+.automations-steplog-failed {
+  background: color-mix(in srgb, var(--color-error) 6%, transparent);
+}
+
+.automations-steplog-failed .automations-steplog-icon,
+.automations-steplog-failed .automations-steplog-tool {
+  color: var(--color-error);
+}
+
+.automations-steplog-running .automations-steplog-icon {
+  color: var(--color-info);
+  animation: automations-spin 1.1s linear infinite;
+}
+
+.automations-steplog-cut .automations-steplog-icon {
+  color: var(--color-warning);
+}
+
+.automations-steplog-call {
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-steplog-tool {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.automations-steplog-detail {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  font-variant-ligatures: none;
+}
+
+.automations-steplog-track {
+  position: relative;
+  height: 6px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-text-primary) 6%, transparent);
+}
+
+.automations-steplog-bar {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  min-width: 3px;
+  border-radius: 3px;
+  background: color-mix(in srgb, var(--color-success) 55%, var(--color-text-tertiary));
+  transition: filter 150ms ease;
+}
+
+.automations-steplog-row:hover .automations-steplog-bar {
+  filter: brightness(1.25);
+}
+
+.automations-steplog-failed .automations-steplog-bar {
+  background: var(--color-error);
+}
+
+.automations-steplog-cut .automations-steplog-bar {
+  background: var(--color-warning);
+}
+
+.automations-steplog-unknown .automations-steplog-bar {
+  background: var(--color-text-tertiary);
+}
+
+/* The step working now: its bar grows with the clock, and flows while it does. */
+.automations-steplog-running .automations-steplog-bar {
+  background: repeating-linear-gradient(
+    90deg,
+    var(--color-info) 0 6px,
+    color-mix(in srgb, var(--color-info) 55%, transparent) 6px 12px
+  );
+  background-size: 12px 100%;
+  animation: automations-bar-flow 700ms linear infinite;
+}
+
+@keyframes automations-bar-flow {
+  to {
+    background-position: 12px 0;
+  }
+}
+
+.automations-steplog-ms {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+/* The agent narrating between steps: a quiet line among them, under the calls. */
+.automations-steplog-note {
+  overflow: hidden;
+  padding: 3px var(--space-3) 3px calc(var(--space-3) + 16px + var(--space-3));
+  font-size: var(--font-size-sm);
+  font-style: italic;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-steplog-more {
+  padding: 4px var(--space-3) 4px calc(var(--space-3) + 16px + var(--space-3));
+  font-size: var(--font-size-sm);
+}
+
+.automations-steplog-axis {
+  margin-bottom: 2px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--color-border);
+}
+
+.automations-steplog-axis-track {
+  display: flex;
+  grid-column: 3;
+  justify-content: space-between;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+/* Narrow: the timeline gives way to the calls; durations stay. */
+@container automations-steplog (max-width: 480px) {
+  .automations-steplog-row {
+    grid-template-columns: 16px minmax(0, 1fr) 52px;
+  }
+
+  .automations-steplog-track,
+  .automations-steplog-axis {
+    display: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automations-landed > svg,
+  .automations-flash,
+  .automations-steplog-running .automations-steplog-icon,
+  .automations-steplog-running .automations-steplog-bar {
+    animation: none;
+  }
+
+  .automations-landed::after {
+    display: none;
   }
 }

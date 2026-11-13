@@ -5,7 +5,16 @@
  */
 export type ConversationEntry =
     | { kind: 'prompt'; text: string; at?: string }
-    | { kind: 'step'; tool: string; detail?: string; at?: string }
+    | {
+          kind: 'step';
+          tool: string;
+          detail?: string;
+          at?: string;
+          /** When its result came back: the call's own end, where `at` is when the agent made it. */
+          endedAt?: string;
+          /** Its result came back as an error — a failed command, a refused permission. */
+          failed?: boolean;
+      }
     | { kind: 'text'; text: string; at?: string };
 
 export interface ConversationRecord {

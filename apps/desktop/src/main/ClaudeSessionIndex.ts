@@ -347,8 +347,9 @@ function toolDetail(input: unknown): string | undefined {
  * session is still appending to it, so an unparsable line (the last one,
  * mid-write) is skipped rather than failing the read. Past
  * `MAX_CONVERSATION_ENTRIES` the middle is dropped, keeping the opening
- * prompt and the newest entries. Thinking, tool results, subagent sidechains and
- * injected meta records are not part of what the person sees.
+ * prompt and the newest entries. Thinking, subagent sidechains and injected
+ * meta records are not part of what the person sees, nor is what a tool
+ * returned: only when it came back, and whether as an error.
  */
 export async function readConversation(
     sessionId: string,
@@ -364,6 +365,8 @@ export async function readConversation(
     const head: ConversationEntry[] = [];
     const tail: ConversationEntry[] = [];
     let truncated = false;
+    // Each tool call waits here for its result, which says when it ended and whether it failed.
+    const awaitingResult = new Map<string, Extract<ConversationEntry, { kind: 'step' }>>();
 
     const stream = fs.createReadStream(file, { encoding: 'utf8' });
     const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -397,11 +400,13 @@ export async function readConversation(
             const found: ConversationEntry[] = [];
             const content = record.message?.content;
             if (record.type === 'user') {
+                if (Array.isArray(content)) settleSteps(content, awaitingResult, at);
                 const text = typeof content === 'string' ? content : textBlocks(content).join('\n\n');
                 if (text.trim() !== '') found.push({ kind: 'prompt', text: capText(text), ...stamp });
             } else if (Array.isArray(content)) {
                 for (const block of content as Array<{
                     type?: string;
+                    id?: unknown;
                     text?: unknown;
                     name?: unknown;
                     input?: unknown;
@@ -411,12 +416,14 @@ export async function readConversation(
                         found.push({ kind: 'text', text: capText(block.text), ...stamp });
                     } else if (block.type === 'tool_use' && typeof block.name === 'string') {
                         const detail = toolDetail(block.input);
-                        found.push({
+                        const step: Extract<ConversationEntry, { kind: 'step' }> = {
                             kind: 'step',
                             tool: block.name.replace(/^mcp__.+?__/, ''),
                             ...(detail ? { detail } : {}),
                             ...stamp,
-                        });
+                        };
+                        if (typeof block.id === 'string') awaitingResult.set(block.id, step);
+                        found.push(step);
                     }
                 }
             }
@@ -441,6 +448,26 @@ export async function readConversation(
         stream.destroy();
     }
     return { entries: [...head, ...tail], truncated };
+}
+
+/**
+ * Marks the tool calls a user record answers: when each ended, and whether
+ * its result was an error. A result the transcript never wrote leaves its
+ * step open — still running, or cut off.
+ */
+function settleSteps(
+    content: unknown[],
+    awaitingResult: Map<string, Extract<ConversationEntry, { kind: 'step' }>>,
+    at: string | undefined
+): void {
+    for (const block of content as Array<{ type?: unknown; tool_use_id?: unknown; is_error?: unknown }>) {
+        if (!block || block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
+        const step = awaitingResult.get(block.tool_use_id);
+        if (!step) continue;
+        awaitingResult.delete(block.tool_use_id);
+        if (at) step.endedAt = at;
+        if (block.is_error === true) step.failed = true;
+    }
 }
 
 /**
