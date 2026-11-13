@@ -58,6 +58,10 @@ export const automationsBridge = {
     acknowledge: async (workspaceId: string, name: string): Promise<void> =>
         (getAPI() ?? unavailable()).acknowledge(workspaceId, name),
 
+    /** One entry exactly as factory.yml has it; null when the file or the entry is gone. */
+    getEntry: async (workspaceId: string, name: string): Promise<string | null> =>
+        (getAPI() ?? unavailable()).getEntry(workspaceId, name),
+
     onChanged: (callback: (change: AutomationsChange) => void): (() => void) =>
         getAPI()?.onChanged(callback) ?? (() => {}),
 };

@@ -1043,6 +1043,12 @@ export function setupIpcHandlers(): boolean {
         }
         automations.acknowledge(workspaceId, name);
     });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, (_event, workspaceId: string, name: string) => {
+        if (typeof workspaceId !== 'string' || typeof name !== 'string') {
+            throw new Error('Workspace id and automation name required.');
+        }
+        return automations.entryText(workspaceId, name);
+    });
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, async (_event, workspaceId: string) => {
         const failure = await shell.openPath(await automations.ensureFile(String(workspaceId)));
         if (failure) throw new Error(failure);
@@ -1576,6 +1582,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY);
 
     // Clean up all terminal services
     ipcMain.removeHandler(IPC_CHANNELS.SHELL_ATTACH);

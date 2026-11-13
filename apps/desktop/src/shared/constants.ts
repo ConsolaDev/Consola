@@ -144,6 +144,7 @@ export const IPC_CHANNELS = {
     AUTOMATIONS_ADD_TEMPLATE: 'automations:add-template', // Add a ready-made automation to a workspace's factory.yml
     AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
     AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge',   // Mark an agent-added automation as seen
+    AUTOMATIONS_GET_ENTRY: 'automations:get-entry',       // One factory.yml entry exactly as written, for its details
 
     // Personal automations (main -> every renderer)
     AUTOMATIONS_CHANGED: 'automations:changed',           // A workspace's fresh AutomationsSnapshot

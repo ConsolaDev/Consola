@@ -131,6 +131,8 @@ export interface AutomationsAPI {
     startAuthoring: (request: AuthoringRequest) => Promise<Session>;
     /** The person has seen an automation an agent added. */
     acknowledge: (workspaceId: string, name: string) => Promise<void>;
+    /** One entry exactly as factory.yml has it (`- name: …`); null when there is no such entry or no file. */
+    getEntry: (workspaceId: string, name: string) => Promise<string | null>;
     onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 

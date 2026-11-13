@@ -252,6 +252,7 @@ export function installMock() {
     runNow: automationsUnavailable, approve: automationsUnavailable, dismiss: automationsUnavailable, openFile: automationsUnavailable,
     addAssignedReviews: automationsUnavailable, getRun: async () => null, readConversation: async () => ({ readable: false }),
     stop: async () => {}, addTemplate: automationsUnavailable, startAuthoring: automationsUnavailable, acknowledge: async () => {},
+    getEntry: async () => null,
     onChanged: () => () => {},
   };
   // Sample repository links are illustrative; do not take visitors to invented PRs.

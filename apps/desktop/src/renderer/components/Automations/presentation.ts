@@ -1,6 +1,7 @@
 import {
     isAgentRunPreview,
     type AutomationMode,
+    type AutomationView,
     type AutomationsSnapshot,
     type RunListEntry,
     type RunRecord,
@@ -74,6 +75,17 @@ export function triggerLabel(run: RunFacts): string {
     return run.trigger.by === 'agent' ? 'asked by an agent' : 'run now';
 }
 
+/**
+ * What fired a run, as a run list's second line says it, the way GitHub
+ * Actions writes "Scheduled" or "Manually run": a sentence fragment, where
+ * `triggerLabel` is a column's word.
+ */
+export function triggerInWords(run: RunFacts): string {
+    if (run.trigger.kind === 'cron') return run.trigger.catchUp ? 'Scheduled, run late' : 'Scheduled';
+    if (run.trigger.kind === 'event') return 'Inbox event';
+    return run.trigger.by === 'agent' ? 'Asked for by an agent' : 'Run by you';
+}
+
 export function formatTime(iso: string): string {
     return new Date(iso).toLocaleString(undefined, {
         weekday: 'short',
@@ -89,7 +101,17 @@ export function formatDuration(run: RunFacts, now: Date): string | null {
     const start = Date.parse(run.startedAt ?? run.createdAt);
     const end = run.finishedAt ? Date.parse(run.finishedAt) : now.getTime();
     if (Number.isNaN(start) || Number.isNaN(end)) return null;
-    const seconds = Math.max(0, Math.floor((end - start) / 1000));
+    return formatElapsed(end - start);
+}
+
+/**
+ * A length of time as a run's duration says it: "<1s", "42s", "3m 5s",
+ * "1h 04m". A tool run is often over within the second, and "0s" would
+ * read as though it never ran.
+ */
+export function formatElapsed(ms: number): string {
+    const seconds = Math.max(0, Math.floor(ms / 1000));
+    if (seconds === 0) return '<1s';
     if (seconds < 60) return `${seconds}s`;
     const minutes = Math.floor(seconds / 60);
     if (minutes < 60) return `${minutes}m ${seconds % 60}s`;
@@ -314,8 +336,236 @@ export function recentRunsInWords(runs: RunFacts[]): string {
     const lead = runs.length === 1 ? 'Last run' : `Last ${runs.length} runs`;
     const present = STRIP_ORDER.filter((status) => runs.some((run) => run.status === status));
     if (present.length === 1) return `${lead}: ${runs.length === 1 ? '' : 'all '}${statusWord(present[0])}`;
-    const parts = present.map((status) => `${runs.filter((run) => run.status === status).length} ${statusWord(status)}`);
-    return `${lead}: ${parts.join(', ')}`;
+    return `${lead}: ${statusCountsInWords(runs)}`;
+}
+
+/** How runs ended, counted in the strip's order: "3 completed, 1 failed". */
+export function statusCountsInWords(runs: RunFacts[]): string {
+    return statusCounts(runs)
+        .map(({ status, count }) => `${count} ${statusWord(status)}`)
+        .join(', ');
+}
+
+/** Runs counted by status, in the strip's order, leaving out the ones none have. */
+export function statusCounts(runs: RunFacts[]): Array<{ status: RunFacts['status']; count: number }> {
+    return STRIP_ORDER.map((status) => ({ status, count: runs.filter((run) => run.status === status).length })).filter(
+        ({ count }) => count > 0,
+    );
+}
+
+/**
+ * What an automation's runs add up to, as a CI dashboard sums up a
+ * pipeline. `runs` are what history keeps for it (`filterRuns`), newest first.
+ */
+export interface RunInsights {
+    total: number;
+    /** Completed out of those that worked to an end (completed or failed), 0–1; null when none did. */
+    successRate: number | null;
+    /** The middle duration of those that worked to an end, in ms; null when none did. */
+    medianMs: number | null;
+    /** When the newest failure ended; null when none failed. */
+    lastFailureAt: string | null;
+    /** The newest runs that worked to an end, counted while they ended the same way. */
+    streak: { status: 'completed' | 'failed'; count: number } | null;
+}
+
+export function runInsights(runs: RunFacts[]): RunInsights {
+    const ended = runs.filter(
+        (run): run is RunFacts & { status: 'completed' | 'failed' } =>
+            run.status === 'completed' || run.status === 'failed',
+    );
+    const completed = ended.filter((run) => run.status === 'completed').length;
+    const durations = ended
+        .map((run) => Date.parse(run.finishedAt ?? '') - Date.parse(run.startedAt ?? run.createdAt))
+        .filter((ms) => Number.isFinite(ms) && ms >= 0)
+        .sort((a, b) => a - b);
+    const middle = Math.floor(durations.length / 2);
+    const medianMs =
+        durations.length === 0
+            ? null
+            : durations.length % 2 === 1
+              ? durations[middle]
+              : (durations[middle - 1] + durations[middle]) / 2;
+    const lastFailure = ended.find((run) => run.status === 'failed');
+    let streak: RunInsights['streak'] = null;
+    if (ended.length > 0) {
+        const status = ended[0].status;
+        const broken = ended.findIndex((run) => run.status !== status);
+        streak = { status, count: broken === -1 ? ended.length : broken };
+    }
+    return {
+        total: runs.length,
+        successRate: ended.length === 0 ? null : completed / ended.length,
+        medianMs,
+        lastFailureAt: lastFailure ? (lastFailure.finishedAt ?? lastFailure.updatedAt ?? lastFailure.createdAt) : null,
+        streak,
+    };
+}
+
+/** One local calendar day of an automation's runs, newest run first. */
+export interface RunDay<T extends RunFacts = RunFacts> {
+    /** Local midnight that starts it. */
+    day: Date;
+    runs: T[];
+}
+
+/**
+ * The last `days` local calendar days, oldest first and today last, each
+ * with the runs created on it. A day with no runs is still there, so a gap
+ * in a schedule shows as one.
+ */
+export function runsByDay<T extends RunFacts>(runs: T[], now: Date, days = HISTORY_DAYS): Array<RunDay<T>> {
+    const result: Array<RunDay<T>> = [];
+    for (let back = days - 1; back >= 0; back--) {
+        result.push({ day: new Date(now.getFullYear(), now.getMonth(), now.getDate() - back), runs: [] });
+    }
+    for (const run of runs) {
+        const at = new Date(run.createdAt);
+        if (Number.isNaN(at.getTime())) continue;
+        const index = days - 1 - calendarDaysBefore(at, now);
+        if (index >= 0 && index < days) result[index].runs.push(run);
+    }
+    for (const entry of result) entry.runs.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return result;
+}
+
+/**
+ * The step a person stands in between an automation firing and it acting,
+ * when there is one: approving each run (`confirm`), approving the next one
+ * (`auto`, new or changed since approved), or only being told (`notify`),
+ * which follows a preview rather than gating a run.
+ */
+export interface ApprovalStep {
+    kind: 'approve' | 'notify';
+    title: string;
+    detail: string;
+}
+
+export function approvalStep(automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind'>): ApprovalStep | null {
+    if (automation.mode === 'notify') {
+        return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };
+    }
+    if (automation.mode === 'confirm') {
+        return {
+            kind: 'approve',
+            title: 'You approve each run',
+            detail:
+                automation.kind === 'agent'
+                    ? 'Its session starts when you press Start'
+                    : 'It previews first; nothing changes until you approve',
+        };
+    }
+    if (automation.asksFirst) {
+        return {
+            kind: 'approve',
+            title: 'You approve its next run',
+            detail: 'New or changed since you last did; then it runs on its own',
+        };
+    }
+    return null;
+}
+
+/** A piece of one line of YAML, by what it is, so an entry shows as written but easier to read. */
+export interface YamlToken {
+    kind: 'space' | 'dash' | 'key' | 'colon' | 'punct' | 'string' | 'number' | 'literal' | 'plain' | 'comment';
+    text: string;
+}
+
+/** An inline map or list's pieces: a quoted string, a key, a number, punctuation, space, or a bare word. */
+const YAML_FLOW = /("[^"]*"|'[^']*')|([^\s{}[\],:"']+)(?=\s*:)|(-?\d+(?:\.\d+)?)(?=[\s,}\]]|$)|([{}[\],])|(:)|(\s+)|([^\s{}[\],:"']+|.)/g;
+
+/** `{ cron: "0 9 * * *" }` and `[merged, closed]`, shaded inside as a block mapping is. */
+function yamlFlowTokens(value: string): YamlToken[] {
+    const tokens: YamlToken[] = [];
+    for (const [text, string, key, number, punct, colon, space] of value.matchAll(YAML_FLOW)) {
+        const kind: YamlToken['kind'] = string
+            ? 'string'
+            : key
+              ? 'key'
+              : number
+                ? 'number'
+                : punct
+                  ? 'punct'
+                  : colon
+                    ? 'colon'
+                    : space
+                      ? 'space'
+                      : /^(true|false|null|~)$/i.test(text)
+                        ? 'literal'
+                        : 'plain';
+        tokens.push({ kind, text });
+    }
+    return tokens;
+}
+
+const YAML_KEY = /^((?:"[^"]*"|'[^']*'|[^\s#'"][^:#]*?))(:)(?=\s|$)/;
+
+/**
+ * An entry's lines as tokens. Shading only: nothing here decides what the
+ * file means. A block scalar's body (`prompt: |`) is text however it looks,
+ * so it is never read as keys.
+ */
+export function yamlTokens(text: string): YamlToken[][] {
+    let blockIndent: number | null = null;
+    return text.split('\n').map((line) => {
+        const indent = line.length - line.trimStart().length;
+        const body = line.slice(indent);
+        const tokens: YamlToken[] = indent > 0 ? [{ kind: 'space', text: line.slice(0, indent) }] : [];
+        if (blockIndent !== null) {
+            if (body === '' || indent > blockIndent) {
+                if (body) tokens.push({ kind: 'string', text: body });
+                return tokens;
+            }
+            blockIndent = null;
+        }
+        let rest = body;
+        let column = indent;
+        while (rest.startsWith('- ') || rest === '-') {
+            tokens.push({ kind: 'dash', text: '-' });
+            if (rest.length > 1) tokens.push({ kind: 'space', text: ' ' });
+            rest = rest.slice(2);
+            column += 2;
+        }
+        if (rest.startsWith('#')) return [...tokens, { kind: 'comment', text: rest }];
+        const key = YAML_KEY.exec(rest);
+        if (key) {
+            tokens.push({ kind: 'key', text: key[1] }, { kind: 'colon', text: ':' });
+            rest = rest.slice(key[0].length);
+            if (/^\s*[|>][-+0-9]*\s*(#.*)?$/.test(rest)) blockIndent = column;
+        }
+        if (rest) tokens.push(...yamlValueTokens(rest));
+        return tokens;
+    });
+}
+
+function yamlValueTokens(rest: string): YamlToken[] {
+    const lead = rest.length - rest.trimStart().length;
+    const tokens: YamlToken[] = lead > 0 ? [{ kind: 'space', text: rest.slice(0, lead) }] : [];
+    let value = rest.slice(lead);
+    let comment = '';
+    if (!/^["']/.test(value)) {
+        const hash = value.search(/\s#/);
+        if (hash !== -1) {
+            comment = value.slice(hash);
+            value = value.slice(0, hash);
+        }
+    }
+    if (/^[{[]/.test(value)) tokens.push(...yamlFlowTokens(value));
+    else if (value) {
+        const kind: YamlToken['kind'] = /^(["']).*\1$/.test(value)
+            ? 'string'
+            : /^-?\d+(\.\d+)?$/.test(value)
+              ? 'number'
+              : /^(true|false|null|~|[|>][-+0-9]*)$/i.test(value)
+                ? 'literal'
+                : 'plain';
+        tokens.push({ kind, text: value });
+    }
+    if (comment) {
+        const space = comment.length - comment.trimStart().length;
+        tokens.push({ kind: 'space', text: comment.slice(0, space) }, { kind: 'comment', text: comment.slice(space) });
+    }
+    return tokens;
 }
 
 /** What an automation's row says about its latest run: the word, its tone, and when or how long. */

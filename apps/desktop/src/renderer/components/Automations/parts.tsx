@@ -1,6 +1,18 @@
 import { useEffect, useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, Play, RefreshCw } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  CircleCheck,
+  CircleSlash,
+  CircleX,
+  Clock,
+  Hand,
+  LoaderCircle,
+  Play,
+  RefreshCw,
+  type LucideIcon,
+} from 'lucide-react';
 import type { AgentRunPreview, AutomationView, RunListEntry, RunRecord } from '../../../shared/automations';
 import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
@@ -21,6 +33,27 @@ import {
  */
 export function StatusDot({ status }: { status: RunFacts['status'] }) {
   return <span className={`automations-dot automations-dot-${status}`} aria-hidden="true" />;
+}
+
+const STATUS_ICONS: Record<RunFacts['status'], LucideIcon> = {
+  completed: CircleCheck,
+  failed: CircleX,
+  running: LoaderCircle,
+  queued: Clock,
+  // A person's hand is what it waits for; the approval step in a pipeline wears the same one.
+  'needs-approval': Hand,
+  rejected: CircleSlash,
+};
+
+/**
+ * A run's status as a CI run list draws it: a check, a cross, a spinner.
+ * Decorative like the dot, and in the dot's colours.
+ */
+export function StatusIcon({ status, size = 16 }: { status: RunFacts['status']; size?: number }) {
+  const Icon = STATUS_ICONS[status];
+  return (
+    <Icon size={size} className={`automations-status-icon automations-status-icon-${status}`} aria-hidden="true" />
+  );
 }
 
 /**
@@ -215,18 +248,21 @@ export function RunNowButton({
   automation,
   running,
   disabled,
+  primary = false,
   onRun,
 }: {
   automation: AutomationView;
   running: boolean;
   disabled: boolean;
+  /** Where it is the main thing to do, as an automation's own details make it. */
+  primary?: boolean;
   onRun: () => void;
 }) {
   const checks = automation.onEvent;
   return (
     <button
       type="button"
-      className="dialog-button-secondary automations-small-button"
+      className={`${primary ? 'dialog-button-primary' : 'dialog-button-secondary'} automations-small-button`}
       disabled={disabled || running || Boolean(automation.problem)}
       onClick={onRun}
       title={

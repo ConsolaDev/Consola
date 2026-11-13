@@ -25,7 +25,15 @@ import {
     sidebarRowState,
     statusWord,
     triggerLabel,
+    approvalStep,
+    formatElapsed,
+    triggerInWords,
+    runInsights,
+    runsByDay,
+    statusCountsInWords,
+    yamlTokens,
     type RunListFilter,
+    type YamlToken,
 } from './presentation';
 
 const NOW = new Date('2026-11-12T12:00:00.000Z');
@@ -84,6 +92,16 @@ describe('triggerLabel', () => {
         expect(triggerLabel(run({ trigger: { kind: 'event', at: '' } }))).toBe('event');
         expect(triggerLabel(run({ trigger: { kind: 'manual', at: '', by: 'person' } }))).toBe('run now');
         expect(triggerLabel(run({ trigger: { kind: 'manual', at: '', by: 'agent' } }))).toBe('asked by an agent');
+    });
+});
+
+describe('triggerInWords', () => {
+    it('says what fired a run as a run list line', () => {
+        expect(triggerInWords(run())).toBe('Scheduled');
+        expect(triggerInWords(run({ trigger: { kind: 'cron', at: '', catchUp: true } }))).toBe('Scheduled, run late');
+        expect(triggerInWords(run({ trigger: { kind: 'event', at: '' } }))).toBe('Inbox event');
+        expect(triggerInWords(run({ trigger: { kind: 'manual', at: '', by: 'person' } }))).toBe('Run by you');
+        expect(triggerInWords(run({ trigger: { kind: 'manual', at: '', by: 'agent' } }))).toBe('Asked for by an agent');
     });
 });
 
@@ -526,5 +544,174 @@ describe('latestRun', () => {
         const newest = run({ id: 'b', status: 'failed', createdAt: ago(2 * HOUR), finishedAt: ago(HOUR) });
         expect(latestRun([older, newest], NOW)).toMatchObject({ tone: 'failed', label: 'Failed', detail: '1h ago' });
         expect(latestRun([], NOW)).toBeNull();
+    });
+});
+
+describe('formatElapsed', () => {
+    it('says a length of time as a duration does', () => {
+        expect(formatElapsed(400)).toBe('<1s');
+        expect(formatElapsed(-5)).toBe('<1s');
+        expect(formatElapsed(42_000)).toBe('42s');
+        expect(formatElapsed(185_000)).toBe('3m 5s');
+        expect(formatElapsed(64 * 60_000)).toBe('1h 04m');
+    });
+});
+
+describe('statusCountsInWords', () => {
+    it('counts each outcome in the strip order', () => {
+        expect(statusCountsInWords([run({ status: 'failed' }), run(), run()])).toBe('2 completed, 1 failed');
+        expect(statusCountsInWords([])).toBe('');
+    });
+});
+
+describe('runInsights', () => {
+    const ended = (id: string, status: 'completed' | 'failed', endedAgo: number, tookMs: number) =>
+        run({ id, status, startedAt: ago(endedAgo + tookMs), finishedAt: ago(endedAgo), createdAt: ago(endedAgo + tookMs) });
+
+    it('rates success over the runs that worked to an end, leaving out dismissed and live ones', () => {
+        const runs = [
+            run({ id: 'w', status: 'needs-approval' }),
+            ended('a', 'completed', HOUR, 2_000),
+            run({ id: 'd', status: 'rejected' }),
+            ended('b', 'failed', 2 * HOUR, 4_000),
+            ended('c', 'completed', 3 * HOUR, 6_000),
+            ended('e', 'completed', 4 * HOUR, 60_000),
+        ];
+        const insights = runInsights(runs);
+        expect(insights.total).toBe(6);
+        expect(insights.successRate).toBe(0.75);
+        expect(insights.medianMs).toBe(5_000);
+        expect(insights.lastFailureAt).toBe(ago(2 * HOUR));
+        expect(insights.streak).toEqual({ status: 'completed', count: 1 });
+    });
+
+    it('counts a streak of the same outcome from the newest', () => {
+        const runs = [ended('a', 'failed', HOUR, 1), ended('b', 'failed', 2 * HOUR, 1), ended('c', 'completed', 3 * HOUR, 1)];
+        expect(runInsights(runs).streak).toEqual({ status: 'failed', count: 2 });
+        expect(runInsights([ended('a', 'completed', HOUR, 1)]).streak).toEqual({ status: 'completed', count: 1 });
+    });
+
+    it('has nothing to rate when nothing ended', () => {
+        expect(runInsights([run({ status: 'queued' })])).toEqual({
+            total: 1,
+            successRate: null,
+            medianMs: null,
+            lastFailureAt: null,
+            streak: null,
+        });
+    });
+});
+
+describe('runsByDay', () => {
+    it('lays the last days out oldest first, today last, empty days kept', () => {
+        const days = runsByDay([run({ id: 'today', createdAt: ago(60_000) })], NOW, 5);
+        expect(days).toHaveLength(5);
+        expect(days[4].day.getDate()).toBe(NOW.getDate());
+        expect(days[4].runs.map((entry) => entry.id)).toEqual(['today']);
+        expect(days.slice(0, 4).every((day) => day.runs.length === 0)).toBe(true);
+    });
+
+    it('puts each run on its local calendar day, newest first, and drops what is older', () => {
+        const at = (daysBack: number, hour: number) =>
+            new Date(NOW.getFullYear(), NOW.getMonth(), NOW.getDate() - daysBack, hour).toISOString();
+        const days = runsByDay(
+            [
+                run({ id: 'early', createdAt: at(2, 8) }),
+                run({ id: 'late', createdAt: at(2, 20) }),
+                run({ id: 'old', createdAt: at(9, 9) }),
+            ],
+            NOW,
+            7,
+        );
+        expect(days[4].runs.map((entry) => entry.id)).toEqual(['late', 'early']);
+        expect(days.flatMap((day) => day.runs).map((entry) => entry.id)).not.toContain('old');
+    });
+});
+
+describe('approvalStep', () => {
+    it('is a person approving each run in confirm mode, worded by what runs', () => {
+        expect(approvalStep({ mode: 'confirm', kind: 'tool' })).toMatchObject({
+            kind: 'approve',
+            title: 'You approve each run',
+            detail: 'It previews first; nothing changes until you approve',
+        });
+        expect(approvalStep({ mode: 'confirm', kind: 'agent' })?.detail).toBe('Its session starts when you press Start');
+    });
+
+    it('is approving the next run for an auto entry that asks first, and nothing once trusted', () => {
+        expect(approvalStep({ mode: 'auto', kind: 'tool', asksFirst: true })?.title).toBe('You approve its next run');
+        expect(approvalStep({ mode: 'auto', kind: 'tool' })).toBeNull();
+    });
+
+    it('is being told, for notify', () => {
+        expect(approvalStep({ mode: 'notify', kind: 'agent' })).toMatchObject({ kind: 'notify', detail: 'Starts nothing' });
+    });
+});
+
+describe('yamlTokens', () => {
+    const kinds = (tokens: YamlToken[]) =>
+        tokens.filter((token) => token.kind !== 'space').map((token) => `${token.kind}:${token.text}`);
+
+    it('splits keys from values and shades values by type', () => {
+        const [first, second, third, fourth] = yamlTokens(
+            '- name: clean-up\n  trigger: { cron: "0 9 * * *" }\n  args:\n    olderThanDays: 14 # two weeks',
+        );
+        expect(kinds(first)).toEqual(['dash:-', 'key:name', 'colon::', 'plain:clean-up']);
+        expect(kinds(second)).toEqual([
+            'key:trigger',
+            'colon::',
+            'punct:{',
+            'key:cron',
+            'colon::',
+            'string:"0 9 * * *"',
+            'punct:}',
+        ]);
+        expect(kinds(third)).toEqual(['key:args', 'colon::']);
+        expect(kinds(fourth)).toEqual(['key:olderThanDays', 'colon::', 'number:14', 'comment:# two weeks']);
+    });
+
+    it('keeps a block scalar body as text, whatever it looks like', () => {
+        const lines = yamlTokens('  prompt: |\n    Review this: carefully\n\n    - not a list\n  mode: confirm');
+        expect(kinds(lines[0])).toEqual(['key:prompt', 'colon::', 'literal:|']);
+        expect(kinds(lines[1])).toEqual(['string:Review this: carefully']);
+        expect(kinds(lines[3])).toEqual(['string:- not a list']);
+        expect(kinds(lines[4])).toEqual(['key:mode', 'colon::', 'plain:confirm']);
+    });
+
+    it('shades inside an inline map and list, a tool reference staying one word', () => {
+        const [line] = yamlTokens('  run: { tool: consola#cleanup, with: { pr_states: [merged, closed], days: 14 } }');
+        expect(kinds(line)).toEqual([
+            'key:run',
+            'colon::',
+            'punct:{',
+            'key:tool',
+            'colon::',
+            'plain:consola#cleanup',
+            'punct:,',
+            'key:with',
+            'colon::',
+            'punct:{',
+            'key:pr_states',
+            'colon::',
+            'punct:[',
+            'plain:merged',
+            'punct:,',
+            'plain:closed',
+            'punct:]',
+            'punct:,',
+            'key:days',
+            'colon::',
+            'number:14',
+            'punct:}',
+            'punct:}',
+        ]);
+    });
+
+    it('reads quoted strings and literals, and leaves the text whole', () => {
+        const source = "  title: 'Hi # there'\n  enabled: true";
+        const lines = yamlTokens(source);
+        expect(kinds(lines[0])).toEqual(['key:title', 'colon::', "string:'Hi # there'"]);
+        expect(kinds(lines[1])).toEqual(['key:enabled', 'colon::', 'literal:true']);
+        expect(lines.map((tokens) => tokens.map((token) => token.text).join('')).join('\n')).toBe(source);
     });
 });

@@ -407,7 +407,7 @@ test('Stop ends a running run', async () => {
     const panel = sidePanel(page);
     await expect(panel.getByRole('heading', { name: 'slow-check' })).toBeVisible();
     await panel.getByRole('button', { name: 'Run now' }).click();
-    await panel.locator('.automations-run-row').first().click();
+    await panel.locator('.automations-run-item').first().click();
     await panel.getByRole('button', { name: 'Start', exact: true }).click();
 
     // It follows the transcript as the turn writes it.

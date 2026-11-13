@@ -463,6 +463,7 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     addTemplate: (workspaceId, templateId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),
     startAuthoring: (request) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING, request),
     acknowledge: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
+    getEntry: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, workspaceId, name),
     onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 
