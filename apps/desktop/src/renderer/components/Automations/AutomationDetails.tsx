@@ -3,8 +3,8 @@ import { AlertTriangle, Bot, ExternalLink } from 'lucide-react';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
-import { RunNowButton, StatusDot, useIntent } from './parts';
-import { formatTime, modeInWords, runAbout, statusWord, triggerLabel } from './presentation';
+import { RunNowButton, RunRow, useIntent } from './parts';
+import { filterRuns, formatTime, modeInWords, NO_RUN_FILTER } from './presentation';
 
 /** Runs listed under an automation; the rest are in Activity. */
 const RUNS_SHOWN = 30;
@@ -17,6 +17,7 @@ const RUNS_SHOWN = 30;
 export function AutomationDetails({ workspace, name }: { workspace: Workspace; name: string }) {
   const snapshot = useAutomationsStore((state) => state.snapshots[workspace.id]);
   const openPanel = useAutomationsStore((state) => state.openPanel);
+  const showAutomationRuns = useAutomationsStore((state) => state.showAutomationRuns);
   const { busy, error, act } = useIntent();
   const runsHeading = useId();
   const automation = snapshot?.automations.find((candidate) => candidate.name === name);
@@ -33,7 +34,9 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   if (!snapshot) return <p className="automations-hint">Loading…</p>;
   if (!automation) return <p className="automations-hint">factory.yml no longer has an automation named {name}.</p>;
 
-  const runs = snapshot.runs.filter((run) => run.automationId === name);
+  const now = new Date();
+  // What Activity would list for it, so "All N in Activity" counts the same runs.
+  const runs = filterRuns(snapshot.runs, { ...NO_RUN_FILTER, automation: name }, now);
   const running = runs.some((run) => run.status === 'running');
 
   return (
@@ -116,41 +119,35 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
         </button>
       </div>
 
-      <section className="automations-section" aria-labelledby={runsHeading}>
-        <h3 id={runsHeading} className="automations-section-title">
-          Runs
-        </h3>
+      <section className="automations-section automations-runs-section" aria-labelledby={runsHeading}>
+        <div className="automations-runs-toolbar">
+          <h3 id={runsHeading} className="automations-section-title automations-runs-heading">
+            Runs
+          </h3>
+          {runs.length > 0 && (
+            <button
+              type="button"
+              className="automations-link-button automations-runs-elsewhere"
+              onClick={() => showAutomationRuns(workspace.id, name)}
+            >
+              {runs.length > RUNS_SHOWN ? `All ${runs.length} in Activity` : 'Open in Activity'}
+            </button>
+          )}
+        </div>
         {runs.length > 0 ? (
           <ul className="automations-runs">
-            {runs.slice(0, RUNS_SHOWN).map((run) => {
-              const about = runAbout(run);
-              return (
-                <li key={run.id}>
-                  <button
-                    type="button"
-                    className="automations-run-row"
-                    onClick={() => openPanel({ kind: 'run', runId: run.id })}
-                  >
-                    <StatusDot status={run.status} />
-                    <span className="automations-run-about">
-                      <span className={`automations-run-status automations-run-status-${run.status}`}>
-                        {statusWord(run.status)}
-                      </span>
-                      {about !== run.status ? ` · ${about}` : ''}
-                    </span>
-                    <span className="automations-run-when">
-                      {triggerLabel(run)} · {formatTime(run.createdAt)}
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
+            {runs.slice(0, RUNS_SHOWN).map((run) => (
+              <RunRow
+                key={run.id}
+                run={run}
+                now={now}
+                place={snapshot.queue[run.id]}
+                onOpen={() => openPanel({ kind: 'run', runId: run.id })}
+              />
+            ))}
           </ul>
         ) : (
           <p className="automations-hint">No runs in the last 30 days.</p>
-        )}
-        {runs.length > RUNS_SHOWN && (
-          <p className="automations-hint">The latest {RUNS_SHOWN} of {runs.length}; Activity has the rest.</p>
         )}
       </section>
     </div>

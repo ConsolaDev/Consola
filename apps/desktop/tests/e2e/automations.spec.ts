@@ -149,7 +149,7 @@ automations:
     const dashboard = await openAutomations(page, 'Acme');
     await dashboard.getByRole('tab', { name: 'Automations' }).click();
 
-    const card = dashboard.locator('.automations-card', { hasText: 'clean-up-stale-sessions' }).first();
+    const card = dashboard.locator('.automations-row', { hasText: 'clean-up-stale-sessions' }).first();
     await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card).toContainText('confirm');
     await expect(card).toContainText('Next run');
@@ -211,7 +211,7 @@ test('a broken factory.yml is reported with its line, and nothing is scheduled',
     await expect(issues).toContainText('line 6', { timeout: 15_000 });
     await expect(issues).toContainText('automations[0].mode');
     await dashboard.getByRole('tab', { name: 'Automations' }).click();
-    await expect(dashboard.locator('.automations-card')).toHaveCount(0);
+    await expect(dashboard.locator('.automations-row')).toHaveCount(0);
   } finally {
     await app.close();
     fs.rmSync(base, { recursive: true, force: true });
@@ -327,9 +327,10 @@ automations:
     const automationsTab = dashboard.getByRole('tab', { name: 'Automations' });
     const activityTab = dashboard.getByRole('tab', { name: 'Activity' });
     await automationsTab.click();
-    const card = dashboard.locator('.automations-card', { hasText: 'review-requests' }).first();
+    const card = dashboard.locator('.automations-row', { hasText: 'review-requests' }).first();
     await expect(card).toContainText('When a pull request asks for your review or is assigned to you', { timeout: 15_000 });
-    await expect(card).toContainText('Review action, read-only');
+    await expect(card).toContainText('Review action');
+    await expect(card).toContainText('Agent session, read-only');
     const checkNow = card.getByRole('button', { name: 'Check now' });
 
     // Turned on with #1 already waiting: that is the baseline, not an event.

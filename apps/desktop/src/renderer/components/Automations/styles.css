@@ -1,7 +1,7 @@
 /* Workspace settings › Automations */
 .automations-hint {
   margin: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
   color: var(--color-text-tertiary);
 }
@@ -9,7 +9,7 @@
 .automations code,
 .automations-view code {
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   overflow-wrap: anywhere;
 }
 
@@ -19,7 +19,7 @@
   gap: var(--space-1);
   flex-shrink: 0;
   padding: var(--space-1) var(--space-3);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
 }
 
 .automations-error,
@@ -27,7 +27,7 @@
   padding: var(--space-2) var(--space-3);
   border: 1px solid var(--color-error);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
   color: var(--color-text-secondary);
 }
@@ -82,32 +82,37 @@
 }
 
 .automations-name {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
 }
 
 .automations-meta {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   color: var(--color-text-tertiary);
 }
 
 .automations-summary {
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   color: var(--color-text-secondary);
 }
 
-.automations-mode {
-  padding: 1px var(--space-1);
-  border-radius: var(--radius-sm);
+/* A mode as factory.yml writes it, small enough to sit beside a name; its title says it in words. */
+.automations-mode,
+.automations-new-pill {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 4px;
   background: var(--color-bg-tertiary);
   font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  line-height: 18px;
   color: var(--color-text-secondary);
 }
 
 .automations-mode-auto {
-  color: var(--color-accent-text);
+  color: var(--color-accent);
   background: var(--color-accent-muted);
 }
 
@@ -115,12 +120,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   color: var(--color-error);
 }
 
 .automations-details {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
   color: var(--color-text-secondary);
 }
@@ -147,8 +152,16 @@
   background: var(--color-error);
 }
 
+/* Working: it breathes like a working session's dot (statusDots.css). */
 .automations-dot-running {
   background: var(--color-info);
+  animation: status-dot-pulse 1.5s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automations-dot-running {
+    animation: none;
+  }
 }
 
 .automations-dot-queued {
@@ -170,19 +183,30 @@
   border-radius: var(--radius-sm);
   background: var(--color-bg-tertiary);
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
 
+/* The accent itself: --color-accent-text is for text on an accent fill, near-black in dark. */
 .automations-link-button {
   padding: 0;
   border: none;
   background: none;
-  color: var(--color-accent-text);
+  color: var(--color-accent);
   font: inherit;
   text-decoration: underline;
   cursor: pointer;
+}
+
+/* An automation's name on its card: a name first, its link only on hover. */
+.automations-link-button.automations-name {
+  color: var(--color-text-primary);
+  text-decoration: none;
+}
+
+.automations-link-button.automations-name:hover {
+  text-decoration: underline;
 }
 
 /* The one-click way to turn on automatic reviews of assigned pull requests. */
@@ -203,7 +227,7 @@
 }
 
 .automations-callout-title {
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
 }
@@ -306,7 +330,6 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  max-width: 920px;
   padding: var(--space-4);
 }
 
@@ -355,7 +378,7 @@
 }
 
 .automations-count-label {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   color: var(--color-text-tertiary);
 }
 
@@ -390,24 +413,145 @@
   overflow-wrap: anywhere;
 }
 
+/* Runs: the heading and its count on the left, the filters on the right. */
 .automations-runs-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: var(--space-2) var(--space-3);
+  gap: var(--space-2);
 }
 
-.automations-runs-toolbar .automations-section-title {
+.automations-runs-heading {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   margin-right: auto;
+}
+
+.automations-runs-count {
+  font-size: var(--font-size-sm);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+.automations-runs-elsewhere {
+  font-size: var(--font-size-sm);
+  text-decoration: none;
+}
+
+.automations-runs-elsewhere:hover {
+  text-decoration: underline;
+}
+
+/* One height and one shape for every control on the toolbar, so it reads as one strip. */
+.automations-filter-trigger,
+.automations-segmented,
+.automations-search {
+  box-sizing: border-box;
+  height: 28px;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+}
+
+.automations-filter-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  max-width: 240px;
+  padding: 0 var(--space-2);
+  background: transparent;
+  font-family: inherit;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.automations-filter-trigger:hover,
+.automations-filter-trigger[data-state='open'] {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+/* Narrowed to one automation: the border says a filter is on, as the Inbox's do. */
+.automations-filter-trigger.active {
+  border-color: var(--color-accent);
+  color: var(--color-text-primary);
+}
+
+.automations-filter-trigger:focus-visible,
+.automations-segment:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+
+.automations-filter-trigger-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-filter-menu {
+  min-width: 240px;
+  max-height: min(360px, var(--radix-dropdown-menu-content-available-height));
+  overflow-y: auto;
+}
+
+/* A fixed slot for the tick, so ticked and unticked rows line up. */
+.automations-filter-indicator {
+  display: inline-flex;
+  flex: none;
+  justify-content: center;
+  width: 14px;
+  color: var(--color-accent);
+}
+
+.automations-filter-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-filter-count {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+/* Kind: one control with the choice lit inside it, not four separate pills. */
+.automations-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.automations-segment {
+  padding: 0 var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast), color var(--transition-fast);
+}
+
+.automations-segment:hover {
+  color: var(--color-text-primary);
+}
+
+.automations-segment.active {
+  background: var(--color-bg-tertiary);
+  color: var(--color-text-primary);
 }
 
 .automations-search {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 3px var(--space-2);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-md);
+  padding: 0 var(--space-2);
   color: var(--color-text-tertiary);
 }
 
@@ -416,60 +560,51 @@
 }
 
 .automations-search input {
-  width: 160px;
+  width: 180px;
   padding: 0;
   border: none;
   outline: none;
   background: transparent;
   font: inherit;
-  font-size: var(--font-size-sm);
   color: var(--color-text-primary);
 }
 
-.automations-filters {
-  display: flex;
-  gap: var(--space-1);
-}
-
-/* Pills: a literal radius, since var(--radius-full) resolves to 0 inside .radix-themes. */
-.automations-chip {
-  padding: 2px 10px;
-  border: 1px solid var(--color-border);
-  border-radius: 999px;
-  background: transparent;
-  font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
-  cursor: pointer;
-}
-
-.automations-chip:hover {
-  color: var(--color-text-primary);
-}
-
-.automations-chip.active {
-  border-color: var(--color-accent);
-  background: var(--color-accent-muted);
-  color: var(--color-accent-text);
+/*
+ * A run list is one grid, and each row lays its cells on the list's columns
+ * (subgrid): whatever the names or statuses, status, about, trigger and time
+ * start at the same x down the list. Named lists (Activity) add a name column.
+ */
+.automations-runs-section {
+  container: automations-runs / inline-size;
 }
 
 .automations-runs {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: 7px max-content minmax(0, 1fr) max-content max-content;
+  column-gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
+.automations-runs-named {
+  grid-template-columns: 7px fit-content(16rem) max-content minmax(0, 1fr) max-content max-content;
+}
+
+.automations-run,
 .automations-run-row {
-  display: flex;
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.automations-run-row {
   align-items: baseline;
-  gap: var(--space-2);
-  width: 100%;
   padding: 6px var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   text-align: left;
   color: var(--color-text-secondary);
   cursor: pointer;
@@ -479,31 +614,59 @@
   background: var(--color-bg-hover);
 }
 
+/* The run the side panel is showing. */
+.automations-run-row[aria-current='true'] {
+  background: var(--color-bg-active);
+}
+
 .automations-run-row:focus-visible {
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
 }
 
+/* A run that landed while the list was showing: a brief wash, so the eye finds it. */
+.automations-run-arrived {
+  animation: automations-run-arrive 1.6s cubic-bezier(0.25, 1, 0.5, 1);
+}
+
+@keyframes automations-run-arrive {
+  from {
+    background: var(--color-accent-muted);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automations-run-arrived {
+    animation: none;
+  }
+}
+
+/* The dot sits nearer its name than the column gap would put it. */
 .automations-run-row .automations-dot {
   align-self: center;
+  margin-right: calc(var(--space-1) * -1);
 }
 
-.automations-run-name {
-  flex-shrink: 0;
-  max-width: 35%;
-  overflow: hidden;
-  font-weight: var(--font-weight-medium);
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
+.automations-run-name,
 .automations-run-about {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
+}
+
+.automations-run-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.automations-run-status {
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+}
+
+.automations-run-status-running {
+  color: var(--color-info);
 }
 
 .automations-run-status-failed {
@@ -514,10 +677,30 @@
   color: var(--color-warning);
 }
 
+.automations-run-trigger,
 .automations-run-when {
-  flex-shrink: 0;
-  font-size: var(--font-size-xs);
+  white-space: nowrap;
   color: var(--color-text-tertiary);
+}
+
+.automations-run-when {
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+/* Narrow: the trigger is the first to go; the run's details still say it. */
+@container automations-runs (max-width: 760px) {
+  .automations-runs {
+    grid-template-columns: 7px max-content minmax(0, 1fr) max-content;
+  }
+
+  .automations-runs-named {
+    grid-template-columns: 7px fit-content(10rem) max-content minmax(0, 1fr) max-content;
+  }
+
+  .automations-run-trigger {
+    display: none;
+  }
 }
 
 .automations-empty-state {
@@ -549,37 +732,469 @@
   align-self: stretch;
 }
 
-/* Automations and Templates tabs: one card per entry. */
+/*
+ * Templates: a grid of cards as wide as the pane allows, each reading top to
+ * bottom with its buttons at the foot. Narrow (the empty state, the New
+ * automation panel), one column.
+ */
 .automations-list {
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 1fr));
+  gap: var(--space-3);
   margin: 0;
   padding: 0;
   list-style: none;
 }
 
-.automations-card-clickable {
-  cursor: pointer;
+.automations-template {
+  box-sizing: border-box;
+  flex-direction: column;
+  align-items: stretch;
+  height: 100%;
 }
 
-.automations-card-clickable:hover {
-  border-color: var(--color-text-tertiary);
+.automations-template .automations-card-main {
+  gap: var(--space-2);
 }
 
-.automations-new {
-  font-size: var(--font-size-xs);
-  color: var(--color-accent-text);
+.automations-template .automations-summary {
+  line-height: var(--line-height-normal);
+}
+
+.automations-template .automations-card-actions {
+  justify-content: flex-end;
+  margin-top: auto;
 }
 
 .automations-added {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   color: var(--color-success);
 }
 
 /* A template this workspace cannot run yet: dimmed, with what to do about it. */
 .automations-template-missing {
   opacity: 0.6;
+}
+
+/*
+ * The Automations tab: one table, every row on the table's columns
+ * (subgrid), so a row reads left to right from past to future and each
+ * column lines up down the list. The frame is the container its queries
+ * measure, so the columns answer to the pane's width, not the window's.
+ */
+.automations-table-frame {
+  container: automations-table / inline-size;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.automations-table {
+  display: grid;
+  grid-template-columns:
+    minmax(14rem, 1.1fr)
+    minmax(12rem, 1.3fr)
+    minmax(11rem, 1fr)
+    max-content
+    minmax(7.5rem, max-content)
+    minmax(8rem, max-content)
+    max-content;
+  column-gap: var(--space-5);
+}
+
+.automations-table-head,
+.automations-table-body,
+.automations-row-item,
+.automations-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+}
+
+.automations-table-head {
+  padding: var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--color-border);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+}
+
+.automations-table-body {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-row-item + .automations-row-item {
+  border-top: 1px solid var(--color-border);
+}
+
+.automations-row {
+  align-items: center;
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.automations-row:hover {
+  background: color-mix(in srgb, var(--color-bg-hover) 45%, transparent);
+}
+
+/* The automation the side panel is showing. */
+.automations-row[aria-current='true'] {
+  background: var(--color-bg-active);
+}
+
+.automations-row-item:last-child .automations-row {
+  border-radius: 0 0 var(--radius-md) var(--radius-md);
+}
+
+.automations-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+/* A cell's first line: what to read. */
+.automations-row-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  font-size: var(--font-size-md);
+  line-height: 20px;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+
+/* Its second: what to read only when the first is not enough. */
+.automations-row-sub {
+  overflow: hidden;
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.automations-row-quiet {
+  color: var(--color-text-tertiary);
+}
+
+.automations-row-number {
+  font-variant-numeric: tabular-nums;
+}
+
+.automations-row-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.automations-row-icon {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
+/* Trigger and target wrap to a second line rather than cut a sentence short. */
+.automations-col-trigger .automations-row-line,
+.automations-col-target .automations-row-line {
+  align-items: flex-start;
+  white-space: normal;
+}
+
+.automations-col-trigger .automations-row-text,
+.automations-col-target .automations-row-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.automations-col-trigger .automations-row-icon,
+.automations-col-target .automations-row-icon {
+  margin-top: 3.5px;
+}
+
+.automations-row .automations-name {
+  min-width: 0;
+  overflow: hidden;
+  font-weight: var(--font-weight-medium);
+  text-overflow: ellipsis;
+}
+
+.automations-row .automations-name:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.automations-new-pill {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+}
+
+.automations-row-file {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+}
+
+/* As written in the file: a cron reads as code, a little quieter than the words above it. */
+.automations-view .automations-cron {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  overflow-wrap: normal;
+}
+
+/* Shown in place of the trigger and target columns once they fold away. */
+.automations-row-pipeline {
+  display: none;
+}
+
+.automations-row-problem {
+  align-items: flex-start;
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+  white-space: normal;
+}
+
+.automations-row-problem svg {
+  flex-shrink: 0;
+  margin-top: 3px;
+}
+
+.automations-row-problem span {
+  overflow-wrap: anywhere;
+}
+
+.automations-last-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.automations-tone-running {
+  color: var(--color-info);
+}
+
+.automations-tone-failed {
+  color: var(--color-error);
+}
+
+.automations-tone-needs-approval {
+  color: var(--color-warning);
+}
+
+.automations-tone-rejected {
+  color: var(--color-text-secondary);
+}
+
+.automations-countdown {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Its time has come: lit until the run it starts takes over "Last run". */
+.automations-due {
+  color: var(--color-accent);
+}
+
+.automations-row-actions {
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  cursor: default;
+}
+
+/*
+ * History: one bar per run, the newest on the right beside "Last run". A
+ * slot with no run is a flat line, so a quiet automation reads as quiet
+ * rather than broken. Colours are the status dots'.
+ */
+.automations-history {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 20px;
+}
+
+.automations-bar {
+  flex-shrink: 0;
+  width: 6px;
+  height: 20px;
+  border-radius: 2px;
+  background: var(--color-text-tertiary);
+  transform-origin: bottom;
+  cursor: pointer;
+  transition:
+    background-color 300ms ease,
+    opacity 150ms ease;
+}
+
+/* Pointing at one bar quiets the rest, so it is clear which run the tooltip is. */
+.automations-history:hover .automations-bar:not(:hover):not(.automations-bar-empty) {
+  opacity: 0.4;
+}
+
+.automations-bar-empty {
+  height: 2px;
+  background: var(--color-border-strong);
+  cursor: default;
+}
+
+.automations-bar-completed {
+  background: var(--color-success);
+}
+
+.automations-bar-failed {
+  background: var(--color-error);
+}
+
+.automations-bar-running {
+  background: var(--color-info);
+  animation: status-dot-pulse 1.5s ease-in-out infinite;
+}
+
+.automations-bar-queued {
+  background: var(--color-warning);
+}
+
+/* Waiting for a person: hollow, as its dot is a ring. */
+.automations-bar-needs-approval {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px var(--color-warning);
+}
+
+.automations-bar-rejected {
+  background: var(--color-text-disabled);
+}
+
+/* A run that landed while the strip showed grows up from the baseline. */
+.automations-bar-arrived {
+  animation: automations-bar-grow 480ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.automations-bar-running.automations-bar-arrived {
+  animation:
+    automations-bar-grow 480ms cubic-bezier(0.16, 1, 0.3, 1),
+    status-dot-pulse 1.5s ease-in-out 480ms infinite;
+}
+
+@keyframes automations-bar-grow {
+  from {
+    transform: scaleY(0);
+  }
+}
+
+/* Doubled class: the shared .tooltip-content is set for paths, in mono, breaking anywhere. */
+.tooltip-content.automations-bar-tooltip {
+  font-family: var(--font-sans);
+  word-break: normal;
+}
+
+.automations-bar-tooltip {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  max-width: 320px;
+}
+
+.automations-bar-tooltip-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.automations-bar-tooltip-when,
+.automations-bar-tooltip-meta {
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+
+.automations-bar-tooltip-about {
+  display: -webkit-box;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow-wrap: anywhere;
+}
+
+.automations-spin {
+  animation: automations-spin 0.9s linear infinite;
+}
+
+@keyframes automations-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .automations-bar-running,
+  .automations-bar-arrived,
+  .automations-bar-running.automations-bar-arrived,
+  .automations-spin {
+    animation: none;
+  }
+}
+
+/* Narrower: trigger and target fold under the name, as one line of what it does. */
+@container automations-table (max-width: 1360px) {
+  .automations-table {
+    grid-template-columns:
+      minmax(0, 1fr)
+      max-content
+      minmax(7rem, max-content)
+      minmax(7.5rem, max-content)
+      max-content;
+  }
+
+  .automations-col-trigger,
+  .automations-col-target,
+  .automations-row-meta {
+    display: none;
+  }
+
+  .automations-row-pipeline {
+    display: block;
+  }
+}
+
+/* Narrower still: the strip goes, and Run now is its icon (its name and title stay); "Last run" still says how it went. */
+@container automations-table (max-width: 860px) {
+  .automations-table {
+    grid-template-columns: minmax(0, 1fr) minmax(6.5rem, max-content) minmax(6.5rem, max-content) max-content;
+  }
+
+  .automations-col-history {
+    display: none;
+  }
+
+  .automations-row .automations-run-now-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+  }
+
+  .automations-row .automations-small-button {
+    padding: var(--space-1) var(--space-2);
+  }
+}
+
+/* Narrowest: the name, when it is next due, and the buttons. The details say the rest. */
+@container automations-table (max-width: 640px) {
+  .automations-table {
+    grid-template-columns: minmax(0, 1fr) max-content max-content;
+  }
+
+  .automations-col-last {
+    display: none;
+  }
 }
 
 /* The side panel: over about two thirds of the dashboard, from the right. */
@@ -628,7 +1243,7 @@
   min-width: 0;
   margin: 0;
   overflow: hidden;
-  font-size: var(--font-size-md);
+  font-size: 15px;
   font-weight: var(--font-weight-medium);
   color: var(--color-text-primary);
   white-space: nowrap;
@@ -678,7 +1293,7 @@
   grid-template-columns: max-content 1fr;
   gap: var(--space-1) var(--space-3);
   margin: 0;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
 }
 
 .automations-fact {
@@ -704,7 +1319,7 @@
 
 .automations-fact-session {
   font-family: var(--font-mono);
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
 }
 
 .automations-run-error {
@@ -726,7 +1341,7 @@
 }
 
 .automations-session-removed {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   color: var(--color-text-tertiary);
 }
 
@@ -741,7 +1356,7 @@
 
 .automations-conversation-caption {
   margin: 0;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
   font-style: italic;
   color: var(--color-text-tertiary);
 }
@@ -752,7 +1367,7 @@
   margin: 0;
   padding: 0;
   list-style: none;
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-md);
 }
 
 .automations-step,
@@ -786,7 +1401,7 @@
   padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   overflow-wrap: anywhere;
 }
 
@@ -803,7 +1418,7 @@
   border-radius: var(--radius-md);
   background: var(--color-bg-primary);
   font: inherit;
-  font-size: var(--font-size-sm);
+  font-size: var(--font-size-md);
   line-height: var(--line-height-normal);
   color: var(--color-text-primary);
   resize: vertical;

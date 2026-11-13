@@ -1,3 +1,4 @@
+import { Zap } from 'lucide-react';
 import type { AutomationsSnapshot, TemplateView } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
@@ -74,6 +75,30 @@ function TemplateCard({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * A workspace with nothing in factory.yml yet: what automations are, the
+ * way to write one, and the templates to start from. Shared by an empty
+ * Activity and an empty Automations tab.
+ */
+export function GetStarted({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
+  const openPanel = useAutomationsStore((state) => state.openPanel);
+  return (
+    <div className="automations-empty-state">
+      <Zap size={20} className="automations-empty-icon" aria-hidden="true" />
+      <p className="automations-empty-lede">
+        Automations work in this workspace without you: on a schedule, or when a pull request asks for your review.
+        Each runs a prompt, one of your actions or a Consola tool, and can ask you before it acts.
+      </p>
+      <div className="automations-empty-actions">
+        <button type="button" className="dialog-button-primary" onClick={() => openPanel({ kind: 'new' })}>
+          New automation
+        </button>
+      </div>
+      <TemplateCards workspace={workspace} snapshot={snapshot} />
     </div>
   );
 }

@@ -132,7 +132,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
       {/* Where the side panel opens, over whichever tab is showing. */}
       <div className="automations-body">
         <div className="automations-tabpanel" role="tabpanel" id={panelId} aria-labelledby={`${panelId}-tab-${tab}`}>
-          {/* Keyed: one workspace's search and filter are not another's. */}
+          {/* Keyed: one workspace's look at Activity, and its runs' arrivals, are not another's. */}
           {snapshot && tab === 'activity' && <ActivityTab key={workspace.id} workspace={workspace} snapshot={snapshot} />}
           {snapshot && tab === 'automations' && (
             <AutomationsList key={workspace.id} workspace={workspace} snapshot={snapshot} />

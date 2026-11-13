@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import type { AuthoringBasis, AutomationsSnapshot } from '../../shared/automations';
 import type { WindowContext } from '../../shared/types';
+import { NO_RUN_FILTER, type RunListFilter } from '../components/Automations/presentation';
 import { automationsBridge } from '../services/automationsBridge';
 import { windowBridge } from '../services/windowBridge';
 
@@ -52,6 +53,8 @@ interface AutomationsState {
     panel: AutomationsPanel | null;
     /** ISO time the person last looked at each workspace's Activity; persisted. */
     lastSeen: Record<string, string>;
+    /** How each workspace's run list is narrowed; absent for not at all. */
+    runFilters: Record<string, RunListFilter>;
     load: (workspaceId: string) => Promise<void>;
     /** Subscribe to main's pushes. Call once near the app root. */
     subscribe: () => () => void;
@@ -59,6 +62,9 @@ interface AutomationsState {
     openPanel: (panel: AutomationsPanel) => void;
     closePanel: () => void;
     markActivitySeen: (workspaceId: string, at: string) => void;
+    setRunFilter: (workspaceId: string, change: Partial<RunListFilter>) => void;
+    /** Activity, with its run list narrowed to one automation and nothing else: an automation's "all runs". */
+    showAutomationRuns: (workspaceId: string, automation: string) => void;
 }
 
 export const useAutomationsStore = create<AutomationsState>((set, get) => ({
@@ -66,6 +72,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     tab: 'activity',
     panel: panelFromWindowContext(windowBridge.context),
     lastSeen: readSeen(),
+    runFilters: {},
 
     load: async (workspaceId) => {
         try {
@@ -91,4 +98,19 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
         set({ lastSeen });
         writeSeen(lastSeen);
     },
+
+    setRunFilter: (workspaceId, change) =>
+        set((state) => ({
+            runFilters: {
+                ...state.runFilters,
+                [workspaceId]: { ...(state.runFilters[workspaceId] ?? NO_RUN_FILTER), ...change },
+            },
+        })),
+
+    showAutomationRuns: (workspaceId, automation) =>
+        set((state) => ({
+            tab: 'activity',
+            panel: null,
+            runFilters: { ...state.runFilters, [workspaceId]: { ...NO_RUN_FILTER, automation } },
+        })),
 }));

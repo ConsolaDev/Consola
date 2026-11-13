@@ -9,7 +9,7 @@ import { useHarnessStore } from '../../stores/harnessStore';
 import { activateSession } from '../../utils/sessionActions';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { ConversationView } from './ConversationView';
-import { AgentRunDetails, CleanupDetails, RunItemLink, StatusDot, useIntent } from './parts';
+import { AgentRunDetails, CleanupDetails, RunItemLink, StatusDot, useIntent, useNow } from './parts';
 import { formatDuration, formatTime, ranInWords, runStage, statusWord, triggerLabel } from './presentation';
 
 /**
@@ -244,7 +244,7 @@ function RunFactsList({ workspace, run }: { workspace: Workspace; run: RunRecord
   const harnessName = useHarnessStore(
     (state) => state.harnesses.find((harness) => harness.id === run.conversation?.harnessId)?.name
   );
-  const now = useNow(run.status === 'running');
+  const now = useNow(run.status === 'running' ? 1000 : null);
   const duration = run.startedAt ? formatDuration(run, now) : null;
   const preview = isAgentRunPreview(run.result) ? run.result : null;
   const author = preview?.item?.author;
@@ -294,16 +294,4 @@ function RunFactsList({ workspace, run }: { workspace: Workspace; run: RunRecord
       )}
     </dl>
   );
-}
-
-/** The time now, ticking each second while `ticking`: a running run's duration counts up. */
-function useNow(ticking: boolean): Date {
-  const [now, setNow] = useState(() => new Date());
-  useEffect(() => {
-    setNow(new Date());
-    if (!ticking) return;
-    const timer = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, [ticking]);
-  return now;
 }

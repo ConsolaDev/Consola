@@ -328,7 +328,7 @@ test('templates add through the runner, and say what is missing', async () => {
 
     // The Automations tab lists it, asking first, in words and as written.
     await dashboard.getByRole('tab', { name: 'Automations' }).click();
-    const card = dashboard.locator('.automations-card', { hasText: 'clean-up-stale-sessions' });
+    const card = dashboard.locator('.automations-row', { hasText: 'clean-up-stale-sessions' });
     await expect(card).toHaveCount(1);
     await expect(card).toContainText('confirm');
     await expect(card).toContainText('Weekdays at 9:00');
@@ -403,7 +403,7 @@ test('Stop ends a running run', async () => {
 
     // Its details, from the Automations tab: Run now, then its run, from its own runs.
     await dashboard.getByRole('tab', { name: 'Automations' }).click();
-    await dashboard.locator('.automations-card', { hasText: 'slow-check' }).getByRole('button', { name: 'slow-check' }).click();
+    await dashboard.locator('.automations-row', { hasText: 'slow-check' }).getByRole('button', { name: 'slow-check', exact: true }).click();
     const panel = sidePanel(page);
     await expect(panel.getByRole('heading', { name: 'slow-check' })).toBeVisible();
     await panel.getByRole('button', { name: 'Run now' }).click();
