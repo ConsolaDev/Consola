@@ -3,7 +3,7 @@ import { EventEmitter } from 'events';
 import * as fs from 'fs';
 import { TerminalDimensions, HarnessLaunchFields, type ScreenReplay } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
-import { getLoginEnv } from './LoginEnvironment';
+import { getLoginEnv, loginEnvProblem, loginEnvRetry } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';
 import { ScreenModel } from './ScreenModel';
 import { PROVIDER_META, isGitProviderId, type GitProviderId } from '../shared/providers';
@@ -420,6 +420,12 @@ export class TerminalService extends EventEmitter {
 
         this.isLaunching = true;
         try {
+            // The process keeps the environment it is spawned with, so a login
+            // shell still being asked again (after a slow first probe, say
+            // right after the machine starts) is waited for: otherwise this
+            // session would run its whole life on the bare PATH.
+            const loginEnvPending = loginEnvRetry();
+            if (loginEnvPending) await loginEnvPending;
             const borrowed = await this.borrowProviderToken();
             // The await yields; the session may have been closed or restarted in
             // the meantime, and spawning now would leak an untracked PTY.
@@ -613,9 +619,12 @@ export class TerminalService extends EventEmitter {
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
             const meta = isGitProviderId(providerId) ? PROVIDER_META[providerId] : undefined;
+            // With no login PATH, the message already says what to do, and
+            // `auth status` would only send the user after a working sign-in.
+            const hint = loginEnvProblem() ? '' : ` — check \`${meta?.cliName ?? providerId} auth status\``;
             this.writeNotice(
                 `Could not borrow a ${meta?.displayName ?? providerId} token for ${login}: ${message} ` +
-                    `This session runs without one — check \`${meta?.cliName ?? providerId} auth status\`.`
+                    `This session runs without one${hint}.`
             );
             return null;
         }

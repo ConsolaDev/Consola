@@ -1,5 +1,5 @@
 import type { GitProviderId } from '../../shared/providers';
-import { getLoginEnv } from '../LoginEnvironment';
+import { getLoginEnv, loginEnvRetry } from '../LoginEnvironment';
 import type { GitProviderDriver } from './GitProviderDriver';
 import { GitHubDriver } from './github/GitHubDriver';
 
@@ -53,7 +53,11 @@ export async function composeProviderEnv(
     driver: GitProviderDriver,
     accountLogin: string
 ): Promise<NodeJS.ProcessEnv> {
-    return layerProviderToken(getLoginEnv(), driver.tokenEnvVar, await driver.token(accountLogin));
+    // The driver finds its CLI on the login PATH, so a probe still being
+    // retried is waited for rather than reported as a missing CLI.
+    await loginEnvRetry();
+    const token = await driver.token(accountLogin);
+    return layerProviderToken(getLoginEnv(), driver.tokenEnvVar, token);
 }
 
 export type { GitProviderDriver } from './GitProviderDriver';

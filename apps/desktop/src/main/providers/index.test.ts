@@ -2,7 +2,11 @@ import { describe, expect, it, vi } from 'vitest';
 
 // composeProviderEnv layers onto the login env; pin it so the assertion is
 // about the layering, not about this machine's shell profile.
-vi.mock('../LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: '/usr/bin' }) }));
+vi.mock('../LoginEnvironment', () => ({
+  getLoginEnv: () => ({ PATH: '/usr/bin' }),
+  loginEnvRetry: () => null,
+  loginEnvProblem: () => null,
+}));
 
 import type { GitProviderDriver } from './GitProviderDriver';
 import { composeProviderEnv, getProviderDriver, layerProviderToken } from './index';
