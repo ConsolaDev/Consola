@@ -68,8 +68,8 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       }
 
       if (isShellShortcut(event)) {
-        const { activeWorkspaceId, activeSessionId, isInboxOpen } = useNavigationStore.getState();
-        if (activeWorkspaceId && activeSessionId && !isInboxOpen) {
+        const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
+        if (activeWorkspaceId && activeSessionId && overlay === null) {
           const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
           if (session) {
             event.preventDefault();

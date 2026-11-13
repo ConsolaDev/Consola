@@ -2,11 +2,12 @@ import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { HomeView, ContentView, WorkspaceEmptyView } from '../Views';
 import { InboxView } from '../Inbox';
+import { AutomationsView } from '../Automations';
 
 export function MainContent() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
-  const isInboxOpen = useNavigationStore((state) => state.isInboxOpen);
+  const overlay = useNavigationStore((state) => state.overlay);
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.find((candidate) => candidate.id === activeWorkspaceId)
   );
@@ -16,10 +17,13 @@ export function MainContent() {
     return <><ContentDragRegion /><HomeView /></>;
   }
 
-  // The Inbox takes the pane over; the active session keeps running behind it
+  // An overlay takes the pane over; the active session keeps running behind it
   // ("terminals outlive their views") and returns on the next sidebar click.
-  if (isInboxOpen) {
+  if (overlay === 'inbox') {
     return <InboxView workspace={workspace} />;
+  }
+  if (overlay === 'automations') {
+    return <AutomationsView workspace={workspace} />;
   }
 
   // Workspace selected, no session - show workspace actions

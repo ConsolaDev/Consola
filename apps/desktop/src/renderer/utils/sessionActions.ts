@@ -1,5 +1,5 @@
 import { filteredScope, newSessionScope, useHomeStore } from '../stores/homeStore';
-import { useNavigationStore } from '../stores/navigationStore';
+import { closePanelOnWorkspaceSwitch, useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
@@ -46,9 +46,9 @@ export function activateSession(workspaceId: string, sessionId: string): void {
   useNavigationStore.setState({
     activeWorkspaceId: workspaceId,
     activeSessionId: sessionId,
-    isInboxOpen: false,
+    overlay: null,
   });
-  windowBridge.setView(workspaceId, { activeSessionId: sessionId, isInboxOpen: false });
+  windowBridge.setView(workspaceId, { activeSessionId: sessionId, overlay: null });
 }
 
 /**
@@ -60,14 +60,14 @@ export function activateSession(workspaceId: string, sessionId: string): void {
  * that scope's sessions: mounting a session launches its CLI, and choosing a
  * filter asked for no such thing. All hides nothing, so it never navigates.
  *
- * The Assistant belongs to no scope, so no filter hides it; the Inbox covers
- * the pane, so the choice only filters the list behind it.
+ * The Assistant belongs to no scope, so no filter hides it; the Inbox and
+ * Automations cover the pane, so the choice only filters the list behind it.
  */
 export function chooseScope(workspaceId: string, scopeId: string | null): void {
   useHomeStore.getState().setScopeFilter(workspaceId, scopeId);
   if (scopeId === null) return;
   const navigation = useNavigationStore.getState();
-  if (navigation.activeWorkspaceId !== workspaceId || navigation.isInboxOpen) return;
+  if (navigation.activeWorkspaceId !== workspaceId || navigation.overlay !== null) return;
   const open = useWorkspaceStore.getState().getSession(workspaceId, navigation.activeSessionId ?? '');
   if (open && open.kind !== 'assistant' && open.scopeId !== scopeId) navigation.setActiveSession(null);
 }
@@ -116,6 +116,7 @@ export async function activateSessionAnywhere(
 
   const result = await windowBridge.activateWorkspace(workspaceId);
   if (result.verdict === 'took') {
+    closePanelOnWorkspaceSwitch(useNavigationStore.getState().activeWorkspaceId, workspaceId);
     // The remembered view is deliberately discarded: the caller named a
     // session, and that choice replaces whatever the workspace was left on.
     activateSession(workspaceId, sessionId);
@@ -165,6 +166,7 @@ export async function createSessionAndOpen(
   if (useNavigationStore.getState().activeWorkspaceId !== workspaceId) {
     const result = await windowBridge.activateWorkspace(workspaceId);
     if (result.verdict !== 'took') return undefined;
+    closePanelOnWorkspaceSwitch(useNavigationStore.getState().activeWorkspaceId, workspaceId);
     useNavigationStore.setState({ activeWorkspaceId: workspaceId, ...result.view });
   }
   const session = await useWorkspaceStore.getState().createSession(workspaceId, {

@@ -7,19 +7,27 @@ import { describe, it, expect, vi } from 'vitest';
 // import below) lets the store module load without a DOM.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
-    context: { workspaceId: null, activeSessionId: null, isInboxOpen: false },
+    context: { workspaceId: null, activeSessionId: null, overlay: null },
     activateWorkspace: vi.fn(),
     openWindow: vi.fn(),
     setView: vi.fn(),
     onWorkspaceChanged: vi.fn(() => () => {}),
     onActivateSession: vi.fn(() => () => {}),
+    onShowAutomations: vi.fn(() => () => {}),
   },
+}));
+
+const openPanel = vi.fn();
+const closePanel = vi.fn();
+vi.mock('./automationsStore', () => ({
+  useAutomationsStore: { getState: () => ({ openPanel, closePanel }) },
 }));
 
 import {
   mergeNavigationState,
   useNavigationStore,
   subscribeToActivateSession,
+  subscribeToShowAutomations,
   subscribeToWindowWorkspace,
   clampSidebarWidth,
   SIDEBAR_WIDTH_DEFAULT,
@@ -42,7 +50,7 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     isWorkItemPanelVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
-    isInboxOpen: false,
+    overlay: null,
     toggleSidebar: vi.fn(),
     setSidebarHidden: vi.fn(),
     setSidebarWidth: vi.fn(),
@@ -53,6 +61,7 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     setActiveWorkspace: vi.fn(),
     setActiveSession: vi.fn(),
     openInbox: vi.fn(),
+    openAutomations: vi.fn(),
     ...overrides,
   };
 }
@@ -121,35 +130,53 @@ describe('mergeNavigationState', () => {
 
 describe('inbox navigation', () => {
   it('opens the inbox', () => {
-    useNavigationStore.setState({ isInboxOpen: false });
+    useNavigationStore.setState({ overlay: null });
     useNavigationStore.getState().openInbox();
-    expect(useNavigationStore.getState().isInboxOpen).toBe(true);
+    expect(useNavigationStore.getState().overlay).toBe('inbox');
+  });
+
+  it('openAutomations keeps the session and reports the overlay', () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', activeSessionId: 'session-1', overlay: null });
+    useNavigationStore.getState().openAutomations();
+    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'session-1', overlay: 'automations' });
+    expect(windowBridge.setView).toHaveBeenLastCalledWith('workspace-1', {
+      activeSessionId: 'session-1',
+      overlay: 'automations',
+    });
+  });
+
+  it('opening the Inbox closes Automations, and vice versa', () => {
+    useNavigationStore.setState({ overlay: 'automations' });
+    useNavigationStore.getState().openInbox();
+    expect(useNavigationStore.getState().overlay).toBe('inbox');
+    useNavigationStore.getState().openAutomations();
+    expect(useNavigationStore.getState().overlay).toBe('automations');
   });
 
   it('closes the inbox when a session is activated', () => {
-    useNavigationStore.setState({ isInboxOpen: true });
+    useNavigationStore.setState({ overlay: 'inbox' });
     useNavigationStore.getState().setActiveSession('session-1');
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
     expect(useNavigationStore.getState().activeSessionId).toBe('session-1');
   });
 
   it('closes the inbox when a notification click activates a session', () => {
-    useNavigationStore.setState({ isInboxOpen: true, activeSessionId: null });
+    useNavigationStore.setState({ overlay: 'inbox', activeSessionId: null });
     subscribeToActivateSession();
     const onActivateSession = vi.mocked(windowBridge.onActivateSession);
     const activateCallback = onActivateSession.mock.calls.at(-1)?.[0];
     activateCallback?.('session-2');
     expect(useNavigationStore.getState().activeSessionId).toBe('session-2');
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
   });
 
   it('closes the inbox when main hands this window a different workspace', () => {
-    useNavigationStore.setState({ isInboxOpen: true });
+    useNavigationStore.setState({ overlay: 'inbox' });
     subscribeToWindowWorkspace();
     const onWorkspaceChanged = vi.mocked(windowBridge.onWorkspaceChanged);
     const workspaceChangedCallback = onWorkspaceChanged.mock.calls.at(-1)?.[0];
     workspaceChangedCallback?.('workspace-2');
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
     expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
   });
 });
@@ -214,45 +241,45 @@ describe('remembering where each workspace was left', () => {
   it('lands on the session main remembers for the workspace, not the blank composer', async () => {
     vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
       verdict: 'took',
-      view: { activeSessionId: 'session-9', isInboxOpen: false },
+      view: { activeSessionId: 'session-9', overlay: null },
     });
 
     await useNavigationStore.getState().setActiveWorkspace('workspace-2');
 
     expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
     expect(useNavigationStore.getState().activeSessionId).toBe('session-9');
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
   });
 
   it('restores the Inbox, and the session still running behind it', async () => {
     vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
       verdict: 'took',
-      view: { activeSessionId: 'session-9', isInboxOpen: true },
+      view: { activeSessionId: 'session-9', overlay: 'inbox' },
     });
 
     await useNavigationStore.getState().setActiveWorkspace('workspace-2');
 
-    expect(useNavigationStore.getState().isInboxOpen).toBe(true);
+    expect(useNavigationStore.getState().overlay).toBe('inbox');
     expect(useNavigationStore.getState().activeSessionId).toBe('session-9');
   });
 
   it('lands on the composer when that is what the workspace was left on', async () => {
-    useNavigationStore.setState({ activeSessionId: 'session-1', isInboxOpen: true });
+    useNavigationStore.setState({ activeSessionId: 'session-1', overlay: 'inbox' });
     vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
       verdict: 'took',
-      view: { activeSessionId: null, isInboxOpen: false },
+      view: { activeSessionId: null, overlay: null },
     });
 
     await useNavigationStore.getState().setActiveWorkspace('workspace-2');
 
     expect(useNavigationStore.getState().activeSessionId).toBe(null);
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
   });
 
   it('does not echo the view back to main, which is where it just came from', async () => {
     vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
       verdict: 'took',
-      view: { activeSessionId: 'session-9', isInboxOpen: false },
+      view: { activeSessionId: 'session-9', overlay: null },
     });
     vi.mocked(windowBridge.setView).mockClear();
 
@@ -265,7 +292,7 @@ describe('remembering where each workspace was left', () => {
     useNavigationStore.setState({
       activeWorkspaceId: 'workspace-1',
       activeSessionId: 'session-1',
-      isInboxOpen: false,
+      overlay: null,
     });
     vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
       verdict: 'focused-elsewhere',
@@ -286,7 +313,7 @@ describe('remembering where each workspace was left', () => {
 
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: 'session-3',
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 
@@ -301,7 +328,7 @@ describe('remembering where each workspace was left', () => {
 
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: null,
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 
@@ -309,7 +336,7 @@ describe('remembering where each workspace was left', () => {
     useNavigationStore.setState({
       activeWorkspaceId: 'workspace-1',
       activeSessionId: 'session-4',
-      isInboxOpen: false,
+      overlay: null,
     });
     vi.mocked(windowBridge.setView).mockClear();
 
@@ -317,7 +344,69 @@ describe('remembering where each workspace was left', () => {
 
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: 'session-4',
-      isInboxOpen: true,
+      overlay: 'inbox',
     });
+  });
+
+  it('a notification opens Automations with its run in the panel, keeping the session', () => {
+    useNavigationStore.setState({ overlay: 'inbox', activeSessionId: 'session-3' });
+    subscribeToShowAutomations();
+    const callback = vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0];
+    callback?.({ workspaceId: 'workspace-1', runId: 'run-9' });
+    expect(useNavigationStore.getState().overlay).toBe('automations');
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
+    expect(openPanel).toHaveBeenCalledWith({ kind: 'run', runId: 'run-9' });
+  });
+
+  it('switching workspace closes the Automations side panel', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: 'automations' });
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, overlay: 'automations' },
+    });
+    closePanel.mockClear();
+
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(closePanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the side panel when the workspace stays, or another window takes it', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: 'automations' });
+    closePanel.mockClear();
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, overlay: 'automations' },
+    });
+    await useNavigationStore.getState().setActiveWorkspace('workspace-1');
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({ verdict: 'focused-elsewhere' });
+    await useNavigationStore.getState().setActiveWorkspace('workspace-2');
+
+    expect(closePanel).not.toHaveBeenCalled();
+  });
+
+  it('main handing this window another workspace closes the side panel', () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: 'automations' });
+    closePanel.mockClear();
+    subscribeToWindowWorkspace();
+    vi.mocked(windowBridge.onWorkspaceChanged).mock.calls.at(-1)?.[0]?.('workspace-2');
+    expect(closePanel).toHaveBeenCalledTimes(1);
+  });
+
+  it('a notification opening its run leaves the panel open', () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: null });
+    closePanel.mockClear();
+    subscribeToShowAutomations();
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1', runId: 'run-9' });
+    expect(closePanel).not.toHaveBeenCalled();
+  });
+
+  it('a notification without a run opens Automations and leaves the panel alone', () => {
+    openPanel.mockClear();
+    useNavigationStore.setState({ overlay: null });
+    subscribeToShowAutomations();
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1' });
+    expect(useNavigationStore.getState().overlay).toBe('automations');
+    expect(openPanel).not.toHaveBeenCalled();
   });
 });

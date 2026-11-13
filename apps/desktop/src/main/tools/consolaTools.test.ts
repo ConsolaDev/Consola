@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import { consolaTools, type ConsolaToolDeps } from './consolaTools';
+import type { AutomationCapabilities } from '../automations/capabilities';
+import { consolaTools, type AutomationControl, type ConsolaToolDeps } from './consolaTools';
 import { agentContext, ToolRegistry, type ToolContext } from './Tool';
 
 /** The session asking: an ordinary one, in a worktree, in a group, on a pinned harness and model. */
@@ -26,6 +27,8 @@ const caller = () =>
 let workspaces: Workspace[];
 let launchSession: Mock<(workspaceId: string, fields: LaunchSessionFields) => Promise<Session>>;
 let registry: ToolRegistry;
+let capabilities: Mock<AutomationControl['capabilities']>;
+let saveEntry: Mock<AutomationControl['saveEntry']>;
 
 function as(sessionId: string): ToolContext {
   return agentContext(sessionId, workspaces);
@@ -44,6 +47,8 @@ beforeEach(() => {
       ],
     }),
   ];
+  capabilities = vi.fn(() => ({ grammar: 'g' }) as unknown as AutomationCapabilities);
+  saveEntry = vi.fn(async () => ({ name: 'sweep', replaced: false, entry: '- name: sweep', line: 3 }));
   launchSession = vi.fn(async (_workspaceId: string, fields: LaunchSessionFields) =>
     makeSession({ ...fields, id: 'new-1', kind: 'interactive', hasStarted: true } as Partial<Session>)
   );
@@ -52,7 +57,7 @@ beforeEach(() => {
     getWorkspaces: () => workspaces,
     status: () => 'ready',
     isManagedPath: () => false,
-    automations: () => ({ list: () => [], trigger: vi.fn() }),
+    automations: () => ({ list: () => [], trigger: vi.fn(), capabilities, saveEntry }),
     workItemContext: vi.fn(),
     inbox: () => null,
     launchSession,
@@ -164,5 +169,36 @@ describe('start_session', () => {
     await expect(start({ name: '', prompt: 'go' })).rejects.toThrow(/Invalid arguments/);
     await expect(start({ name: 'x' })).rejects.toThrow(/Invalid arguments/);
     expect(launchSession).not.toHaveBeenCalled();
+  });
+});
+
+describe('automation_capabilities', () => {
+  it('returns the runner’s description for the caller’s workspace', async () => {
+    const result = await registry.invoke('automation_capabilities', {}, as('me'));
+    expect(capabilities).toHaveBeenCalledWith('ws-1');
+    expect(result.data).toEqual({ grammar: 'g' });
+    expect(registry.get('automation_capabilities')).toMatchObject({
+      mutating: false,
+      automatable: false,
+      fullToolsOnly: true,
+    });
+  });
+});
+
+describe('save_automation', () => {
+  it('passes the caller as the author, and replace through', async () => {
+    const result = await registry.invoke('save_automation', { entry: '- name: sweep', replace: true }, as('me'));
+    expect(saveEntry).toHaveBeenCalledWith('ws-1', '- name: sweep', {
+      replace: true,
+      by: { sessionId: 'me', sessionName: 'Code review cost sizing' },
+    });
+    expect(result.data).toMatchObject({ name: 'sweep', replaced: false });
+    expect(registry.get('save_automation')).toMatchObject({ mutating: true, automatable: false, fullToolsOnly: true });
+  });
+
+  it('does not replace unless asked, and needs an entry', async () => {
+    await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
+    expect(saveEntry.mock.calls[0][2].replace).toBe(false);
+    await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(/Invalid arguments/);
   });
 });

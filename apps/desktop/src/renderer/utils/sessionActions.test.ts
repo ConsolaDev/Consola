@@ -6,7 +6,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 // same workaround navigationStore.test.ts uses.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
-    context: { workspaceId: null, activeSessionId: null, isInboxOpen: false },
+    context: { workspaceId: null, activeSessionId: null, overlay: null },
     activateWorkspace: vi.fn(),
     openWindow: vi.fn(),
     setView: vi.fn(),
@@ -15,8 +15,19 @@ vi.mock('../services/windowBridge', () => ({
   },
 }));
 
-import { activateSession, chooseScope, createQuickSession, createSessionAndOpen, defaultSessionScopeId, openNewSessionDialog, revealCreatedScope, revealSessionScope } from './sessionActions';
+import {
+  activateSession,
+  activateSessionAnywhere,
+  chooseScope,
+  createQuickSession,
+  createSessionAndOpen,
+  defaultSessionScopeId,
+  openNewSessionDialog,
+  revealCreatedScope,
+  revealSessionScope,
+} from './sessionActions';
 import { windowBridge } from '../services/windowBridge';
+import { useAutomationsStore } from '../stores/automationsStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useNewSessionDialogStore } from '../stores/newSessionDialogStore';
@@ -33,7 +44,7 @@ beforeEach(() => {
   useNavigationStore.setState({
     activeWorkspaceId: null,
     activeSessionId: null,
-    isInboxOpen: false,
+    overlay: null,
   });
 });
 
@@ -44,7 +55,7 @@ describe('session creation', () => {
     workspace.scopes.push(secondary);
     useWorkspaceStore.setState({ workspaces: [workspace] });
     useHomeStore.getState().setScopeFilter(workspace.id, secondary.id);
-    useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: 'existing', isInboxOpen: true });
+    useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: 'existing', overlay: 'inbox' });
     const create = vi.spyOn(useWorkspaceStore.getState(), 'createSession').mockImplementation(async (_id, fields) => ({
       ...fields, id: 'new-session', claudeSessionId: 'cli-id', hasStarted: false,
       kind: 'interactive', createdAt: 0, lastActiveAt: 0,
@@ -59,7 +70,7 @@ describe('session creation', () => {
     expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({
       harnessId: 'default-agent', scopeId: secondary.id, model: undefined, groupId: undefined,
     }), undefined);
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'new-session', isInboxOpen: false });
+    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'new-session', overlay: null });
     expect(useNewSessionDialogStore.getState().destination).toBeNull();
   });
 
@@ -79,7 +90,7 @@ describe('session creation', () => {
     });
     useNewSessionDialogStore.getState().close();
     expect(create).not.toHaveBeenCalled();
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'existing', isInboxOpen: true });
+    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'existing', overlay: 'inbox' });
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(secondary.id);
     expect(windowBridge.setView).not.toHaveBeenCalled();
   });
@@ -106,7 +117,7 @@ describe('session creation', () => {
     });
     workspace.sessions.push(open);
     useHomeStore.getState().setScopeFilter(workspace.id, null);
-    useNavigationStore.setState({ activeSessionId: open.id, isInboxOpen: false });
+    useNavigationStore.setState({ activeSessionId: open.id, overlay: null });
     await createQuickSession(workspace.id);
     expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ scopeId: secondary.id }), undefined);
   });
@@ -119,7 +130,7 @@ describe('session creation', () => {
     });
     workspace.sessions.push(assistant);
     useHomeStore.getState().setScopeFilter(workspace.id, null);
-    useNavigationStore.setState({ activeSessionId: assistant.id, isInboxOpen: false });
+    useNavigationStore.setState({ activeSessionId: assistant.id, overlay: null });
     await createQuickSession(workspace.id);
     expect(create).toHaveBeenCalledWith(workspace.id, expect.objectContaining({ scopeId: workspace.scopes[0].id }), undefined);
   });
@@ -167,20 +178,45 @@ describe('activateSession', () => {
     expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: 'session-3',
-      isInboxOpen: false,
+      overlay: null,
     });
   });
 
   it('closes the Inbox, since a session was chosen over it', () => {
-    useNavigationStore.setState({ isInboxOpen: true });
+    useNavigationStore.setState({ overlay: 'inbox' });
 
     activateSession('workspace-1', 'session-3');
 
-    expect(useNavigationStore.getState().isInboxOpen).toBe(false);
+    expect(useNavigationStore.getState().overlay).toBe(null);
     expect(windowBridge.setView).toHaveBeenCalledWith('workspace-1', {
       activeSessionId: 'session-3',
-      isInboxOpen: false,
+      overlay: null,
     });
+  });
+});
+
+describe('activateSessionAnywhere', () => {
+  it('closes the Automations side panel when it moves the window to another workspace', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1' });
+    useAutomationsStore.setState({ panel: { kind: 'run', runId: 'run-1' } });
+    vi.mocked(windowBridge.activateWorkspace).mockResolvedValue({
+      verdict: 'took',
+      view: { activeSessionId: null, overlay: null },
+    });
+
+    await activateSessionAnywhere('workspace-2', 'session-3');
+
+    expect(useNavigationStore.getState().activeWorkspaceId).toBe('workspace-2');
+    expect(useAutomationsStore.getState().panel).toBeNull();
+  });
+
+  it('keeps it for a session in the workspace already shown', async () => {
+    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1' });
+    useAutomationsStore.setState({ panel: { kind: 'run', runId: 'run-1' } });
+
+    await activateSessionAnywhere('workspace-1', 'session-3');
+
+    expect(useAutomationsStore.getState().panel).toEqual({ kind: 'run', runId: 'run-1' });
   });
 });
 
@@ -197,7 +233,7 @@ function openSessionSetup(open: { scope: 'root' | 'api'; kind?: 'interactive' | 
   workspace.sessions.push(session);
   useWorkspaceStore.setState({ workspaces: [workspace] });
   useHomeStore.getState().setScopeFilter(workspace.id, session.scopeId);
-  useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: session.id, isInboxOpen: false });
+  useNavigationStore.setState({ activeWorkspaceId: workspace.id, activeSessionId: session.id, overlay: null });
   return { workspace, root, api, session };
 }
 
@@ -210,7 +246,7 @@ describe('chooseScope', () => {
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
     expect(useNavigationStore.getState().activeSessionId).toBeNull();
     // Written through, so returning to the workspace lands on the composer too.
-    expect(windowBridge.setView).toHaveBeenCalledWith(workspace.id, { activeSessionId: null, isInboxOpen: false });
+    expect(windowBridge.setView).toHaveBeenCalledWith(workspace.id, { activeSessionId: null, overlay: null });
   });
 
   it('keeps a session open when it already belongs to the chosen scope', () => {
@@ -229,11 +265,11 @@ describe('chooseScope', () => {
 
   it('only filters while the Inbox covers the pane', () => {
     const { workspace, api, session } = setup({ scope: 'root' });
-    useNavigationStore.setState({ isInboxOpen: true });
+    useNavigationStore.setState({ overlay: 'inbox' });
     chooseScope(workspace.id, api.id);
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
     expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
-    expect(useNavigationStore.getState().isInboxOpen).toBe(true);
+    expect(useNavigationStore.getState().overlay).toBe('inbox');
   });
 
   it('returns to All without navigating', () => {

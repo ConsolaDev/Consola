@@ -6,7 +6,7 @@ export type NoticeTarget = { kind: 'session'; sessionId: string } | { kind: 'aut
 /**
  * Where a click on an automation notification lands: the session a run
  * started; the Assistant, for an approval it asked for, since its tray holds
- * it; otherwise the workspace's Automations panel.
+ * it; otherwise the workspace's Automations dashboard.
  */
 export function noticeTarget(notice: AutomationNotice, workspaces: Workspace[]): NoticeTarget {
     if (notice.sessionId) return { kind: 'session', sessionId: notice.sessionId };

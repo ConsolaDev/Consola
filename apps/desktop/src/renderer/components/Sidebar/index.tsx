@@ -11,6 +11,7 @@ import { scopeTrail } from '../../utils/scopeTrail';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import { AssistantNavItem } from './AssistantNavItem';
+import { AutomationsNavItem } from './AutomationsNavItem';
 import { ScopeFilter } from './ScopeFilter';
 import { SidebarSearch } from './SidebarSearch';
 import { SessionNavItem } from './SessionNavItem';
@@ -28,7 +29,8 @@ export function Sidebar() {
   const isSidebarHidden = useNavigationStore(state => state.isSidebarHidden);
   const activeWorkspaceId = useNavigationStore(state => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore(state => state.activeSessionId);
-  const isInboxOpen = useNavigationStore(state => state.isInboxOpen);
+  const overlay = useNavigationStore(state => state.overlay);
+  const isInbox = overlay === 'inbox';
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const workspace = workspaces.find(candidate => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore(state => state.scopeFilters[activeWorkspaceId ?? '']);
@@ -99,20 +101,20 @@ export function Sidebar() {
     showScopeNames ? scopeTrail(workspace.scopes, scopeForSession(workspace, session)!) : undefined;
   const renderSession = (session: typeof allSessions[number]) => <SessionNavItem
     key={session.id} session={session} workspaceId={workspace!.id} scopeLabel={labelFor(session)}
-    isActive={!isInboxOpen && activeSessionId === session.id}
+    isActive={overlay === null && activeSessionId === session.id}
     onClick={() => activateSession(workspace!.id, session.id)}
   />;
 
   return (
-    <aside className="sidebar" aria-label={isInboxOpen ? 'Inbox sidebar' : 'Home sidebar'}>
+    <aside className="sidebar" aria-label={isInbox ? 'Inbox sidebar' : 'Home sidebar'}>
       <SidebarSearch><NavigationSettings /><NewMenu /></SidebarSearch>
       <nav className="app-navigation" aria-label="Main navigation">
-        <button className={`app-navigation-item ${!isInboxOpen ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={!isInboxOpen ? 'page' : undefined}
+        <button className={`app-navigation-item ${!isInbox ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={overlay === null ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().setActiveSession(activeSessionId)}><Home size={18} /><span className="app-navigation-label">Home</span></button>
-        {workspace && <button className={`app-navigation-item ${isInboxOpen ? 'active' : ''}`} aria-label="Inbox" title="Inbox" aria-current={isInboxOpen ? 'page' : undefined}
+        {workspace && <button className={`app-navigation-item ${isInbox ? 'active' : ''}`} aria-label="Inbox" title="Inbox" aria-current={isInbox ? 'page' : undefined}
           onClick={() => useNavigationStore.getState().openInbox()}><Inbox size={18} /><span className="app-navigation-label">Inbox</span>{workspace.provider && inboxCount > 0 && <span className="app-navigation-badge">{inboxCount}</span>}</button>}
       </nav>
-      {workspace && isInboxOpen && <div className="home-navigation">
+      {workspace && isInbox && <div className="home-navigation">
         <div className="home-session-panel">
           <section className="sidebar-section sidebar-integrations" aria-label="Integrations">
             <div className="sidebar-section-header"><span className="sidebar-section-title">Integrations</span></div>
@@ -124,9 +126,10 @@ export function Sidebar() {
           </section>
         </div>
       </div>}
-      {workspace && !isInboxOpen && <>
+      {workspace && !isInbox && <>
         <div className="home-navigation">
           <AssistantNavItem workspace={workspace} />
+          <AutomationsNavItem workspace={workspace} />
           {/* Always there, even with one scope: it is also where scopes are added. */}
           <hr className="sidebar-scope-divider" />
           <ScopeFilter workspace={workspace} />
@@ -135,7 +138,7 @@ export function Sidebar() {
               <div className="sidebar-section-header"><span className="sidebar-section-title">Your groups</span><button className="sidebar-section-button" aria-label="Add group" onClick={() => setIsCreatingGroup(true)}><Plus size={14} /></button></div>
               <nav className="session-list" aria-label="Session groups">
                 {groups.map(group => <GroupNavItem key={group.id} group={group} sessions={sessions.filter(session => session.groupId === group.id)}
-                  workspaceId={workspace.id} scopeFor={id => workspace.scopes.find(candidate => candidate.id === id)} scopeLabelFor={labelFor} activeSessionId={isInboxOpen ? null : activeSessionId}
+                  workspaceId={workspace.id} scopeFor={id => workspace.scopes.find(candidate => candidate.id === id)} scopeLabelFor={labelFor} activeSessionId={overlay !== null ? null : activeSessionId}
                   onNewSession={() => startSession(group.id)}
                   onNewSessionWithOptions={() => openNewSessionDialog(workspace.id, { groupId: group.id })} />)}
                 {!groups.length && <p className="sidebar-empty">Group sessions that belong together, like a feature or a bug hunt.</p>}

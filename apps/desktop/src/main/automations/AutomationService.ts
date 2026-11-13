@@ -1,16 +1,28 @@
 import { createHash } from 'crypto';
 import {
+    automationEntryText,
     automationVersion,
     nextCronOccurrence,
+    parseAutomationEntry,
+    parseFactorySpec,
     stableStringify,
+    TERMINAL_RUN_STATUSES,
     type Automation,
     type AutomationMode,
     type CronTrigger,
+    type FactorySpecIssue,
     type RunRecord,
     type RunStatus,
     type RunTrigger,
 } from '@consola/factory-spec';
-import type { AgentRunPreview, AutomationsSnapshot, AutomationView } from '../../shared/automations';
+import type {
+    AgentRunPreview,
+    AutomationsSnapshot,
+    AutomationView,
+    RunListEntry,
+    SavedAutomation,
+    TemplateView,
+} from '../../shared/automations';
 import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
 import { defaultActionFor } from '../../shared/workItemActions';
 import { sameWorkItem } from '../../shared/workItems';
@@ -24,12 +36,21 @@ import {
     type ToolRegistry,
     type ToolResult,
 } from '../tools/Tool';
+import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
+import { describeRun, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
-import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, factoryTemplate, type LoadedFactoryFile } from './FactoryFile';
+import {
+    ASSIGNED_REVIEWS_NAME,
+    assignedReviewsEntry,
+    EMPTY_FACTORY_FILE,
+    factoryTemplate,
+    type LoadedFactoryFile,
+} from './FactoryFile';
 import type { RunStore } from './RunStore';
 import { StartedByHandError } from './launchAgentRun';
 import { advanceSeen } from './seenRecord';
+import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
 /**
  * The local runner for personal automations: one `factory.yml` per workspace
@@ -86,6 +107,16 @@ export interface FactoryFileHandle {
     ensureExists(template: string): Promise<string>;
     /** Add one automation (a `- name: …` item) at the end of the list, keeping everything else. */
     appendAutomation(entryYaml: string): Promise<void>;
+    /** Swap the automation called `name` for `entryYaml`, in place, keeping every byte outside it. */
+    replaceAutomation(name: string, entryYaml: string): Promise<void>;
+    /** The file as written, or null when there is none yet. */
+    readText(): Promise<string | null>;
+}
+
+/** How `saveEntry` writes: whether it may replace an entry of the same name, and the session that asked. */
+export interface SaveEntryOptions {
+    replace: boolean;
+    by?: { sessionId: string; sessionName: string };
 }
 
 /** What an agent run asks main to start: a headless, read-only session. */
@@ -109,7 +140,7 @@ export interface AutomationServiceDeps {
     /** A workspace's spec file; asked for once, when the workspace is first seen. */
     fileFor(workspaceId: string): FactoryFileHandle;
     store: RunStore;
-    registry: Pick<ToolRegistry, 'get' | 'validate' | 'invoke'>;
+    registry: Pick<ToolRegistry, 'get' | 'list' | 'validate' | 'invoke'>;
     getWorkspaces(): Workspace[];
     now(): Date;
     newId(): string;
@@ -127,12 +158,16 @@ export interface AutomationServiceDeps {
     resumeAgent(session: Session, prompt: string): Promise<void>;
     /** Whether a session has a terminal whose process is still running: someone opened it. */
     hasLiveTerminal(session: Session): boolean;
+    /**
+     * The workspace's default harness: its display name, and why it cannot
+     * run a read-only unattended session (null when it can).
+     */
+    agentHarness(workspaceId: string): { name: string; problem: string | null };
+    /** End a running unattended turn the way Ctrl+C does. False when none is running. */
+    stopAgent(session: Session, reason: string): boolean;
     /** Agent sessions automations may have working at once, across every workspace. */
     maxConcurrentAgents?: number;
 }
-
-/** The events automatic reviews listen to: a review asked of the person, or the pull request assigned to them. */
-const ASSIGNED_REVIEW_EVENTS = ['pull_request.review_requested', 'pull_request.assigned'];
 
 /** The turn an automation session gets when Consola quit before its first one finished. */
 export const INTERRUPTED_PROMPT = 'Consola closed before you finished. Continue where you left off.';
@@ -187,7 +222,7 @@ interface WorkspaceFactory {
 const NOT_LOADED: LoadedFactoryFile = { exists: false, spec: { automations: [], issues: [] } };
 
 /** An automation's identity: its name, within its workspace. */
-function automationKey(entry: Pick<Resolved, 'workspaceId' | 'automation'>): string {
+function automationKey(entry: { workspaceId: string; automation: Pick<Automation, 'name'> }): string {
     return `${entry.workspaceId} ${entry.automation.name}`;
 }
 
@@ -225,7 +260,20 @@ export class AutomationService {
     private ticking = false;
     private started = false;
     private pumping = false;
+    /** Running agent runs whose session is still being launched or resumed: no live turn to stop yet. */
+    private readonly starting = new Set<string>();
+    /** Of those, the ones a person asked to stop; honoured as soon as the turn exists. */
+    private readonly stopRequested = new Set<string>();
     private pumpAgain = false;
+    /** Each workspace's last save, settled either way: the next one waits for it. */
+    private readonly saving = new Map<string, Promise<void>>();
+    /**
+     * When `saveEntry` last wrote each entry, by automation key. A run asked
+     * for before then was approved for what the entry said before, so its
+     * approval accepts nothing: a schedule-only change keeps the version, and
+     * would otherwise run unasked on the strength of the old entry's approval.
+     */
+    private readonly savedAt = new Map<string, number>();
 
     constructor(private readonly deps: AutomationServiceDeps) {}
 
@@ -239,7 +287,8 @@ export class AutomationService {
         await this.tick();
     }
 
-    public stop(): void {
+    /** Quit: stop ticking and let go of every workspace's file. */
+    public shutdown(): void {
         this.started = false;
         this.stopTicking?.();
         this.stopTicking = null;
@@ -267,6 +316,7 @@ export class AutomationService {
                     this.finish(run.id, 'rejected', { summary: 'Its workspace was deleted.' });
                 }
             }
+            this.deps.store.forgetWorkspace(workspaceId);
         }
 
         // Registered before anything is awaited, so a second sync arriving
@@ -280,12 +330,14 @@ export class AutomationService {
 
         // Settings edits re-resolve without touching the file. Broadcast only
         // what changed: this runs on every workspace write, session clicks
-        // included.
+        // included. A template's `missing` follows the same settings.
+        const settingsView = (workspaceId: string, factory: WorkspaceFactory) =>
+            stableStringify([this.list(workspaceId), this.templatesOf(workspaceId, factory)]);
         for (const [workspaceId, factory] of this.factories) {
             if (added.includes(workspaceId)) continue;
-            const before = stableStringify(this.list(workspaceId));
+            const before = settingsView(workspaceId, factory);
             this.resolveAll(workspaceId, factory);
-            if (stableStringify(this.list(workspaceId)) !== before) this.broadcast(workspaceId);
+            if (settingsView(workspaceId, factory) !== before) this.broadcast(workspaceId);
         }
 
         // Every file is read before schedules are reconciled: reconciling
@@ -357,15 +409,135 @@ export class AutomationService {
         const action = this.prActionOf(workspaceId);
         if (!workspace?.provider || !action) return null;
         const { spec } = factory.loaded;
-        if (spec.issues.some((issue) => !issue.path.startsWith('automations['))) return null;
-        const covered = spec.automations.some(
-            (automation) =>
-                automation.name === ASSIGNED_REVIEWS_NAME ||
-                (automation.trigger.kind === 'event' &&
-                    automation.trigger.connection === 'github' &&
-                    automation.trigger.events.some((event) => ASSIGNED_REVIEW_EVENTS.includes(event)))
+        if (spec.issues.some((issue) => !isEntryIssue(issue))) return null;
+        return spec.automations.some(coversAssignedReviews) ? null : { action };
+    }
+
+    /**
+     * Add or replace one entry in a workspace's factory.yml: an agent's
+     * `save_automation`, and a template's "Add". The entry is checked the way
+     * the runner checks it — parsed on its own, then resolved against this
+     * workspace, harness included — and refused, with every reason, if it
+     * would not run; a refusal leaves the file as it was. A name already in
+     * the file is replaced in place only when `replace` says so. Saves in one
+     * workspace run one at a time, each reading what the last one wrote.
+     *
+     * Whatever it writes asks once before its next unattended run, even a
+     * schedule-only change the version would not notice; a hand edit keeps
+     * asking only when what the entry does changed. With `by`, the entry is
+     * marked as that session's addition until a person looks at it.
+     */
+    public saveEntry(workspaceId: string, entryYaml: string, options: SaveEntryOptions): Promise<SavedAutomation> {
+        const previous = this.saving.get(workspaceId) ?? Promise.resolve();
+        const saved = previous.then(() => this.writeEntry(workspaceId, entryYaml, options));
+        const settled = saved.then(
+            () => undefined,
+            () => undefined
         );
-        return covered ? null : { action };
+        this.saving.set(workspaceId, settled);
+        void settled.then(() => {
+            if (this.saving.get(workspaceId) === settled) this.saving.delete(workspaceId);
+        });
+        return saved;
+    }
+
+    private async writeEntry(workspaceId: string, entryYaml: string, options: SaveEntryOptions): Promise<SavedAutomation> {
+        const parsed = parseAutomationEntry(entryYaml);
+        if (!parsed.ok) throw notSaved(parsed.issues.map(describeIssue));
+        const { automation, item } = parsed;
+        const { file } = this.factoryOf(workspaceId);
+        // Read now, not as last loaded: the person may have edited it since.
+        const text = await file.readText().catch((error: unknown) => {
+            throw notSaved([describeError(error)]);
+        });
+        const broken = text === null ? [] : parseFactorySpec(text).issues.filter((issue) => !isEntryIssue(issue));
+        if (broken.length > 0) {
+            throw notSaved([`factory.yml does not load (${broken.map(describeIssue).join('; ')}); fix it by hand first`]);
+        }
+        const problem = this.resolve(workspaceId, automation).problem;
+        if (problem) throw notSaved([problem]);
+        // By name as written, so an entry that fails to load still holds its name.
+        const replaced = text !== null && automationEntryText(text, automation.name) !== null;
+        if (replaced && !options.replace) {
+            const name = automation.name;
+            throw notSaved([`factory.yml already has an automation named "${name}"; pass replace: true to replace it, or choose another name`]);
+        }
+        try {
+            // A file of its own, not "Open file"'s template: nothing is added beside the entry unasked.
+            if (text === null) await file.ensureExists(EMPTY_FACTORY_FILE);
+            if (replaced) await file.replaceAutomation(automation.name, item);
+            else await file.appendAutomation(item);
+        } catch (error) {
+            throw notSaved([describeError(error)]);
+        }
+        const key = automationKey({ workspaceId, automation });
+        this.deps.store.revokeAcceptance(key);
+        this.savedAt.set(key, this.deps.now().getTime());
+        if (options.by) this.deps.store.markAdded(key, { ...options.by, at: this.iso() });
+        await this.reload(workspaceId);
+        // Again once it is live: a run fired while the file was being reloaded was of the entry before.
+        this.savedAt.set(key, this.deps.now().getTime());
+        const line = this.factories
+            .get(workspaceId)
+            ?.loaded.spec.automations.find((candidate) => candidate.name === automation.name)?.line;
+        return { name: automation.name, replaced, entry: item, ...(line ? { line } : {}) };
+    }
+
+    /**
+     * The Templates tab's "Add": the template's entry, as-is, through
+     * `saveEntry`. Refused while the workspace lacks what it needs.
+     */
+    public async addTemplate(workspaceId: string, templateId: string): Promise<void> {
+        const template = AUTOMATION_TEMPLATES.find((candidate) => candidate.id === templateId);
+        if (!template) throw new Error(`There is no template "${templateId}".`);
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        if (!workspace) throw new Error(`No workspace ${workspaceId}.`);
+        const missing = template.missing(workspace);
+        if (missing) throw new Error(`Not added: ${missing}.`);
+        await this.saveEntry(workspaceId, template.entry(workspace), { replace: false });
+    }
+
+    /** One entry exactly as the file has it, as a `- name: …` item; null when there is no such entry or no file. */
+    public async entryText(workspaceId: string, name: string): Promise<string | null> {
+        const text = await this.factoryOf(workspaceId).file.readText();
+        return text === null ? null : automationEntryText(text, name);
+    }
+
+    /** A person opened an agent-added entry's details: it is no longer new. */
+    public acknowledge(workspaceId: string, name: string): void {
+        const key = automationKey({ workspaceId, automation: { name } });
+        const added = this.deps.store.addedBy(key);
+        if (!added || added.seen) return;
+        this.deps.store.acknowledgeAdded(key);
+        this.broadcast(workspaceId);
+    }
+
+    /** What an agent writing an entry for this workspace needs to know: `automation_capabilities`. */
+    public capabilities(workspaceId: string): AutomationCapabilities {
+        const factory = this.factoryOf(workspaceId);
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        const { spec } = factory.loaded;
+        // An entry that fails to load still holds its name.
+        const named = [
+            ...spec.automations.map((automation) => automation.name),
+            ...spec.issues.flatMap((issue) => issue.automation ?? []),
+        ];
+        return describeCapabilities({
+            filePath: factory.file.filePath,
+            fileExists: factory.loaded.exists,
+            tools: this.deps.registry.list().filter((tool) => tool.automatable),
+            actions: workspace?.actions ?? [],
+            scopes: workspace?.scopes ?? [],
+            taken: [...new Set(named)],
+            boundConnection: workspace?.provider?.id ?? null,
+            harness: { name: this.deps.agentHarness(workspaceId).name, problem: this.harnessProblem(workspaceId) },
+        });
+    }
+
+    /** The templates as this workspace's Templates tab shows them. */
+    private templatesOf(workspaceId: string, factory: WorkspaceFactory): TemplateView[] {
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        return workspace ? templateViews(workspace, factory.loaded.spec.automations, this.deps.now()) : [];
     }
 
     /** Fire everything that is due, and start what the queue has room for. Public so wake-from-sleep can call it. */
@@ -596,9 +768,10 @@ export class AutomationService {
             throw new Error(`Not run: ${problem}.`);
         }
         const key = automationKey(entry);
+        const approvedAt = this.iso();
         if (entry.agent) {
-            this.deps.store.update(run.id, { status: 'queued', updatedAt: this.iso() });
-            if (entry.automation.mode === 'auto') this.deps.store.accept(key, entry.version);
+            this.deps.store.update(run.id, { status: 'queued', approvedAt, updatedAt: approvedAt });
+            this.acceptApproved(key, entry, run);
             this.broadcastRun(run.id);
             // As approved: in line. The queue may start it at once.
             const queued = { ...this.deps.store.get(run.id)! };
@@ -606,7 +779,7 @@ export class AutomationService {
             return queued;
         }
         this.assertIdle(key, entry.automation.name);
-        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        this.deps.store.update(run.id, { status: 'running', approvedAt, startedAt: this.iso(), updatedAt: this.iso() });
         return this.guarded(
             key,
             run.id,
@@ -614,10 +787,23 @@ export class AutomationService {
                 const args = run.approval?.args ?? entry.args;
                 const result = await this.deps.registry.invoke(entry.tool!.name, args, this.contextFor(entry), 'run');
                 this.finish(run.id, 'completed', { result });
-                if (entry.automation.mode === 'auto') this.deps.store.accept(key, entry.version);
+                // Checked now, not at approval: a save may have landed while it ran.
+                this.acceptApproved(key, entry, run);
             },
             entry.automation.name
         );
+    }
+
+    /**
+     * An approved run of an `auto` entry lets it run on its own from now on —
+     * unless `saveEntry` wrote the entry since the run was asked for, or in
+     * the same instant: that approval was for the entry before.
+     */
+    private acceptApproved(key: string, entry: Resolved, run: RunRecord): void {
+        if (entry.automation.mode !== 'auto') return;
+        const saved = this.savedAt.get(key);
+        if (saved !== undefined && !(Date.parse(run.createdAt) > saved)) return;
+        this.deps.store.accept(key, entry.version);
     }
 
     /** Turn down a run waiting for approval, or take a queued one out of the line. */
@@ -635,6 +821,7 @@ export class AutomationService {
             const { automation } = entry;
             const cron = cronOf(entry);
             const next = cron && !entry.problem ? this.nextDue(entry, now) : null;
+            const added = this.deps.store.addedBy(automationKey(entry));
             return {
                 name: automation.name,
                 mode: automation.mode,
@@ -651,13 +838,46 @@ export class AutomationService {
                     ? { asksFirst: true }
                     : {}),
                 ...(entry.problem ? { problem: entry.problem } : {}),
+                ...(added
+                    ? { addedBy: { sessionName: added.sessionName, sessionId: added.sessionId, isNew: !added.seen } }
+                    : {}),
             };
         });
     }
 
+    /** One run, whole: its result and approval too, which the activity list leaves out. */
+    public getRun(runId: string): RunRecord | null {
+        return this.deps.store.get(runId) ?? null;
+    }
+
+    /**
+     * End a running agent turn, as Ctrl+C would. The turn's own end then
+     * fails the run ("It stopped before finishing: you stopped it."); when
+     * no turn is running any more, nothing will report, so the run ends here.
+     * An agent run that already ended — its turn beat the click — is left as
+     * it ended.
+     */
+    public stop(runId: string): void {
+        const run = this.deps.store.get(runId);
+        if (run && isAgentRun(run) && TERMINAL_RUN_STATUSES.includes(run.status)) return;
+        if (!run || run.status !== 'running' || !isAgentRun(run)) throw new Error(`Run ${runId} is not a running agent run.`);
+        if (this.starting.has(runId)) {
+            // No turn exists yet: remember, and end it the moment it does.
+            this.stopRequested.add(runId);
+            return;
+        }
+        const session = this.sessionOf(run);
+        if (session && this.deps.stopAgent(session, 'you stopped it')) return;
+        this.finish(runId, 'failed', { error: 'Stopped: its session was no longer running.' });
+        void this.pump();
+    }
+
     public snapshot(workspaceId: string): AutomationsSnapshot {
         const factory = this.factoryOf(workspaceId);
-        const runs = this.deps.store.runs().filter((run) => run.attribution.workspaceId === workspaceId);
+        const runs = this.deps.store
+            .runs()
+            .filter((run) => run.attribution.workspaceId === workspaceId)
+            .map(toListEntry);
         // A place in the one line every workspace shares.
         const queue: Record<string, number> = {};
         this.queuedRuns().forEach((run, index) => {
@@ -671,6 +891,7 @@ export class AutomationService {
             runs,
             queue,
             suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
+            templates: this.templatesOf(workspaceId, factory),
         };
     }
 
@@ -749,9 +970,33 @@ export class AutomationService {
      * turn ends (`turnEnded`): the run is the turn, and what holds a slot.
      */
     private async startAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
-        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        // An interrupted run picked up again keeps the time it first started.
+        this.deps.store.update(run.id, { status: 'running', startedAt: run.startedAt ?? this.iso(), updatedAt: this.iso() });
         this.broadcastRun(run.id);
-        if (run.sessionId) return this.resumeAgentRun(run);
+        this.starting.add(run.id);
+        try {
+            if (run.sessionId) return await this.resumeAgentRun(run);
+            await this.launchAgentRun(run, item);
+        } finally {
+            this.starting.delete(run.id);
+            this.stopRequested.delete(run.id);
+        }
+    }
+
+    /** Whether the run is still the one running: it may have ended, or its workspace been forgotten, while a launch was awaited. */
+    private stillRunning(runId: string): boolean {
+        return this.deps.store.get(runId)?.status === 'running';
+    }
+
+    /** A stop asked for while the turn was starting: end it now that there is one to end. */
+    private honourStop(runId: string, session: Session): void {
+        if (!this.stopRequested.delete(runId)) return;
+        if (this.deps.stopAgent(session, 'you stopped it')) return; // Its exit records the stop.
+        this.finish(runId, 'failed', { error: 'Stopped: its session was no longer running.' });
+        void this.pump();
+    }
+
+    private async launchAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
         const entry = this.entryOf(run)!;
         const agent = entry.agent!;
         const name = entry.automation.name;
@@ -772,8 +1017,23 @@ export class AutomationService {
                       }
                     : { scopeId: agent.scope?.id }),
             });
-            this.deps.store.update(run.id, { sessionId: session.id, summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
+            if (!this.stillRunning(run.id)) return;
+            const scopePath = this.deps
+                .getWorkspaces()
+                .find((workspace) => workspace.id === entry.workspaceId)
+                ?.scopes.find((scope) => scope.id === session.scopeId)?.path;
+            this.deps.store.update(run.id, {
+                sessionId: session.id,
+                conversation: {
+                    harnessId: session.harnessId,
+                    id: session.claudeSessionId,
+                    cwd: session.cwd ?? scopePath ?? agent.scope?.path,
+                },
+                summary: runningIn(session.name),
+                updatedAt: this.iso(),
+            });
             this.broadcastRun(run.id);
+            this.honourStop(run.id, session);
         } catch (error) {
             // The person got there first: nothing failed, the review exists.
             if (error instanceof StartedByHandError) {
@@ -791,8 +1051,10 @@ export class AutomationService {
         try {
             if (!session) throw new Error('Its session was closed.');
             await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
-            this.deps.store.update(run.id, { summary: `Running in “${session.name}”.`, updatedAt: this.iso() });
+            if (!this.stillRunning(run.id)) return;
+            this.deps.store.update(run.id, { summary: runningIn(session.name), updatedAt: this.iso() });
             this.broadcastRun(run.id);
+            this.honourStop(run.id, session);
         } catch (error) {
             this.finish(run.id, 'failed', { error: describeError(error) });
             this.notify(`${run.automationId} could not continue`, describeError(error), run.id);
@@ -867,7 +1129,8 @@ export class AutomationService {
             this.finish(run.id, 'failed', { error: `Not run: ${problem}.` });
             throw new Error(`Not run: ${problem}.`);
         }
-        this.deps.store.update(run.id, { status: 'running', updatedAt: this.iso() });
+        const approvedAt = this.iso();
+        this.deps.store.update(run.id, { status: 'running', approvedAt, startedAt: approvedAt, updatedAt: approvedAt });
         return this.guarded(
             run.id,
             run.id,
@@ -918,12 +1181,16 @@ export class AutomationService {
         // A file that did not load cleanly may be hiding an entry behind a
         // typo: its workspace's lists are kept until the file says otherwise,
         // so fixing the typo catches up instead of starting from scratch.
+        // An agent's addition is kept the same way, so its mark survives too.
         const kept = new Set(resolved.filter((entry) => entry.automation.trigger.kind === 'event').map(automationKey));
+        const named = new Set(resolved.map(automationKey));
         for (const [workspaceId, factory] of this.factories) {
             if (factory.loaded.spec.issues.length === 0) continue;
             for (const key of this.deps.store.seenKeys()) if (key.startsWith(`${workspaceId} `)) kept.add(key);
+            for (const key of this.deps.store.addedKeys()) if (key.startsWith(`${workspaceId} `)) named.add(key);
         }
         this.deps.store.keepSeen(kept);
+        this.deps.store.keepAdded(named);
     }
 
     private allResolved(): Resolved[] {
@@ -990,6 +1257,8 @@ export class AutomationService {
             if (event && !action.appliesTo.includes(event.itemType)) {
                 return unable(`the ${run.name} action does not apply to ${event.itemType === 'pr' ? 'pull requests' : 'issues'}`);
             }
+            const refused = this.harnessProblem(workspaceId);
+            if (refused) return unable(refused);
             return {
                 workspaceId,
                 automation,
@@ -1013,6 +1282,8 @@ export class AutomationService {
                 return unable(`no scope named "${automation.scope}" in this workspace${names ? `; it has: ${names}` : ''}`);
             }
         }
+        const refused = this.harnessProblem(workspaceId);
+        if (refused) return unable(refused);
         return {
             workspaceId,
             automation,
@@ -1020,6 +1291,12 @@ export class AutomationService {
             event,
             agent: { body: run.prompt, ...(event ? { label: automation.name } : {}), ...(scope ? { scope } : {}), runs: 'Prompt' },
         };
+    }
+
+    /** Why the workspace's default harness cannot run an agent entry, as the entry's problem; null when it can. */
+    private harnessProblem(workspaceId: string): string | null {
+        const { name, problem } = this.deps.agentHarness(workspaceId);
+        return problem ? `${name} can’t run read-only automation sessions: ${problem.replace(/\.$/, '')}` : null;
     }
 
     /** An automation acts on its own workspace, as itself. */
@@ -1063,6 +1340,7 @@ export class AutomationService {
                 const toolName = entry.tool!.name;
                 const context = this.contextFor(entry);
                 if (mode === 'auto') {
+                    this.deps.store.update(run.id, { startedAt: this.iso() });
                     const result = await this.deps.registry.invoke(toolName, entry.args, context, 'run');
                     this.finish(run.id, 'completed', { result });
                     if ((result.actionable ?? 1) > 0) this.notify(automation.name, result.summary, run.id);
@@ -1249,8 +1527,11 @@ export class AutomationService {
         outcome: { result?: ToolResult; summary?: string; error?: string }
     ): void {
         const now = this.iso();
+        // A failed agent run's launch-time "Running in …" says nothing true any more.
+        const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(this.deps.store.get(runId)) : null;
         this.deps.store.update(runId, {
             status,
+            ...(stale !== null ? { summary: `Did not finish in “${stale}”.` } : {}),
             ...(outcome.result ? { summary: outcome.result.summary, result: compact(outcome.result.data) } : {}),
             ...(outcome.summary ? { summary: outcome.summary } : {}),
             ...(outcome.error ? { error: outcome.error } : {}),
@@ -1280,11 +1561,15 @@ export class AutomationService {
     }
 }
 
-/** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions". */
-function describeRun(automation: Automation): string {
-    const { run } = automation;
-    if (run.kind === 'tool') return `Tool: ${run.tool}`;
-    return run.kind === 'action' ? `${run.name} action` : 'Prompt';
+/** What an agent run says while its turn runs. */
+function runningIn(sessionName: string): string {
+    return `Running in “${sessionName}”.`;
+}
+
+/** The session an agent run's summary still says it is running in; null once it says anything else. */
+function sessionRunningIn(run: RunRecord | undefined): string | null {
+    if (!run || !isAgentRun(run)) return null;
+    return /^Running in “(.*)”\.$/.exec(run.summary ?? '')?.[1] ?? null;
 }
 
 /** A run that starts a session: its result is the preview of what it starts. */
@@ -1292,10 +1577,30 @@ function isAgentRun(run: RunRecord): boolean {
     return (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run';
 }
 
-/** An event trigger that did not resolve, said as written. */
-function describeTriggerAsWritten(automation: Automation): string {
-    const { trigger } = automation;
-    return trigger.kind === 'event' ? `${trigger.connection}: ${trigger.events.join(', ')}` : trigger.cron;
+/**
+ * A run as the activity list shows it: its kind, and its result only while
+ * it waits for a person or a slot. Everything else is `getRun`'s.
+ */
+function toListEntry(run: RunRecord): RunListEntry {
+    const { result, approval: _approval, ...rest } = run;
+    const kind = isAgentRequest(run) ? 'request' : isAgentRun(run) ? 'agent' : 'tool';
+    return { ...rest, kind, ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}) };
+}
+
+/** A problem with one entry, rather than with the file as a whole. */
+function isEntryIssue(issue: FactorySpecIssue): boolean {
+    return issue.path.startsWith('automations[');
+}
+
+/** An issue as a reason: where it is, then what is wrong. */
+function describeIssue(issue: FactorySpecIssue): string {
+    const where = issue.path || (issue.line ? `line ${issue.line}` : '');
+    return where ? `${where}: ${issue.message}` : issue.message;
+}
+
+/** A save refused, with every reason: what the agent reads and acts on. */
+function notSaved(reasons: string[]): Error {
+    return new Error(`Not saved: ${reasons.map((reason) => reason.trim().replace(/\.$/, '')).join('; ')}.`);
 }
 
 /** A run of this automation, in this workspace. */

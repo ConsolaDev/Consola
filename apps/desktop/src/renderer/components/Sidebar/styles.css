@@ -544,8 +544,9 @@
   background: var(--color-border);
 }
 
-/* Assistant row: pinned above the scope row, reads like a session row. */
-.assistant-nav-item {
+/* Assistant and Automations rows: pinned above the scope row, read like session rows. */
+.assistant-nav-item,
+.automations-nav-item {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -564,18 +565,37 @@
   user-select: none;
   transition: background var(--transition-fast);
 }
-.assistant-nav-item:hover { background: var(--color-bg-hover); }
-.assistant-nav-item.active { background: var(--color-bg-active); }
+.assistant-nav-item:hover,
+.automations-nav-item:hover { background: var(--color-bg-hover); }
+.assistant-nav-item.active,
+.automations-nav-item.active { background: var(--color-bg-active); }
 .assistant-nav-item[aria-disabled='true'] { opacity: 0.5; cursor: default; }
 .assistant-nav-item[aria-disabled='true']:hover { background: transparent; }
-.assistant-nav-item:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.assistant-nav-item:focus-visible,
+.automations-nav-item:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 /* A 14px slot like the search and scope icons, so the label lines up with
    theirs; flex centring lets the slightly wider glyph spill evenly. */
 .assistant-spark { display: inline-flex; flex-shrink: 0; justify-content: center; width: 14px; font-size: 16px; line-height: 1; color: var(--color-worktree); }
-.assistant-nav-label { flex: 1; font-weight: 500; }
+.assistant-nav-label,
+.automations-nav-label { flex: 1; font-weight: 500; }
 .assistant-nav-shortcut { font: 11px ui-monospace, Menlo, monospace; color: var(--color-text-tertiary); }
-.assistant-nav-word { font-size: var(--sidebar-font-size-small); color: var(--color-text-secondary); }
+.assistant-nav-word,
+.automations-nav-word { font-size: var(--sidebar-font-size-small); color: var(--color-text-secondary); }
 .assistant-nav-word--attention { color: var(--color-warning); }
+.automations-nav-icon { flex-shrink: 0; color: var(--color-text-secondary); }
+/* A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
+.automations-nav-pill {
+  flex-shrink: 0;
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: var(--sidebar-font-size-small);
+  font-weight: 500;
+  line-height: 17px;
+  font-variant-numeric: tabular-nums;
+}
+/* Amber is what needs the person; red is what went wrong. */
+.automations-nav-pill--waiting { background: color-mix(in srgb, var(--color-warning) 18%, transparent); color: var(--color-warning); }
+.automations-nav-pill--failed { background: color-mix(in srgb, var(--color-error) 16%, transparent); color: var(--color-error); }
 
 /* Session nav item */
 .session-nav-item {

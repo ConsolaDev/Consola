@@ -234,7 +234,7 @@ test('a workspace reopens on the session it was left on, not the blank composer'
 
   expect(back).toEqual({
     verdict: 'took',
-    view: { activeSessionId: sessionId, isInboxOpen: false },
+    view: { activeSessionId: sessionId, overlay: null },
   });
 });
 
@@ -258,7 +258,7 @@ test('a workspace remembers being left on the blank composer', async () => {
   // Not resurrected: choosing the composer is a state worth returning to.
   expect(back).toEqual({
     verdict: 'took',
-    view: { activeSessionId: null, isInboxOpen: false },
+    view: { activeSessionId: null, overlay: null },
   });
 });
 
@@ -281,7 +281,7 @@ test('a workspace whose remembered session was deleted falls back to the compose
   // Never a substitute session: mounting one would spawn a CLI nobody asked for.
   expect(result).toEqual({
     verdict: 'took',
-    view: { activeSessionId: null, isInboxOpen: false },
+    view: { activeSessionId: null, overlay: null },
   });
 });
 
@@ -304,7 +304,7 @@ test('the remembered session survives a relaunch', async () => {
   // was, and a force-quit is exactly when it has to have survived.
   expect(restored).toEqual({
     verdict: 'took',
-    view: { activeSessionId: sessionId, isInboxOpen: false },
+    view: { activeSessionId: sessionId, overlay: null },
   });
 });
 
@@ -318,13 +318,13 @@ test('a view reported against a workspace this window no longer holds is refused
     async ([held, other, strayFromOther]) => {
       // Establish something worth losing in the workspace being switched to.
       await window.windowAPI.activateWorkspace(held);
-      window.windowAPI.setView(held, { activeSessionId: null, isInboxOpen: false });
+      window.windowAPI.setView(held, { activeSessionId: null, overlay: null });
 
       // The shape of a click that raced a switch: composed against the old
       // workspace, arriving after the window has taken the new one.
       window.windowAPI.setView(other, {
         activeSessionId: strayFromOther,
-        isInboxOpen: false,
+        overlay: null,
       });
 
       await window.windowAPI.activateWorkspace(null);
@@ -337,6 +337,6 @@ test('a view reported against a workspace this window no longer holds is refused
   // would silently lose the view it legitimately had.
   expect(betaView).toEqual({
     verdict: 'took',
-    view: { activeSessionId: null, isInboxOpen: false },
+    view: { activeSessionId: null, overlay: null },
   });
 });

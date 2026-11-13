@@ -28,7 +28,7 @@ import {
     SessionFanOutResult,
     ScopeRepo,
     ConductorCreateRequest,
-    WorkspaceSettingsRequest,
+    AutomationsRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { AutomationsAPI } from '../shared/automations';
@@ -431,10 +431,18 @@ contextBridge.exposeInMainWorld('gitAPI', {
 function readWindowContext(): WindowContext {
     const prefix = '--consola-window=';
     const arg = process.argv.find((value) => value.startsWith(prefix));
-    const empty: WindowContext = { workspaceId: null, activeSessionId: null, isInboxOpen: false };
+    const empty: WindowContext = { workspaceId: null, activeSessionId: null, overlay: null };
     if (!arg) return empty;
     try {
-        return JSON.parse(arg.slice(prefix.length)) as WindowContext;
+        const context = JSON.parse(arg.slice(prefix.length)) as WindowContext;
+        // Main always sends a known overlay; anything else is read as none.
+        const overlay = context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
+        const { automationsRunId: runId, ...rest } = context;
+        return {
+            ...rest,
+            overlay,
+            ...(typeof runId === 'string' && runId.length > 0 ? { automationsRunId: runId } : {}),
+        };
     } catch {
         return empty;
     }
@@ -449,6 +457,13 @@ contextBridge.exposeInMainWorld('automationsAPI', {
     dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
     openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
     addAssignedReviews: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
+    getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
+    readConversation: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, runId),
+    stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
+    addTemplate: (workspaceId, templateId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),
+    startAuthoring: (request) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING, request),
+    acknowledge: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
+    getEntry: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, workspaceId, name),
     onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 
@@ -456,8 +471,8 @@ contextBridge.exposeInMainWorld('windowAPI', {
     onOpenSettings: (callback: (section?: 'updates') => void) =>
         subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
 
-    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) =>
-        subscribe<WorkspaceSettingsRequest>(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, callback),
+    onShowAutomations: (callback: (request: AutomationsRequest) => void) =>
+        subscribe<AutomationsRequest>(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, callback),
 
     context: readWindowContext(),
 

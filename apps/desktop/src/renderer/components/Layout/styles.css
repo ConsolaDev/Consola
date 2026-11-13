@@ -144,12 +144,14 @@
  */
 .workspace-view-header,
 .inbox-header,
+.automations-header,
 .content-drag-region {
   -webkit-app-region: drag;
 }
 
 .workspace-view-header :is(button, a, input, select, textarea, [role='button']),
-.inbox-header :is(button, a, input, select, textarea, [role='button']) {
+.inbox-header :is(button, a, input, select, textarea, [role='button']),
+.automations-header :is(button, a, input, select, textarea, [role='button']) {
   -webkit-app-region: no-drag;
 }
 

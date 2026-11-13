@@ -1,7 +1,8 @@
 import * as path from 'path';
 import { z } from 'zod/v3';
 import type { RunRecord } from '@consola/factory-spec';
-import type { AutomationView } from '../../shared/automations';
+import type { AutomationView, SavedAutomation } from '../../shared/automations';
+import type { AutomationCapabilities } from '../automations/capabilities';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
@@ -27,6 +28,14 @@ export interface AutomationControl {
     list(workspaceId: string): AutomationView[];
     /** Fire one of a workspace's automations now, in its own mode: a `confirm` one still waits for a person. */
     trigger(workspaceId: string, name: string, actor: { sessionId?: string }): Promise<RunRecord | null>;
+    /** What entries can say in a workspace: the grammar, what exists, what is missing. */
+    capabilities(workspaceId: string): AutomationCapabilities;
+    /** Add or replace one entry in the workspace's factory.yml; throws `Not saved: <reason>` when refused. */
+    saveEntry(
+        workspaceId: string,
+        entryYaml: string,
+        options: { replace: boolean; by?: { sessionId: string; sessionName: string } }
+    ): Promise<SavedAutomation>;
 }
 
 export interface ConsolaToolDeps {
@@ -290,6 +299,59 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
                 return {
                     summary: run.summary ?? `${args.name}: ${run.status}.`,
                     data: { runId: run.id, status: run.status },
+                };
+            },
+        }),
+
+        defineTool({
+            name: 'automation_capabilities',
+            description:
+                'Describe what an automation can be in your workspace: the entry grammar with an example per ' +
+                'kind, the triggers, modes and tools that exist, and which of this workspace’s connections, ' +
+                'actions and folders an entry may name. Call it before consola_save_automation.',
+            input: {},
+            mutating: false,
+            automatable: false,
+            fullToolsOnly: true,
+            async run(_args, context) {
+                const capabilities = deps.automations().capabilities(callerWorkspace(context));
+                return { summary: 'Automation capabilities.', data: capabilities };
+            },
+        }),
+
+        defineTool({
+            name: 'save_automation',
+            description:
+                'Add an automation to your workspace’s factory.yml, or replace one of the same name. Call ' +
+                'consola_automation_capabilities first, so the entry uses what exists here, and confirm ' +
+                'with the person what it should do and when before saving. Takes one entry as YAML (a ' +
+                '`- name: …` list item); the file is checked the way the runner checks it, and nothing is ' +
+                'written when it is refused, with the reason. The person sees it as new, added by you.',
+            input: {
+                entry: z.string().min(1).describe('One automation entry as YAML: a single `- name: …` list item.'),
+                replace: z
+                    .boolean()
+                    .default(false)
+                    .describe('Replace the existing entry of the same name. Without it, a taken name is refused.'),
+            },
+            mutating: true,
+            automatable: false,
+            fullToolsOnly: true,
+            async run(args, context) {
+                const { caller } = context;
+                if (caller.kind !== 'agent') throw new Error('Only a session’s agent can save an automation.');
+                const self = deps
+                    .getWorkspaces()
+                    .find((workspace) => workspace.id === caller.workspaceId)
+                    ?.sessions.find((session) => session.id === caller.sessionId);
+                if (!self) throw new Error('Calling session no longer exists.');
+                const saved = await deps.automations().saveEntry(caller.workspaceId, args.entry, {
+                    replace: args.replace,
+                    by: { sessionId: self.id, sessionName: self.name },
+                });
+                return {
+                    summary: `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in factory.yml.`,
+                    data: saved,
                 };
             },
         }),

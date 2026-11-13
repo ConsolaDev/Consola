@@ -1,6 +1,8 @@
 import type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
 
 export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
+import type { RunConversation } from './conversation';
+import type { Session } from './workspace';
 
 /** One automation from a workspace's factory.yml, as the app shows it. */
 export interface AutomationView {
@@ -32,7 +34,91 @@ export interface AutomationView {
      * action, scope or event, or arguments the tool rejects.
      */
     problem?: string;
+    /** The session whose agent wrote it into the file; new until a person opens its details. */
+    addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
 }
+
+/** A ready-made automation Consola ships, as the Templates tab shows it. */
+export interface TemplateView {
+    id: string;
+    title: string;
+    description: string;
+    /** What it is for, as the gallery groups it: "Code review", "Housekeeping". */
+    category: string;
+    /** What it works with, where it listens first. The agent CLI that runs a prompt is the workspace's, not the template's. */
+    services: TemplateService[];
+    /** What the workspace must have for it to run, each with whether it does. */
+    needs: TemplateNeed[];
+    /** What this workspace lacks for it, said as what to do: it is shown dimmed. */
+    missing?: string;
+    /** The entry in the file that already does this, by name. */
+    addedAs?: string;
+    /** The entry "Add" would write for this workspace, described as the Automations tab describes one. */
+    preview?: TemplatePreview;
+}
+
+/** A service a template works with. */
+export type TemplateService = 'github' | 'git' | 'consola';
+
+/** Where in Workspace settings a template's need is met. */
+export type TemplateNeedSection = 'provider' | 'actions' | 'scopes';
+
+export interface TemplateNeed {
+    /** What it is: "GitHub connection". */
+    label: string;
+    met: boolean;
+    /** What to do when it is not, and the Workspace settings section where it is done. */
+    fix: { label: string; section: TemplateNeedSection };
+}
+
+/** What adding a template would put in factory.yml, in the words an `AutomationView` uses. */
+export interface TemplatePreview {
+    trigger: string;
+    schedule?: string;
+    onEvent: boolean;
+    kind: 'tool' | 'agent';
+    runs: string;
+    target: string;
+    mode: AutomationMode;
+    /** Its first scheduled run if it were added now (ISO); null when not on a schedule. */
+    nextRunAt: string | null;
+    /** The entry exactly as "Add" writes it: one `- name: …` list item. */
+    entry: string;
+}
+
+/** What saving one entry into factory.yml wrote. */
+export interface SavedAutomation {
+    name: string;
+    /** It replaced an entry of that name rather than adding one. */
+    replaced: boolean;
+    /** The entry as written: one `- name: …` list item. */
+    entry: string;
+    /** 1-based line of the entry in factory.yml. */
+    line?: number;
+}
+
+/** What a new automation's session starts from: one of the file's entries, or a template. */
+export type AuthoringBasis = { automation: string } | { template: string };
+
+/** "New automation", "Change with agent" and "Customize…": a session that writes an entry with the person. */
+export interface AuthoringRequest {
+    workspaceId: string;
+    /** The person's own words: what it should do, and when. Empty only with a basis. */
+    description: string;
+    /** The scope the session starts in; the workspace's first when absent or unknown. */
+    scopeId?: string;
+    basis?: AuthoringBasis;
+}
+
+/** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */
+export type RunKind = 'agent' | 'tool' | 'request';
+
+/**
+ * A run as the activity list shows it: no approval, and its result only
+ * while it waits (the Waiting card's preview). The panel reads the rest
+ * with getRun.
+ */
+export type RunListEntry = Omit<RunRecord, 'result' | 'approval'> & { kind: RunKind; result?: unknown };
 
 /**
  * What an agent run will start, kept on its run as `result`: shown before a
@@ -69,6 +155,19 @@ export interface AutomationsAPI {
     openFile: (workspaceId: string) => Promise<void>;
     /** Add review-assigned-prs to the workspace's factory.yml, creating the file when it is missing. */
     addAssignedReviews: (workspaceId: string) => Promise<void>;
+    /** One run's full record; null once history has dropped it. */
+    getRun: (runId: string) => Promise<RunRecord | null>;
+    /** A run's part of its conversation, read from the transcript; never starts or resumes anything. */
+    readConversation: (runId: string) => Promise<RunConversation>;
+    stop: (runId: string) => Promise<void>;
+    /** Add a ready-made automation to the workspace's factory.yml. */
+    addTemplate: (workspaceId: string, templateId: string) => Promise<void>;
+    /** Start the session that drafts an entry with the person. */
+    startAuthoring: (request: AuthoringRequest) => Promise<Session>;
+    /** The person has seen an automation an agent added. */
+    acknowledge: (workspaceId: string, name: string) => Promise<void>;
+    /** One entry exactly as factory.yml has it (`- name: …`); null when there is no such entry or no file. */
+    getEntry: (workspaceId: string, name: string) => Promise<string | null>;
     onChanged: (callback: (change: AutomationsChange) => void) => () => void;
 }
 
@@ -86,7 +185,7 @@ export interface AutomationsSnapshot {
     /** Problems with the file itself or with individual entries. */
     issues: FactorySpecIssue[];
     /** This workspace's runs, newest first, capped. Includes runs waiting for approval or a slot. */
-    runs: RunRecord[];
+    runs: RunListEntry[];
     /** Each queued run's place in the one line every workspace shares, 1 first. */
     queue: Record<string, number>;
     /**
@@ -95,6 +194,8 @@ export interface AutomationsSnapshot {
      * them, its file does not load, or the file already has them.
      */
     suggestAssignedReviews: { action: string } | null;
+    /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
+    templates: TemplateView[];
 }
 
 /** Whether the workspace's Assistant asked for this run: its own request, or an automation it fired. */

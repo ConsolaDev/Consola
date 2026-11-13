@@ -379,7 +379,6 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'Scopes',
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
-      'Automations',
       'Assistant',
       'Groups',
       'Danger zone',

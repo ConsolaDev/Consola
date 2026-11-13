@@ -122,10 +122,10 @@ export function installMock() {
   storage.setItem('consola-settings', JSON.stringify({ state: { theme: 'dark', terminalFontSize: 12 }, version: 0 }));
 
   window.windowAPI = {
-    context: { workspaceId: 'acme', activeSessionId: 'onboarding', isInboxOpen: false },
-    activateWorkspace: async id => ({ verdict: 'took', view: views.get(id || '') || { activeSessionId: workspaces.find(w => w.id === id)?.sessions[0]?.id || null, isInboxOpen: true } }),
+    context: { workspaceId: 'acme', activeSessionId: 'onboarding', overlay: null },
+    activateWorkspace: async id => ({ verdict: 'took', view: views.get(id || '') || { activeSessionId: workspaces.find(w => w.id === id)?.sessions[0]?.id || null, overlay: 'inbox' } }),
     setView: (id, view) => { if (id) views.set(id, view); },
-    onWorkspaceChanged: workspaceChanged.subscribe, onActivateSession: noSubscription, onOpenSettings: noSubscription, onOpenWorkspaceSettings: noSubscription,
+    onWorkspaceChanged: workspaceChanged.subscribe, onActivateSession: noSubscription, onOpenSettings: noSubscription, onShowAutomations: noSubscription,
     openWindow: async id => { if (id) workspaceChanged.emit(id); else notify('The desktop app can open additional windows. This demo stays in one browser frame.'); },
   };
   window.workspaceAPI = {
@@ -240,6 +240,37 @@ export function installMock() {
     open: async workspaceId => structuredClone(workspace(workspaceId).sessions.find(s => s.kind === 'assistant') ?? createSession(workspaceId, { name: 'Assistant', nameIsUserSet: true, kind: 'assistant' })),
     startFresh: async workspaceId => { notify('Fresh conversations run in the desktop app.'); return window.assistantAPI.open(workspaceId); },
     getActivity: async () => ({ touchedSessionIds: [], unseenFinished: 0 }), markSeen: async () => {}, onActivityChanged: noSubscription,
+  };
+  const automationsUnavailable = async (): Promise<never> => { throw new Error('Automations run in the desktop app.'); };
+  window.automationsAPI = {
+    getSnapshot: async () => ({
+      filePath: '', fileExists: false, automations: [], issues: [], runs: [], queue: {}, suggestAssignedReviews: null,
+      templates: [
+        {
+          id: 'review-assigned-prs', title: 'Review PRs assigned to me', description: 'Reviews each pull request that asks for your review.',
+          category: 'Code review', services: ['github', 'git'],
+          needs: [{ label: 'GitHub connection', met: true, fix: { label: 'Connect a GitHub account', section: 'provider' } }],
+          preview: {
+            trigger: 'When a pull request asks for your review', onEvent: true, kind: 'agent', runs: 'Review action', target: 'Review',
+            mode: 'auto', nextRunAt: null, entry: '- name: review-assigned-prs\n  on: { github: pull_request.review_requested }\n  run: { action: Review }\n  mode: auto',
+          },
+        },
+        {
+          id: 'morning-inbox-digest', title: 'Morning inbox digest', description: 'Summarises what needs you each weekday morning.',
+          category: 'Briefing', services: ['github'],
+          needs: [{ label: 'A scope to run in', met: true, fix: { label: 'Add a scope', section: 'scopes' } }],
+          preview: {
+            trigger: 'Weekdays at 8:30', schedule: '30 8 * * 1-5', onEvent: false, kind: 'agent', runs: 'Prompt', target: 'prompt',
+            mode: 'auto', nextRunAt: null, entry: '- name: morning-inbox-digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: Write a short digest of my Inbox. }\n  mode: auto',
+          },
+        },
+      ],
+    }),
+    runNow: automationsUnavailable, approve: automationsUnavailable, dismiss: automationsUnavailable, openFile: automationsUnavailable,
+    addAssignedReviews: automationsUnavailable, getRun: async () => null, readConversation: async () => ({ readable: false }),
+    stop: async () => {}, addTemplate: automationsUnavailable, startAuthoring: automationsUnavailable, acknowledge: async () => {},
+    getEntry: async () => null,
+    onChanged: () => () => {},
   };
   // Sample repository links are illustrative; do not take visitors to invented PRs.
   document.addEventListener('click', event => {

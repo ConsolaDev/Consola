@@ -1,5 +1,6 @@
 import * as os from 'os';
 import * as path from 'path';
+import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type {
     HarnessCapabilities,
     HarnessDriverId,
@@ -95,6 +96,21 @@ export interface HarnessDriver {
      * CLI's own transcript. `null` when there is no transcript.
      */
     getRecentReplies?(config: HarnessConfig, sessionId: string, count: number): Promise<string[] | null>;
+
+    /**
+     * A conversation's prompts, tool calls and replies, read from the CLI's
+     * own transcript — never by resuming it. Serves the Automations side
+     * panel and any future "read a session" tool alike. `window` keeps only
+     * the records inside it. `null` when there is no transcript.
+     *
+     * Optional: a CLI whose transcripts Consola cannot read omits it, and the
+     * UI offers "Open session" alone.
+     */
+    readConversation?(
+        config: HarnessConfig,
+        conversationId: string,
+        window?: ConversationWindow
+    ): Promise<ConversationRecord | null>;
 
     /**
      * The commands, agents and models this CLI offers, asked of the CLI itself.

@@ -113,11 +113,11 @@ above the prompt.
 ### Each Workspace Remembers Where It Was Left
 
 Switching workspaces returns to the view that workspace was last on, rather
-than the blank composer. A "view" is the pair `(activeSessionId, isInboxOpen)`
+than the blank composer. A "view" is the pair `(activeSessionId, overlay)`
 — exactly what `MainContent` routes on. Both travel together because opening
-the Inbox does not clear the session: it overlays the pane while the session
-keeps running behind it, so remembering one without the other loses half the
-answer.
+the Inbox or Automations does not clear the session: either overlays the pane
+while the session keeps running behind it, so remembering one without the
+other loses half the answer.
 
 `ViewMemoryService` (`state/ViewMemoryService.ts`) owns this, keyed by
 workspace and persisted to `view-memory.json`. Keyed by workspace rather than
@@ -202,6 +202,11 @@ afterwards is an ordinary interactive resume, still read-only, where the
 trust prompt is the person's to answer. Lifting the restriction means a
 fork the person starts (`SessionLauncher.forkWithFullTools`), never an edit
 of the session's `toolPolicy`.
+
+A Consola tool marked `fullToolsOnly` is never offered to a read-only
+session. And whatever `save_automation` writes or replaces gives up the
+entry's acceptance, so it asks once before its next unattended run — even
+when only its schedule changed, which a hand edit would not ask about.
 
 ### The Assistant
 

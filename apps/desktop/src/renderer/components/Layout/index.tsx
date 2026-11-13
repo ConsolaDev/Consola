@@ -17,12 +17,13 @@ import {
   useNavigationStore,
   subscribeToWindowWorkspace,
   subscribeToActivateSession,
+  subscribeToShowAutomations,
 } from '../../stores/navigationStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useAssistantStore } from '../../stores/assistantStore';
-import { useAutomationsStore } from '../../stores/automationsStore';
 import './styles.css';
 
 export function Layout() {
@@ -71,11 +72,12 @@ export function Layout() {
   // workspace, including ones whose pane is not mounted.
   useEffect(() => useInboxStore.getState().subscribeToEvents(), []);
 
+  // Automation snapshots likewise: the sidebar row reads them while the
+  // dashboard is closed, and the Assistant's tray holds the ones it asked for.
+  useEffect(() => useAutomationsStore.getState().subscribe(), []);
+
   // The Assistant's row shows what finished while its pane is closed.
   useEffect(() => useAssistantStore.getState().subscribe(), []);
-
-  // ...and what it asked for that waits for the person, which its tray holds.
-  useEffect(() => useAutomationsStore.getState().subscribe(), []);
 
   // Main can drop this window's workspace out from under it, e.g. when it was
   // deleted from another window.
@@ -83,6 +85,9 @@ export function Layout() {
 
   // A notification click can land on a window that is already open.
   useEffect(() => subscribeToActivateSession(), []);
+
+  // So can one about an automation's run: it lands on the dashboard.
+  useEffect(() => subscribeToShowAutomations(), []);
 
   // The sidebar and the header strip above it both read this variable, so
   // the two cannot drift apart. It goes on the root as a style prop rather

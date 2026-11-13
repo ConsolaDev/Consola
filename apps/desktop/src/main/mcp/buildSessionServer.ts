@@ -51,7 +51,7 @@ function describeFor(tool: { name: string; description: string; destructive?: bo
  *
  * An agent never runs a destructive tool itself, whatever its CLI's
  * permission settings: the call becomes a plan waiting for the person in
- * Settings › Automations — and, for the Assistant, in the tray beside it —
+ * the Automations dashboard — and, for the Assistant, in the tray beside it —
  * and runs only when they approve it there.
  */
 export function buildSessionServer(sessionId: string, deps: SessionServerDeps): McpServer {
@@ -71,7 +71,7 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
     const assistant = caller?.kind === 'assistant';
 
     for (const tool of deps.registry.list()) {
-        if (readOnly && tool.mutating) continue;
+        if (readOnly && (tool.mutating || tool.fullToolsOnly)) continue;
         // The Assistant's own start_session, added below, takes its place:
         // the workspace's harness and work items rather than the caller's own.
         if (assistant && tool.name === 'start_session') continue;

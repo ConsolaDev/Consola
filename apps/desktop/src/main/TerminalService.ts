@@ -188,6 +188,8 @@ export class TerminalService extends EventEmitter {
     private unattendedKill: NodeJS.Timeout | null = null;
     /** Why Consola stopped the unattended turn, when it did. */
     private unattendedStopReason: string | null = null;
+    /** A stop asked for while the unattended launch was still being prepared. */
+    private unattendedPendingStop: string | null = null;
     /** An exit waiting for the screen to catch up, run early if the screen goes first. */
     private screenSettling: (() => void) | null = null;
     private workingDirectoryPoll: NodeJS.Timeout | null = null;
@@ -442,6 +444,16 @@ export class TerminalService extends EventEmitter {
             const args = Array.isArray(launchArgs) ? launchArgs : await launchArgs;
             if (this.isDestroyed || this.claudePty) return;
 
+            // Stopped before it spawned: the turn never starts, and its run hears why.
+            const stopBeforeSpawn = unattended ? this.unattendedPendingStop : null;
+            if (stopBeforeSpawn) {
+                this.claudeExited = true;
+                this.emitStatus();
+                this.writeNotice(`Stopped: ${stopBeforeSpawn}.`);
+                this.emit('exit', { exitCode: 1, ...this.unattendedNeverStarted(stopBeforeSpawn) } as TerminalExitInfo);
+                return;
+            }
+
             // Written before the spawn so it sits above whatever the turn prints.
             if (unattended) this.writeNotice(UNATTENDED_NOTICE, formatInfo);
             this.claudeProducedOutput = false;
@@ -653,15 +665,31 @@ export class TerminalService extends EventEmitter {
         this.clearUnattendedLimit();
         this.unattendedLimit = setTimeout(() => {
             this.unattendedLimit = null;
-            this.unattendedStopReason = UNATTENDED_LIMIT_REASON;
-            this.writeNotice(UNATTENDED_LIMIT_NOTICE);
-            this.claudePty?.kill();
-            // A process that ignores the hangup would hold its slot forever.
-            this.unattendedKill = setTimeout(() => {
-                this.unattendedKill = null;
-                this.claudePty?.kill('SIGKILL');
-            }, UNATTENDED_KILL_GRACE_MS);
+            this.stopUnattendedTurn(UNATTENDED_LIMIT_REASON, UNATTENDED_LIMIT_NOTICE);
         }, UNATTENDED_TURN_LIMIT_MS);
+    }
+
+    /**
+     * Ends the running unattended turn the way Ctrl+C does. False when none is
+     * running. The first reason wins, as with Ctrl+C.
+     */
+    public stopUnattendedTurn(reason: string, notice = `Stopped: ${reason}.`): boolean {
+        // Launched but not yet spawned: the spawn is skipped and the exit says why.
+        if (!this.unattendedTurn && this.unattendedPending && !this.isDestroyed) {
+            this.unattendedPendingStop ??= reason;
+            return true;
+        }
+        if (!this.unattendedTurn) return false;
+        this.unattendedStopReason ??= reason;
+        this.writeNotice(notice);
+        this.claudePty?.kill();
+        // A process that ignores the hangup would hold its slot forever.
+        if (this.unattendedKill) clearTimeout(this.unattendedKill);
+        this.unattendedKill = setTimeout(() => {
+            this.unattendedKill = null;
+            this.claudePty?.kill('SIGKILL');
+        }, UNATTENDED_KILL_GRACE_MS);
+        return true;
     }
 
     /**
@@ -672,6 +700,7 @@ export class TerminalService extends EventEmitter {
     private unattendedNeverStarted(reason: string): Pick<TerminalExitInfo, 'unattended' | 'stopped'> {
         if (!this.unattendedPending) return {};
         this.unattendedPending = false;
+        this.unattendedPendingStop = null;
         this.initialPromptArgument = undefined;
         return { unattended: true, stopped: reason };
     }

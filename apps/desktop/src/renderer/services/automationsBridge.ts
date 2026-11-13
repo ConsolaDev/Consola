@@ -1,4 +1,6 @@
-import type { AutomationsChange, AutomationsSnapshot, RunRecord } from '../../shared/automations';
+import type { AuthoringRequest, AutomationsChange, AutomationsSnapshot, RunRecord } from '../../shared/automations';
+import type { RunConversation } from '../../shared/conversation';
+import type { Session } from '../../shared/workspace';
 
 function getAPI() {
     if (typeof window !== 'undefined' && window.automationsAPI) {
@@ -36,6 +38,29 @@ export const automationsBridge = {
     /** Add review-assigned-prs to the workspace's factory.yml — the one edit Consola makes to it, on request. */
     addAssignedReviews: async (workspaceId: string): Promise<void> =>
         (getAPI() ?? unavailable()).addAssignedReviews(workspaceId),
+
+    /** One run's full record; null once history has dropped it. */
+    getRun: async (runId: string): Promise<RunRecord | null> => (getAPI() ?? unavailable()).getRun(runId),
+
+    /** A run's conversation from its transcript on disk: never starts or resumes a session. */
+    readConversation: async (runId: string): Promise<RunConversation> =>
+        (getAPI() ?? unavailable()).readConversation(runId),
+
+    stop: async (runId: string): Promise<void> => (getAPI() ?? unavailable()).stop(runId),
+
+    addTemplate: async (workspaceId: string, templateId: string): Promise<void> =>
+        (getAPI() ?? unavailable()).addTemplate(workspaceId, templateId),
+
+    /** Start the full-tools session that drafts an automation with the person. */
+    startAuthoring: async (request: AuthoringRequest): Promise<Session> =>
+        (getAPI() ?? unavailable()).startAuthoring(request),
+
+    acknowledge: async (workspaceId: string, name: string): Promise<void> =>
+        (getAPI() ?? unavailable()).acknowledge(workspaceId, name),
+
+    /** One entry exactly as factory.yml has it; null when the file or the entry is gone. */
+    getEntry: async (workspaceId: string, name: string): Promise<string | null> =>
+        (getAPI() ?? unavailable()).getEntry(workspaceId, name),
 
     onChanged: (callback: (change: AutomationsChange) => void): (() => void) =>
         getAPI()?.onChanged(callback) ?? (() => {}),

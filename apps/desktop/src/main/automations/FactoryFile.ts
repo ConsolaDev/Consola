@@ -1,7 +1,12 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { appendAutomationEntry, parseFactorySpec, type FactorySpecParseResult } from '@consola/factory-spec';
+import {
+    appendAutomationEntry,
+    parseFactorySpec,
+    replaceAutomationEntry,
+    type FactorySpecParseResult,
+} from '@consola/factory-spec';
 
 /** Workspace ids are generated tokens; anything else never reaches the filesystem as a path. */
 const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
@@ -32,9 +37,14 @@ export interface LoadedFactoryFile {
 /** The automation that reviews pull requests asking for the person's review or assigned to them. */
 export const ASSIGNED_REVIEWS_NAME = 'review-assigned-prs';
 
-/** An action name as YAML: bare when it reads the same bare, quoted otherwise. */
-function yamlName(action: string): string {
-    return /^[A-Za-z][A-Za-z0-9 _-]*$/.test(action) ? action : JSON.stringify(action);
+/**
+ * A name — an action's, a scope's — as a YAML string: bare when it reads the
+ * same bare, quoted otherwise. `true`, `null` and their kin are words YAML
+ * reads as something else, so they are quoted too.
+ */
+export function yamlName(name: string): string {
+    const plain = /^[A-Za-z][A-Za-z0-9 _-]*$/.test(name) && !/^(true|false|null)$/i.test(name) && name === name.trim();
+    return plain ? name : JSON.stringify(name);
 }
 
 /** `review-assigned-prs` running `action`, as one list item: the entry "Add" appends. */
@@ -54,7 +64,11 @@ const indent = (text: string, prefix: string) =>
         .map((line) => `${prefix}${line}`)
         .join('\n');
 
-const HEADER = `# This workspace's automations, run by Consola while it is open.
+/**
+ * A file with no automations yet: what saving an entry starts from when there
+ * is none, so nothing the person did not ask for is added beside it.
+ */
+export const EMPTY_FACTORY_FILE = `# This workspace's automations, run by Consola while it is open.
 # Each one acts only on this workspace.
 # Modes: auto | confirm (the default: you approve each run) | notify (report only).
 # Sessions an automation starts are read-only: they read and report, and never
@@ -107,7 +121,7 @@ export function factoryTemplate(prAction: string | null): string {
               ].join('\n'),
               '  # '
           )}\n`;
-    return `${HEADER}${review}${CLEANUP_EXAMPLE}`;
+    return `${EMPTY_FACTORY_FILE}${review}${CLEANUP_EXAMPLE}`;
 }
 
 /**
@@ -172,16 +186,37 @@ export class FactoryFile {
         return this.filePath;
     }
 
+    /** The file as written, or null when there is none yet. */
+    public async readText(): Promise<string | null> {
+        try {
+            return await fs.promises.readFile(this.filePath, 'utf8');
+        } catch (error) {
+            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+            throw error;
+        }
+    }
+
     /**
      * Add one automation at the end of the file's list, leaving every other
-     * entry and comment as the person wrote it. Written whole, through a
-     * temporary file, so the watcher never reads half of it.
+     * entry and comment as the person wrote it.
      */
     public async appendAutomation(entryYaml: string): Promise<void> {
+        await this.rewrite((text) => appendAutomationEntry(text, entryYaml));
+    }
+
+    /** Swap the automation called `name` for `entryYaml` in place, every byte outside it kept. */
+    public async replaceAutomation(name: string, entryYaml: string): Promise<void> {
+        await this.rewrite((text) => replaceAutomationEntry(text, name, entryYaml));
+    }
+
+    /**
+     * Written whole, through a temporary file, so the watcher never reads
+     * half of it. An edit that throws leaves the file as it was.
+     */
+    private async rewrite(edit: (text: string) => string): Promise<void> {
         // Through any symlink to the file itself — one kept with dotfiles stays a link.
         const target = await fs.promises.realpath(this.filePath);
-        const text = await fs.promises.readFile(target, 'utf8');
-        const next = appendAutomationEntry(text, entryYaml);
+        const next = edit(await fs.promises.readFile(target, 'utf8'));
         const temporary = `${target}.${process.pid}.tmp`;
         await fs.promises.writeFile(temporary, next);
         await fs.promises.rename(temporary, target);

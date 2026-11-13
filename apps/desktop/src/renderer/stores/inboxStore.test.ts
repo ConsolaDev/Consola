@@ -25,7 +25,7 @@ vi.mock('../services/providerBridge', () => ({
 // (hoisted above the import below) so the real stores load without a DOM.
 vi.mock('../services/windowBridge', () => ({
   windowBridge: {
-    context: { workspaceId: null, activeSessionId: null, isInboxOpen: false },
+    context: { workspaceId: null, activeSessionId: null, overlay: null },
     activateWorkspace: vi.fn(),
     openWindow: vi.fn(),
     setView: vi.fn(),

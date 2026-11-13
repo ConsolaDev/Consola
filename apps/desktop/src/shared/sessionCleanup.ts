@@ -1,6 +1,6 @@
 /**
  * What stale-session cleanup reports: to agents (MCP tool results), to run
- * history, and to Settings › Automations, which renders previews and results
+ * history, and to the Automations dashboard, which renders previews and results
  * from these shapes.
  */
 

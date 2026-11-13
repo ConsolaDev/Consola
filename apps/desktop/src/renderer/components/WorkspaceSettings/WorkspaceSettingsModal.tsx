@@ -1,7 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, CalendarClock, Folder, Info, Plug, Sparkle, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
-import { useNavigationStore } from '../../stores/navigationStore';
+import { Boxes, Folder, Info, Plug, Sparkle, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
@@ -11,7 +10,6 @@ import { GroupsPanel } from './GroupsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
 import { ActionsPanel } from './ActionsPanel';
 import { AssistantPanel } from './AssistantPanel';
-import { AutomationsPanel } from '../Automations';
 import { providerNavLabel } from './navLabels';
 import '../Dialogs/styles.css';
 import './styles.css';
@@ -21,7 +19,6 @@ export type WorkspaceSettingsSectionId =
   | 'scopes'
   | 'provider'
   | 'actions'
-  | 'automations'
   | 'assistant'
   | 'groups'
   | 'danger';
@@ -38,7 +35,6 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'scopes',
   'provider',
   'actions',
-  'automations',
   'assistant',
   'groups',
   'danger',
@@ -52,7 +48,6 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   scopes: { label: () => 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
-  automations: { label: () => 'Automations', icon: CalendarClock },
   assistant: { label: () => 'Assistant', icon: Sparkle },
   groups: { label: () => 'Groups', icon: Boxes },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
@@ -68,8 +63,7 @@ interface WorkspaceSettingsModalProps {
 /**
  * One workspace's settings as a dialog of its own, titled by the workspace
  * so it is visibly not the global Settings modal. A left nav shows one panel
- * at a time: the six the old Workspace tab stacked, and the workspace's
- * automations.
+ * at a time: the six the old Workspace tab stacked.
  */
 export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSection = 'general' }: WorkspaceSettingsModalProps) {
   const workspace = useWorkspaceStore((state) =>
@@ -77,11 +71,6 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSecti
       ? (state.workspaces.find((candidate) => candidate.id === workspaceId) ?? null)
       : null
   );
-  // A session an automation started opens from its run, in this window —
-  // only when this window holds the workspace it belongs to.
-  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
-  const setActiveSession = useNavigationStore((state) => state.setActiveSession);
-
   // The workspace can vanish out from under an open dialog — deleted from its
   // own danger zone, or from another window entirely. `open` follows the
   // record rather than the id, so the dialog is gone the same render; this
@@ -106,14 +95,6 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSecti
               key={`${workspace.id}:${initialSection}`}
               workspace={workspace}
               initialSection={initialSection}
-              onOpenSession={
-                activeWorkspaceId === workspace.id
-                  ? (sessionId) => {
-                      setActiveSession(sessionId);
-                      onOpenChange(false);
-                    }
-                  : undefined
-              }
             />
           )}
           <Dialog.Close asChild>
@@ -130,12 +111,9 @@ export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSecti
 function WorkspaceSettingsBody({
   workspace,
   initialSection,
-  onOpenSession,
 }: {
   workspace: Workspace;
   initialSection: WorkspaceSettingsSectionId;
-  /** Open a session in this window: only when it holds this workspace. */
-  onOpenSession?: (sessionId: string) => void;
 }) {
   const [activeSection, setActiveSection] = useState<WorkspaceSettingsSectionId>(initialSection);
 
@@ -187,7 +165,6 @@ function WorkspaceSettingsBody({
             </section>
           )}
           {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
-          {activeSection === 'automations' && <AutomationsPanel workspace={workspace} onOpenSession={onOpenSession} />}
           {activeSection === 'assistant' && <AssistantPanel workspace={workspace} />}
           {activeSection === 'groups' && <GroupsPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}

@@ -1,6 +1,6 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
 import * as path from 'path';
-import type { WindowContext, WorkspaceSettingsRequest, WorkspaceView } from '../shared/types';
+import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
@@ -23,7 +23,7 @@ const contexts = new Map<number, { workspaceId: string | null }>();
 const EMPTY_CONTEXT: WindowContext = {
     workspaceId: null,
     activeSessionId: null,
-    isInboxOpen: false,
+    overlay: null,
 };
 
 /**
@@ -176,7 +176,7 @@ export function focusOrCreate(
 ): BrowserWindow {
     let view = viewMemory.get(workspaceId);
     if (forcedSessionId) {
-        view = { activeSessionId: forcedSessionId, isInboxOpen: false };
+        view = { activeSessionId: forcedSessionId, overlay: null };
         viewMemory.set(workspaceId, view);
     }
 
@@ -202,17 +202,33 @@ export function getAnyWindow(): BrowserWindow | null {
 
 /**
  * Bring forward the window holding a workspace — opening one if none does —
- * with that workspace's settings open at a section. How a notification about
- * an automation lands on the approvals it is about.
+ * with the Automations dashboard open over its session. How a notification
+ * about an automation lands on the run it is about.
+ *
+ * The overlay is written to view memory first, so a window created here opens
+ * on it and a later switch back to the workspace returns to it. A window
+ * created here carries the run in its context: its renderer subscribes only
+ * once it has mounted, well after `did-finish-load`, so a push would be lost.
+ * A window already open hears it as a push.
  */
-export function showWorkspaceSettings(
+export function showAutomations(
     workspaceId: string,
-    section: WorkspaceSettingsRequest['section'],
+    runId: string | undefined,
     viewMemory: ViewMemoryAccess
 ): void {
+    viewMemory.set(workspaceId, { ...viewMemory.get(workspaceId), overlay: 'automations' });
+    if (!findWindowForWorkspace(workspaceId)) {
+        const created = createWindow({
+            workspaceId,
+            ...viewMemory.get(workspaceId),
+            ...(runId ? { automationsRunId: runId } : {}),
+        });
+        if (!isBackgroundTest) created.show();
+        return;
+    }
     const target = focusOrCreate(workspaceId, viewMemory);
-    const request: WorkspaceSettingsRequest = { workspaceId, section };
-    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_OPEN_WORKSPACE_SETTINGS, request);
+    const request: AutomationsRequest = { workspaceId, runId };
+    const open = () => target.webContents.send(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, request);
     if (target.webContents.isLoadingMainFrame()) target.webContents.once('did-finish-load', open);
     else open();
     if (!isBackgroundTest) target.show();
@@ -305,9 +321,9 @@ export function viewsFromStoredLayout(): Record<string, WorkspaceView> {
         if (typeof entry !== 'object' || entry === null) continue;
         const { workspaceId, activeSessionId } = entry as Record<string, unknown>;
         if (typeof workspaceId !== 'string' || typeof activeSessionId !== 'string') continue;
-        // The Inbox was never recorded per window, so it starts closed —
+        // An overlay was never recorded per window, so it starts closed —
         // the one detail an upgrade cannot carry over.
-        views[workspaceId] = { activeSessionId, isInboxOpen: false };
+        views[workspaceId] = { activeSessionId, overlay: null };
     }
     return views;
 }

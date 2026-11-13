@@ -18,7 +18,7 @@ const DISABLED_TITLE = 'Add a scope to use the Assistant.';
  */
 export function AssistantNavItem({ workspace }: { workspace: Workspace }) {
   const assistant = assistantSession(workspace);
-  const isActive = useNavigationStore(state => !state.isInboxOpen && !!assistant && state.activeSessionId === assistant.id);
+  const isActive = useNavigationStore(state => state.overlay === null && !!assistant && state.activeSessionId === assistant.id);
   const status = useTerminalStore(state => assistant ? sessionStatusFor(state.terminals[assistant.instanceId]) : undefined);
   const unseenFinished = useAssistantStore(state => state.activity[workspace.id]?.unseenFinished ?? 0);
   const waitingApprovals = useAssistantRequests(workspace).length;

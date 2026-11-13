@@ -161,3 +161,57 @@ automations:
         expect(fs.readFileSync(file.filePath, 'utf8')).toBe(broken);
     });
 });
+
+describe('FactoryFile.replaceAutomation', () => {
+    let dir: string;
+    beforeEach(() => {
+        dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-factory-'));
+    });
+    afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+    const ORIGINAL = `# Kept with my dotfiles.
+version: 1
+automations:
+  # Every weekday.
+  - name: tidy
+    on: { cron: "0 9 * * *" }
+    run: { tool: consola#cleanup_stale_sessions }
+  # - name: someday
+`;
+
+    it('replaceAutomation keeps a symlinked file a link', async () => {
+        const target = path.join(dir, 'dotfiles-factory.yml');
+        fs.writeFileSync(target, ORIGINAL);
+        const link = path.join(dir, 'factory.yml');
+        fs.symlinkSync(target, link);
+        const file = new FactoryFile(link);
+        expect(await file.readText()).toBe(ORIGINAL);
+
+        await file.replaceAutomation(
+            'tidy',
+            '- name: tidy\n  on: { cron: "0 7 * * 1-5" }\n  run: { tool: consola#cleanup_stale_sessions }\n  mode: confirm'
+        );
+        expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
+        // Every byte outside the entry as it was: the comments around it too.
+        expect(fs.readFileSync(target, 'utf8')).toBe(
+            ORIGINAL.replace(
+                '    on: { cron: "0 9 * * *" }\n    run: { tool: consola#cleanup_stale_sessions }\n',
+                '    on: { cron: "0 7 * * 1-5" }\n    run: { tool: consola#cleanup_stale_sessions }\n    mode: confirm\n'
+            )
+        );
+        expect(fs.readdirSync(dir).sort()).toEqual(['dotfiles-factory.yml', 'factory.yml']);
+    });
+
+    it('refuses a name that is not in the file, leaving it as it was', async () => {
+        const filePath = path.join(dir, 'factory.yml');
+        fs.writeFileSync(filePath, ORIGINAL);
+        await expect(
+            new FactoryFile(filePath).replaceAutomation('gone', '- name: gone\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#x }')
+        ).rejects.toThrow(/no automation named "gone"/);
+        expect(fs.readFileSync(filePath, 'utf8')).toBe(ORIGINAL);
+    });
+
+    it('readText is null when there is no file yet', async () => {
+        expect(await new FactoryFile(path.join(dir, 'factory.yml')).readText()).toBeNull();
+    });
+});

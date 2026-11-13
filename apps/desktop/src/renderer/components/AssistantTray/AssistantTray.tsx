@@ -2,13 +2,16 @@ import { useState } from 'react';
 import { isAgentRunPreview, runTitle, type RunRecord } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { AgentRunDetails, CleanupDetails, formatTime } from '../Automations/RunDetails';
+import { AgentRunDetails, CleanupDetails } from '../Automations/parts';
+import { formatTime } from '../Automations/presentation';
+// The approval details are the Automations section's own, styles included.
+import '../Automations/styles.css';
 import './styles.css';
 
 /**
  * What the Assistant asked for that waits for the person, beside its
  * conversation: the same details and the same approve and dismiss as
- * Settings › Automations, which keeps listing them too. Main tells the
+ * the Automations dashboard, which keeps listing them too. Main tells the
  * Assistant what was decided, wherever it was.
  */
 export function AssistantTray({ requests, onHide }: { requests: RunRecord[]; onHide: () => void }) {

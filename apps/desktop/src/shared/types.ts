@@ -494,16 +494,22 @@ declare global {
 }
 
 /**
+ * What covers the session pane, if anything. One field rather than a flag per
+ * overlay, so the Inbox and Automations cannot both be open.
+ */
+export type WorkspaceOverlay = 'inbox' | 'automations' | null;
+
+/**
  * What a workspace is showing.
  *
  * Exactly the pair MainContent routes on. The two travel together because
- * opening the Inbox does not clear the session — it overlays the pane while
+ * opening an overlay does not clear the session — it covers the pane while
  * the session keeps running behind it — so remembering one without the other
  * would silently drop half the answer to "where was I?".
  */
 export interface WorkspaceView {
     activeSessionId: string | null;
-    isInboxOpen: boolean;
+    overlay: WorkspaceOverlay;
 }
 
 /**
@@ -516,6 +522,12 @@ export interface WorkspaceView {
  */
 export interface WindowContext extends WorkspaceView {
     workspaceId: string | null;
+    /**
+     * The run to open beside the Automations dashboard: a window opened by a
+     * notification about it. A push would arrive before the renderer listens,
+     * so the run travels with the window instead.
+     */
+    automationsRunId?: string;
 }
 
 /**
@@ -530,12 +542,12 @@ export type ActivateWorkspaceResult =
     | { verdict: 'focused-elsewhere' };
 
 /**
- * A workspace's settings, opened by main at a section: how a notification
- * about an automation lands on that workspace's approvals.
+ * The Automations dashboard, opened by main: how a notification about an
+ * automation lands on its run.
  */
-export interface WorkspaceSettingsRequest {
+export interface AutomationsRequest {
     workspaceId: string;
-    section: 'automations';
+    runId?: string;
 }
 
 /**
@@ -545,7 +557,7 @@ export interface WorkspaceSettingsRequest {
  */
 export interface WindowAPI {
     onOpenSettings: (callback: (section?: 'updates') => void) => () => void;
-    onOpenWorkspaceSettings: (callback: (request: WorkspaceSettingsRequest) => void) => () => void;
+    onShowAutomations: (callback: (request: AutomationsRequest) => void) => () => void;
     context: WindowContext;
     activateWorkspace: (workspaceId: string | null) => Promise<ActivateWorkspaceResult>;
     openWindow: (workspaceId: string | null) => Promise<void>;

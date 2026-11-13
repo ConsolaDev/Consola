@@ -128,7 +128,7 @@ export const IPC_CHANNELS = {
     // Window identity (main -> one renderer)
     WINDOW_WORKSPACE_CHANGED: 'window:workspace-changed',
     WINDOW_OPEN_SETTINGS: 'window:open-settings',
-    WINDOW_OPEN_WORKSPACE_SETTINGS: 'window:open-workspace-settings', // At a section: an automation's approvals
+    WINDOW_SHOW_AUTOMATIONS: 'window:show-automations', // A notification click chose the Automations dashboard
     WINDOW_ACTIVATE_SESSION: 'window:activate-session', // A notification click chose a session
 
     // Personal automations, one factory.yml per workspace (renderer -> main; main runs them)
@@ -138,6 +138,13 @@ export const IPC_CHANNELS = {
     AUTOMATIONS_DISMISS: 'automations:dismiss',           // Dismiss a run waiting in confirm mode
     AUTOMATIONS_OPEN_FILE: 'automations:open-file',       // Open a workspace's factory.yml, creating it from a template
     AUTOMATIONS_ADD_ASSIGNED_REVIEWS: 'automations:add-assigned-reviews', // Add review-assigned-prs to a workspace's factory.yml
+    AUTOMATIONS_GET_RUN: 'automations:get-run',           // One run's full record, for its side panel
+    AUTOMATIONS_READ_CONVERSATION: 'automations:read-conversation', // A run's part of its transcript, read from disk
+    AUTOMATIONS_STOP: 'automations:stop',                 // Stop a running run
+    AUTOMATIONS_ADD_TEMPLATE: 'automations:add-template', // Add a ready-made automation to a workspace's factory.yml
+    AUTOMATIONS_START_AUTHORING: 'automations:start-authoring', // A session that drafts an entry with the person
+    AUTOMATIONS_ACKNOWLEDGE: 'automations:acknowledge',   // Mark an agent-added automation as seen
+    AUTOMATIONS_GET_ENTRY: 'automations:get-entry',       // One factory.yml entry exactly as written, for its details
 
     // Personal automations (main -> every renderer)
     AUTOMATIONS_CHANGED: 'automations:changed',           // A workspace's fresh AutomationsSnapshot
