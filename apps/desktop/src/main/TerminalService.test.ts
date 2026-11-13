@@ -1,14 +1,29 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as os from 'os';
 
-const { spawnMock, buildArgsMock, readCwdMock } = vi.hoisted(() => ({
+const { spawnMock, buildArgsMock, readCwdMock, loginEnv, providerDriverMock } = vi.hoisted(() => ({
     spawnMock: vi.fn(),
     buildArgsMock: vi.fn(),
     readCwdMock: vi.fn(),
+    /** What the mocked LoginEnvironment answers; reset before each test. */
+    loginEnv: {
+        current: {} as Record<string, string>,
+        problem: null as string | null,
+        retry: null as Promise<void> | null,
+    },
+    providerDriverMock: vi.fn(),
 }));
 
 vi.mock('node-pty', () => ({ spawn: spawnMock }));
-vi.mock('./LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: '/usr/bin' }) }));
+vi.mock('./LoginEnvironment', () => ({
+    getLoginEnv: () => loginEnv.current,
+    loginEnvRetry: () => loginEnv.retry,
+    loginEnvProblem: () => loginEnv.problem,
+}));
+vi.mock('./providers', async (importOriginal) => ({
+    ...(await importOriginal<typeof import('./providers')>()),
+    getProviderDriver: providerDriverMock,
+}));
 vi.mock('./drivers', () => ({
     getDriver: (id = 'claude') => ({
         id,
@@ -80,6 +95,10 @@ const SETTLE_MS = 501;
 
 beforeEach(() => {
     vi.useFakeTimers();
+    loginEnv.current = { PATH: '/usr/bin' };
+    loginEnv.problem = null;
+    loginEnv.retry = null;
+    providerDriverMock.mockReset();
     spawnMock.mockReset();
     buildArgsMock.mockReset().mockReturnValue([]);
     readCwdMock.mockReset().mockReturnValue(null);
@@ -893,5 +912,59 @@ describe('TerminalService working directory', () => {
         expect(reported).toEqual([]);
         service.destroy();
         warn.mockRestore();
+    });
+});
+
+describe('TerminalService login environment', () => {
+    it('waits for a login shell still being asked again, and spawns with its answer', async () => {
+        installFakePty();
+        let answer!: () => void;
+        loginEnv.retry = new Promise<void>((resolve) => {
+            answer = () => {
+                loginEnv.current = { PATH: '/opt/homebrew/bin:/usr/bin' };
+                resolve();
+            };
+        });
+        const service = await buildService();
+
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).not.toHaveBeenCalled();
+
+        answer();
+        await vi.advanceTimersByTimeAsync(0);
+        expect(spawnMock).toHaveBeenCalledTimes(1);
+        expect(spawnMock.mock.calls[0][2].env.PATH).toBe('/opt/homebrew/bin:/usr/bin');
+        service.destroy();
+    });
+
+    async function borrowNotice(): Promise<string> {
+        installFakePty();
+        providerDriverMock.mockReturnValue({
+            tokenEnvVar: 'GH_TOKEN',
+            token: async () => { throw new Error('`gh` is not on PATH.'); },
+        });
+        const service = new TerminalService({
+            cwd: os.tmpdir(), claudeSessionId: 'consola-id', resume: false,
+            providerId: 'github', providerAccountLogin: 'octo-sprocket',
+        });
+        const output: string[] = [];
+        service.on('data', (data) => output.push(data));
+        await service.start();
+        await vi.advanceTimersByTimeAsync(1);
+        service.destroy();
+        return output.join('');
+    }
+
+    it('points at the sign-in when a token cannot be borrowed', async () => {
+        expect(await borrowNotice()).toContain('This session runs without one — check `gh auth status`.');
+    });
+
+    it('does not point at the sign-in when the login PATH is what is missing', async () => {
+        loginEnv.problem = '`/bin/zsh -ilc` did not finish within 20s';
+
+        const notice = await borrowNotice();
+
+        expect(notice).toContain('This session runs without one.');
+        expect(notice).not.toContain('auth status');
     });
 });

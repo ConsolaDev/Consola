@@ -41,7 +41,7 @@ import type {
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { workItemUrl } from '../../../shared/workItems';
 import { renderSeedHeader } from '../../../shared/workItemPrompt';
-import { getLoginEnv } from '../../LoginEnvironment';
+import { getLoginEnv, loginEnvProblem } from '../../LoginEnvironment';
 import type { CheckoutOptions, GitProviderDriver, WorkItemDetails } from '../GitProviderDriver';
 import type { PullRequestLookup, PullRequestQuery } from '../pullRequests';
 import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } from './inboxQuery';
@@ -225,7 +225,8 @@ export class GitHubDriver implements GitProviderDriver {
 
     constructor(
         private readonly getEnv: () => NodeJS.ProcessEnv = getLoginEnv,
-        private readonly tokenTtlMs: number = TOKEN_TTL_MS
+        private readonly tokenTtlMs: number = TOKEN_TTL_MS,
+        private readonly envProblem: () => string | null = loginEnvProblem
     ) {}
 
     /**
@@ -242,7 +243,7 @@ export class GitHubDriver implements GitProviderDriver {
             return {
                 available: false,
                 accounts: [],
-                error: '`gh` is not installed or not on PATH.',
+                error: this.notFoundMessage(),
             };
         }
 
@@ -302,7 +303,7 @@ export class GitHubDriver implements GitProviderDriver {
 
         const binary = this.resolveBinary();
         if (!binary) {
-            throw new Error('`gh` is not installed or not on PATH.');
+            throw new Error(this.notFoundMessage());
         }
 
         const result = await this.run(binary, ['auth', 'token', '--user', accountLogin]);
@@ -631,6 +632,19 @@ export class GitHubDriver implements GitProviderDriver {
                 };
             }
         });
+    }
+
+    /**
+     * Why `resolveBinary` came back empty. When Consola never got the login
+     * shell's PATH, `gh` is most likely installed and simply out of sight, so
+     * "not installed" would send the user looking in the wrong place.
+     */
+    private notFoundMessage(): string {
+        const problem = this.envProblem();
+        return problem
+            ? `\`gh\` is not on PATH: Consola could not read your login shell's environment (${problem}), ` +
+                  'so it has only the bare PATH apps are launched with. Restart Consola to try again.'
+            : '`gh` is not installed or not on PATH.';
     }
 
     /**

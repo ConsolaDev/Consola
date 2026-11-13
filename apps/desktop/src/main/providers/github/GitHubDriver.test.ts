@@ -152,6 +152,21 @@ describe('GitHubDriver.probe', () => {
     fs.rmSync(empty, { recursive: true, force: true });
   });
 
+  it("blames the login shell, not the install, when Consola never got the shell's PATH", async () => {
+    const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-nogh-'));
+    const problem = '`/bin/zsh -ilc` did not finish within 20s';
+    const driver = new GitHubDriver(() => ({ PATH: empty }), undefined, () => problem);
+
+    const result = await driver.probe();
+
+    expect(result.available).toBe(false);
+    expect(result.error).toContain(problem);
+    expect(result.error).toMatch(/Restart Consola/);
+    expect(result.error).not.toMatch(/not installed/);
+    await expect(driver.token('JaviDev')).rejects.toThrow(problem);
+    fs.rmSync(empty, { recursive: true, force: true });
+  });
+
   it('is available with zero accounts when nobody is signed in', async () => {
     const driver = new GitHubDriver(stubEnv({ GH_STUB_MODE: 'logged-out' }));
 
