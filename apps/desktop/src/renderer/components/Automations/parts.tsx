@@ -16,9 +16,11 @@ import {
   Timer,
   type LucideIcon,
 } from 'lucide-react';
-import type { AgentRunPreview, AutomationView, RunListEntry, RunRecord } from '../../../shared/automations';
+import type { AgentRunPreview, AutomationsSnapshot, AutomationView, RunListEntry, RunRecord } from '../../../shared/automations';
 import type { CleanupResult, SessionVerdict, StalePreview } from '../../../shared/sessionCleanup';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
+import { isLookedAt } from '../../utils/windowAttention';
 import {
   formatAgo,
   formatDuration,
@@ -228,6 +230,42 @@ export function useNow(intervalMs: number | null): Date {
     return () => clearInterval(timer);
   }, [intervalMs]);
   return now;
+}
+
+/**
+ * Counts the workspace's runs as seen while a view that shows them is up,
+ * which is what the sidebar's "N failed" counts from. Opening the view is
+ * looking at it. After that, a change counts as seen only if someone can
+ * see the window: main keeps pushing to a minimized or background one, and
+ * the failures that land there are what "N failed" is for. `shows` is false
+ * while the view leaves out a failure that "N failed" counts.
+ */
+export function useMarkRunsSeen(workspaceId: string, snapshot: AutomationsSnapshot, shows = true): void {
+  const hasMarked = useRef(false);
+  useEffect(() => {
+    if (!shows) return;
+    if (hasMarked.current && !isLookedAt()) return;
+    hasMarked.current = true;
+    markRunsSeen(workspaceId);
+  }, [workspaceId, snapshot, shows]);
+
+  // Coming back to the window while the view shows is looking at it.
+  useEffect(() => {
+    if (!shows) return;
+    const onReturn = () => {
+      if (isLookedAt()) markRunsSeen(workspaceId);
+    };
+    window.addEventListener('focus', onReturn);
+    document.addEventListener('visibilitychange', onReturn);
+    return () => {
+      window.removeEventListener('focus', onReturn);
+      document.removeEventListener('visibilitychange', onReturn);
+    };
+  }, [workspaceId, shows]);
+}
+
+function markRunsSeen(workspaceId: string): void {
+  useAutomationsStore.getState().markRunsSeen(workspaceId, new Date().toISOString());
 }
 
 /**

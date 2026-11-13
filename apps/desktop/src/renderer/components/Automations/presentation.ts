@@ -681,20 +681,41 @@ function endedAt(run: RunFacts): number {
 }
 
 
+/** The runs that failed after `lastSeen`, when the person last looked at the workspace's runs. */
+export function unseenFailures(snapshot: AutomationsSnapshot, lastSeen: string): RunListEntry[] {
+    const seen = Date.parse(lastSeen);
+    return snapshot.runs.filter((run) => run.status === 'failed' && endedAt(run) > seen);
+}
+
+/**
+ * Whether the Automations table shows every unseen failure, so that looking
+ * at the table can count as seeing them: each must be the run its row's
+ * "Last run" speaks for, the one cell the table keeps at every width. A
+ * failure outside factory.yml (an entry since removed, an agent's request),
+ * or one a later run has taken the place of, shows only in Activity.
+ */
+export function tableShowsUnseenFailures(snapshot: AutomationsSnapshot, lastSeen: string, now: Date): boolean {
+    const unseen = unseenFailures(snapshot, lastSeen);
+    if (unseen.length === 0) return true;
+    const shown = new Set(
+        snapshot.automations.flatMap((automation) => latestRun(recentRuns(snapshot.runs, automation.name, now), now)?.run.id ?? []),
+    );
+    return unseen.every((run) => shown.has(run.id));
+}
+
 /**
  * What a workspace's Automations row says in the sidebar, strongest first:
  * something waiting on the person, then a failure they have not seen yet
- * (`lastSeen` is when they last looked at Activity), then agents running.
+ * (`lastSeen` is when they last looked at its runs), then agents running.
  */
 export function sidebarRowState(
     snapshot: AutomationsSnapshot | undefined,
     lastSeen: string,
 ): { kind: 'waiting' | 'failed' | 'running'; count: number } | { kind: 'idle' } {
     if (!snapshot) return { kind: 'idle' };
-    const seen = Date.parse(lastSeen);
     const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval').length;
     if (waiting > 0) return { kind: 'waiting', count: waiting };
-    const failed = snapshot.runs.filter((run) => run.status === 'failed' && endedAt(run) > seen).length;
+    const failed = unseenFailures(snapshot, lastSeen).length;
     if (failed > 0) return { kind: 'failed', count: failed };
     const running = snapshot.runs.filter((run) => run.status === 'running' && run.kind === 'agent').length;
     if (running > 0) return { kind: 'running', count: running };

@@ -22,6 +22,8 @@ import {
     runAutomationOptions,
     runStage,
     sidebarRowState,
+    tableShowsUnseenFailures,
+    unseenFailures,
     statusWord,
     triggerLabel,
     approvalStep,
@@ -292,6 +294,46 @@ describe('sidebarRowState', () => {
     it('counts only running agent runs', () => {
         const tool = run({ status: 'running', kind: 'tool' });
         expect(sidebarRowState(snapshot([tool]), lastSeen)).toEqual({ kind: 'idle' });
+    });
+});
+
+describe('unseenFailures', () => {
+    it('is the failures that ended after the person last looked', () => {
+        const fresh = run({ id: 'fresh', status: 'failed', finishedAt: ago(HOUR) });
+        const old = run({ id: 'old', status: 'failed', finishedAt: ago(2 * DAY) });
+        const fine = run({ id: 'fine', status: 'completed', finishedAt: ago(HOUR) });
+        expect(unseenFailures(snapshot([fresh, old, fine]), ago(DAY)).map((entry) => entry.id)).toEqual(['fresh']);
+    });
+});
+
+describe('tableShowsUnseenFailures', () => {
+    const lastSeen = ago(DAY);
+    const auto = (name: string) => ({ name }) as AutomationsSnapshot['automations'][number];
+    const failed = (id: string, automationId: string) =>
+        run({ id, automationId, status: 'failed', createdAt: ago(2 * HOUR), finishedAt: ago(HOUR) });
+
+    it('holds with nothing unseen', () => {
+        expect(tableShowsUnseenFailures(snapshot([], [auto('digest')]), lastSeen, NOW)).toBe(true);
+    });
+
+    it('holds when each unseen failure is what its row says under "Last run"', () => {
+        const runs = [failed('a', 'digest'), failed('b', 'sweep'), run({ id: 'old', automationId: 'digest', createdAt: ago(3 * HOUR) })];
+        expect(tableShowsUnseenFailures(snapshot(runs, [auto('digest'), auto('sweep')]), lastSeen, NOW)).toBe(true);
+    });
+
+    it('fails for a failure outside factory.yml, which only Activity lists', () => {
+        const runs = [failed('a', 'digest'), failed('b', 'removed-one')];
+        expect(tableShowsUnseenFailures(snapshot(runs, [auto('digest')]), lastSeen, NOW)).toBe(false);
+    });
+
+    it('fails for a failure a later run has taken the place of', () => {
+        const later = run({ id: 'later', automationId: 'digest', createdAt: ago(HOUR / 2) });
+        expect(tableShowsUnseenFailures(snapshot([later, failed('a', 'digest')], [auto('digest')]), lastSeen, NOW)).toBe(false);
+    });
+
+    it('fails for a failure behind a run waiting for you, which the row speaks for however old', () => {
+        const waiting = run({ id: 'w', automationId: 'digest', status: 'needs-approval', createdAt: ago(5 * HOUR) });
+        expect(tableShowsUnseenFailures(snapshot([failed('a', 'digest'), waiting], [auto('digest')]), lastSeen, NOW)).toBe(false);
     });
 });
 

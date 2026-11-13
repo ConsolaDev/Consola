@@ -40,7 +40,7 @@ beforeEach(() => {
     storage.clear();
     getSnapshot.mockReset();
     onChanged.mockReset().mockReturnValue(() => {});
-    useAutomationsStore.setState({ snapshots: {}, tab: 'activity', panel: null, lastSeen: {} });
+    useAutomationsStore.setState({ snapshots: {}, tab: 'automations', panel: null, lastSeen: {} });
 });
 
 describe('automationsStore', () => {
@@ -53,8 +53,8 @@ describe('automationsStore', () => {
         expect(useAutomationsStore.getState().panel).toBeNull();
     });
 
-    it('markActivitySeen persists per workspace', () => {
-        useAutomationsStore.getState().markActivitySeen('w1', '2026-11-12T10:00:00.000Z');
+    it('markRunsSeen persists per workspace', () => {
+        useAutomationsStore.getState().markRunsSeen('w1', '2026-11-12T10:00:00.000Z');
         expect(useAutomationsStore.getState().lastSeen).toEqual({ w1: '2026-11-12T10:00:00.000Z' });
         expect(JSON.parse(storage.get('consola-automations-seen') ?? '{}')).toEqual({
             w1: '2026-11-12T10:00:00.000Z',
@@ -65,7 +65,7 @@ describe('automationsStore', () => {
         const blocked = vi.spyOn(localStorage, 'setItem').mockImplementation(() => {
             throw new Error('blocked');
         });
-        useAutomationsStore.getState().markActivitySeen('w1', 'x');
+        useAutomationsStore.getState().markRunsSeen('w1', 'x');
         expect(useAutomationsStore.getState().lastSeen.w1).toBe('x');
         blocked.mockRestore();
     });

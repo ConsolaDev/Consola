@@ -1,13 +1,14 @@
-import type { MouseEvent } from 'react';
+import { useId, type MouseEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { AlertTriangle, Bot, Clock, Ellipsis, History, Inbox, Wrench } from 'lucide-react';
+import { AlertTriangle, Bot, Clock, Ellipsis, Hand, History, Inbox, Wrench } from 'lucide-react';
 import type { AutomationsSnapshot, AutomationView, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
-import { useAutomationsStore } from '../../stores/automationsStore';
-import { RunNowButton, StatusDot, useArrivals, useArrivedOnMount, useIntent, useNow } from './parts';
+import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsStore';
+import { RunNowButton, StatusDot, useArrivals, useArrivedOnMount, useIntent, useMarkRunsSeen, useNow } from './parts';
 import {
+  formatAgo,
   formatCountdown,
   formatDueAt,
   formatDuration,
@@ -19,90 +20,179 @@ import {
   recentRuns,
   recentRunsInWords,
   runAbout,
+  runTitle,
   statusLabel,
+  tableShowsUnseenFailures,
+  triggerInWords,
   triggerLabel,
   type LatestRun,
 } from './presentation';
 import { GetStarted } from './TemplatesTab';
 
 /**
- * Every automation in the workspace's factory.yml as one row of a table,
- * read left to right from past to future: what it is, when it fires and
- * what it runs, its latest runs as a strip, how the last one went, and when
- * the next is due. A row opens the automation's panel; a bar in its strip
- * opens that run. Names, triggers and problems come from the file and runs'
- * summaries from other people, so all of it is shown as text.
+ * Where the dashboard opens, as Airflow and Buildkite open on their
+ * pipelines: automations fire on their own, so the first question is
+ * whether they are all right, not what one run did. What is wrong with the
+ * file comes first, then what waits for the person, then every automation
+ * in factory.yml as one row of a table, read left to right from past to
+ * future: what it is, when it fires and what it runs, its latest runs as a
+ * strip, how the last one went, and when the next is due. A row opens the
+ * automation's panel; a bar in its strip opens that run. Names, triggers
+ * and problems come from the file and runs' summaries from other people,
+ * so all of it is shown as text.
  *
  * The table gives up columns as its width shrinks (container queries in
  * styles.css): trigger and target fold under the name, then the strip goes,
- * then the last run. Each row keeps saying everything its details do.
+ * then the next run. How the last run went stays at every width — it is
+ * what the table is opened for, and what counts as seeing a failure.
  */
 export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
   const openPanel = useAutomationsStore((state) => state.openPanel);
   const showAutomationRuns = useAutomationsStore((state) => state.showAutomationRuns);
   const openName = useAutomationsStore((state) => (state.panel?.kind === 'automation' ? state.panel.name : null));
+  const lastSeen = useAutomationsStore((state) => state.lastSeen[workspace.id] ?? WINDOW_LOADED_AT);
   const { busy, error, act } = useIntent();
   const arrivals = useArrivals(snapshot.runs);
   // A running run's duration counts in seconds; countdowns need only the minute.
   const now = useNow(snapshot.runs.some((run) => run.status === 'running') ? 1000 : 30_000);
-
-  if (snapshot.automations.length === 0) {
-    return (
-      <div className="automations-activity">
-        {snapshot.issues.length > 0 ? (
-          <p className="automations-hint">factory.yml did not load, so it lists no automations. Activity says why.</p>
-        ) : (
-          <GetStarted workspace={workspace} snapshot={snapshot} />
-        )}
-      </div>
-    );
-  }
+  // The table counts as looking at runs only while each failure "N failed" counts is a row's last run.
+  useMarkRunsSeen(workspace.id, snapshot, tableShowsUnseenFailures(snapshot, lastSeen, now));
+  const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval');
 
   return (
     <div className="automations-activity">
       {error && <div className="automations-error" role="alert">{error}</div>}
-      <Tooltip.Provider delayDuration={120} skipDelayDuration={400}>
-        <div className="automations-table-frame">
-          <div className="automations-table">
-            {/* The cells say what they are to a screen reader; these labels are for the eye. */}
-            <div className="automations-table-head" aria-hidden="true">
-              <span>Automation</span>
-              <span className="automations-col-trigger">Trigger</span>
-              <span className="automations-col-target">Runs</span>
-              <span className="automations-col-history">History</span>
-              <span className="automations-col-last">Last run</span>
-              <span className="automations-col-next">Next run</span>
-              <span />
-            </div>
-            <ul className="automations-table-body" aria-label="Automations">
-              {snapshot.automations.map((automation) => {
-                const name = automation.name;
-                const runs = recentRuns(snapshot.runs, name, now);
-                const running = runs.some((run) => run.status === 'running');
-                return (
-                  <AutomationRow
-                    key={name}
-                    automation={automation}
-                    runs={runs}
-                    latest={latestRun(runs, now, (runId) => snapshot.queue[runId])}
-                    now={now}
-                    arrivals={arrivals}
-                    selected={openName === name}
-                    running={busy === `run:${name}` || running}
-                    disabled={busy !== null}
-                    onOpen={() => openPanel({ kind: 'automation', name })}
-                    onOpenRun={(runId) => openPanel({ kind: 'run', runId })}
-                    onRun={() => void act(`run:${name}`, () => automationsBridge.runNow(workspace.id, name))}
-                    onShowRuns={() => showAutomationRuns(workspace.id, name)}
-                    onChange={() => openPanel({ kind: 'new', basis: { automation: name } })}
-                  />
-                );
-              })}
-            </ul>
+      {snapshot.issues.length > 0 && <FileIssues snapshot={snapshot} />}
+      {waiting.length > 0 && (
+        <WaitingForYou runs={waiting} now={now} onReview={(runId) => openPanel({ kind: 'run', runId })} />
+      )}
+      {snapshot.suggestAssignedReviews && (
+        <div className="automations-callout" role="region" aria-label="Review PRs assigned to me automatically">
+          <div className="automations-callout-text">
+            <div className="automations-callout-title">Review PRs assigned to me automatically</div>
+            <p className="automations-hint">
+              Adds <code>review-assigned-prs</code> to factory.yml: your {snapshot.suggestAssignedReviews.action} action
+              runs, read-only, on each pull request that asks for your review or is assigned to you. It asks you once
+              before the first.
+            </p>
           </div>
+          <button
+            type="button"
+            className="dialog-button-primary automations-small-button"
+            onClick={() => void act('add-reviews', () => automationsBridge.addAssignedReviews(workspace.id))}
+            disabled={busy === 'add-reviews'}
+          >
+            Add
+          </button>
         </div>
-      </Tooltip.Provider>
+      )}
+      {snapshot.automations.length > 0 ? (
+        <Tooltip.Provider delayDuration={120} skipDelayDuration={400}>
+          <div className="automations-table-frame">
+            <div className="automations-table">
+              {/* The cells say what they are to a screen reader; these labels are for the eye. */}
+              <div className="automations-table-head" aria-hidden="true">
+                <span>Automation</span>
+                <span className="automations-col-trigger">Trigger</span>
+                <span className="automations-col-target">Runs</span>
+                <span className="automations-col-history">History</span>
+                <span className="automations-col-last">Last run</span>
+                <span className="automations-col-next">Next run</span>
+                <span />
+              </div>
+              <ul className="automations-table-body" aria-label="Automations">
+                {snapshot.automations.map((automation) => {
+                  const name = automation.name;
+                  const runs = recentRuns(snapshot.runs, name, now);
+                  const running = runs.some((run) => run.status === 'running');
+                  return (
+                    <AutomationRow
+                      key={name}
+                      automation={automation}
+                      runs={runs}
+                      latest={latestRun(runs, now, (runId) => snapshot.queue[runId])}
+                      now={now}
+                      arrivals={arrivals}
+                      selected={openName === name}
+                      running={busy === `run:${name}` || running}
+                      disabled={busy !== null}
+                      onOpen={() => openPanel({ kind: 'automation', name })}
+                      onOpenRun={(runId) => openPanel({ kind: 'run', runId })}
+                      onRun={() => void act(`run:${name}`, () => automationsBridge.runNow(workspace.id, name))}
+                      onShowRuns={() => showAutomationRuns(workspace.id, name)}
+                      onChange={() => openPanel({ kind: 'new', basis: { automation: name } })}
+                    />
+                  );
+                })}
+              </ul>
+            </div>
+          </div>
+        </Tooltip.Provider>
+      ) : (
+        // A file that did not load lists nothing, and its problems above say why.
+        snapshot.issues.length === 0 && <GetStarted workspace={workspace} snapshot={snapshot} />
+      )}
     </div>
+  );
+}
+
+/** What in factory.yml did not load, each with its line: the whole file, or the entries left out. */
+function FileIssues({ snapshot }: { snapshot: AutomationsSnapshot }) {
+  return (
+    <div className="automations-issues" role="status">
+      <div className="automations-issues-title">
+        <AlertTriangle size={13} />
+        {snapshot.automations.length === 0 ? 'factory.yml did not load' : 'Some entries did not load'}
+      </div>
+      <ul>
+        {snapshot.issues.map((issue, index) => (
+          <li key={index}>
+            {issue.line ? <span className="automations-line">line {issue.line}</span> : null}
+            {issue.path ? <code>{issue.path}</code> : null} {issue.message}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Every run waiting for a person, plans and agents' requests alike, as
+ * CircleCI holds a workflow at an approval: amber, above the table, each
+ * with its Review. The sidebar's "N waiting" opens the dashboard on it.
+ */
+function WaitingForYou({ runs, now, onReview }: { runs: RunListEntry[]; now: Date; onReview: (runId: string) => void }) {
+  const headingId = useId();
+  return (
+    <section className="automations-waiting" aria-labelledby={headingId}>
+      <h2 id={headingId} className="automations-waiting-title">
+        <Hand size={14} aria-hidden="true" />
+        Waiting for you
+        <span className="automations-waiting-count" aria-hidden="true">
+          {runs.length}
+        </span>
+      </h2>
+      <ul className="automations-waiting-list">
+        {runs.map((run) => (
+          <li key={run.id} className="automations-waiting-card">
+            <div className="automations-waiting-text">
+              <span className="automations-waiting-name">{runTitle(run)}</span>
+              {run.summary && <span className="automations-waiting-summary">{run.summary}</span>}
+            </div>
+            <span className="automations-waiting-when" title={formatTime(run.createdAt)}>
+              {triggerInWords(run)} · {formatAgo(run.createdAt, now)}
+            </span>
+            <button
+              type="button"
+              className="dialog-button-primary automations-small-button"
+              onClick={() => onReview(run.id)}
+            >
+              Review…
+            </button>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

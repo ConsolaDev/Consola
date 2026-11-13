@@ -52,7 +52,10 @@ interface AutomationsState {
     snapshots: Record<string, AutomationsSnapshot>;
     tab: AutomationsTab;
     panel: AutomationsPanel | null;
-    /** ISO time the person last looked at each workspace's Activity; persisted. */
+    /**
+     * ISO time the person last looked at each workspace's runs: Activity, or
+     * the Automations table while it shows every failure since; persisted.
+     */
     lastSeen: Record<string, string>;
     /** How each workspace's run list is narrowed; absent for not at all. */
     runFilters: Record<string, RunListFilter>;
@@ -62,7 +65,7 @@ interface AutomationsState {
     setTab: (tab: AutomationsTab) => void;
     openPanel: (panel: AutomationsPanel) => void;
     closePanel: () => void;
-    markActivitySeen: (workspaceId: string, at: string) => void;
+    markRunsSeen: (workspaceId: string, at: string) => void;
     setRunFilter: (workspaceId: string, change: Partial<RunListFilter>) => void;
     /** Activity, with its run list narrowed to one automation and nothing else: an automation's "all runs". */
     showAutomationRuns: (workspaceId: string, automation: string) => void;
@@ -70,7 +73,7 @@ interface AutomationsState {
 
 export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     snapshots: {},
-    tab: 'activity',
+    tab: 'automations',
     panel: panelFromWindowContext(windowBridge.context),
     lastSeen: readSeen(),
     runFilters: {},
@@ -94,7 +97,7 @@ export const useAutomationsStore = create<AutomationsState>((set, get) => ({
     openPanel: (panel) => set({ panel }),
     closePanel: () => set({ panel: null }),
 
-    markActivitySeen: (workspaceId, at) => {
+    markRunsSeen: (workspaceId, at) => {
         const lastSeen = { ...get().lastSeen, [workspaceId]: at };
         set({ lastSeen });
         writeSeen(lastSeen);

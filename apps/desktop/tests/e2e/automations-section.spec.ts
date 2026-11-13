@@ -7,7 +7,8 @@ import { launchElectron } from './helpers/electron';
 
 /**
  * The Automations section, end to end: the sidebar row under the Assistant,
- * the dashboard it opens, and what Activity shows of a workspace's runs.
+ * the dashboard it opens on the Automations tab, and what Activity shows
+ * of a workspace's runs.
  *
  * The helpers up top are the whole arrangement — a `catalog-portal` clone, a
  * stub agent CLI, and a `Sprocket` workspace whose default harness is that
@@ -251,7 +252,7 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
 
     const dashboard = await openAutomations(page);
     await expect(dashboard.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible();
-    await expect(dashboard.getByRole('tab', { name: 'Activity' })).toHaveAttribute('aria-selected', 'true');
+    await expect(dashboard.getByRole('tab', { name: 'Automations' })).toHaveAttribute('aria-selected', 'true');
     await expect(dashboard.locator('.automations-header').getByRole('button', { name: 'New automation' })).toBeVisible();
     await expect(dashboard.locator('.automations-header').getByRole('button', { name: 'Open factory.yml' })).toBeVisible();
     // One current page: the row, not Home as well.
@@ -270,7 +271,7 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
   }
 });
 
-test('a run waiting for the person shows on the row and at the top of Activity', async () => {
+test('a run waiting for the person shows on the sidebar row and where the dashboard opens', async () => {
   test.setTimeout(90_000);
   const sprocket = await setUpSprocket();
   const { page } = sprocket;
@@ -285,8 +286,12 @@ test('a run waiting for the person shows on the row and at the top of Activity',
     await expect(waiting.locator('.automations-waiting-card')).toHaveCount(1);
     await expect(waiting.locator('.automations-waiting-card')).toContainText('catalog-check');
     await expect(waiting.getByRole('button', { name: 'Review…' })).toBeVisible();
+    // Its automation's row says so, and the tab counts it in amber.
+    await expect(dashboard.locator('.automations-row', { hasText: 'catalog-check' })).toContainText('Waiting for you');
+    await expect(dashboard.getByRole('tab', { name: 'Automations' }).locator('.automations-tab-badge-waiting')).toHaveText('1');
 
-    // The run list has it too, waiting.
+    // Activity's run list has it too, waiting.
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
     await expect(dashboard.locator('.automations-run-item', { hasText: 'catalog-check' })).toHaveCount(1);
     // Nothing has started: confirm mode waits for the person.
     expect(fs.existsSync(sprocket.launches)).toBe(false);
@@ -386,7 +391,8 @@ test('a finished run shows its conversation without starting anything', async ()
     await expect(panel).toHaveCount(0);
     await expect(dashboard).toBeVisible();
 
-    // Reopening reads it again, and still starts nothing.
+    // Reopening it from Activity reads it again, and still starts nothing.
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
     await dashboard.locator('.automations-run-item', { hasText: 'catalog-check' }).click();
     await expect(panel.locator('.automations-answer')).toContainText('FINDINGS: catalog-portal looks good');
     await panel.getByRole('button', { name: 'Close' }).click();
@@ -510,6 +516,7 @@ test('the dashboard is where the workspace was left, and Open session leaves it'
     await expect(again.getByRole('heading', { name: 'Automations · Sprocket' })).toBeVisible({ timeout: 30_000 });
     await expect(automationsRow(page)).toHaveAttribute('aria-current', 'page');
     // The earlier run, read back from the workspace's history.
+    await again.getByRole('tab', { name: 'Activity' }).click();
     const row = again.locator('.automations-run-item', { hasText: 'catalog-check' });
     await expect(row).toHaveCount(1);
     await row.click();

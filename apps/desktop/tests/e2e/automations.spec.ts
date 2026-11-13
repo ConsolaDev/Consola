@@ -146,8 +146,8 @@ automations:
 `
     );
 
+    // The dashboard opens on the Automations tab.
     const dashboard = await openAutomations(page, 'Acme');
-    await dashboard.getByRole('tab', { name: 'Automations' }).click();
 
     const card = dashboard.locator('.automations-row', { hasText: 'clean-up-stale-sessions' }).first();
     await expect(card).toBeVisible({ timeout: 15_000 });
@@ -155,9 +155,8 @@ automations:
     await expect(card).toContainText('Next run');
     await card.getByRole('button', { name: 'Run now' }).click();
 
-    // Confirm mode: a preview waiting for approval, in "Waiting for you" on
-    // Activity; Review… opens it, naming what would go.
-    await dashboard.getByRole('tab', { name: 'Activity' }).click();
+    // Confirm mode: a preview waiting for approval, in "Waiting for you" above
+    // the table; Review… opens it, naming what would go.
     const waiting = dashboard.getByRole('region', { name: 'Waiting for you' });
     await expect(waiting).toContainText('Would remove 1 session; 1 kept.', { timeout: 30_000 });
     await waiting.getByRole('button', { name: 'Review…' }).click();
@@ -172,6 +171,7 @@ automations:
     // kept one is not even reconsidered.
     await pending.getByRole('button', { name: 'Approve' }).click();
     await expect(pending).toContainText('Removed 1 session.', { timeout: 30_000 });
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
     await expect(dashboard.locator('.automations-run-item').first()).toContainText('Completed');
 
     const remaining = await page.evaluate(async () => {
@@ -210,8 +210,10 @@ test('a broken factory.yml is reported with its line, and nothing is scheduled',
     const issues = dashboard.locator('.automations-issues');
     await expect(issues).toContainText('line 6', { timeout: 15_000 });
     await expect(issues).toContainText('automations[0].mode');
-    await dashboard.getByRole('tab', { name: 'Automations' }).click();
+    // Where the dashboard opens: the problem, no rows, and no offer to start from nothing.
+    await expect(dashboard.getByRole('tab', { name: 'Automations' })).toHaveAttribute('aria-selected', 'true');
     await expect(dashboard.locator('.automations-row')).toHaveCount(0);
+    await expect(dashboard.locator('.automations-empty-state')).toHaveCount(0);
   } finally {
     await app.close();
     fs.rmSync(base, { recursive: true, force: true });
@@ -326,7 +328,6 @@ automations:
     const dashboard = await openAutomations(page, 'Acme');
     const automationsTab = dashboard.getByRole('tab', { name: 'Automations' });
     const activityTab = dashboard.getByRole('tab', { name: 'Activity' });
-    await automationsTab.click();
     const card = dashboard.locator('.automations-row', { hasText: 'review-requests' }).first();
     await expect(card).toContainText('When a pull request asks for your review or is assigned to you', { timeout: 15_000 });
     await expect(card).toContainText('Review action');
@@ -340,7 +341,6 @@ automations:
     // #2 asks. A new `auto` automation asks once before running on its own.
     writeInbox(inboxFile, [1, 2]);
     await checkNow.click();
-    await activityTab.click();
     const waiting = dashboard.locator('.automations-waiting-card');
     await expect(waiting).toContainText('acme/app#2 “Add retries #2” by @alice', { timeout: 30_000 });
     await expect(waiting).toHaveCount(1);
@@ -361,6 +361,7 @@ automations:
     expect(first).toContain(' -- This session was started by the automation "review-requests" for pull request #2');
 
     // The turn printed its findings and exited: the run is completed.
+    await activityTab.click();
     const row = dashboard.locator('.automations-run-item', { hasText: 'Add retries #2' }).first();
     await expect(row).toContainText('Completed', { timeout: 30_000 });
 
@@ -391,8 +392,8 @@ automations:
     await checkNow.click();
     await expect(checkNow).toBeEnabled();
     expect(launched().filter((line) => line.includes('app-pr-3'))).toHaveLength(1);
-    await activityTab.click();
     await expect(dashboard.locator('.automations-waiting-card')).toHaveCount(0);
+    await activityTab.click();
     // #1, waiting before the automation was turned on, never started.
     expect(launched().some((line) => line.includes('app-pr-1'))).toBe(false);
 

@@ -1,7 +1,7 @@
 import { useEffect, useId, useRef } from 'react';
 import { ExternalLink, Plus, Zap } from 'lucide-react';
 import { automationsBridge } from '../../services/automationsBridge';
-import { useAutomationsStore, type AutomationsTab } from '../../stores/automationsStore';
+import { useAutomationsStore, WINDOW_LOADED_AT, type AutomationsTab } from '../../stores/automationsStore';
 import type { AutomationsSnapshot } from '../../../shared/automations';
 import type { Workspace } from '../../stores/workspaceStore';
 import { ActivityTab } from './ActivityTab';
@@ -9,15 +9,17 @@ import { AutomationsTab as AutomationsList } from './AutomationsTab';
 import { SidePanel } from './SidePanel';
 import { TemplatesTab } from './TemplatesTab';
 import { useIntent } from './parts';
+import { unseenFailures } from './presentation';
 import './styles.css';
 
 interface AutomationsViewProps {
   workspace: Workspace;
 }
 
+// Automations first: it is where the dashboard opens.
 const TABS: ReadonlyArray<{ id: AutomationsTab; label: string }> = [
-  { id: 'activity', label: 'Activity' },
   { id: 'automations', label: 'Automations' },
+  { id: 'activity', label: 'Activity' },
   { id: 'templates', label: 'Templates' },
 ];
 
@@ -31,6 +33,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
   const panelId = useId();
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
   const snapshot = useAutomationsStore((state) => state.snapshots[workspace.id]);
+  const lastSeen = useAutomationsStore((state) => state.lastSeen[workspace.id] ?? WINDOW_LOADED_AT);
   const tab = useAutomationsStore((state) => state.tab);
   const setTab = useAutomationsStore((state) => state.setTab);
   const openPanel = useAutomationsStore((state) => state.openPanel);
@@ -126,7 +129,7 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
             onKeyDown={(event) => handleTabKey(event, index)}
           >
             {label}
-            <TabBadge tab={id} snapshot={snapshot} />
+            <TabBadge tab={id} snapshot={snapshot} lastSeen={lastSeen} />
           </button>
         ))}
       </div>
@@ -150,23 +153,42 @@ export function AutomationsView({ workspace }: AutomationsViewProps) {
 }
 
 /**
- * What a tab holds, as GitHub counts "Pull requests 12": the runs waiting
- * for you on Activity, in amber, so they are seen from the other tabs; how
- * many automations the file has. Nothing for a count of nothing.
+ * What a tab holds, as GitHub counts "Pull requests 12", so it is seen from
+ * the other tabs. Automations: the runs waiting for you, in amber, else how
+ * many automations the file has. Activity: the failures since you last
+ * looked, in red, which only it may list (one outside factory.yml). Nothing
+ * for a count of nothing.
  */
-function TabBadge({ tab, snapshot }: { tab: AutomationsTab; snapshot: AutomationsSnapshot | undefined }) {
+function TabBadge({
+  tab,
+  snapshot,
+  lastSeen,
+}: {
+  tab: AutomationsTab;
+  snapshot: AutomationsSnapshot | undefined;
+  lastSeen: string;
+}) {
   if (!snapshot) return null;
-  if (tab === 'activity') {
+  if (tab === 'automations') {
     const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval').length;
-    if (waiting === 0) return null;
+    if (waiting > 0) {
+      return (
+        <span className="automations-tab-badge automations-tab-badge-waiting" title={`${waiting} waiting for you`}>
+          {waiting}
+        </span>
+      );
+    }
+    if (snapshot.automations.length === 0) return null;
+    return <span className="automations-tab-badge">{snapshot.automations.length}</span>;
+  }
+  if (tab === 'activity') {
+    const failed = unseenFailures(snapshot, lastSeen).length;
+    if (failed === 0) return null;
     return (
-      <span className="automations-tab-badge automations-tab-badge-waiting" title={`${waiting} waiting for you`}>
-        {waiting}
+      <span className="automations-tab-badge automations-tab-badge-failed" title={`${failed} failed since you last looked`}>
+        {failed}
       </span>
     );
-  }
-  if (tab === 'automations' && snapshot.automations.length > 0) {
-    return <span className="automations-tab-badge">{snapshot.automations.length}</span>;
   }
   return null;
 }
