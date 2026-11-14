@@ -2,7 +2,7 @@ import * as path from 'path';
 import { z } from 'zod/v3';
 import type { RunRecord } from '@consola/factory-spec';
 import type { AutomationView, SavedAutomation } from '../../shared/automations';
-import type { AutomationCapabilities } from '../automations/capabilities';
+import type { AutomationCapabilities } from '@consola/automation-engine';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';

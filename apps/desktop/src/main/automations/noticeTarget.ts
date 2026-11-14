@@ -1,5 +1,5 @@
 import { assistantSession, type Workspace } from '../../shared/workspace';
-import type { AutomationNotice } from './AutomationService';
+import type { AutomationNotice } from '@consola/automation-engine';
 
 export type NoticeTarget = { kind: 'session'; sessionId: string } | { kind: 'automations' };
 

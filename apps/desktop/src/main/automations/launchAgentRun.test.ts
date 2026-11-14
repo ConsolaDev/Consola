@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { StartedByHandError } from '@consola/automation-engine';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
-import { launchAgentRun, prepareItemWorktree, refreshIdleWorktree, StartedByHandError, withoutGitHooks, worktreeHeld, type AgentLaunchDeps } from './launchAgentRun';
+import { launchAgentRun, prepareItemWorktree, refreshIdleWorktree, withoutGitHooks, worktreeHeld, type AgentLaunchDeps } from './launchAgentRun';
 
 let root: string;
 beforeEach(() => {

@@ -1,4 +1,5 @@
-import { CONSOLA_NAMESPACE, type EngineTool } from '@consola/automation-engine';
+import { CONSOLA_NAMESPACE } from './support';
+import type { EngineTool } from './ports';
 import type { AutomationMode } from '@consola/factory-spec';
 import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
 

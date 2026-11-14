@@ -1,22 +1,15 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod/v3';
 import { appendAutomationEntry, automationVersion, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
-import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
-import { defineTool, ToolRegistry, type ToolContext, type ToolDefinition } from '../tools/Tool';
+import { defineTool, FakeToolRegistry } from './tools.test-helpers';
 import { AutomationService, INTERRUPTED_PROMPT, type AutomationNotice } from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
-import {
-    EMPTY_FACTORY_FILE,
-    RunStore,
-    StartedByHandError,
-    type AgentLaunchRequest,
-    type AutomationStateFile,
-    type InboxItemView,
-    type ItemSnapshot,
-    type SessionView,
-    type WorkspaceView,
-} from '@consola/automation-engine';
+import { EMPTY_FACTORY_FILE } from './factoryTemplates';
+import type { AgentLaunchRequest, EngineToolContext } from './ports';
+import { RunStore, type AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
+import { StartedByHandError } from './support';
+import type { InboxItemView, ItemSnapshot, SessionView, WorkspaceView } from './views';
 
 function memoryFile(initial: AutomationStateFile | null = null) {
     let stored = initial;
@@ -63,8 +56,6 @@ interface Setup {
     harness?: { name: string; problem: string | null };
     /** Whether a running turn could be stopped. */
     stopAgent?: (session: SessionView, reason: string) => boolean;
-    /** More tools to register beside the fakes. */
-    tools?: ToolDefinition[];
 }
 
 /** What the fake main side recorded and decides for agent runs. */
@@ -114,14 +105,13 @@ function setup({
     cap,
     harness = { name: 'Claude', problem: null },
     stopAgent = vi.fn(() => true),
-    tools = [],
 }: Setup = {}) {
     let clock = now;
     const world: AgentWorld = { inbox: new Map(), launches: [], refreshes: [], liveTerminals: new Set(), resumed: [] };
     const notices: AutomationNotice[] = [];
-    const calls: Array<{ mode: string; context: ToolContext; args: Record<string, unknown> }> = [];
+    const calls: Array<{ mode: string; context: EngineToolContext; args: Record<string, unknown> }> = [];
     let gate: Promise<void> | null = null;
-    const registry = new ToolRegistry();
+    const registry = new FakeToolRegistry();
     registry.register(
         defineTool({
             name: 'sweep',
@@ -179,7 +169,6 @@ function setup({
             run: async () => ({ summary: '', data: null }),
         })
     );
-    for (const tool of tools) registry.register(tool);
     if (accepted) {
         const [automation] = parseFactorySpec(yaml).automations;
         state = {
@@ -2049,45 +2038,5 @@ automations:
         const none = setup({ files: { 'ws-1': undefined as unknown as string } });
         await none.start();
         expect(await none.service.entryText('ws-1', 'sweep')).toBeNull();
-    });
-
-    it('capabilities lists what this workspace can use', async () => {
-        const t = setup({ workspaces: [bound()], tools: consolaTools({} as ConsolaToolDeps) });
-        await t.start();
-        const capabilities = t.service.capabilities('ws-1');
-        expect(capabilities.file).toEqual({ path: '/home/me/.consola/workspaces/ws-1/factory.yml', exists: true });
-        expect(capabilities.taken).toEqual(['sweep']);
-        expect(capabilities.scopes).toEqual([{ name: 'api', path: '/code/api' }]);
-        expect(capabilities.triggers.connections).toEqual([
-            expect.objectContaining({
-                id: 'github',
-                bound: true,
-                events: [
-                    expect.objectContaining({ name: 'pull_request.review_requested', itemType: 'pr' }),
-                    expect.objectContaining({ name: 'pull_request.assigned', itemType: 'pr' }),
-                ],
-            }),
-        ]);
-        const cleanup = capabilities.targets.tools.find((tool) => tool.ref === 'consola#cleanup_stale_sessions');
-        expect(cleanup?.arguments).toContainEqual({ name: 'pr_states', description: expect.stringMatching(/stale/) });
-        // Only what an automation may name.
-        expect(capabilities.targets.tools.map((tool) => tool.ref)).not.toContain('consola#delete_session');
-        expect(capabilities.targets.tools.map((tool) => tool.ref)).not.toContain('consola#list_inbox');
-        expect(capabilities.targets.actions).toEqual([
-            { name: 'Review', appliesTo: ['pr'] },
-            { name: 'Implement', appliesTo: ['issue'] },
-        ]);
-        expect(capabilities.harness).toEqual({ name: 'Claude', canRunAgents: true });
-
-        // Unbound, on a harness that cannot run agent entries.
-        const other = setup({ workspaces: [{ ...bound(), provider: undefined } as WorkspaceView], harness: CODEX });
-        await other.start();
-        const theirs = other.service.capabilities('ws-1');
-        expect(theirs.triggers.connections[0].bound).toBe(false);
-        expect(theirs.harness).toEqual({
-            name: 'Codex',
-            canRunAgents: false,
-            problem: 'Codex can’t run read-only automation sessions: Codex sessions cannot be made read-only yet',
-        });
     });
 });

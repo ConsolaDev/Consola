@@ -41,15 +41,15 @@ import { startAssistantSession } from './assistant/startSession';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
-import { AutomationService } from './automations/AutomationService';
 import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
 import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
-import { AUTOMATION_TEMPLATES } from './automations/templates';
 import type { AutomationsChange } from '../shared/automations';
 import {
+    AUTOMATION_TEMPLATES,
+    AutomationService,
     FactoryFile,
     RunHistoryFiles,
     RunStore,

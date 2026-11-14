@@ -1,6 +1,7 @@
 import { z } from 'zod/v3';
 import type { EventTrigger } from '@consola/factory-spec';
-import { fillActionPlaceholders, type InboxItemView } from '@consola/automation-engine';
+import { fillActionPlaceholders } from './support';
+import type { InboxItemView } from './views';
 
 /**
  * The connection event contract, and the one connection that implements it.

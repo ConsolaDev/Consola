@@ -26,9 +26,6 @@ export interface AgentLaunchDeps {
     launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
 }
 
-// Moved to the engine; re-exported until the runner itself moves.
-export { StartedByHandError };
-
 /**
  * `env` with git's hooks turned off for every git it reaches — including the
  * ones `gh` starts — by a command-line-level config entry that beats any

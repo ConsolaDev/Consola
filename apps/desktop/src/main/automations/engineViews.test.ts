@@ -13,13 +13,30 @@ import { CONSOLA_NAMESPACE, ToolRegistry, agentContext } from '../tools/Tool';
 import { defaultActionFor, type WorkItemAction } from '../../shared/workItemActions';
 import { substitutePlaceholders } from '../../shared/workItemPrompt';
 import { primaryScope, type Scope, type Session, type Workspace } from '../../shared/workspace';
-import { workItemKey } from '../../shared/workItems';
-import { inboxItem } from './inboxItems.test-helpers';
+import { workItemKey, type InboxItem } from '../../shared/workItems';
 import { sessionRecord, toInboxItemView, toItemSnapshot, toWorkItemRef, toWorkspaceView } from './engineViews';
 
 // Compile-time check: the registry satisfies the engine's port with no adapter.
 const _ports: ToolsPort = new ToolRegistry();
 void _ports;
+
+/** An open PR asking the person directly for a review: the desktop's own record, which `toInboxItemView` maps. */
+function inboxItem(fields: Partial<InboxItem> & { repo?: string; number?: number } = {}): InboxItem {
+    const { repo = 'acme/api', number = 123, ...rest } = fields;
+    return {
+        workItem: { provider: 'github', repo, type: 'pr', number },
+        title: 'Add retries',
+        author: 'alice',
+        roles: ['review-requested-direct'],
+        isDraft: false,
+        state: 'open',
+        reviewDecision: 'review-required',
+        commentCount: 0,
+        updatedAt: '2026-11-04T08:00:00Z',
+        url: `https://github.com/${repo}/pull/${number}`,
+        ...rest,
+    };
+}
 
 const scope = (id: string): Scope => ({ id, name: id, path: `/code/${id}`, isGitRepo: true, createdAt: 1 });
 

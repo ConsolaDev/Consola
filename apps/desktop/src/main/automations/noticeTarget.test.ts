@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
-import type { AutomationNotice } from './AutomationService';
+import type { AutomationNotice } from '@consola/automation-engine';
 import { noticeTarget } from './noticeTarget';
 
 const WORKSPACES = [

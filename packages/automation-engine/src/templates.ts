@@ -1,18 +1,8 @@
-import {
-    ASSIGNED_REVIEWS_NAME,
-    assignedReviewsEntry,
-    describeRun,
-    describeSchedule,
-    describeTriggerAsWritten,
-    firstActionFor,
-    firstScope,
-    yamlName,
-    type TemplateNeedSection,
-    type TemplatePreview,
-    type TemplateService,
-    type TemplateView,
-    type WorkspaceView,
-} from '@consola/automation-engine';
+import { describeRun, describeTriggerAsWritten } from './describeEntry';
+import { describeSchedule } from './describeSchedule';
+import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './factoryTemplates';
+import { firstActionFor, firstScope } from './support';
+import type { TemplateNeedSection, TemplatePreview, TemplateService, TemplateView, WorkspaceView } from './views';
 import { nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
 import { resolveEventSource } from './connections';
 

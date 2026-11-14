@@ -50,4 +50,17 @@ export {
     StartedByHandError,
 } from './support';
 export { ASSIGNED_REVIEWS_NAME, yamlName, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
+export {
+    AutomationService,
+    INTERRUPTED_PROMPT,
+    TICK_MS,
+    DEFAULT_MAX_CONCURRENT_AGENTS,
+    MAX_WAITING_PER_SESSION,
+    type AutomationServiceDeps,
+    type AutomationNotice,
+    type SaveEntryOptions,
+} from './AutomationService';
+export { resolveEventSource, scheduledPrompt, connectionCatalog, type EventSource, type ConnectionCatalogEntry } from './connections';
+export { describeCapabilities, type AutomationCapabilities, type CapabilitiesInput } from './capabilities';
+export { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews, type AutomationTemplate, type TemplateRequirement } from './templates';
 export * from './node';

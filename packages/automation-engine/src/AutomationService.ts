@@ -17,41 +17,14 @@ import {
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
-import {
-    advanceSeen,
-    agentToolContext,
-    ASSIGNED_REVIEWS_NAME,
-    assignedReviewsEntry,
-    CONSOLA_NAMESPACE,
-    describeError,
-    describeRun,
-    describeSchedule,
-    describeTriggerAsWritten,
-    EMPTY_FACTORY_FILE,
-    factoryTemplate,
-    firstActionFor,
-    StartedByHandError,
-    type AgentLaunchRequest,
-    type AgentRunPreview,
-    type AutomationsSnapshot,
-    type AutomationView,
-    type EngineTool,
-    type EngineToolContext,
-    type EngineToolResult,
-    type FactoryFileHandle,
-    type InboxItemView,
-    type ItemSnapshot,
-    type LaunchedSession,
-    type LoadedFactoryFile,
-    type RunListEntry,
-    type RunStore,
-    type SavedAutomation,
-    type ScopeView,
-    type SessionView,
-    type TemplateView,
-    type ToolsPort,
-    type WorkspaceView,
-} from '@consola/automation-engine';
+import { advanceSeen } from './seenRecord';
+import { agentToolContext, CONSOLA_NAMESPACE, describeError, firstActionFor, StartedByHandError } from './support';
+import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
+import { describeRun, describeTriggerAsWritten } from './describeEntry';
+import { describeSchedule } from './describeSchedule';
+import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResult, FactoryFileHandle, LaunchedSession, LoadedFactoryFile, ToolsPort } from './ports';
+import type { AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
 /**

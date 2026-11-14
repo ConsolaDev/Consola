@@ -1,5 +1,4 @@
-import type { InboxItemView, ItemRef } from '@consola/automation-engine';
-import type { InboxItem } from '../../shared/workItems';
+import type { InboxItemView, ItemRef } from './views';
 
 /** An item's key, in the format the desktop's mapper gives it (`workItemKey`): `github:acme/api:pr:123`. */
 export function itemKey(ref: ItemRef): string {
@@ -7,25 +6,21 @@ export function itemKey(ref: ItemRef): string {
 }
 
 /**
- * An open PR asking the person directly for a review, unless told otherwise.
- * It is the engine's view of the item, its `key` included, and the desktop's
- * record at once: the runner reads it as the view, and `engineViews.test.ts`
- * maps it as the record.
+ * An open PR asking the person directly for a review, unless told otherwise:
+ * the engine's view of an inbox item, its `key` derived from its final
+ * `workItem`.
  */
 export function inboxItem(
-    fields: Partial<InboxItem> & { repo?: string; number?: number } = {}
-): InboxItem & InboxItemView {
+    fields: Partial<InboxItemView> & { repo?: string; number?: number } = {}
+): InboxItemView {
     const { repo = 'acme/api', number = 123, ...rest } = fields;
-    const item: InboxItem = {
+    const item: Omit<InboxItemView, 'key'> = {
         workItem: { provider: 'github', repo, type: 'pr', number },
         title: 'Add retries',
         author: 'alice',
         roles: ['review-requested-direct'],
         isDraft: false,
         state: 'open',
-        reviewDecision: 'review-required',
-        commentCount: 0,
-        updatedAt: '2026-11-04T08:00:00Z',
         url: `https://github.com/${repo}/pull/${number}`,
         ...rest,
     };
