@@ -1,6 +1,6 @@
 import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
-import type { JsonStateFile } from '../state/JsonStateFile';
-import type { SeenRecord } from '@consola/automation-engine';
+import type { StateFile } from './ports';
+import type { SeenRecord } from './seenRecord';
 
 export interface AddedBy {
     /** The session that wrote the entry into the file. */
@@ -60,7 +60,7 @@ export class RunStore {
     private all: RunRecord[] = [];
 
     constructor(
-        private readonly file: Pick<JsonStateFile<AutomationStateFile>, 'read' | 'write'>,
+        private readonly file: StateFile<AutomationStateFile>,
         private readonly history: RunHistory
     ) {}
 

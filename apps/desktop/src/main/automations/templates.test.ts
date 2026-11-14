@@ -9,7 +9,7 @@ import type { Workspace } from '../../shared/workspace';
 import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
 import { ToolRegistry } from '../tools/Tool';
 import { AutomationService } from './AutomationService';
-import { RunStore } from './RunStore';
+import { RunStore } from '@consola/automation-engine';
 import { memoryHistory } from './runHistory.test-helpers';
 import { AUTOMATION_TEMPLATES, templateViews } from './templates';
 

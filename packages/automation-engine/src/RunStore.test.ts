@@ -109,7 +109,7 @@ describe('RunStore history', () => {
         const fs = await import('fs');
         const os = await import('os');
         const path = await import('path');
-        const { RunHistoryFiles } = await import('./RunHistoryFiles');
+        const { RunHistoryFiles } = await import('./node/RunHistoryFiles');
         const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'run-ties-'));
         try {
             const at = daysAgo(1);

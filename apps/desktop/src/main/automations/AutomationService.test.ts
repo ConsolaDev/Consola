@@ -9,7 +9,7 @@ import { AutomationService, INTERRUPTED_PROMPT, type AgentLaunchRequest, type Au
 import { EMPTY_FACTORY_FILE } from './FactoryFile';
 import { StartedByHandError } from './launchAgentRun';
 import { inboxItem } from './inboxItems.test-helpers';
-import { RunStore, type AutomationStateFile } from './RunStore';
+import { RunStore, type AutomationStateFile } from '@consola/automation-engine';
 import { memoryHistory } from './runHistory.test-helpers';
 
 function memoryFile(initial: AutomationStateFile | null = null) {

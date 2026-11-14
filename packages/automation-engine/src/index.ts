@@ -19,3 +19,6 @@ export type {
     AgentRunPreview,
     AutomationsSnapshot,
 } from './views';
+export { RunStore, RETENTION_DAYS, MAX_RUNS_PER_WORKSPACE, type RunHistory, type AddedBy, type AutomationStateFile } from './RunStore';
+export type { StateFile } from './ports';
+export * from './node';

@@ -1,5 +1,5 @@
 import type { RunRecord } from '@consola/factory-spec';
-import type { RunHistory } from './RunStore';
+import type { RunHistory } from '@consola/automation-engine';
 
 /** A `RunHistory` held in memory, recording what the store asked of it. */
 export function memoryHistory(initial: Record<string, RunRecord[]> = {}) {

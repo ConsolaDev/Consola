@@ -49,8 +49,12 @@ import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
 import { AUTOMATION_TEMPLATES } from './automations/templates';
 import type { AutomationsChange } from '../shared/automations';
-import { RunHistoryFiles } from './automations/RunHistoryFiles';
-import { RunStore, type AutomationStateFile } from './automations/RunStore';
+import {
+    RunHistoryFiles,
+    RunStore,
+    JsonStateFile as EngineStateFile,
+    type AutomationStateFile,
+} from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
 import { commit, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
@@ -924,7 +928,7 @@ export function setupIpcHandlers(): boolean {
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
         store: new RunStore(
-            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
+            new EngineStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
             new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
         ),
         registry: tools,

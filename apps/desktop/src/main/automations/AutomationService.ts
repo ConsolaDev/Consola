@@ -46,7 +46,7 @@ import {
     factoryTemplate,
     type LoadedFactoryFile,
 } from './FactoryFile';
-import type { RunStore } from './RunStore';
+import type { RunStore } from '@consola/automation-engine';
 import { StartedByHandError } from './launchAgentRun';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
