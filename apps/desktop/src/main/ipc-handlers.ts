@@ -52,7 +52,6 @@ import type { AutomationsChange } from '../shared/automations';
 import {
     RunHistoryFiles,
     RunStore,
-    JsonStateFile as EngineStateFile,
     type AutomationStateFile,
 } from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
@@ -928,7 +927,7 @@ export function setupIpcHandlers(): boolean {
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
         store: new RunStore(
-            new EngineStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
+            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
             new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
         ),
         registry: tools,
