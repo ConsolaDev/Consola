@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import type { RunRecord } from '@consola/factory-spec';
-import type { RunHistory } from '../RunStore';
+import type { RunHistory } from '../ports';
 
 /** Workspace ids are generated tokens; anything else never reaches the filesystem as a path. */
 const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;

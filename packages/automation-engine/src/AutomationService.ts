@@ -28,18 +28,19 @@ import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
 /**
- * The local runner for personal automations: one `factory.yml` per workspace
- * (`~/.consola/workspaces/<workspace-id>/factory.yml`), whose automations act
- * on that workspace and nothing else.
+ * The runner for personal automations: one `factory.yml` per workspace, whose
+ * automations act on that workspace and nothing else. The host decides where
+ * those files live and when the engine runs; the desktop is one such host.
  *
  * Trigger → target, in a mode. A target is a tool, run in-process, or an
  * agent session — one of the workspace's actions or a prompt of the
  * automation's own — started headless, read-only, as an ordinary tab the
- * person can watch, steer and resume. Triggers are a cron, a main-process
- * timer, or a connection's event: a change between two successful polls of
+ * person can watch, steer and resume. Triggers are a cron, a host timer, or
+ * a connection's event: a change between two successful polls of
  * the Inbox. Consola detects; the agent acts — nothing is spent while nothing
- * is new. Automations run only while Consola is open; what was missed while
- * it was closed fires once on the next launch, never once per occurrence. No
+ * is new. Automations run only while the host is running (on the desktop, while
+ * Consola is open); what was missed while it was stopped fires once on the
+ * next start, never once per occurrence. No
  * run ever starts another run (no workflow engine).
  *
  * Nothing a person did not approve runs unasked: `confirm` is the default; an
@@ -94,7 +95,13 @@ export interface AutomationServiceDeps {
     inboxSnapshot(workspaceId: string): ItemSnapshot | null;
     /** Fetch a workspace's Inbox now — an event automation's "Check now". */
     refreshInbox(workspaceId: string): Promise<void>;
-    /** Start an agent run's session, its first turn unattended; throws with the reason it could not. */
+    /**
+     * Start an agent run's session, its first turn unattended; throws with the reason it could not.
+     * Contract: the session it resolves with must already appear in `getWorkspaces()`
+     * (`syncWorkspaces` and `honourStop` read it from there). A launch the person beat
+     * to it must throw the engine's own `StartedByHandError`, which the runner checks
+     * with `instanceof`.
+     */
     launchAgent(request: AgentLaunchRequest): Promise<LaunchedSession>;
     /** Run `prompt` as an unattended turn in a recorded automation session; throws with the reason it could not. */
     resumeAgent(session: SessionView, prompt: string): Promise<void>;

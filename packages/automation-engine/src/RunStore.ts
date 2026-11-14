@@ -1,5 +1,5 @@
 import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
-import type { StateFile } from './ports';
+import type { RunHistory, StateFile } from './ports';
 import type { SeenRecord } from './seenRecord';
 
 export interface AddedBy {
@@ -26,16 +26,6 @@ export interface AutomationStateFile {
     runs?: RunRecord[];
 }
 
-/** Where runs live: one log per workspace, so recording a change never rewrites another workspace's. */
-export interface RunHistory {
-    /** Every workspace's runs as last written: last line per id wins. */
-    load(): Map<string, RunRecord[]>;
-    /** Persist one run's current state; `live` is the workspace's runs now, for compaction. */
-    append(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void;
-    rewrite(workspaceId: string, runs: RunRecord[]): void;
-    remove(workspaceId: string): void;
-}
-
 export const RETENTION_DAYS = 30;
 /** A ceiling so a busy workspace cannot grow without bound inside the retention window. */
 export const MAX_RUNS_PER_WORKSPACE = 1000;
@@ -47,9 +37,9 @@ type StoredState = Required<Omit<AutomationStateFile, 'runs' | 'version'>>;
 /**
  * Fire times, accepted versions and run history.
  *
- * Not on the workspace record for the same reason view memory is not: every
- * WorkspaceService write fsyncs the whole list and pushes it to every window.
- * Runs have their own per-workspace logs (`RunHistory`), so a state change
+ * Not on the workspace record, for the reason the desktop host keeps view
+ * memory off its own: a workspace-list write there fsyncs the whole list and
+ * pushes it to every window, which is absurd for a fire time. Runs have their own per-workspace logs (`RunHistory`), so a state change
  * rewrites a small file and a run change appends one line. Not fatal when
  * unreadable either — a lost history costs a quiet restart of every schedule
  * and one approval per `auto` automation, never the app.

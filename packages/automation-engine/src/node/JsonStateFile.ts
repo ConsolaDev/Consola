@@ -4,9 +4,10 @@ import * as path from 'path';
 /**
  * Raised when neither the primary file nor its backup can be parsed.
  *
- * Deliberately not recoverable into empty state: zero workspaces is
+ * Deliberately not recoverable into empty state: an empty store is
  * indistinguishable from total data loss to the person looking at it, and it
- * would silently orphan every transcript on disk.
+ * would silently orphan whatever the file indexed (on the desktop, every
+ * transcript on disk).
  */
 export class StateFileCorruptError extends Error {
   constructor(filePath: string, cause: unknown) {
@@ -25,7 +26,7 @@ export class StateFileCorruptError extends Error {
  *
  * Does not protect against a hard power loss at the rename boundary, where the
  * filesystem may revert to the pre-write state. The trade-off is appropriate for
- * a desktop application.
+ * the small stores a host keeps (the desktop's, for one).
  */
 export class JsonStateFile<T> {
   private readonly backupPath: string;
@@ -84,7 +85,7 @@ export class JsonStateFile<T> {
    * Guards the backup copy. Promoting an unreadable primary into `.bak`
    * would destroy the last good copy at exactly the moment it becomes
    * load-bearing — a corrupt primary is when the backup is the only thing
-   * standing between the user and an empty workspace list.
+   * standing between the user and an empty store.
    */
   private isReadable(candidate: string): boolean {
     try {

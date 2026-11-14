@@ -7,7 +7,9 @@ import { describe, expect, it } from 'vitest';
 /**
  * Keeps the engine portable. It runs on desktop, headless and in the cloud, so
  * no file may reach Electron, desktop code or an unlisted library, and the core
- * (everything outside `src/node/`) may not touch the machine at all.
+ * (everything outside `src/node/`) may not touch the machine at all: no I/O
+ * module, no I/O global (`process`, `fetch`, ...), no test code, and an entry
+ * point that holds only exports.
  */
 
 const PACKAGE_ROOT = path.resolve(__dirname, '..');
@@ -86,6 +88,71 @@ function importsOf(source: string): string[] {
   return specifiers;
 }
 
+/** Globals that reach the machine or the network without an import. */
+const IO_GLOBALS = new Set(['process', 'fetch', 'require', 'XMLHttpRequest', 'WebSocket']);
+
+/**
+ * The I/O globals a source file refers to, as identifier references in the
+ * syntax tree. A property name (`obj.process`, `{ process: 1 }`) is not a
+ * reference. `require(...)` and `require.resolve(...)` are imports, which
+ * `importsOf` already judges by what they load, so only a bare `require` counts.
+ */
+function ioGlobalsOf(source: string): string[] {
+  const tree = ts.createSourceFile('x.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  const found: string[] = [];
+  const isName = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (ts.isPropertyAccessExpression(parent)) return parent.name === node;
+    if (ts.isQualifiedName(parent)) return parent.right === node;
+    if (
+      ts.isPropertyAssignment(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isGetAccessorDeclaration(parent) ||
+      ts.isSetAccessorDeclaration(parent) ||
+      ts.isEnumMember(parent)
+    ) {
+      return parent.name === node;
+    }
+    return false;
+  };
+  const isRequireImport = (node: ts.Identifier): boolean => {
+    const parent = node.parent;
+    if (ts.isCallExpression(parent) && parent.expression === node) return true;
+    return ts.isPropertyAccessExpression(parent) && parent.expression === node && parent.name.text === 'resolve';
+  };
+  const visit = (node: ts.Node): void => {
+    if (ts.isIdentifier(node) && IO_GLOBALS.has(node.text) && !isName(node)) {
+      if (!(node.text === 'require' && isRequireImport(node))) found.push(node.text);
+    }
+    ts.forEachChild(node, visit);
+  };
+  visit(tree);
+  return found;
+}
+
+/** What is wrong with a file's globals; empty for tests and `src/node/`, which may touch the machine. */
+function globalProblems(file: string, source: string): string[] {
+  if (isTestFile(file) || file.startsWith(`${NODE_DIR}/`)) return [];
+  return ioGlobalsOf(source).map((name) => `${file}: core code may not reach the I/O global '${name}'`);
+}
+
+/** The entry point holds only `export … from` statements; anything else is code the build would run on import. */
+function entryProblems(file: string, source: string): string[] {
+  if (file !== ENTRY) return [];
+  const tree = ts.createSourceFile('x.ts', source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TS);
+  return tree.statements
+    .filter((statement) => !(ts.isExportDeclaration(statement) && statement.moduleSpecifier))
+    .map((statement) => `${file}: the entry point holds only exports, found '${statement.getText(tree).split('\n')[0]}'`);
+}
+
+/** Every problem with one file: its imports, its globals and, for the entry point, its shape. */
+function problemsOf(file: string, source: string): string[] {
+  return [...boundaryProblems(file, importsOf(source)), ...globalProblems(file, source), ...entryProblems(file, source)];
+}
+
 function packageName(specifier: string): string {
   const parts = specifier.split('/');
   return specifier.startsWith('@') ? parts.slice(0, 2).join('/') : parts[0];
@@ -113,6 +180,10 @@ function boundaryProblems(file: string, specifiers: string[]): string[] {
         .replace(SOURCE_EXTENSION, '');
       if (target !== SRC && !target.startsWith(`${SRC}/`)) {
         problems.push(`${file}: '${specifier}' leaves the package's src/`);
+        continue;
+      }
+      if (!test && /\.test(-helpers)?$/.test(target)) {
+        problems.push(`${file}: '${specifier}' is test code, which tsc would compile into dist`);
         continue;
       }
       if (inNode || test || file === ENTRY) continue;
@@ -256,6 +327,93 @@ describe('the checker', () => {
     { name: 'vitest in core', file: 'src/x.ts', source: esm('vitest'), problems: /vitest/ },
   ];
 
+  it.each([
+    ['a test module', 'src/x.ts', esm('./y.test')],
+    ['a test module with an extension', 'src/x.ts', esm('./y.test.ts')],
+    ['a test helper', 'src/x.ts', esm('./y.test-helpers')],
+    ['a test helper from src/node', 'src/node/x.ts', esm('../runHistory.test-helpers')],
+    ['a test helper type import', 'src/x.ts', esmType('./y.test-helpers.js')],
+    ['a test module from the entry point', 'src/index.ts', reExport('./y.test')],
+  ])('refuses non-test code importing %s', (_name, file, source) => {
+    const found = boundaryProblems(file, importsOf(source));
+    expect(found).toHaveLength(1);
+    expect(found[0]).toMatch(/test code/);
+  });
+
+  it.each([
+    ['a test importing a test helper', 'src/x.test.ts', esm('./y.test-helpers')],
+    ['a helper importing a test module', 'src/x.test-helpers.ts', esm('./y.test')],
+    ['a module merely named like a test', 'src/x.ts', esm('./contest')],
+    ['a sibling with test in the middle of its name', 'src/x.ts', esm('./latest-helpers')],
+  ])('allows %s', (_name, file, source) => {
+    expect(boundaryProblems(file, importsOf(source))).toEqual([]);
+  });
+
+  it.each([
+    ['process.env', 'const a = process.env.HOME;'],
+    ['process.cwd()', 'const a = process.cwd();'],
+    ['process.stdout', 'process.stdout.write("x");'],
+    ['fetch', 'const r = await fetch("https://example.com");'],
+    ['a bare require', 'const r = require;'],
+    ['a require passed on', 'load(require);'],
+    ['XMLHttpRequest', 'const x = new XMLHttpRequest();'],
+    ['WebSocket', 'const s = new WebSocket("ws://x");'],
+    ['process in a type query', 'let p: typeof process;'],
+    ['a shorthand property', 'const o = { process };'],
+    ['globalThis-free process in a template', 'const a = `${process.pid}`;'],
+  ])('refuses %s in core', (_name, source) => {
+    const found = globalProblems('src/x.ts', source);
+    expect(found.length).toBeGreaterThan(0);
+    expect(found[0]).toMatch(/I\/O global/);
+  });
+
+  it.each([
+    ['a property named process', 'const a = obj.process;'],
+    ['a property named fetch', 'const a = client.fetch(1);'],
+    ['an object key named process', 'const a = { process: 1, fetch: 2 };'],
+    ['a method named fetch', 'class A { fetch() {} }'],
+    ['an interface member named process', 'interface A { process(): void; fetch: number }'],
+    ['a qualified type name', 'let a: Foo.WebSocket;'],
+    ['require called as an import', "const a = require('zod');"],
+    ['require.resolve as an import', "const a = require.resolve('zod');"],
+    ['the word in a string or comment', "// process.env\nconst a = 'fetch(require)';"],
+  ])('allows %s in core', (_name, source) => {
+    expect(globalProblems('src/x.ts', source)).toEqual([]);
+  });
+
+  it.each([
+    ['src/node/x.ts', 'const a = process.env.HOME;'],
+    ['src/node/x.ts', 'const r = await fetch("https://example.com");'],
+    ['src/x.test.ts', 'process.env.X = "1";'],
+    ['src/x.test-helpers.ts', 'const a = process.cwd();'],
+  ])('allows I/O globals in %s', (file, source) => {
+    expect(globalProblems(file, source)).toEqual([]);
+  });
+
+  it.each([
+    ['code', "export * from './a';\nconst x = 1;"],
+    ['a local export', 'export const x = 1;'],
+    ['a plain import', "import { a } from './a';\nexport * from './b';"],
+    ['an export without a source', 'const a = 1;\nexport { a };'],
+    ['a default export', 'export default {};'],
+    ['a call', "export * from './a';\nconsole.log(1);"],
+  ])('refuses the entry point holding %s', (_name, source) => {
+    expect(entryProblems(ENTRY, source).length).toBeGreaterThan(0);
+  });
+
+  it.each([
+    ['star exports', "export * from './a';"],
+    ['named and type exports', "export { a, type B } from './a';\nexport type { C } from './c';"],
+    ['namespace re-exports', "export * as ns from './a';"],
+    ['only comments around exports', "/** doc */\nexport * from './a';\n// done"],
+  ])('allows the entry point holding %s', (_name, source) => {
+    expect(entryProblems(ENTRY, source)).toEqual([]);
+  });
+
+  it('judges only the entry point by its shape', () => {
+    expect(entryProblems('src/x.ts', 'const a = 1;')).toEqual([]);
+  });
+
   it.each(cases)('$name', ({ file, source, problems }) => {
     const found = boundaryProblems(file, importsOf(source));
     if (problems === null) {
@@ -277,7 +435,7 @@ describe('the package', () => {
 
   it('keeps every file inside the boundary', () => {
     const problems = files(SRC).flatMap((file) =>
-      boundaryProblems(file, importsOf(fs.readFileSync(path.join(PACKAGE_ROOT, file), 'utf8'))),
+      problemsOf(file, fs.readFileSync(path.join(PACKAGE_ROOT, file), 'utf8')),
     );
     expect(problems).toEqual([]);
   });

@@ -176,7 +176,7 @@ function stopElectron() {
 
 async function restart() {
     restarting = true;
-    log('Main process rebuilt — restarting Electron');
+    log('Main process, preload or a workspace package rebuilt — restarting Electron');
     await stopElectron();
     if (shuttingDown) return;
     restarting = false;
@@ -247,7 +247,7 @@ async function main() {
     await waitForEntry();
     startElectron();
     watchBuildOutput();
-    log('Watching dist/main and dist/preload for rebuilds');
+    log('Watching dist/main, dist/preload and the factory-spec and automation-engine packages\' dist for rebuilds');
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {

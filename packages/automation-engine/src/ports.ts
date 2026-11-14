@@ -1,4 +1,8 @@
-import type { FactorySpecParseResult } from '@consola/factory-spec';
+/**
+ * What a host supplies to the engine. The host's full contract is this file
+ * plus `AutomationServiceDeps` in `AutomationService.ts`.
+ */
+import type { FactorySpecParseResult, RunRecord } from '@consola/factory-spec';
 import type { ItemRef, SessionView } from './views';
 
 /** One persisted JSON document, read and written whole. The engine's stores take this; `node/JsonStateFile` is the disk-backed one. */
@@ -7,9 +11,20 @@ export interface StateFile<T> {
     write(value: T): void;
 }
 
+/** What reading a workspace's factory file yields: whether it exists, and its parse. */
 export interface LoadedFactoryFile {
     exists: boolean;
     spec: FactorySpecParseResult;
+}
+
+/** Where runs live: one log per workspace, so recording a change never rewrites another workspace's. */
+export interface RunHistory {
+    /** Every workspace's runs as last written: last line per id wins. */
+    load(): Map<string, RunRecord[]>;
+    /** Persist one run's current state; `live` is the workspace's runs now, for compaction. */
+    append(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void;
+    rewrite(workspaceId: string, runs: RunRecord[]): void;
+    remove(workspaceId: string): void;
 }
 
 /** One workspace's spec file. */
@@ -92,4 +107,9 @@ export interface AgentLaunchRequest {
     scopeId?: string;
 }
 
+/**
+ * The session `launchAgent` resolves with. Contract: it must already appear in
+ * the host's `getWorkspaces()` when it resolves, and a launch the person beat
+ * to it must throw `StartedByHandError`.
+ */
 export type LaunchedSession = Pick<SessionView, 'id' | 'name' | 'harnessId' | 'claudeSessionId' | 'cwd' | 'scopeId'>;

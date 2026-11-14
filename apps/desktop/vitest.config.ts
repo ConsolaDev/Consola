@@ -5,8 +5,8 @@ import { defineConfig } from 'vitest/config';
 // src/renderer, which would make main-process and shared tests invisible.
 export default defineConfig({
   resolve: {
-    // Tests read the workspace package from source, so `pnpm test` works on a
-    // fresh clone without building it first. The app itself loads its dist.
+    // Tests read the workspace packages from source, so `pnpm test` works on a
+    // fresh clone without building them first. The app itself loads its dist.
     alias: {
       '@consola/automation-engine': path.resolve(__dirname, '../../packages/automation-engine/src/index.ts'),
       '@consola/factory-spec': path.resolve(__dirname, '../../packages/factory-spec/src/index.ts'),

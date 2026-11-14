@@ -15,6 +15,8 @@ pnpm run dev              # Full dev environment (Vite HMR + tsc --watch + Elect
 pnpm run build            # Production build (all processes)
 pnpm start                # Run production build
 pnpm run test:e2e         # Run Playwright E2E tests
+pnpm test                 # Every package's tests via Turborepo (the website's Playwright suite included)
+pnpm --filter @consola/automation-engine test   # Just the engine's tests
 ```
 
 Individual builds:
@@ -36,7 +38,9 @@ front. E2E runs themselves are already hidden and unfocusable
 (`src/main/test-mode.ts`); set `CONSOLA_E2E_HEADED=1` to watch them.
 
 All commands above run from the repository root. The pnpm workspace contains
-`apps/desktop` (`consola`) and `apps/website` (`@consola/website`). Turborepo
+`apps/desktop` (`consola`), `apps/website` (`@consola/website`),
+`packages/factory-spec` (`@consola/factory-spec`, MIT) and
+`packages/automation-engine` (`@consola/automation-engine`). Turborepo
 orchestrates builds, tests, and typechecking. Paths below beginning with `src/`,
 `scripts/`, or `dist/` are relative to `apps/desktop`. Use
 `pnpm --filter consola exec <tool>` for app-specific tools.
@@ -59,7 +63,9 @@ The automation runner is its own package, `packages/automation-engine`
 run on the desktop, a headless runner and the cloud. So it imports no
 `electron`, `node-pty`, `@xterm/*` or anything under `apps/`, and its
 `boundary.test.ts` fails on any such import. Its core
-(`packages/automation-engine/src/`) does no I/O; Node adapters (state files,
+(`packages/automation-engine/src/`) does no I/O: it imports no I/O module,
+reaches no `process`, `fetch`, `require`, `XMLHttpRequest` or `WebSocket`
+global, imports no test code, and its `index.ts` holds only exports. Node adapters (state files,
 run history, the factory file on disk) live in its `src/node/`, the one place
 allowed to touch the machine. The desktop is one host: it implements the
 engine's ports, and `src/main/automations/engineViews.ts` maps its records
