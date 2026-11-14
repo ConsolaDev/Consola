@@ -139,3 +139,70 @@ export interface AutomationsSnapshot {
     /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
     templates: TemplateView[];
 }
+
+/** A PR or issue, named the way the engine needs it: the provider is an opaque id here. */
+export interface ItemRef {
+    provider: string;
+    /** "owner/name". */
+    repo: string;
+    type: 'pr' | 'issue';
+    number: number;
+}
+
+/** One inbox item as the runner reads it; `key` is the host's identity for the item. */
+export interface InboxItemView {
+    workItem: ItemRef;
+    key: string;
+    title: string;
+    author: string;
+    url: string;
+    roles: string[];
+    isDraft: boolean;
+    state: string;
+}
+
+export interface ItemSnapshot {
+    workspaceId: string;
+    items: InboxItemView[];
+    /** Epoch ms of the last successful fetch; 0 when nothing ever succeeded. */
+    fetchedAt: number;
+    error?: string;
+}
+
+/** A workspace action, as an automation names it. */
+export interface ActionView {
+    name: string;
+    appliesTo: Array<'pr' | 'issue'>;
+    prompt: string;
+    groupId?: string;
+}
+
+export interface ScopeView {
+    id: string;
+    name: string;
+    path: string;
+}
+
+export interface SessionView {
+    id: string;
+    workspaceId: string;
+    name: string;
+    scopeId: string;
+    harnessId: string;
+    claudeSessionId: string;
+    cwd?: string;
+    createdAt: number;
+    automation?: { name: string; runId: string };
+    /** The host's key for the item the session is about. */
+    workItemKey?: string;
+    workItemAction?: string;
+    toolPolicy?: 'read-only';
+}
+
+export interface WorkspaceView {
+    id: string;
+    provider?: { id: string; accountLogin: string; org?: string };
+    actions: ActionView[];
+    scopes: ScopeView[];
+    sessions: SessionView[];
+}

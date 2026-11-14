@@ -18,8 +18,36 @@ export type {
     RunListEntry,
     AgentRunPreview,
     AutomationsSnapshot,
+    ItemRef,
+    InboxItemView,
+    ItemSnapshot,
+    ActionView,
+    ScopeView,
+    SessionView,
+    WorkspaceView,
 } from './views';
 export { RunStore, RETENTION_DAYS, MAX_RUNS_PER_WORKSPACE, type RunHistory, type AddedBy, type AutomationStateFile } from './RunStore';
-export type { StateFile, LoadedFactoryFile, FactoryFileHandle } from './ports';
+export type {
+    StateFile,
+    LoadedFactoryFile,
+    FactoryFileHandle,
+    EngineToolCaller,
+    EngineToolScope,
+    EngineToolContext,
+    EngineToolResult,
+    EngineTool,
+    ToolsPort,
+    AgentLaunchRequest,
+    LaunchedSession,
+} from './ports';
+export {
+    describeError,
+    agentToolContext,
+    firstActionFor,
+    firstScope,
+    fillActionPlaceholders,
+    CONSOLA_NAMESPACE,
+    StartedByHandError,
+} from './support';
 export { ASSIGNED_REVIEWS_NAME, yamlName, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 export * from './node';

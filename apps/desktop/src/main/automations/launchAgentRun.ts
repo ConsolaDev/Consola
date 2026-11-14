@@ -1,3 +1,4 @@
+import { StartedByHandError } from '@consola/automation-engine';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitProviderId } from '../../shared/providers';
@@ -25,16 +26,8 @@ export interface AgentLaunchDeps {
     launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
 }
 
-/**
- * The person started this item's action themselves while the automation was
- * on its way: their session is the review, and the automation's run is moot.
- */
-export class StartedByHandError extends Error {
-    constructor(readonly sessionName: string) {
-        super(`Already started by hand: “${sessionName}”.`);
-        this.name = 'StartedByHandError';
-    }
-}
+// Moved to the engine; re-exported until the runner itself moves.
+export { StartedByHandError };
 
 /**
  * `env` with git's hooks turned off for every git it reaches — including the
