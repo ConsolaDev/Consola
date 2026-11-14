@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { workspaceDataDir } from '../automations/FactoryFile';
+import { workspaceDataDir } from '@consola/automation-engine';
 import { renderAssistantBrief } from './assistantBrief';
 
 /** The Assistant's own folder, next to the workspace's `factory.yml`. Not a repository; no session works here. */

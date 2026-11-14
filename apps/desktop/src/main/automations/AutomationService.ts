@@ -15,7 +15,6 @@ import {
     type RunStatus,
     type RunTrigger,
 } from '@consola/factory-spec';
-import { advanceSeen, describeRun, describeSchedule, describeTriggerAsWritten } from '@consola/automation-engine';
 import type {
     AgentRunPreview,
     AutomationsSnapshot,
@@ -40,13 +39,18 @@ import {
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
 import {
+    advanceSeen,
     ASSIGNED_REVIEWS_NAME,
     assignedReviewsEntry,
+    describeRun,
+    describeSchedule,
+    describeTriggerAsWritten,
     EMPTY_FACTORY_FILE,
     factoryTemplate,
+    type FactoryFileHandle,
     type LoadedFactoryFile,
-} from './FactoryFile';
-import type { RunStore } from '@consola/automation-engine';
+    type RunStore,
+} from '@consola/automation-engine';
 import { StartedByHandError } from './launchAgentRun';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
@@ -93,22 +97,6 @@ export interface AutomationNotice {
     sessionId?: string;
     /** The agent session that asked for a run waiting for approval, when one did. */
     actorId?: string;
-}
-
-/** One workspace's spec file. */
-export interface FactoryFileHandle {
-    readonly filePath: string;
-    load(): Promise<LoadedFactoryFile>;
-    watch(onChange: () => void): void;
-    unwatch(): void;
-    /** Create the file from `template` when it is missing; returns its path. */
-    ensureExists(template: string): Promise<string>;
-    /** Add one automation (a `- name: …` item) at the end of the list, keeping everything else. */
-    appendAutomation(entryYaml: string): Promise<void>;
-    /** Swap the automation called `name` for `entryYaml`, in place, keeping every byte outside it. */
-    replaceAutomation(name: string, entryYaml: string): Promise<void>;
-    /** The file as written, or null when there is none yet. */
-    readText(): Promise<string | null>;
 }
 
 /** How `saveEntry` writes: whether it may replace an entry of the same name, and the session that asked. */

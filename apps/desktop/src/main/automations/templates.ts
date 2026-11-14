@@ -1,4 +1,11 @@
-import { describeRun, describeSchedule, describeTriggerAsWritten } from '@consola/automation-engine';
+import {
+    ASSIGNED_REVIEWS_NAME,
+    assignedReviewsEntry,
+    describeRun,
+    describeSchedule,
+    describeTriggerAsWritten,
+    yamlName,
+} from '@consola/automation-engine';
 import { nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
 import type {
     TemplateNeedSection,
@@ -9,7 +16,6 @@ import type {
 import { defaultActionFor } from '../../shared/workItemActions';
 import { primaryScope, type Workspace } from '../../shared/workspace';
 import { resolveEventSource } from './connections';
-import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './FactoryFile';
 
 /**
  * Ready-made automations Consola ships. "Add" writes one into factory.yml as

@@ -43,15 +43,16 @@ import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
 import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
-import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
 import { AUTOMATION_TEMPLATES } from './automations/templates';
 import type { AutomationsChange } from '../shared/automations';
 import {
+    FactoryFile,
     RunHistoryFiles,
     RunStore,
+    workspaceFactoryPath,
     type AutomationStateFile,
 } from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';

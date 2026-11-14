@@ -20,5 +20,6 @@ export type {
     AutomationsSnapshot,
 } from './views';
 export { RunStore, RETENTION_DAYS, MAX_RUNS_PER_WORKSPACE, type RunHistory, type AddedBy, type AutomationStateFile } from './RunStore';
-export type { StateFile } from './ports';
+export type { StateFile, LoadedFactoryFile, FactoryFileHandle } from './ports';
+export { ASSIGNED_REVIEWS_NAME, yamlName, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 export * from './node';
