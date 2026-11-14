@@ -5,36 +5,27 @@ import {
     parseFactorySpec,
     replaceAutomationEntry,
 } from '@consola/factory-spec';
-import type { Workspace } from '../../shared/workspace';
 import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
 import { ToolRegistry } from '../tools/Tool';
 import { AutomationService } from './AutomationService';
-import { RunStore } from '@consola/automation-engine';
+import { RunStore, type WorkspaceView } from '@consola/automation-engine';
 import { memoryHistory } from './runHistory.test-helpers';
 import { AUTOMATION_TEMPLATES, templateViews } from './templates';
 
 /** A workspace with everything the templates say they need, unless told otherwise. */
-function workspace(overrides: Partial<Workspace> = {}): Workspace {
+function workspace(overrides: Partial<WorkspaceView> = {}): WorkspaceView {
     return {
         id: 'ws-1',
-        name: 'Sprocket',
-        defaultHarnessId: 'claude',
         provider: { id: 'github', accountLogin: 'alice', org: 'sprocket' },
-        actions: [
-            { id: 'a-review', name: 'Review', appliesTo: ['pr'], prompt: 'Review the changes and summarise your findings.' },
-        ],
-        sectionDefaults: {},
-        scopes: [{ id: 'scope-portal', name: 'catalog-portal', path: '/code/catalog-portal', isGitRepo: true, createdAt: 0 }],
-        groups: [],
+        actions: [{ name: 'Review', appliesTo: ['pr'], prompt: 'Review the changes and summarise your findings.' }],
+        scopes: [{ id: 'scope-portal', name: 'catalog-portal', path: '/code/catalog-portal' }],
         sessions: [],
-        createdAt: 0,
-        updatedAt: 0,
         ...overrides,
     };
 }
 
 /** The runner over one in-memory factory.yml, with Consola's real tools. */
-async function runner(owner: Workspace, initial: string | null = null) {
+async function runner(owner: WorkspaceView, initial: string | null = null) {
     let text = initial;
     const registry = new ToolRegistry();
     for (const tool of consolaTools({} as ConsolaToolDeps)) registry.register(tool);
@@ -80,7 +71,7 @@ async function runner(owner: Workspace, initial: string | null = null) {
     return { service, text: () => text };
 }
 
-const view = (owner: Workspace, id: string, text = 'version: 1\nautomations: []\n') =>
+const view = (owner: WorkspaceView, id: string, text = 'version: 1\nautomations: []\n') =>
     templateViews(owner, parseFactorySpec(text).automations).find((candidate) => candidate.id === id)!;
 
 describe('templates', () => {

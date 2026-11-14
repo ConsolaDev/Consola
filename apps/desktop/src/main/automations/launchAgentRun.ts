@@ -1,4 +1,4 @@
-import { StartedByHandError } from '@consola/automation-engine';
+import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitProviderId } from '../../shared/providers';
@@ -8,7 +8,7 @@ import { generateSessionInstanceId, type Session, type Workspace } from '../../s
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { chainWorktreeStep, itemActionLaunchKey, readyGroup, scopeIdForPath } from '../providers/launchWorkItem';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import type { AgentLaunchRequest } from './AutomationService';
+import { toWorkItemRef } from './engineViews';
 
 export interface AgentLaunchDeps {
     getWorkspace(id: string): Workspace | undefined;
@@ -166,7 +166,8 @@ export async function launchAgentRun(deps: AgentLaunchDeps, request: AgentLaunch
         return deps.launchSession(workspace.id, { ...common, name: request.run.automation, scopeId: scope.id });
     }
 
-    const { workItem, title, label } = request.item;
+    const { title, label } = request.item;
+    const workItem = toWorkItemRef(request.item.workItem);
     if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
     // Checked here too, so an automation keeps its own wording: the shared
     // step's message is not about automatic runs.

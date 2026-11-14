@@ -1,14 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod/v3';
 import { appendAutomationEntry, automationVersion, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
-import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
-import type { Session, Workspace } from '../../shared/workspace';
 import { consolaTools, type ConsolaToolDeps } from '../tools/consolaTools';
 import { defineTool, ToolRegistry, type ToolContext, type ToolDefinition } from '../tools/Tool';
-import { AutomationService, INTERRUPTED_PROMPT, type AgentLaunchRequest, type AutomationNotice } from './AutomationService';
-import { StartedByHandError } from './launchAgentRun';
-import { inboxItem } from './inboxItems.test-helpers';
-import { EMPTY_FACTORY_FILE, RunStore, type AutomationStateFile } from '@consola/automation-engine';
+import { AutomationService, INTERRUPTED_PROMPT, type AutomationNotice } from './AutomationService';
+import { inboxItem, itemKey } from './inboxItems.test-helpers';
+import {
+    EMPTY_FACTORY_FILE,
+    RunStore,
+    StartedByHandError,
+    type AgentLaunchRequest,
+    type AutomationStateFile,
+    type InboxItemView,
+    type ItemSnapshot,
+    type SessionView,
+    type WorkspaceView,
+} from '@consola/automation-engine';
 import { memoryHistory } from './runHistory.test-helpers';
 
 function memoryFile(initial: AutomationStateFile | null = null) {
@@ -49,20 +56,20 @@ interface Setup {
     runFails?: boolean;
     /** Pretend a person already approved the file's `auto` entry at this version. */
     accepted?: boolean | { body: string };
-    workspaces?: Workspace[];
+    workspaces?: WorkspaceView[];
     /** Automation sessions that may work at once. */
     cap?: number;
     /** The default harness, as the agent check sees it. */
     harness?: { name: string; problem: string | null };
     /** Whether a running turn could be stopped. */
-    stopAgent?: (session: Session, reason: string) => boolean;
+    stopAgent?: (session: SessionView, reason: string) => boolean;
     /** More tools to register beside the fakes. */
     tools?: ToolDefinition[];
 }
 
 /** What the fake main side recorded and decides for agent runs. */
 interface AgentWorld {
-    inbox: Map<string, InboxSnapshot>;
+    inbox: Map<string, ItemSnapshot>;
     launches: AgentLaunchRequest[];
     refreshes: string[];
     /** Sessions a pane has a live terminal for: a person opened them. */
@@ -102,7 +109,7 @@ function setup({
     actionable = 2,
     runFails = false,
     accepted = false,
-    workspaces = [{ id: 'ws-1', name: 'Acme', sessions: [], scopes: [] } as unknown as Workspace],
+    workspaces = [{ id: 'ws-1', name: 'Acme', sessions: [], scopes: [] } as unknown as WorkspaceView],
     files = {},
     cap,
     harness = { name: 'Claude', problem: null },
@@ -230,7 +237,7 @@ function setup({
             if (world.launchThrows) throw world.launchThrows;
             world.launches.push(request);
             const workspace = workspaces.find((candidate) => candidate.id === request.workspaceId)!;
-            const session = {
+            const session: SessionView = {
                 id: `session-${world.launches.length}`,
                 name: request.item?.title ?? request.run.automation,
                 workspaceId: request.workspaceId,
@@ -240,9 +247,9 @@ function setup({
                 claudeSessionId: `claude-${world.launches.length}`,
                 scopeId: 'scope-api',
                 ...(world.inScopeFolder ? {} : { cwd: request.scopeId ? '/code/api' : '/code/worktrees/pr' }),
-                ...(request.item ? { workItem: request.item.workItem, workItemAction: request.item.label } : {}),
+                ...(request.item ? { workItemKey: itemKey(request.item.workItem), workItemAction: request.item.label } : {}),
                 createdAt: clock.getTime(),
-            } as unknown as Session;
+            };
             workspace.sessions.push(session);
             return session;
         },
@@ -269,10 +276,10 @@ function setup({
         trigger: async (workspaceId: string, name: string, actor?: { sessionId?: string }) =>
             (await service.trigger(workspaceId, name, actor))!,
         /** A successful Inbox fetch of `items`, as main hands it over. */
-        async poll(items: InboxItem[], workspaceId = 'ws-1', error?: string) {
+        async poll(items: InboxItemView[], workspaceId = 'ws-1', error?: string) {
             const previous = world.inbox.get(workspaceId);
             // A failed fetch carries the last good list forward, as InboxService does.
-            const snapshot: InboxSnapshot = error
+            const snapshot: ItemSnapshot = error
                 ? { workspaceId, items: previous?.items ?? [], fetchedAt: previous?.fetchedAt ?? 0, error }
                 : { workspaceId, items, fetchedAt: clock.getTime() };
             world.inbox.set(workspaceId, snapshot);
@@ -317,7 +324,7 @@ describe('an agent’s destructive call', () => {
                 { id: 's-2', name: 'old' },
             ],
             scopes: [],
-        } as unknown as Workspace,
+        } as unknown as WorkspaceView,
     ];
     const OWN_WORKSPACE = { workspaceIds: ['ws-1'], excludeSessionIds: ['s-1'] };
 
@@ -671,7 +678,7 @@ describe('one file per workspace', () => {
         [
             { id: 'ws-1', name: 'Acme', sessions: [], scopes: [] },
             { id: 'ws-2', name: 'Globex', sessions: [], scopes: [] },
-        ] as unknown as Workspace[];
+        ] as unknown as WorkspaceView[];
 
     it('runs each workspace’s own automations on that workspace alone', async () => {
         const t = setup({ workspaces: pair(), yaml: entry(''), files: { 'ws-2': entry('    with: { level: 7 }\n') } });
@@ -703,7 +710,7 @@ describe('one file per workspace', () => {
         const waiting = await t.trigger('ws-2', 'sweep').catch(() => null);
         expect(waiting).toBeNull(); // ws-2 has no file: nothing to run.
 
-        workspaces.push({ id: 'ws-3', name: 'Initech', sessions: [], scopes: [] } as unknown as Workspace);
+        workspaces.push({ id: 'ws-3', name: 'Initech', sessions: [], scopes: [] } as unknown as WorkspaceView);
         await t.service.syncWorkspaces();
         expect(t.watched).toEqual(new Set(['ws-1', 'ws-2', 'ws-3']));
         const pending = await t.trigger('ws-3', 'sweep');
@@ -791,19 +798,17 @@ describe('RunStore', () => {
 const REVIEW_BODY = 'Review the changes and summarise your findings before writing any review comments.';
 
 /** A workspace bound to GitHub with the default Review action and one scope. */
-function bound(sessions: Session[] = [], prompt = REVIEW_BODY): Workspace {
+function bound(sessions: SessionView[] = [], prompt = REVIEW_BODY): WorkspaceView {
     return {
         id: 'ws-1',
-        name: 'Acme',
         provider: { id: 'github', accountLogin: 'me' },
         actions: [
-            { id: 'a-review', name: 'Review', appliesTo: ['pr'], prompt },
-            { id: 'a-implement', name: 'Implement', appliesTo: ['issue'], prompt: 'Plan it.' },
+            { name: 'Review', appliesTo: ['pr'], prompt },
+            { name: 'Implement', appliesTo: ['issue'], prompt: 'Plan it.' },
         ],
-        scopes: [{ id: 'scope-api', name: 'api', path: '/code/api', isGitRepo: true, createdAt: 0 }],
-        groups: [],
+        scopes: [{ id: 'scope-api', name: 'api', path: '/code/api' }],
         sessions,
-    } as unknown as Workspace;
+    };
 }
 
 const review = (fields = '    mode: auto\n') => `version: 1
@@ -1002,10 +1007,10 @@ describe('event runs', () => {
         workspaces[0].sessions.push({
             id: 'by-hand',
             name: 'PR 1',
-            workItem: { provider: 'github', repo: 'acme/api', type: 'pr', number: 1 },
+            workItemKey: 'github:acme/api:pr:1',
             workItemAction: 'Review',
             createdAt: new Date(2026, 10, 4, 9, 1).getTime(),
-        } as unknown as Session);
+        } as unknown as SessionView);
         t.setClock(new Date(2026, 10, 4, 9, 3));
         await t.poll([pr(1)]);
         expect(t.store.runs()).toMatchObject([{ status: 'rejected', summary: 'Already started by hand: “PR 1”.' }]);
@@ -1119,9 +1124,9 @@ describe('the unattended turn', () => {
             name: 'PR 7',
             automation: { name: 'review-requests', runId: 'run-7' },
             toolPolicy: 'read-only',
-            workItem: { provider: 'github', repo: 'acme/api', type: 'pr', number: 7 },
+            workItemKey: 'github:acme/api:pr:7',
             workItemAction: 'Review',
-        } as unknown as Session;
+        } as unknown as SessionView;
         const workspaces = [bound(sessionExists ? [session] : [])];
         const run = {
             id: 'run-7',
@@ -1356,11 +1361,11 @@ describe('automatic reviews, on by default', () => {
         expect(own.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
 
         // Nothing to suggest without a pull request action, or without an account.
-        const noAction = setup({ yaml: sweeping(), workspaces: [{ ...bound(), actions: [] } as Workspace] });
+        const noAction = setup({ yaml: sweeping(), workspaces: [{ ...bound(), actions: [] } as WorkspaceView] });
         await noAction.start();
         expect(noAction.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
         await expect(noAction.service.addAssignedReviews('ws-1')).rejects.toThrow('Add an action for pull requests first.');
-        const unbound = setup({ yaml: sweeping(), workspaces: [{ ...bound(), provider: undefined } as Workspace] });
+        const unbound = setup({ yaml: sweeping(), workspaces: [{ ...bound(), provider: undefined } as WorkspaceView] });
         await unbound.start();
         expect(unbound.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
     });
@@ -1407,7 +1412,7 @@ describe('the seen record', () => {
         await t.start();
         await t.poll([pr(1)]);
         // Bound to another org: everything already waiting there is not new.
-        workspaces[0] = { ...workspaces[0], provider: { id: 'github', accountLogin: 'me', org: 'globex' } } as Workspace;
+        workspaces[0] = { ...workspaces[0], provider: { id: 'github', accountLogin: 'me', org: 'globex' } } as WorkspaceView;
         await t.service.syncWorkspaces();
         await t.poll([pr(1), pr(2), pr(3)]);
         expect(t.store.runs()).toEqual([]);
@@ -1474,8 +1479,8 @@ describe('agent run problems', () => {
     const one = (fields: string) => `version: 1\nautomations:\n  - name: a\n${fields}`;
 
     it('names what is missing, and never starts anything for it', async () => {
-        const unbound = { ...bound(), provider: undefined } as unknown as Workspace;
-        const cases: Array<[string, Workspace, RegExp]> = [
+        const unbound = { ...bound(), provider: undefined } as unknown as WorkspaceView;
+        const cases: Array<[string, WorkspaceView, RegExp]> = [
             ['    on: { github: pull_request.review_requested }\n    run: { action: Triage }\n', bound(), /^no action named Triage in this workspace$/],
             ['    on: { github: pull_request.review_requested }\n    run: { action: Implement }\n', bound(), /does not apply to pull requests/],
             ['    on: { github: pull_request.review_requested }\n    run: { action: Review }\n', unbound, /no github account bound/],
@@ -1748,7 +1753,7 @@ automations:
     it('a run waiting for approval keeps its result in the list, and a request is kind request', async () => {
         const t = setup({
             yaml: entry('    mode: confirm\n'),
-            workspaces: [{ id: 'ws-1', name: 'Acme', sessions: [{ id: 's-1', name: 'worker' }, { id: 's-2', name: 'old' }], scopes: [] } as unknown as Workspace],
+            workspaces: [{ id: 'ws-1', name: 'Acme', sessions: [{ id: 's-1', name: 'worker' }, { id: 's-2', name: 'old' }], scopes: [] } as unknown as WorkspaceView],
         });
         await t.start();
         const waiting = await t.trigger('ws-1', 'sweep');
@@ -2075,7 +2080,7 @@ automations:
         expect(capabilities.harness).toEqual({ name: 'Claude', canRunAgents: true });
 
         // Unbound, on a harness that cannot run agent entries.
-        const other = setup({ workspaces: [{ ...bound(), provider: undefined } as Workspace], harness: CODEX });
+        const other = setup({ workspaces: [{ ...bound(), provider: undefined } as WorkspaceView], harness: CODEX });
         await other.start();
         const theirs = other.service.capabilities('ws-1');
         expect(theirs.triggers.connections[0].bound).toBe(false);

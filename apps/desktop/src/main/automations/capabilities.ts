@@ -1,5 +1,5 @@
+import { CONSOLA_NAMESPACE, type EngineTool } from '@consola/automation-engine';
 import type { AutomationMode } from '@consola/factory-spec';
-import { CONSOLA_NAMESPACE, type ToolDefinition } from '../tools/Tool';
 import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
 
 /**
@@ -38,7 +38,7 @@ export interface CapabilitiesInput {
     filePath: string;
     fileExists: boolean;
     /** The registry's automatable tools. */
-    tools: Array<Pick<ToolDefinition, 'name' | 'description' | 'input'>>;
+    tools: Array<Pick<EngineTool, 'name' | 'description' | 'input'>>;
     actions: Array<{ name: string; appliesTo: Array<'pr' | 'issue'> }>;
     scopes: Array<{ name: string; path: string }>;
     taken: string[];

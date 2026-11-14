@@ -42,6 +42,7 @@ import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
+import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
 import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
@@ -533,7 +534,7 @@ export function setupIpcHandlers(): boolean {
             // The event source: what changed since the last good fetch fires
             // event automations. The poll is the Inbox's own — checking
             // costs no tokens, and no agent ever polls.
-            automationService?.observeInbox(snapshot);
+            automationService?.observeInbox(toItemSnapshot(snapshot));
         },
     });
     const details = new WorkItemDetailService({
@@ -925,6 +926,11 @@ export function setupIpcHandlers(): boolean {
         watch: (assistantSessionId, targetSessionId) => assistantActivity.watch(assistantSessionId, targetSessionId),
     });
 
+    // The runner names a session by its view; its terminal is keyed by the record's instance id.
+    const automationTerminal = (sessionId: string) => {
+        const record = sessionRecord(workspaces.getAll(), sessionId);
+        return record ? manager.get(record.instanceId) : undefined;
+    };
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
         store: new RunStore(
@@ -932,7 +938,7 @@ export function setupIpcHandlers(): boolean {
             new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
         ),
         registry: tools,
-        getWorkspaces: () => workspaces.getAll(),
+        getWorkspaces: () => workspaces.getAll().map(toWorkspaceView),
         now: () => new Date(),
         newId: () => randomUUID(),
         notify: (notice) => {
@@ -961,7 +967,10 @@ export function setupIpcHandlers(): boolean {
             timer.unref?.();
             return () => clearInterval(timer);
         },
-        inboxSnapshot: (workspaceId) => inbox.getSnapshot(workspaceId),
+        inboxSnapshot: (workspaceId) => {
+            const snapshot = inbox.getSnapshot(workspaceId);
+            return snapshot ? toItemSnapshot(snapshot) : null;
+        },
         refreshInbox: (workspaceId) => inbox.refresh(workspaceId),
         launchAgent: (request) =>
             launchAgentRun(
@@ -975,7 +984,7 @@ export function setupIpcHandlers(): boolean {
             ),
         // A turn Consola quit in the middle of picks up in its own session.
         resumeAgent: (session, prompt) => launcher.resumeUnattended(session.workspaceId, session.id, prompt),
-        hasLiveTerminal: (session) => manager.get(session.instanceId)?.hasClaudeExited() === false,
+        hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
         agentHarness: (workspaceId) => {
             const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
             const harness = harnesses.getAll().find((candidate) => candidate.id === workspace?.defaultHarnessId);
@@ -984,7 +993,7 @@ export function setupIpcHandlers(): boolean {
                 problem: toolPolicyProblem(launchFieldsFor(harness), 'read-only'),
             };
         },
-        stopAgent: (session, reason) => manager.get(session.instanceId)?.stopUnattendedTurn(reason) ?? false,
+        stopAgent: (session, reason) => automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));
@@ -1046,7 +1055,7 @@ export function setupIpcHandlers(): boolean {
                     if ('automation' in basis) return automations.entryText(workspaceId, basis.automation);
                     const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
                     const template = AUTOMATION_TEMPLATES.find((candidate) => candidate.id === basis.template);
-                    return workspace && template ? template.entry(workspace) : null;
+                    return workspace && template ? template.entry(toWorkspaceView(workspace)) : null;
                 },
             },
             parseAuthoringRequest(raw)

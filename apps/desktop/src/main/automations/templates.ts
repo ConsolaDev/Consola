@@ -4,17 +4,16 @@ import {
     describeRun,
     describeSchedule,
     describeTriggerAsWritten,
+    firstActionFor,
+    firstScope,
     yamlName,
+    type TemplateNeedSection,
+    type TemplatePreview,
+    type TemplateService,
+    type TemplateView,
+    type WorkspaceView,
 } from '@consola/automation-engine';
 import { nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
-import type {
-    TemplateNeedSection,
-    TemplatePreview,
-    TemplateService,
-    TemplateView,
-} from '../../shared/automations';
-import { defaultActionFor } from '../../shared/workItemActions';
-import { primaryScope, type Workspace } from '../../shared/workspace';
 import { resolveEventSource } from './connections';
 
 /**
@@ -38,9 +37,9 @@ export interface AutomationTemplate {
     /** What the workspace must have, in order; `missing` says the first it lacks. */
     needs: TemplateRequirement[];
     /** What this workspace lacks for it to run, said as what to do; null when nothing. */
-    missing(workspace: Workspace): string | null;
+    missing(workspace: WorkspaceView): string | null;
     /** The entry "Add" writes: one list item, named `id`. */
-    entry(workspace: Workspace): string;
+    entry(workspace: WorkspaceView): string;
     /** Whether an entry already in the file does this, so adding it again would only duplicate it. */
     matches(automation: Automation): boolean;
 }
@@ -48,7 +47,7 @@ export interface AutomationTemplate {
 /** Something a template needs from the workspace, and where Workspace settings provides it. */
 export interface TemplateRequirement {
     label: string;
-    met(workspace: Workspace): boolean;
+    met(workspace: WorkspaceView): boolean;
     /** What "Add" says when it is not met, and what the gallery says to do about it. */
     missing: string;
     fix: { label: string; section: TemplateNeedSection };
@@ -71,14 +70,14 @@ const GITHUB: TemplateRequirement = {
 
 const PR_ACTION: TemplateRequirement = {
     label: 'Action for pull requests',
-    met: (workspace) => Boolean(defaultActionFor(workspace.actions ?? [], 'pr')),
+    met: (workspace) => Boolean(firstActionFor(workspace.actions ?? [], 'pr')),
     missing: 'Add an action for pull requests',
     fix: { label: 'Add an action for pull requests', section: 'actions' },
 };
 
 const SCOPE: TemplateRequirement = {
     label: 'A scope to run in',
-    met: (workspace) => Boolean(primaryScope(workspace)),
+    met: (workspace) => Boolean(firstScope(workspace)),
     missing: 'Add a scope',
     fix: { label: 'Add a scope', section: 'scopes' },
 };
@@ -145,7 +144,7 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
         services: ['github', 'git'],
         needs: [GITHUB, PR_ACTION],
         // Without an action the entry is the template's own example; "Add" is refused before it is written.
-        entry: (workspace) => assignedReviewsEntry(defaultActionFor(workspace.actions ?? [], 'pr')?.name ?? 'Review'),
+        entry: (workspace) => assignedReviewsEntry(firstActionFor(workspace.actions ?? [], 'pr')?.name ?? 'Review'),
         // A review by an action: a prompt on the same events is a brief, another template.
         matches: (automation) => coversAssignedReviews(automation) && automation.run.kind === 'action',
     }),
@@ -179,7 +178,7 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
         services: ['github'],
         needs: [GITHUB, SCOPE],
         entry: (workspace) => {
-            const scope = primaryScope(workspace);
+            const scope = firstScope(workspace);
             return [
                 '- name: morning-inbox-digest',
                 '  on: { cron: "30 8 * * 1-5" }',
@@ -213,7 +212,7 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
 ];
 
 /** The templates as the Templates tab shows them for this workspace and the automations its file has. */
-export function templateViews(workspace: Workspace, automations: Automation[], now = new Date()): TemplateView[] {
+export function templateViews(workspace: WorkspaceView, automations: Automation[], now = new Date()): TemplateView[] {
     return AUTOMATION_TEMPLATES.map((template) => {
         const missing = template.missing(workspace);
         // Its own name first: another entry that only covers it is the fallback.
@@ -241,7 +240,7 @@ export function templateViews(workspace: Workspace, automations: Automation[], n
  * Only the gallery reads it, so a template that cannot be previewed loses
  * its preview, never the snapshot every automation's schedule rides on.
  */
-function previewFor(template: AutomationTemplate, workspace: Workspace, now: Date): TemplatePreview | null {
+function previewFor(template: AutomationTemplate, workspace: WorkspaceView, now: Date): TemplatePreview | null {
     try {
         return previewOf(template.entry(workspace), now);
     } catch (error) {

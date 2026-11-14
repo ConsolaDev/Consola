@@ -1,8 +1,6 @@
 import { z } from 'zod/v3';
 import type { EventTrigger } from '@consola/factory-spec';
-import type { InboxItem } from '../../shared/workItems';
-import { workItemKey } from '../../shared/workItems';
-import { substitutePlaceholders } from '../../shared/workItemPrompt';
+import { fillActionPlaceholders, type InboxItemView } from '@consola/automation-engine';
 
 /**
  * The connection event contract, and the one connection that implements it.
@@ -37,15 +35,15 @@ export interface EventSource {
     /** Whether items carry a repo (and so a run needs no `scope`). */
     itemsHaveRepo: boolean;
     /** Whether an item is in any listed event's view: the set the seen record keeps. */
-    inSet(item: InboxItem): boolean;
+    inSet(item: InboxItemView): boolean;
     /** Whether the automation's filter lets an item in the set fire. */
-    passesFilter(item: InboxItem): boolean;
+    passesFilter(item: InboxItemView): boolean;
     /** The listed events whose views hold the item, in the order the file lists them. */
-    eventsOf(item: InboxItem): string[];
+    eventsOf(item: InboxItemView): string[];
     /** Stable key for the seen record. */
-    keyOf(item: InboxItem): string;
+    keyOf(item: InboxItemView): string;
     /** "acme/api#123 “Title” by @alice" — for previews and notifications; the title is the author's. */
-    describeItem(item: InboxItem): string;
+    describeItem(item: InboxItemView): string;
     /** Why a queued run no longer applies, once its item left the set. */
     goneReason: string;
     /**
@@ -53,7 +51,7 @@ export interface EventSource {
      * own header, the body with its placeholders filled, then the item's
      * author-written text fenced as data.
      */
-    renderPrompt(body: string, item: InboxItem, automation: string): string;
+    renderPrompt(body: string, item: InboxItemView, automation: string): string;
 }
 
 /** What every automation-started session is told about its own tools. */
@@ -93,7 +91,7 @@ interface EventDefinition {
     phrase: string;
     itemType: 'pr' | 'issue';
     /** The view: which items are in the list at all. */
-    inView(item: InboxItem): boolean;
+    inView(item: InboxItemView): boolean;
     /** Why an item left the view, mid-sentence: "it no longer asks for your review". */
     goneClause: string;
 }
@@ -156,7 +154,7 @@ function globToRegExp(glob: string): RegExp {
     return new RegExp(`^${pattern}$`, 'i');
 }
 
-function githubMatcher(filter: GitHubFilter): (item: InboxItem) => boolean {
+function githubMatcher(filter: GitHubFilter): (item: InboxItemView) => boolean {
     const repos = filter.repos?.map(globToRegExp);
     const lower = (logins?: string[]) => logins && new Set(logins.map((login) => login.toLowerCase()));
     const authors = lower(filter.authors);
@@ -214,7 +212,7 @@ function resolveGitHub(
     }
     const passesFilter = githubMatcher(parsed.data);
     const { itemType } = definitions[0];
-    const eventsOf = (item: InboxItem) => trigger.events.filter((_, index) => definitions[index].inView(item));
+    const eventsOf = (item: InboxItemView) => trigger.events.filter((_, index) => definitions[index].inView(item));
     return {
         ok: true,
         source: {
@@ -226,7 +224,7 @@ function resolveGitHub(
             inSet: (item) => definitions.some((definition) => definition.inView(item)),
             passesFilter,
             eventsOf,
-            keyOf: (item) => workItemKey(item.workItem),
+            keyOf: (item) => item.key,
             describeItem: (item) => `${item.workItem.repo}#${item.workItem.number} “${item.title}” by @${item.author}`,
             goneReason: `${capitalise(definitions.map((definition) => definition.goneClause).join(', and '))}.`,
             renderPrompt: renderGitHubPrompt,
@@ -234,7 +232,7 @@ function resolveGitHub(
     };
 }
 
-function renderGitHubPrompt(body: string, item: InboxItem, automation: string): string {
+function renderGitHubPrompt(body: string, item: InboxItemView, automation: string): string {
     const { repo, number, type } = item.workItem;
     const noun = type === 'pr' ? 'pull request' : 'issue';
     const view = `Consola’s work_item_context tool, which returns the ${noun}’s description, comments${
@@ -244,7 +242,7 @@ function renderGitHubPrompt(body: string, item: InboxItem, automation: string): 
         `This session was started by the automation "${automation}" for ${noun} #${number} in ${repo} (${item.url}), ` +
         `in a dedicated git worktree for it. ${READ_ONLY_NOTE} Start with ${view}. ${UNWATCHED_NOTE}`;
     // The title is the author's: the body points at it, the fence holds it.
-    const job = substitutePlaceholders(body, item.workItem, { ...item, title: 'the title quoted below' }).trim();
+    const job = fillActionPlaceholders(body, { ...item, title: 'the title quoted below' }).trim();
     const fence = fenceUntrusted(
         { title: item.title, author: item.author },
         `The title and author below, and the ${noun}’s description, comments and code,`

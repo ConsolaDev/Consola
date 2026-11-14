@@ -15,43 +15,43 @@ import {
     type RunStatus,
     type RunTrigger,
 } from '@consola/factory-spec';
-import type {
-    AgentRunPreview,
-    AutomationsSnapshot,
-    AutomationView,
-    RunListEntry,
-    SavedAutomation,
-    TemplateView,
-} from '../../shared/automations';
-import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
-import { defaultActionFor } from '../../shared/workItemActions';
-import { sameWorkItem } from '../../shared/workItems';
-import type { Scope, Session, Workspace } from '../../shared/workspace';
-import { describeError } from '../describeError';
-import {
-    agentContext,
-    CONSOLA_NAMESPACE,
-    type ToolContext,
-    type ToolDefinition,
-    type ToolRegistry,
-    type ToolResult,
-} from '../tools/Tool';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
 import {
     advanceSeen,
+    agentToolContext,
     ASSIGNED_REVIEWS_NAME,
     assignedReviewsEntry,
+    CONSOLA_NAMESPACE,
+    describeError,
     describeRun,
     describeSchedule,
     describeTriggerAsWritten,
     EMPTY_FACTORY_FILE,
     factoryTemplate,
+    firstActionFor,
+    StartedByHandError,
+    type AgentLaunchRequest,
+    type AgentRunPreview,
+    type AutomationsSnapshot,
+    type AutomationView,
+    type EngineTool,
+    type EngineToolContext,
+    type EngineToolResult,
     type FactoryFileHandle,
+    type InboxItemView,
+    type ItemSnapshot,
+    type LaunchedSession,
     type LoadedFactoryFile,
+    type RunListEntry,
     type RunStore,
+    type SavedAutomation,
+    type ScopeView,
+    type SessionView,
+    type TemplateView,
+    type ToolsPort,
+    type WorkspaceView,
 } from '@consola/automation-engine';
-import { StartedByHandError } from './launchAgentRun';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
 /**
@@ -105,29 +105,12 @@ export interface SaveEntryOptions {
     by?: { sessionId: string; sessionName: string };
 }
 
-/** What an agent run asks main to start: a headless, read-only session. */
-export interface AgentLaunchRequest {
-    workspaceId: string;
-    run: { id: string; automation: string };
-    /** The exact prompt the session starts with — the one its preview showed. */
-    prompt: string;
-    /**
-     * An item run: it runs in a worktree of the item's own repo. When
-     * `startedByHandSince` is set, a session the person started on the item
-     * with the same action after that time refuses the launch
-     * (`StartedByHandError`), checked under the lock an Inbox click takes.
-     */
-    item?: { workItem: InboxItem['workItem']; title: string; label: string; groupId?: string; startedByHandSince?: string };
-    /** A scheduled run: it runs in this scope's folder. */
-    scopeId?: string;
-}
-
 export interface AutomationServiceDeps {
     /** A workspace's spec file; asked for once, when the workspace is first seen. */
     fileFor(workspaceId: string): FactoryFileHandle;
     store: RunStore;
-    registry: Pick<ToolRegistry, 'get' | 'list' | 'validate' | 'invoke'>;
-    getWorkspaces(): Workspace[];
+    registry: ToolsPort;
+    getWorkspaces(): WorkspaceView[];
     now(): Date;
     newId(): string;
     notify(notice: AutomationNotice): void;
@@ -135,22 +118,22 @@ export interface AutomationServiceDeps {
     /** setInterval, as a seam; returns a canceller. */
     every(ms: number, run: () => void): () => void;
     /** A workspace's latest Inbox snapshot, or null before its first fetch. */
-    inboxSnapshot(workspaceId: string): InboxSnapshot | null;
+    inboxSnapshot(workspaceId: string): ItemSnapshot | null;
     /** Fetch a workspace's Inbox now — an event automation's "Check now". */
     refreshInbox(workspaceId: string): Promise<void>;
     /** Start an agent run's session, its first turn unattended; throws with the reason it could not. */
-    launchAgent(request: AgentLaunchRequest): Promise<Session>;
+    launchAgent(request: AgentLaunchRequest): Promise<LaunchedSession>;
     /** Run `prompt` as an unattended turn in a recorded automation session; throws with the reason it could not. */
-    resumeAgent(session: Session, prompt: string): Promise<void>;
+    resumeAgent(session: SessionView, prompt: string): Promise<void>;
     /** Whether a session has a terminal whose process is still running: someone opened it. */
-    hasLiveTerminal(session: Session): boolean;
+    hasLiveTerminal(session: SessionView): boolean;
     /**
      * The workspace's default harness: its display name, and why it cannot
      * run a read-only unattended session (null when it can).
      */
     agentHarness(workspaceId: string): { name: string; problem: string | null };
     /** End a running unattended turn the way Ctrl+C does. False when none is running. */
-    stopAgent(session: Session, reason: string): boolean;
+    stopAgent(session: SessionView, reason: string): boolean;
     /** Agent sessions automations may have working at once, across every workspace. */
     maxConcurrentAgents?: number;
 }
@@ -179,7 +162,7 @@ interface Resolved {
     /** `automationVersion`, the action's body included: what approvals bind to. */
     version: string;
     /** A tool run's tool and validated arguments. */
-    tool?: ToolDefinition;
+    tool?: EngineTool;
     args?: Record<string, unknown>;
     /** An agent run: the body it renders, and how its session is labelled and placed. */
     agent?: {
@@ -188,7 +171,7 @@ interface Resolved {
         label?: string;
         groupId?: string;
         /** A scheduled run's scope. */
-        scope?: Scope;
+        scope?: ScopeView;
         /** "Review action", "Prompt" — for previews. */
         runs: string;
     };
@@ -227,14 +210,14 @@ function scheduleKey(entry: Resolved): string {
  * the searches return. Changing any of them re-baselines, so binding another
  * org never reads as every request in it arriving at once.
  */
-function listDefinition(entry: Resolved, provider: Workspace['provider']): string {
+function listDefinition(entry: Resolved, provider: WorkspaceView['provider']): string {
     const { trigger, filter } = entry.automation;
     const account = provider ? { id: provider.id, login: provider.accountLogin, org: provider.org } : null;
     return createHash('sha256').update(stableStringify({ trigger, filter, account })).digest('hex').slice(0, 16);
 }
 
 type QueueVerdict =
-    | { go: true; item?: InboxItem }
+    | { go: true; item?: InboxItemView }
     | { go: false; wait: true }
     | { go: false; wait?: false; status: 'rejected' | 'failed'; message: string };
 
@@ -382,7 +365,7 @@ export class AutomationService {
     /** The action automatic reviews would run: the workspace's default for pull requests. */
     private prActionOf(workspaceId: string): string | undefined {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-        return workspace ? defaultActionFor(workspace.actions ?? [], 'pr')?.name : undefined;
+        return workspace ? firstActionFor(workspace.actions ?? [], 'pr')?.name : undefined;
     }
 
     /**
@@ -568,7 +551,7 @@ export class AutomationService {
      * occurrence. A record that survived a restart is diffed as usual, so a
      * request that arrived while Consola was closed fires once.
      */
-    public observeInbox(snapshot: InboxSnapshot): void {
+    public observeInbox(snapshot: ItemSnapshot): void {
         if (!this.started || snapshot.error || snapshot.fetchedAt === 0) return;
         const factory = this.factories.get(snapshot.workspaceId);
         if (!factory) return;
@@ -579,7 +562,7 @@ export class AutomationService {
             // An entry with a problem is paused: its record stays where it
             // was, so fixing it catches up rather than forgetting.
             if (!event || entry.problem) continue;
-            const inSet = new Map<string, InboxItem>();
+            const inSet = new Map<string, InboxItemView>();
             for (const item of snapshot.items) if (event.inSet(item)) inSet.set(event.keyOf(item), item);
             const key = automationKey(entry);
             const previous = this.deps.store.seen(key);
@@ -674,11 +657,11 @@ export class AutomationService {
         toolName: string,
         raw: unknown,
         sessionId: string
-    ): Promise<{ preview: ToolResult; run: RunRecord | null }> {
+    ): Promise<{ preview: EngineToolResult; run: RunRecord | null }> {
         const tool = this.deps.registry.get(toolName);
         if (!tool) throw new Error(`No Consola tool named "${toolName}".`);
         const workspaces = this.deps.getWorkspaces();
-        const context = agentContext(sessionId, workspaces);
+        const context = agentToolContext(sessionId, workspaces);
         const preview = await this.deps.registry.invoke(tool.name, raw, context, 'preview');
         if (preview.actionable === 0) return { preview, run: null };
 
@@ -955,7 +938,7 @@ export class AutomationService {
      * Start a queued agent run. Its status is `running` from here until its
      * turn ends (`turnEnded`): the run is the turn, and what holds a slot.
      */
-    private async startAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
+    private async startAgentRun(run: RunRecord, item: InboxItemView | undefined): Promise<void> {
         // An interrupted run picked up again keeps the time it first started.
         this.deps.store.update(run.id, { status: 'running', startedAt: run.startedAt ?? this.iso(), updatedAt: this.iso() });
         this.broadcastRun(run.id);
@@ -974,15 +957,20 @@ export class AutomationService {
         return this.deps.store.get(runId)?.status === 'running';
     }
 
-    /** A stop asked for while the turn was starting: end it now that there is one to end. */
-    private honourStop(runId: string, session: Session): void {
+    /**
+     * A stop asked for while the turn was starting: end it now that there is
+     * one to end. By now the run names its session, which is looked up as
+     * `stop` looks it up.
+     */
+    private honourStop(runId: string): void {
         if (!this.stopRequested.delete(runId)) return;
-        if (this.deps.stopAgent(session, 'you stopped it')) return; // Its exit records the stop.
+        const session = this.sessionOf(this.deps.store.get(runId)!);
+        if (session && this.deps.stopAgent(session, 'you stopped it')) return; // Its exit records the stop.
         this.finish(runId, 'failed', { error: 'Stopped: its session was no longer running.' });
         void this.pump();
     }
 
-    private async launchAgentRun(run: RunRecord, item: InboxItem | undefined): Promise<void> {
+    private async launchAgentRun(run: RunRecord, item: InboxItemView | undefined): Promise<void> {
         const entry = this.entryOf(run)!;
         const agent = entry.agent!;
         const name = entry.automation.name;
@@ -1019,7 +1007,7 @@ export class AutomationService {
                 updatedAt: this.iso(),
             });
             this.broadcastRun(run.id);
-            this.honourStop(run.id, session);
+            this.honourStop(run.id);
         } catch (error) {
             // The person got there first: nothing failed, the review exists.
             if (error instanceof StartedByHandError) {
@@ -1040,7 +1028,7 @@ export class AutomationService {
             if (!this.stillRunning(run.id)) return;
             this.deps.store.update(run.id, { summary: runningIn(session.name), updatedAt: this.iso() });
             this.broadcastRun(run.id);
-            this.honourStop(run.id, session);
+            this.honourStop(run.id);
         } catch (error) {
             this.finish(run.id, 'failed', { error: describeError(error) });
             this.notify(`${run.automationId} could not continue`, describeError(error), run.id);
@@ -1048,7 +1036,7 @@ export class AutomationService {
     }
 
     /** The session an agent run started, while its workspace still has it. */
-    private sessionOf(run: RunRecord): Session | undefined {
+    private sessionOf(run: RunRecord): SessionView | undefined {
         if (!run.sessionId) return undefined;
         return this.deps
             .getWorkspaces()
@@ -1084,7 +1072,7 @@ export class AutomationService {
      * A session the person started on this item with the same action since
      * `sinceIso` — the review they clicked before the automation got to it.
      */
-    private startedByHand(entry: Resolved, item: InboxItem, sinceIso: string): Session | undefined {
+    private startedByHand(entry: Resolved, item: InboxItemView, sinceIso: string): SessionView | undefined {
         const label = entry.agent?.label;
         if (!label) return undefined;
         const since = Date.parse(sinceIso);
@@ -1094,7 +1082,7 @@ export class AutomationService {
             ?.sessions.find(
                 (session) =>
                     !session.automation &&
-                    sameWorkItem(session.workItem, item.workItem) &&
+                    session.workItemKey === item.key &&
                     session.workItemAction === label &&
                     session.createdAt > since
             );
@@ -1128,10 +1116,10 @@ export class AutomationService {
         );
     }
 
-    private authorityOf(sessionId: string | undefined): ToolContext | null {
+    private authorityOf(sessionId: string | undefined): EngineToolContext | null {
         if (!sessionId) return null;
         try {
-            return agentContext(sessionId, this.deps.getWorkspaces());
+            return agentToolContext(sessionId, this.deps.getWorkspaces());
         } catch {
             return null; // The session is gone, and its authority with it.
         }
@@ -1260,7 +1248,7 @@ export class AutomationService {
             };
         }
 
-        let scope: Scope | undefined;
+        let scope: ScopeView | undefined;
         if (automation.scope) {
             scope = workspace?.scopes.find((candidate) => candidate.name === automation.scope);
             if (!scope) {
@@ -1286,7 +1274,7 @@ export class AutomationService {
     }
 
     /** An automation acts on its own workspace, as itself. */
-    private contextFor(entry: Resolved): ToolContext {
+    private contextFor(entry: Resolved): EngineToolContext {
         return {
             caller: { kind: 'automation', automation: entry.automation.name },
             scope: { workspaceIds: [entry.workspaceId], excludeSessionIds: [] },
@@ -1378,7 +1366,7 @@ export class AutomationService {
     }
 
     /** One event — an item entering an automation's list — made one run. */
-    private fireEvent(entry: Resolved, item: InboxItem, since: string, at: string): void {
+    private fireEvent(entry: Resolved, item: InboxItemView, since: string, at: string): void {
         const event = entry.event!;
         const agent = entry.agent!;
         const itemKey = event.keyOf(item);
@@ -1510,7 +1498,7 @@ export class AutomationService {
     private finish(
         runId: string,
         status: Extract<RunStatus, 'completed' | 'failed' | 'rejected'>,
-        outcome: { result?: ToolResult; summary?: string; error?: string }
+        outcome: { result?: EngineToolResult; summary?: string; error?: string }
     ): void {
         const now = this.iso();
         // A failed agent run's launch-time "Running in …" says nothing true any more.
