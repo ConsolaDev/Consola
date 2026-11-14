@@ -8,6 +8,7 @@ export default defineConfig({
     // Tests read the workspace package from source, so `pnpm test` works on a
     // fresh clone without building it first. The app itself loads its dist.
     alias: {
+      '@consola/automation-engine': path.resolve(__dirname, '../../packages/automation-engine/src/index.ts'),
       '@consola/factory-spec': path.resolve(__dirname, '../../packages/factory-spec/src/index.ts'),
     },
   },

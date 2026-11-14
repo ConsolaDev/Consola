@@ -1,0 +1,26 @@
+{
+  "name": "@consola/automation-engine",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The automation runner: runs factory.yml automations. No Electron, so the same engine runs on desktop, headless and cloud.",
+  "license": "AGPL-3.0-only",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@consola/factory-spec": "workspace:*",
+    "zod": "^3.25.76"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.19",
+    "typescript": "^5.3.3",
+    "vitest": "^4.1.11"
+  }
+}
