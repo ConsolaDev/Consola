@@ -6,3 +6,16 @@
 export { advanceSeen, type SeenRecord } from './seenRecord';
 export { describeSchedule } from './describeSchedule';
 export { describeRun, describeTriggerAsWritten } from './describeEntry';
+export type {
+    AutomationView,
+    TemplateView,
+    TemplateService,
+    TemplateNeedSection,
+    TemplateNeed,
+    TemplatePreview,
+    SavedAutomation,
+    RunKind,
+    RunListEntry,
+    AgentRunPreview,
+    AutomationsSnapshot,
+} from './views';
