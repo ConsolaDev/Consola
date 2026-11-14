@@ -9,6 +9,10 @@
  * the renderer sends are read by code that does not know about them yet. The
  * symptoms look like renderer bugs, which is what makes it expensive.
  *
+ * The workspace packages main loads (`packages/factory-spec`,
+ * `packages/automation-engine`) are watched too: main requires their `dist` at
+ * launch like its own, and an engine built hours earlier is the same mismatch.
+ *
  * Watches the compiled output rather than the sources, so a restart happens
  * after `tsc --watch` has finished writing — never on a half-emitted build.
  *
@@ -27,6 +31,8 @@ const mainEntry = path.join(projectRoot, 'dist/main/main/index.js');
 const watchDirs = [
     path.join(projectRoot, 'dist/main'),
     path.join(projectRoot, 'dist/preload'),
+    path.join(projectRoot, '../../packages/factory-spec/dist'),
+    path.join(projectRoot, '../../packages/automation-engine/dist'),
 ];
 
 /**

@@ -24,7 +24,8 @@ pnpm run build:preload    # Preload script only
 pnpm run build:renderer   # Renderer (Vite) only
 ```
 
-Only the renderer hot-reloads. `src/main` and `src/preload` are compiled and
+Only the renderer hot-reloads. `src/main`, `src/preload` and the packages main
+loads (`packages/factory-spec`, `packages/automation-engine`) are compiled and
 loaded once per launch, so `scripts/dev-electron.cjs` restarts Electron when
 their output changes — otherwise a new UI ends up talking to a main process
 built hours earlier, and the mismatch reads as a renderer bug. It restarts only
@@ -50,6 +51,22 @@ src/preload/        → Context bridge (exposes APIs to renderer)
 src/renderer/       → React frontend (Vite, ESM)
 src/shared/         → Shared types and IPC channel constants
 ```
+
+### The Automation Engine
+
+The automation runner is its own package, `packages/automation-engine`
+(`@consola/automation-engine`, AGPL-3.0-only), because the same runner has to
+run on the desktop, a headless runner and the cloud. So it imports no
+`electron`, `node-pty`, `@xterm/*` or anything under `apps/`, and its
+`boundary.test.ts` fails on any such import. Its core
+(`packages/automation-engine/src/`) does no I/O; Node adapters (state files,
+run history, the factory file on disk) live in its `src/node/`, the one place
+allowed to touch the machine. The desktop is one host: it implements the
+engine's ports, and `src/main/automations/engineViews.ts` maps its records
+onto the package's narrow views. `src/shared/automations.ts` re-exports the
+runner's types, type-only, so the renderer never loads the engine's runtime.
+Beside it, `packages/factory-spec` (MIT) holds the `factory.yml` schema,
+parser and Run record that every runner shares.
 
 ### Main Process Key Files
 - `index.ts` - App lifecycle, window management
