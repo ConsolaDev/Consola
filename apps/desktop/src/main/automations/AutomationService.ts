@@ -15,6 +15,7 @@ import {
     type RunStatus,
     type RunTrigger,
 } from '@consola/factory-spec';
+import { advanceSeen, describeRun, describeSchedule, describeTriggerAsWritten } from '@consola/automation-engine';
 import type {
     AgentRunPreview,
     AutomationsSnapshot,
@@ -38,8 +39,6 @@ import {
 } from '../tools/Tool';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
-import { describeRun, describeTriggerAsWritten } from './describeEntry';
-import { describeSchedule } from './describeSchedule';
 import {
     ASSIGNED_REVIEWS_NAME,
     assignedReviewsEntry,
@@ -49,7 +48,6 @@ import {
 } from './FactoryFile';
 import type { RunStore } from './RunStore';
 import { StartedByHandError } from './launchAgentRun';
-import { advanceSeen } from './seenRecord';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 
 /**

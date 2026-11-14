@@ -1,6 +1,6 @@
 import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
 import type { JsonStateFile } from '../state/JsonStateFile';
-import type { SeenRecord } from './seenRecord';
+import type { SeenRecord } from '@consola/automation-engine';
 
 export interface AddedBy {
     /** The session that wrote the entry into the file. */
