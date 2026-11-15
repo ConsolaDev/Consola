@@ -30,6 +30,7 @@ export interface LogTail {
     text: string;
     /** The whole file's size. */
     bytes: number;
+    /** The tail is shorter than the file. The file's own 1 MB cap is `record.command.truncated` (and `stdoutBytes`/`stderrBytes`). */
     truncated: boolean;
 }
 

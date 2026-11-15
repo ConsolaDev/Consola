@@ -56,7 +56,7 @@ import type {
 } from './ports';
 import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
 import { SNAPSHOT_ENDED_RUNS } from './views';
-import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, itemRefOf, runEventSource } from './steps/agentStep';
@@ -227,9 +227,9 @@ const RESUME_SESSION_OPENED = 'Consola quit while it ran, and you opened its ses
 /** Commands automations may have running at once, across every workspace, by default. */
 export const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
 
-/** The lanes slots are counted in: agent turns, and commands, each with a cap of its own. */
 /** What a step's detail carries of each log: the end of it. */
 const STEP_TAIL_BYTES = 64 * 1024;
+/** The lanes slots are counted in: agent turns, and commands, each with a cap of its own. */
 const LANES: readonly Lane[] = ['agent', 'command'];
 
 /** The turn an automation session gets when Consola quit before its first one finished. */
@@ -1081,12 +1081,8 @@ export class AutomationService {
         if (!found) return null;
         const declared = found.step.kind === 'agent' ? found.step.artifacts : [];
         if (name !== 'handover' && name !== 'output' && !declared.includes(name)) return null;
-        try {
-            const content = this.deps.runFolder.readArtifact(found.workspaceId, runId, found.step.id, found.record.attempt, name);
-            return content === null ? null : { content, bytes: utf8Bytes(content) };
-        } catch {
-            return null;
-        }
+        const content = this.deps.runFolder.readArtifact(found.workspaceId, runId, found.step.id, found.record.attempt, name);
+        return content === null ? null : { content, bytes: utf8Bytes(content) };
     }
 
     /**
@@ -1094,10 +1090,7 @@ export class AutomationService {
      * own fields, with the step's pointer, session and window in place of the
      * run's. Null for a step that is not there. Reads nothing itself.
      */
-    public stepConversationTarget(
-        runId: string,
-        stepId: string
-    ): Pick<RunRecord, 'conversation' | 'sessionId' | 'startedAt' | 'createdAt' | 'finishedAt' | 'attribution'> | null {
+    public stepConversationTarget(runId: string, stepId: string): ConversationTarget | null {
         const run = this.deps.store.get(runId);
         const record = typeof stepId === 'string' ? run?.steps?.find((candidate) => candidate.id === stepId) : undefined;
         if (!run || !record) return null;
@@ -1111,18 +1104,21 @@ export class AutomationService {
         };
     }
 
-    /** A steps run's workspace and definition, read from its folder; null when either is missing or unreadable. */
+    /**
+     * A steps run's workspace and definition, read from its folder. Null only
+     * for genuine absence (no such run, or no definition: a legacy run, or one
+     * history dropped); a definition that cannot be read throws, so the caller
+     * hears why rather than being told there is nothing.
+     */
     private readSteps(runId: string): { run: RunRecord; workspaceId: string; definition: RunDefinition } | null {
         if (typeof runId !== 'string') return null;
         const run = this.deps.store.get(runId);
         const workspaceId = run?.attribution.workspaceId;
         if (!run || !workspaceId) return null;
-        try {
-            const definition = this.deps.runFolder.readDefinition(workspaceId, run.id);
-            return definition ? { run, workspaceId, definition } : null;
-        } catch {
-            return null;
-        }
+        const loaded = this.definitionOf(run);
+        if ('definition' in loaded) return { run, workspaceId, definition: loaded.definition };
+        if (loaded.gone) return null;
+        throw loaded.error instanceof Error ? loaded.error : new Error(loaded.problem);
     }
 
     /** A step of a steps run, by an id that is a step id: its record's latest attempt and its definition. */
@@ -1134,24 +1130,19 @@ export class AutomationService {
         return read && step && record ? { run: read.run, workspaceId: read.workspaceId, step, record } : null;
     }
 
+    /** `command.json`; undefined when there is none, and a throw when it is there but unreadable or not a command file. */
     private readCommandFile(file: string): CommandFile | undefined {
-        try {
-            const text = this.deps.runFolder.readText(file, LOG_CAP_BYTES);
-            const parsed: unknown = text === null ? null : JSON.parse(text);
-            const { cwd, command, env } = (parsed ?? {}) as Partial<CommandFile>;
-            if (typeof cwd !== 'string' || typeof command !== 'string' || !Array.isArray(env)) return undefined;
-            return { cwd, command, env: env.map((row) => ({ name: String(row?.name), template: String(row?.template), value: String(row?.value) })) };
-        } catch {
-            return undefined;
+        const text = this.deps.runFolder.readText(file, LOG_CAP_BYTES);
+        if (text === null) return undefined;
+        const { cwd, command, env } = JSON.parse(text) as Partial<CommandFile>;
+        if (typeof cwd !== 'string' || typeof command !== 'string' || !Array.isArray(env)) {
+            throw new Error('command.json is not a command file.');
         }
+        return { cwd, command, env: env.map((row) => ({ name: String(row?.name), template: String(row?.template), value: String(row?.value) })) };
     }
 
     private readTail(file: string, bytes: number): LogTail | null {
-        try {
-            return this.deps.runFolder.tail(file, bytes);
-        } catch {
-            return null;
-        }
+        return this.deps.runFolder.tail(file, bytes);
     }
 
     /** One run, whole: its result and approval too, which the activity list leaves out. */

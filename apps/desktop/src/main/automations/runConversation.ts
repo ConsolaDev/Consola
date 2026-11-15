@@ -1,13 +1,10 @@
-import type { RunRecord } from '@consola/factory-spec';
+import type { ConversationTarget } from '@consola/automation-engine';
 import type { RunConversation } from '../../shared/conversation';
 import type { Harness } from '../../shared/harness';
 import type { HarnessDriverId } from '../../shared/types';
 import type { Session } from '../../shared/workspace';
 import { getDriver, toHarnessConfig, type HarnessDriver } from '../drivers';
 import { launchFieldsFor } from '../SessionLauncher';
-
-/** What a conversation is read from: a run's own fields, or a step's pointer and window laid over them. */
-export type ConversationTarget = Pick<RunRecord, 'conversation' | 'sessionId' | 'startedAt' | 'createdAt' | 'finishedAt' | 'attribution'>;
 
 export interface RunConversationDeps {
     /** Every harness record, archived ones included. */

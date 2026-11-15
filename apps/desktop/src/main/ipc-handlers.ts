@@ -1080,9 +1080,18 @@ export function setupIpcHandlers(): boolean {
     });
     // History's pages. A malformed request throws, like the intents above.
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS, (_event, workspaceId: unknown, query: unknown) => {
-        const limit = (query as { limit?: unknown } | null)?.limit;
-        if (typeof workspaceId !== 'string' || typeof query !== 'object' || query === null || typeof limit !== 'number') {
-            throw new Error('Workspace id and a query with a limit required.');
+        const { limit, before, query: text, kind, automation } = (typeof query === 'object' && query !== null ? query : {}) as Record<string, unknown>;
+        const optionalString = (value: unknown) => value === undefined || typeof value === 'string';
+        if (
+            typeof workspaceId !== 'string' ||
+            typeof limit !== 'number' ||
+            !Number.isFinite(limit) ||
+            !optionalString(before) ||
+            !optionalString(text) ||
+            !(kind === undefined || kind === 'all' || kind === 'agent' || kind === 'tool' || kind === 'failed') ||
+            !(automation === null || optionalString(automation))
+        ) {
+            throw new Error('Workspace id and a well-formed run query required.');
         }
         return automations.listRuns(workspaceId, query as ListRunsQuery);
     });

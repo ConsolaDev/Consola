@@ -3057,7 +3057,10 @@ describe('reading a run: steps, logs, artifacts', () => {
         const [run] = h.store.runs();
         h.world.setOutputs('session-1', { verdict: 'comment' });
         h.world.writeArtifact('session-1', 'handover', 'Two retries are unbounded.');
+        // Each step has a window of its own, apart from the run's.
+        h.advance(MINUTE);
         await h.world.endTurn('session-1');
+        h.advance(MINUTE);
         await h.world.commands[0].end({ stdout: 'posted\n', stderr: 'warning: slow\n' });
         return { h, run };
     }
@@ -3099,8 +3102,8 @@ describe('reading a run: steps, logs, artifacts', () => {
     it('readArtifact refuses a name that is not a token', async () => {
         const { h, run } = await published();
         const read = vi.spyOn(h.folder, 'readArtifact');
-        const outside = path.join(path.dirname(h.folder.runDir(WORKSPACE_ID, run.id)), 'definition.md');
-        fs.writeFileSync(outside, 'outside');
+        // Where `review/../definition` resolves, so a traversal would really find it.
+        fs.writeFileSync(path.join(h.folder.runDir(WORKSPACE_ID, run.id), 'review', 'definition.md'), 'outside');
 
         for (const name of ['../definition', '../../definition', 'handover/../../x', '', 'Handover', 'outputs.env', 'a'.repeat(65)]) {
             expect(h.service.readArtifact(run.id, { step: 'review', name })).toBeNull();
@@ -3140,8 +3143,43 @@ describe('reading a run: steps, logs, artifacts', () => {
             attribution: run.attribution,
         });
         expect(target.sessionId).toBeDefined();
+        // The step's window, not the run's.
+        const ended = h.store.get(run.id)!;
+        expect(review.startedAt).toBeDefined();
+        expect(target.startedAt).toBe(review.startedAt);
+        expect(target.finishedAt).toBe(review.finishedAt);
+        expect(target.finishedAt).not.toBe(ended.finishedAt);
+        expect(target.finishedAt).not.toBe(ended.startedAt);
         expect(h.service.stepConversationTarget(run.id, 'publish')).toMatchObject({ sessionId: undefined, conversation: undefined });
         expect(h.service.stepConversationTarget(run.id, 'nope')).toBeNull();
         expect(h.service.stepConversationTarget('no-such-run', 'review')).toBeNull();
+    });
+});
+
+describe('reading a run: failures and the output artifact', () => {
+    it('a command.json that is not JSON rejects rather than answering as if there were no command', async () => {
+        const h = await watching({ yaml: COMMANDS_ONLY });
+        h.store.accept(KEY, automationVersion(only(COMMANDS_ONLY)));
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        await h.world.commands[0].end({ stdout: 'ok\n' });
+        const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'fresh', 1);
+        expect(h.service.getStepDetail(run.id, 'fresh')?.command).toBeDefined();
+
+        fs.writeFileSync(path.join(dir, 'command.json'), '{ not json');
+        expect(() => h.service.getStepDetail(run.id, 'fresh')).toThrow();
+        // Genuine absence is still just absent.
+        fs.rmSync(path.join(dir, 'command.json'));
+        expect(h.service.getStepDetail(run.id, 'fresh')).not.toHaveProperty('command');
+    });
+
+    it("reads a command's output artifact", async () => {
+        const yaml = factory(`${DAILY_IN_API}    mode: auto\n`, '- id: facts\n  run: echo hi\n  outputs: { from: stdout, format: text }');
+        const h = await watching({ yaml });
+        h.store.accept(KEY, automationVersion(only(yaml)));
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        await h.world.commands[0].end({ stdout: 'hi\n' });
+        expect(h.service.readArtifact(run.id, { step: 'facts', name: 'output' })).toEqual({ content: 'hi\n', bytes: 3 });
     });
 });

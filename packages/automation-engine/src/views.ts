@@ -122,6 +122,9 @@ export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps'> & {
 /** How many ended runs a snapshot carries beside every live one. */
 export const SNAPSHOT_ENDED_RUNS = 200;
 
+/** What a conversation is read from: a run's own fields, or a step's pointer and window laid over them. */
+export type ConversationTarget = Pick<RunRecord, 'conversation' | 'sessionId' | 'startedAt' | 'createdAt' | 'finishedAt' | 'attribution'>;
+
 /** One page of a workspace's history, newest first, read from main rather than pushed. */
 export interface ListRunsQuery {
     /**

@@ -19,6 +19,7 @@ export type {
     RunKind,
     RunListEntry,
     ListRunsQuery,
+    ConversationTarget,
     RunListPage,
     AgentRunPreview,
     AutomationsSnapshot,
