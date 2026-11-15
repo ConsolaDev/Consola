@@ -1,7 +1,7 @@
 import { describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './factoryTemplates';
-import { firstActionFor, firstScope } from './support';
+import { firstScope } from './support';
 import type { TemplateNeedSection, TemplatePreview, TemplateService, TemplateView, WorkspaceView } from './views';
 import { isStepsEntry, nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
 import { resolveEventSource } from './connections';
@@ -56,13 +56,6 @@ const GITHUB: TemplateRequirement = {
     met: (workspace) => workspace.provider?.id === 'github',
     missing: 'Connect a GitHub account in Workspace settings',
     fix: { label: 'Connect a GitHub account', section: 'provider' },
-};
-
-const PR_ACTION: TemplateRequirement = {
-    label: 'Action for pull requests',
-    met: (workspace) => Boolean(firstActionFor(workspace.actions ?? [], 'pr')),
-    missing: 'Add an action for pull requests',
-    fix: { label: 'Add an action for pull requests', section: 'actions' },
 };
 
 const SCOPE: TemplateRequirement = {
@@ -128,15 +121,17 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
         id: ASSIGNED_REVIEWS_NAME,
         title: 'Review pull requests assigned to you',
         description:
-            'When a pull request asks for your review or is assigned to you, your pull request action reviews it, ' +
-            'read-only, in its own worktree, so the findings are waiting when you sit down. Asks once before the first review.',
+            'When a pull request asks for your review or is assigned to you, a read-only agent reviews it in a checkout of ' +
+            'its own, and Consola posts the review on GitHub as you, as a comment or a request for changes, never an ' +
+            'approval. Skips a commit it already reviewed. Asks once first, with every command shown.',
         category: 'Code review',
         services: ['github', 'git'],
-        needs: [GITHUB, PR_ACTION],
-        // Without an action the entry is the template's own example; "Add" is refused before it is written.
-        entry: (workspace) => assignedReviewsEntry(firstActionFor(workspace.actions ?? [], 'pr')?.name ?? 'Review'),
-        // A review by an action: a prompt on the same events is a brief, another template.
-        matches: (automation) => coversAssignedReviews(automation) && automation.run?.kind === 'action',
+        // Its prompt is inline, so it needs no action: only the account it posts as.
+        needs: [GITHUB],
+        entry: () => assignedReviewsEntry(),
+        // A review by steps or by an action — the one-step entry files already hold counts too.
+        // A prompt on the same events is a brief, another template.
+        matches: (automation) => coversAssignedReviews(automation) && (isStepsEntry(automation) || automation.run.kind === 'action'),
     }),
     template({
         id: 'clean-up-stale-sessions',

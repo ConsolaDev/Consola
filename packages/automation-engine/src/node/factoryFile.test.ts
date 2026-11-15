@@ -30,7 +30,7 @@ automations:
   # - name: someday
   #   on: { cron: "0 10 * * *" }
 `);
-        await file.appendAutomation(assignedReviewsEntry('Review'));
+        await file.appendAutomation(assignedReviewsEntry());
         const text = fs.readFileSync(file.filePath, 'utf8');
         for (const kept of ['# Mine, by hand.', '# Every morning.', '# the first one', '# - name: someday']) expect(text).toContain(kept);
         const loaded = await file.load();
@@ -41,7 +41,7 @@ automations:
     it('appendAutomation fills an empty automations list', async () => {
         for (const empty of ['version: 1\nautomations:\n  # - name: someday\n  #   on: { cron: "0 10 * * *" }\n', 'version: 1\nautomations: []\n']) {
             const file = write(empty);
-            await file.appendAutomation(assignedReviewsEntry('Review'));
+            await file.appendAutomation(assignedReviewsEntry());
             const text = fs.readFileSync(file.filePath, 'utf8');
             if (empty.includes('someday')) expect(text).toContain('# - name: someday');
             const loaded = await file.load();
@@ -65,9 +65,9 @@ automations:
     # - name: someday
 `;
         const file = write(original);
-        await file.appendAutomation(assignedReviewsEntry('Review'));
+        await file.appendAutomation(assignedReviewsEntry());
         const text = fs.readFileSync(file.filePath, 'utf8');
-        const inserted = `${assignedReviewsEntry('Review')
+        const inserted = `${assignedReviewsEntry()
             .split('\n')
             .map((line) => `    ${line}`)
             .join('\n')}\n`;
@@ -84,7 +84,7 @@ automations:
         fs.writeFileSync(target, 'version: 1\nautomations: []\n');
         const link = path.join(dir, 'factory.yml');
         fs.symlinkSync(target, link);
-        await new FactoryFile(link).appendAutomation(assignedReviewsEntry('Review'));
+        await new FactoryFile(link).appendAutomation(assignedReviewsEntry());
         expect(fs.lstatSync(link).isSymbolicLink()).toBe(true);
         expect(fs.readFileSync(target, 'utf8')).toContain(`name: ${ASSIGNED_REVIEWS_NAME}`);
     });
@@ -92,7 +92,7 @@ automations:
     it('refuses a file that does not parse, leaving it as it was', async () => {
         const broken = 'version: 1\nautomations: [\n';
         const file = write(broken);
-        await expect(file.appendAutomation(assignedReviewsEntry('Review'))).rejects.toThrow(/does not parse/);
+        await expect(file.appendAutomation(assignedReviewsEntry())).rejects.toThrow(/does not parse/);
         expect(fs.readFileSync(file.filePath, 'utf8')).toBe(broken);
     });
 });

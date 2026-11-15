@@ -7,7 +7,7 @@ import { appendAutomationEntry, automationVersion, isStepsEntry, parseFactorySpe
 import { defineTool, FakeToolRegistry } from './tools.test-helpers';
 import { AutomationService, INTERRUPTED_PROMPT, type AutomationNotice } from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
-import { EMPTY_FACTORY_FILE } from './factoryTemplates';
+import { assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { RunFolder } from './node/runFolder';
 import type { AgentLaunchRequest, EngineToolContext, RunFolderPort } from './ports';
 import { RunStore, type AutomationStateFile } from './RunStore';
@@ -1365,63 +1365,120 @@ ${fields}`;
     });
 });
 
-describe('automatic reviews, on by default', () => {
+describe('automatic reviews, offered by the banner', () => {
     const sweeping = () => entry('    mode: auto\n');
+    const STEPS = 'Steps: fresh \u2192 review \u2192 publish';
 
-    it('suggests assigned reviews until the file has them', async () => {
+    it('suggests assigned reviews with GitHub, action or not, until the file has them', async () => {
         const t = setup({ yaml: sweeping(), workspaces: [bound()] });
         await t.start();
-        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toEqual({ action: 'Review' });
+        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBe(true);
         await t.service.addAssignedReviews('ws-1');
-        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
+        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
 
         // A file that already reviews requests its own way gets no second one.
         const own = setup({ yaml: review(), workspaces: [bound()] });
         await own.start();
-        expect(own.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
+        expect(own.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
 
-        // Nothing to suggest without a pull request action, or without an account.
+        // No pull request action: the entry inlines its prompt, so it is still offered, and adds.
         const noAction = setup({ yaml: sweeping(), workspaces: [{ ...bound(), actions: [] } as WorkspaceView] });
         await noAction.start();
-        expect(noAction.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
-        await expect(noAction.service.addAssignedReviews('ws-1')).rejects.toThrow('Add an action for pull requests first.');
+        expect(noAction.service.snapshot('ws-1').suggestAssignedReviews).toBe(true);
+        await noAction.service.addAssignedReviews('ws-1');
+        expect(noAction.service.list('ws-1').map((automation) => [automation.name, automation.runs])).toEqual([
+            ['sweep', 'Tool: sweep'],
+            ['review-assigned-prs', STEPS],
+        ]);
+
+        // Without an account, nothing to offer, and Add says what to do first.
         const unbound = setup({ yaml: sweeping(), workspaces: [{ ...bound(), provider: undefined } as WorkspaceView] });
         await unbound.start();
-        expect(unbound.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
+        expect(unbound.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
+        await expect(unbound.service.addAssignedReviews('ws-1')).rejects.toThrow('Connect a GitHub account in Workspace settings first.');
+        expect(unbound.text()).toBe(sweeping());
     });
 
     it('does not suggest into a file that fails to load', async () => {
         const t = setup({ yaml: 'version: 1\nautomations: [\n', workspaces: [bound()] });
         await t.start();
         expect(t.service.snapshot('ws-1').issues).not.toEqual([]);
-        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBeNull();
+        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
     });
 
-    it('addAssignedReviews appends the entry and reloads', async () => {
+    it('addAssignedReviews appends the steps entry and reloads', async () => {
         const t = setup({ yaml: sweeping(), workspaces: [bound()] });
         await t.start();
         await t.service.addAssignedReviews('ws-1');
+        // Appended: every line of the file before it is as it was.
+        expect(t.text()).toBe(`${sweeping()}${assignedReviewsEntry().replace(/^/gm, '  ')}\n`);
         expect(t.service.list('ws-1').map((automation) => automation.name)).toEqual(['sweep', 'review-assigned-prs']);
         expect(t.service.list('ws-1')[1]).toMatchObject({
             trigger: 'When a pull request asks for your review or is assigned to you',
+            runs: STEPS,
             // `auto` asks once: that approval is the person's consent.
             asksFirst: true,
         });
+        expect(t.service.list('ws-1')[1]).not.toHaveProperty('problem');
         await expect(t.service.addAssignedReviews('ws-1')).rejects.toThrow('factory.yml already has review-assigned-prs.');
 
         // No file yet: it is created from the template, with the entry live.
         const fresh = setup({ files: { 'ws-1': undefined as unknown as string }, workspaces: [bound()] });
         await fresh.start();
-        expect(fresh.service.snapshot('ws-1')).toMatchObject({ fileExists: false, suggestAssignedReviews: { action: 'Review' } });
+        expect(fresh.service.snapshot('ws-1')).toMatchObject({ fileExists: false, suggestAssignedReviews: true });
         await fresh.service.addAssignedReviews('ws-1');
+        expect(fresh.text()).toBe(factoryTemplate({ reviewsLive: true }));
         expect(fresh.service.list('ws-1').map((automation) => automation.name)).toEqual(['review-assigned-prs']);
+        expect(fresh.service.list('ws-1')[0]).toMatchObject({ runs: STEPS, asksFirst: true });
+        expect(fresh.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
     });
 
-    it('creates a new file with automatic reviews of the default pull request action', async () => {
+    it('Open file creates no automation', async () => {
+        // Everything automatic reviews need: GitHub, a pull request action, and no file yet.
         const t = setup({ files: { 'ws-1': undefined as unknown as string }, workspaces: [bound()] });
         await t.start();
         await t.service.ensureFile('ws-1');
+        const text = t.text()!;
+        expect(text).toBe(factoryTemplate({ reviewsLive: false }));
+        expect(parseFactorySpec(text)).toEqual({ automations: [], issues: [] });
+        expect(t.service.list('ws-1')).toEqual([]);
+        expect(t.service.snapshot('ws-1')).toMatchObject({ fileExists: true, issues: [], automations: [] });
+        // Nothing in it covers assigned reviews, so the banner still offers them.
+        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBe(true);
+
+        // Uncommenting the entry (removing "# " from its lines) turns on exactly it, and it runs here.
+        const lines = text.split('\n');
+        const from = lines.findIndex((line) => line.trim() === '# - name: review-assigned-prs');
+        const to = lines.findIndex((line) => line.trim() === '# - name: clean-up-stale-sessions');
+        expect(from).toBeGreaterThan(0);
+        expect(to).toBeGreaterThan(from);
+        await t.edit(lines.map((line, index) => (index >= from && index < to ? line.replace(/^(\s*)# ?/, '$1') : line)).join('\n'));
+        expect(t.service.snapshot('ws-1').issues).toEqual([]);
+        expect(t.service.list('ws-1')).toHaveLength(1);
+        expect(t.service.list('ws-1')[0]).toMatchObject({ name: 'review-assigned-prs', runs: STEPS, asksFirst: true });
+        expect(t.service.list('ws-1')[0]).not.toHaveProperty('problem');
+    });
+
+    it('a file with the one-step entry keeps running it, and is never rewritten', async () => {
+        const oneStep = `version: 1
+automations:
+  - name: review-assigned-prs
+    on: { github: [pull_request.review_requested, pull_request.assigned] }
+    filter: { authors_not: ["dependabot[bot]"] }
+    run: { action: Review }
+    mode: auto
+`;
+        const t = setup({ yaml: oneStep, workspaces: [bound()] });
+        await t.start();
         expect(t.service.list('ws-1')).toMatchObject([{ name: 'review-assigned-prs', runs: 'Review action' }]);
+        expect(t.service.list('ws-1')[0]).not.toHaveProperty('steps');
+        expect(t.service.snapshot('ws-1').suggestAssignedReviews).toBe(false);
+        expect(t.service.snapshot('ws-1').templates.find((template) => template.id === 'review-assigned-prs')).toMatchObject({
+            addedAs: 'review-assigned-prs',
+        });
+        await t.service.ensureFile('ws-1');
+        await expect(t.service.addAssignedReviews('ws-1')).rejects.toThrow('factory.yml already has review-assigned-prs.');
+        expect(t.text()).toBe(oneStep);
     });
 });
 

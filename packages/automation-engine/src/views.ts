@@ -182,11 +182,11 @@ export interface AutomationsSnapshot {
     /** Each queued run's place in the one line every workspace shares, 1 first. */
     queue: Record<string, number>;
     /**
-     * Offer automatic reviews of pull requests assigned to the person, with
-     * the action they would run — or null when the workspace cannot run
-     * them, its file does not load, or the file already has them.
+     * Offer automatic reviews of pull requests assigned to the person: the
+     * workspace is bound to GitHub, its file loads, and nothing in it already
+     * reviews requests or assignments.
      */
-    suggestAssignedReviews: { action: string } | null;
+    suggestAssignedReviews: boolean;
     /** The ready-made automations, with what this workspace lacks for each and which are already in the file. */
     templates: TemplateView[];
 }

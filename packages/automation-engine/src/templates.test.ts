@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from '@consola/factory-spec';
+import { assignedReviewsEntry } from './factoryTemplates';
 import { AUTOMATION_TEMPLATES, previewOf, templateViews } from './templates';
 import type { WorkspaceView } from './views';
 
@@ -23,7 +24,6 @@ describe('templates', () => {
         expect(view(workspace({ provider: undefined }), 'review-assigned-prs').missing).toBe(
             'Connect a GitHub account in Workspace settings'
         );
-        expect(view(workspace({ actions: [] }), 'review-assigned-prs').missing).toBe('Add an action for pull requests');
         expect(view(workspace({ scopes: [] }), 'morning-inbox-digest').missing).toBe('Add a scope');
         expect(view(workspace(), 'review-assigned-prs')).not.toHaveProperty('missing');
 
@@ -42,10 +42,9 @@ describe('templates', () => {
         }
         expect(views.find((template) => template.id === 'review-assigned-prs')?.needs).toEqual([
             { label: 'GitHub connection', met: false, fix: { label: 'Connect a GitHub account', section: 'provider' } },
-            { label: 'Action for pull requests', met: false, fix: { label: 'Add an action for pull requests', section: 'actions' } },
         ]);
         // Each need says whether this workspace has it, not only the first missing one.
-        expect(view(workspace({ actions: [] }), 'review-assigned-prs').needs.map((need) => need.met)).toEqual([true, false]);
+        expect(view(workspace({ scopes: [] }), 'morning-inbox-digest').needs.map((need) => need.met)).toEqual([true, false]);
         expect(view(workspace(), 'clean-up-stale-sessions').needs).toEqual([]);
     });
 
@@ -83,11 +82,11 @@ describe('templates', () => {
             nextRunAt: null,
         });
         expect(brief.preview).not.toHaveProperty('schedule');
-        // Filled in for this workspace: its scope, its pull request action.
+        // Filled in for this workspace: its scope.
         expect(views.find((template) => template.id === 'morning-inbox-digest')?.preview?.entry).toContain(
             'scope: catalog-portal',
         );
-        expect(views.find((template) => template.id === 'review-assigned-prs')?.preview?.runs).toBe('Review action');
+        expect(views.find((template) => template.id === 'review-assigned-prs')?.preview?.runs).toBe('Steps: fresh \u2192 review \u2192 publish');
     });
 
     it("a steps template's preview lists its steps", () => {
@@ -130,6 +129,47 @@ automations:
         // Something already reviewing assignments covers automatic reviews.
         expect(view(workspace(), 'review-assigned-prs', file).addedAs).toBe('reviews');
         expect(view(workspace(), 'morning-inbox-digest', file)).not.toHaveProperty('addedAs');
+    });
+
+    it('review-assigned-prs needs only GitHub', () => {
+        // No pull request action: it inlines its prompt, so nothing is missing.
+        const noActions = view(workspace({ actions: [] }), 'review-assigned-prs');
+        expect(noActions).not.toHaveProperty('missing');
+        expect(noActions.needs).toEqual([
+            { label: 'GitHub connection', met: true, fix: { label: 'Connect a GitHub account', section: 'provider' } },
+        ]);
+        expect(view(workspace({ provider: undefined, actions: [] }), 'review-assigned-prs').missing).toBe(
+            'Connect a GitHub account in Workspace settings'
+        );
+        // The same entry whatever the workspace has.
+        const template = AUTOMATION_TEMPLATES.find((candidate) => candidate.id === 'review-assigned-prs')!;
+        expect(template.entry(workspace({ actions: [] }))).toBe(assignedReviewsEntry());
+        expect(template.entry(workspace())).toBe(assignedReviewsEntry());
+        expect(noActions.preview).toMatchObject({ kind: 'agent', runs: 'Steps: fresh \u2192 review \u2192 publish', mode: 'auto' });
+        expect(noActions.preview?.steps?.map((step) => step.id)).toEqual(['fresh', 'review', 'publish']);
+        // The card says it posts as you, and never approves.
+        expect(noActions.description).toMatch(/posts the review on GitHub as you/);
+        expect(noActions.description).toMatch(/as a comment or a request for changes, never an approval/);
+    });
+
+    it('a file with the one-step entry shows it as added', () => {
+        // What "Open file" and the banner wrote before review-assigned-prs had steps: it keeps running as it is.
+        const oneStep = `version: 1
+automations:
+  - name: review-assigned-prs
+    on: { github: [pull_request.review_requested, pull_request.assigned] }
+    filter: { authors_not: ["dependabot[bot]"] }
+    run: { action: Review }
+    mode: auto
+`;
+        expect(parseFactorySpec(oneStep).issues).toEqual([]);
+        expect(view(workspace(), 'review-assigned-prs', oneStep).addedAs).toBe('review-assigned-prs');
+        // Under another name, by an action or by steps.
+        const renamed = oneStep.replace('name: review-assigned-prs', 'name: my-reviews');
+        expect(view(workspace(), 'review-assigned-prs', renamed).addedAs).toBe('my-reviews');
+        const steps = `version: 1\nautomations:\n${assignedReviewsEntry().replace('name: review-assigned-prs', 'name: posted').replace(/^/gm, '  ')}\n`;
+        expect(parseFactorySpec(steps).issues).toEqual([]);
+        expect(view(workspace(), 'review-assigned-prs', steps).addedAs).toBe('posted');
     });
 
     it('a review request’s prompt and its action are different templates', () => {

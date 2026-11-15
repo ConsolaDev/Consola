@@ -8,6 +8,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsStore';
 import { RunNowButton, StatusDot, useArrivals, useArrivedOnMount, useIntent, useMarkRunsSeen, useNow } from './parts';
 import {
+  ASSIGNED_REVIEWS_OFFER,
   formatAgo,
   formatCountdown,
   formatDueAt,
@@ -71,9 +72,7 @@ export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; 
           <div className="automations-callout-text">
             <div className="automations-callout-title">Review PRs assigned to me automatically</div>
             <p className="automations-hint">
-              Adds <code>review-assigned-prs</code> to factory.yml: your {snapshot.suggestAssignedReviews.action} action
-              runs, read-only, on each pull request that asks for your review or is assigned to you. It asks you once
-              before the first.
+              Adds <code>review-assigned-prs</code> to factory.yml. {ASSIGNED_REVIEWS_OFFER}
             </p>
           </div>
           <button

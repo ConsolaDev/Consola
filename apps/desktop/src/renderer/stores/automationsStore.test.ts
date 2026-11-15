@@ -32,7 +32,7 @@ function snap(filePath: string): AutomationsSnapshot {
         runs: [],
         hasOlder: false,
         queue: {},
-        suggestAssignedReviews: null,
+        suggestAssignedReviews: false,
         templates: [],
     };
 }

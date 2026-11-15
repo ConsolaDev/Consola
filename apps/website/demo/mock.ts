@@ -244,7 +244,7 @@ export function installMock() {
   const automationsUnavailable = async (): Promise<never> => { throw new Error('Automations run in the desktop app.'); };
   window.automationsAPI = {
     getSnapshot: async () => ({
-      filePath: '', fileExists: false, automations: [], issues: [], runs: [], hasOlder: false, queue: {}, suggestAssignedReviews: null,
+      filePath: '', fileExists: false, automations: [], issues: [], runs: [], hasOlder: false, queue: {}, suggestAssignedReviews: false,
       templates: [
         {
           id: 'review-assigned-prs', title: 'Review PRs assigned to me', description: 'Reviews each pull request that asks for your review.',

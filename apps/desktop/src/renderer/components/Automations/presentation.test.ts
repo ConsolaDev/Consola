@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AgentRunPreview, AutomationsSnapshot, RunListEntry, RunRecord } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
+    ASSIGNED_REVIEWS_OFFER,
     collapseSteps,
     filterRuns,
     finalAnswer,
@@ -82,7 +83,7 @@ function snapshot(runs: RunListEntry[], automations: AutomationsSnapshot['automa
         runs,
         hasOlder: false,
         queue: {},
-        suggestAssignedReviews: null,
+        suggestAssignedReviews: false,
         templates: [],
     };
 }
@@ -928,5 +929,17 @@ describe('yamlTokens', () => {
         expect(kinds(lines[0])).toEqual(['key:title', 'colon::', "string:'Hi # there'"]);
         expect(kinds(lines[1])).toEqual(['key:enabled', 'colon::', 'literal:true']);
         expect(lines.map((tokens) => tokens.map((token) => token.text).join('')).join('\n')).toBe(source);
+    });
+});
+
+describe('the assigned reviews banner', () => {
+    it('says who reviews, who posts, that it never approves, and that it asks first', () => {
+        expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks for your review or is assigned to you/);
+        expect(ASSIGNED_REVIEWS_OFFER).toMatch(/a read-only agent reviews it in a checkout of its own/);
+        expect(ASSIGNED_REVIEWS_OFFER).toMatch(/Consola posts the review on GitHub as you, as a comment or a request for changes, never an approval/);
+        expect(ASSIGNED_REVIEWS_OFFER).toMatch(/skips a commit it already reviewed/);
+        expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks you once first, with every command shown/);
+        // No action to name: the entry needs none.
+        expect(ASSIGNED_REVIEWS_OFFER).not.toMatch(/action/);
     });
 });

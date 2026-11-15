@@ -31,7 +31,6 @@ import {
     agentToolContext,
     CONSOLA_NAMESPACE,
     describeError,
-    firstActionFor,
     SESSION_OPENED_MESSAGE,
     SessionOpenedError,
     StartedByHandError,
@@ -555,52 +554,52 @@ export class AutomationService {
 
     /**
      * The workspace's file, created from the template when missing; for
-     * "Open file". A new file reviews assigned pull requests with the
-     * workspace's default pull request action, when it has one.
+     * "Open file". The file it creates holds no live automation, whatever the
+     * workspace has (decision 11): review-assigned-prs is there commented out,
+     * ready to uncomment. An existing file is opened as it is.
      */
     public async ensureFile(workspaceId: string): Promise<string> {
-        const filePath = await this.factoryOf(workspaceId).file.ensureExists(factoryTemplate(this.prActionOf(workspaceId) ?? null));
+        const filePath = await this.factoryOf(workspaceId).file.ensureExists(factoryTemplate({ reviewsLive: false }));
         await this.reload(workspaceId);
         return filePath;
     }
 
     /**
      * The panel's "Review PRs assigned to me automatically": add
-     * review-assigned-prs to the workspace's file — the template when there
-     * is no file, otherwise one more entry at the end, every other line left
-     * as it was. In `auto`, so it asks once before the first review.
+     * review-assigned-prs to the workspace's file — the template, with the
+     * entry live, when there is no file; otherwise one more entry at the end,
+     * every other line left as it was. The one place Consola writes it live,
+     * because the person asked. In `auto`, so it asks once before the first
+     * review, with every command shown.
      */
     public async addAssignedReviews(workspaceId: string): Promise<void> {
-        const action = this.prActionOf(workspaceId);
-        if (!action) throw new Error('Add an action for pull requests first.');
+        if (!this.boundToGitHub(workspaceId)) throw new Error('Connect a GitHub account in Workspace settings first.');
         const { file } = this.factoryOf(workspaceId);
         const loaded = await file.load();
         if (loaded.spec.automations.some((automation) => automation.name === ASSIGNED_REVIEWS_NAME)) {
             throw new Error(`factory.yml already has ${ASSIGNED_REVIEWS_NAME}.`);
         }
-        if (loaded.exists) await file.appendAutomation(assignedReviewsEntry(action));
-        else await file.ensureExists(factoryTemplate(action));
+        if (loaded.exists) await file.appendAutomation(assignedReviewsEntry());
+        else await file.ensureExists(factoryTemplate({ reviewsLive: true }));
         await this.reload(workspaceId);
     }
 
-    /** The action automatic reviews would run: the workspace's default for pull requests. */
-    private prActionOf(workspaceId: string): string | undefined {
+    /** Whether the workspace has the account automatic reviews post as. */
+    private boundToGitHub(workspaceId: string): boolean {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-        return workspace ? firstActionFor(workspace.actions ?? [], 'pr')?.name : undefined;
+        return workspace?.provider?.id === 'github';
     }
 
     /**
-     * Whether to offer automatic reviews: the workspace can run them (an
-     * account and a pull request action), its file loads, and nothing in it
+     * Whether to offer automatic reviews: the workspace can run them (a GitHub
+     * account; the entry needs no action), its file loads, and nothing in it
      * already reviews requests or assignments — or goes by that name.
      */
-    private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): { action: string } | null {
-        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-        const action = this.prActionOf(workspaceId);
-        if (!workspace?.provider || !action) return null;
+    private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): boolean {
+        if (!this.boundToGitHub(workspaceId)) return false;
         const { spec } = factory.loaded;
-        if (spec.issues.some((issue) => !isEntryIssue(issue))) return null;
-        return spec.automations.some(coversAssignedReviews) ? null : { action };
+        if (spec.issues.some((issue) => !isEntryIssue(issue))) return false;
+        return !spec.automations.some(coversAssignedReviews);
     }
 
     /**

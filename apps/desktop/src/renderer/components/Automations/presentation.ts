@@ -566,6 +566,16 @@ export interface ApprovalStep {
     detail: string;
 }
 
+/**
+ * What the Activity banner's Add writes, after "Adds review-assigned-prs to
+ * factory.yml": the same entry as the template (decision 8), which reviews
+ * read-only, posts as the person and never approves (decision 7).
+ */
+export const ASSIGNED_REVIEWS_OFFER =
+    'When a pull request asks for your review or is assigned to you, a read-only agent reviews it in a checkout of ' +
+    'its own, then Consola posts the review on GitHub as you, as a comment or a request for changes, never an ' +
+    'approval. It skips a commit it already reviewed, and asks you once first, with every command shown.';
+
 /** How a template's entry will treat the person once added: a card's line, where `approvalStep` is a pipeline's node. */
 export function templateModeWords(mode: AutomationMode): string {
     if (mode === 'confirm') return 'You approve each run';
