@@ -29,6 +29,7 @@ export {
     type OutputType,
     type OutputValue,
 } from './outputs';
+export { FIELD_NAME_PATTERN, parseFieldPath, readFieldPath, type FieldPath } from './fieldPath';
 export { parseAutomationEntry, type AutomationEntryResult } from './entry';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
