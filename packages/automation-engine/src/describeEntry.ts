@@ -27,6 +27,7 @@ export function describeSteps(steps: Step[]): NonNullable<AutomationView['steps'
         id: step.id,
         kind: step.kind,
         ...(step.if !== undefined ? { if: step.if } : {}),
+        ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
         summary: step.kind === 'run' ? commandSummary(step.run) : step.action !== undefined ? actionRuns(step.action) : 'Prompt',
     }));
 }

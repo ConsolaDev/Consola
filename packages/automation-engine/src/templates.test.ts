@@ -100,6 +100,7 @@ describe('templates', () => {
       outputs: { verdict: string }
     - id: fresh
       if: steps.review.verdict == 'request-changes'
+      dry_run: run
       run: |
         git fetch origin
         git status
@@ -108,7 +109,7 @@ describe('templates', () => {
         expect(preview.runs).toBe('Steps: review \u2192 fresh');
         expect(preview.steps).toEqual([
             { id: 'review', kind: 'agent', summary: 'Review action' },
-            { id: 'fresh', kind: 'run', if: "steps.review.verdict == 'request-changes'", summary: 'git fetch origin' },
+            { id: 'fresh', kind: 'run', if: "steps.review.verdict == 'request-changes'", summary: 'git fetch origin', dryRun: true },
         ]);
         // A legacy entry has none.
         const legacy = AUTOMATION_TEMPLATES.find((template) => template.id === 'clean-up-stale-sessions')!.entry(workspace());

@@ -18,7 +18,7 @@ import {
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { approvalStep, formatCountdown, formatDueAt, formatDuration, formatTime, yamlTokens } from './presentation';
+import { approvalStep, commandFoot, formatCountdown, formatDueAt, formatDuration, formatTime, yamlTokens } from './presentation';
 
 type NodeState = 'due' | 'waiting' | 'running' | 'queued' | 'passed' | 'preview';
 
@@ -139,7 +139,7 @@ export function PipelineGraph({
         code={entry.id}
         edgeLabel={entry.if}
       >
-        {index === 0 && liveAction ? liveAction : entry.kind === 'agent' ? 'Read-only, in a session of its own' : 'Runs as you'}
+        {index === 0 && liveAction ? liveAction : entry.kind === 'agent' ? 'Read-only, in a session of its own' : commandFoot(entry, automation.mode)}
       </PipelineNode>
     ));
     return (

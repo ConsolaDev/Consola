@@ -574,14 +574,28 @@ export function templateModeWords(mode: AutomationMode): string {
 }
 
 export function approvalStep(
-    automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind'>,
+    automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps'>,
     /** Not in the file yet (a template): an `auto` entry's first run is the one it asks about. */
     draft = false,
 ): ApprovalStep | null {
+    const { steps } = automation;
     if (automation.mode === 'notify') {
+        // A steps entry's dry run starts its agent steps (read-only) and the commands marked `dry_run: run`.
+        const runs = steps?.filter((step) => step.kind === 'agent' || step.dryRun) ?? [];
+        if (steps && runs.length > 0) {
+            const reports = steps.filter((step) => !runs.includes(step)).map((step) => step.id);
+            const names = runs.map((step) => step.id);
+            const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+            return {
+                kind: 'notify',
+                title: 'Asks once, then runs',
+                detail: `Runs ${list}${runs.some((step) => step.kind === 'agent') ? ' read-only' : ''}${reports.length > 0 ? `; ${reports.join(', ')} only ${reports.length > 1 ? 'report' : 'reports'}` : ''}.`,
+            };
+        }
         return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };
     }
     if (automation.mode === 'confirm') {
+        if (steps) return { kind: 'approve', title: 'You approve each run', detail: 'Its steps run when you press Start' };
         return {
             kind: 'approve',
             title: 'You approve each run',
@@ -847,4 +861,9 @@ export function finalAnswer(entries: ConversationEntry[]): { steps: Conversation
     const { work, answer } = partition(entries);
     const texts = answer.flatMap((entry) => (entry.kind === 'text' ? [entry.text] : []));
     return { steps: work, answer: texts.length > 0 ? texts.join('\n\n') : null };
+}
+
+/** What a command node of a `steps:` entry does: under `notify` it only reports, unless marked `dry_run: run`. */
+export function commandFoot(step: { dryRun?: true }, mode: AutomationMode): string {
+    return mode === 'notify' && !step.dryRun ? 'Reports what it would run' : 'Runs as you';
 }

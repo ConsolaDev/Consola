@@ -33,6 +33,7 @@ import {
     olderRunsCursor,
     triggerLabel,
     approvalStep,
+    commandFoot,
     formatElapsed,
     groupRunsByDay,
     runKindCounts,
@@ -778,6 +779,31 @@ describe('approvalStep', () => {
 
     it('is being told, for notify', () => {
         expect(approvalStep({ mode: 'notify', kind: 'agent' })).toMatchObject({ kind: 'notify', detail: 'Starts nothing' });
+    });
+
+    it('says what a notify steps entry really runs', () => {
+        const agent = { id: 'review', kind: 'agent' as const, summary: 'Review action' };
+        const fetch = { id: 'fresh', kind: 'run' as const, summary: 'git fetch', dryRun: true as const };
+        const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr review' };
+        expect(approvalStep({ mode: 'notify', kind: 'agent', steps: [agent, publish] })).toMatchObject({
+            title: 'Asks once, then runs',
+            detail: 'Runs review read-only; publish only reports.',
+        });
+        expect(approvalStep({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })?.detail).toBe(
+            'Runs fresh and review read-only; publish only reports.',
+        );
+        expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [fetch] })?.detail).toBe('Runs fresh.');
+        // Nothing starts: every step is a command that only reports.
+        expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [publish] })).toMatchObject({ detail: 'Starts nothing' });
+        // Other modes.
+        expect(approvalStep({ mode: 'confirm', kind: 'tool', steps: [publish] })?.detail).toBe('Its steps run when you press Start');
+        expect(approvalStep({ mode: 'auto', kind: 'agent', steps: [agent], asksFirst: true })?.title).toBe('You approve its next run');
+    });
+
+    it('says what a command node does by mode', () => {
+        expect(commandFoot({}, 'notify')).toBe('Reports what it would run');
+        expect(commandFoot({ dryRun: true }, 'notify')).toBe('Runs as you');
+        expect(commandFoot({}, 'confirm')).toBe('Runs as you');
     });
 });
 

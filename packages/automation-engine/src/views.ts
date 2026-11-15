@@ -21,7 +21,7 @@ export interface AutomationView {
      * A `steps:` entry's steps in file order, as its pipeline draws them, problem or not.
      * `summary` is "Prompt", "Review action", or a command's first line.
      */
-    steps?: Array<{ id: string; kind: 'agent' | 'run'; if?: string; summary: string }>;
+    steps?: Array<{ id: string; kind: 'agent' | 'run'; if?: string; summary: string; /** A command marked `dry_run: run`: it runs when the run only reports. */ dryRun?: true }>;
     /** 1-based line in factory.yml. */
     line?: number;
     /** Next scheduled occurrence (ISO), or null when it is not on a schedule or will not run. */
