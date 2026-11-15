@@ -3029,13 +3029,23 @@ function toListEntry(run: RunRecord): RunListEntry {
 
 /**
  * The step a list row names: the first queued or running one. Otherwise where
- * the run ended: a failed run's failed step, and for any other ended run the
- * last step that ran. A skipped or not-run step has not run.
+ * the run ended: a failed run's failed step, or, when it failed between steps,
+ * the first step it did not reach (`not-run`), so the row never reads "failed
+ * at" a step that completed; none when it failed before its first step, or
+ * after its last. For any other ended run, the last step that ran. A skipped
+ * or not-run step has not run.
  */
 function currentStep(steps: RunRecord['steps'], status: RunRecord['status']): RunListEntry['step'] {
     if (!steps?.length) return undefined;
     let at = steps.findIndex((step) => step.status === 'queued' || step.status === 'running');
-    if (at < 0 && status === 'failed') at = steps.findIndex((step) => step.status === 'failed');
+    if (at < 0 && status === 'failed') {
+        at = steps.findIndex((step) => step.status === 'failed');
+        if (at < 0) {
+            const unreached = steps.findIndex((step) => step.status === 'not-run');
+            if (unreached <= 0) return undefined;
+            at = unreached;
+        }
+    }
     if (at < 0) {
         for (let index = steps.length - 1; index >= 0 && at < 0; index--) {
             if (['completed', 'failed', 'reported'].includes(steps[index].status)) at = index;

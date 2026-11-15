@@ -230,13 +230,18 @@ describe('runRowWords', () => {
 });
 
 describe('stepWords', () => {
-    const at = (status: RunListEntry['status'], stepStatus: 'queued' | 'running' | 'failed' | 'completed', extra: Partial<RunListEntry> = {}) =>
+    const at = (status: RunListEntry['status'], stepStatus: 'queued' | 'running' | 'failed' | 'completed' | 'not-run', extra: Partial<RunListEntry> = {}) =>
         run({ status, step: { id: 'publish', status: stepStatus, index: 2, count: 3 }, ...extra });
 
     it('says which step a run is at', () => {
         expect(stepWords(at('running', 'running'))).toBe('running · publish');
         expect(stepWords(at('running', 'queued'))).toBe('waiting for a slot before publish');
         expect(stepWords(at('failed', 'failed'))).toBe('failed at publish');
+    });
+
+    it('says a run that failed between steps failed before the one it did not reach', () => {
+        // The engine names the step it stopped before (`not-run`): "failed at" it would be untrue.
+        expect(stepWords(at('failed', 'not-run'))).toBe('failed before publish');
     });
 
     it("says a run waits for its item's checkout", () => {

@@ -137,9 +137,10 @@ const CHECKOUT_WAIT = "waiting for this item's checkout";
 /**
  * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
  * "running · publish", "waiting for a slot before publish", "failed at
- * publish", or that it waits for its item's checkout. Null when there is
- * nothing step-shaped to say (a legacy run, a run that finished), so the
- * row keeps `runAbout`.
+ * publish" ("failed before publish" when it failed between steps, and the
+ * engine names the step it did not reach), or that it waits for its item's
+ * checkout. Null when there is nothing step-shaped to say (a legacy run, a
+ * run that finished), so the row keeps `runAbout`.
  */
 export function stepWords(run: RunListEntry): string | null {
     if (run.status === 'queued' && run.summary === CHECKOUT_WAIT) return CHECKOUT_WAIT;
@@ -147,7 +148,7 @@ export function stepWords(run: RunListEntry): string | null {
     if (!step) return null;
     if (run.status === 'running' && step.status === 'running') return `running · ${step.id}`;
     if (run.status === 'running' && step.status === 'queued') return `waiting for a slot before ${step.id}`;
-    if (run.status === 'failed') return `failed at ${step.id}`;
+    if (run.status === 'failed') return step.status === 'not-run' ? `failed before ${step.id}` : `failed at ${step.id}`;
     return null;
 }
 

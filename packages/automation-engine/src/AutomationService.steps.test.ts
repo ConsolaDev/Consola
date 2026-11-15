@@ -1866,6 +1866,18 @@ describe('the snapshot and history by page', () => {
             });
         });
 
+        it('is the step a failed run did not reach when it failed between steps, never one that completed', async () => {
+            expect(await stepOf('failed', [step('s1', 'completed'), step('s2', 'not-run'), step('s3', 'not-run')])).toEqual({
+                id: 's2',
+                status: 'not-run',
+                index: 2,
+                count: 3,
+            });
+            expect(await stepOf('failed', [step('s1', 'skipped'), step('s2', 'not-run')])).toMatchObject({ id: 's2', status: 'not-run' });
+            // Every step completed and it failed after: there is no step to name.
+            expect(await stepOf('failed', [step('s1', 'completed'), step('s2', 'completed')])).toBeUndefined();
+        });
+
         it('is the last step that ran for any other ended run, a failed one included, and differs from a failed run', async () => {
             const steps = [step('s1', 'failed'), step('s2', 'completed'), step('s3', 'skipped')];
             expect(await stepOf('completed', steps)).toEqual({ id: 's2', status: 'completed', index: 2, count: 3 });
