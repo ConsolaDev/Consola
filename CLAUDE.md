@@ -231,6 +231,30 @@ session. And whatever `save_automation` writes or replaces gives up the
 entry's acceptance, so it asks once before its next unattended run — even
 when only its schedule changed, which a hand edit would not ask about.
 
+### A Steps Run Works in a Checkout of Its Own
+
+A `steps:` run on a pull request or issue never works in the Inbox's worktree
+for it. It gets a second, detached worktree per item beside that one,
+`<repo>-pr-<n>-automation` (`WorktreeService.automationCheckoutPathFor`),
+reset to the item's head each time a run prepares it. Nothing is reset until
+`assertOwnAutomationCheckout` proves the folder is that linked worktree of the
+clone (not a symlink, not the clone, not the Inbox's worktree): a reset
+anywhere else would destroy someone's work. Once a full-tools session was
+launched there, running or not, Consola never moves it again, for the same
+reason the Assistant leaves a trusted worktree alone.
+
+An agent step's tools (`steps/stepTools.ts`) are scoped by the calling
+session's provenance (run, step and attempt), resolved again on every call and
+never taken from a tool's arguments. Writes are refused once that attempt is
+not the step's running one, or the step recorded a different session.
+
+A `run:` step's command gets values only as environment variables: `{{` is
+refused in `run:`, and `env:` refuses names that would run their value as code
+(`REFUSED_ENV_NAMES`). Its intent (`intentAt`) is written durably
+(`RunStore.updateDurably`) before the spawn, so a quit mid-command is known
+after a restart. Such a command is never re-run automatically: the restart
+fails it as interrupted, and Retry warns before it runs again.
+
 ### The Assistant
 
 Each workspace has one `kind: 'assistant'` session: a conversation that sees
