@@ -18,9 +18,9 @@ export interface StepPromptInput {
     count: number;
     /** The step's body: its prompt with {{ }} filled, or its action's body with the action's own placeholders filled. */
     body: string;
-    /** The connection's header fragment and fenced text for the run's item; absent for a schedule. */
+    /** The item source's header fragment and fenced text for the run's item; absent for a schedule. */
     item?: { header: string; fence: string };
-    /** Where a schedule's run happens: the scope's name. */
+    /** Where a run with no repository to work in happens (a schedule, a poll with `key:`): the scope's name. */
     scope?: string;
     reads: Array<{ ref: string; step: string; bytes: number }>;
     outputs: Record<string, OutputType>;
@@ -37,7 +37,9 @@ export function describeSize(bytes: number): string {
 
 export function renderStepPrompt(input: StepPromptInput): string {
     const { automation, runId, step, index, count, body, item, scope, reads, outputs, artifacts, handover } = input;
-    const where = item ? `, for ${item.header}, in a dedicated git worktree for it` : scope ? `, in ${scope}` : '';
+    // An item run works in the item's own worktree, unless its items have no repository (a poll with `key:`): then in its scope.
+    const place = scope ? `, in ${scope}` : item ? ', in a dedicated git worktree for it' : '';
+    const where = `${item ? `, for ${item.header}` : ''}${place}`;
     const header =
         `[Consola] Step "${step.id}" (${index} of ${count}) of the automation "${automation}" (run ${runId.slice(0, RUN_ID_LENGTH)})${where}. ` +
         'This session is read-only: it can read the files in this folder and use Consola’s tools ' +

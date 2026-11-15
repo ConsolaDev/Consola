@@ -40,13 +40,20 @@ function commandSummary(command: string): string {
     return clipText(line ?? '', COMMAND_SUMMARY_CHARS);
 }
 
+/** A poll's interval, in words and as written: `{ words: '90 minutes', short: '90m' }`, `{ words: '2 hours', short: '2h' }`. */
+export function describeEvery(ms: number): { words: string; short: string } {
+    const minutes = Math.round(ms / 60_000);
+    if (minutes % 60 === 0) {
+        const hours = minutes / 60;
+        return { words: `${hours} ${hours === 1 ? 'hour' : 'hours'}`, short: `${hours}h` };
+    }
+    return { words: `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`, short: `${minutes}m` };
+}
+
 /** An event trigger that did not resolve, said as written. */
 export function describeTriggerAsWritten(automation: Automation): string {
     const { trigger } = automation;
     if (trigger.kind === 'event') return `${trigger.connection}: ${trigger.events.join(', ')}`;
-    if (trigger.kind === 'poll') {
-        const minutes = trigger.everyMs / 60_000;
-        return `poll: every ${minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`}`;
-    }
+    if (trigger.kind === 'poll') return `poll: every ${describeEvery(trigger.everyMs).short}`;
     return trigger.kind === 'manual' ? 'manual' : trigger.cron;
 }

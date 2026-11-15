@@ -7,7 +7,7 @@ export { advanceSeen, forgetFired, markFired, type OpenState, type SeenRecord } 
 export { filterRuns, NO_RUN_FILTER, isRunFilterNarrowed, type RunFilter, type RunListFilter } from './runFilter';
 export { SNAPSHOT_ENDED_RUNS } from './views';
 export { describeSchedule } from './describeSchedule';
-export { describeRun, describeTriggerAsWritten } from './describeEntry';
+export { describeEvery, describeRun, describeTriggerAsWritten } from './describeEntry';
 export type {
     AutomationView,
     TemplateView,
@@ -90,7 +90,23 @@ export {
     type AutomationNotice,
     type SaveEntryOptions,
 } from './AutomationService';
-export { resolveEventSource, scheduledPrompt, connectionCatalog, type EventSource, type ConnectionCatalogEntry } from './connections';
+export {
+    resolveEventSource,
+    scheduledPrompt,
+    connectionCatalog,
+    workItemSource,
+    type EventSource,
+    type ConnectionCatalogEntry,
+} from './connections';
+export {
+    runItemSource,
+    POLL_FENCE_HEADING,
+    MAX_FENCED_FIELDS,
+    MAX_FENCED_CHARS,
+    type ItemSource,
+    type SourceItem,
+} from './sources/itemSource';
+export { pollSource } from './sources/pollSource';
 export { describeCapabilities, type AutomationCapabilities, type CapabilitiesInput } from './capabilities';
 export { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews, type AutomationTemplate, type TemplateRequirement } from './templates';
 export * from './node';

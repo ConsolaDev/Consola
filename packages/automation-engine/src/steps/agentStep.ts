@@ -1,6 +1,6 @@
 import { parseTemplate, renderTemplate, type AgentStep, type RunRecord, type StepRun } from '@consola/factory-spec';
-import { resolveEventSource, type EventSource } from '../connections';
 import type { AgentLaunchRequest } from '../ports';
+import type { ItemSource } from '../sources/itemSource';
 import { fillActionPlaceholders } from '../support';
 import type { ItemRef } from '../views';
 import type { RunDefinition } from './definition';
@@ -14,14 +14,6 @@ import { renderStepPrompt, type StepPromptInput } from './stepPrompt';
  */
 
 const own = (object: object, key: string): boolean => Object.prototype.hasOwnProperty.call(object, key);
-
-/** The connection a run's own definition names, for its item's header, fence and fields; undefined for a schedule. */
-export function runEventSource(definition: RunDefinition): EventSource | undefined {
-    const { trigger, filter } = definition.automation;
-    if (trigger.kind !== 'event') return undefined;
-    const resolution = resolveEventSource(trigger, filter);
-    return resolution.ok ? resolution.source : undefined;
-}
 
 /** The item a run is about, as the host names one; undefined when its snapshot lacks what that takes. */
 export function itemRefOf(run: RunRecord): ItemRef | undefined {
@@ -45,13 +37,18 @@ function readsOf(step: AgentStep, records: StepRun[]): StepPromptInput['reads'] 
  * only trusted values: the item's identity fields, and outputs whose schema
  * constrains them. Anything else has no value here.
  */
-function fillPrompt(text: string, run: RunRecord, event: EventSource | undefined): { ok: true; text: string } | { ok: false; error: string } {
+function fillPrompt(
+    text: string,
+    run: RunRecord,
+    source: ItemSource | undefined,
+    polled: Record<string, unknown> | undefined
+): { ok: true; text: string } | { ok: false; error: string } {
     const parsed = parseTemplate(text);
     if (!parsed.ok) return { ok: false, error: parsed.problem };
     const item = run.trigger.item;
     const rendered = renderTemplate(parsed.parts, (path) => {
         if (path.root === 'item') {
-            const value = item && event ? event.itemValue(item, path.field) : undefined;
+            const value = item && source ? source.itemValue(item, path.field, polled) : undefined;
             return value === undefined ? undefined : String(value);
         }
         if (path.file) return undefined;
@@ -69,10 +66,14 @@ export type AgentStepLaunch = { ok: true; request: AgentLaunchRequest } | { ok: 
  * item run, the item it is about, labelled with the step's action (or the
  * automation, for a prompt step) and landing in the action's group.
  *
- * The run's first agent step, when it is an action of a run a trigger fired,
+ * The run's first agent step, when it is an action of a run a trigger fired
+ * (an event or a poll; never a run on demand, which the person chose),
  * asks the host to look for the same review started by hand
  * (`startedByHandSince`) until the run is retried: the checkout's lock is
  * let go once it is prepared, and an Inbox click may land between the two.
+ *
+ * `source` is the run's own (`runItemSource`), and `polled` a poll run's
+ * `item.json`: what its header, fence and item fields come from.
  */
 export function agentStepLaunch(input: {
     workspaceId: string;
@@ -80,8 +81,10 @@ export function agentStepLaunch(input: {
     definition: RunDefinition;
     stepId: string;
     checkout: { cwd: string; scopeId: string };
+    source: ItemSource | undefined;
+    polled: Record<string, unknown> | undefined;
 }): AgentStepLaunch {
-    const { workspaceId, run, definition, stepId, checkout } = input;
+    const { workspaceId, run, definition, stepId, checkout, source, polled } = input;
     const { steps } = definition.automation;
     const index = steps.findIndex((candidate) => candidate.id === stepId);
     const step = steps[index];
@@ -89,7 +92,6 @@ export function agentStepLaunch(input: {
     if (step?.kind !== 'agent' || !record) return { ok: false, error: `Its definition has no agent step ${stepId}.` };
 
     const automation = run.automationId;
-    const event = runEventSource(definition);
     const item = run.trigger.item;
     const workItem = itemRefOf(run);
     const action = definition.actions[step.id];
@@ -100,7 +102,7 @@ export function agentStepLaunch(input: {
         // The title is the author's: the body points at it, the fence holds it.
         body = fillActionPlaceholders(action.body, { workItem, title: 'the title quoted below', url: item.url });
     } else {
-        const filled = fillPrompt(step.prompt ?? '', run, event);
+        const filled = fillPrompt(step.prompt ?? '', run, source, polled);
         if (!filled.ok) return filled;
         body = filled.text;
     }
@@ -112,7 +114,7 @@ export function agentStepLaunch(input: {
         index: index + 1,
         count: steps.length,
         body,
-        ...(event && item ? { item: { header: event.describeItemHeader(item), fence: event.fenceItem(item) } } : {}),
+        ...(source && item ? { item: { header: source.describeItemHeader(item), fence: source.fenceItem(item, polled) } } : {}),
         ...(definition.automation.scope ? { scope: definition.automation.scope } : {}),
         reads: readsOf(step, run.steps ?? []),
         outputs: step.outputs,
@@ -124,7 +126,8 @@ export function agentStepLaunch(input: {
     // Only while the run is as its trigger fired it: a retry, or a restart's next attempt, leaves an earlier attempt in some
     // step's `previous`, and from then on the run is the person's click, whichever step that was.
     const retried = (run.steps ?? []).some((candidate) => (candidate.previous?.length ?? 0) > 0);
-    const askByHand = run.trigger.kind === 'event' && firstAgentStep && action !== undefined && !retried;
+    const fired = run.trigger.kind === 'event' || run.trigger.kind === 'poll';
+    const askByHand = fired && firstAgentStep && action !== undefined && !retried;
     return {
         ok: true,
         request: {

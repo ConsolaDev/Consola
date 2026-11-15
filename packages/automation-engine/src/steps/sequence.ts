@@ -107,13 +107,58 @@ function dependenciesOf(step: Step, condition: Expr | undefined): { conditions: 
     return { conditions, reads, templates, item };
 }
 
+/** A value's type as a skip names it: "a string", "a number", "true or false". */
+function typeWord(value: ExprValue): string {
+    return typeof value === 'boolean' ? 'true or false' : `a ${typeof value}`;
+}
+
+/**
+ * Why an `if:` over an untyped item (a poll's fields, which validation types
+ * as `unknown`) skips its step, or undefined when it can be evaluated: a field
+ * it names is absent, or is of another type than the literal it is compared
+ * with. Like a step output that did not complete, every field it names counts,
+ * whichever side of an `||` it is on. Validation lets an item field appear
+ * only compared with a literal.
+ */
+function untypedItemSkip(expr: Expr, itemValue: ((field: string) => ExprValue | undefined) | undefined): string | undefined {
+    switch (expr.kind) {
+        case 'item':
+            return itemValue?.(expr.field) === undefined ? `if: item.${expr.field} is absent` : undefined;
+        case 'output':
+        case 'literal':
+            return undefined;
+        case 'not':
+            return untypedItemSkip(expr.operand, itemValue);
+        case 'and':
+        case 'or':
+            return untypedItemSkip(expr.left, itemValue) ?? untypedItemSkip(expr.right, itemValue);
+        case 'compare': {
+            const absent = untypedItemSkip(expr.left, itemValue) ?? untypedItemSkip(expr.right, itemValue);
+            if (absent) return absent;
+            const field = expr.left.kind === 'item' ? expr.left : expr.right.kind === 'item' ? expr.right : undefined;
+            const literal = field === expr.left ? expr.right : expr.left;
+            if (!field || literal.kind !== 'literal') return undefined;
+            const value = itemValue?.(field.field);
+            if (value === undefined || typeof value === typeof literal.value) return undefined;
+            return `if: item.${field.field} is ${typeWord(value)}, not ${typeWord(literal.value)}`;
+        }
+    }
+}
+
+/**
+ * The run's next move. `itemValue` reads the run's item; `untypedItem` says
+ * its fields have no declared types (a poll's), so an `if:` over one that is
+ * absent, or of another type than its literal, skips the step rather than
+ * failing the run. A typed item's absent field fails it.
+ */
 export function advanceSteps(input: {
     steps: Step[];
     records: StepRun[];
     dryRun: boolean;
     itemValue?: (field: string) => ExprValue | undefined;
+    untypedItem?: boolean;
 }): Advance {
-    const { steps, dryRun, itemValue } = input;
+    const { steps, dryRun, itemValue, untypedItem } = input;
     if (input.records.some((record) => record.status === 'queued' || record.status === 'running')) return { kind: 'wait' };
 
     const failed = input.records.find((record) => record.status === 'failed');
@@ -157,6 +202,11 @@ export function advanceSteps(input: {
         }
 
         if (condition) {
+            const untyped = untypedItem ? untypedItemSkip(condition, itemValue) : undefined;
+            if (untyped) {
+                skip(untyped);
+                continue;
+            }
             const verdict = evaluateExpression(condition, (path) =>
                 path.kind === 'output' ? recorded(now.get(path.step), path.output, false) : itemValue?.(path.field),
             );

@@ -15,6 +15,7 @@ import {
     type Automation,
     type AutomationMode,
     type CronTrigger,
+    type ExprValue,
     type FactorySpecIssue,
     type RunItem,
     type RunRecord,
@@ -59,7 +60,8 @@ import { SNAPSHOT_ENDED_RUNS } from './views';
 import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
-import { agentStepLaunch, endedWithout, itemRefOf, runEventSource } from './steps/agentStep';
+import { agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
+import { runItemSource, type ItemSource } from './sources/itemSource';
 import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import { LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
@@ -1521,14 +1523,14 @@ export class AutomationService {
         const records = run.steps ?? [];
         const entry = this.entryOf(run);
         if (!entry?.steps || entry.version !== run.actionVersion) return records[0] ? laneOfRecord(records[0]) : null;
-        // At this version the entry's definition is the run's snapshot.
-        const { event } = entry;
-        const item = run.trigger.item;
+        // At this version the entry's definition is the run's snapshot. A guess at its lane: an `item.json` that
+        // cannot be read reads as none here, and fails the run when it starts.
+        const itemOf = this.runItemOf(run, entry.steps.definition);
         const next = advanceSteps({
             steps: entry.steps.definition.automation.steps,
             records,
             dryRun: run.dryRun === true,
-            itemValue: event && item ? (field) => event.itemValue(item, field) : undefined,
+            ...stepItemOf(run, itemOf),
         });
         return next.kind === 'start' ? next.lane : null;
     }
@@ -1847,13 +1849,16 @@ export class AutomationService {
             this.failRun(runId, loaded.problem, options);
             return;
         }
-        const event = runEventSource(loaded.definition);
-        const item = run.trigger.item;
+        const itemOf = this.runItemOf(run, loaded.definition);
+        if ('error' in itemOf) {
+            this.failRun(runId, `${itemOf.error}; it cannot continue.`, options);
+            return;
+        }
         const next = advanceSteps({
             steps: loaded.definition.automation.steps,
             records: run.steps,
             dryRun: run.dryRun === true,
-            itemValue: event && item ? (field) => event.itemValue(item, field) : undefined,
+            ...stepItemOf(run, itemOf),
         });
         if (next.kind === 'wait') return;
         const stopping = this.stopRequested.delete(runId);
@@ -1908,7 +1913,12 @@ export class AutomationService {
             return;
         }
         const workspaceId = run.attribution.workspaceId!;
-        const launch = agentStepLaunch({ workspaceId, run, definition: loaded.definition, stepId, checkout: { cwd, scopeId } });
+        const itemOf = this.runItemOf(run, loaded.definition);
+        if ('error' in itemOf) {
+            this.settleStep(runId, stepId, { status: 'failed', error: `${itemOf.error}.` });
+            return;
+        }
+        const launch = agentStepLaunch({ workspaceId, run, definition: loaded.definition, stepId, checkout: { cwd, scopeId }, ...itemOf });
         if (!launch.ok) {
             this.settleStep(runId, stepId, { status: 'failed', error: launch.error });
             return;
@@ -2050,7 +2060,12 @@ export class AutomationService {
             return;
         }
         const workspaceId = run.attribution.workspaceId!;
-        const prepared = prepareCommand({ run, definition: loaded.definition, stepId, cwd, workspaceId, folder: this.deps.runFolder });
+        const itemOf = this.runItemOf(run, loaded.definition);
+        if ('error' in itemOf) {
+            this.settleStep(runId, stepId, { status: 'failed', error: `${itemOf.error}.` });
+            return;
+        }
+        const prepared = prepareCommand({ run, definition: loaded.definition, stepId, cwd, workspaceId, folder: this.deps.runFolder, ...itemOf });
         if (!prepared.ok) {
             this.settleStep(runId, stepId, { status: 'failed', error: prepared.error });
             return;
@@ -2293,6 +2308,25 @@ export class AutomationService {
         }
         if (!options.quiet) this.notify(`${this.deps.store.get(runId)!.automationId} did not finish`, error, runId);
         void this.pump();
+    }
+
+    /**
+     * A steps run's own item source, from its definition, and the polled
+     * object its fields are read from: the run folder's `item.json`, read only
+     * for a source with no field table of its own (a poll's), since no other
+     * reads it. Undefined when it has none; the error when it cannot be read.
+     */
+    private runItemOf(
+        run: RunRecord,
+        definition: RunDefinition
+    ): { source: ItemSource | undefined; polled: Record<string, unknown> | undefined } | { source: ItemSource | undefined; error: string } {
+        const source = runItemSource(definition, this.deps.workItems);
+        if (!source || source.itemFields) return { source, polled: undefined };
+        try {
+            return { source, polled: this.deps.runFolder.readItem(run.attribution.workspaceId ?? '', run.id) ?? undefined };
+        } catch (error) {
+            return { source, error: `Its item could not be read from the run folder (${describeReason(error)})` };
+        }
     }
 
     /**
@@ -2782,7 +2816,7 @@ export class AutomationService {
         const preview: AgentRunPreview = {
             kind: 'agent-run',
             runs: agent.runs,
-            prompt: event.renderPrompt(agent.body, item, entry.automation.name),
+            prompt: event.renderPrompt(agent.body, event.toSourceItem(item, true), entry.automation.name),
             item: { url: item.url, title: item.title, author: item.author, label: described },
         };
         this.recordAgentRun(entry, trigger, preview, described);
@@ -3096,6 +3130,16 @@ function asksUntilAccepted(entry: Resolved): boolean {
 function stepsRunLine(automation: StepsAutomation, about: { item?: string; scope?: string }): string {
     const runs = describeRun(automation);
     return about.item ? `${runs}: ${about.item}.` : `${runs} in ${about.scope ?? ''}.`;
+}
+
+/** What the sequencer reads a run's item with: its source's fields, and whether they are untyped (a poll's). */
+function stepItemOf(
+    run: RunRecord,
+    { source, polled }: { source: ItemSource | undefined; polled?: Record<string, unknown> }
+): { itemValue?: (field: string) => ExprValue | undefined; untypedItem?: boolean } {
+    const item = run.trigger.item;
+    if (!source || !item) return {};
+    return { itemValue: (field) => source.itemValue(item, field, polled), ...(source.itemFields ? {} : { untypedItem: true }) };
 }
 
 /** An item as a steps run keeps it: its key and what its steps may read, as they were when it fired. */

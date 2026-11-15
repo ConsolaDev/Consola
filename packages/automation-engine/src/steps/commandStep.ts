@@ -1,8 +1,7 @@
 import { parseTemplate, renderTemplate, type CommandStep, type RunRecord, type StepRun, type TemplatePath } from '@consola/factory-spec';
-import type { EventSource } from '../connections';
 import type { CommandResult, CommandSpec, RunFolderPort } from '../ports';
+import type { ItemSource } from '../sources/itemSource';
 import { describeError } from '../support';
-import { runEventSource } from './agentStep';
 import { clipText, describeFailure, layerCommandEnv, LOG_CAP_BYTES, maskSecrets, OUTPUT_FILE_CAP_BYTES, parseOutputFile } from './commandIO';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from './definition';
 import { withAttemptStarted, withStep } from './stepRecords';
@@ -73,17 +72,19 @@ type Found = { value: string } | { missing: string };
 interface RenderContext {
     run: RunRecord;
     definition: RunDefinition;
-    /** The connection the run's definition names: what reads its item's fields. */
-    event: EventSource | undefined;
+    /** The run's own item source (`runItemSource`): what reads its item's fields. */
+    source: ItemSource | undefined;
+    /** A poll run's `item.json`: the object its fields are read from. */
+    polled: Record<string, unknown> | undefined;
     workspaceId: string;
     folder: RunFolderPort;
 }
 
 /** One path's value, from the run's item, its steps' records, and their documents in the run folder. */
-function valueOf(path: TemplatePath, { run, definition, event, workspaceId, folder }: RenderContext): Found {
+function valueOf(path: TemplatePath, { run, definition, source, polled, workspaceId, folder }: RenderContext): Found {
     if (path.root === 'item') {
         const item = run.trigger.item;
-        const value = item && event ? event.itemValue(item, path.field) : undefined;
+        const value = item && source ? source.itemValue(item, path.field, polled) : undefined;
         return value === undefined ? { missing: 'this run has no such item field' } : { value: String(value) };
     }
     const record = run.steps?.find((candidate) => candidate.id === path.step);
@@ -135,7 +136,8 @@ function renderValues(step: CommandStep, context: RenderContext): { ok: true; va
  * A command step's current attempt, from its run's record and definition and
  * the folder it runs in (`cwd`, checked by the caller): its `env:` rendered,
  * where its files go, and Consola's variables. Reads the run folder; writes
- * nothing.
+ * nothing. `source` is the run's own (`runItemSource`), and `polled` a poll
+ * run's `item.json`: what its item fields are read from.
  */
 export function prepareCommand(input: {
     run: RunRecord;
@@ -144,13 +146,15 @@ export function prepareCommand(input: {
     cwd: string;
     workspaceId: string;
     folder: RunFolderPort;
+    source: ItemSource | undefined;
+    polled: Record<string, unknown> | undefined;
 }): { ok: true; command: PreparedCommand } | { ok: false; error: string } {
-    const { run, definition, stepId, cwd, workspaceId, folder } = input;
+    const { run, definition, stepId, cwd, workspaceId, folder, source, polled } = input;
     const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
     const record = run.steps?.find((candidate) => candidate.id === stepId);
     if (step?.kind !== 'run' || !record) return { ok: false, error: `Its definition has no command step ${stepId}.` };
     try {
-        const rendered = renderValues(step, { run, definition, event: runEventSource(definition), workspaceId, folder });
+        const rendered = renderValues(step, { run, definition, source, polled, workspaceId, folder });
         if (!rendered.ok) return rendered;
         const dir = folder.attemptDir(workspaceId, run.id, stepId, record.attempt);
         const files = { output: inFolder(dir, 'outputs.env'), stdout: inFolder(dir, 'stdout.log'), stderr: inFolder(dir, 'stderr.log') };

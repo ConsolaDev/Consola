@@ -125,6 +125,67 @@ describe('advanceSteps: choosing a step', () => {
     });
 });
 
+describe('advanceSteps: an untyped item (a poll’s fields)', () => {
+    const polled = { draft: true, head: 'abc', count: 3 } as Record<string, string | number | boolean>;
+    const onItem = (condition: string): Step[] => [
+        { ...fresh, id: 'only', if: condition, outputs: {} },
+        { ...fresh, id: 'after', outputs: {} },
+    ];
+    const advanceOn = (steps: Step[], untypedItem: boolean | undefined, item: Record<string, string | number | boolean> = polled) =>
+        advanceSteps({ steps, records: records(steps, {}), dryRun: false, itemValue: (field) => item[field], ...(untypedItem === undefined ? {} : { untypedItem }) });
+
+    it('with an untyped item, an absent field in if: skips the step', () => {
+        expect(advanceOn(onItem("item.state == 'open'"), true)).toEqual({
+            kind: 'start',
+            stepId: 'after',
+            lane: 'command',
+            updates: [{ id: 'only', status: 'skipped', skipped: 'if: item.state is absent' }],
+        });
+        // Every field it names must be there, as for a step output: the other side of an || does not rescue it.
+        expect(advanceOn(onItem("item.head == 'abc' || item.state == 'open'"), true)).toMatchObject({
+            updates: [{ id: 'only', skipped: 'if: item.state is absent' }],
+        });
+    });
+
+    it('with an untyped item, a field of another type skips it', () => {
+        expect(advanceOn(onItem("item.draft == 'yes'"), true)).toEqual({
+            kind: 'start',
+            stepId: 'after',
+            lane: 'command',
+            updates: [{ id: 'only', status: 'skipped', skipped: 'if: item.draft is true or false, not a string' }],
+        });
+        expect(advanceOn(onItem('item.head > 2'), true)).toMatchObject({
+            updates: [{ id: 'only', skipped: 'if: item.head is a string, not a number' }],
+        });
+        expect(advanceOn(onItem('1 == item.count || item.count == false'), true)).toMatchObject({
+            updates: [{ id: 'only', skipped: 'if: item.count is a number, not true or false' }],
+        });
+    });
+
+    it('with an untyped item, fields of the literal’s type are compared as usual', () => {
+        expect(advanceOn(onItem("item.head == 'abc' && item.count >= 3 && !(item.draft == false)"), true)).toMatchObject({
+            kind: 'start',
+            stepId: 'only',
+            updates: [],
+        });
+        expect(advanceOn(onItem("item.head != 'abc'"), true)).toMatchObject({
+            updates: [{ id: 'only', skipped: "if: item.head != 'abc' is false" }],
+        });
+    });
+
+    it('a typed item still fails on an absent field', () => {
+        const prOnly: Step[] = [{ ...fresh, id: 'only', if: "item.type == 'pr'", outputs: {} }];
+        for (const untypedItem of [false, undefined]) {
+            expect(advanceOn(prOnly, untypedItem, {})).toEqual({
+                kind: 'fail',
+                stepId: 'only',
+                error: 'item.type has no value: this run has no such item field',
+                updates: [{ id: 'only', status: 'failed', error: 'item.type has no value: this run has no such item field' }],
+            });
+        }
+    });
+});
+
 describe('advanceSteps: a dependency that did not complete', () => {
     it.each([
         ['skipped', 'skipped'],
