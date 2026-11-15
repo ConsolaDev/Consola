@@ -75,6 +75,8 @@ function session(id: string, automation?: SessionView['automation']): SessionVie
 const SESSIONS = [
     session('sess-research', { name: 'review-assigned-prs', runId: 'run-1', step: { id: 'research', attempt: 1 } }),
     session('sess-review', { name: 'review-assigned-prs', runId: 'run-1', step: { id: 'review', attempt: 1 } }),
+    // Launched for the same attempt and orphaned: Consola quit before it recorded it, and the restart launched sess-review.
+    session('sess-orphan', { name: 'review-assigned-prs', runId: 'run-1', step: { id: 'review', attempt: 1 } }),
     session('sess-gone', { name: 'review-assigned-prs', runId: 'run-gone', step: { id: 'review', attempt: 1 } }),
     session('sess-legacy', { name: 'review-assigned-prs', runId: 'run-1' }),
     session('sess-person'),
@@ -267,6 +269,23 @@ describe('once the attempt has ended', () => {
         expect(io.setOutputs('sess-review', { verdict: 'approve' })).toEqual({ text: ENDED, isError: true });
         expect(io.writeArtifact('sess-review', 'notes', 'late')).toEqual({ text: ENDED, isError: true });
         expect(folder.readArtifact('ws-1', 'run-1', 'review', 1, 'notes')).toBeNull();
+    });
+});
+
+describe('two sessions at one attempt', () => {
+    it('only the one the step recorded writes; the other is told the step has ended', () => {
+        setStep('review', { sessionId: 'sess-review' });
+        expect(io.setOutputs('sess-orphan', { verdict: 'approve' })).toEqual({ text: ENDED, isError: true });
+        expect(io.writeArtifact('sess-orphan', 'handover', 'Ship it.')).toEqual({ text: ENDED, isError: true });
+        expect(stepOf('review').outputs).toBeUndefined();
+        expect(folder.readArtifact('ws-1', 'run-1', 'review', 1, 'handover')).toBeNull();
+
+        expect(io.setOutputs('sess-review', { findings: 2, verdict: 'comment' }).isError).toBe(false);
+        expect(io.writeArtifact('sess-review', 'handover', 'Two findings.').isError).toBe(false);
+        expect(stepOf('review').outputs).toEqual({ findings: 2, verdict: 'comment' });
+        expect(folder.readArtifact('ws-1', 'run-1', 'review', 1, 'handover')).toBe('Two findings.');
+        // Reads stay open to it: they change nothing.
+        expect(io.readArtifact('sess-orphan', 'handover').isError).toBe(false);
     });
 });
 

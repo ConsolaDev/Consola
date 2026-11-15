@@ -251,11 +251,18 @@ export class StepIO {
         }
     }
 
-    /** `reading`, refused unless the step is running at the session's attempt. */
+    /**
+     * `reading`, refused unless the step is running at the session's attempt
+     * and, once the step recorded its session, from that session. A quit in
+     * the launch window can leave a session of the attempt the record never
+     * named, and a restart launches the attempt again: only one of the two
+     * is the step.
+     */
     private writing(sessionId: string, write: (scope: StepScope, record: StepRun) => StepToolAnswer): StepToolAnswer {
         return this.reading(sessionId, (scope) => {
             const record = scope.run.steps?.find((step) => step.id === scope.step.id);
             if (record?.status !== 'running' || record.attempt !== scope.attempt) return refuse(STEP_ENDED);
+            if (record.sessionId !== undefined && record.sessionId !== sessionId) return refuse(STEP_ENDED);
             return write(scope, record);
         });
     }
