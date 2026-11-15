@@ -28,6 +28,7 @@ export type {
 } from './views';
 export { RunStore, RETENTION_DAYS, MAX_RUNS_PER_WORKSPACE, type AddedBy, type AutomationStateFile } from './RunStore';
 export type { RunHistory } from './ports';
+export { recoverAfterRestart, isEngineRun, INTERRUPTED_COMMAND } from './steps/recover';
 export type {
     StateFile,
     LoadedFactoryFile,

@@ -1,6 +1,7 @@
 import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
 import type { RunHistory, StateFile } from './ports';
 import type { SeenRecord } from './seenRecord';
+import { recoverAfterRestart } from './steps/recover';
 
 export interface AddedBy {
     /** The session that wrote the entry into the file. */
@@ -99,25 +100,14 @@ export class RunStore {
         this.all = merged.sort(byNewest);
         if (migrating) this.persist();
 
-        // A run still `running` was cut off by a quit or a crash. Saying so is
-        // the honest answer; re-running a write action unasked is not. An
-        // agent run's turn is read-only and was approved: it goes back to
-        // the line, to resume in its session.
-        for (const run of this.all) {
-            if (run.status === 'running' && (run.result as { kind?: unknown } | undefined)?.kind === 'agent-run') {
-                Object.assign(run, { status: 'queued', updatedAt: nowIso });
-                this.record(run);
-            } else if (run.status === 'running') {
-                Object.assign(run, {
-                    status: 'failed',
-                    error: 'Interrupted: Consola quit while this was running.',
-                    updatedAt: nowIso,
-                    finishedAt: nowIso,
-                });
-                delete run.approval;
-                this.record(run);
-            }
-        }
+        // A run still `running` was cut off by a quit or a crash; what it
+        // becomes is `recoverAfterRestart`'s table.
+        this.all = this.all.map((run) => {
+            const recovered = recoverAfterRestart(run, nowIso);
+            if (!recovered) return run;
+            this.record(recovered);
+            return recovered;
+        });
     }
 
     public lastFired(key: string): string | undefined {
