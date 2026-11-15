@@ -9,6 +9,19 @@
  */
 export { cronError, nextCronOccurrence } from './cron';
 export { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+export {
+    MAX_IF_LENGTH,
+    checkExpression,
+    evaluateExpression,
+    expressionPaths,
+    parseExpression,
+    type CompareOp,
+    type Expr,
+    type ExprType,
+    type ExprValue,
+    type ExpressionScope,
+    type PathExpr,
+} from './expression';
 export { parseAutomationEntry, type AutomationEntryResult } from './entry';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {
