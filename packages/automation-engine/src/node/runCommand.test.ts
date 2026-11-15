@@ -183,6 +183,33 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
         });
     });
 
+    describe('when the 4 KB stderr tail starts inside a line', () => {
+        /** Every suffix of the token of 3 or more characters: what a cut could leave at a line's head. */
+        const suffixes = Array.from({ length: TOKEN.length - 2 }, (_, start) => TOKEN.slice(start));
+
+        // `ERR gho_ESC[0mabc123`, then zeros: the cut lands at `_`, at `b` and at `1`.
+        it.each([4084, 4090, 4092])('never starts the line with the end of a split token (%i zeros)', async (zeros) => {
+            const env = layerCommandEnv({ ...BASE, GH_TOKEN: TOKEN }, {}, {});
+            const command = String.raw`printf 'ERR gho_\033[0mabc123' >&2; printf '%0${zeros}d\n' 0 >&2; exit 1`;
+            const result = await start(command, { env, secrets: [TOKEN] }).result;
+            const shown = `${result.lastStderrLine ?? ''} | ${describeFailure(result, 600_000)}`;
+            for (const suffix of suffixes) expect(shown).not.toContain(suffix);
+        });
+
+        it('keeps what follows the first space, marked as cut', async () => {
+            const command = String.raw`printf 'ERR gho_\033[0mabc123 then the rest ' >&2; printf '%04070d\n' 0 >&2; exit 1`;
+            // The cut lands on the escape inside the token.
+            const result = await start(command, { secrets: [TOKEN] }).result;
+            expect(result.lastStderrLine).toMatch(/^…then the rest 0+…$/);
+        });
+
+        it('leaves a line that starts at the tail unchanged', async () => {
+            // A 4095-byte last line and its newline are exactly the tail, which begins after the previous newline.
+            const result = await start(`head -c 5000 /dev/zero >&2; echo >&2; printf 'word %04090d\\n' 0 >&2; exit 1`).result;
+            expect(result.lastStderrLine).toMatch(/^word 0+…$/);
+        });
+    });
+
     it('clips the last line of stderr', async () => {
         const result = await start(`printf '%01000d\\n' 0 >&2; exit 1`).result;
         expect(result.lastStderrLine).toBe(`${'0'.repeat(300)}…`);

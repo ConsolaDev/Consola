@@ -84,6 +84,8 @@ class LogSink {
     private failed = false;
     private closed = false;
     private tail = EMPTY;
+    /** The tail begins partway through a line: what it kept of that line is not the line's start. */
+    private tailCutsLine = false;
     private readonly masker: Masker;
 
     constructor(
@@ -113,11 +115,18 @@ class LogSink {
     /** The last non-blank line written, as plain text, masked and clipped. */
     lastLine(): string | undefined {
         const lines = this.tail.toString('utf8').split('\n');
+        if (this.tailCutsLine) {
+            // The cut line's head may be the end of a secret split by bytes the
+            // stripping below removes, too short to mask. Drop it through the
+            // first space or tab (stripping keeps both), before stripping.
+            const space = lines[0].search(/[ \t]/);
+            lines[0] = space === -1 ? '' : lines[0].slice(space + 1);
+        }
         for (let i = lines.length - 1; i >= 0; i--) {
             // Masked again after stripping: a secret split by an escape, a NUL or
             // UTF-16's zero bytes never matched in the stream, and is whole only now.
             const line = maskSecrets(lines[i].replace(ESCAPES, '').replace(CONTROLS, ''), this.secrets).trim();
-            if (line) return clipText(line, STDERR_LINE_MAX_CHARS);
+            if (line) return clipText(i === 0 && this.tailCutsLine ? `…${line}` : line, STDERR_LINE_MAX_CHARS);
         }
         return undefined;
     }
@@ -126,7 +135,9 @@ class LogSink {
         if (bytes.length === 0 || this.closed) return;
         if (this.keepsTail) {
             const joined = Buffer.concat([this.tail, bytes]);
-            this.tail = Buffer.from(joined.subarray(Math.max(0, joined.length - STDERR_TAIL_BYTES)));
+            const start = Math.max(0, joined.length - STDERR_TAIL_BYTES);
+            if (start > 0) this.tailCutsLine = joined[start - 1] !== 0x0a;
+            this.tail = Buffer.from(joined.subarray(start));
         }
         const room = LOG_CAP_BYTES - this.written;
         if (bytes.length > room) this.truncated = true;
