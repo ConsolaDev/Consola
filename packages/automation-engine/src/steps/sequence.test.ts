@@ -316,8 +316,36 @@ describe('advanceSteps: templates', () => {
     });
 });
 
+describe('advanceSteps: previous', () => {
+    it('a step that reads only previous starts with no previous run', () => {
+        // The step reads its own handover from the last run: nothing in this run can be missing for it.
+        const rereview: AgentStep = { ...review, if: undefined, reads: ['previous.review.handover'], outputs: {} };
+        expect(advance([rereview], records([rereview], {}))).toEqual({ kind: 'start', stepId: 'review', lane: 'agent', updates: [] });
+        // Nor does a later step's, nor a step of this run that was skipped.
+        const writer: AgentStep = { ...review, id: 'writer', if: undefined, outputs: {} };
+        const reader: AgentStep = { ...review, id: 'reader', if: undefined, reads: ['previous.writer.handover', 'previous.later.handover'], outputs: {} };
+        const later: AgentStep = { ...review, id: 'later', if: undefined, outputs: {} };
+        const steps = [writer, reader, later];
+        expect(advance(steps, records(steps, { writer: 'skipped' }))).toEqual({ kind: 'start', stepId: 'reader', lane: 'agent', updates: [] });
+    });
+
+    it('previous in env is never a dependency', () => {
+        const rereview: AgentStep = { ...review, if: undefined, outputs: {} };
+        const reader: Step = {
+            ...publish,
+            env: { LAST: '{{previous.review.handover}}', LAST_FILE: '{{previous.review.handover.file}}' },
+        };
+        // This run's `review` was skipped, and a later step reads the last run's: it starts.
+        const steps = [rereview, reader];
+        expect(advance(steps, records(steps, { review: 'skipped' }))).toEqual({ kind: 'start', stepId: 'publish', lane: 'command', updates: [] });
+        // Before the step it names has run in this run, the same.
+        const first = [reader, rereview];
+        expect(advance(first, records(first, {}))).toEqual({ kind: 'start', stepId: 'publish', lane: 'command', updates: [] });
+    });
+});
+
 describe('advanceSteps: a dry run', () => {
-    const dry = (steps: Step[], statuses: Record<string, StepRunStatus | StepRun>) => advance(steps, records(steps, statuses), { dryRun: true });
+    const dry =(steps: Step[], statuses: Record<string, StepRunStatus | StepRun>) => advance(steps, records(steps, statuses), { dryRun: true });
     const reason = 'dry run: `publish` was not run';
     const reported = record(publish, 'reported');
     const tail = (patch: Partial<AgentStep>): AgentStep => ({ ...review, id: 'after', if: undefined, outputs: {}, ...patch });

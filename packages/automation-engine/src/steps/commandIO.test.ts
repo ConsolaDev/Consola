@@ -1,7 +1,13 @@
-import { describe, expect, it } from 'vitest';
-import type { OutputType } from '@consola/factory-spec';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { isStepsEntry, parseFactorySpec, type OutputType, type RunRecord } from '@consola/factory-spec';
+import { RunFolder } from '../node/runFolder';
 import type { CommandResult } from '../ports';
 import { OUTPUT_FILE_CAP_BYTES, describeFailure, layerCommandEnv, maskSecrets, parseOutputFile } from './commandIO';
+import { commandSpec, prepareCommand } from './commandStep';
+import type { RunDefinition } from './definition';
 
 const VERDICT: OutputType = { type: 'enum', values: ['approve', 'comment', 'request-changes'] };
 const COUNT: OutputType = { type: 'integer' };
@@ -193,5 +199,115 @@ describe('describeFailure', () => {
         expect(describeFailure(result({ exitCode: null, signal: 'SIGTERM', stopped: true }), 600_000)).toBe(
             'Stopped while running: it may have done its work',
         );
+    });
+});
+
+describe('prepareCommand reading previous', () => {
+    /** A review, then a command that posts what changed since the last run's review. */
+    const FACTORY = `version: 1
+automations:
+  - name: review-assigned-prs
+    on: { github: pull_request.review_requested }
+    steps:
+      - id: review
+        prompt: Review what changed since your last review.
+      - id: publish
+        run: ./publish.sh
+        env:
+          LAST: "{{previous.review.handover}}"
+          LAST_FILE: "{{previous.review.handover.file}}"
+`;
+    const AT = '2026-11-15T10:00:00.000Z';
+    let tmp: string;
+    let folder: RunFolder;
+    let definition: RunDefinition;
+
+    /** This run: its own review completed, having written a handover of its own, and publish next. */
+    const run: RunRecord = {
+        id: 'run-1',
+        runner: 'local',
+        source: 'personal',
+        automationId: 'review-assigned-prs',
+        actionName: 'steps',
+        actionVersion: 'v1',
+        mode: 'auto',
+        trigger: { kind: 'event', at: AT },
+        status: 'running',
+        steps: [
+            { id: 'review', kind: 'agent', status: 'completed', attempt: 1, artifacts: [{ name: 'handover', bytes: 18 }] },
+            { id: 'publish', kind: 'run', status: 'queued', attempt: 1 },
+        ],
+        attribution: { automationId: 'review-assigned-prs', actionName: 'steps', triggerKind: 'event', workspaceId: 'ws-1' },
+        createdAt: AT,
+        updatedAt: AT,
+    };
+
+    beforeEach(() => {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'command-previous-'));
+        folder = new RunFolder((workspaceId) => path.join(tmp, workspaceId));
+        const automation = parseFactorySpec(FACTORY).automations[0];
+        if (!automation || !isStepsEntry(automation)) throw new Error('FACTORY does not parse');
+        definition = { automation, version: 'v1', actions: {} };
+        folder.writeArtifact('ws-1', 'run-1', 'review', 1, 'handover', 'This run: no change.');
+    });
+    afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+    function values(previous: { runId: string } | undefined): Record<string, string> {
+        const prepared = prepareCommand({
+            run,
+            definition,
+            stepId: 'publish',
+            cwd: '/code/catalog-portal',
+            workspaceId: 'ws-1',
+            folder,
+            source: undefined,
+            polled: undefined,
+            previous,
+        });
+        if (!prepared.ok) throw new Error(prepared.error);
+        return Object.fromEntries(prepared.command.values.map(({ name, value }) => [name, value]));
+    }
+
+    it('{{previous.review.handover}} renders the content', () => {
+        folder.writeArtifact('ws-1', 'run-0', 'review', 1, 'handover', 'Last run: line 40 retries forever.');
+        expect(values({ runId: 'run-0' }).LAST).toBe('Last run: line 40 retries forever.');
+    });
+
+    it(".file renders the earlier run's absolute file", () => {
+        folder.writeArtifact('ws-1', 'run-0', 'review', 1, 'handover', 'First look.');
+        folder.writeArtifact('ws-1', 'run-0', 'review', 2, 'handover', 'Second look.');
+        const file = values({ runId: 'run-0' }).LAST_FILE;
+        expect(file).toBe(folder.artifactPath('ws-1', 'run-0', 'review', 2, 'handover'));
+        expect(path.isAbsolute(file)).toBe(true);
+        expect(fs.readFileSync(file, 'utf8')).toBe('Second look.');
+    });
+
+    it("absent renders as ''", () => {
+        // No earlier run, though this run's own review wrote a handover.
+        expect(values(undefined)).toEqual({ LAST: '', LAST_FILE: '' });
+        // An earlier run that wrote none.
+        expect(values({ runId: 'run-0' })).toEqual({ LAST: '', LAST_FILE: '' });
+    });
+
+    it('a hostile value stays data', () => {
+        const hostile = '$(touch pwned)`touch pwned2`; {{item.url}}';
+        folder.writeArtifact('ws-1', 'run-0', 'review', 1, 'handover', hostile);
+        const prepared = prepareCommand({
+            run,
+            definition,
+            stepId: 'publish',
+            cwd: tmp,
+            workspaceId: 'ws-1',
+            folder,
+            source: undefined,
+            polled: undefined,
+            previous: { runId: 'run-0' },
+        });
+        if (!prepared.ok) throw new Error(prepared.error);
+        expect(prepared.command.values.find((value) => value.name === 'LAST')?.value).toBe(hostile);
+        const spec = commandSpec(prepared.command, { env: {}, secrets: [] });
+        expect(spec.command).toBe('./publish.sh');
+        expect(spec.env.LAST).toBe(hostile);
+        expect(fs.existsSync(path.join(tmp, 'pwned'))).toBe(false);
     });
 });

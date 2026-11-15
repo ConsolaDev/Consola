@@ -174,6 +174,7 @@ beforeEach(() => {
       const record = sessionRecord(workspaces(), id);
       return record ? toSessionView(record) : undefined;
     },
+    previousOf: () => undefined,
   });
   conductorDeps = {
     getWorkspaces: vi.fn(workspaces),

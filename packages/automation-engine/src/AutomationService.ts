@@ -406,6 +406,7 @@ export class AutomationService {
                     .getWorkspaces()
                     .flatMap((workspace) => workspace.sessions)
                     .find((session) => session.id === sessionId),
+            previousOf: (run) => (run.previous ? this.deps.store.get(run.previous.runId) : undefined),
         });
         return this.io;
     }
@@ -1918,7 +1919,16 @@ export class AutomationService {
             this.settleStep(runId, stepId, { status: 'failed', error: `${itemOf.error}.` });
             return;
         }
-        const launch = agentStepLaunch({ workspaceId, run, definition: loaded.definition, stepId, checkout: { cwd, scopeId }, ...itemOf });
+        const launch = agentStepLaunch({
+            workspaceId,
+            run,
+            definition: loaded.definition,
+            stepId,
+            checkout: { cwd, scopeId },
+            ...itemOf,
+            previous: run.previous,
+            folder: this.deps.runFolder,
+        });
         if (!launch.ok) {
             this.settleStep(runId, stepId, { status: 'failed', error: launch.error });
             return;
@@ -2065,7 +2075,16 @@ export class AutomationService {
             this.settleStep(runId, stepId, { status: 'failed', error: `${itemOf.error}.` });
             return;
         }
-        const prepared = prepareCommand({ run, definition: loaded.definition, stepId, cwd, workspaceId, folder: this.deps.runFolder, ...itemOf });
+        const prepared = prepareCommand({
+            run,
+            definition: loaded.definition,
+            stepId,
+            cwd,
+            workspaceId,
+            folder: this.deps.runFolder,
+            ...itemOf,
+            previous: run.previous,
+        });
         if (!prepared.ok) {
             this.settleStep(runId, stepId, { status: 'failed', error: prepared.error });
             return;

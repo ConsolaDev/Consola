@@ -1,16 +1,18 @@
-import { parseTemplate, renderTemplate, type AgentStep, type RunRecord, type StepRun } from '@consola/factory-spec';
-import type { AgentLaunchRequest } from '../ports';
+import { parseReadRef, parseTemplate, renderTemplate, type AgentStep, type RunRecord, type StepRun } from '@consola/factory-spec';
+import type { AgentLaunchRequest, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
-import { fillActionPlaceholders } from '../support';
+import { previousDocument } from '../sources/previous';
+import { describeError, fillActionPlaceholders } from '../support';
 import type { ItemRef } from '../views';
 import type { RunDefinition } from './definition';
 import { joinNames } from './sequence';
 import { renderStepPrompt, type StepPromptInput } from './stepPrompt';
 
 /*
- * An agent step's launch, decided from its run's record and definition alone,
- * and what a clean exit left undone. Pure: `AutomationService` launches what
- * this returns and records what it says.
+ * An agent step's launch, decided from its run's record and definition (and,
+ * for a `previous` read, the earlier run's folder), and what a clean exit
+ * left undone. It starts nothing: `AutomationService` launches what this
+ * returns and records what it says.
  */
 
 const own = (object: object, key: string): boolean => Object.prototype.hasOwnProperty.call(object, key);
@@ -22,14 +24,34 @@ export function itemRefOf(run: RunRecord): ItemRef | undefined {
     return { provider: connection, repo: item.repo, type: item.type, number: item.number };
 }
 
-/** What the step reads from earlier steps, as its prompt lists them: only documents their records say were written. */
-function readsOf(step: AgentStep, records: StepRun[]): StepPromptInput['reads'] {
-    return step.reads.flatMap((ref) => {
-        const dot = ref.indexOf('.');
-        const producer = ref.slice(0, dot);
-        const written = records.find((record) => record.id === producer)?.artifacts?.find((artifact) => artifact.name === ref.slice(dot + 1));
-        return written ? [{ ref, step: producer, bytes: written.bytes }] : [];
-    });
+const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
+
+/**
+ * What the step reads, as its prompt lists them: documents of this run's
+ * earlier steps that their records say were written, and `previous` ones
+ * the earlier run's folder holds. With no earlier run, `noEarlierRun`
+ * says so instead of listing them.
+ */
+function readsOf(
+    step: AgentStep,
+    records: StepRun[],
+    earlier: { folder: RunFolderPort; workspaceId: string; previous: { runId: string } | undefined }
+): Pick<StepPromptInput, 'reads' | 'noEarlierRun'> {
+    const reads: StepPromptInput['reads'] = [];
+    let readsPrevious = false;
+    for (const entry of step.reads) {
+        const ref = parseReadRef(entry);
+        if (!ref) continue;
+        if (ref.previous) {
+            readsPrevious = true;
+            const document = previousDocument({ ...earlier, step: ref.step, name: ref.name, file: false });
+            if ('value' in document) reads.push({ ref: entry, step: ref.step, bytes: utf8Bytes(document.value), previous: true });
+            continue;
+        }
+        const written = records.find((record) => record.id === ref.step)?.artifacts?.find((artifact) => artifact.name === ref.name);
+        if (written) reads.push({ ref: entry, step: ref.step, bytes: written.bytes });
+    }
+    return { reads, ...(readsPrevious && !earlier.previous ? { noEarlierRun: true as const } : {}) };
 }
 
 /**
@@ -47,13 +69,20 @@ function fillPrompt(
     if (!parsed.ok) return { ok: false, error: parsed.problem };
     const item = run.trigger.item;
     const rendered = renderTemplate(parsed.parts, (path) => {
-        if (path.root === 'item') {
-            const value = item && source ? source.itemValue(item, path.field, polled) : undefined;
-            return value === undefined ? undefined : String(value);
+        switch (path.root) {
+            case 'item': {
+                const value = item && source ? source.itemValue(item, path.field, polled) : undefined;
+                return value === undefined ? undefined : String(value);
+            }
+            case 'steps': {
+                if (path.file) return undefined;
+                const outputs = run.steps?.find((record) => record.id === path.step)?.outputs;
+                return outputs && own(outputs, path.name) ? String(outputs[path.name]) : undefined;
+            }
+            case 'previous':
+                // Prose an agent wrote after reading outside text: never in a prompt (invariant 7).
+                return undefined;
         }
-        if (path.file) return undefined;
-        const outputs = run.steps?.find((record) => record.id === path.step)?.outputs;
-        return outputs && own(outputs, path.name) ? String(outputs[path.name]) : undefined;
     });
     return rendered.ok ? rendered : { ok: false, error: `${rendered.missing.text} has no value` };
 }
@@ -73,7 +102,9 @@ export type AgentStepLaunch = { ok: true; request: AgentLaunchRequest } | { ok: 
  * let go once it is prepared, and an Inbox click may land between the two.
  *
  * `source` is the run's own (`runItemSource`), and `polled` a poll run's
- * `item.json`: what its header, fence and item fields come from.
+ * `item.json`: what its header, fence and item fields come from. `previous`
+ * is the earlier run on its item (`run.previous`), whose documents a
+ * `previous.*` read lists from `folder`.
  */
 export function agentStepLaunch(input: {
     workspaceId: string;
@@ -83,8 +114,10 @@ export function agentStepLaunch(input: {
     checkout: { cwd: string; scopeId: string };
     source: ItemSource | undefined;
     polled: Record<string, unknown> | undefined;
+    previous: { runId: string } | undefined;
+    folder: RunFolderPort;
 }): AgentStepLaunch {
-    const { workspaceId, run, definition, stepId, checkout, source, polled } = input;
+    const { workspaceId, run, definition, stepId, checkout, source, polled, previous, folder } = input;
     const { steps } = definition.automation;
     const index = steps.findIndex((candidate) => candidate.id === stepId);
     const step = steps[index];
@@ -107,6 +140,12 @@ export function agentStepLaunch(input: {
         body = filled.text;
     }
 
+    let reads: ReturnType<typeof readsOf>;
+    try {
+        reads = readsOf(step, run.steps ?? [], { folder, workspaceId, previous });
+    } catch (error) {
+        return { ok: false, error: `Its reads could not be read from the earlier run's folder (${describeError(error).replace(/\.$/, '')}).` };
+    }
     const prompt = renderStepPrompt({
         automation,
         runId: run.id,
@@ -116,7 +155,7 @@ export function agentStepLaunch(input: {
         body,
         ...(source && item ? { item: { header: source.describeItemHeader(item), fence: source.fenceItem(item, polled) } } : {}),
         ...(definition.automation.scope ? { scope: definition.automation.scope } : {}),
-        reads: readsOf(step, run.steps ?? []),
+        ...reads,
         outputs: step.outputs,
         artifacts: step.artifacts,
         handover: step.handover,

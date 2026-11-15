@@ -1,6 +1,7 @@
 import { parseTemplate, renderTemplate, type CommandStep, type RunRecord, type StepRun, type TemplatePath } from '@consola/factory-spec';
 import type { CommandResult, CommandSpec, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
+import { previousDocument } from '../sources/previous';
 import { describeError } from '../support';
 import { clipText, describeFailure, layerCommandEnv, LOG_CAP_BYTES, maskSecrets, OUTPUT_FILE_CAP_BYTES, parseOutputFile } from './commandIO';
 import { MAX_ARTIFACT_BYTES, type RunDefinition } from './definition';
@@ -76,16 +77,27 @@ interface RenderContext {
     source: ItemSource | undefined;
     /** A poll run's `item.json`: the object its fields are read from. */
     polled: Record<string, unknown> | undefined;
+    /** The earlier run on the item (`run.previous`), whose documents `previous.*` reads. */
+    previous: { runId: string } | undefined;
     workspaceId: string;
     folder: RunFolderPort;
 }
 
-/** One path's value, from the run's item, its steps' records, and their documents in the run folder. */
-function valueOf(path: TemplatePath, { run, definition, source, polled, workspaceId, folder }: RenderContext): Found {
+/**
+ * One path's value, from the run's item, its steps' records, and their
+ * documents in the run folder; a `previous` one from the earlier run's
+ * folder, and the empty string when it has none (the one value whose
+ * absence never fails a step).
+ */
+function valueOf(path: TemplatePath, { run, definition, source, polled, previous, workspaceId, folder }: RenderContext): Found {
     if (path.root === 'item') {
         const item = run.trigger.item;
         const value = item && source ? source.itemValue(item, path.field, polled) : undefined;
         return value === undefined ? { missing: 'this run has no such item field' } : { value: String(value) };
+    }
+    if (path.root === 'previous') {
+        const document = previousDocument({ folder, workspaceId, previous, step: path.step, name: path.name, file: path.file });
+        return 'value' in document ? document : { value: '' };
     }
     const record = run.steps?.find((candidate) => candidate.id === path.step);
     if (record?.status !== 'completed') return { missing: `${path.step} has not completed` };
@@ -106,7 +118,8 @@ function valueOf(path: TemplatePath, { run, definition, source, polled, workspac
 /**
  * The step's `env:` filled in, each value as it rendered: an output as its
  * text, an artifact as its content (or, with `.file`, its absolute path), an
- * item field as the run has it. A value is inserted as it is, never read for
+ * item field as the run has it, a `previous` document as the earlier run
+ * wrote it (or empty). A value is inserted as it is, never read for
  * templates of its own. Over `ENV_VALUES_CAP_BYTES` in total is refused.
  */
 function renderValues(step: CommandStep, context: RenderContext): { ok: true; values: RenderedValue[] } | { ok: false; error: string } {
@@ -137,7 +150,8 @@ function renderValues(step: CommandStep, context: RenderContext): { ok: true; va
  * the folder it runs in (`cwd`, checked by the caller): its `env:` rendered,
  * where its files go, and Consola's variables. Reads the run folder; writes
  * nothing. `source` is the run's own (`runItemSource`), and `polled` a poll
- * run's `item.json`: what its item fields are read from.
+ * run's `item.json`: what its item fields are read from. `previous` is the
+ * earlier run on its item (`run.previous`): what `previous.*` reads.
  */
 export function prepareCommand(input: {
     run: RunRecord;
@@ -148,13 +162,14 @@ export function prepareCommand(input: {
     folder: RunFolderPort;
     source: ItemSource | undefined;
     polled: Record<string, unknown> | undefined;
+    previous: { runId: string } | undefined;
 }): { ok: true; command: PreparedCommand } | { ok: false; error: string } {
-    const { run, definition, stepId, cwd, workspaceId, folder, source, polled } = input;
+    const { run, definition, stepId, cwd, workspaceId, folder, source, polled, previous } = input;
     const step = definition.automation.steps.find((candidate) => candidate.id === stepId);
     const record = run.steps?.find((candidate) => candidate.id === stepId);
     if (step?.kind !== 'run' || !record) return { ok: false, error: `Its definition has no command step ${stepId}.` };
     try {
-        const rendered = renderValues(step, { run, definition, source, polled, workspaceId, folder });
+        const rendered = renderValues(step, { run, definition, source, polled, previous, workspaceId, folder });
         if (!rendered.ok) return rendered;
         const dir = folder.attemptDir(workspaceId, run.id, stepId, record.attempt);
         const files = { output: inFolder(dir, 'outputs.env'), stdout: inFolder(dir, 'stdout.log'), stderr: inFolder(dir, 'stderr.log') };

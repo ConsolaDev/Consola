@@ -107,6 +107,7 @@ export {
     type SourceItem,
 } from './sources/itemSource';
 export { pollSource } from './sources/pollSource';
+export { resolvePrevious, previousDocument, NO_EARLIER_RUN } from './sources/previous';
 export { describeCapabilities, type AutomationCapabilities, type CapabilitiesInput } from './capabilities';
 export { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews, type AutomationTemplate, type TemplateRequirement } from './templates';
 export * from './node';

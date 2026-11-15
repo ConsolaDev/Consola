@@ -3,6 +3,7 @@ import {
     type Expr,
     expressionPaths,
     parseExpression,
+    parseReadRef,
     templatePaths,
     type ExprValue,
     type Step,
@@ -85,7 +86,12 @@ interface Reference {
     file?: boolean;
 }
 
-/** What a pending step needs: its `if:`'s step outputs, its `reads:`, and the paths its templates fill. Item fields in an `if:` are the evaluator's to ask for. */
+/**
+ * What a pending step needs: its `if:`'s step outputs, its `reads:`, and the
+ * paths its templates fill. Item fields in an `if:` are the evaluator's to ask
+ * for. A `previous` read or path is never a dependency (Call 5): an earlier
+ * run's document is read, or absent, when the step runs.
+ */
 function dependenciesOf(step: Step, condition: Expr | undefined): { conditions: Reference[]; reads: Reference[]; templates: Reference[]; item: string[] } {
     const conditions: Reference[] = [];
     const item: string[] = [];
@@ -94,14 +100,28 @@ function dependenciesOf(step: Step, condition: Expr | undefined): { conditions: 
             if (path.kind === 'output') conditions.push({ path: path.text, step: path.step, name: path.output });
         }
     }
-    const reads: Reference[] = step.kind === 'agent' ? step.reads.map((entry) => ({ path: entry, step: entry.split('.')[0] })) : [];
+    const reads: Reference[] = [];
+    if (step.kind === 'agent') {
+        for (const entry of step.reads) {
+            const ref = parseReadRef(entry);
+            // Validation kept only entries of either shape; one that is neither names no step of this run.
+            if (ref && !ref.previous) reads.push({ path: entry, step: ref.step });
+        }
+    }
     const texts = step.kind === 'agent' ? (step.prompt === undefined ? [] : [step.prompt]) : Object.values(step.env);
     const templates: Reference[] = [];
     for (const text of texts) {
         for (const path of templatePaths(text)) {
-            if (path.root === 'steps') templates.push({ path: path.text, step: path.step, name: path.name, file: path.file });
-            else if (path.root === 'item') item.push(path.field);
-            // A `previous` path is never a dependency: an earlier run's document is read, or absent, when the step runs.
+            switch (path.root) {
+                case 'steps':
+                    templates.push({ path: path.text, step: path.step, name: path.name, file: path.file });
+                    break;
+                case 'item':
+                    item.push(path.field);
+                    break;
+                case 'previous':
+                    break;
+            }
         }
     }
     return { conditions, reads, templates, item };

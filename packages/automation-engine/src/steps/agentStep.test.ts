@@ -1,5 +1,9 @@
-import { describe, expect, it } from 'vitest';
-import { parseFactorySpec, type RunItem, type RunRecord, type RunTrigger, type StepRun, type StepsAutomation } from '@consola/factory-spec';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { parseFactorySpec, type AgentStep, type RunItem, type RunRecord, type RunTrigger, type StepRun, type StepsAutomation } from '@consola/factory-spec';
+import { RunFolder } from '../node/runFolder';
 import { POLL_FENCE_HEADING, runItemSource } from '../sources/itemSource';
 import { agentStepLaunch, endedWithout } from './agentStep';
 import type { RunDefinition } from './definition';
@@ -17,6 +21,11 @@ automations:
         prompt: Write up the night.
         reads: [research.notes, research.handover]
 `).automations[0] as StepsAutomation;
+
+/** A run folder no step here reads: none of them reads `previous`. */
+const UNREAD_FOLDER = new RunFolder(() => {
+    throw new Error('Nothing here reads the run folder.');
+});
 
 /** A schedule's run with `research` completed as given, and `write` next. */
 function run(research: Partial<StepRun>): RunRecord {
@@ -50,6 +59,8 @@ describe('agentStepLaunch', () => {
             checkout: { cwd: '/code/api', scopeId: 'scope-api' },
             source: undefined,
             polled: undefined,
+            previous: undefined,
+            folder: UNREAD_FOLDER,
         });
         if (!launch.ok) throw new Error(launch.error);
         // The handover it never wrote is left out, not listed as something to read.
@@ -103,6 +114,8 @@ describe('agentStepLaunch on a poll', () => {
             checkout: { cwd: '/worktrees/catalog-portal-pr-51-automation', scopeId: 'scope-catalog-portal' },
             source: runItemSource(review, parsesGitHub),
             polled: { url: 'https://github.com/sprocket/catalog-portal/pull/51', head: 'abc' },
+            previous: undefined,
+            folder: UNREAD_FOLDER,
         });
         if (!started.ok) throw new Error(started.error);
         return started.request;
@@ -131,6 +144,8 @@ describe('agentStepLaunch on a poll', () => {
             checkout: { cwd: '/worktrees/catalog-portal-pr-51-automation', scopeId: 'scope-catalog-portal' },
             source: runItemSource(look, parsesGitHub),
             polled: { url: 'https://github.com/sprocket/catalog-portal/pull/51', number: 99, title, head: 'abc', nested: { a: 1 } },
+            previous: undefined,
+            folder: UNREAD_FOLDER,
         });
         if (!started.ok) throw new Error(started.error);
         const { prompt } = started.request;
@@ -163,12 +178,113 @@ describe('agentStepLaunch on a poll', () => {
             checkout: { cwd: '/code/api', scopeId: 'scope-api' },
             source: runItemSource(keyed, parsesGitHub),
             polled: { id: 'T-7', state: 'open', title: 'Ticket 7' },
+            previous: undefined,
+            folder: UNREAD_FOLDER,
         });
         if (!started.ok) throw new Error(started.error);
         expect(started.request.prompt.split('\n\n')[0]).toContain('(run run-1), for the item described below, in api. ');
         expect(started.request.prompt).toMatch(/<untrusted-data>\nid: "T-7"\nstate: "open"\ntitle: "Ticket 7"\n<\/untrusted-data>$/);
         // No work item, so the session is linked to none.
         expect(started.request.item).toBeUndefined();
+    });
+});
+
+describe('agentStepLaunch reading previous', () => {
+    const rereview = stepsDefinition(`  - name: review-assigned-prs
+    on: { github: pull_request.review_requested }
+    steps:
+      - id: research
+        prompt: Read the change and what it touches.
+      - id: review
+        prompt: Review what changed since your last review.
+        reads: [research.handover, previous.review.handover]
+`);
+    let tmp: string;
+    let folder: RunFolder;
+    beforeEach(() => {
+        tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'agent-step-'));
+        folder = new RunFolder((workspaceId) => path.join(tmp, workspaceId));
+    });
+    afterEach(() => fs.rmSync(tmp, { recursive: true, force: true }));
+
+    /** This run on #51, with `research` completed having written its handover, and `review` next. */
+    function reviewing(): RunRecord {
+        const record = itemRun(rereview, { kind: 'event' });
+        record.steps = [
+            { id: 'research', kind: 'agent', status: 'completed', attempt: 1, artifacts: [{ name: 'handover', bytes: 900 }] },
+            { id: 'review', kind: 'agent', status: 'queued', attempt: 1 },
+        ];
+        return record;
+    }
+    const launch = (previous: { runId: string } | undefined) => {
+        const started = agentStepLaunch({
+            workspaceId: 'ws-1',
+            run: reviewing(),
+            definition: rereview,
+            stepId: 'review',
+            checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+            source: undefined,
+            polled: undefined,
+            previous,
+            folder,
+        });
+        if (!started.ok) throw new Error(started.error);
+        return started.request.prompt;
+    };
+
+    it('the prompt lists a previous read with its size and source', () => {
+        folder.writeArtifact('ws-1', 'run-0', 'review', 1, 'handover', 'x'.repeat(2048));
+        const prompt = launch({ runId: 'run-0' });
+        expect(prompt).toContain(
+            '\n  - research.handover (from step "research", 900 B)' +
+                '\n  - previous.review.handover (from step "review" of the earlier run on this item, 2.0 KB)' +
+                '\nRead them with consola_read_artifact.'
+        );
+        expect(prompt).not.toContain('There is no earlier run');
+    });
+
+    it('with no earlier run it says so, and lists nothing for it', () => {
+        // An earlier run's folder is there; this run names none, so it is not read.
+        folder.writeArtifact('ws-1', 'run-0', 'review', 1, 'handover', 'Not this run’s to read.');
+        const prompt = launch(undefined);
+        expect(prompt).toContain(
+            '\n  - research.handover (from step "research", 900 B)\nRead them with consola_read_artifact.' +
+                '\n\nThere is no earlier run of this automation on this item.\n\nBefore you finish:'
+        );
+        expect(prompt).not.toContain('previous.review.handover');
+    });
+
+    it('a prompt never fills a previous path from this run', () => {
+        // Validation refuses `previous` in a prompt; were one to reach a launch, this run's step of that name is not the earlier run's.
+        const parsed = stepsDefinition(`  - name: review-assigned-prs
+    on: { github: pull_request.review_requested }
+    steps:
+      - id: research
+        prompt: Read the change.
+        outputs: { verdict: { enum: [approve, comment] } }
+      - id: review
+        prompt: Review it.
+`);
+        const review = parsed.automation.steps[1] as AgentStep;
+        const steps = [parsed.automation.steps[0], { ...review, prompt: 'Last time: {{previous.research.verdict}}' }];
+        const hand: RunDefinition = { ...parsed, automation: { ...parsed.automation, steps } };
+        const record = itemRun(hand, { kind: 'event' });
+        record.steps = [
+            { id: 'research', kind: 'agent', status: 'completed', attempt: 1, outputs: { verdict: 'approve' } },
+            { id: 'review', kind: 'agent', status: 'queued', attempt: 1 },
+        ];
+        const started = agentStepLaunch({
+            workspaceId: 'ws-1',
+            run: record,
+            definition: hand,
+            stepId: 'review',
+            checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+            source: undefined,
+            polled: undefined,
+            previous: { runId: 'run-0' },
+            folder,
+        });
+        expect(started).toEqual({ ok: false, error: 'previous.research.verdict has no value' });
     });
 });
 
