@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from './parse';
 import { isStepsEntry } from './schema';
-import { isRefusedEnvName, REFUSED_ENV_NAMES, stepItemFieldProblems, stepItemFields, type AgentStep, type CommandStep, type ItemFieldTable, type Step } from './steps';
+import { ENV_PREFIX_EXCEPTIONS, isRefusedEnvName, REFUSED_ENV_NAMES, REFUSED_ENV_PREFIXES, stepItemFieldProblems, stepItemFields, type AgentStep, type CommandStep, type ItemFieldTable, type Step } from './steps';
 
 /** One entry, its fields indented under `- name: a`. */
 const one = (fields: string) => parseFactorySpec(`version: 1\nautomations:\n  - name: a\n${fields}`);
@@ -210,8 +210,8 @@ describe('a command', () => {
         expect(only(command('  env: { CONSOLA_X: y }')).message).toMatch(/`CONSOLA_` is Consola's own/);
     });
 
-    describe('env names that would run their value as code', () => {
-        const REFUSED_BECAUSE = /would let its value decide what code runs.*env: values must stay data.*inside `run:`/;
+    describe('env names and prefixes that make a program run a value', () => {
+        const REFUSED_BECAUSE = /these names and prefixes are refused because they make a program run a value.*Values must stay data.*inside `run:`/;
         const refusedFor = (name: string, value = '"{{steps.review.handover.file}}"') => {
             const result = steps('- id: review\n  prompt: Review it.', `- run: echo hi\n  env: { ${name}: ${value} }`);
             expect(result.automations, name).toEqual([]);
@@ -221,31 +221,49 @@ describe('a command', () => {
         };
 
         it.each([
-            'BASH_ENV', 'ENV', 'PROMPT_COMMAND', 'SHELLOPTS', 'BASHOPTS', 'PS4',
-            'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_12', 'GIT_CONFIG_PARAMETERS',
-            'GIT_CONFIG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
-            'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_EXEC_PATH', 'GIT_EXTERNAL_DIFF', 'GIT_PROXY_COMMAND',
-            'GIT_PAGER', 'PAGER', 'EDITOR', 'VISUAL', 'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR',
-            'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH',
-            'NODE_OPTIONS', 'PYTHONSTARTUP', 'PERL5OPT', 'RUBYOPT',
-            'PATH',
-        ])('refuses %s, templated or not, saying values must stay data', (name) => {
-            expect(refusedFor(name)).toMatch(REFUSED_BECAUSE);
-            expect(refusedFor(name, 'plain')).toMatch(REFUSED_BECAUSE);
-            expect(refusedFor(name)).toContain(`\`${name}\``);
+            // Exact names.
+            'BASH_ENV', 'ENV', 'PROMPT_COMMAND', 'PS4', 'SHELLOPTS', 'BASHOPTS',
+            'SSH_ASKPASS', 'PAGER', 'EDITOR', 'VISUAL', 'PATH',
+            'HOME', 'IFS', 'ZDOTDIR', 'LESSOPEN', 'LESSCLOSE', 'BROWSER', 'GCONV_PATH', '_JAVA_OPTIONS', 'JAVA_TOOL_OPTIONS',
+            // One name for each prefix, and the ones the earlier list named.
+            'LD_AUDIT', 'LD_PRELOAD', 'DYLD_INSERT_LIBRARIES', 'PYTHONPATH', 'PYTHONSTARTUP', 'PERL5LIB', 'PERL5OPT', 'RUBYLIB', 'RUBYOPT',
+            'NODE_PATH', 'NODE_OPTIONS', 'JAVA_HOME', 'NPM_CONFIG_USERCONFIG', 'XDG_CONFIG_HOME',
+            'GIT_DIR', 'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_12', 'GIT_SSH_COMMAND', 'GIT_PAGER',
+            'GH_PAGER', 'GH_EDITOR', 'GH_BROWSER', 'GH_CONFIG_DIR',
+        ])('refuses %s, templated or not, saying why and what is refused', (name) => {
+            const message = refusedFor(name);
+            expect(message).toMatch(REFUSED_BECAUSE);
+            expect(message).toContain(`\`${name}\``);
+            expect(refusedFor(name, 'plain')).toBe(message);
         });
 
-        it('takes names that only look alike', () => {
-            const step = firstStep<CommandStep>(command('  env: { BASH_ENVIRONMENT: a, MY_PATH: b, GIT_CONFIGURED: c, ENVIRONMENT: d, PATHS: e, EDITORS: f }'));
-            expect(Object.keys(step.env)).toEqual(['BASH_ENVIRONMENT', 'MY_PATH', 'GIT_CONFIGURED', 'ENVIRONMENT', 'PATHS', 'EDITORS']);
+        it('takes GH_TOKEN and GH_HOST, the shipped template\'s names, and names that only look alike', () => {
+            const step = firstStep<CommandStep>(
+                command(
+                    '  env: { GH_TOKEN: a, GH_HOST: b, PR: c, REPO: d, NUMBER: e, VERDICT: f, BODY_FILE: g, BASH_ENVIRONMENT: h, MY_PATH: i, MY_GIT_DIR: j, HOMEPAGE: k, PATHS: l, EDITORS: m, NODEJS: n }'
+                )
+            );
+            expect(Object.keys(step.env)).toEqual([
+                'GH_TOKEN', 'GH_HOST', 'PR', 'REPO', 'NUMBER', 'VERDICT', 'BODY_FILE',
+                'BASH_ENVIRONMENT', 'MY_PATH', 'MY_GIT_DIR', 'HOMEPAGE', 'PATHS', 'EDITORS', 'NODEJS',
+            ]);
         });
 
-        it('is the list the validator and the prose share', () => {
-            for (const pattern of REFUSED_ENV_NAMES) {
-                const name = pattern.endsWith('*') ? `${pattern.slice(0, -1)}X` : pattern;
-                expect(isRefusedEnvName(name), pattern).toBe(true);
-            }
-            expect(isRefusedEnvName('PR')).toBe(false);
+        it('matches NPM_CONFIG_ in any case, as npm reads it, and the rest as written', () => {
+            expect(isRefusedEnvName('npm_config_userconfig')).toBe(true);
+            expect(isRefusedEnvName('Npm_Config_Prefix')).toBe(true);
+            expect(isRefusedEnvName('git_dir')).toBe(false);
+            expect(isRefusedEnvName('path')).toBe(false);
+        });
+
+        it('is the lists the validator, its message and the prose share', () => {
+            for (const name of REFUSED_ENV_NAMES) expect(isRefusedEnvName(name), name).toBe(true);
+            for (const prefix of REFUSED_ENV_PREFIXES) expect(isRefusedEnvName(`${prefix}X`), prefix).toBe(true);
+            for (const name of ENV_PREFIX_EXCEPTIONS) expect(isRefusedEnvName(name), name).toBe(false);
+            const message = refusedFor('BASH_ENV');
+            for (const name of REFUSED_ENV_NAMES) expect(message, name).toContain(name);
+            for (const prefix of REFUSED_ENV_PREFIXES) expect(message, prefix).toContain(`${prefix}*`);
+            for (const name of ENV_PREFIX_EXCEPTIONS) expect(message, name).toContain(name);
         });
     });
 

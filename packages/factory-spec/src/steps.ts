@@ -26,62 +26,70 @@ export const ARTIFACT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 export const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 
 /**
- * `env:` names whose value a shell, git or a runtime runs as code, or that
- * decide which code a command runs: `BASH_ENV: "{{steps.review.handover.file}}"`
+ * `env:` names that make a program run a value: a shell sources a file or runs
+ * a string, git or ssh starts a program, a loader or runtime loads code, or
+ * the value picks which program runs. `BASH_ENV: "{{steps.review.handover.file}}"`
  * would have bash source a file an agent wrote from a pull request's text.
  * Refused outright, templated or not: a value must stay data, and a command
- * that needs one sets it inside `run:`, where it reads as the code it is. A
- * trailing `*` is a prefix. (Git's own `GIT_CONFIG_COUNT` from the login
- * environment still reaches a command; the engine appends its hooks-off
- * entry after it.)
+ * that needs one sets it inside `run:`, where it reads as the code it is.
+ *
+ * A denylist cannot name every such variable, so it says only what it
+ * refuses: these exact names, every name with one of `REFUSED_ENV_PREFIXES`
+ * but `ENV_PREFIX_EXCEPTIONS`. Names a prefix covers are not repeated here.
  */
 export const REFUSED_ENV_NAMES = [
-    // Shells: a file sourced, or a string run, at start or at every prompt.
     'BASH_ENV',
     'ENV',
     'PROMPT_COMMAND',
     'PS4',
     'SHELLOPTS',
     'BASHOPTS',
-    // Git's configuration from the environment: `core.fsmonitor`, `core.sshCommand` and the like run their value.
-    'GIT_CONFIG_COUNT',
-    'GIT_CONFIG_KEY_*',
-    'GIT_CONFIG_VALUE_*',
-    'GIT_CONFIG_PARAMETERS',
-    'GIT_CONFIG',
-    'GIT_CONFIG_GLOBAL',
-    'GIT_CONFIG_SYSTEM',
-    // Programs git, ssh and the like start.
-    'GIT_SSH',
-    'GIT_SSH_COMMAND',
-    'GIT_ASKPASS',
+    'IFS',
+    'HOME',
+    'ZDOTDIR',
     'SSH_ASKPASS',
-    'GIT_EXEC_PATH',
-    'GIT_EXTERNAL_DIFF',
-    'GIT_PROXY_COMMAND',
-    'GIT_PAGER',
     'PAGER',
     'EDITOR',
     'VISUAL',
-    'GIT_EDITOR',
-    'GIT_SEQUENCE_EDITOR',
-    // Loaders and runtimes: code loaded into every process.
-    'LD_PRELOAD',
-    'LD_LIBRARY_PATH',
-    'LD_AUDIT',
-    'DYLD_*',
-    'NODE_OPTIONS',
-    'PYTHONSTARTUP',
-    'PERL5OPT',
-    'RUBYOPT',
-    // Which program a bare name runs.
+    'BROWSER',
+    'LESSOPEN',
+    'LESSCLOSE',
+    'GCONV_PATH',
+    '_JAVA_OPTIONS',
     'PATH',
 ] as const;
 
-/** Whether `env:` refuses a name (`REFUSED_ENV_NAMES`). */
+/**
+ * Prefixes `env:` refuses every name with: loaders (`LD_`, `DYLD_`), runtimes
+ * (`PYTHON`, `PERL`, `RUBY`, `NODE_`, `JAVA_`, `NPM_CONFIG_`), where programs
+ * find their configuration (`XDG_`), and git's and gh's own (`GIT_`, `GH_`).
+ * `NPM_CONFIG_` matches in any case, as npm reads `npm_config_*` too; the
+ * rest match as written. (Git's `GIT_CONFIG_COUNT` from the login
+ * environment still reaches a command; the engine appends its hooks-off
+ * entry after it.)
+ */
+export const REFUSED_ENV_PREFIXES = ['LD_', 'DYLD_', 'PYTHON', 'PERL', 'RUBY', 'NODE_', 'JAVA_', 'NPM_CONFIG_', 'XDG_', 'GIT_', 'GH_'] as const;
+
+/** Names a refused prefix lets through: gh's token and host are data. */
+export const ENV_PREFIX_EXCEPTIONS = ['GH_TOKEN', 'GH_HOST'] as const;
+
+/** Prefixes matched in any case. */
+const CASELESS_ENV_PREFIXES: ReadonlySet<string> = new Set(['NPM_CONFIG_']);
+
+/** Whether `env:` refuses a name: one of `REFUSED_ENV_NAMES`, or a refused prefix's that is not an exception. */
 export function isRefusedEnvName(name: string): boolean {
-    return REFUSED_ENV_NAMES.some((refused) => (refused.endsWith('*') ? name.startsWith(refused.slice(0, -1)) : name === refused));
+    if ((REFUSED_ENV_NAMES as readonly string[]).includes(name)) return true;
+    if ((ENV_PREFIX_EXCEPTIONS as readonly string[]).includes(name)) return false;
+    return REFUSED_ENV_PREFIXES.some((prefix) =>
+        CASELESS_ENV_PREFIXES.has(prefix) ? name.toUpperCase().startsWith(prefix) : name.startsWith(prefix)
+    );
 }
+
+/** What `env:` refuses, as its refusal lists it. */
+const REFUSED_ENV_LIST =
+    `${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')} ` +
+    `(${ENV_PREFIX_EXCEPTIONS.join(' and ')} are allowed)`;
+
 export const MAX_STEPS = 20;
 export const MAX_OUTPUTS = 10;
 export const DEFAULT_STRING_MAX = 1000;
@@ -436,7 +444,8 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
                         bad('Use uppercase letters, digits and underscores, e.g. PR_NUMBER.', ['env', name]);
                     } else if (isRefusedEnvName(name)) {
                         bad(
-                            `\`${name}\` would let its value decide what code runs (a shell, git or a runtime reads it as code); env: values must stay data. Set it inside \`run:\` if the command needs it.`,
+                            `\`${name}\` is refused: these names and prefixes are refused because they make a program run a value: ${REFUSED_ENV_LIST}. ` +
+                                'Values must stay data; set it inside `run:` if the command needs it.',
                             ['env', name]
                         );
                     } else if (typeof value !== 'string') {

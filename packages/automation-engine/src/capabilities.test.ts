@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v3';
-import { LATER_KEYS, parseAutomationEntry, REFUSED_ENV_NAMES } from '@consola/factory-spec';
+import { ENV_PREFIX_EXCEPTIONS, LATER_KEYS, parseAutomationEntry, REFUSED_ENV_NAMES, REFUSED_ENV_PREFIXES } from '@consola/factory-spec';
 import { describeCapabilities, GRAMMAR_EXAMPLES, TRUSTED_ITEM_FIELDS } from './capabilities';
 import { defineTool } from './tools.test-helpers';
 import { stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
@@ -76,12 +76,23 @@ describe('what an agent writing an entry is told', () => {
         );
     });
 
-    it('the env: names the prose says are refused are the ones the validator refuses', () => {
+    it('the env: names and prefixes the prose says are refused are the ones the validator refuses', () => {
         const text = grammar().grammar;
-        expect(text).toContain(`env: never takes a name that would let its value decide what code runs: ${REFUSED_ENV_NAMES.join(', ')}.`);
-        for (const name of ['BASH_ENV', 'GIT_CONFIG_KEY_0', 'GIT_SSH_COMMAND', 'PATH']) {
-            const entry = `- name: probe\n  on: { github: pull_request.review_requested }\n  steps:\n    - run: echo hi\n      env: { ${name}: x }`;
-            expect(parseAutomationEntry(entry).ok, name).toBe(false);
+        const line = text.split('\n').find((candidate) => candidate.startsWith('- env: '));
+        expect(line).toMatch(/^- env: these names and prefixes are refused because they make a program run a value: /);
+        const withEnv = (name: string) =>
+            parseAutomationEntry(`- name: probe\n  on: { github: pull_request.review_requested }\n  steps:\n    - run: echo hi\n      env: { ${name}: x }`).ok;
+        for (const name of REFUSED_ENV_NAMES) {
+            expect(line, name).toContain(name);
+            expect(withEnv(name), name).toBe(false);
+        }
+        for (const prefix of REFUSED_ENV_PREFIXES) {
+            expect(line, prefix).toContain(`${prefix}*`);
+            expect(withEnv(`${prefix}X`), prefix).toBe(false);
+        }
+        for (const name of ENV_PREFIX_EXCEPTIONS) {
+            expect(line, name).toContain(name);
+            expect(withEnv(name), name).toBe(true);
         }
     });
 

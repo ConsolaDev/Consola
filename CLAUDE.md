@@ -249,11 +249,12 @@ never taken from a tool's arguments. Writes are refused once that attempt is
 not the step's running one, or the step recorded a different session.
 
 A `run:` step's command gets values only as environment variables: `{{` is
-refused in `run:`, and `env:` refuses names that would run their value as code
-(`REFUSED_ENV_NAMES`). Its intent (`intentAt`) is written durably
-(`RunStore.updateDurably`) before the spawn, so a quit mid-command is known
-after a restart. Such a command is never re-run automatically: the restart
-fails it as interrupted, and Retry warns before it runs again.
+refused in `run:`, and `env:` refuses the names and prefixes that make a
+program run a value (`REFUSED_ENV_NAMES`, `REFUSED_ENV_PREFIXES`). Its intent
+(`intentAt`) is written durably (`RunStore.updateDurably`) before the spawn, so
+a quit mid-command is known after a restart. Such a command is never re-run
+automatically: the restart fails it as interrupted, and Retry warns before it
+runs again.
 
 ### The Assistant
 

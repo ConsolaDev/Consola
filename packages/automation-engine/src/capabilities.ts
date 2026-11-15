@@ -1,6 +1,6 @@
 import { CONSOLA_NAMESPACE } from './support';
 import type { EngineTool } from './ports';
-import { LATER_KEYS, REFUSED_ENV_NAMES, type AutomationMode } from '@consola/factory-spec';
+import { ENV_PREFIX_EXCEPTIONS, LATER_KEYS, REFUSED_ENV_NAMES, REFUSED_ENV_PREFIXES, type AutomationMode } from '@consola/factory-spec';
 import { assignedReviewsEntry } from './factoryTemplates';
 import { OUTPUT_FILE_CAP_BYTES } from './steps/commandIO';
 import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
@@ -128,7 +128,7 @@ Steps. Each step has exactly one of prompt:, action: or run:. A prompt: or actio
 - if: an expression; the step runs when it is true.
 - prompt: instructions. action: one of the workspace's actions, which must apply to the item; its body is filled as an action's is, and {{ }} does not apply to it.
 - run: a command. env: { NAME: "text {{ path }}" }, names ^[A-Z_][A-Z0-9_]*$, never CONSOLA_*. timeout: <n>s|m|h, default 10m, at most 1h.
-- env: never takes a name that would let its value decide what code runs: ${REFUSED_ENV_NAMES.join(', ')}. Values stay data; set such a variable inside run: if you must.
+- env: these names and prefixes are refused because they make a program run a value: ${REFUSED_ENV_NAMES.join(', ')}, and every name matching ${REFUSED_ENV_PREFIXES.map((prefix) => `${prefix}*`).join(', ')} (${ENV_PREFIX_EXCEPTIONS.join(' and ')} are allowed). Values stay data; set such a variable inside run: if you must.
 - dry_run: report (default) or run: what a notify run does with the command; run is for a command that only reads.
 - outputs: typed values the step must end with, at most 10, named ^[a-z][a-z0-9_]{0,31}$, never handover or output (reserved, like artifact names): { verdict: { enum: [a, b] } (1 to 20 values, each 1 to 64 characters, no line breaks), n: integer, x: { type: number, minimum: 0, maximum: 1 }, ok: boolean, s: { type: string, maxLength: 500 } }. A string defaults to 1000 characters, at most 4000. A run: step may instead say outputs: { from: stdout, format: json | text }: stdout becomes its artifact \`output\`.
 - artifacts: [names] an agent step must write before it ends; it may always write a handover. reads: [<step>.<artifact>] are the only earlier documents an agent step sees (<step>.handover, <step>.output).
