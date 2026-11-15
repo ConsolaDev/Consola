@@ -57,7 +57,7 @@ export {
     type StepToolAnswer,
     type StepToolSpec,
 } from './steps/stepTools';
-export { MAX_ARTIFACT_BYTES, type RunDefinition } from './steps/definition';
+export { MAX_ARTIFACT_BYTES, type RunDefinition, type StepsRunPreview } from './steps/definition';
 export type { CheckoutRequest, PreparedCheckout, CheckoutPort } from './steps/checkout';
 export { LOG_CAP_BYTES, OUTPUT_FILE_CAP_BYTES, layerCommandEnv, parseOutputFile, describeFailure, maskSecrets } from './steps/commandIO';
 export { withoutGitHooks } from './gitEnv';

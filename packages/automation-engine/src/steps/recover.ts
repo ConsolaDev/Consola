@@ -16,6 +16,11 @@ export function isEngineRun(run: RunRecord): boolean {
     return kind === 'agent-run' || kind === 'steps-run';
 }
 
+/** A run of a `steps:` entry: the only kind with a run folder. */
+export function isStepsRun(run: RunRecord): boolean {
+    return (run.result as { kind?: unknown } | undefined)?.kind === 'steps-run';
+}
+
 /**
  * What a run that was `running` at quit becomes after a restart: the recovered
  * copy, or null when nothing changes. Pure; the caller records it.

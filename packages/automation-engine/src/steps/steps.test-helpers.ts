@@ -3,13 +3,13 @@ import * as os from 'os';
 import * as path from 'path';
 import { onTestFinished } from 'vitest';
 import { appendAutomationEntry, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
-import { AutomationService, type AutomationNotice } from '../AutomationService';
+import { AutomationService, type AutomationNotice, type AutomationServiceDeps } from '../AutomationService';
 import { RunFolder } from '../node/runFolder';
 import type { AgentLaunchRequest, FactoryFileHandle } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
 import { FakeToolRegistry } from '../tools.test-helpers';
-import type { ItemSnapshot, SessionView, WorkspaceView } from '../views';
+import type { InboxItemView, ItemSnapshot, SessionView, WorkspaceView } from '../views';
 
 /*
  * The one harness every steps test runs through: a real `AutomationService`
@@ -17,7 +17,9 @@ import type { ItemSnapshot, SessionView, WorkspaceView } from '../views';
  * the test finishes), and a fake host whose every dependency records each call
  * in `world`. A task that adds a dependency adds its fake to `deps` below and
  * what it records to `StepsWorld`; nothing else changes, so earlier tests keep
- * working as written.
+ * working as written. `relaunch` quits the service and starts another over the
+ * same state, history, run folder, files, clock and world, as reopening
+ * Consola would.
  */
 
 export const WORKSPACE_ID = 'ws-1';
@@ -41,6 +43,8 @@ export interface StepsHarnessOptions {
 export interface StepsWorld {
     /** ws-1, "Sprocket". Edit its actions, scopes or provider, then `service.syncWorkspaces()`. */
     workspace: WorkspaceView & { name: string };
+    /** ws-1 was deleted: the host no longer lists it. Set it, then `service.syncWorkspaces()`. */
+    workspaceDeleted: boolean;
     harness: { name: string; problem: string | null };
     /** Each workspace's latest Inbox snapshot, as `inboxSnapshot` returns it. */
     inbox: Map<string, ItemSnapshot>;
@@ -63,6 +67,10 @@ export interface StepsHarness {
     notices: AutomationNotice[];
     /** Replace ws-1's factory.yml and reload it, as the file watcher would. */
     setYaml(yaml: string): Promise<void>;
+    /** A successful Inbox fetch of ws-1 holding `items`, as main hands it over, then whatever it set going. */
+    poll(items: InboxItemView[]): Promise<void>;
+    /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
+    relaunch(): Promise<StepsHarness>;
     /** A scheduler tick, then whatever it set going. */
     tick(): Promise<void>;
     /** Let queued promise chains (launches awaited one after another) settle. */
@@ -113,6 +121,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
 
     const world: StepsWorld = {
         workspace: sprocket(),
+        workspaceDeleted: false,
         harness,
         inbox: new Map(),
         liveTerminals: new Set(),
@@ -124,7 +133,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     };
     const notices: AutomationNotice[] = [];
     const texts = new Map<string, string>(yaml === undefined ? [] : [[WORKSPACE_ID, yaml]]);
-    const store = new RunStore(memoryStateFile(), memoryHistory());
+    // What outlives a quit: the state file, the run logs and the run folder.
+    const stateFile = memoryStateFile();
+    const history = memoryHistory();
     const folder = new RunFolder((workspaceId) => path.join(root, workspaceId));
     let id = 0;
 
@@ -152,12 +163,12 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         };
     };
 
-    const service = new AutomationService({
+    const deps = (store: RunStore): AutomationServiceDeps => ({
         fileFor,
         store,
         runFolder: folder,
         registry: new FakeToolRegistry(),
-        getWorkspaces: () => [world.workspace],
+        getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
         now: () => clock,
         newId: () => `run-${++id}`,
         notify: (notice) => notices.push(notice),
@@ -195,26 +206,42 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         },
         platform,
     });
-    await service.start();
 
-    return {
-        service,
-        store,
-        folder,
-        world,
-        notices,
-        async setYaml(next) {
-            texts.set(WORKSPACE_ID, next);
-            await service.reload(WORKSPACE_ID);
-        },
-        async tick() {
-            await service.tick();
-            await flush();
-        },
-        flush,
-        now: () => clock,
-        advance(ms) {
-            clock = new Date(clock.getTime() + ms);
-        },
+    const launch = async (): Promise<StepsHarness> => {
+        const store = new RunStore(stateFile, history);
+        const service = new AutomationService(deps(store));
+        await service.start();
+
+        return {
+            service,
+            store,
+            folder,
+            world,
+            notices,
+            async setYaml(next) {
+                texts.set(WORKSPACE_ID, next);
+                await service.reload(WORKSPACE_ID);
+            },
+            async poll(items) {
+                const snapshot: ItemSnapshot = { workspaceId: WORKSPACE_ID, items, fetchedAt: clock.getTime() };
+                world.inbox.set(WORKSPACE_ID, snapshot);
+                service.observeInbox(snapshot);
+                await flush();
+            },
+            async relaunch() {
+                service.shutdown();
+                return launch();
+            },
+            async tick() {
+                await service.tick();
+                await flush();
+            },
+            flush,
+            now: () => clock,
+            advance(ms) {
+                clock = new Date(clock.getTime() + ms);
+            },
+        };
     };
+    return launch();
 }

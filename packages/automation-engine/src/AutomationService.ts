@@ -14,9 +14,11 @@ import {
     type AutomationMode,
     type CronTrigger,
     type FactorySpecIssue,
+    type RunItem,
     type RunRecord,
     type RunStatus,
     type RunTrigger,
+    type StepRun,
     type StepsAutomation,
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
@@ -27,10 +29,11 @@ import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factor
 import { describeKind, describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResult, FactoryFileHandle, LaunchedSession, LoadedFactoryFile, RunFolderPort, ToolsPort } from './ports';
-import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunKind, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
-import type { RunDefinition } from './steps/definition';
+import type { RunDefinition, StepsRunPreview } from './steps/definition';
+import { isEngineRun, isStepsRun } from './steps/recover';
 import { StepIO } from './steps/stepTools';
 
 /**
@@ -263,12 +266,33 @@ export class AutomationService {
 
     public async start(): Promise<void> {
         this.deps.store.load(this.iso());
+        this.sweepRunFolders();
         this.started = true;
         await this.syncWorkspaces();
         this.stopTicking = this.deps.every(TICK_MS, () => void this.tick());
         // Catch up on anything missed while Consola was closed, and resume
         // whatever was queued when it quit.
         await this.tick();
+    }
+
+    /**
+     * Remove the run folders history no longer names: once, after the load
+     * that applies retention, never as runs are added. Only a workspace that
+     * held a steps run can have any. A failure costs disk, not the start.
+     */
+    private sweepRunFolders(): void {
+        const named = new Map<string, Set<string>>();
+        for (const run of this.deps.store.runs()) {
+            const { workspaceId } = run.attribution;
+            if (workspaceId) named.set(workspaceId, (named.get(workspaceId) ?? new Set()).add(run.id));
+        }
+        for (const workspaceId of this.deps.store.workspacesWithStepsRuns()) {
+            try {
+                this.deps.runFolder.sweep(workspaceId, named.get(workspaceId) ?? new Set());
+            } catch (error) {
+                console.error(`Could not sweep ${workspaceId}'s run folders.`, error);
+            }
+        }
     }
 
     /** Quit: stop ticking and let go of every workspace's file. */
@@ -300,7 +324,15 @@ export class AutomationService {
                     this.finish(run.id, 'rejected', { summary: 'Its workspace was deleted.' });
                 }
             }
+            const hasRunFolders = this.deps.store.workspacesWithStepsRuns().has(workspaceId);
             this.deps.store.forgetWorkspace(workspaceId);
+            if (hasRunFolders) {
+                try {
+                    this.deps.runFolder.removeAll(workspaceId);
+                } catch (error) {
+                    console.error(`Could not remove ${workspaceId}'s run folders.`, error);
+                }
+            }
         }
 
         // Registered before anything is awaited, so a second sync arriving
@@ -735,9 +767,10 @@ export class AutomationService {
     /**
      * Approve a run waiting for a person. Runs exactly what its preview showed
      * — every safety rule checked again, nothing added — and refuses if the
-     * automation changed since. An agent run joins the queue, so approving
-     * one never steps past the cap. Approving a new or edited `auto` entry
-     * also lets it run on its own from now on.
+     * automation changed since. An agent or steps run joins the queue, so
+     * approving one never steps past the cap. Approving a new or edited `auto`
+     * entry (or a `notify` one whose dry run starts something) also lets it
+     * run on its own from now on.
      */
     public async approve(runId: string): Promise<RunRecord> {
         const run = this.waiting(runId);
@@ -753,7 +786,7 @@ export class AutomationService {
         }
         const key = automationKey(entry);
         const approvedAt = this.iso();
-        if (entry.agent) {
+        if (entry.agent || entry.steps) {
             this.deps.store.update(run.id, { status: 'queued', approvedAt, updatedAt: approvedAt });
             this.acceptApproved(key, entry, run);
             this.broadcastRun(run.id);
@@ -779,12 +812,13 @@ export class AutomationService {
     }
 
     /**
-     * An approved run of an `auto` entry lets it run on its own from now on —
-     * unless `saveEntry` wrote the entry since the run was asked for, or in
-     * the same instant: that approval was for the entry before.
+     * An approved run of an entry that asks until accepted (`asksUntilAccepted`)
+     * lets it run on its own from now on — unless `saveEntry` wrote the entry
+     * since the run was asked for, or in the same instant: that approval was
+     * for the entry before.
      */
     private acceptApproved(key: string, entry: Resolved, run: RunRecord): void {
-        if (entry.automation.mode !== 'auto') return;
+        if (!asksUntilAccepted(entry)) return;
         const revoked = this.deps.store.revokedAt(key);
         if (revoked !== undefined && !(Date.parse(run.createdAt) > Date.parse(revoked))) return;
         this.deps.store.accept(key, entry.version);
@@ -819,7 +853,8 @@ export class AutomationService {
                 ...(automation.line ? { line: automation.line } : {}),
                 // A due-but-unfired occurrence reads as "now", not as a time in the past.
                 nextRunAt: next ? new Date(Math.max(next.getTime(), now.getTime())).toISOString() : null,
-                ...(automation.mode === 'auto' && this.deps.store.acceptedVersion(automationKey(entry)) !== entry.version
+                // As `effectiveMode` decides: the same entries, until the same version.
+                ...(asksUntilAccepted(entry) && this.deps.store.acceptedVersion(automationKey(entry)) !== entry.version
                     ? { asksFirst: true }
                     : {}),
                 ...(entry.problem ? { problem: entry.problem } : {}),
@@ -839,12 +874,12 @@ export class AutomationService {
      * End a running agent turn, as Ctrl+C would. The turn's own end then
      * fails the run ("It stopped before finishing: you stopped it."); when
      * no turn is running any more, nothing will report, so the run ends here.
-     * An agent run that already ended — its turn beat the click — is left as
-     * it ended.
+     * An agent or steps run that already ended — its turn beat the click — is
+     * left as it ended.
      */
     public stop(runId: string): void {
         const run = this.deps.store.get(runId);
-        if (run && isAgentRun(run) && TERMINAL_RUN_STATUSES.includes(run.status)) return;
+        if (run && isEngineRun(run) && TERMINAL_RUN_STATUSES.includes(run.status)) return;
         if (!run || run.status !== 'running' || !isAgentRun(run)) throw new Error(`Run ${runId} is not a running agent run.`);
         if (this.starting.has(runId)) {
             // No turn exists yet: remember, and end it the moment it does.
@@ -907,6 +942,9 @@ export class AutomationService {
                         }
                         continue;
                     }
+                    // A steps run is checked like any other, but nothing starts one yet: it stays in
+                    // line until the step sequencer (its checkout, then its first step) lands.
+                    if (isStepsRun(run)) continue;
                     await this.startAgentRun(run, verdict.item);
                 }
             } while (this.pumpAgain);
@@ -1087,9 +1125,10 @@ export class AutomationService {
     /**
      * A session the person started on this item with the same action since
      * `sinceIso` — the review they clicked before the automation got to it.
+     * A steps entry's action is its first agent step's, when that names one.
      */
     private startedByHand(entry: Resolved, item: InboxItemView, sinceIso: string): SessionView | undefined {
-        const label = entry.agent?.label;
+        const label = entry.agent?.label ?? entry.steps?.byHandLabel;
         if (!label) return undefined;
         const since = Date.parse(sinceIso);
         return this.deps
@@ -1361,10 +1400,14 @@ export class AutomationService {
         return nextCronOccurrence(cron.cron, last ? new Date(last) : now);
     }
 
-    /** The mode this run uses, and why it asks when the file says `auto`. */
+    /**
+     * The mode this run uses, and why it asks when the file says `auto` — or
+     * `notify` for a dry run that starts something, which is asked for as
+     * `auto` is (`asksUntilAccepted`).
+     */
     private effectiveMode(entry: Resolved, trigger: RunTrigger): { mode: AutomationMode; asks?: string } {
         const { mode } = entry.automation;
-        if (mode !== 'auto') return { mode };
+        if (!asksUntilAccepted(entry)) return { mode };
         if (trigger.by === 'agent') return { mode: 'confirm', asks: 'An agent asked for this run.' };
         if (this.deps.store.acceptedVersion(automationKey(entry)) !== entry.version) {
             return { mode: 'confirm', asks: 'Approve once to let this new or changed automation run on its own.' };
@@ -1374,8 +1417,7 @@ export class AutomationService {
 
     private async fire(entry: Resolved, trigger: RunTrigger): Promise<RunRecord> {
         if (entry.agent) return this.fireAgent(entry, trigger);
-        // Starting a steps run is not built yet: the entry resolves and is listed, and starts nothing.
-        if (entry.steps) throw new Error(`${entry.automation.name} cannot run yet: this build does not start steps runs.`);
+        if (entry.steps) return this.fireSteps(entry, trigger);
         const { automation } = entry;
         const key = automationKey(entry);
         this.assertIdle(key, automation.name);
@@ -1432,7 +1474,7 @@ export class AutomationService {
      */
     private fireAgent(entry: Resolved, trigger: RunTrigger): RunRecord {
         const agent = entry.agent!;
-        const lined = this.deps.store.runs().find((run) => isRunOf(run, entry) && (run.status === 'queued' || run.status === 'running'));
+        const lined = this.inLine(entry);
         if (lined) return lined;
         const scopeName = agent.scope?.name ?? '';
         const prompt = scheduledPrompt(agent.body, entry.automation.name, scopeName);
@@ -1440,12 +1482,44 @@ export class AutomationService {
         return this.recordAgentRun(entry, trigger, preview, `${agent.runs} in ${scopeName}`);
     }
 
+    /**
+     * A `steps:` run. Scheduled or requested (no `item`), one waits at a time,
+     * as an agent automation's does; an event's caller keeps it to one open
+     * run per item. Its definition — the entry and every action a step names,
+     * as of now — is written to its folder before it is recorded: it is what
+     * the approval shows and what the run executes, whatever is edited later.
+     */
+    private fireSteps(entry: Resolved, trigger: RunTrigger, item?: InboxItemView): RunRecord {
+        if (!item) {
+            const lined = this.inLine(entry);
+            if (lined) return lined;
+        }
+        const { definition, scope } = entry.steps!;
+        const { mode, asks } = this.effectiveMode(entry, trigger);
+        const run = this.newStepsRun(entry, trigger, mode, item);
+        try {
+            this.deps.runFolder.writeDefinition(entry.workspaceId, run.id, definition);
+        } catch (error) {
+            // Recorded, so it is seen; ended, so it holds no place in line.
+            const reason = describeError(error).trim().replace(/\.$/, '');
+            this.deps.store.add({ ...run, status: 'failed', error: `Could not write its definition: ${reason}.`, finishedAt: this.iso() });
+            this.broadcast(entry.workspaceId);
+            this.notify(`${entry.automation.name} could not start`, describeError(error), run.id);
+            return this.deps.store.get(run.id)!;
+        }
+        const runs = describeRun(definition.automation);
+        const described = item ? entry.event!.describeItem(item) : `${runs} in ${scope?.name ?? ''}`;
+        return this.recordByMode(entry, run, asks, { summary: item ? `${runs}: ${described}.` : `${described}.`, described });
+    }
+
+    /** The run of a scheduled or requested automation that is queued or running: the one a fire returns instead of adding another. */
+    private inLine(entry: Resolved): RunRecord | undefined {
+        return this.deps.store.runs().find((run) => isRunOf(run, entry) && (run.status === 'queued' || run.status === 'running'));
+    }
+
     /** One event — an item entering an automation's list — made one run. */
     private fireEvent(entry: Resolved, item: InboxItemView, since: string, at: string): void {
-        // Starting a steps run is not built yet: its events pass, and start nothing.
-        if (entry.steps) return;
         const event = entry.event!;
-        const agent = entry.agent!;
         const itemKey = event.keyOf(item);
         // One at a time per (automation, item); items run side by side.
         const open = this.deps.store
@@ -1457,17 +1531,25 @@ export class AutomationService {
             at,
             connection: event.connection,
             events: event.eventsOf(item),
-            item: { key: itemKey, url: item.url, title: item.title },
+            // A steps run's commands read the item as it was when it fired.
+            item: entry.steps ? itemSnapshot(itemKey, item) : { key: itemKey, url: item.url, title: item.title },
         };
         const described = event.describeItem(item);
         const byHand = this.startedByHand(entry, item, since);
         if (byHand) {
-            const run = this.newRun(entry, trigger, entry.automation.mode);
+            const { mode } = entry.automation;
+            // Never run, so it has nothing to snapshot.
+            const run = entry.steps ? this.newStepsRun(entry, trigger, mode, item) : this.newRun(entry, trigger, mode);
             const now = this.iso();
             this.deps.store.add({ ...run, status: 'rejected', summary: `Already started by hand: “${byHand.name}”.`, finishedAt: now });
             this.broadcast(entry.workspaceId);
             return;
         }
+        if (entry.steps) {
+            this.fireSteps(entry, trigger, item);
+            return;
+        }
+        const agent = entry.agent!;
         const preview: AgentRunPreview = {
             kind: 'agent-run',
             runs: agent.runs,
@@ -1477,20 +1559,29 @@ export class AutomationService {
         this.recordAgentRun(entry, trigger, preview, described);
     }
 
-    /** The bookkeeping every agent run shares: queued, waiting for a person, or only reported. */
+    /** An agent run: its preview, and the prompt approving it sends. */
     private recordAgentRun(entry: Resolved, trigger: RunTrigger, preview: AgentRunPreview, described: string): RunRecord {
-        const { automation } = entry;
         const { mode, asks } = this.effectiveMode(entry, trigger);
-        const base = this.newRun(entry, trigger, mode);
-        const now = this.iso();
         // The prompt approval sends is the one the preview showed.
-        const run: RunRecord = { ...base, result: preview, approval: { args: { prompt: preview.prompt } } };
-        if (mode === 'notify') {
-            this.deps.store.add({ ...run, status: 'completed', summary: `${described}. Nothing started (notify).`, finishedAt: now });
-            this.notify(automation.name, `${described}.`, run.id);
-        } else if (mode === 'confirm') {
-            if (!trigger.item) this.supersedeWaiting(entry, run.id);
-            const summary = `${entry.agent!.runs}: ${described}.${asks ? ` ${asks}` : ''}`;
+        const run: RunRecord = { ...this.newRun(entry, trigger, mode), result: preview, approval: { args: { prompt: preview.prompt } } };
+        return this.recordByMode(entry, run, asks, { summary: `${entry.agent!.runs}: ${described}.`, described });
+    }
+
+    /**
+     * The bookkeeping every agent and steps run shares, by the mode it runs
+     * in: waiting for a person (`confirm`), or in line (`auto`, and a steps
+     * entry's dry run under `notify`). A one-step entry under `notify` starts
+     * nothing: it is only reported. `summary` is what the run says while it
+     * waits; `described`, what it is about.
+     */
+    private recordByMode(entry: Resolved, run: RunRecord, asks: string | undefined, line: { summary: string; described: string }): RunRecord {
+        const { automation } = entry;
+        if (run.mode === 'notify' && !run.dryRun) {
+            this.deps.store.add({ ...run, status: 'completed', summary: `${line.described}. Nothing started (notify).`, finishedAt: this.iso() });
+            this.notify(automation.name, `${line.described}.`, run.id);
+        } else if (run.mode === 'confirm') {
+            if (!run.trigger.item) this.supersedeWaiting(entry, run.id);
+            const summary = `${line.summary}${asks ? ` ${asks}` : ''}`;
             this.deps.store.add({ ...run, status: 'needs-approval', summary });
             this.deps.notify({
                 title: `${automation.name} needs your approval`,
@@ -1501,7 +1592,7 @@ export class AutomationService {
                 ...(run.trigger.actorId ? { actorId: run.trigger.actorId } : {}),
             });
         } else {
-            this.deps.store.add({ ...run, status: 'queued', summary: `${entry.agent!.runs}: ${described}.` });
+            this.deps.store.add({ ...run, status: 'queued', summary: line.summary });
         }
         this.broadcast(entry.workspaceId);
         void this.pump();
@@ -1553,6 +1644,28 @@ export class AutomationService {
             },
             createdAt: now,
             updatedAt: now,
+        };
+    }
+
+    /**
+     * A new `steps:` run: a light preview as its result (what it runs is in its
+     * folder's definition), every step pending, and a dry run under `notify`.
+     * It carries no approval: approving queues it, and it runs its snapshot.
+     */
+    private newStepsRun(entry: Resolved, trigger: RunTrigger, mode: AutomationMode, item?: InboxItemView): RunRecord {
+        const { definition, scope } = entry.steps!;
+        const { steps } = definition.automation;
+        const preview: StepsRunPreview = {
+            kind: 'steps-run',
+            steps: steps.map((step) => ({ id: step.id, kind: step.kind })),
+            ...(item ? { item: { url: item.url, title: item.title, author: item.author, label: entry.event!.describeItem(item) } } : {}),
+            ...(scope ? { scope: scope.name } : {}),
+        };
+        return {
+            ...this.newRun(entry, trigger, mode),
+            result: preview,
+            steps: steps.map((step): StepRun => ({ id: step.id, kind: step.kind, status: 'pending', attempt: 1 })),
+            ...(entry.automation.mode === 'notify' ? { dryRun: true } : {}),
         };
     }
 
@@ -1657,8 +1770,33 @@ function isAgentRun(run: RunRecord): boolean {
  */
 function toListEntry(run: RunRecord): RunListEntry {
     const { result, approval: _approval, ...rest } = run;
-    const kind = isAgentRequest(run) ? 'request' : isAgentRun(run) ? 'agent' : 'tool';
-    return { ...rest, kind, ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}) };
+    return { ...rest, kind: runKind(run), ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}) };
+}
+
+/** A steps run is an agent run when any step is an agent step, so "Prompts & reviews" holds it; else a tool run. */
+function runKind(run: RunRecord): RunKind {
+    if (isAgentRequest(run)) return 'request';
+    if (isAgentRun(run)) return 'agent';
+    if (isStepsRun(run)) return run.steps?.some((step) => step.kind === 'agent') ? 'agent' : 'tool';
+    return 'tool';
+}
+
+/**
+ * Whether an entry runs unattended only at a version a person accepted, so a
+ * new or edited one asks first: `auto`, and a `notify` steps entry whose dry
+ * run starts something (an agent step, or a `dry_run: run` command). A dry
+ * run that only reports starts nothing, and a one-step entry under `notify`
+ * starts nothing either; neither asks.
+ */
+function asksUntilAccepted(entry: Resolved): boolean {
+    const { mode } = entry.automation;
+    return mode === 'auto' || (mode === 'notify' && entry.steps?.startsInDryRun === true);
+}
+
+/** An item as a steps run keeps it: its key and what its steps may read, as they were when it fired. */
+function itemSnapshot(key: string, item: InboxItemView): RunItem {
+    const { repo, number, type } = item.workItem;
+    return { key, url: item.url, title: item.title, repo, number, type, author: item.author };
 }
 
 /** A problem with one entry, rather than with the file as a whole. */

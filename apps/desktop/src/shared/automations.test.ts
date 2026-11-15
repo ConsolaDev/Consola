@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isAssistantRequest, runTitle, waitingAssistantRequests, type RunRecord } from './automations';
+import { isAgentRunPreview, isAssistantRequest, isStepsRunPreview, runTitle, waitingAssistantRequests, type RunRecord } from './automations';
 
 function run(id: string, fields: Partial<RunRecord> & { actorId?: string } = {}): RunRecord {
     const { actorId, ...rest } = fields;
@@ -44,6 +44,23 @@ describe('the Assistant’s requests', () => {
 
     it('is nothing before the workspace has an Assistant', () => {
         expect(waitingAssistantRequests(runs, undefined)).toEqual([]);
+    });
+});
+
+describe('a run’s result, as the renderer tells them apart', () => {
+    const stepsRun = { kind: 'steps-run', steps: [{ id: 'review', kind: 'agent' }, { id: 'publish', kind: 'run' }], scope: 'api' };
+    const agentRun = { kind: 'agent-run', runs: 'Review action', prompt: 'Review it.' };
+
+    it('is a steps run’s preview', () => {
+        expect(isStepsRunPreview(stepsRun)).toBe(true);
+        expect(isAgentRunPreview(stepsRun)).toBe(false);
+        expect(isStepsRunPreview(agentRun)).toBe(false);
+    });
+
+    it('is not a tool’s result, nothing, or a preview without its steps', () => {
+        for (const value of [{ swept: 2 }, null, undefined, 'steps-run', { kind: 'steps-run' }, { kind: 'steps-run', steps: 'review' }]) {
+            expect(isStepsRunPreview(value)).toBe(false);
+        }
     });
 });
 

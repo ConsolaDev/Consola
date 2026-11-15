@@ -198,6 +198,21 @@ describe('RunStore history', () => {
         expect(history.removed).toEqual(['ws-1']);
     });
 
+    it('knows which workspaces held a steps run since it loaded, those retention dropped included', () => {
+        const steps = { result: { kind: 'steps-run' } };
+        const { store } = loaded({
+            'ws-1': [run('expired', 'ws-1', { ...steps, createdAt: daysAgo(40), finishedAt: daysAgo(31) }), run('legacy', 'ws-1')],
+            'ws-2': [run('agent', 'ws-2', { result: { kind: 'agent-run' } })],
+        });
+        expect(store.runs().map((r) => r.id)).toEqual(['legacy', 'agent']);
+        expect([...store.workspacesWithStepsRuns()]).toEqual(['ws-1']);
+
+        store.add(run('new', 'ws-3', { ...steps, createdAt: NOW }));
+        expect([...store.workspacesWithStepsRuns()].sort()).toEqual(['ws-1', 'ws-3']);
+        store.forgetWorkspace('ws-1');
+        expect([...store.workspacesWithStepsRuns()]).toEqual(['ws-3']);
+    });
+
     it('revokes an acceptance and records who added an entry', () => {
         const { store, file } = loaded({}, { version: 2, lastFired: {}, accepted: { 'ws-1 a': 'v1' } });
         store.revokeAcceptance('ws-1 a');

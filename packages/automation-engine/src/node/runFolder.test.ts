@@ -159,6 +159,15 @@ describe('RunFolder', () => {
         folder.writeJson(path.dirname(inside), 'command.json', {});
     });
 
+    it('leaves nothing half-written when a write fails', () => {
+        const definition = { automation: {}, version: 'v', actions: {} } as unknown as RunDefinition;
+        // definition.json is a folder with something in it: the rename onto it fails.
+        const target = path.join(folder.runDir('ws', 'r1'), 'definition.json');
+        fs.mkdirSync(path.join(target, 'inside'), { recursive: true });
+        expect(() => folder.writeDefinition('ws', 'r1', definition)).toThrow();
+        expect(fs.readdirSync(folder.runDir('ws', 'r1'))).toEqual(['definition.json']);
+    });
+
     it('refuses a definition over its cap on write', () => {
         const big = { automation: {}, version: 'v', actions: { a: { name: 'n', body: 'x'.repeat(16 * 1024 * 1024) } } } as unknown as RunDefinition;
         expect(() => folder.writeDefinition('ws', 'r1', big)).toThrow(/16 MB/);

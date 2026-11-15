@@ -20,11 +20,21 @@ function isMissing(error: unknown): boolean {
     return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
 }
 
+/** The file holds the old content or the new, and a write that fails leaves no temporary beside it. */
 function writeAtomically(file: string, content: string): void {
     fs.mkdirSync(path.dirname(file), { recursive: true });
     const temporary = `${file}.${process.pid}.tmp`;
-    fs.writeFileSync(temporary, content);
-    fs.renameSync(temporary, file);
+    try {
+        fs.writeFileSync(temporary, content);
+        fs.renameSync(temporary, file);
+    } catch (error) {
+        try {
+            fs.rmSync(temporary, { force: true });
+        } catch {
+            // The write's own error is the one worth reporting.
+        }
+        throw error;
+    }
 }
 
 /**

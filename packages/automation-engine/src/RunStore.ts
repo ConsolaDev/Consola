@@ -1,7 +1,7 @@
 import { TERMINAL_RUN_STATUSES, type RunRecord } from '@consola/factory-spec';
 import type { RunHistory, StateFile } from './ports';
 import type { SeenRecord } from './seenRecord';
-import { recoverAfterRestart } from './steps/recover';
+import { isStepsRun, recoverAfterRestart } from './steps/recover';
 
 export interface AddedBy {
     /** The session that wrote the entry into the file. */
@@ -51,6 +51,8 @@ export class RunStore {
     private state: StoredState = { lastFired: {}, accepted: {}, seen: {}, added: {}, revoked: {} };
     /** Every workspace's runs, newest first. */
     private all: RunRecord[] = [];
+    /** See `workspacesWithStepsRuns`. */
+    private readonly stepsWorkspaces = new Set<string>();
 
     constructor(
         private readonly file: StateFile<AutomationStateFile>,
@@ -84,6 +86,11 @@ export class RunStore {
             if (migrating) groups = mergeMigrated(groups, migrating);
         } catch (error) {
             console.error('Automation run history unreadable; starting empty.', error);
+        }
+        // Read before retention, which may drop a workspace's last steps run but not its folder.
+        this.stepsWorkspaces.clear();
+        for (const [workspaceId, runs] of groups) {
+            if (workspaceId !== undefined && runs.some(isStepsRun)) this.stepsWorkspaces.add(workspaceId);
         }
 
         const now = Date.parse(nowIso);
@@ -232,6 +239,7 @@ export class RunStore {
 
     public add(run: RunRecord): void {
         const workspaceId = run.attribution?.workspaceId;
+        if (workspaceId !== undefined && isStepsRun(run)) this.stepsWorkspaces.add(workspaceId);
         // The new run's own clock is "now": a run is only ever added as it happens.
         const now = Date.parse(run.createdAt);
         const kept = retained([run, ...this.runsOf(workspaceId)], now);
@@ -282,7 +290,17 @@ export class RunStore {
     /** A workspace was deleted: its runs and their log go with it. */
     public forgetWorkspace(workspaceId: string): void {
         this.all = this.all.filter((run) => run.attribution?.workspaceId !== workspaceId);
+        this.stepsWorkspaces.delete(workspaceId);
         this.guarded(() => this.history.remove(workspaceId));
+    }
+
+    /**
+     * Workspaces whose history held a `steps:` run at any point since `load`,
+     * including runs retention dropped: the ones whose run folders may hold
+     * something. A workspace that never ran steps has none to sweep.
+     */
+    public workspacesWithStepsRuns(): ReadonlySet<string> {
+        return this.stepsWorkspaces;
     }
 
     private runsOf(workspaceId: string | undefined): RunRecord[] {

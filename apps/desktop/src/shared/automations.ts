@@ -3,7 +3,7 @@ import type { RunRecord } from '@consola/factory-spec';
 export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
 import type { RunConversation } from './conversation';
 import type { Session } from './workspace';
-import type { AgentRunPreview, AutomationsSnapshot } from '@consola/automation-engine';
+import type { AgentRunPreview, AutomationsSnapshot, StepsRunPreview } from '@consola/automation-engine';
 export type {
     AutomationView,
     TemplateView,
@@ -17,6 +17,7 @@ export type {
     AgentRunPreview,
     AutomationsSnapshot,
     RunDefinition,
+    StepsRunPreview,
 } from '@consola/automation-engine';
 
 /** What a new automation's session starts from: one of the file's entries, or a template. */
@@ -34,6 +35,13 @@ export interface AuthoringRequest {
 
 export function isAgentRunPreview(value: unknown): value is AgentRunPreview {
     return typeof value === 'object' && value !== null && (value as { kind?: unknown }).kind === 'agent-run';
+}
+
+/** A `steps:` run's result: its steps, and the item or scope it is about. */
+export function isStepsRunPreview(value: unknown): value is StepsRunPreview {
+    if (typeof value !== 'object' || value === null) return false;
+    const { kind, steps } = value as { kind?: unknown; steps?: unknown };
+    return kind === 'steps-run' && Array.isArray(steps);
 }
 
 /**
