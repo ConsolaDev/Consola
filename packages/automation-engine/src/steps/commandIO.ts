@@ -14,7 +14,8 @@ export const OUTPUT_FILE_CAP_BYTES = 64 * 1024;
 /** The most of a key or value a problem repeats. */
 const ECHO_MAX_CHARS = 64;
 
-const STOPPED = 'Stopped while running: it may have done its work';
+/** The error a step carries when a person stopped it. */
+export const STOPPED = 'Stopped while running: it may have done its work';
 
 /** `text` with every secret replaced by ***, the longest first. Empty secrets are ignored. */
 export function maskSecrets(text: string, secrets: readonly string[]): string {
