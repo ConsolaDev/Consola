@@ -37,7 +37,7 @@ import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/ch
 import type { RunDefinition, StepsRunPreview } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
-import { closeSteps, laneOfRecord, withStep, withUpdate } from './steps/stepRecords';
+import { closeSteps, laneOfRecord, withAttemptStarted, withStep, withUpdate } from './steps/stepRecords';
 import { StepIO } from './steps/stepTools';
 
 /**
@@ -279,11 +279,12 @@ export class AutomationService {
     /** Of those, the ones a person asked to stop; honoured as soon as the turn exists. */
     private readonly stopRequested = new Set<string>();
     /**
-     * Steps runs preparing their item's checkout, and the lane their first
-     * step will need: each holds that slot meanwhile, so a run that has not
-     * started cannot take it.
+     * Steps runs started from the line whose first step is not running yet
+     * (preparing their item's checkout, or that step queued), and the lane it
+     * runs in. Each holds a slot there from the moment it starts, and its
+     * first step takes that slot: no other run can take it meanwhile.
      */
-    private readonly preparing = new Map<string, Lane>();
+    private readonly admitted = new Map<string, Lane>();
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
@@ -414,12 +415,15 @@ export class AutomationService {
             }
         }
         // The same for a step's session. A started steps run whose definition
-        // went with its folder has nothing left to run: it ends here too.
+        // went with its folder has nothing left to run: it ends here too. One
+        // whose definition fails to read now is left as it is: a later look
+        // may read it.
         for (const run of this.deps.store.runs()) {
             if (run.status !== 'running' || !isStepsRun(run)) continue;
             const loaded = this.definitionOf(run);
             if ('problem' in loaded) {
-                this.failRun(run.id, loaded.problem);
+                if (loaded.gone) this.failRun(run.id, loaded.problem);
+                else console.error(`Run ${run.id}'s definition could not be read; it is left as it is.`, loaded.error);
                 continue;
             }
             const closed = run.steps?.find(
@@ -1005,7 +1009,9 @@ export class AutomationService {
                         // The lines were taken before the last launch was awaited:
                         // a run dismissed, dropped or started meanwhile is not in line.
                         if (!this.stillWaiting(waiting)) continue;
-                        if (this.slotsInUse(lane) >= this.capacityOf(lane)) break;
+                        // A run started from the line already holds the slot its first step takes.
+                        const holdsSlot = this.admitted.get(waiting.run.id) === lane;
+                        if (!holdsSlot && this.slotsInUse(lane) >= this.capacityOf(lane)) continue;
                         await this.startWaiting(waiting);
                     }
                 }
@@ -1019,6 +1025,11 @@ export class AutomationService {
     private async startWaiting(waiting: Waiting): Promise<void> {
         const { run, lane, stepId } = waiting;
         if (stepId) {
+            // An agent step a restart cut off still names its session. It is
+            // never started again here: the restart path (Task 20) resumes it
+            // in that session, or gives it attempt 2. Until then it keeps its
+            // place and takes no slot.
+            if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId) return;
             // A command waits in its lane: commands do not run yet.
             if (lane === 'agent') await this.startAgentStep(run.id, stepId);
             return;
@@ -1237,11 +1248,16 @@ export class AutomationService {
     /**
      * A lane's slots in use. The agent lane's: legacy agent runs whose turn
      * is running or being launched, and running agent steps, each one
-     * process. The command lane's: running commands. A steps run preparing
-     * its checkout holds a slot in the lane of the step it is preparing for.
+     * process. The command lane's: running commands. A steps run started
+     * from the line holds a slot in its first step's lane until that step
+     * runs (`admitted`).
      */
     private slotsInUse(lane: Lane): number {
-        let used = [...this.preparing.values()].filter((reserved) => reserved === lane).length;
+        let used = 0;
+        for (const [runId, reserved] of this.admitted) {
+            // One that ended, or went with its workspace, holds nothing.
+            if (reserved === lane && this.stillRunning(runId)) used++;
+        }
         for (const run of this.deps.store.runs()) {
             if (run.status !== 'running') continue;
             if (isAgentRun(run)) used += lane === 'agent' ? 1 : 0;
@@ -1278,7 +1294,9 @@ export class AutomationService {
      * session runs in, makes it wait, saying so. Then one update marks it
      * running, refreshes its item from the Inbox, and claims its checkout,
      * before anything is awaited, so no second run on the item slips in
-     * while this one is still fetching. An item run then prepares its
+     * while this one is still fetching. From here it holds a slot in its
+     * first step's lane until that step runs (`admitted`), so no run behind
+     * it in line starts in the same pass. An item run then prepares its
      * checkout; a schedule's is its scope's folder. Then it advances.
      */
     private startStepsRun(run: RunRecord, item: InboxItemView | undefined, lane: Lane | null): void {
@@ -1304,11 +1322,11 @@ export class AutomationService {
             ...(dir ? { checkout: { cwd: dir } } : {}),
         });
         this.broadcastRun(run.id);
+        if (lane) this.admitted.set(run.id, lane);
         if (!lane || !workItem) {
             this.advance(run.id);
             return;
         }
-        this.preparing.set(run.id, lane);
         // A trigger fired it and its first agent step is an action: a review the person started by hand meanwhile wins.
         const byHand = run.trigger.kind === 'event' && byHandLabel ? { startedByHand: { label: byHandLabel, since: run.createdAt } } : {};
         void this.prepareCheckout(run.id, { workspaceId: entry.workspaceId, workItem, ...byHand });
@@ -1326,25 +1344,37 @@ export class AutomationService {
      * Bring an item run's checkout to its head and record what it got, then
      * advance. A failure fails the run before its first step, saying why; a
      * review the person started by hand rejects it, as at the launch.
+     *
+     * Nothing awaits this, so nothing may escape it: whatever goes wrong
+     * after the preparation is logged and fails the run, and the pump runs
+     * again either way.
      */
     private async prepareCheckout(runId: string, request: CheckoutRequest): Promise<void> {
-        let prepared: PreparedCheckout;
         try {
-            prepared = await this.deps.checkout.prepare(request);
-        } catch (error) {
-            this.preparing.delete(runId);
-            if (this.stillRunning(runId)) this.checkoutRefused(runId, error);
-            void this.pump();
-            return;
-        }
-        this.preparing.delete(runId);
-        if (this.stillRunning(runId)) {
+            let prepared: PreparedCheckout;
+            try {
+                prepared = await this.deps.checkout.prepare(request);
+            } catch (error) {
+                if (this.stillRunning(runId)) this.checkoutRefused(runId, error);
+                return;
+            }
+            if (!this.stillRunning(runId)) return;
             const { cwd, scopeId, head } = prepared;
             this.deps.store.update(runId, { checkout: { cwd, scopeId, head }, updatedAt: this.iso() });
             this.broadcastRun(runId);
             this.advance(runId);
+        } catch (error) {
+            console.error(`Run ${runId} could not go on after preparing its checkout.`, error);
+            try {
+                if (this.stillRunning(runId)) this.failRun(runId, describeError(error));
+            } catch (failing) {
+                console.error(`Run ${runId} could not be recorded as failed.`, failing);
+            }
+        } finally {
+            // An ended run, or one that went with its workspace, holds no slot.
+            if (!this.stillRunning(runId)) this.admitted.delete(runId);
+            void this.pump();
         }
-        void this.pump();
     }
 
     /** The checkout could not be prepared: the run ends before its first step. */
@@ -1385,6 +1415,8 @@ export class AutomationService {
         if (next.kind === 'wait') return;
         for (const update of next.updates) this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
         if (next.kind === 'start') {
+            // Its item refreshed at start, a run's first step may be another than the one it was let in for: its slot follows it.
+            if (this.admitted.has(runId)) this.admitted.set(runId, next.lane);
             this.writeSteps(runId, withStep(this.stepsOf(runId), next.stepId, { status: 'queued', queuedAt: this.iso() }));
             this.broadcastRun(runId);
         } else if (next.kind === 'complete') {
@@ -1426,7 +1458,9 @@ export class AutomationService {
             return;
         }
         const { attempt } = launch.request.step!;
-        this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { status: 'running', startedAt: this.iso() }));
+        // The running step now holds the slot its run was let in with.
+        this.admitted.delete(runId);
+        this.writeSteps(runId, withAttemptStarted(this.stepsOf(runId), stepId, this.iso()));
         this.broadcastRun(runId);
         let session: LaunchedSession;
         try {
@@ -1507,15 +1541,22 @@ export class AutomationService {
         void this.pump();
     }
 
-    /** The definition a started run executes, from its folder; or why it cannot go on without it. */
-    private definitionOf(run: RunRecord): { definition: RunDefinition } | { problem: string } {
+    /**
+     * The definition a started run executes, from its folder; or why it
+     * cannot go on without it: the file is gone, or reading it failed
+     * (`error`), which a later read may not.
+     */
+    private definitionOf(
+        run: RunRecord
+    ): { definition: RunDefinition } | { problem: string; gone: true } | { problem: string; gone: false; error: unknown } {
         const workspaceId = run.attribution.workspaceId ?? '';
         try {
             const definition = this.deps.runFolder.readDefinition(workspaceId, run.id);
             if (definition) return { definition };
-            return { problem: `Its definition is gone from ${this.deps.runFolder.runDir(workspaceId, run.id)}; it cannot continue.` };
+            return { problem: `Its definition is gone from ${this.deps.runFolder.runDir(workspaceId, run.id)}; it cannot continue.`, gone: true };
         } catch (error) {
-            return { problem: `Its definition could not be read (${describeError(error).trim().replace(/\.$/, '')}); it cannot continue.` };
+            const reason = describeError(error).trim().replace(/\.$/, '');
+            return { problem: `Its definition could not be read (${reason}); it cannot continue.`, gone: false, error };
         }
     }
 
@@ -2129,6 +2170,8 @@ export class AutomationService {
     ): void {
         const now = this.iso();
         const run = this.deps.store.get(runId);
+        // An ended run holds no slot.
+        this.admitted.delete(runId);
         // A failed agent run's launch-time "Running in …" says nothing true any more.
         const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(run) : null;
         this.deps.store.update(runId, {

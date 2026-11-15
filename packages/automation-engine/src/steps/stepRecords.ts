@@ -16,6 +16,19 @@ export function withStep(records: StepRun[], stepId: string, changes: Partial<St
     return records.map((record) => (record.id === stepId ? { ...record, ...changes } : record));
 }
 
+/**
+ * `records` with one step's attempt starting at `nowIso`: running, and naming
+ * no session or conversation until its own launch records them, so an
+ * earlier execution's session can never settle it.
+ */
+export function withAttemptStarted(records: StepRun[], stepId: string, nowIso: string): StepRun[] {
+    return records.map((record) => {
+        if (record.id !== stepId) return record;
+        const { sessionId: _sessionId, conversation: _conversation, ...rest } = record;
+        return { ...rest, status: 'running', startedAt: nowIso };
+    });
+}
+
 /** `records` with one of the sequencer's updates applied; a failure ends the step at `nowIso`. */
 export function withUpdate(records: StepRun[], update: StepUpdate, nowIso: string): StepRun[] {
     const { id, ...changes } = update;

@@ -1147,6 +1147,145 @@ describe('running a steps run', () => {
         await h.world.endTurn('session-1');
         expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error });
     });
+
+    it('a definition that cannot be read for now leaves a started run as it is', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        onTestFinished(() => logged.mockRestore());
+        const definition = path.join(h.folder.runDir(WORKSPACE_ID, run.id), 'definition.json');
+        const text = fs.readFileSync(definition, 'utf8');
+        fs.writeFileSync(definition, 'not json');
+        await h.service.syncWorkspaces();
+        // Only a definition that is gone ends it; one that fails to read is logged, and the run waits.
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'running',
+            steps: [{ id: 'one', status: 'running', sessionId: 'session-1' }, { id: 'two', status: 'pending' }],
+        });
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining(run.id), expect.any(Error));
+        expect(h.notices).toEqual([]);
+
+        // Readable again, it goes on.
+        fs.writeFileSync(definition, text);
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        await h.world.endTurn('session-1');
+        expect(launched(h)).toEqual(['nightly · one', 'nightly · two']);
+    });
+
+    it('a steps run starts only into a free slot, and the line keeps its order', async () => {
+        const look = (name: string) => entry(name, DAILY_AUTO, '- id: one\n  prompt: Look at api.');
+        const yaml = file(legacy('first'), look('a'), look('b'), legacy('l'));
+        const h = await accepted(yaml, { maxConcurrentAgents: 1 });
+        await h.service.trigger(WORKSPACE_ID, 'first');
+        h.advance(1000);
+        const a = (await h.service.trigger(WORKSPACE_ID, 'a'))!;
+        h.advance(1000);
+        const b = (await h.service.trigger(WORKSPACE_ID, 'b'))!;
+        h.advance(1000);
+        const l = (await h.service.trigger(WORKSPACE_ID, 'l'))!;
+        await h.flush();
+        expect(launched(h)).toEqual(['first']);
+
+        // One slot frees: the first in line takes it, and nothing else starts.
+        await h.world.endTurn('session-1');
+        expect(launched(h)).toEqual(['first', 'a · one']);
+        expect(h.store.get(a.id)!.steps).toMatchObject([{ id: 'one', status: 'running' }]);
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [b.id]: 1, [l.id]: 2 });
+        for (const waiting of [b, l]) expect(h.store.get(waiting.id)?.status).toBe('queued');
+        expect(h.store.get(b.id)).not.toHaveProperty('startedAt');
+        // No run holds `running` without a step working.
+        const running = h.store.runs().filter((run) => run.status === 'running' && run.steps);
+        expect(running.every((run) => run.steps!.some((step) => step.status === 'running'))).toBe(true);
+    });
+
+    it('a step a restart cut off is not started again in a new session, and holds no slot meanwhile', async () => {
+        const yaml = file(NIGHTLY, WEEKLY);
+        let h = await accepted(yaml, { maxConcurrentAgents: 1 });
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        h = await h.relaunch();
+        // Back in line with its session, for the resume that picks it up there.
+        expect(h.store.get(nightly.id)).toMatchObject({
+            status: 'running',
+            steps: [{ id: 'one', status: 'queued', attempt: 1, sessionId: 'session-1' }, { id: 'two', status: 'pending' }],
+        });
+        expect(launched(h)).toEqual(['nightly · one']);
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [nightly.id]: 1 });
+
+        // It takes no slot: another run starts in the only one.
+        await h.service.trigger(WORKSPACE_ID, 'weekly');
+        await h.flush();
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
+        // Its old session ending settles nothing: no step is running in it.
+        await h.world.endTurn('session-1');
+        expect(h.store.get(nightly.id)).toMatchObject({ status: 'running', steps: [{ status: 'queued', sessionId: 'session-1' }, { status: 'pending' }] });
+        expect(h.notices).toEqual([]);
+    });
+
+    it('an attempt set running names no earlier session until its own launches', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        // No slot when one ends, so two waits in line.
+        h.world.maxConcurrentAgents = 0;
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        await h.world.endTurn('session-1');
+        // As an earlier execution would leave it: a conversation on the record.
+        const stale = { harnessId: 'claude', id: 'claude-1', cwd: '/code/api' };
+        h.store.update(run.id, { steps: h.store.get(run.id)!.steps!.map((step) => (step.id === 'two' ? { ...step, conversation: stale } : step)) });
+        const seen: unknown[] = [];
+        h.world.onLaunch = () => {
+            // The earlier session's turn ending while this one launches settles nothing.
+            h.service.turnEnded('session-1', { exitCode: 0 });
+            seen.push(h.store.get(run.id)!.steps![1]);
+        };
+        h.world.maxConcurrentAgents = undefined;
+        await h.tick();
+        expect(seen).toHaveLength(1);
+        expect(seen[0]).toMatchObject({ id: 'two', status: 'running' });
+        expect(seen[0]).not.toHaveProperty('conversation');
+        expect(seen[0]).not.toHaveProperty('sessionId');
+        expect(h.store.get(run.id)!.steps![1]).toMatchObject({ status: 'running', sessionId: 'session-2', conversation: { id: 'claude-2' } });
+    });
+
+    it('a run that cannot go on once its checkout is prepared fails, and the line moves on', async () => {
+        const h = await watching({ yaml: TEMPLATE, maxConcurrentAgents: 1 });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        const escaped: unknown[] = [];
+        const listener = (reason: unknown) => escaped.push(reason);
+        process.on('unhandledRejection', listener);
+        onTestFinished(() => {
+            process.off('unhandledRejection', listener);
+        });
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        onTestFinished(() => logged.mockRestore());
+        let release!: () => void;
+        h.world.checkouts.gate = new Promise((resolve) => (release = resolve));
+        await h.poll([PR51, PR52]);
+        const first = h.store.runs().find((run) => run.trigger.item?.number === 51)!;
+        const second = h.store.runs().find((run) => run.trigger.item?.number === 52)!;
+        expect(second.status).toBe('queued');
+
+        // While it prepares, its definition becomes one Consola cannot run.
+        fs.writeFileSync(path.join(h.folder.runDir(WORKSPACE_ID, first.id), 'definition.json'), '{}');
+        h.world.checkouts.gate = undefined;
+        release();
+        await h.flush();
+        expect(h.store.get(first.id)).toMatchObject({
+            status: 'failed',
+            error: expect.stringMatching(/\S/),
+            steps: [
+                { id: 'review', status: 'not-run' },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
+        expect(escaped).toEqual([]);
+        expect(logged).toHaveBeenCalledWith(expect.stringContaining(first.id), expect.any(Error));
+        // The pump ran again: #52 has the slot now.
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.store.get(second.id)?.status).toBe('running');
+    });
 });
 
 describe('a steps run, as Activity lists it', () => {
