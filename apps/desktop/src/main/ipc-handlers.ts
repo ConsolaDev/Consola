@@ -42,7 +42,7 @@ import { startAssistantSession } from './assistant/startSession';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
-import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
+import { sessionRecord, toItemSnapshot, toWorkItemRef as engineRefToWorkItemRef, toWorkspaceView } from './automations/engineViews';
 import { launchAgentRun, refreshIdleWorktree, runningIn, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
@@ -76,6 +76,8 @@ import {
     isValidWorkItemLaunchAction,
     isValidWorkItemRef,
     toWorkItemRef,
+    workItemKey,
+    workItemUrl,
     type InboxSnapshot,
     type WorkItemLaunchAction,
     type WorkItemRef,
@@ -944,6 +946,14 @@ export function setupIpcHandlers(): boolean {
             new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
         ),
         runFolder: new RunFolder(),
+        // A stub until the poll trigger reads work items from the host (Task 18).
+        workItems: {
+            canParseUrls: () => false,
+            parseUrl: () => null,
+            keyOf: (ref) => workItemKey(engineRefToWorkItemRef(ref)),
+            urlOf: (ref) => workItemUrl(engineRefToWorkItemRef(ref)),
+            inWorkspace: () => false,
+        },
         registry: tools,
         getWorkspaces: () => workspaces.getAll().map(toWorkspaceView),
         now: () => new Date(),

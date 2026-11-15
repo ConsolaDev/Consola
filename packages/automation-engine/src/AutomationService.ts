@@ -50,6 +50,7 @@ import type {
     LaunchedSession,
     LoadedFactoryFile,
     RunFolderPort,
+    WorkItemPort,
     RunningCommand,
     ToolsPort,
 } from './ports';
@@ -147,6 +148,8 @@ export interface AutomationServiceDeps {
     store: RunStore;
     /** Each run's folder: its definition snapshot and its steps' documents. */
     runFolder: RunFolderPort;
+    /** The host's identity of work items. */
+    workItems: WorkItemPort;
     registry: ToolsPort;
     getWorkspaces(): WorkspaceView[];
     now(): Date;

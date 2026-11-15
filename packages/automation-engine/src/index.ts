@@ -47,6 +47,7 @@ export type {
     AgentLaunchRequest,
     LaunchedSession,
     RunFolderPort,
+    WorkItemPort,
     CommandSpec,
     CommandResult,
     RunningCommand,
@@ -73,6 +74,7 @@ export {
     firstScope,
     fillActionPlaceholders,
     CONSOLA_NAMESPACE,
+    fallbackWorkItemTitle,
     StartedByHandError,
     SessionOpenedError,
 } from './support';

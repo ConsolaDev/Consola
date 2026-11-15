@@ -331,6 +331,13 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         fileFor,
         store,
         runFolder: folder,
+        workItems: {
+            canParseUrls: () => false,
+            parseUrl: () => null,
+            keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
+            urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
+            inWorkspace: () => true,
+        },
         registry,
         getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
         now: () => clock,

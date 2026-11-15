@@ -105,6 +105,13 @@ async function runner(
         runFolder: new RunFolder(() => {
             throw new Error('These tests have no run folder.');
         }),
+        workItems: {
+            canParseUrls: () => false,
+            parseUrl: () => null,
+            keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,
+            urlOf: (ref) => `https://example.test/${ref.repo}/${ref.type}/${ref.number}`,
+            inWorkspace: () => true,
+        },
         registry,
         getWorkspaces: () => [owner],
         now: () => new Date(2026, 10, 4, 8, 0),
