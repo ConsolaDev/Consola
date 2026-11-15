@@ -35,6 +35,75 @@ export function withUpdate(records: StepRun[], update: StepUpdate, nowIso: strin
     return withStep(records, id, update.status === 'failed' ? { ...changes, finishedAt: nowIso } : changes);
 }
 
+/** How a step's earlier attempt is remembered in its `previous`. */
+export type EndedAttempt = NonNullable<StepRun['previous']>[number];
+
+/**
+ * `records` with one step given its next attempt, in a new session and a new
+ * folder: its attempt as it ended kept in `previous` (as its record has it,
+ * unless `ended` says otherwise), and everything that attempt produced or
+ * named cleared, so nothing of it can settle or feed the next. A retry and a
+ * restart that runs a step again both go through this.
+ */
+export function withNextAttempt(
+    records: StepRun[],
+    stepId: string,
+    next: { status: 'pending' | 'queued'; nowIso: string; ended?: Omit<EndedAttempt, 'attempt'> }
+): StepRun[] {
+    return records.map((record) => {
+        if (record.id !== stepId) return record;
+        const {
+            outputs: _outputs,
+            artifacts: _artifacts,
+            sessionId: _sessionId,
+            conversation: _conversation,
+            reminded: _reminded,
+            command: _command,
+            error,
+            finishedAt,
+            startedAt: _startedAt,
+            queuedAt: _queuedAt,
+            skipped: _skipped,
+            previous = [],
+            ...kept
+        } = record;
+        const ended = next.ended ?? { status: record.status, error, finishedAt };
+        const remembered: EndedAttempt = {
+            attempt: record.attempt,
+            status: ended.status,
+            ...(ended.error !== undefined ? { error: ended.error } : {}),
+            ...(ended.finishedAt !== undefined ? { finishedAt: ended.finishedAt } : {}),
+        };
+        return {
+            ...kept,
+            status: next.status,
+            attempt: record.attempt + 1,
+            ...(next.status === 'queued' ? { queuedAt: next.nowIso } : {}),
+            previous: [...previous, remembered],
+        };
+    });
+}
+
+/**
+ * The step a failed run retries from: the one it failed at, else (it ended
+ * before reaching one, its checkout refused, say) the first it did not run.
+ */
+export function retryTargetOf(records: StepRun[]): StepRun | undefined {
+    return records.find((record) => record.status === 'failed') ?? records.find((record) => record.status === 'not-run');
+}
+
+/**
+ * `records` as a retry from `stepId` leaves them: that step's next attempt
+ * pending, for the sequencer to queue, and every later step the run ended
+ * before pending again. Earlier steps keep what they recorded.
+ */
+export function retrySteps(records: StepRun[], stepId: string, nowIso: string): StepRun[] {
+    const from = records.findIndex((record) => record.id === stepId);
+    return withNextAttempt(records, stepId, { status: 'pending', nowIso }).map((record, index) =>
+        index > from && record.status === 'not-run' ? { ...record, status: 'pending' } : record
+    );
+}
+
 /** What a run had not reached when it ended: not started, or waiting for a slot. */
 const NOT_REACHED: readonly StepRunStatus[] = ['pending', 'queued'];
 

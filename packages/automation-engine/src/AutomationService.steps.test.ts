@@ -2,7 +2,9 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
 import { automationVersion, parseFactorySpec, stableStringify, type RunRecord } from '@consola/factory-spec';
+import { INTERRUPTED_PROMPT } from './AutomationService';
 import { inboxItem } from './inboxItems.test-helpers';
+import { INTERRUPTED_COMMAND, recoverAfterRestart } from './steps/recover';
 import {
     CHECKOUT_HEAD,
     checkoutPathFor,
@@ -1241,28 +1243,34 @@ describe('running a steps run', () => {
         expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [waiting.id]: 1 });
     });
 
-    it('a step a restart cut off is not started again in a new session, and holds no slot meanwhile', async () => {
+    it('after a restart an interrupted agent step resumes in its session, ahead in line and holding its slot', async () => {
         const yaml = file(NIGHTLY, WEEKLY);
         let h = await accepted(yaml, { maxConcurrentAgents: 1 });
         const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
         await h.flush();
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        h.world.writeArtifact('session-1', 'handover', 'A quiet night.');
         h = await h.relaunch();
-        // Back in line with its session, for the resume that picks it up there.
+        // Picked up where it was: its session, its attempt, what it set and wrote.
+        expect(h.world.resumes).toEqual([{ sessionId: 'session-1', prompt: INTERRUPTED_PROMPT }]);
+        expect(launched(h)).toEqual(['nightly · one']);
         expect(h.store.get(nightly.id)).toMatchObject({
             status: 'running',
-            steps: [{ id: 'one', status: 'queued', attempt: 1, sessionId: 'session-1' }, { id: 'two', status: 'pending' }],
+            steps: [
+                { id: 'one', status: 'running', attempt: 1, sessionId: 'session-1', outputs: { mood: 'calm' }, artifacts: [{ name: 'handover' }] },
+                { id: 'two', status: 'pending' },
+            ],
         });
-        expect(launched(h)).toEqual(['nightly · one']);
-        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [nightly.id]: 1 });
+        expect(h.store.get(nightly.id)!.steps![0]).not.toHaveProperty('previous');
 
-        // It takes no slot: another run starts in the only one.
-        await h.service.trigger(WORKSPACE_ID, 'weekly');
+        // It holds the only slot: another run waits, and its next step goes first.
+        const weekly = (await h.service.trigger(WORKSPACE_ID, 'weekly'))!;
         await h.flush();
-        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
-        // Its old session ending settles nothing: no step is running in it.
+        expect(h.store.get(weekly.id)?.status).toBe('queued');
         await h.world.endTurn('session-1');
-        expect(h.store.get(nightly.id)).toMatchObject({ status: 'running', steps: [{ status: 'queued', sessionId: 'session-1' }, { status: 'pending' }] });
-        expect(h.notices).toEqual([]);
+        expect(h.store.get(nightly.id)!.steps![0]).toMatchObject({ status: 'completed', outputs: { mood: 'calm' } });
+        expect(launched(h)).toEqual(['nightly · one', 'nightly · two']);
+        expect(h.world.launches[1].prompt).toContain('\n\nWrite up the calm night for the team.\n\n');
     });
 
     it('an attempt set running names no earlier session until its own launches', async () => {
@@ -1883,5 +1891,810 @@ describe('the reminder turn', () => {
         await h.world.endTurn('session-1');
         expect(h.world.reminders).toEqual([]);
         expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error: 'Its session was closed before it finished.' });
+    });
+});
+
+/** A promise the test lets go of when it says. */
+function held(): { promise: Promise<void>; release: () => void } {
+    let release!: () => void;
+    const promise = new Promise<void>((resolve) => (release = resolve));
+    return { promise, release };
+}
+
+const STOPPED_BY_YOU = 'It stopped before finishing: you stopped it.';
+const STOPPED_COMMAND = 'Stopped while running: it may have done its work';
+const NO_TURN = 'Stopped: its session was no longer running.';
+const HELD = 'Another run on this item is working; retry once it ends.';
+const NEW_HEAD = '0a1b2c3d4e5f60718293a4b5c6d7e8f901234567';
+/** How the executor reports a command its stop ended. */
+const SIGTERMED = { result: { exitCode: null, signal: 'SIGTERM', stopped: true } };
+/** NIGHTLY with a third step, so a stop at two leaves one after it. */
+const NIGHTLY3 = entry('nightly', DAILY_AUTO, ONE, TWO, '- id: three\n  prompt: File the write-up.');
+const THREE = file(NIGHTLY3);
+/** An action step then a command on #51's review requests, beside a one-step look at the same item. */
+const ITEM_PAIR = file(
+    entry(NAME, ON_REVIEW_AUTO, '- id: review\n  action: Review', '- id: publish\n  run: gh pr comment "$PR" --body done\n  env: { PR: "{{item.url}}" }'),
+    look('second-look', 'Look again at')
+);
+
+const definitionFile = (h: StepsHarness, runId: string) => path.join(h.folder.runDir(WORKSPACE_ID, runId), 'definition.json');
+
+/** A `REVIEWS` run on #51 whose fresh and review steps completed, its publish command running. */
+async function publishing(): Promise<{ h: StepsHarness; run: RunRecord; publish: FakeCommand }> {
+    const { h, run } = await onPr51(REVIEWS('auto'));
+    await h.world.commands[0].end({ outputs: 'needed=true\n' });
+    await reviewed(h, 'session-1');
+    return { h, run, publish: h.world.commands[1] };
+}
+
+/** A run as a crash between two lines leaves it: `stepId` back to pending, so nothing is queued or running. */
+function betweenSteps(h: StepsHarness, runId: string, stepId: string): void {
+    const steps = h.store.get(runId)!.steps!.map((step) => {
+        if (step.id !== stepId) return step;
+        const { queuedAt: _queuedAt, ...rest } = step;
+        return { ...rest, status: 'pending' as const };
+    });
+    h.store.update(runId, { steps });
+}
+
+/** THREE's run, its first step done with `mood`, its second waiting for a slot that never comes. */
+async function waitingAtTwo(h: StepsHarness): Promise<RunRecord> {
+    const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+    await h.flush();
+    h.world.maxConcurrentAgents = 0;
+    h.world.setOutputs('session-1', { mood: 'calm' });
+    await h.world.endTurn('session-1');
+    expect(h.store.get(run.id)!.steps![1]).toMatchObject({ id: 'two', status: 'queued' });
+    return run;
+}
+
+describe('stop in every state', () => {
+    it('a running agent step is stopped through its session; its turn end fails it, and its slot frees', async () => {
+        const h = await accepted(file(NIGHTLY3, WEEKLY), { maxConcurrentAgents: 1 });
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        const weekly = (await h.service.trigger(WORKSPACE_ID, 'weekly'))!;
+        await h.flush();
+        h.service.stop(nightly.id);
+        expect(h.world.stops).toEqual([{ sessionId: 'session-1', reason: 'you stopped it' }]);
+        // Running until its turn ends: that is what says how it ended.
+        expect(h.store.get(nightly.id)?.status).toBe('running');
+        await h.world.endTurn('session-1', { exitCode: 143, stopped: 'you stopped it' });
+        expect(h.store.get(nightly.id)).toMatchObject({
+            status: 'failed',
+            error: STOPPED_BY_YOU,
+            steps: [
+                { id: 'one', status: 'failed', error: STOPPED_BY_YOU },
+                { id: 'two', status: 'not-run' },
+                { id: 'three', status: 'not-run' },
+            ],
+        });
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
+        expect(h.store.get(weekly.id)?.status).toBe('running');
+    });
+
+    it('an agent step whose session has no turn running fails at once', async () => {
+        const h = await accepted(file(NIGHTLY3, WEEKLY), { maxConcurrentAgents: 1 });
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.service.trigger(WORKSPACE_ID, 'weekly');
+        await h.flush();
+        h.world.noTurnToStop = true;
+        h.service.stop(nightly.id);
+        await h.flush();
+        expect(h.store.get(nightly.id)).toMatchObject({
+            status: 'failed',
+            error: NO_TURN,
+            steps: [{ id: 'one', status: 'failed', error: NO_TURN }, { status: 'not-run' }, { status: 'not-run' }],
+        });
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
+        expect(h.notices).toEqual([]);
+    });
+
+    it('an agent step still launching is stopped once it has launched', async () => {
+        const h = await accepted(THREE);
+        const launch = held();
+        h.world.launchGate = launch.promise;
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({ id: 'one', status: 'running' });
+        h.service.stop(run.id);
+        expect(h.world.stops).toEqual([]);
+
+        h.world.launchGate = undefined;
+        launch.release();
+        await h.flush();
+        // Launched: its session is recorded, then its turn is ended.
+        expect(h.world.stops).toEqual([{ sessionId: 'session-1', reason: 'you stopped it' }]);
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({ status: 'running', sessionId: 'session-1' });
+        await h.world.endTurn('session-1', { exitCode: 143, stopped: 'you stopped it' });
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error: STOPPED_BY_YOU,
+            steps: [{ id: 'one', status: 'failed', error: STOPPED_BY_YOU }, { status: 'not-run' }, { status: 'not-run' }],
+        });
+        expect(h.world.launches).toHaveLength(1);
+    });
+
+    it('a stop during a launch is honoured whatever started it late: the checkout before it, or a reminder that returned after its turn', async () => {
+        // An item run: its preparation goes straight into the first step's launch.
+        const prepared = await watching({ yaml: TEMPLATE });
+        prepared.store.accept(KEY, TEMPLATE_VERSION);
+        const launch = held();
+        prepared.world.launchGate = launch.promise;
+        await prepared.poll([PR51]);
+        const [run] = prepared.store.runs();
+        expect(prepared.world.launches).toHaveLength(1);
+        prepared.service.stop(run.id);
+        expect(prepared.store.get(run.id)?.status).toBe('running');
+        prepared.world.launchGate = undefined;
+        launch.release();
+        await prepared.flush();
+        expect(prepared.world.stops).toEqual([{ sessionId: 'session-1', reason: 'you stopped it' }]);
+
+        // A reminder whose turn completed the step before the call returned: the next step is launching by then.
+        const h = await accepted(THREE);
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        const reminder = held();
+        h.world.remindGate = reminder.promise;
+        await h.world.endTurn('session-1');
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        const next = held();
+        h.world.launchGate = next.promise;
+        await h.world.endTurn('session-1');
+        expect(h.store.get(nightly.id)!.steps).toMatchObject([{ status: 'completed' }, { id: 'two', status: 'running' }, { status: 'pending' }]);
+        h.world.remindGate = undefined;
+        reminder.release();
+        await h.flush();
+        h.service.stop(nightly.id);
+        expect(h.store.get(nightly.id)?.status).toBe('running');
+        h.world.launchGate = undefined;
+        next.release();
+        await h.flush();
+        expect(h.world.stops.at(-1)).toEqual({ sessionId: 'session-2', reason: 'you stopped it' });
+    });
+
+    it('a stop while its reminder is delivered, or while it resumes, is honoured once it is', async () => {
+        const h = await accepted(THREE);
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        const reminder = held();
+        h.world.remindGate = reminder.promise;
+        await h.world.endTurn('session-1');
+        expect(h.world.reminders).toHaveLength(1);
+        h.service.stop(run.id);
+        expect(h.world.stops).toEqual([]);
+        h.world.remindGate = undefined;
+        reminder.release();
+        await h.flush();
+        expect(h.world.stops).toEqual([{ sessionId: 'session-1', reason: 'you stopped it' }]);
+        await h.world.endTurn('session-1', { exitCode: 143, stopped: 'you stopped it' });
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error: STOPPED_BY_YOU });
+
+        // A step a restart put back in line with its session, stopped while it resumes there.
+        const r = await accepted(THREE);
+        const resumed = (await r.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await r.flush();
+        r.store.update(resumed.id, { steps: r.store.get(resumed.id)!.steps!.map((step) => (step.id === 'one' ? { ...step, status: 'queued' } : step)) });
+        const resume = held();
+        r.world.resumeGate = resume.promise;
+        void r.service.tick();
+        await r.flush();
+        expect(r.world.resumes).toEqual([{ sessionId: 'session-1', prompt: INTERRUPTED_PROMPT }]);
+        r.service.stop(resumed.id);
+        expect(r.world.stops).toEqual([]);
+        r.world.resumeGate = undefined;
+        resume.release();
+        await r.flush();
+        expect(r.world.stops).toEqual([{ sessionId: 'session-1', reason: 'you stopped it' }]);
+    });
+
+    it('a run preparing its checkout fails once the preparation settles, before its first step starts', async () => {
+        const h = await watching({ yaml: ITEM_PAIR });
+        acceptEvery(h, ITEM_PAIR);
+        const preparing = held();
+        h.world.checkouts.gate = preparing.promise;
+        await h.poll([PR51]);
+        const first = byName(h, NAME);
+        const second = byName(h, 'second-look');
+        expect(second).toMatchObject({ status: 'queued', summary: "waiting for this item's checkout" });
+        h.service.stop(first.id);
+        // Its fetch is still moving the checkout: it holds it until that ends.
+        expect(h.store.get(first.id)?.status).toBe('running');
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(true);
+
+        h.world.checkouts.gate = undefined;
+        preparing.release();
+        await h.flush();
+        const error = 'Stopped before review started.';
+        expect(h.store.get(first.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'review', status: 'failed', error },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
+        expect(h.store.get(first.id)!.steps![0]).not.toHaveProperty('startedAt');
+        // Never started: the checkout and the slot went to the next run on the item.
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([second.id]);
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.notices).toEqual([]);
+
+        // A preparation that fails after the stop ends it the same way: as stopped.
+        const failing = await watching({ yaml: TEMPLATE });
+        failing.store.accept(KEY, TEMPLATE_VERSION);
+        const gate = held();
+        failing.world.checkouts.gate = gate.promise;
+        await failing.poll([PR51]);
+        const [run] = failing.store.runs();
+        failing.service.stop(run.id);
+        failing.world.checkouts.fails = new Error('Could not bring the automation checkout to the head of sprocket/catalog-portal#51: fetch failed.');
+        gate.release();
+        await failing.flush();
+        expect(failing.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'review', status: 'failed', error },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
+        expect(failing.notices).toEqual([]);
+    });
+
+    it('a running command is stopped through its handle; its result fails it, and its slot frees', async () => {
+        const yaml = file(entry(NAME, ON_REVIEW_AUTO, FRESH, REVIEW_IT, POST), entry('fetches', DAILY_AUTO, '- id: fetch\n  run: git fetch --prune'));
+        const h = await watching({ yaml, maxConcurrentCommands: 1 });
+        acceptEvery(h, yaml);
+        await h.poll([PR51]);
+        const run = byName(h, NAME);
+        const fetches = (await h.service.trigger(WORKSPACE_ID, 'fetches'))!;
+        await h.flush();
+        expect(h.store.get(fetches.id)?.status).toBe('queued');
+        const [fresh] = h.world.commands;
+        h.service.stop(run.id);
+        expect(fresh.stops).toBe(1);
+        // Running until its result says how it ended.
+        expect(h.store.get(run.id)?.status).toBe('running');
+
+        await fresh.end(SIGTERMED);
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error: STOPPED_COMMAND,
+            steps: [
+                { id: 'fresh', status: 'failed', error: STOPPED_COMMAND, command: { intentAt: expect.any(String), signal: 'SIGTERM' } },
+                { id: 'review', status: 'not-run' },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
+        expect(h.world.commands.map((command) => command.spec.env.CONSOLA_RUN_ID)).toEqual([run.id, fetches.id]);
+    });
+
+    it('a step waiting for a slot fails at once, never started', async () => {
+        const h = await accepted(THREE);
+        const run = await waitingAtTwo(h);
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [run.id]: 1 });
+        h.service.stop(run.id);
+        const error = 'Stopped before two started.';
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'one', status: 'completed' },
+                { id: 'two', status: 'failed', error },
+                { id: 'three', status: 'not-run' },
+            ],
+        });
+        expect(h.store.get(run.id)!.steps![1]).not.toHaveProperty('startedAt');
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({});
+        h.world.maxConcurrentAgents = undefined;
+        await h.tick();
+        expect(h.world.launches).toHaveLength(1);
+        expect(h.notices).toEqual([]);
+    });
+
+    it('a command step whose environment is being borrowed fails at once, and nothing spawns', async () => {
+        const h = await accepted(COMMANDS_ONLY);
+        const env = held();
+        h.world.commandEnvGate = env.promise;
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        expect(h.world.commandEnvAsked).toEqual([WORKSPACE_ID]);
+        h.service.stop(run.id);
+        const error = 'Stopped before fresh started.';
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'fresh', status: 'failed', error },
+                { id: 'log', status: 'not-run' },
+            ],
+        });
+        h.world.commandEnvGate = undefined;
+        env.release();
+        await h.flush();
+        expect(h.world.commands).toEqual([]);
+        expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('command');
+    });
+
+    it('a run between steps fails at once, before its next step', async () => {
+        const h = await accepted(THREE);
+        const run = await waitingAtTwo(h);
+        betweenSteps(h, run.id, 'two');
+        h.service.stop(run.id);
+        const error = 'Stopped before two started.';
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'one', status: 'completed' },
+                { id: 'two', status: 'failed', error },
+                { id: 'three', status: 'not-run' },
+            ],
+        });
+        expect(h.notices).toEqual([]);
+    });
+
+    it('a run waiting for approval or in line is dismissed', async () => {
+        const asking = await stepsHarness({ yaml: SUMMARY });
+        const asked = (await asking.service.trigger(WORKSPACE_ID, NAME))!;
+        expect(asked.status).toBe('needs-approval');
+        asking.service.stop(asked.id);
+        expect(asking.store.get(asked.id)).toMatchObject({ status: 'rejected', steps: [{ id: 'summary', status: 'not-run' }] });
+
+        const lined = await accepted(SUMMARY, { maxConcurrentAgents: 0 });
+        const queued = (await lined.service.trigger(WORKSPACE_ID, NAME))!;
+        expect(queued.status).toBe('queued');
+        lined.service.stop(queued.id);
+        expect(lined.store.get(queued.id)).toMatchObject({ status: 'rejected', steps: [{ id: 'summary', status: 'not-run' }] });
+        expect(lined.service.snapshot(WORKSPACE_ID).queue).toEqual({});
+        lined.world.maxConcurrentAgents = undefined;
+        await lined.tick();
+        expect(lined.world.launches).toEqual([]);
+    });
+
+    it('a launch that resolves after its run ended is stopped at once, and nothing is recorded', async () => {
+        const h = await accepted(THREE);
+        const launch = held();
+        h.world.launchGate = launch.promise;
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        // While it launches, its definition goes with its folder: the run ends.
+        fs.rmSync(definitionFile(h, run.id));
+        await h.service.syncWorkspaces();
+        expect(h.store.get(run.id)?.status).toBe('failed');
+        const ended = structuredClone(h.store.get(run.id));
+        const lines = h.history.appends.length;
+
+        h.world.launchGate = undefined;
+        launch.release();
+        await h.flush();
+        expect(h.world.stops).toEqual([{ sessionId: 'session-1', reason: 'its run had ended' }]);
+        expect(h.store.get(run.id)).toEqual(ended);
+        expect(h.history.appends).toHaveLength(lines);
+    });
+
+    it('a run that cannot go on stops what its step was running', async () => {
+        const commands = await accepted(COMMANDS_ONLY);
+        const fetching = (await commands.service.trigger(WORKSPACE_ID, NAME))!;
+        await commands.flush();
+        fs.rmSync(definitionFile(commands, fetching.id));
+        await commands.service.syncWorkspaces();
+        expect(commands.store.get(fetching.id)?.status).toBe('failed');
+        expect(commands.world.commands[0].stops).toBe(1);
+
+        const agent = await accepted(THREE);
+        const nightly = (await agent.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await agent.flush();
+        fs.rmSync(definitionFile(agent, nightly.id));
+        await agent.service.syncWorkspaces();
+        expect(agent.world.stops).toEqual([{ sessionId: 'session-1', reason: 'its run had ended' }]);
+
+        // Its workspace deleted: the run goes with it, and its command is stopped.
+        const deleted = await accepted(COMMANDS_ONLY);
+        await deleted.service.trigger(WORKSPACE_ID, NAME);
+        await deleted.flush();
+        deleted.world.workspaceDeleted = true;
+        await deleted.service.syncWorkspaces();
+        expect(deleted.world.commands[0].stops).toBe(1);
+    });
+});
+
+describe('retry', () => {
+    it('retry gives the step a new attempt and folder, keeping earlier outputs', async () => {
+        const { h, run } = await onPr51(REVIEWS('auto'));
+        await h.world.commands[0].end({ outputs: 'needed=true\n' });
+        await h.world.endTurn('session-1', { exitCode: 1, lastLine: 'Rate limited.' });
+        const error = 'It stopped before finishing (exit 1): Rate limited.';
+        const failedAt = h.now().toISOString();
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error, steps: [{ status: 'completed' }, { id: 'review', status: 'failed' }, { id: 'publish', status: 'not-run' }] });
+
+        // The file changes and would ask again: the click is the approval, and the run executes its own snapshot.
+        await h.setYaml(REVIEWS('auto').replace('write the review as your handover', 'write a short review as your handover'));
+        h.advance(MINUTE);
+        const retried = await h.service.retry(run.id);
+        expect(retried).toMatchObject({ id: run.id, status: 'running' });
+        await h.flush();
+        expect(h.world.launches[1]).toMatchObject({ step: { id: 'review', attempt: 2, cwd: CHECKOUT } });
+        expect(h.world.launches[1].prompt).toContain('write the review as your handover');
+        const stored = h.store.get(run.id)!;
+        expect(stored).toMatchObject({
+            status: 'running',
+            steps: [
+                { id: 'fresh', status: 'completed', attempt: 1, outputs: { needed: true } },
+                {
+                    id: 'review',
+                    status: 'running',
+                    attempt: 2,
+                    sessionId: 'session-2',
+                    startedAt: h.now().toISOString(),
+                    previous: [{ attempt: 1, status: 'failed', error, finishedAt: failedAt }],
+                },
+                { id: 'publish', status: 'pending', attempt: 1 },
+            ],
+        });
+        expect(stored.error).toBeUndefined();
+        expect(stored.finishedAt).toBeUndefined();
+
+        // Its documents go to review/2, and publish reads them there.
+        await reviewed(h, 'session-2', 'Retries are bounded now.');
+        expect(h.folder.readArtifact(WORKSPACE_ID, run.id, 'review', 2, 'handover')).toBe('Retries are bounded now.');
+        expect(h.world.commands[1].spec.env.BODY_FILE).toBe(h.folder.artifactPath(WORKSPACE_ID, run.id, 'review', 2, 'handover'));
+        await h.world.commands[1].end();
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed', summary: 'fresh → review → publish (request-changes)' });
+    });
+
+    it('retrying an agent step records a new head; retrying a command keeps the old one', async () => {
+        const { h, run } = await onPr51(REVIEWS('auto'));
+        await h.world.commands[0].end({ outputs: 'needed=true\n' });
+        await h.world.endTurn('session-1', { exitCode: 1 });
+        h.world.checkouts.head = NEW_HEAD;
+        await h.service.retry(run.id);
+        await h.flush();
+        // Prepared again, without asking after a review by hand: the click is the person's.
+        expect(h.world.checkouts.prepared).toEqual([expect.objectContaining({ workItem: PR51.workItem }), { workspaceId: WORKSPACE_ID, workItem: PR51.workItem }]);
+        expect(h.store.get(run.id)!.checkout).toEqual({ cwd: CHECKOUT, scopeId: 'scope-catalog-portal', head: NEW_HEAD });
+
+        // Its publish fails; retried, it runs in the checkout as it is, with the head the run recorded.
+        await reviewed(h, 'session-2');
+        await h.world.commands[1].end({ result: { exitCode: 1, lastStderrLine: 'HTTP 502: Bad Gateway' } });
+        const error = 'exit 1: HTTP 502: Bad Gateway';
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error });
+        h.world.checkouts.head = CHECKOUT_HEAD;
+        await h.service.retry(run.id);
+        await h.flush();
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.store.get(run.id)!.checkout!.head).toBe(NEW_HEAD);
+        const publish = h.world.commands[2];
+        expect(publish.spec.env).toMatchObject({
+            CONSOLA_STEP: 'publish',
+            CONSOLA_CHECKOUT_HEAD: NEW_HEAD,
+            CONSOLA_OUTPUT: path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'publish', 2), 'outputs.env'),
+        });
+        const step = h.store.get(run.id)!.steps![2];
+        expect(step).toMatchObject({ status: 'running', attempt: 2, previous: [{ attempt: 1, status: 'failed', error }] });
+        // This attempt's command record is its own: the first one's result is not carried over.
+        expect(step.command).toEqual({ envNames: ['REPO', 'NUMBER', 'VERDICT', 'BODY_FILE'], intentAt: h.now().toISOString() });
+    });
+
+    it('retry is refused while another run holds the checkout', async () => {
+        const h = await watching({ yaml: TWO_LOOKS });
+        acceptEvery(h, TWO_LOOKS);
+        await h.poll([PR51]);
+        const first = byName(h, NAME);
+        const second = byName(h, 'second-look');
+        await h.world.endTurn('session-1', { exitCode: 1 });
+        expect(h.store.get(first.id)?.status).toBe('failed');
+        expect(h.store.get(second.id)?.status).toBe('running');
+        const before = structuredClone(h.store.get(first.id));
+        const lines = h.history.appends.length;
+        await expect(h.service.retry(first.id)).rejects.toThrow(HELD);
+        expect(h.store.get(first.id)).toEqual(before);
+        expect(h.history.appends).toHaveLength(lines);
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+
+        // A session running in the checkout holds it too.
+        await h.world.endTurn('session-2');
+        h.world.busyFolders.add(CHECKOUT);
+        await expect(h.service.retry(first.id)).rejects.toThrow(HELD);
+        h.world.busyFolders.clear();
+        await h.service.retry(first.id);
+        await h.flush();
+        expect(h.world.launches.map((launch) => [launch.run.id, launch.step?.attempt])).toEqual([
+            [first.id, 1],
+            [second.id, 1],
+            [first.id, 2],
+        ]);
+    });
+
+    it('a retry holds the checkout while it prepares: a second retry and a new run on the item wait for it', async () => {
+        const h = await watching({ yaml: TWO_LOOKS });
+        acceptEvery(h, TWO_LOOKS);
+        await h.poll([PR51]);
+        const first = byName(h, NAME);
+        const second = byName(h, 'second-look');
+        await h.world.endTurn('session-1', { exitCode: 1 });
+        await h.world.endTurn('session-2', { exitCode: 1 });
+        const preparing = held();
+        h.world.checkouts.gate = preparing.promise;
+        const retrying = h.service.retry(first.id);
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(true);
+        await expect(h.service.retry(second.id)).rejects.toThrow(HELD);
+        // The item comes back into the list: each automation's new run waits for the checkout.
+        await h.poll([]);
+        await h.poll([PR51]);
+        const later = h.store.runs().filter((run) => run.id !== first.id && run.id !== second.id);
+        expect(later.map((run) => [run.status, run.summary])).toEqual([
+            ['queued', "waiting for this item's checkout"],
+            ['queued', "waiting for this item's checkout"],
+        ]);
+
+        h.world.checkouts.gate = undefined;
+        preparing.release();
+        await retrying;
+        await h.flush();
+        expect(h.store.get(first.id)).toMatchObject({ status: 'running', checkout: { head: CHECKOUT_HEAD } });
+        expect(h.world.launches.at(-1)).toMatchObject({ run: { id: first.id }, step: { attempt: 2 } });
+        for (const run of later) expect(h.store.get(run.id)?.status).toBe('queued');
+    });
+
+    it('a retry whose preparation fails throws and leaves the run as it was', async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        await h.world.endTurn('session-1', { exitCode: 1 });
+        const before = structuredClone(h.store.get(run.id));
+        const lines = h.history.appends.length;
+        const why = 'Could not bring the automation checkout to the head of sprocket/catalog-portal#51: fetch failed. Nothing was read; retry once it can be fetched.';
+        h.world.checkouts.fails = new Error(why);
+        await expect(h.service.retry(run.id)).rejects.toThrow(why);
+        expect(h.store.get(run.id)).toEqual(before);
+        expect(h.history.appends).toHaveLength(lines);
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(false);
+        expect(h.world.launches).toHaveLength(1);
+    });
+
+    it('a run that failed preparing its checkout retries from its first step', async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        h.world.checkouts.fails = new Error('fetch failed');
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(run).toMatchObject({ status: 'failed', steps: [{ status: 'not-run' }, { status: 'not-run' }] });
+        h.world.checkouts.fails = undefined;
+        await h.service.retry(run.id);
+        await h.flush();
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'running',
+            checkout: { cwd: CHECKOUT, head: CHECKOUT_HEAD },
+            steps: [
+                { id: 'review', status: 'running', attempt: 2, sessionId: 'session-1', previous: [{ attempt: 1, status: 'not-run' }] },
+                { id: 'publish', status: 'pending' },
+            ],
+        });
+        expect(h.world.launches).toMatchObject([{ step: { id: 'review', attempt: 2 } }]);
+    });
+
+    it('a schedule retries in its scope folder, preparing nothing; a run not failed, another step, or a lost definition is refused', async () => {
+        const h = await accepted(THREE);
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        await expect(h.service.retry(run.id)).rejects.toThrow(`Run ${run.id} is not a failed steps run.`);
+        await h.world.endTurn('session-1', { exitCode: 1 });
+        await expect(h.service.retry(run.id, 'two')).rejects.toThrow(`Run ${run.id} can be retried only from one.`);
+        await h.service.retry(run.id, 'one');
+        await h.flush();
+        expect(h.world.checkouts.prepared).toEqual([]);
+        expect(h.world.launches[1].step).toEqual({ id: 'one', attempt: 2, cwd: '/code/api', scopeId: 'scope-api', name: 'nightly · one' });
+
+        const gone = await accepted(THREE);
+        const lost = (await gone.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await gone.flush();
+        await gone.world.endTurn('session-1', { exitCode: 1 });
+        fs.rmSync(definitionFile(gone, lost.id));
+        const before = structuredClone(gone.store.get(lost.id));
+        await expect(gone.service.retry(lost.id)).rejects.toThrow(`Its definition is gone from ${gone.folder.runDir(WORKSPACE_ID, lost.id)}; it cannot continue.`);
+        expect(gone.store.get(lost.id)).toEqual(before);
+        expect(gone.world.launches).toHaveLength(1);
+    });
+});
+
+describe('picking runs up after a restart', () => {
+    it.each<[string, (h: StepsHarness) => void, string]>([
+        [
+            'is gone',
+            (h) => {
+                h.world.workspace.sessions = h.world.workspace.sessions.filter((session) => session.id !== 'session-1');
+            },
+            'Consola quit while it ran, and its session is gone.',
+        ],
+        ['was opened', (h) => h.world.liveTerminals.add('session-1'), 'Consola quit while it ran, and you opened its session.'],
+    ])('… or runs again in a new session when that session %s, reminded afresh', async (_name, move, why) => {
+        let h = await accepted(THREE);
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        h.world.writeArtifact('session-1', 'handover', 'Half a write-up.');
+        // Quit during its reminder turn.
+        await h.world.endTurn('session-1');
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({ status: 'running', reminded: true, artifacts: [{ name: 'handover' }] });
+        move(h);
+        h = await h.relaunch();
+        expect(h.world.resumes).toEqual([]);
+        expect(h.world.launches.map((launch) => launch.step)).toMatchObject([
+            { id: 'one', attempt: 1 },
+            { id: 'one', attempt: 2 },
+        ]);
+        const step = h.store.get(run.id)!.steps![0];
+        expect(step).toMatchObject({
+            status: 'running',
+            attempt: 2,
+            sessionId: 'session-2',
+            previous: [{ attempt: 1, status: 'failed', error: why, finishedAt: h.now().toISOString() }],
+        });
+        for (const key of ['reminded', 'artifacts', 'outputs', 'command']) expect(step).not.toHaveProperty(key);
+
+        // Attempt 2 gets a reminder of its own.
+        await h.world.endTurn('session-2');
+        expect(h.world.reminders.map((reminder) => reminder.sessionId)).toEqual(['session-1', 'session-2']);
+    });
+
+    it('an interrupted command is not re-run; retry runs it once', async () => {
+        const started = await publishing();
+        const { run, publish } = started;
+        const h = await started.h.relaunch();
+        // The quit abandoned it and stopped its group; the start failed it as interrupted.
+        expect(publish.stops).toBe(1);
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error: INTERRUPTED_COMMAND,
+            steps: [
+                { status: 'completed' },
+                { status: 'completed' },
+                { id: 'publish', status: 'failed', error: INTERRUPTED_COMMAND, command: { intentAt: expect.any(String) } },
+            ],
+        });
+        await h.tick();
+        expect(h.world.commands).toHaveLength(2);
+
+        await h.service.retry(run.id);
+        await h.flush();
+        await h.tick();
+        expect(h.world.commands).toHaveLength(3);
+        expect(h.world.commands[2].spec.env).toMatchObject({
+            CONSOLA_STEP: 'publish',
+            CONSOLA_OUTPUT: path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'publish', 2), 'outputs.env'),
+        });
+        await h.world.commands[2].end();
+        await h.tick();
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed' });
+        expect(h.store.get(run.id)!.steps![2].previous).toEqual([{ attempt: 1, status: 'failed', error: INTERRUPTED_COMMAND, finishedAt: expect.any(String) }]);
+        expect(h.world.commands).toHaveLength(3);
+    });
+
+    it('a run between steps advances on start', async () => {
+        let h = await accepted(THREE);
+        const run = await waitingAtTwo(h);
+        betweenSteps(h, run.id, 'two');
+        h.world.maxConcurrentAgents = undefined;
+        h = await h.relaunch();
+        expect(launched(h)).toEqual(['nightly · one', 'nightly · two']);
+        expect(h.store.get(run.id)!.steps).toMatchObject([{ status: 'completed' }, { id: 'two', status: 'running', attempt: 1 }, { status: 'pending' }]);
+    });
+
+    it('a run cut off preparing its checkout prepares it after a restart, and the next run on the item is not held forever', async () => {
+        let h = await watching({ yaml: TWO_LOOKS });
+        acceptEvery(h, TWO_LOOKS);
+        // Its preparation never ends in this launch: Consola quits while it fetches.
+        h.world.checkouts.gate = new Promise(() => {});
+        await h.poll([PR51]);
+        const first = byName(h, NAME);
+        const second = byName(h, 'second-look');
+        expect(first).toMatchObject({ status: 'running', checkout: { cwd: CHECKOUT } });
+        expect(first.checkout).not.toHaveProperty('head');
+        h.world.checkouts.gate = undefined;
+        h = await h.relaunch();
+        await h.flush();
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.store.get(first.id)).toMatchObject({ status: 'running', checkout: { cwd: CHECKOUT, head: CHECKOUT_HEAD } });
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([first.id]);
+        expect(h.store.get(second.id)).toMatchObject({ status: 'queued', summary: "waiting for this item's checkout" });
+
+        await h.world.endTurn('session-1');
+        expect(h.store.get(first.id)?.status).toBe('completed');
+        expect(h.world.checkouts.prepared).toHaveLength(3);
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([first.id, second.id]);
+    });
+
+    it('a session closed mid-step frees its slot even while its definition cannot be read', async () => {
+        const h = await accepted(file(NIGHTLY3, WEEKLY), { maxConcurrentAgents: 1 });
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.service.trigger(WORKSPACE_ID, 'weekly');
+        await h.flush();
+        fs.writeFileSync(definitionFile(h, nightly.id), 'not json');
+        h.world.workspace.sessions = h.world.workspace.sessions.filter((session) => session.id !== 'session-1');
+        await h.service.syncWorkspaces();
+        await h.flush();
+        const error = 'Its session was closed before it finished.';
+        expect(h.store.get(nightly.id)).toMatchObject({
+            status: 'failed',
+            steps: [{ id: 'one', status: 'failed', error }, { status: 'not-run' }, { status: 'not-run' }],
+        });
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
+        expect(h.notices).toEqual([]);
+    });
+});
+
+describe('quitting', () => {
+    it('quitting stops running commands and records nothing after', async () => {
+        const { h, run, publish } = await publishing();
+        const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+        onTestFinished(() => logged.mockRestore());
+        h.service.shutdown();
+        expect(publish.stops).toBe(1);
+        const lines = h.history.appends.length;
+        const notices = h.notices.length;
+        // A stop that arrives during the quit has nothing left to stop, and records nothing either.
+        h.service.stop(run.id);
+        expect(publish.stops).toBe(1);
+
+        await publish.end({ ...SIGTERMED, stdout: 'posted\n' });
+        const step = h.store.get(run.id)!.steps![2];
+        expect(step).toMatchObject({ id: 'publish', status: 'running', command: { intentAt: expect.any(String) } });
+        expect(step.command).not.toHaveProperty('exitCode');
+        expect(step.command).not.toHaveProperty('signal');
+        expect(h.history.appends).toHaveLength(lines);
+        expect(h.notices).toHaveLength(notices);
+        expect(logged).not.toHaveBeenCalled();
+        expect(fs.existsSync(path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'publish', 1), 'outputs.json'))).toBe(false);
+
+        // The next start fails it as interrupted: the record the retry warning looks for.
+        const recovered = recoverAfterRestart(h.store.get(run.id)!, h.now().toISOString())!;
+        expect(recovered.steps![2]).toMatchObject({ status: 'failed', error: INTERRUPTED_COMMAND, command: { intentAt: step.command!.intentAt } });
+        expect(recovered.steps![2].command).not.toHaveProperty('exitCode');
+        expect(recovered.steps![2].command).not.toHaveProperty('signal');
+    });
+
+    it('a command whose environment arrives after a quit is not spawned; the next start runs it', async () => {
+        const h = await accepted(COMMANDS_ONLY);
+        const env = held();
+        h.world.commandEnvGate = env.promise;
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        h.service.shutdown();
+        h.world.commandEnvGate = undefined;
+        env.release();
+        await h.flush();
+        expect(h.world.commands).toEqual([]);
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({ id: 'fresh', status: 'queued' });
+        expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('command');
+
+        const next = await h.relaunch();
+        expect(next.world.commands).toHaveLength(1);
+        expect(next.store.get(run.id)!.steps![0]).toMatchObject({ status: 'running', attempt: 1, command: { intentAt: expect.any(String) } });
+    });
+
+    it('a command that started stays tracked when telling the windows fails', async () => {
+        const h = await accepted(COMMANDS_ONLY, { maxConcurrentCommands: 0 });
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        const appendDurably = h.history.appendDurably;
+        // Every broadcast throws from the moment its intent is on disk.
+        h.history.appendDurably = (workspaceId, record, live) => {
+            appendDurably(workspaceId, record, live);
+            h.world.broadcastThrows = new Error('The window is gone.');
+        };
+        h.world.maxConcurrentCommands = undefined;
+        await expect(h.service.tick()).rejects.toThrow('The window is gone.');
+        h.world.broadcastThrows = undefined;
+        h.history.appendDurably = appendDurably;
+        // Spawned, and its handle is where a stop reaches it.
+        expect(h.world.commands).toHaveLength(1);
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({ status: 'running', command: { intentAt: expect.any(String) } });
+        h.service.stop(run.id);
+        expect(h.world.commands[0].stops).toBe(1);
+        await h.world.commands[0].end(SIGTERMED);
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error: STOPPED_COMMAND });
     });
 });

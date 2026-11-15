@@ -93,6 +93,8 @@ export interface StepsWorld {
     commandEnv: { env: NodeJS.ProcessEnv; secrets: string[] };
     /** `commandEnv` rejects with this while it is set: a token that cannot be borrowed. */
     commandEnvThrows?: unknown;
+    /** `commandEnv` waits for this while it is set, after recording the call. */
+    commandEnvGate?: Promise<void>;
     /** The workspace of every `commandEnv` asked for, in order. */
     commandEnvAsked: string[];
     /** Every command started, in order. */
@@ -114,6 +116,16 @@ export interface StepsWorld {
     };
     /** Every launch throws this while it is set, after recording the request. */
     launchThrows?: unknown;
+    /** Every launch waits for this while it is set, after recording the request and before its session exists. */
+    launchGate?: Promise<void>;
+    /** Every resume waits for this while it is set, after recording the call. */
+    resumeGate?: Promise<void>;
+    /** Every reminder waits for this while it is set, after recording the call. */
+    remindGate?: Promise<void>;
+    /** While set, `stopAgent` records the call and finds no turn running: it returns false. */
+    noTurnToStop?: boolean;
+    /** Every broadcast throws this while it is set. */
+    broadcastThrows?: unknown;
     /** Called inside the fake launch, once its session is on the workspace's record and before it resolves. */
     onLaunch?: (request: AgentLaunchRequest, session: SessionView) => void;
     /** A session's unattended turn ended, as the desktop reports it; then whatever that set going. Exit 0 unless told. */
@@ -310,7 +322,10 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         now: () => clock,
         newId: () => `run-${++id}`,
         notify: (notice) => notices.push(notice),
-        broadcast: (workspaceId) => world.broadcasts.push(workspaceId),
+        broadcast: (workspaceId) => {
+            if (world.broadcastThrows) throw world.broadcastThrows;
+            world.broadcasts.push(workspaceId);
+        },
         every: () => () => {},
         inboxSnapshot: (workspaceId) => world.inbox.get(workspaceId) ?? null,
         refreshInbox: async (workspaceId) => {
@@ -319,6 +334,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         // Like the desktop: the session is on the workspace's record by the time the launch resolves.
         launchAgent: async (request) => {
             world.launches.push(request);
+            if (world.launchGate) await world.launchGate;
             if (world.launchThrows) throw world.launchThrows;
             const { step } = request;
             const session: SessionView = {
@@ -340,16 +356,18 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         },
         resumeAgent: async (session, prompt) => {
             world.resumes.push({ sessionId: session.id, prompt });
+            if (world.resumeGate) await world.resumeGate;
         },
         remindAgent: async (session, prompt) => {
             world.reminders.push({ sessionId: session.id, prompt });
+            if (world.remindGate) await world.remindGate;
             if (world.remindThrows) throw world.remindThrows;
         },
         hasLiveTerminal: (session) => world.liveTerminals.has(session.id),
         agentHarness: () => world.harness,
         stopAgent: (session, reason) => {
             world.stops.push({ sessionId: session.id, reason });
-            return true;
+            return !world.noTurnToStop;
         },
         get maxConcurrentAgents() {
             return world.maxConcurrentAgents;
@@ -359,6 +377,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         },
         commandEnv: async (workspaceId) => {
             world.commandEnvAsked.push(workspaceId);
+            if (world.commandEnvGate) await world.commandEnvGate;
             if (world.commandEnvThrows) throw world.commandEnvThrows;
             return structuredClone(world.commandEnv);
         },
