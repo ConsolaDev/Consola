@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { isAgentRunPreview, runTitle, type RunRecord } from '../../../shared/automations';
+import { isAgentRunPreview, isStepsRunPreview, runTitle, type RunRecord } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { AgentRunDetails, CleanupDetails } from '../Automations/parts';
+import { StepsApprovalCard } from '../Automations/StepsApprovalCard';
 import { formatTime } from '../Automations/presentation';
 // The approval details are the Automations section's own, styles included.
 import '../Automations/styles.css';
@@ -53,25 +54,31 @@ export function AssistantTray({ requests, onHide }: { requests: RunRecord[]; onH
                 <span className="automations-meta">{formatTime(run.createdAt)}</span>
               </div>
               <p className="automations-summary">{run.summary}</p>
-              {agentRun ? <AgentRunDetails preview={agentRun} /> : <CleanupDetails result={run.result} />}
-              <div className="automations-card-actions">
-                <button
-                  type="button"
-                  className="dialog-button-primary automations-small-button"
-                  disabled={busy !== null}
-                  onClick={() => void act(`approve:${run.id}`, () => automationsBridge.approve(run.id))}
-                >
-                  {busy === `approve:${run.id}` ? (agentRun ? 'Starting…' : 'Running…') : agentRun ? 'Start' : 'Approve'}
-                </button>
-                <button
-                  type="button"
-                  className="dialog-button-secondary automations-small-button"
-                  disabled={busy !== null}
-                  onClick={() => void act(`dismiss:${run.id}`, () => automationsBridge.dismiss(run.id))}
-                >
-                  Dismiss
-                </button>
-              </div>
+              {isStepsRunPreview(run.result) ? (
+                <StepsApprovalCard runId={run.id} itemType={run.trigger.item?.type ?? null} />
+              ) : (
+                <>
+                  {agentRun ? <AgentRunDetails preview={agentRun} /> : <CleanupDetails result={run.result} />}
+                  <div className="automations-card-actions">
+                    <button
+                      type="button"
+                      className="dialog-button-primary automations-small-button"
+                      disabled={busy !== null}
+                      onClick={() => void act(`approve:${run.id}`, () => automationsBridge.approve(run.id))}
+                    >
+                      {busy === `approve:${run.id}` ? (agentRun ? 'Starting…' : 'Running…') : agentRun ? 'Start' : 'Approve'}
+                    </button>
+                    <button
+                      type="button"
+                      className="dialog-button-secondary automations-small-button"
+                      disabled={busy !== null}
+                      onClick={() => void act(`dismiss:${run.id}`, () => automationsBridge.dismiss(run.id))}
+                    >
+                      Dismiss
+                    </button>
+                  </div>
+                </>
+              )}
             </article>
           );
         })}

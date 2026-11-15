@@ -84,6 +84,8 @@ export interface TemplatePreview {
     mode: AutomationMode;
     /** Its first scheduled run if it were added now (ISO); null when not on a schedule. */
     nextRunAt: string | null;
+    /** A `steps:` template's steps in file order, as `AutomationView.steps` has them; absent for a legacy entry. */
+    steps?: AutomationView['steps'];
     /** The entry exactly as "Add" writes it: one `- name: …` list item. */
     entry: string;
 }

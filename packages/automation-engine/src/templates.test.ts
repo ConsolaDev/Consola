@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from '@consola/factory-spec';
-import { AUTOMATION_TEMPLATES, templateViews } from './templates';
+import { AUTOMATION_TEMPLATES, previewOf, templateViews } from './templates';
 import type { WorkspaceView } from './views';
 
 /** A workspace with everything the templates say they need, unless told otherwise. */
@@ -88,6 +88,31 @@ describe('templates', () => {
             'scope: catalog-portal',
         );
         expect(views.find((template) => template.id === 'review-assigned-prs')?.preview?.runs).toBe('Review action');
+    });
+
+    it("a steps template's preview lists its steps", () => {
+        const entry = `- name: review-and-fetch
+  on: { github: pull_request.review_requested }
+  mode: confirm
+  steps:
+    - id: review
+      action: Review
+      outputs: { verdict: string }
+    - id: fresh
+      if: steps.review.verdict == 'request-changes'
+      run: |
+        git fetch origin
+        git status
+`;
+        const preview = previewOf(entry, new Date(2026, 10, 13, 10, 0))!;
+        expect(preview.runs).toBe('Steps: review \u2192 fresh');
+        expect(preview.steps).toEqual([
+            { id: 'review', kind: 'agent', summary: 'Review action' },
+            { id: 'fresh', kind: 'run', if: "steps.review.verdict == 'request-changes'", summary: 'git fetch origin' },
+        ]);
+        // A legacy entry has none.
+        const legacy = AUTOMATION_TEMPLATES.find((template) => template.id === 'clean-up-stale-sessions')!.entry(workspace());
+        expect(previewOf(legacy, new Date())).not.toHaveProperty('steps');
     });
 
     it('an entry already in the file shows as added', () => {

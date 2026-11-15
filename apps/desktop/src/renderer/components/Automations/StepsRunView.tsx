@@ -6,6 +6,7 @@ import { automationsBridge } from '../../services/automationsBridge';
 import { RunAgainButton, useIntent } from './parts';
 import { RunGraph } from './RunGraph';
 import { StepDetail } from './StepDetailView';
+import { StepsApprovalCard } from './StepsApprovalCard';
 import { isInterruptedCommand, retryTargetOf, type RunStage } from './runPage';
 
 /** The retry warning for a command Consola quit on, word for word. */
@@ -122,6 +123,13 @@ export function StepsRunView({
       </div>
 
       {stats}
+
+      {run.status === 'needs-approval' && (
+        <section className="automations-detail-section" aria-label="Waiting for your approval">
+          <h3 className="automations-section-title">Waiting for your approval</h3>
+          <StepsApprovalCard runId={run.id} itemType={run.trigger.item?.type ?? null} />
+        </section>
+      )}
 
       <section className="automations-detail-section" aria-label="Stages">
         <RunGraph

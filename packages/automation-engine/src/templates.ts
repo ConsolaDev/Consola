@@ -1,9 +1,9 @@
-import { describeRun, describeTriggerAsWritten } from './describeEntry';
+import { describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './factoryTemplates';
 import { firstActionFor, firstScope } from './support';
 import type { TemplateNeedSection, TemplatePreview, TemplateService, TemplateView, WorkspaceView } from './views';
-import { nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
+import { isStepsEntry, nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
 import { resolveEventSource } from './connections';
 
 /**
@@ -239,7 +239,7 @@ function previewFor(template: AutomationTemplate, workspace: WorkspaceView, now:
     }
 }
 
-function previewOf(entry: string, now: Date): TemplatePreview | null {
+export function previewOf(entry: string, now: Date): TemplatePreview | null {
     const parsed = parseAutomationEntry(entry);
     if (!parsed.ok) return null;
     const { automation } = parsed;
@@ -256,6 +256,7 @@ function previewOf(entry: string, now: Date): TemplatePreview | null {
         target: automation.run?.ref ?? 'steps',
         mode: automation.mode,
         nextRunAt: next ? next.toISOString() : null,
+        ...(isStepsEntry(automation) ? { steps: describeSteps(automation.steps) } : {}),
         entry: parsed.item,
     };
 }

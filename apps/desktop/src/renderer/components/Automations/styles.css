@@ -3468,3 +3468,94 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
 }
+
+/* A steps run's approval card: every step as the file wrote it, as text. */
+.automations-approval {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-approval-steps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-approval-step {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+}
+
+.automations-approval-head {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-primary);
+}
+
+.automations-approval-id {
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.automations-approval-field {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.automations-approval-label {
+  flex-shrink: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.automations-approval-code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+/* The edge into a step says when it runs: its if:, as written. */
+.automations-pipeline-gated {
+  --edge: 120px;
+}
+
+.automations-node-if {
+  position: absolute;
+  top: calc(50% - 20px);
+  left: calc(-1px - var(--edge));
+  width: calc(var(--edge) - 6px);
+  overflow: hidden;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+@container automations-detail (max-width: 620px) {
+  .automations-pipeline-gated {
+    --edge: 28px;
+  }
+
+  .automations-node-if {
+    top: calc(-1px - var(--edge));
+    left: 40px;
+    width: calc(100% - 52px);
+    line-height: var(--edge);
+    text-align: left;
+  }
+}
