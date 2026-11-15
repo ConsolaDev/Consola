@@ -8,6 +8,8 @@
 #   STUB_GH_CLONE_FROM=path       `repo clone` clones from this local repo instead of GitHub
 #   STUB_GH_PR_BRANCH=name        `pr checkout` checks out origin's <name> the way gh does a
 #                                 same-repo PR (instead of a throwaway stub-pr-<n> branch)
+#   STUB_GH_PR_HEAD=rev           `pr checkout <n> --detach` detaches at this commit, the PR's
+#                                 head (default: HEAD, where the worktree already is); no branch
 #   STUB_GH_LOG=path              append one line per invocation: argv (newlines
 #                                 flattened — the GraphQL query spans lines) then
 #                                 the GH_TOKEN the call saw
@@ -166,7 +168,10 @@ case "$cmd" in
     echo 'Action completed.'
     ;;
   "pr checkout")
-    if [[ -n "${STUB_GH_PR_BRANCH:-}" ]]; then
+    if [[ " $* " == *" --detach "* ]]; then
+      # gh fetches the head and detaches there, making no branch.
+      git checkout --quiet --detach "${STUB_GH_PR_HEAD:-HEAD}"
+    elif [[ -n "${STUB_GH_PR_BRANCH:-}" ]]; then
       # What real gh does for a same-repo PR: fetch the head branch into its
       # remote-tracking ref, then reuse a local branch of that name if one
       # exists — fast-forward only, or reset to it with --force.

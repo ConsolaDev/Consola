@@ -552,11 +552,13 @@ export class GitHubDriver implements GitProviderDriver {
      * and the fetch, with GH_TOKEN in `env`. An issue has no branch on
      * GitHub to fetch; WorktreeService creates its local `consola/issue-<n>`
      * branch itself, so for an issue there is nothing to do here.
-     * `--force` is gh's own reset of a local branch it reuses.
+     * `--force` is gh's own reset of a local branch it reuses; `--detach`
+     * fetches the head and checks it out with no branch at all.
      */
     public async checkout(worktreeDir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv, options: CheckoutOptions = {}): Promise<void> {
         if (ref.type !== 'pr') return;
-        await this.exec(['pr', 'checkout', String(ref.number), ...(options.resetBranch ? ['--force'] : [])], env, worktreeDir);
+        const flags = [...(options.detach ? ['--detach'] : []), ...(options.resetBranch ? ['--force'] : [])];
+        await this.exec(['pr', 'checkout', String(ref.number), ...flags], env, worktreeDir);
     }
 
     /**

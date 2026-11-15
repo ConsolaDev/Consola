@@ -348,6 +348,124 @@ describe('WorktreeService.ensureWorktree', () => {
   }, 30_000);
 });
 
+function revParse(dir: string, rev = 'HEAD'): string {
+  return execFileSync('git', ['-C', dir, 'rev-parse', rev], { encoding: 'utf8' }).trim();
+}
+
+function isDetached(dir: string): boolean {
+  try {
+    execFileSync('git', ['-C', dir, 'symbolic-ref', '--quiet', 'HEAD'], { stdio: 'ignore' });
+    return false;
+  } catch {
+    return true;
+  }
+}
+
+function localBranches(dir: string): string[] {
+  return execFileSync('git', ['-C', dir, 'branch', '--list', '--format=%(refname:short)'], { encoding: 'utf8' })
+    .split('\n')
+    .filter(Boolean)
+    .sort();
+}
+
+/** A commit on `branch` changing `file`, leaving `dir` on the branch it was on. */
+function commitOnBranch(dir: string, branch: string, file: string, content: string): string {
+  const back = currentBranch(dir);
+  execFileSync('git', ['-C', dir, 'checkout', '-q', '-B', branch]);
+  fs.writeFileSync(path.join(dir, file), content);
+  execFileSync('git', ['-C', dir, 'add', '.']);
+  execFileSync('git', ['-C', dir, 'commit', '-q', '-m', `change ${file}`]);
+  const sha = revParse(dir);
+  execFileSync('git', ['-C', dir, 'checkout', '-q', back]);
+  return sha;
+}
+
+describe('WorktreeService.syncAutomationCheckout', () => {
+  const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
+  const issue87 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 87 } as const;
+
+  function setup() {
+    const clone = path.join(tmpDir('consola-ac-clone-'), 'catalog-portal');
+    initCloneWithCommit(clone, 'git@github.com:sprocket/catalog-portal.git');
+    const root = tmpDir('consola-ac-worktrees-');
+    return { clone, root, service: new WorktreeService(root) };
+  }
+
+  it("prepares a detached automation checkout beside the Inbox worktree, at the PR's head", async () => {
+    const { clone, root, service } = setup();
+    // The PR's head: a commit the clone has that neither checkout is at yet.
+    const prHead = commitOnBranch(clone, 'pr-51-head', 'feature.txt', 'from the pull request');
+    const inbox = await service.ensureWorktree(clone, pr51, { ...process.env });
+    const inboxHead = revParse(inbox);
+    const branchesBefore = localBranches(clone);
+    expect(currentBranch(inbox)).toBe('stub-pr-51');
+
+    const { dir, head } = await service.syncAutomationCheckout(clone, pr51, { ...process.env, STUB_GH_PR_HEAD: prHead });
+
+    expect(dir).toBe(path.join(root, 'catalog-portal-pr-51-automation'));
+    expect(service.automationCheckoutPathFor(pr51)).toBe(dir);
+    // A direct child of the root, so cleanup treats it as one of Consola's own.
+    expect(service.isManagedPath(dir)).toBe(true);
+    expect(isDetached(dir)).toBe(true);
+    expect(head).toBe(prHead);
+    expect(head).toBe(revParse(dir));
+    expect(fs.readFileSync(path.join(dir, 'feature.txt'), 'utf8')).toBe('from the pull request');
+    // The Inbox's worktree is untouched, and no branch was made for this one.
+    expect(revParse(inbox)).toBe(inboxHead);
+    expect(currentBranch(inbox)).toBe('stub-pr-51');
+    expect(localBranches(clone)).toEqual(branchesBefore);
+  }, 30_000);
+
+  it('a second preparation resets what a command left behind', async () => {
+    const { clone, service } = setup();
+    fs.writeFileSync(path.join(clone, '.gitignore'), 'build/\n');
+    execFileSync('git', ['-C', clone, 'add', '.gitignore']);
+    execFileSync('git', ['-C', clone, 'commit', '-q', '-m', 'ignore build output']);
+
+    const { dir } = await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    fs.mkdirSync(path.join(dir, 'scratch'));
+    fs.writeFileSync(path.join(dir, 'scratch', 'notes.txt'), 'and this');
+    fs.writeFileSync(path.join(dir, 'README.md'), 'edited by a command');
+    fs.mkdirSync(path.join(dir, 'build'));
+    fs.writeFileSync(path.join(dir, 'build', 'out.js'), 'cached build');
+
+    const again = await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+
+    expect(again.dir).toBe(dir);
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+    expect(fs.existsSync(path.join(dir, 'scratch'))).toBe(false);
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('fixture');
+    // Ignored files are kept: a build cache survives between runs.
+    expect(fs.readFileSync(path.join(dir, 'build', 'out.js'), 'utf8')).toBe('cached build');
+    expect(isDetached(dir)).toBe(true);
+  }, 30_000);
+
+  it("an issue checks out origin's HEAD detached", async () => {
+    const upstream = path.join(tmpDir('consola-ac-upstream-'), 'catalog-portal');
+    initCloneWithCommit(upstream, 'git@github.com:sprocket/catalog-portal.git');
+    const clone = path.join(tmpDir('consola-ac-clone-'), 'catalog-portal');
+    execFileSync('git', ['clone', '-q', upstream, clone]);
+    // origin moved on since the clone was made: the checkout must not read the clone's stale HEAD.
+    fs.writeFileSync(path.join(upstream, 'README.md'), 'newer on origin');
+    execFileSync('git', ['-C', upstream, 'commit', '-q', '-am', 'newer']);
+    const originHead = revParse(upstream);
+    expect(revParse(clone)).not.toBe(originHead);
+    const root = tmpDir('consola-ac-worktrees-');
+    const service = new WorktreeService(root);
+
+    const { dir, head } = await service.syncAutomationCheckout(clone, issue87, { ...process.env });
+
+    expect(dir).toBe(path.join(root, 'catalog-portal-issue-87-automation'));
+    expect(isDetached(dir)).toBe(true);
+    expect(head).toBe(originHead);
+    expect(revParse(dir)).toBe(originHead);
+    expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('newer on origin');
+    // Unlike the Inbox's issue worktree, no consola/issue-<n> branch.
+    expect(localBranches(clone)).toEqual(['main']);
+  }, 30_000);
+});
+
 describe('WorktreeService.prune', () => {
   const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
 

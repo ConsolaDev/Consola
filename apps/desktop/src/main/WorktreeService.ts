@@ -276,6 +276,53 @@ export class WorktreeService {
   }
 
   /**
+   * Where `syncAutomationCheckout` keeps an item's automation checkout,
+   * whether or not it exists yet: beside the Inbox's worktree, a direct child
+   * of the root, so `isManagedPath` and the stale-session cleanup cover it.
+   */
+  public automationCheckoutPathFor(workItem: WorkItemRef): string {
+    return path.join(this.root, `${worktreeDirName(workItem)}-automation`);
+  }
+
+  /**
+   * Bring an item's automation checkout to the item's head, making it first
+   * when it is missing, and say which commit that is.
+   *
+   * It is used only by `steps:` runs, and is detached, never on a branch: a
+   * branch can be checked out in one worktree only, and the Inbox's has the
+   * PR's. Each preparation first undoes what an earlier run's commands left
+   * (`reset --hard`, `clean -fd`), keeping ignored files such as a build
+   * cache. A PR is then checked out the provider's way, detached; an issue
+   * at origin's HEAD. Every call runs in `env`, which the caller composes
+   * with hooks off: this is a PR author's tree.
+   */
+  public async syncAutomationCheckout(
+    clonePath: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv
+  ): Promise<{ dir: string; head: string }> {
+    const dir = this.automationCheckoutPathFor(workItem);
+    await fs.promises.mkdir(this.root, { recursive: true });
+    await this.run('git', clonePath, ['worktree', 'prune'], env);
+    if (fs.existsSync(path.join(dir, '.git'))) {
+      await this.assertBelongsToClone(dir, clonePath, workItem, env);
+      await this.run('git', dir, ['reset', '--hard', '-q'], env);
+      await this.run('git', dir, ['clean', '-fdq'], env);
+    } else {
+      await this.run('git', clonePath, ['worktree', 'add', '--detach', dir], env);
+    }
+    if (workItem.type === 'pr') {
+      await this.resolveDriver(workItem.provider).checkout(dir, workItem, env, { detach: true });
+    } else {
+      // Nobody is there to answer a credential prompt.
+      await this.run('git', dir, ['fetch', '--quiet', 'origin', 'HEAD'], { ...env, GIT_TERMINAL_PROMPT: '0' });
+      await this.run('git', dir, ['checkout', '--quiet', '--detach', 'FETCH_HEAD'], env);
+    }
+    const head = (await this.run('git', dir, ['rev-parse', 'HEAD'], env)).trim();
+    return { dir, head };
+  }
+
+  /**
    * Bring an existing pull-request worktree up to the PR's current head, the
    * provider's own checkout run again — so a review requested again after new
    * pushes reads the new code, not the commit the folder was made at.

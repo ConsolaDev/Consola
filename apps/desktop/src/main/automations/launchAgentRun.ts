@@ -47,6 +47,30 @@ export function worktreeHeld(sessions: readonly Session[], dir: string, isRunnin
     });
 }
 
+/**
+ * A session the person started on `workItem` with the action `label` after
+ * `since`: an automation's own sessions, and ones started before, do not
+ * count. Checked under `itemActionLaunchKey`, the lock an Inbox click takes.
+ */
+export function findStartedByHand(
+    sessions: readonly Session[],
+    workItem: WorkItemRef,
+    label: string,
+    since: string
+): Session | undefined {
+    const after = Date.parse(since);
+    return sessions.find(
+        (session) =>
+            !session.automation && sameWorkItem(session.workItem, workItem) && session.workItemAction === label && session.createdAt > after
+    );
+}
+
+/** Why an automation cannot work on an item whose repository no scope holds. */
+export function missingCloneMessage(workItem: WorkItemRef): string {
+    const what = workItem.type === 'pr' ? 'review its pull requests' : 'work on its issues';
+    return `Clone ${workItem.repo} into one of this workspace’s scopes to ${what} automatically.`;
+}
+
 export type ItemWorktreeDeps = Pick<
     AgentLaunchDeps,
     'resolveDriver' | 'resolveRepo' | 'worktreePathFor' | 'ensureWorktree' | 'refreshWorktree' | 'worktreeInUse' | 'composeEnv'
@@ -153,25 +177,13 @@ export async function launchAgentRun(deps: AgentLaunchDeps, request: AgentLaunch
     if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
     // Checked here too, so an automation keeps its own wording: the shared
     // step's message is not about automatic runs.
-    if (!deps.resolveRepo(workspace, workItem.repo)) {
-        const what = workItem.type === 'pr' ? 'review its pull requests' : 'work on its issues';
-        throw new Error(`Clone ${workItem.repo} into one of this workspace’s scopes to ${what} automatically.`);
-    }
+    if (!deps.resolveRepo(workspace, workItem.repo)) throw new Error(missingCloneMessage(workItem));
     const { startedByHandSince } = request.item;
     // The same lock an Inbox click on this item and action takes: whichever
     // comes second sees the other's session.
     return chainWorktreeStep(itemActionLaunchKey(workspace.id, workItem, label), async () => {
         if (startedByHandSince !== undefined) {
-            const since = Date.parse(startedByHandSince);
-            const byHand = deps
-                .getWorkspace(workspace.id)
-                ?.sessions.find(
-                    (session) =>
-                        !session.automation &&
-                        sameWorkItem(session.workItem, workItem) &&
-                        session.workItemAction === label &&
-                        session.createdAt > since
-                );
+            const byHand = findStartedByHand(deps.getWorkspace(workspace.id)?.sessions ?? [], workItem, label, startedByHandSince);
             if (byHand) throw new StartedByHandError(byHand.name);
         }
         const { cwd, scopeId } = await prepareItemWorktree(deps, workspace, workItem, {
