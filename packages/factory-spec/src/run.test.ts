@@ -85,6 +85,8 @@ describe('automationVersion', () => {
         const hashOf = (yaml: string, body?: string) => {
             const parsed = parseAutomationEntry(yaml);
             if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+            // A legacy entry carries no `steps` key at all, not even an undefined one.
+            expect('steps' in parsed.automation).toBe(false);
             return automationVersion(parsed.automation, body);
         };
         expect(

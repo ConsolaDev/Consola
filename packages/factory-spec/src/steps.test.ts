@@ -35,6 +35,15 @@ describe('an entry has run: or steps:', () => {
         expect(issue.message).toMatch(/`run:` or `steps:`, not both/);
     });
 
+    it('reports the one-of issue beside a trigger issue or a refused key', () => {
+        const cron = one('    on: { cron: "nope" }\n').issues.map((issue) => issue.path);
+        expect(cron).toContain('automations[0]');
+        expect(cron).toContain('automations[0].on.cron');
+        const gate = one(`${REVIEW}    gate: x\n`).issues.map((issue) => issue.path);
+        expect(gate).toContain('automations[0]');
+        expect(gate).toContain('automations[0].gate');
+    });
+
     it('refuses neither', () => {
         const issue = only(one(REVIEW));
         expect(issue.path).toBe('automations[0]');
@@ -162,6 +171,8 @@ describe("refuses later slices' keys with a reason", () => {
 
     it('refuses a stranger by name', () => {
         expect(only(agent('  colour: red')).message).toMatch(/Unrecognized key in a step: colour/);
+        // Not a later key just because Object.prototype has it.
+        expect(only(agent('  toString: x')).message).toMatch(/Unrecognized key in a step: toString/);
     });
 });
 
@@ -220,6 +231,9 @@ describe('a command', () => {
         expect(step.stdout).toBe('json');
         expect(step.outputs).toEqual({});
         expect(only(command('  outputs: { from: stdout, format: yaml }')).path).toBe('automations[0].steps[0].outputs.format');
+        const missing = only(command('  outputs: { from: stdout }'));
+        expect(missing.path).toBe('automations[0].steps[0].outputs.format');
+        expect(missing.message).toBe('Say how to read stdout: `format: json` or `format: text`.');
     });
 
     it('declares typed outputs like an agent', () => {
@@ -336,6 +350,10 @@ describe('artifacts', () => {
             handover: 'required',
         });
         expect(firstStep<AgentStep>(agent())).toMatchObject({ artifacts: [], handover: 'optional' });
+    });
+
+    it('does not mistake an inherited property for an output', () => {
+        expect(firstStep<AgentStep>(agent('  artifacts: [constructor]')).artifacts).toEqual(['constructor']);
     });
 
     it('shares one namespace with outputs', () => {

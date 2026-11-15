@@ -205,8 +205,27 @@ function laterEntryKeys() {
     );
 }
 
+/**
+ * Exactly one of `run:` and `steps:`. Checked before the object is parsed: an
+ * issue in the trigger, or a refused key, aborts the object and would hide it.
+ */
+function requireOneOf(entry: unknown, ctx: z.RefinementCtx): unknown {
+    if (!isRecord(entry)) return entry;
+    const has = (key: string) => Object.prototype.hasOwnProperty.call(entry, key) && entry[key] !== undefined;
+    if (has('run') && has('steps')) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [], message: 'An entry has `run:` or `steps:`, not both.' });
+    } else if (!has('run') && !has('steps')) {
+        ctx.addIssue({
+            code: z.ZodIssueCode.custom,
+            path: [],
+            message: 'Expected `run:` or `steps:`: say what this automation does.',
+        });
+    }
+    return entry;
+}
+
 export function automationSchema() {
-    return z.preprocess(foldStringRun, automationEntrySchema());
+    return z.preprocess((entry, ctx) => requireOneOf(foldStringRun(entry), ctx), automationEntrySchema());
 }
 
 function automationEntrySchema() {
@@ -236,18 +255,9 @@ function automationEntrySchema() {
             const { on: trigger, run, steps } = entry;
             // A field that failed is already reported, and its value is not one.
             if (!trigger?.kind) return;
-            if (run && steps) {
-                ctx.addIssue({ code: z.ZodIssueCode.custom, path: [], message: 'An entry has `run:` or `steps:`, not both.' });
-                return;
-            }
-            if (!run && !steps) {
-                ctx.addIssue({
-                    code: z.ZodIssueCode.custom,
-                    path: [],
-                    message: 'Expected `run:` or `steps:`: say what this automation does.',
-                });
-                return;
-            }
+            // `run:` or `steps:` is checked before parsing (`requireOneOf`), so it is reported with every other issue.
+            if (run && steps) return;
+            if (!run && !steps) return;
             if (steps) {
                 if (trigger.kind === 'cron') {
                     if (entry.filter) issue('filter', '`filter` narrows which items fire an event; a schedule has no items.');

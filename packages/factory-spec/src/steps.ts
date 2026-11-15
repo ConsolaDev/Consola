@@ -278,7 +278,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
     for (const key of Object.keys(raw)) {
         if (ALL_KEYS.has(key)) continue;
         if (key === 'inputs') bad('`inputs` is not a step key: use `reads` to name what an earlier step wrote.', [key]);
-        else if (key in LATER_KEYS) bad(laterKeyMessage(key), [key]);
+        else if (Object.prototype.hasOwnProperty.call(LATER_KEYS, key)) bad(laterKeyMessage(key), [key]);
         else bad(`Unrecognized key in a step: ${key}.`, [key]);
     }
 
@@ -333,9 +333,10 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
         if (kind === 'run' && isRecord(given) && given.from === 'stdout') {
             const extra = Object.keys(given).filter((key) => key !== 'from' && key !== 'format');
             if (extra.length > 0) bad(`\`${extra[0]}\` is not a key here; write \`{ from: stdout, format: json }\`.`, ['outputs', extra[0]]);
-            const format = 'format' in given ? given.format : 'text';
-            if (format !== 'json' && format !== 'text') bad('Expected `format` to be `json` or `text`.', ['outputs', 'format']);
-            else stdout = format;
+            const format = given.format;
+            if (format !== 'json' && format !== 'text') {
+                bad('Say how to read stdout: `format: json` or `format: text`.', ['outputs', 'format']);
+            } else stdout = format;
         } else {
             const declared = parseOutputs(given, (message, path) => bad(message, path));
             if (declared) outputs = declared;
@@ -421,7 +422,7 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
                     handover = 'required';
                 } else if (artifacts.includes(name)) {
                     bad(`\`${name}\` is listed twice.`, ['artifacts']);
-                } else if (name in outputs) {
+                } else if (Object.prototype.hasOwnProperty.call(outputs, name)) {
                     bad(`\`${name}\` is both an output and an artifact: they share one namespace, read as \`steps.<id>.${name}\`.`, ['artifacts']);
                 } else {
                     artifacts.push(name);
