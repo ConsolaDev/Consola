@@ -100,7 +100,8 @@ function dependenciesOf(step: Step, condition: Expr | undefined): { conditions: 
     for (const text of texts) {
         for (const path of templatePaths(text)) {
             if (path.root === 'steps') templates.push({ path: path.text, step: path.step, name: path.name, file: path.file });
-            else item.push(path.field);
+            else if (path.root === 'item') item.push(path.field);
+            // A `previous` path is never a dependency: an earlier run's document is read, or absent, when the step runs.
         }
     }
     return { conditions, reads, templates, item };

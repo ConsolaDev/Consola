@@ -11,6 +11,8 @@
  * literal := 'text' | "text" | -?digits(.digits)? | true | false     # escapes: \' \" \\ only
  * ```
  *
+ * `previous` is refused by name: an `if:` decides on this run's values only.
+ *
  * Hand-written on purpose: a file is data that other people's agents may
  * write, so nothing here can reach a function, a property or the process.
  * Pure: no I/O.
@@ -61,6 +63,8 @@ const OPERATORS = ['==', '!=', '<=', '>=', '&&', '||', '<', '>', '!', '(', ')', 
 const COMPARE_OPS: ReadonlySet<string> = new Set(['==', '!=', '<', '<=', '>', '>=']);
 const STEP_ID = /^[a-z][a-z0-9-]*$/;
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const PREVIOUS_IN_IF =
+    '`previous` is what the last run wrote, and an `if:` reads this run only (`previous` outputs in `if:` arrive with waiting runs).';
 
 function tokenize(source: string): Token[] {
     const tokens: Token[] = [];
@@ -256,6 +260,7 @@ class Parser {
             if (this.isPunct('.')) throw new ParseError('a path is item.<field>, with nothing after the field');
             return { kind: 'item', field, text: this.slice(start, this.lastEnd()) };
         }
+        if (value === 'previous') throw new ParseError(PREVIOUS_IN_IF);
         this.deferred ??= `\`${value}\` is not a path or a literal (paths are steps.<step>.<output> and item.<field>; strings are quoted)`;
         return { kind: 'literal', value: false, text: value };
     }

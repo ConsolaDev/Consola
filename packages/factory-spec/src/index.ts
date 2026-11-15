@@ -90,6 +90,7 @@ export {
     MAX_OUTPUTS,
     MAX_STEPS,
     OUTPUT_NAME_PATTERN,
+    parseReadRef,
     STEP_ID_PATTERN,
     STRING_MAX_CEILING,
     stepItemFieldProblems,

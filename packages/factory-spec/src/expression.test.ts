@@ -87,6 +87,13 @@ describe('parseExpression', () => {
         expect(result.ok).toBe(false);
         if (!result.ok) expect(result.problem).toMatch(problem);
     });
+
+    it('refuses previous: an if: reads this run only', () => {
+        expect(parseExpression(`previous.review.verdict == 'x'`)).toEqual({
+            ok: false,
+            problem: '`previous` is what the last run wrote, and an `if:` reads this run only (`previous` outputs in `if:` arrive with waiting runs).',
+        });
+    });
 });
 
 const scope: ExpressionScope = {

@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { cronError } from './cron';
 import { parseManualTrigger, parsePollTrigger, type ManualTrigger, type PollTrigger } from './poll';
 import { parseToolRef, type RunTarget } from './runTarget';
-import { checkSteps, LATER_KEYS, laterKeyMessage, stepsSchema, type Step } from './steps';
+import { ACTION_ON_KEYED_POLL, checkSteps, LATER_KEYS, laterKeyMessage, stepsSchema, type Step } from './steps';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -330,7 +330,7 @@ function automationEntrySchema() {
                 if (noItem || keyed) needsScope();
                 // A step that failed its own checks leaves no list to resolve against.
                 if (Array.isArray(steps)) {
-                    checkSteps(steps, trigger, ['steps'], (message, path) =>
+                    checkSteps(steps, { trigger, appliesTo: entry.applies_to }, ['steps'], (message, path) =>
                         ctx.addIssue({ code: z.ZodIssueCode.custom, path, message })
                     );
                 }
@@ -349,7 +349,7 @@ function automationEntrySchema() {
                         'An action is a verb on an item, and this automation has none: write the job as `run: { prompt: "…" }`.'
                     );
                 } else if (keyed) {
-                    issue('run', 'An action is a verb on a pull request or issue, and this poll’s items are neither: write it as a prompt.');
+                    issue('run', ACTION_ON_KEYED_POLL);
                 }
             }
             if (run.kind === 'prompt' && (noItem || keyed)) needsScope();

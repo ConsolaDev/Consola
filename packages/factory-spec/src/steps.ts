@@ -19,6 +19,7 @@ import {
 } from './expression';
 import { parseDurationMs } from './duration';
 import type { OutputType } from './outputs';
+import type { Trigger } from './schema';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
@@ -328,6 +329,20 @@ function parseTimeout(value: unknown, fail: Fail): number | null {
     return ms;
 }
 
+/**
+ * One `reads:` entry, split: `<step>.<artifact>`, or `previous.<step>.<artifact>`
+ * for what the last run on the same item wrote. Null for any other shape. The
+ * one splitter of `reads:`, so `previous` is never taken for a step id.
+ */
+export function parseReadRef(entry: string): { previous: boolean; step: string; name: string } | null {
+    const segments = entry.split('.');
+    if (segments.some((segment) => !/^\S+$/.test(segment))) return null;
+    if (segments[0] === 'previous') {
+        return segments.length === 3 ? { previous: true, step: segments[1], name: segments[2] } : null;
+    }
+    return segments.length === 2 ? { previous: false, step: segments[0], name: segments[1] } : null;
+}
+
 /** Text with `{{ path }}` in it must parse; which paths are allowed is checked with the whole entry. */
 function checkTemplate(text: string, path: Array<string | number>, fail: Fail): boolean {
     const parsed = parseTemplate(text);
@@ -394,7 +409,8 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
             bad(`An \`if\` is at most ${MAX_IF_LENGTH} characters.`, ['if']);
         } else {
             const parsed = parseExpression(given);
-            if (!parsed.ok) bad(`Cannot read this \`if\`: ${parsed.problem}.`, ['if']);
+            // A problem that is already a sentence keeps its one full stop.
+            if (!parsed.ok) bad(`Cannot read this \`if\`: ${parsed.problem.replace(/\.$/, '')}.`, ['if']);
             else condition = given;
         }
     }
@@ -516,11 +532,15 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
         if (!Array.isArray(raw.reads)) bad('Expected `reads` to be a list of `<step>.<artifact>` names.', ['reads']);
         else {
             for (const entry of raw.reads) {
-                const match = typeof entry === 'string' ? /^([^.\s]+)\.([^.\s]+)$/.exec(entry) : null;
-                if (typeof entry === 'string' && entry.startsWith('previous.')) {
-                    bad('`previous` (what the last run on this item wrote) is not supported yet.', ['reads']);
-                } else if (!match) bad('Name what to read as `<step>.<artifact>`, e.g. `review.handover`.', ['reads']);
-                else if (!STEP_ID_PATTERN.test(match[1]) || !ARTIFACT_NAME_PATTERN.test(match[2])) {
+                const ref = typeof entry === 'string' ? parseReadRef(entry) : null;
+                if (!ref) {
+                    bad(
+                        typeof entry === 'string' && entry.startsWith('previous.')
+                            ? 'Name what the last run wrote as `previous.<step>.<artifact>`, e.g. `previous.review.handover`.'
+                            : 'Name what to read as `<step>.<artifact>`, e.g. `review.handover`.',
+                        ['reads']
+                    );
+                } else if (!STEP_ID_PATTERN.test(ref.step) || !ARTIFACT_NAME_PATTERN.test(ref.name)) {
                     bad(`\`${entry as string}\` is not a step and one of its documents, e.g. \`review.handover\`.`, ['reads']);
                 } else if (reads.includes(entry as string)) bad(`\`${entry as string}\` is listed twice.`, ['reads']);
                 else reads.push(entry as string);
@@ -581,12 +601,43 @@ export interface ItemField {
 }
 export type ItemFieldTable = Record<string, ItemField>;
 
-/** The item fields every connection gives, and so the ones a prompt may template without asking. */
+/**
+ * A work item's identity, which every connection gives: the item fields a
+ * prompt may template without asking, when the entry's items are work items.
+ */
 const TRUSTED_ITEM_FIELDS = ['key', 'url', 'repo', 'number', 'type'];
 
+/**
+ * What a run of an entry knows of its item, by trigger: `none` (a schedule, or
+ * a run on demand that names no kind of item), `identity` (a work item, whose
+ * identity fields are trusted: an event, `on: manual` with `applies_to`, a
+ * poll with `item:`), or `untrusted` (a poll with `key:`, where every field,
+ * the key too, came from the check command's output).
+ */
+type ItemKind = 'none' | 'identity' | 'untrusted';
+
+function itemKindOf(trigger: Trigger, appliesTo: readonly string[] | undefined): ItemKind {
+    switch (trigger.kind) {
+        case 'cron':
+            return 'none';
+        case 'manual':
+            return appliesTo && appliesTo.length > 0 ? 'identity' : 'none';
+        case 'poll':
+            return trigger.item ? 'identity' : 'untrusted';
+        case 'event':
+            return 'identity';
+    }
+}
+
+/** An action on a poll whose items are not work items; the entry's `run: { action }` says the same. */
+export const ACTION_ON_KEYED_POLL = 'An action is a verb on a pull request or issue, and this poll’s items are neither: write it as a prompt.';
+
 const SCHEDULE_HAS_NO_ITEM = 'a schedule has no item, so there is no `item` to read';
+const AUTOMATION_HAS_NO_ITEM = 'this automation has no item, so there is no `item` to read';
 const UNNAMED = (id: string) => `\`${id}\` is an unnamed step; only steps with an \`id\` can be named`;
 const UNTRUSTED = (path: string) => `${path}: it is text someone else wrote; the step gets it below its prompt as data.`;
+const PREVIOUS_IN_PROMPT = (path: string) =>
+    `${path}: it is prose an agent wrote after reading outside text; read it with \`reads:\`.`;
 
 const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
 
@@ -629,21 +680,54 @@ function listed(names: string[]): string {
 }
 
 /**
- * Everything that looks across steps: each `if:`, `reads:`, `env:` value and
- * prompt is resolved against the steps before it. Also sets a handover
- * `required` when a later step uses it. Issues are reported at `path`, the
- * `steps` key, so they land on the line of the node.
+ * `previous.<step>.<name>`, or why it names nothing: any named step of the
+ * entry (it ran in another run, so the reading step itself and later ones
+ * count), and one of its documents. A handover it names becomes `required`,
+ * so the next run finds one.
  */
-export function checkSteps(steps: Step[], trigger: { kind: string }, path: Array<string | number>, fail: Fail): void {
-    const hasItem = trigger.kind !== 'cron';
+function previousProblem(steps: Step[], id: string, name: string): string | undefined {
+    const producer = steps.find((step) => step.id === id);
+    if (!producer) return `there is no step \`${id}\``;
+    if (!producer.named) return UNNAMED(id);
+    if (artifactsOf(producer).includes(name)) {
+        if (producer.kind === 'agent' && name === 'handover') producer.handover = 'required';
+        return undefined;
+    }
+    if (own(producer.outputs, name)) return `\`previous\` reads documents; ${name} is an output`;
+    return `\`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(producer))})`;
+}
+
+/**
+ * Everything that looks across steps: each `if:`, `reads:`, `env:` value and
+ * prompt is resolved against the steps before it, and a `previous` reference
+ * against every named step. What `item.*` may be used where follows the
+ * entry's trigger (`itemKindOf`). Also sets a handover `required` when a later
+ * step, or a later run through `previous`, uses it. Issues are reported at
+ * `path`, the `steps` key, so they land on the line of the node.
+ */
+export function checkSteps(
+    steps: Step[],
+    entry: { trigger: Trigger; appliesTo?: readonly string[] },
+    path: Array<string | number>,
+    fail: Fail
+): void {
+    const { trigger } = entry;
+    const itemKind = itemKindOf(trigger, entry.appliesTo);
+    const noItem = trigger.kind === 'cron' ? SCHEDULE_HAS_NO_ITEM : AUTOMATION_HAS_NO_ITEM;
+    // Inside a step the job is the step's own `prompt:`; a step's `run:` is a command.
+    const actionProblem =
+        itemKind === 'untrusted'
+            ? ACTION_ON_KEYED_POLL
+            : itemKind !== 'none'
+              ? undefined
+              : trigger.kind === 'cron'
+                ? 'An action is a verb on an item, and a schedule has no item: write the job as `prompt: …`.'
+                : 'An action is a verb on an item, and this automation has none: write the job as `prompt: …`.';
 
     steps.forEach((step, index) => {
         const at = (...rest: Array<string | number>) => [...path, index, ...rest];
 
-        if (step.kind === 'agent' && step.action !== undefined && !hasItem) {
-            // Inside a step the job is the step's own `prompt:`; a step's `run:` is a command.
-            fail('An action is a verb on an item, and a schedule has no item: write the job as `prompt: …`.', at('action'));
-        }
+        if (step.kind === 'agent' && step.action !== undefined && actionProblem) fail(actionProblem, at('action'));
 
         if (step.if !== undefined) {
             const parsed = parseExpression(step.if);
@@ -659,17 +743,25 @@ export function checkSteps(steps: Step[], trigger: { kind: string }, path: Array
                         }
                         return { problem: `\`${id}\` has no output \`${name}\` (${listed(Object.keys(earlier.outputs))})` };
                     },
-                    item: () => (hasItem ? { kind: 'unknown' } : { problem: SCHEDULE_HAS_NO_ITEM }),
+                    item: () => (itemKind === 'none' ? { problem: noItem } : { kind: 'unknown' }),
                 };
                 for (const message of checkExpression(parsed.expr, scope)) fail(message, at('if'));
             }
         }
 
         if (step.kind === 'agent') {
-            step.reads.forEach((entry, readIndex) => {
-                const [id, name] = entry.split('.');
+            step.reads.forEach((read, readIndex) => {
+                // `parseStep` kept only entries of one of the two shapes.
+                const ref = parseReadRef(read);
+                if (!ref) return;
+                const { step: id, name } = ref;
+                if (ref.previous) {
+                    const problem = previousProblem(steps, id, name);
+                    if (problem) fail(`\`${read}\`: ${problem}`, at('reads', readIndex));
+                    return;
+                }
                 const found = earlierStep(steps, id, index);
-                if ('problem' in found) return fail(`\`${entry}\`: ${found.problem}`, at('reads', readIndex));
+                if ('problem' in found) return fail(`\`${read}\`: ${found.problem}`, at('reads', readIndex));
                 const earlier = found.step;
                 if (artifactsOf(earlier).includes(name)) {
                     if (earlier.kind === 'agent' && name === 'handover') earlier.handover = 'required';
@@ -677,8 +769,8 @@ export function checkSteps(steps: Step[], trigger: { kind: string }, path: Array
                 }
                 fail(
                     own(earlier.outputs, name)
-                        ? `\`${entry}\`: \`${name}\` is an output, not a document; use it in an \`if:\` or a template`
-                        : `\`${entry}\`: \`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(earlier))})`,
+                        ? `\`${read}\`: \`${name}\` is an output, not a document; use it in an \`if:\` or a template`
+                        : `\`${read}\`: \`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(earlier))})`,
                     at('reads', readIndex)
                 );
             });
@@ -694,9 +786,15 @@ export function checkSteps(steps: Step[], trigger: { kind: string }, path: Array
         const templateProblem = (ref: TemplatePath, where: 'prompt' | 'env'): string | undefined => {
             const shown = `{{${ref.text}}}`;
             if (ref.root === 'item') {
-                if (!hasItem) return `\`${shown}\`: ${SCHEDULE_HAS_NO_ITEM}`;
-                if (where === 'prompt' && !TRUSTED_ITEM_FIELDS.includes(ref.field)) return UNTRUSTED(ref.text);
+                if (itemKind === 'none') return `\`${shown}\`: ${noItem}`;
+                const trusted = itemKind === 'identity' && TRUSTED_ITEM_FIELDS.includes(ref.field);
+                if (where === 'prompt' && !trusted) return UNTRUSTED(ref.text);
                 return undefined;
+            }
+            if (ref.root === 'previous') {
+                if (where === 'prompt') return PREVIOUS_IN_PROMPT(ref.text);
+                const problem = previousProblem(steps, ref.step, ref.name);
+                return problem ? `\`${shown}\`: ${problem}` : undefined;
             }
             const found = earlierStep(steps, ref.step, index);
             if ('problem' in found) return `\`${shown}\`: ${found.problem}`;
