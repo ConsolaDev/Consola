@@ -489,15 +489,26 @@ async function sessionRecord(steps: Steps, sessionId: string) {
  * Everything git says about a checkout that a run could change: the commit,
  * the branch (`HEAD` when detached), the index's entries, and every change in
  * the working tree, untracked and ignored files included. Read without
- * optional locks, so reading it never rewrites the index itself.
+ * optional locks, so reading it never rewrites the index itself. The status
+ * is kept exactly, leading space included: ` M` (unstaged) is not `M ` (staged).
  */
 function checkoutState(dir: string) {
+  const status = execFileSync(
+    'git',
+    ['-C', dir, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignored'],
+    { encoding: 'utf8', env: GIT_ENV }
+  );
   return {
     head: git(dir, 'rev-parse', 'HEAD'),
     branch: git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'),
     index: git(dir, 'ls-files', '--stage'),
-    status: git(dir, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignored'),
+    status: status.replace(/\n$/, ''),
   };
+}
+
+/** Each file's bytes, by its path under `dir`. */
+function fileBytes(dir: string, files: readonly string[]): Record<string, Buffer> {
+  return Object.fromEntries(files.map((file) => [file, fs.readFileSync(path.join(dir, file))]));
 }
 
 /** What the scheduled pipeline's agent writes as its handover, and so what `post` copies. */
@@ -509,12 +520,12 @@ Two items, \`1\` and \`2\`.
 /**
  * A pipeline on a schedule, in `catalog-portal`'s folder: `fetch` prints
  * JSON kept as its `output`, `summarise` reads it, and `post` copies the
- * summary's handover file to `notes`. The cron is due once a year (1 January,
- * 09:00), so in a test only Run now starts it.
+ * summary's handover file to `notes`. The cron is never due (31 February),
+ * so only Run now starts it.
  */
 function scheduledPipeline(notes: string): string {
   return `- name: summarise-items
-  on: { cron: "0 9 1 1 *" }
+  on: { cron: "0 0 31 2 *" }
   scope: catalog-portal
   mode: auto
   steps:
@@ -961,6 +972,21 @@ test('a full-tools session on the Inbox worktree does not hold the review back',
     git(steps.clone, 'worktree', 'add', '--quiet', inboxDir, init);
     const left = checkoutState(inboxDir);
     expect(left).toMatchObject({ head: init, branch: 'HEAD', status: '' });
+    // The person's uncommitted work there, of every kind a reset or a clean
+    // would destroy: an edit not staged, a new file staged, a file untracked.
+    fs.appendFileSync(path.join(inboxDir, 'src', 'catalog.ts'), 'export const seeded = true;\n');
+    fs.writeFileSync(path.join(inboxDir, 'src', 'filters.ts'), 'export const filters = [];\n');
+    git(inboxDir, 'add', 'src/filters.ts');
+    fs.writeFileSync(path.join(inboxDir, 'review-notes.md'), '- search ignores case?\n');
+    const work = ['src/catalog.ts', 'src/filters.ts', 'review-notes.md'];
+    const held = checkoutState(inboxDir);
+    expect(held).toMatchObject({
+      head: init,
+      branch: 'HEAD',
+      status: [' M src/catalog.ts', 'A  src/filters.ts', '?? review-notes.md'].join('\n'),
+    });
+    expect(held.index).toContain('\tsrc/filters.ts');
+    const heldBytes = fileBytes(inboxDir, work);
 
     // The person's session there, made as a window makes one: full tools (no
     // tool policy), in that folder, on #51.
@@ -998,8 +1024,9 @@ test('a full-tools session on the Inbox worktree does not hold the review back',
     expect(byHand.slice(0, 2)).toEqual(['--session-id', session!.claudeSessionId]);
     expect(byHand).not.toContain('-p');
     expect(byHand).not.toContain('--restricted');
-    // Starting it moved nothing.
-    expect(checkoutState(inboxDir)).toEqual(left);
+    // Starting it moved nothing, and kept every change.
+    expect(checkoutState(inboxDir)).toEqual(held);
+    expect(fileBytes(inboxDir, work)).toEqual(heldBytes);
 
     const dashboard = await openAutomations(page);
     await addReviewTemplate(steps);
@@ -1025,8 +1052,9 @@ test('a full-tools session on the Inbox worktree does not hold the review back',
     expect(reviewCalls(steps)).toHaveLength(1);
 
     // The person's checkout is as they left it: the same commit, still
-    // detached, the same index, and no change in its tree.
-    expect(checkoutState(inboxDir)).toEqual(left);
+    // detached, the same index, and their uncommitted work, byte for byte.
+    expect(checkoutState(inboxDir)).toEqual(held);
+    expect(fileBytes(inboxDir, work)).toEqual(heldBytes);
     expect(fs.existsSync(path.join(inboxDir, 'src', 'search.ts'))).toBe(false);
     // Their session worked there the whole time, and still does: one launch, still running, still in that folder.
     expect(inInbox()).toHaveLength(1);
