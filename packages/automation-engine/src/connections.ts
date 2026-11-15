@@ -1,5 +1,5 @@
 import { z } from 'zod/v3';
-import type { EventTrigger } from '@consola/factory-spec';
+import type { EventTrigger, ExprValue, ItemFieldTable, RunItem } from '@consola/factory-spec';
 import { fillActionPlaceholders } from './support';
 import type { InboxItemView } from './views';
 
@@ -25,7 +25,10 @@ import type { InboxItemView } from './views';
  * entries; nothing else in the runner names GitHub.
  */
 
-/** An automation's events, resolved against its filter: everything the runner needs from them. */
+/**
+ * An automation's events, resolved against its filter: everything the runner needs from them.
+ * (PR B's poll source implements the same per-item pieces: `describeItemHeader`, `fenceItem`, `itemFields`, `itemValue`.)
+ */
 export interface EventSource {
     connection: string;
     events: string[];
@@ -53,6 +56,14 @@ export interface EventSource {
      * author-written text fenced as data.
      */
     renderPrompt(body: string, item: InboxItemView, automation: string): string;
+    /** "pull request #51 in sprocket/catalog-portal (https://…/pull/51)" — trusted fields only. */
+    describeItemHeader(item: RunItem): string;
+    /** The item's author-written fields, fenced (`fenceUntrusted`, unchanged). */
+    fenceItem(item: RunItem): string;
+    /** The connection's item fields, for `stepItemFieldProblems` and rendering. */
+    itemFields: ItemFieldTable;
+    /** One field of an item by its own name, or undefined when the connection has no such field or the item lacks it. */
+    itemValue(item: RunItem, field: string): ExprValue | undefined;
 }
 
 /** What every automation-started session is told about its own tools. */
@@ -229,26 +240,63 @@ function resolveGitHub(
             describeItem: (item) => `${item.workItem.repo}#${item.workItem.number} “${item.title}” by @${item.author}`,
             goneReason: `${capitalise(definitions.map((definition) => definition.goneClause).join(', and '))}.`,
             renderPrompt: renderGitHubPrompt,
+            describeItemHeader: describeGitHubItem,
+            fenceItem: fenceGitHubItem,
+            itemFields: GITHUB_ITEM_FIELDS,
+            itemValue: githubItemValue,
         },
     };
 }
 
-function renderGitHubPrompt(body: string, item: InboxItemView, automation: string): string {
+/** Every connection gives the first five as trusted; a title and an author are written by someone else. */
+const GITHUB_ITEM_FIELDS: ItemFieldTable = {
+    key: { type: { kind: 'string' }, trusted: true },
+    url: { type: { kind: 'string' }, trusted: true },
+    repo: { type: { kind: 'string' }, trusted: true },
+    number: { type: { kind: 'number' }, trusted: true },
+    type: { type: { kind: 'string', enum: { values: ['pr', 'issue'], owner: 'type of the item' } }, trusted: true },
+    title: { type: { kind: 'string' }, trusted: false },
+    author: { type: { kind: 'string' }, trusted: false },
+};
+
+const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
+
+function githubItemValue(item: RunItem, field: string): ExprValue | undefined {
+    if (!own(GITHUB_ITEM_FIELDS, field) || !own(item, field)) return undefined;
+    return (item as unknown as Record<string, ExprValue | undefined>)[field];
+}
+
+const githubNoun = (item: RunItem) => (item.type === 'pr' ? 'pull request' : 'issue');
+
+function describeGitHubItem(item: RunItem): string {
+    return `${githubNoun(item)} #${item.number} in ${item.repo} (${item.url})`;
+}
+
+function fenceGitHubItem(item: RunItem): string {
+    return fenceUntrusted(
+        { title: item.title, author: item.author ?? '' },
+        `The title and author below, and the ${githubNoun(item)}’s description, comments and code,`
+    );
+}
+
+/** The inbox's view of an item, as the run record keeps it. */
+function runItemOf(item: InboxItemView): RunItem {
     const { repo, number, type } = item.workItem;
-    const noun = type === 'pr' ? 'pull request' : 'issue';
+    return { key: item.key, url: item.url, title: item.title, repo, number, type, author: item.author };
+}
+
+function renderGitHubPrompt(body: string, item: InboxItemView, automation: string): string {
+    const runItem = runItemOf(item);
+    const noun = githubNoun(runItem);
     const view = `Consola’s work_item_context tool, which returns the ${noun}’s description, comments${
-        type === 'pr' ? ', files and diff' : ''
+        runItem.type === 'pr' ? ', files and diff' : ''
     }`;
     const header =
-        `This session was started by the automation "${automation}" for ${noun} #${number} in ${repo} (${item.url}), ` +
+        `This session was started by the automation "${automation}" for ${describeGitHubItem(runItem)}, ` +
         `in a dedicated git worktree for it. ${READ_ONLY_NOTE} Start with ${view}. ${UNWATCHED_NOTE}`;
     // The title is the author's: the body points at it, the fence holds it.
     const job = fillActionPlaceholders(body, { ...item, title: 'the title quoted below' }).trim();
-    const fence = fenceUntrusted(
-        { title: item.title, author: item.author },
-        `The title and author below, and the ${noun}’s description, comments and code,`
-    );
-    return `${header}\n\n${job}\n\n${fence}`;
+    return `${header}\n\n${job}\n\n${fenceGitHubItem(runItem)}`;
 }
 
 /**

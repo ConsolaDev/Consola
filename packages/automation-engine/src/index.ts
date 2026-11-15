@@ -47,6 +47,7 @@ export type {
     RunningCommand,
     CommandPort,
 } from './ports';
+export { renderStepPrompt, reminderPrompt, REMINDER_PREFIX, type StepPromptInput } from './steps/stepPrompt';
 export { MAX_ARTIFACT_BYTES, type RunDefinition } from './steps/definition';
 export type { CheckoutRequest, PreparedCheckout, CheckoutPort } from './steps/checkout';
 export { LOG_CAP_BYTES, OUTPUT_FILE_CAP_BYTES, layerCommandEnv, parseOutputFile, describeFailure, maskSecrets } from './steps/commandIO';
