@@ -42,8 +42,14 @@ export type {
     AgentLaunchRequest,
     LaunchedSession,
     RunFolderPort,
+    CommandSpec,
+    CommandResult,
+    RunningCommand,
+    CommandPort,
 } from './ports';
 export { MAX_ARTIFACT_BYTES, type RunDefinition } from './steps/definition';
+export { LOG_CAP_BYTES, OUTPUT_FILE_CAP_BYTES, layerCommandEnv, parseOutputFile, describeFailure } from './steps/commandIO';
+export { withoutGitHooks } from './gitEnv';
 export {
     describeError,
     agentToolContext,

@@ -1,4 +1,4 @@
-import { StartedByHandError, type AgentLaunchRequest } from '@consola/automation-engine';
+import { StartedByHandError, withoutGitHooks, type AgentLaunchRequest } from '@consola/automation-engine';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { GitProviderId } from '../../shared/providers';
@@ -24,21 +24,6 @@ export interface AgentLaunchDeps {
     composeEnv(driver: GitProviderDriver, accountLogin: string): Promise<NodeJS.ProcessEnv>;
     restoreGroup(workspaceId: string, groupId: string): void;
     launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
-}
-
-/**
- * `env` with git's hooks turned off for every git it reaches — including the
- * ones `gh` starts — by a command-line-level config entry that beats any
- * repository or user setting. Appends to entries already in `env`.
- */
-export function withoutGitHooks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;
-    return {
-        ...env,
-        GIT_CONFIG_COUNT: String(count + 1),
-        [`GIT_CONFIG_KEY_${count}`]: 'core.hooksPath',
-        [`GIT_CONFIG_VALUE_${count}`]: '/dev/null',
-    };
 }
 
 /**

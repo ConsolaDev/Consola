@@ -151,3 +151,51 @@ export interface RunFolderPort {
     /** Removes `runs/` only. */
     removeAll(workspaceId: string): void;
 }
+
+/** One `run:` step's command, as the executor is handed it. */
+export interface CommandSpec {
+    command: string;
+    cwd: string;
+    /** Already layered (`layerCommandEnv`): nothing is added to it. */
+    env: NodeJS.ProcessEnv;
+    timeoutMs: number;
+    stdoutPath: string;
+    stderrPath: string;
+    /** Replaced by *** in both logs, across chunk boundaries. */
+    secrets: string[];
+    /** Test seams: SIGTERM→SIGKILL grace (default KILL_GRACE_MS) and how long pipes may stay open after exit (default 2000). */
+    killGraceMs?: number;
+    pipeGraceMs?: number;
+}
+
+/** How a command ended. Exactly one of `exitCode` and `signal` is set. */
+export interface CommandResult {
+    exitCode: number | null;
+    signal: string | null;
+    timedOut: boolean;
+    stopped: boolean;
+    /** What the command wrote, which the logs hold at most the first 1 MB of. */
+    stdoutBytes: number;
+    stderrBytes: number;
+    /** A log stopped short of what the command wrote. */
+    truncated: boolean;
+    /** Masked, without escape sequences or control characters. */
+    lastStderrLine?: string;
+}
+
+export interface RunningCommand {
+    readonly pid: number | undefined;
+    /**
+     * Resolves once the shell has exited and its pipes have closed, or at
+     * most `pipeGraceMs` after it exited, whatever it left holding them.
+     * Rejects only when the command never started: nothing ran.
+     */
+    readonly result: Promise<CommandResult>;
+    /** SIGTERM to the whole process group, SIGKILL after the grace. */
+    stop(): void;
+}
+
+/** Runs a step's command. `node/runCommand`'s `startCommand` is the one that spawns. */
+export interface CommandPort {
+    start(spec: CommandSpec): RunningCommand;
+}
