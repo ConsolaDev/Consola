@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod/v3';
-import { LATER_KEYS, parseAutomationEntry } from '@consola/factory-spec';
+import { LATER_KEYS, parseAutomationEntry, REFUSED_ENV_NAMES } from '@consola/factory-spec';
 import { describeCapabilities, GRAMMAR_EXAMPLES, TRUSTED_ITEM_FIELDS } from './capabilities';
 import { defineTool } from './tools.test-helpers';
 import { stepsHarness, WORKSPACE_ID } from './steps/steps.test-helpers';
@@ -74,6 +74,15 @@ describe('what an agent writing an entry is told', () => {
         expect(text).toContain(
             "your login environment and the workspace's bound account, in the item's own checkout or the scope folder, with git hooks off. In a pull request's checkout, a command that builds or tests runs the author's code."
         );
+    });
+
+    it('the env: names the prose says are refused are the ones the validator refuses', () => {
+        const text = grammar().grammar;
+        expect(text).toContain(`env: never takes a name that would let its value decide what code runs: ${REFUSED_ENV_NAMES.join(', ')}.`);
+        for (const name of ['BASH_ENV', 'GIT_CONFIG_KEY_0', 'GIT_SSH_COMMAND', 'PATH']) {
+            const entry = `- name: probe\n  on: { github: pull_request.review_requested }\n  steps:\n    - run: echo hi\n      env: { ${name}: x }`;
+            expect(parseAutomationEntry(entry).ok, name).toBe(false);
+        }
     });
 
     it('the trusted list in the prose is the one the validator enforces', async () => {

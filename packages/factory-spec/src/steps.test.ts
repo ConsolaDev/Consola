@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { parseFactorySpec } from './parse';
 import { isStepsEntry } from './schema';
-import { stepItemFieldProblems, stepItemFields, type AgentStep, type CommandStep, type ItemFieldTable, type Step } from './steps';
+import { isRefusedEnvName, REFUSED_ENV_NAMES, stepItemFieldProblems, stepItemFields, type AgentStep, type CommandStep, type ItemFieldTable, type Step } from './steps';
 
 /** One entry, its fields indented under `- name: a`. */
 const one = (fields: string) => parseFactorySpec(`version: 1\nautomations:\n  - name: a\n${fields}`);
@@ -208,6 +208,45 @@ describe('a command', () => {
         expect(lower.path).toBe('automations[0].steps[0].env.pr');
         expect(lower.message).toContain('uppercase');
         expect(only(command('  env: { CONSOLA_X: y }')).message).toMatch(/`CONSOLA_` is Consola's own/);
+    });
+
+    describe('env names that would run their value as code', () => {
+        const REFUSED_BECAUSE = /would let its value decide what code runs.*env: values must stay data.*inside `run:`/;
+        const refusedFor = (name: string, value = '"{{steps.review.handover.file}}"') => {
+            const result = steps('- id: review\n  prompt: Review it.', `- run: echo hi\n  env: { ${name}: ${value} }`);
+            expect(result.automations, name).toEqual([]);
+            expect(result.issues, name).toHaveLength(1);
+            expect(result.issues[0].path, name).toBe(`automations[0].steps[1].env.${name}`);
+            return result.issues[0].message;
+        };
+
+        it.each([
+            'BASH_ENV', 'ENV', 'PROMPT_COMMAND', 'SHELLOPTS', 'BASHOPTS', 'PS4',
+            'GIT_CONFIG_COUNT', 'GIT_CONFIG_KEY_0', 'GIT_CONFIG_VALUE_0', 'GIT_CONFIG_KEY_12', 'GIT_CONFIG_PARAMETERS',
+            'GIT_CONFIG', 'GIT_CONFIG_GLOBAL', 'GIT_CONFIG_SYSTEM',
+            'GIT_SSH', 'GIT_SSH_COMMAND', 'GIT_ASKPASS', 'SSH_ASKPASS', 'GIT_EXEC_PATH', 'GIT_EXTERNAL_DIFF', 'GIT_PROXY_COMMAND',
+            'GIT_PAGER', 'PAGER', 'EDITOR', 'VISUAL', 'GIT_EDITOR', 'GIT_SEQUENCE_EDITOR',
+            'LD_PRELOAD', 'LD_LIBRARY_PATH', 'LD_AUDIT', 'DYLD_INSERT_LIBRARIES', 'DYLD_LIBRARY_PATH',
+            'NODE_OPTIONS', 'PYTHONSTARTUP', 'PERL5OPT', 'RUBYOPT',
+            'PATH',
+        ])('refuses %s, templated or not, saying values must stay data', (name) => {
+            expect(refusedFor(name)).toMatch(REFUSED_BECAUSE);
+            expect(refusedFor(name, 'plain')).toMatch(REFUSED_BECAUSE);
+            expect(refusedFor(name)).toContain(`\`${name}\``);
+        });
+
+        it('takes names that only look alike', () => {
+            const step = firstStep<CommandStep>(command('  env: { BASH_ENVIRONMENT: a, MY_PATH: b, GIT_CONFIGURED: c, ENVIRONMENT: d, PATHS: e, EDITORS: f }'));
+            expect(Object.keys(step.env)).toEqual(['BASH_ENVIRONMENT', 'MY_PATH', 'GIT_CONFIGURED', 'ENVIRONMENT', 'PATHS', 'EDITORS']);
+        });
+
+        it('is the list the validator and the prose share', () => {
+            for (const pattern of REFUSED_ENV_NAMES) {
+                const name = pattern.endsWith('*') ? `${pattern.slice(0, -1)}X` : pattern;
+                expect(isRefusedEnvName(name), pattern).toBe(true);
+            }
+            expect(isRefusedEnvName('PR')).toBe(false);
+        });
     });
 
     it('refuses an env template that is not a path', () => {

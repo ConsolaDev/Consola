@@ -24,6 +24,64 @@ export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
 export const ARTIFACT_NAME_PATTERN = /^[a-z][a-z0-9-]{0,63}$/;
 export const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
+
+/**
+ * `env:` names whose value a shell, git or a runtime runs as code, or that
+ * decide which code a command runs: `BASH_ENV: "{{steps.review.handover.file}}"`
+ * would have bash source a file an agent wrote from a pull request's text.
+ * Refused outright, templated or not: a value must stay data, and a command
+ * that needs one sets it inside `run:`, where it reads as the code it is. A
+ * trailing `*` is a prefix. (Git's own `GIT_CONFIG_COUNT` from the login
+ * environment still reaches a command; the engine appends its hooks-off
+ * entry after it.)
+ */
+export const REFUSED_ENV_NAMES = [
+    // Shells: a file sourced, or a string run, at start or at every prompt.
+    'BASH_ENV',
+    'ENV',
+    'PROMPT_COMMAND',
+    'PS4',
+    'SHELLOPTS',
+    'BASHOPTS',
+    // Git's configuration from the environment: `core.fsmonitor`, `core.sshCommand` and the like run their value.
+    'GIT_CONFIG_COUNT',
+    'GIT_CONFIG_KEY_*',
+    'GIT_CONFIG_VALUE_*',
+    'GIT_CONFIG_PARAMETERS',
+    'GIT_CONFIG',
+    'GIT_CONFIG_GLOBAL',
+    'GIT_CONFIG_SYSTEM',
+    // Programs git, ssh and the like start.
+    'GIT_SSH',
+    'GIT_SSH_COMMAND',
+    'GIT_ASKPASS',
+    'SSH_ASKPASS',
+    'GIT_EXEC_PATH',
+    'GIT_EXTERNAL_DIFF',
+    'GIT_PROXY_COMMAND',
+    'GIT_PAGER',
+    'PAGER',
+    'EDITOR',
+    'VISUAL',
+    'GIT_EDITOR',
+    'GIT_SEQUENCE_EDITOR',
+    // Loaders and runtimes: code loaded into every process.
+    'LD_PRELOAD',
+    'LD_LIBRARY_PATH',
+    'LD_AUDIT',
+    'DYLD_*',
+    'NODE_OPTIONS',
+    'PYTHONSTARTUP',
+    'PERL5OPT',
+    'RUBYOPT',
+    // Which program a bare name runs.
+    'PATH',
+] as const;
+
+/** Whether `env:` refuses a name (`REFUSED_ENV_NAMES`). */
+export function isRefusedEnvName(name: string): boolean {
+    return REFUSED_ENV_NAMES.some((refused) => (refused.endsWith('*') ? name.startsWith(refused.slice(0, -1)) : name === refused));
+}
 export const MAX_STEPS = 20;
 export const MAX_OUTPUTS = 10;
 export const DEFAULT_STRING_MAX = 1000;
@@ -376,6 +434,11 @@ function parseStep(raw: unknown, index: number, fail: Fail): Step | null {
                         bad('`CONSOLA_` is Consola\'s own namespace; pick another name.', ['env', name]);
                     } else if (!ENV_NAME_PATTERN.test(name)) {
                         bad('Use uppercase letters, digits and underscores, e.g. PR_NUMBER.', ['env', name]);
+                    } else if (isRefusedEnvName(name)) {
+                        bad(
+                            `\`${name}\` would let its value decide what code runs (a shell, git or a runtime reads it as code); env: values must stay data. Set it inside \`run:\` if the command needs it.`,
+                            ['env', name]
+                        );
                     } else if (typeof value !== 'string') {
                         bad('Expected text, e.g. "{{item.number}}".', ['env', name]);
                     } else if (checkTemplate(value, ['env', name], (message, path) => bad(message, path))) {
