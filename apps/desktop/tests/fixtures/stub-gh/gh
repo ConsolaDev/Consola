@@ -14,6 +14,14 @@
 #                                 flattened — the GraphQL query spans lines) then
 #                                 the GH_TOKEN the call saw
 #   GRAPHQL_INBOX_FIXTURE=path    `api graphql` prints this file instead of graphql-inbox.json
+#   STUB_GH_REVIEWED=sha          `api graphql` with a `url=` field (a steps template's `fresh`
+#                                 check) prints this, as its `--jq` would: the commit the
+#                                 account last reviewed (default empty: never reviewed)
+#   STUB_GH_POSTED=path           `api repos/<o>/<r>/pulls/<n>/reviews` appends one line per
+#                                 review it finished posting: argv, then `BODY=` and the
+#                                 `-F body=@<file>` file's text (newlines flattened)
+#   STUB_GH_REVIEW_FAIL=1         posting a review exits 1 with GitHub's 422, posting nothing
+#   STUB_GH_SLEEP=seconds         posting a review waits this long first (default 0)
 #   STUB_GH_PULLS=path            `api repos/...` (endpoint first) answers from this file:
 #                                 one `<endpoint> <json>` pair per line; an endpoint
 #                                 with no line is a 404, as GitHub would answer
@@ -128,12 +136,40 @@ case "$cmd" in
     echo "gho_stub_token_for_${4:-unknown}"
     ;;
   "api graphql")
+    # `gh api graphql -f url=<pr> -f query=… --jq …`: which commit the
+    # account last reviewed, printed as the --jq expression would.
+    for arg in "$@"; do
+      if [[ "$arg" == url=* ]]; then
+        printf '%s\n' "${STUB_GH_REVIEWED:-}"
+        exit 0
+      fi
+    done
     details_graphql "$@" && exit 0
     # The static fixture keeps fixed dates for the parser tests; the e2e
     # points this at a payload it generates with live timestamps.
     cat "${GRAPHQL_INBOX_FIXTURE:-$here/graphql-inbox.json}"
     ;;
   "api repos/"*)
+    # Posting a review: gh api repos/<o>/<r>/pulls/<n>/reviews -f commit_id=… -f event=… -F body=@<file>
+    if [[ "$2" =~ ^repos/[^/]+/[^/]+/pulls/[0-9]+/reviews$ ]]; then
+      reject_writes
+      if [[ "${STUB_GH_REVIEW_FAIL:-}" == "1" ]]; then
+        echo 'gh: Unprocessable Entity (HTTP 422)' >&2
+        exit 1
+      fi
+      sleep "${STUB_GH_SLEEP:-0}"
+      body=''
+      for arg in "$@"; do
+        if [[ "$arg" == body=@* ]]; then body="$(tr '\n' ' ' < "${arg#body=@}")"; fi
+      done
+      if [[ -n "${STUB_GH_POSTED:-}" ]]; then
+        # One write per post, as STUB_GH_LOG does.
+        line="$(printf '%s' "$* BODY=$body" | tr '\n' ' ')"
+        printf '%s\n' "$line" >> "$STUB_GH_POSTED"
+      fi
+      echo '{"id":1}'
+      exit 0
+    fi
     # REST lookups (pull request state): gh api <endpoint> --hostname github.com
     if [[ -n "${STUB_GH_PULLS:-}" && -f "$STUB_GH_PULLS" ]]; then
       while IFS= read -r line || [[ -n "$line" ]]; do
