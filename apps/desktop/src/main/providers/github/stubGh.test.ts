@@ -11,6 +11,9 @@ function runStub(args: string[], env: NodeJS.ProcessEnv = {}): string {
   return execFileSync(STUB, args, {
     encoding: 'utf8',
     env: { ...process.env, ...env },
+    // stderr is piped, not inherited, so a failing case's canned line stays out
+    // of the test output; the assertions read it from the thrown error.
+    stdio: ['ignore', 'pipe', 'pipe'],
   });
 }
 

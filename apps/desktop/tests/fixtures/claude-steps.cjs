@@ -25,6 +25,7 @@
 //                        $CLAUDE_CONFIG_DIR/projects/p/<id>.jsonl (the id from
 //                        --session-id, else --resume): the prompt (after `--`), then
 //                        `FINDINGS: done`. Then it prints `FINDINGS: done` and exits 0.
+//                        Its last log line is `END <id> exit <code>`: the turn is over.
 //   otherwise            shows an empty composer (`❯ `) and sleeps.
 //
 // A planned call that fails fails the turn, loudly. A tool answer with
@@ -38,6 +39,11 @@
 //   STUB_CLAUDE_LOG=path        the launch and tool log above
 //   STUB_CLAUDE_HANDOVER=path   the handover to write (Markdown); absent file: none
 //   STUB_CLAUDE_OUTPUTS=path    the outputs to set, as JSON; absent or not JSON: none
+//   STUB_CLAUDE_RESUME_GATE=path  a resumed print turn (`--resume`, the reminder) waits
+//                               until this file exists before it reads the two files
+//                               above, so a test can change them between turns without
+//                               racing the relaunch. It logs `GATE open` when it goes on,
+//                               or `GATE timed out` and fails after 60 s.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -47,6 +53,8 @@ const { spawn } = require('node:child_process');
 const PROTOCOL_VERSION = '2025-06-18';
 /** Long enough for a loaded machine; short of the test's own timeouts. */
 const REQUEST_TIMEOUT_MS = 20_000;
+/** How long a resumed turn waits for STUB_CLAUDE_RESUME_GATE before failing. */
+const GATE_TIMEOUT_MS = 60_000;
 
 const args = process.argv.slice(2);
 const dashes = args.indexOf('--');
@@ -196,8 +204,29 @@ async function callTools(calls) {
   return ok;
 }
 
+/** A resumed turn, with STUB_CLAUDE_RESUME_GATE set, waits for its file; false when it never came. */
+async function passGate() {
+  const gate = process.env.STUB_CLAUDE_RESUME_GATE;
+  if (!gate || flagValue('--resume') === undefined) return true;
+  const until = Date.now() + GATE_TIMEOUT_MS;
+  while (!fs.existsSync(gate)) {
+    if (Date.now() > until) {
+      log('GATE timed out');
+      return false;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  log('GATE open');
+  return true;
+}
+
 async function printTurn() {
   const id = flagValue('--session-id') ?? flagValue('--resume');
+  // The last line a turn logs, so a test can tell it is over.
+  const end = (code, stream, text) => {
+    log(`END ${id} exit ${code}`);
+    stream.write(text, () => process.exit(code));
+  };
   const dir = path.join(process.env.CLAUDE_CONFIG_DIR, 'projects', 'p');
   fs.mkdirSync(dir, { recursive: true });
   const transcript = path.join(dir, `${id}.jsonl`);
@@ -205,14 +234,18 @@ async function printTurn() {
   // the records from its start, and a second-truncated stamp would fall before it.
   const record = (type, content) => JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
+  if (!(await passGate())) {
+    end(1, process.stderr, 'stub claude: STUB_CLAUDE_RESUME_GATE never opened\n');
+    return;
+  }
   const calls = plannedCalls();
   if (calls.length > 0 && !(await callTools(calls))) {
     // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
-    process.stderr.write('stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n', () => process.exit(1));
+    end(1, process.stderr, 'stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n');
     return;
   }
   fs.appendFileSync(transcript, record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n');
-  process.stdout.write('FINDINGS: done\n', () => process.exit(0));
+  end(0, process.stdout, 'FINDINGS: done\n');
 }
 
 if (flags.includes('--version')) {
