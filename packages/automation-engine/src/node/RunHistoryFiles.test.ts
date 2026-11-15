@@ -5,6 +5,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RunRecord } from '@consola/factory-spec';
 import { RunHistoryFiles } from './RunHistoryFiles';
 
+vi.mock('fs', async (importOriginal) => {
+    const actual = await importOriginal<typeof import('fs')>();
+    // Pass-throughs, so a test can see which files a rewrite syncs, and in what order.
+    return { ...actual, openSync: vi.fn(actual.openSync), fsyncSync: vi.fn(actual.fsyncSync), renameSync: vi.fn(actual.renameSync) };
+});
+
 const run = (id: string, fields: Partial<RunRecord> = {}) =>
     ({
         id,
@@ -108,6 +114,38 @@ describe('RunHistoryFiles', () => {
         history.remove('ws-1');
         expect(() => history.remove('ws-1')).not.toThrow();
         expect(new RunHistoryFiles(dir).load().size).toBe(0);
+    });
+
+    it('a rewrite syncs the new log before it takes the old one’s place, then the folder that names it', () => {
+        // Power loss cannot be tested here; the order of the syncs can. Without them, a compaction can
+        // leave an older or empty log, in which a command step is queued again with no intent.
+        const history = new RunHistoryFiles(dir);
+        history.append('ws-1', run('r1'), () => [run('r1')]);
+        const [open, sync, rename] = [vi.mocked(fs.openSync), vi.mocked(fs.fsyncSync), vi.mocked(fs.renameSync)];
+        for (const spy of [open, sync, rename]) spy.mockClear();
+        history.rewrite('ws-1', [run('r2')]);
+
+        const name = (file: unknown) => (String(file) === dir ? 'folder' : path.basename(String(file)).replace(/\.\d+\.tmp$/, '.tmp'));
+        // A closed descriptor's number is reused: an fsync is of the latest file opened under it.
+        const openedAs = (fd: number, before: number) =>
+            open.mock.calls
+                .map(([file], index) => ({ file, fd: open.mock.results[index].value as number, at: open.mock.invocationCallOrder[index] }))
+                .filter((call) => call.fd === fd && call.at < before)
+                .at(-1)?.file;
+        const events = [
+            ...sync.mock.calls.map(([fd], index) => {
+                const at = sync.mock.invocationCallOrder[index];
+                return { at, what: `fsync ${name(openedAs(fd, at))}` };
+            }),
+            ...rename.mock.calls.map(([from, to], index) => ({ at: rename.mock.invocationCallOrder[index], what: `rename ${name(from)} → ${name(to)}` })),
+        ];
+        expect(events.sort((a, b) => a.at - b.at).map((event) => event.what)).toEqual([
+            'fsync ws-1.jsonl.tmp',
+            'rename ws-1.jsonl.tmp → ws-1.jsonl',
+            'fsync folder',
+        ]);
+        expect(fs.readFileSync(path.join(dir, 'ws-1.jsonl'), 'utf8')).toBe(`${JSON.stringify(run('r2'))}\n`);
+        expect(fs.readdirSync(dir)).toEqual(['ws-1.jsonl']);
     });
 
     it('loads from a folder that does not exist yet', () => {

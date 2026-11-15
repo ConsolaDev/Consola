@@ -106,14 +106,7 @@ export class RunHistoryFiles implements RunHistory {
                 fs.closeSync(fd);
             }
             // A new file's directory entry is its own write; without this a power loss can drop the file.
-            if (created) {
-                const dirFd = fs.openSync(this.dir, 'r');
-                try {
-                    fs.fsyncSync(dirFd);
-                } finally {
-                    fs.closeSync(dirFd);
-                }
-            }
+            if (created) this.syncFolder();
         } else {
             fs.appendFileSync(file, line);
         }
@@ -131,10 +124,20 @@ export class RunHistoryFiles implements RunHistory {
             return;
         }
         fs.mkdirSync(this.dir, { recursive: true });
-        // Whole, through a temporary file, so a crash leaves the old log or the new one.
+        // Whole, through a temporary file, so a crash leaves the old log or the new one. Synced
+        // before the rename and the folder after it, so a power loss cannot leave an older or empty
+        // log in its place: in one, a command step that ran would be queued again with no intent.
+        // (macOS's fsync is best effort without F_FULLFSYNC, as for `appendDurably`.)
         const temporary = `${file}.${process.pid}.tmp`;
-        fs.writeFileSync(temporary, persisted.map((run) => `${JSON.stringify(run)}\n`).join(''));
+        const fd = fs.openSync(temporary, 'w');
+        try {
+            fs.writeFileSync(fd, persisted.map((run) => `${JSON.stringify(run)}\n`).join(''));
+            fs.fsyncSync(fd);
+        } finally {
+            fs.closeSync(fd);
+        }
         fs.renameSync(temporary, file);
+        this.syncFolder();
         this.lines.set(workspaceId, persisted.length);
         this.owned.add(workspaceId);
     }
@@ -147,6 +150,16 @@ export class RunHistoryFiles implements RunHistory {
             fs.unlinkSync(file);
         } catch (error) {
             if (!isMissing(error)) throw error;
+        }
+    }
+
+    /** Make the folder's entries durable: a file created or renamed into it is not until this returns. */
+    private syncFolder(): void {
+        const fd = fs.openSync(this.dir, 'r');
+        try {
+            fs.fsyncSync(fd);
+        } finally {
+            fs.closeSync(fd);
         }
     }
 
