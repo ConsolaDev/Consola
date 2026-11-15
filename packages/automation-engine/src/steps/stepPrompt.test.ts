@@ -123,6 +123,22 @@ describe('renderStepPrompt', () => {
         expect(rendered).not.toContain('There is no earlier run');
     });
 
+    it('lists an absent previous read with its reason in place of its size', () => {
+        const rendered = renderStepPrompt(
+            input({
+                reads: [
+                    { ref: 'previous.review.handover', step: 'review', previous: true, absent: 'was not written in the earlier run' },
+                    { ref: 'previous.review.notes', step: 'review', bytes: 900, previous: true },
+                ],
+            })
+        );
+        expect(rendered).toContain(
+            '\n  - previous.review.handover — was not written in the earlier run' +
+                '\n  - previous.review.notes (from step "review" of the earlier run on this item, 900 B)' +
+                '\nRead them with consola_read_artifact.\n\nBefore you finish:'
+        );
+    });
+
     it('says there is no earlier run after the inputs list, or in its place', () => {
         const NO_EARLIER = 'There is no earlier run of this automation on this item.';
         const withInputs = renderStepPrompt(input({ reads: [{ ref: 'research.handover', step: 'research', bytes: 900 }], noEarlierRun: true }));

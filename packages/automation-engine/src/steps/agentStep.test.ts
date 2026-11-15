@@ -254,6 +254,42 @@ describe('agentStepLaunch reading previous', () => {
         expect(prompt).not.toContain('previous.review.handover');
     });
 
+    it('an absent previous read is listed with its reason', () => {
+        // The earlier run's review left a folder, but no handover in it.
+        folder.writeArtifact('ws-1', 'run-0', 'review', 1, 'notes', 'Only notes.');
+        const prompt = launch({ runId: 'run-0' });
+        expect(prompt).toContain(
+            '\n  - research.handover (from step "research", 900 B)' +
+                '\n  - previous.review.handover — was not written in the earlier run' +
+                '\nRead them with consola_read_artifact.\n\nBefore you finish:'
+        );
+        expect(prompt).not.toContain('There is no earlier run');
+        // Its folder swept altogether, the same.
+        fs.rmSync(path.join(tmp, 'ws-1'), { recursive: true, force: true });
+        expect(launch({ runId: 'run-0' })).toContain('\n  - previous.review.handover — was not written in the earlier run\n');
+    });
+
+    it("a folder that cannot be read fails the launch, saying why", () => {
+        const unreadable = new RunFolder(() => {
+            throw new Error('EACCES: permission denied, scandir .../runs/run-0/review.');
+        });
+        const started = agentStepLaunch({
+            workspaceId: 'ws-1',
+            run: reviewing(),
+            definition: rereview,
+            stepId: 'review',
+            checkout: { cwd: '/code/catalog-portal', scopeId: 'scope-portal' },
+            source: undefined,
+            polled: undefined,
+            previous: { runId: 'run-0' },
+            folder: unreadable,
+        });
+        expect(started).toEqual({
+            ok: false,
+            error: "Its reads could not be read from the earlier run's folder (EACCES: permission denied, scandir .../runs/run-0/review).",
+        });
+    });
+
     it('a prompt never fills a previous path from this run', () => {
         // Validation refuses `previous` in a prompt; were one to reach a launch, this run's step of that name is not the earlier run's.
         const parsed = stepsDefinition(`  - name: review-assigned-prs

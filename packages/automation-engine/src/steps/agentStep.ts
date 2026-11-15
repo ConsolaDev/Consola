@@ -2,8 +2,9 @@ import { parseReadRef, parseTemplate, renderTemplate, type AgentStep, type RunRe
 import type { AgentLaunchRequest, RunFolderPort } from '../ports';
 import type { ItemSource } from '../sources/itemSource';
 import { previousDocument } from '../sources/previous';
-import { describeError, fillActionPlaceholders } from '../support';
+import { fillActionPlaceholders } from '../support';
 import type { ItemRef } from '../views';
+import { describeReason } from './commandStep';
 import type { RunDefinition } from './definition';
 import { joinNames } from './sequence';
 import { renderStepPrompt, type StepPromptInput } from './stepPrompt';
@@ -28,9 +29,10 @@ const utf8Bytes = (text: string): number => new TextEncoder().encode(text).lengt
 
 /**
  * What the step reads, as its prompt lists them: documents of this run's
- * earlier steps that their records say were written, and `previous` ones
- * the earlier run's folder holds. With no earlier run, `noEarlierRun`
- * says so instead of listing them.
+ * earlier steps that their records say were written, and every `previous`
+ * one it declares, with its size when the earlier run's folder holds it and
+ * why not when it does not. With no earlier run, `noEarlierRun` says so
+ * instead of listing them.
  */
 function readsOf(
     step: AgentStep,
@@ -44,8 +46,16 @@ function readsOf(
         if (!ref) continue;
         if (ref.previous) {
             readsPrevious = true;
+            if (!earlier.previous) continue;
             const document = previousDocument({ ...earlier, step: ref.step, name: ref.name, file: false });
-            if ('value' in document) reads.push({ ref: entry, step: ref.step, bytes: utf8Bytes(document.value), previous: true });
+            if ('value' in document) {
+                reads.push({ ref: entry, step: ref.step, bytes: utf8Bytes(document.value), previous: true });
+            } else {
+                // The reason names the read ("`previous.review.handover` was not written …"); the line already does.
+                const named = `\`${entry}\` `;
+                const absent = document.absent.startsWith(named) ? document.absent.slice(named.length) : document.absent;
+                reads.push({ ref: entry, step: ref.step, previous: true, absent });
+            }
             continue;
         }
         const written = records.find((record) => record.id === ref.step)?.artifacts?.find((artifact) => artifact.name === ref.name);
@@ -144,7 +154,7 @@ export function agentStepLaunch(input: {
     try {
         reads = readsOf(step, run.steps ?? [], { folder, workspaceId, previous });
     } catch (error) {
-        return { ok: false, error: `Its reads could not be read from the earlier run's folder (${describeError(error).replace(/\.$/, '')}).` };
+        return { ok: false, error: `Its reads could not be read from the earlier run's folder (${describeReason(error)}).` };
     }
     const prompt = renderStepPrompt({
         automation,
