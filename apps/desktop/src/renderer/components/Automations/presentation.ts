@@ -181,6 +181,25 @@ export function runKindCounts(runs: RunListEntry[], filter: RunListFilter, now: 
     return { all: count('all'), agent: count('agent'), tool: count('tool'), failed: count('failed') };
 }
 
+/**
+ * The counts the run list shows while it is neither narrowed nor paged: the
+ * total, and each kind's. They come from the snapshot, which holds every live
+ * run but only the newest ended ones, so while it leaves older runs out
+ * (`hasOlder`) each is a floor and reads "N+".
+ */
+export function snapshotRunCounts(
+    snapshot: Pick<AutomationsSnapshot, 'runs' | 'hasOlder'>,
+    filter: RunListFilter,
+    now: Date,
+): { all: string; kinds: Record<RunFilter, string> } {
+    const said = (count: number) => `${count}${snapshot.hasOlder ? '+' : ''}`;
+    const kinds = runKindCounts(snapshot.runs, filter, now);
+    return {
+        all: said(filterRuns(snapshot.runs, NO_RUN_FILTER, now).length),
+        kinds: { all: said(kinds.all), agent: said(kinds.agent), tool: said(kinds.tool), failed: said(kinds.failed) },
+    };
+}
+
 /** A local calendar day of a run list, as its heading says it, with its runs in the list's order. */
 export interface RunDayGroup<T extends RunFacts = RunFacts> {
     key: string;

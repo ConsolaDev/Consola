@@ -17,7 +17,7 @@ import {
   NO_RUN_FILTER,
   runAutomationOptions,
   runInsights,
-  runKindCounts,
+  snapshotRunCounts,
   type RunAutomationOption,
   type RunFilter,
   type RunListFilter,
@@ -130,7 +130,7 @@ function RunList({
   const openRunId = useAutomationsStore((state) => (state.panel?.kind === 'run' ? state.panel.runId : null));
   const arrivals = useArrivals(snapshot.runs);
   const { runs, hasOlder, loading, error, showOlder, paged } = useRunPages(workspaceId, snapshot, filter, now);
-  const kindCounts = runKindCounts(snapshot.runs, filter, now);
+  const counts = snapshotRunCounts(snapshot, filter, now);
   const narrowed = isRunFilterNarrowed(filter);
   const running = history.filter((run) => run.status === 'running').length;
   const queued = history.filter((run) => run.status === 'queued').length;
@@ -152,7 +152,7 @@ function RunList({
             Runs
           </h2>
           <span className="automations-runs-count" aria-live="polite">
-            {narrowed ? `${runs.length}${hasOlder ? '+' : ''}` : paged ? `${runs.length}${hasOlder ? '+' : ''}` : history.length}
+            {narrowed ? `${runs.length}${hasOlder ? '+' : ''}` : paged ? `${runs.length}${hasOlder ? '+' : ''}` : counts.all}
           </span>
           {running + queued > 0 && (
             <span className="automations-live" title="Updates as runs start and finish">
@@ -175,7 +175,7 @@ function RunList({
             >
               {label}
               {/* Counts come from the snapshot: beside narrowed or paged rows they could read "Failed 0". */}
-              {!narrowed && !paged && <span className="automations-segment-count">{kindCounts[id]}</span>}
+              {!narrowed && !paged && <span className="automations-segment-count">{counts.kinds[id]}</span>}
             </button>
           ))}
         </div>

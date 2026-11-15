@@ -39,6 +39,7 @@ import {
     formatElapsed,
     groupRunsByDay,
     runKindCounts,
+    snapshotRunCounts,
     templateModeWords,
     triggerInWords,
     runInsights,
@@ -866,6 +867,30 @@ describe('runKindCounts', () => {
             agent: 0,
             tool: 2,
             failed: 1,
+        });
+    });
+});
+
+describe('snapshotRunCounts', () => {
+    const runs = [
+        run({ id: 'a', kind: 'agent', automationId: 'review' }),
+        run({ id: 'b', kind: 'tool', automationId: 'tidy' }),
+        run({ id: 'c', kind: 'tool', automationId: 'tidy', status: 'failed' }),
+        run({ id: 'old', kind: 'tool', createdAt: ago(31 * DAY), updatedAt: ago(31 * DAY), finishedAt: ago(31 * DAY) }),
+    ];
+
+    it('says the total and each kind as counted, when the snapshot holds every run', () => {
+        expect(snapshotRunCounts({ runs, hasOlder: false }, by(), NOW)).toEqual({
+            all: '3',
+            kinds: { all: '3', agent: '1', tool: '2', failed: '1' },
+        });
+    });
+
+    it('says each as at least that many when the snapshot leaves older runs out', () => {
+        // The snapshot holds the newest 200 ended runs (and every live one): past them, its counts are floors.
+        expect(snapshotRunCounts({ runs, hasOlder: true }, by(), NOW)).toEqual({
+            all: '3+',
+            kinds: { all: '3+', agent: '1+', tool: '2+', failed: '1+' },
         });
     });
 });
