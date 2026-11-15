@@ -1,46 +1,60 @@
 import { describe, expect, it } from 'vitest';
 import type { OutputType } from '@consola/factory-spec';
 import type { CommandResult } from '../ports';
-import { OUTPUT_FILE_CAP_BYTES, describeFailure, layerCommandEnv, parseOutputFile } from './commandIO';
+import { OUTPUT_FILE_CAP_BYTES, describeFailure, layerCommandEnv, maskSecrets, parseOutputFile } from './commandIO';
 
 const VERDICT: OutputType = { type: 'enum', values: ['approve', 'comment', 'request-changes'] };
 const COUNT: OutputType = { type: 'integer' };
 const NOTE: OutputType = { type: 'string', maxLength: 100 };
+const TOKEN = 'gho_abc123';
 
-function failed(text: string, declared: Record<string, OutputType>): string {
-    const parsed = parseOutputFile(text, declared);
+const parse = (text: string, declared: Record<string, OutputType>, secrets: string[] = []) => parseOutputFile(text, declared, secrets);
+
+function failed(text: string, declared: Record<string, OutputType>, secrets: string[] = []): string {
+    const parsed = parse(text, declared, secrets);
     if (parsed.ok) throw new Error(`expected a problem, got ${JSON.stringify(parsed.outputs)}`);
     return parsed.problem;
 }
 
+describe('maskSecrets', () => {
+    it('replaces every occurrence of each secret, the longest first', () => {
+        expect(maskSecrets(`a ${TOKEN} b ${TOKEN}`, [TOKEN])).toBe('a *** b ***');
+        expect(maskSecrets('gho_abcdef', ['gho_abc', 'gho_abcdef'])).toBe('***');
+    });
+
+    it('ignores an empty secret', () => {
+        expect(maskSecrets('text', ['', TOKEN])).toBe('text');
+    });
+});
+
 describe('parseOutputFile', () => {
     it('reads key=value lines, ignoring blank ones', () => {
-        expect(parseOutputFile('\nverdict=approve\n\n   \ncount=3\n', { verdict: VERDICT, count: COUNT })).toEqual({
+        expect(parse('\nverdict=approve\n\n   \ncount=3\n', { verdict: VERDICT, count: COUNT })).toEqual({
             ok: true,
             outputs: { verdict: 'approve', count: 3 },
         });
     });
 
     it('splits at the first =, so a value may hold more', () => {
-        expect(parseOutputFile('note=a=b=c\n', { note: NOTE })).toEqual({ ok: true, outputs: { note: 'a=b=c' } });
+        expect(parse('note=a=b=c\n', { note: NOTE })).toEqual({ ok: true, outputs: { note: 'a=b=c' } });
     });
 
     it('strips a trailing CR', () => {
-        expect(parseOutputFile('verdict=comment\r\nnote=x\r\n', { verdict: VERDICT, note: NOTE })).toEqual({
+        expect(parse('verdict=comment\r\nnote=x\r\n', { verdict: VERDICT, note: NOTE })).toEqual({
             ok: true,
             outputs: { verdict: 'comment', note: 'x' },
         });
     });
 
     it('lets the last write win', () => {
-        expect(parseOutputFile('verdict=comment\nverdict=approve\n', { verdict: VERDICT })).toEqual({
+        expect(parse('verdict=comment\nverdict=approve\n', { verdict: VERDICT })).toEqual({
             ok: true,
             outputs: { verdict: 'approve' },
         });
     });
 
     it('takes an empty file when nothing is declared', () => {
-        expect(parseOutputFile('', {})).toEqual({ ok: true, outputs: {} });
+        expect(parse('', {})).toEqual({ ok: true, outputs: {} });
     });
 
     it('has no key<<EOF form', () => {
@@ -76,10 +90,43 @@ describe('parseOutputFile', () => {
     it('holds at most 64 KB', () => {
         const declared = { note: { type: 'string', maxLength: 2 * OUTPUT_FILE_CAP_BYTES } as OutputType };
         const exactly = 'note=' + 'x'.repeat(OUTPUT_FILE_CAP_BYTES - 'note='.length);
-        expect(parseOutputFile(exactly, declared).ok).toBe(true);
+        expect(parse(exactly, declared).ok).toBe(true);
         expect(failed(exactly + 'x', declared)).toMatch(/over 64 KB/);
         // Bytes, not characters: 'é' is two.
         expect(failed('note=' + 'é'.repeat(OUTPUT_FILE_CAP_BYTES / 2), declared)).toMatch(/over 64 KB/);
+    });
+
+    describe('keeps the token, and long text, out of a problem', () => {
+        it('masks a bad value', () => {
+            const problem = failed(`verdict=${TOKEN}\n`, { verdict: VERDICT }, [TOKEN]);
+            expect(problem).not.toContain(TOKEN);
+            expect(problem).toMatch(/line 1: verdict: expected one of: .* \(got '\*\*\*'\)/);
+        });
+
+        it('masks and clips an undeclared key', () => {
+            const problem = failed(`https://x-access-token:${TOKEN}@github.com/${'o/'.repeat(40)}r?a=b\n`, { verdict: VERDICT }, [TOKEN]);
+            expect(problem).not.toContain(TOKEN);
+            expect(problem).toContain('https://x-access-token:***@github.com/');
+            expect(problem).toMatch(/… is not an output of this step/);
+            expect(problem.length).toBeLessThan(200);
+        });
+
+        it('clips a long value', () => {
+            const problem = failed('count=' + 'x'.repeat(60_000) + '\n', { count: COUNT });
+            expect(problem).toMatch(/line 1: count: expected an integer \(got 'x+…'\)/);
+            expect(problem.length).toBeLessThan(200);
+        });
+
+        it('masks before clipping, so no part of a token shows at the cut', () => {
+            const problem = failed(`count=${'x'.repeat(60)}${TOKEN}\n`, { count: COUNT }, [TOKEN]);
+            expect(problem).not.toContain('gho_');
+            expect(problem).toContain(`${'x'.repeat(60)}***`);
+        });
+
+        it("says a string's length, not its text", () => {
+            const problem = failed(`note=${TOKEN.repeat(20)}\n`, { note: NOTE }, [TOKEN]);
+            expect(problem).toMatch(/line 1: note: expected text of at most 100 characters \(got 200\)/);
+        });
     });
 });
 

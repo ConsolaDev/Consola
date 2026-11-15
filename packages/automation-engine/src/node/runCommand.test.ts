@@ -1,14 +1,56 @@
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { CommandSpec, RunningCommand } from '../ports';
 import { describeFailure, layerCommandEnv } from '../steps/commandIO';
 import { startCommand } from './runCommand';
 
 const BASE: NodeJS.ProcessEnv = { PATH: process.env.PATH ?? '/usr/bin:/bin' };
+const TOKEN = 'gho_abc123';
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * The timers `runCommand.ts` has pending, found by wrapping the timer globals
+ * and reading each new timer's stack. Counting every timer in the process
+ * would also count vitest's own, which come and go under load.
+ */
+function trackTimers() {
+    const real = { setTimeout, setInterval, clearTimeout, clearInterval };
+    const pending = new Set<NodeJS.Timeout>();
+    const ours = () => /[\\/]runCommand\.ts:/.test(new Error().stack ?? '');
+    const fake = {
+        setTimeout: (callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+            const timer: NodeJS.Timeout = real.setTimeout((...given: unknown[]) => {
+                pending.delete(timer);
+                callback(...given);
+            }, ms, ...args);
+            if (ours()) pending.add(timer);
+            return timer;
+        },
+        setInterval: (callback: (...args: unknown[]) => void, ms?: number, ...args: unknown[]) => {
+            const timer = real.setInterval(callback, ms, ...args);
+            if (ours()) pending.add(timer);
+            return timer;
+        },
+        clearTimeout: (timer?: NodeJS.Timeout) => {
+            if (timer) pending.delete(timer);
+            real.clearTimeout(timer);
+        },
+        clearInterval: (timer?: NodeJS.Timeout) => {
+            if (timer) pending.delete(timer);
+            real.clearInterval(timer);
+        },
+    };
+    Object.assign(globalThis, fake);
+    return {
+        pending: () => pending.size,
+        /** Pending timers that keep the process alive (an `unref`'d one does not). */
+        holding: () => [...pending].filter((timer) => timer.hasRef()).length,
+        restore: () => Object.assign(globalThis, real),
+    };
+}
 
 function alive(pid: number): boolean {
     try {
@@ -46,6 +88,9 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
                 // already gone
             }
         }
+        // A test that failed before reading `./pid` still leaves it.
+        const written = Number(fs.existsSync(path.join(dir, 'pid')) ? fs.readFileSync(path.join(dir, 'pid'), 'utf8').trim() : '');
+        if (written > 0) grandchildren.push(written);
         for (const pid of grandchildren) if (alive(pid)) process.kill(pid, 'SIGKILL');
         fs.rmSync(dir, { recursive: true, force: true });
     });
@@ -119,6 +164,78 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
     it('takes the last line of stderr as plain text', async () => {
         const result = await start(String.raw`printf 'one\n\033[31merror: bad\033[0m\r\n\n' >&2; exit 1`).result;
         expect(result.lastStderrLine).toBe('error: bad');
+    });
+
+    describe('keeps the token out of the last line of stderr', () => {
+        // Each splits the token in the raw stream with bytes the last line strips.
+        it.each([
+            ['an escape sequence inside it', String.raw`printf 'gho_\033[0mabc123\n' >&2; exit 1`],
+            ['grep colouring it', 'echo "token is $GH_TOKEN" | grep --color=always gho >&2; exit 1'],
+            ['a NUL inside it', String.raw`printf 'gho_\0abc123\n' >&2; exit 1`],
+            ['UTF-16', `printf '%s\\n' "$GH_TOKEN" | iconv -f UTF-8 -t UTF-16LE >&2; exit 1`],
+        ])('%s', async (_name, command) => {
+            const env = layerCommandEnv({ ...BASE, GH_TOKEN: TOKEN }, {}, {});
+            const result = await start(command, { env, secrets: [TOKEN] }).result;
+            expect(result.exitCode).toBe(1);
+            expect(result.lastStderrLine).toContain('***');
+            expect(result.lastStderrLine).not.toContain(TOKEN);
+            expect(describeFailure(result, 600_000)).not.toContain(TOKEN);
+        });
+    });
+
+    it('clips the last line of stderr', async () => {
+        const result = await start(`printf '%01000d\\n' 0 >&2; exit 1`).result;
+        expect(result.lastStderrLine).toBe(`${'0'.repeat(300)}…`);
+    });
+
+    it('ends what the command left running once it exits', async () => {
+        const result = await start('sleep 300 >/dev/null 2>&1 & echo $! > pid; echo done').result;
+        expect(result.exitCode).toBe(0);
+        const pid = await pidFile();
+        await reaped(pid);
+        expect(() => process.kill(pid, 0)).toThrow();
+    });
+
+    it('kills a leftover that ignores SIGTERM after the grace, without holding the host alive', async () => {
+        const timers = trackTimers();
+        let settledAt = 0;
+        try {
+            const result = await start(
+                "(trap '' TERM; echo > ready; exec sleep 300) >/dev/null 2>&1 & echo $! > pid; until [ -f ready ]; do sleep 0.01; done",
+                { killGraceMs: 300 },
+            ).result;
+            settledAt = Date.now();
+            expect(result.exitCode).toBe(0);
+            // The grace's two timers (SIGKILL and the group check) are pending, and neither holds a headless host open.
+            expect(timers.pending()).toBe(2);
+            expect(timers.holding()).toBe(0);
+        } finally {
+            timers.restore();
+        }
+        const pid = await pidFile();
+        expect(alive(pid)).toBe(true);
+        await reaped(pid);
+        expect(() => process.kill(pid, 0)).toThrow();
+        expect(Date.now() - settledAt).toBeGreaterThanOrEqual(250);
+    });
+
+    it('sends no SIGKILL once the group is gone', async () => {
+        const kill = vi.spyOn(process, 'kill');
+        try {
+            // It holds the pipe, and leaves ~200 ms after SIGTERM: alive when the result settles, gone before the grace ends.
+            const holder = "(trap 'sleep 0.2; exit 0' TERM; echo > ready; while :; do sleep 0.05; done) >&1 & echo $! > pid";
+            const result = await start(`${holder}; until [ -f ready ]; do sleep 0.01; done; echo done`, { pipeGraceMs: 100, killGraceMs: 1500 }).result;
+            const settledAt = Date.now();
+            expect(result.exitCode).toBe(0);
+            const pid = await pidFile();
+            await reaped(pid);
+            await pause(Math.max(0, settledAt + 1700 - Date.now())); // past the grace
+            const group = kill.mock.calls.filter(([target]) => target < 0);
+            expect(group.map(([, name]) => name)).toContain('SIGTERM');
+            expect(group.map(([, name]) => name)).not.toContain('SIGKILL');
+        } finally {
+            kill.mockRestore();
+        }
     });
 
     it('a timeout kills the whole group, grandchildren included', async () => {
@@ -206,5 +323,25 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
             fs.chmodSync(locked, 0o755);
         }
         expect(fs.readdirSync(locked)).toEqual([]);
+    });
+
+    it.skipIf(process.getuid?.() === 0)('keeps a rejection for a consumer that awaits it late', async () => {
+        const unhandled = vi.fn();
+        process.on('unhandledRejection', unhandled);
+        const locked = path.join(dir, 'locked');
+        fs.mkdirSync(locked, { mode: 0o000 });
+        try {
+            const spec = { command: 'true', env: BASE, timeoutMs: 1000, stdoutPath: stdoutLog(), stderrPath: stderrLog(), secrets: [] };
+            // Not through `start`, whose bookkeeping would consume the rejection itself.
+            const beforeSpawning = startCommand({ ...spec, cwd: path.join(dir, 'missing') });
+            const onSpawning = startCommand({ ...spec, cwd: locked });
+            await pause(50); // e.g. a durable write between start() and awaiting the result
+            await expect(beforeSpawning.result).rejects.toThrow(/missing/);
+            await expect(onSpawning.result).rejects.toThrow(/EACCES/);
+            expect(unhandled).not.toHaveBeenCalled();
+        } finally {
+            process.off('unhandledRejection', unhandled);
+            fs.chmodSync(locked, 0o755);
+        }
     });
 });

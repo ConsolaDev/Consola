@@ -31,6 +31,24 @@ describe('withoutGitHooks', () => {
         expect(fs.existsSync(marker)).toBe(true);
     });
 
+    it.each([
+        ['-1', {}],
+        ['abc', {}],
+        ['2.5', { GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 't', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 't@t' }],
+        ['2', { GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 't', GIT_CONFIG_KEY_1: 'user.email', GIT_CONFIG_VALUE_1: 't@t' }],
+    ])('keeps hooks off with GIT_CONFIG_COUNT=%s, in an entry git reads', (count, entries) => {
+        const env = withoutGitHooks({ ...entries, GIT_CONFIG_COUNT: count });
+        const total = env.GIT_CONFIG_COUNT ?? '';
+        expect(total).toMatch(/^\d+$/);
+        const index = Array.from({ length: Number(total) }, (_, n) => n).find(
+            (n) => env[`GIT_CONFIG_KEY_${n}`] === 'core.hooksPath' && env[`GIT_CONFIG_VALUE_${n}`] === '/dev/null',
+        );
+        expect(index).toBeDefined();
+        // And git agrees: outside any repository, the environment's entry is the answer.
+        const answer = execFileSync('git', ['config', '--get', 'core.hooksPath'], { cwd: root, env: { PATH: process.env.PATH, ...env }, encoding: 'utf8' });
+        expect(answer.trim()).toBe('/dev/null');
+    });
+
     it('appends to config entries already in the environment', () => {
         const env = withoutGitHooks({ GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'user.name', GIT_CONFIG_VALUE_0: 't' });
         expect(env).toEqual({

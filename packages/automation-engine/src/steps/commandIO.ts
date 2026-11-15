@@ -3,7 +3,7 @@
  * Node executor (`node/runCommand`) spawns, and the engine reads the files
  * through `RunFolderPort`.
  */
-import { coerceOutput, type OutputType, type OutputValue } from '@consola/factory-spec';
+import { coerceOutput, describeOutputType, type OutputType, type OutputValue } from '@consola/factory-spec';
 import { withoutGitHooks } from '../gitEnv';
 import type { CommandResult } from '../ports';
 
@@ -11,8 +11,17 @@ import type { CommandResult } from '../ports';
 export const LOG_CAP_BYTES = 1024 * 1024;
 /** The most `$CONSOLA_OUTPUT` may hold. Long text belongs in an artifact. */
 export const OUTPUT_FILE_CAP_BYTES = 64 * 1024;
+/** The most of a key or value a problem repeats. */
+const ECHO_MAX_CHARS = 64;
 
 const STOPPED = 'Stopped while running: it may have done its work';
+
+/** `text` with every secret replaced by ***, the longest first. Empty secrets are ignored. */
+export function maskSecrets(text: string, secrets: readonly string[]): string {
+    return [...new Set(secrets.filter((secret) => secret.length > 0))]
+        .sort((a, b) => b.length - a.length)
+        .reduce((masked, secret) => masked.split(secret).join('***'), text);
+}
 
 /** The environment a command runs with, in the spec's order: base (login env + token), rendered env:, Consola's variables, then git hooks off. */
 export function layerCommandEnv(
@@ -32,9 +41,10 @@ function listed(names: string[]): string {
     return names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 }
 
-/** A key as a problem shows it: whatever was written before the `=`, kept short. */
-function shown(key: string): string {
-    return key.length > 64 ? `${key.slice(0, 64)}…` : key;
+/** At most `max` characters of `text` (by code point), marked with … when cut. */
+export function clipText(text: string, max: number): string {
+    const characters = Array.from(text);
+    return characters.length > max ? `${characters.slice(0, max).join('')}…` : text;
 }
 
 /**
@@ -42,14 +52,19 @@ function shown(key: string): string {
  * line is `key=value`, split at the first `=`, with a trailing CR stripped.
  * Keys must be declared, values must coerce to their type, and the last write
  * of a key wins. The first bad line fails it, by its number; so does a
- * declared output left unset.
+ * declared output left unset. A problem repeats what the command wrote only
+ * masked (`secrets`), then clipped, since it is kept as the step's error.
  */
 export function parseOutputFile(
     text: string,
     declared: Record<string, OutputType>,
+    secrets: readonly string[],
 ): { ok: true; outputs: Record<string, OutputValue> } | { ok: false; problem: string } {
+    const fail = (problem: string) => ({ ok: false as const, problem: maskSecrets(problem, secrets) });
+    // Masked before clipping, so a cut never leaves part of a secret.
+    const echo = (written: string) => clipText(maskSecrets(written, secrets), ECHO_MAX_CHARS);
     if (utf8Bytes(text) > OUTPUT_FILE_CAP_BYTES) {
-        return { ok: false, problem: '$CONSOLA_OUTPUT is over 64 KB; long text belongs in an artifact.' };
+        return fail('$CONSOLA_OUTPUT is over 64 KB; long text belongs in an artifact.');
     }
     const names = Object.keys(declared);
     const outputs: Record<string, OutputValue> = {};
@@ -61,19 +76,25 @@ export function parseOutputFile(
         const equals = line.indexOf('=');
         if (equals <= 0) {
             const heredoc = /^[^=]*<</.test(line) ? '; there is no key<<EOF form, long text belongs in an artifact' : '';
-            return { ok: false, problem: `${at}: expected key=value${heredoc}` };
+            return fail(`${at}: expected key=value${heredoc}`);
         }
         const key = line.slice(0, equals);
         if (!Object.prototype.hasOwnProperty.call(declared, key)) {
             const has = names.length ? `it has: ${names.join(', ')}` : 'it declares none';
-            return { ok: false, problem: `${at}: ${shown(key)} is not an output of this step (${has})` };
+            return fail(`${at}: ${echo(key)} is not an output of this step (${has})`);
         }
-        const coerced = coerceOutput(declared[key], line.slice(equals + 1));
-        if (!coerced.ok) return { ok: false, problem: `${at}: ${key}: ${coerced.problem}` };
+        const type = declared[key];
+        const value = line.slice(equals + 1);
+        const coerced = coerceOutput(type, value);
+        if (!coerced.ok) {
+            // `coerceOutput`'s own wording, with the value it would quote whole echoed safely.
+            const got = type.type === 'string' ? String(value.length) : `'${echo(value)}'`;
+            return fail(`${at}: ${key}: expected ${describeOutputType(type)} (got ${got})`);
+        }
         outputs[key] = coerced.value;
     }
     const missing = names.filter((name) => !Object.prototype.hasOwnProperty.call(outputs, name));
-    if (missing.length) return { ok: false, problem: `ended without setting ${listed(missing)} in $CONSOLA_OUTPUT` };
+    if (missing.length) return fail(`ended without setting ${listed(missing)} in $CONSOLA_OUTPUT`);
     return { ok: true, outputs };
 }
 

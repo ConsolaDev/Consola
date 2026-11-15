@@ -179,7 +179,7 @@ export interface CommandResult {
     stderrBytes: number;
     /** A log stopped short of what the command wrote. */
     truncated: boolean;
-    /** Masked, without escape sequences or control characters. */
+    /** Without escape sequences or control characters, masked after they are stripped, and clipped to 300 characters. */
     lastStderrLine?: string;
 }
 

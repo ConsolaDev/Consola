@@ -2,7 +2,7 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import type { CommandResult, CommandSpec, RunningCommand } from '../ports';
-import { LOG_CAP_BYTES } from '../steps/commandIO';
+import { LOG_CAP_BYTES, clipText, maskSecrets } from '../steps/commandIO';
 
 /** GitHub Actions' default bash: no profile or rc files, stop at the first failure, a pipeline fails with any part. */
 export const COMMAND_SHELL: readonly string[] = ['/bin/bash', '--noprofile', '--norc', '-e', '-o', 'pipefail', '-c'];
@@ -10,8 +10,12 @@ export const COMMAND_SHELL: readonly string[] = ['/bin/bash', '--noprofile', '--
 export const KILL_GRACE_MS = 10_000;
 /** How long the pipes may stay open after the shell exited, held by something it left running. */
 const PIPE_GRACE_MS = 2000;
+/** How often, during the grace, the group is checked for anything left in it. */
+const GROUP_POLL_MS = 100;
 /** How much of stderr's end is kept, to find its last line. */
 const STDERR_TAIL_BYTES = 4096;
+/** The most of the last line of stderr a result keeps: it becomes the step's error. */
+const STDERR_LINE_MAX_CHARS = 300;
 /** The longest a Node timer waits; a longer one fires at once. */
 const MAX_TIMER_MS = 2 ** 31 - 1;
 const MASK = Buffer.from('***');
@@ -80,12 +84,15 @@ class LogSink {
     private failed = false;
     private closed = false;
     private tail = EMPTY;
+    private readonly masker: Masker;
 
     constructor(
         private readonly fd: number,
-        private readonly masker: Masker,
+        private readonly secrets: readonly string[],
         private readonly keepsTail: boolean,
-    ) {}
+    ) {
+        this.masker = new Masker(secrets);
+    }
 
     write(chunk: Buffer): void {
         this.produced += chunk.length;
@@ -103,12 +110,14 @@ class LogSink {
         }
     }
 
-    /** The last non-blank line written, as plain text. */
+    /** The last non-blank line written, as plain text, masked and clipped. */
     lastLine(): string | undefined {
         const lines = this.tail.toString('utf8').split('\n');
         for (let i = lines.length - 1; i >= 0; i--) {
-            const line = lines[i].replace(ESCAPES, '').replace(CONTROLS, '').trim();
-            if (line) return line;
+            // Masked again after stripping: a secret split by an escape, a NUL or
+            // UTF-16's zero bytes never matched in the stream, and is whole only now.
+            const line = maskSecrets(lines[i].replace(ESCAPES, '').replace(CONTROLS, ''), this.secrets).trim();
+            if (line) return clipText(line, STDERR_LINE_MAX_CHARS);
         }
         return undefined;
     }
@@ -164,8 +173,8 @@ function launch(spec: CommandSpec) {
         });
         return {
             child,
-            stdout: new LogSink(fds[0], new Masker(spec.secrets), false),
-            stderr: new LogSink(fds[1], new Masker(spec.secrets), true),
+            stdout: new LogSink(fds[0], spec.secrets, false),
+            stderr: new LogSink(fds[1], spec.secrets, true),
         };
     } catch (error) {
         for (const fd of fds) closeQuietly(fd);
@@ -179,14 +188,18 @@ function launch(spec: CommandSpec) {
  * timeout reaches everything it started: SIGTERM to the group, then SIGKILL
  * after the grace. The result comes from the shell's exit, not from its
  * pipes: if something it left running still holds them `pipeGraceMs` later,
- * the group is ended and the result resolves anyway.
+ * the group is ended and the result resolves anyway. Whatever is left in the
+ * group when the result settles is ended the same way.
  */
 export function startCommand(spec: CommandSpec): RunningCommand {
     let launched: ReturnType<typeof launch>;
     try {
         launched = launch(spec);
     } catch (error) {
-        return { pid: undefined, result: Promise.reject(error), stop() {} };
+        const result = Promise.reject(error);
+        // Its consumer still sees the rejection; awaiting it later is not an unhandled one.
+        result.catch(() => undefined);
+        return { pid: undefined, result, stop() {} };
     }
     const { child, stdout, stderr } = launched;
     const pid = child.pid;
@@ -199,23 +212,44 @@ export function startCommand(spec: CommandSpec): RunningCommand {
     let settled = false;
     let timedOut = false;
     let stopped = false;
-    let killTimer: NodeJS.Timeout | undefined;
     let pipeTimer: NodeJS.Timeout | undefined;
+    let killTimer: NodeJS.Timeout | undefined;
+    let pollTimer: NodeJS.Timeout | undefined;
+    let groupGone = false;
 
-    /** Signals every process in the group; false when none is left. */
+    const unwatch = (): void => {
+        clearTimeout(killTimer);
+        clearInterval(pollTimer);
+    };
+    /**
+     * Signals every process in the group; false when none is left. Once the
+     * group is found gone it is never signalled again: its id may be reused.
+     */
     const signalGroup = (name: NodeJS.Signals | 0): boolean => {
-        if (pid === undefined) return false;
+        if (groupGone || pid === undefined) return false;
         try {
             process.kill(-pid, name);
             return true;
         } catch {
+            groupGone = true;
+            unwatch();
             return false;
         }
     };
-    /** SIGTERM to the group now, and SIGKILL after the grace (scheduled once). */
+    /**
+     * SIGTERM to the group now, then SIGKILL after the grace, unless a check
+     * every `GROUP_POLL_MS` finds it empty first. Only the first call does
+     * anything, and neither timer keeps a host process alive.
+     */
     const terminate = (): void => {
-        if (!signalGroup('SIGTERM') || killTimer) return;
-        killTimer = setTimeout(() => signalGroup('SIGKILL'), killGraceMs);
+        if (killTimer || !signalGroup('SIGTERM')) return;
+        killTimer = setTimeout(() => {
+            signalGroup('SIGKILL');
+            unwatch();
+        }, killGraceMs);
+        pollTimer = setInterval(() => signalGroup(0), GROUP_POLL_MS);
+        killTimer.unref();
+        pollTimer.unref();
     };
 
     const timeoutTimer = setTimeout(() => {
@@ -237,8 +271,8 @@ export function startCommand(spec: CommandSpec): RunningCommand {
             }
             stdout.end();
             stderr.end();
-            // Nothing left in the group: the SIGKILL would have nothing to reach.
-            if (killTimer && !signalGroup(0)) clearTimeout(killTimer);
+            // What it left running ends with it: only outputs, artifacts and the checkout cross steps.
+            terminate();
             const lastStderrLine = stderr.lastLine();
             resolve({
                 exitCode,
@@ -278,6 +312,8 @@ export function startCommand(spec: CommandSpec): RunningCommand {
         });
         child.once('close', finish);
     });
+    // Its consumer still sees a rejection; awaiting it later is not an unhandled one.
+    result.catch(() => undefined);
 
     return {
         pid,
