@@ -2,6 +2,7 @@ import { CONSOLA_NAMESPACE } from './support';
 import type { EngineTool } from './ports';
 import { LATER_KEYS, type AutomationMode } from '@consola/factory-spec';
 import { assignedReviewsEntry } from './factoryTemplates';
+import { OUTPUT_FILE_CAP_BYTES } from './steps/commandIO';
 import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
 
 /**
@@ -123,16 +124,16 @@ Rules:
 - An event trigger needs its connection bound to this workspace (Workspace settings).
 
 Steps. Each step has exactly one of prompt:, action: or run:. A prompt: or action: step is a new read-only, unattended agent session on the default harness; a run: step is a shell command. Keys:
-- id: ^[a-z][a-z0-9-]{0,31}$, unique, optional (an unnamed step is step-<n> and cannot be referenced).
+- id: ^[a-z][a-z0-9-]{0,31}$, unique, optional (an unnamed step is step-<n> and cannot be referenced; step-<n> and previous are refused as ids).
 - if: an expression; the step runs when it is true.
 - prompt: instructions. action: one of the workspace's actions, which must apply to the item; its body is filled as an action's is, and {{ }} does not apply to it.
 - run: a command. env: { NAME: "text {{ path }}" }, names ^[A-Z_][A-Z0-9_]*$, never CONSOLA_*. timeout: <n>s|m|h, default 10m, at most 1h.
 - dry_run: report (default) or run: what a notify run does with the command; run is for a command that only reads.
-- outputs: typed values the step must end with, at most 10, named ^[a-z][a-z0-9_]{0,31}$: { verdict: { enum: [a, b] }, n: integer, x: { type: number, minimum: 0, maximum: 1 }, ok: boolean, s: { type: string, maxLength: 500 } }. A string defaults to 1000 characters, at most 4000. A run: step may instead say outputs: { from: stdout, format: json | text }: stdout becomes its artifact \`output\`.
+- outputs: typed values the step must end with, at most 10, named ^[a-z][a-z0-9_]{0,31}$, never handover or output (reserved, like artifact names): { verdict: { enum: [a, b] } (1 to 20 values, each 1 to 64 characters, no line breaks), n: integer, x: { type: number, minimum: 0, maximum: 1 }, ok: boolean, s: { type: string, maxLength: 500 } }. A string defaults to 1000 characters, at most 4000. A run: step may instead say outputs: { from: stdout, format: json | text }: stdout becomes its artifact \`output\`.
 - artifacts: [names] an agent step must write before it ends; it may always write a handover. reads: [<step>.<artifact>] are the only earlier documents an agent step sees (<step>.handover, <step>.output).
 Not supported yet, refused with a reason: ${REFUSED_KEYS}. A step has no inputs: use reads:.
 
-A run: step reads outputs from the file named by $CONSOLA_OUTPUT, one key=value line each: echo "needed=true" >> "$CONSOLA_OUTPUT". It runs as ${RUN_AS}
+A run: step reads outputs from the file named by $CONSOLA_OUTPUT, one key=value line each: echo "needed=true" >> "$CONSOLA_OUTPUT". Set every declared output or the step fails; at most ${OUTPUT_FILE_CAP_BYTES / 1024} KB; no key<<EOF form. It runs as ${RUN_AS}
 
 Values: {{ }} works only in prompt: and env:, never in run:. Move {{item.url}} into env: and write "$PR" in the command; shape gh output with --jq. A path is item.<field>, steps.<id>.<output or artifact> (its content), or steps.<id>.<artifact>.file (an absolute path, for big documents). Prompts take trusted values only: item.${TRUSTED_ITEM_FIELDS.join(', ')} and enum, integer, number and boolean outputs; not item.title, item.author, string outputs or artifacts (text someone else wrote: use reads:). env: takes any path. A handover is required only when a later step reads it (reads: or env:).
 

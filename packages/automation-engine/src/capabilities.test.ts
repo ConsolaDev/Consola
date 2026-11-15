@@ -66,6 +66,10 @@ describe('what an agent writing an entry is told', () => {
         }
         expect(text).toContain('$CONSOLA_OUTPUT');
         expect(text).toContain('from: stdout');
+        expect(text).toContain('Set every declared output or the step fails; at most 64 KB; no key<<EOF form.');
+        expect(text).toContain('step-<n> and previous are refused as ids');
+        expect(text).toContain('never handover or output');
+        expect(text).toContain('1 to 20 values, each 1 to 64 characters, no line breaks');
         expect(text).toContain('{{ }} works only in prompt: and env:, never in run:');
         expect(text).toContain(
             "your login environment and the workspace's bound account, in the item's own checkout or the scope folder, with git hooks off. In a pull request's checkout, a command that builds or tests runs the author's code."
@@ -83,6 +87,21 @@ describe('what an agent writing an entry is told', () => {
             const trusted = parseAutomationEntry(yaml.split('automations:\n')[1]).ok;
             expect(trusted, field).toBe(TRUSTED_ITEM_FIELDS.includes(field));
         }
+    });
+
+    it('the enum and reserved-name limits in the prose match the validator', () => {
+        const entry = (outputs: string, id = 'a') =>
+            `- name: probe\n  on: { github: pull_request.review_requested }\n  steps:\n    - id: ${id}\n      prompt: Look.\n      outputs: ${outputs}`;
+        const enumOf = (values: string[]) => `{ v: { enum: [${values.map((v) => JSON.stringify(v)).join(', ')}] } }`;
+        const twenty = Array.from({ length: 20 }, (_, i) => `v${i}`);
+        expect(parseAutomationEntry(entry(enumOf(twenty))).ok).toBe(true);
+        expect(parseAutomationEntry(entry(enumOf([...twenty, 'v20']))).ok).toBe(false);
+        expect(parseAutomationEntry(entry(enumOf(['x'.repeat(64)]))).ok).toBe(true);
+        expect(parseAutomationEntry(entry(enumOf(['x'.repeat(65)]))).ok).toBe(false);
+        expect(parseAutomationEntry(entry('{ handover: boolean }')).ok).toBe(false);
+        expect(parseAutomationEntry(entry('{ output: boolean }')).ok).toBe(false);
+        expect(parseAutomationEntry(entry('{ ok: boolean }', 'step-1')).ok).toBe(false);
+        expect(parseAutomationEntry(entry('{ ok: boolean }', 'previous')).ok).toBe(false);
     });
 
     it('READ_ONLY_LIMITS says posting is a run: step', () => {

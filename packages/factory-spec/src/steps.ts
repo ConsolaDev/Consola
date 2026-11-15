@@ -65,7 +65,7 @@ export type Step = AgentStep | CommandStep;
  * and entries: a refusal, not an ignore, since an ignored `gate:` would run
  * the step it guards.
  */
-export const LATER_KEYS: Record<string, string> = {
+export const LATER_KEYS: Readonly<Record<string, string>> = {
     agent: 'agents as files',
     skills: 'agents as files',
     mcpServers: 'agents as files',
