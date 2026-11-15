@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentStep, CommandStep, Step, StepRun, StepRunStatus } from '@consola/factory-spec';
-import { STOPPED } from './commandIO';
+import { parseExpression, type AgentStep, type CommandStep, type Step, type StepRun, type StepRunStatus } from '@consola/factory-spec';
 import { advanceSteps, laneOf, notRunAfter, runSummary, type Advance } from './sequence';
 
 const fresh: CommandStep = {
@@ -130,24 +129,30 @@ describe('advanceSteps: a dependency that did not complete', () => {
     it.each([
         ['skipped', 'skipped'],
         ['not-run', 'not run'],
-        ['failed', 'failed'],
     ] as const)('an if reading a %s step is skipped without evaluating (%s)', (status, word) => {
         const steps = [{ ...fresh, id: 'a' }, { ...review, id: 'b', if: 'steps.a.needed' }];
-        const rec = [record(steps[0], status), record(steps[1], 'pending')];
-        // a failed step fails the run first; give the run another way to reach the reader
-        const out = status === 'failed' ? advance(steps, [record(steps[0], 'skipped'), rec[1]]) : advance(steps, rec);
-        const expectedWord = status === 'failed' ? 'skipped' : word;
+        const out = advance(steps, [record(steps[0], status), record(steps[1], 'pending')]);
         expect(out).toMatchObject({
             kind: 'complete',
-            updates: [{ id: 'b', status: 'skipped', skipped: `steps.a.needed has no value: a was ${expectedWord}` }],
+            updates: [{ id: 'b', status: 'skipped', skipped: `steps.a.needed has no value: a was ${word}` }],
         });
     });
 
-    it('names a step that was stopped "stopped"', () => {
-        const reader: Step[] = [{ ...fresh, id: 'a', outputs: {} }, { ...review, id: 'b', if: 'steps.a.needed' }];
-        const stopped = [record(reader[0], 'failed', { error: STOPPED }), record(reader[1], 'pending')];
-        // pinned through noValue's wording by a producer the run no longer treats as live
-        expect(advance(reader, stopped)).toMatchObject({ kind: 'fail', stepId: 'a', error: STOPPED });
+    it('fails a step whose if cannot be read, and marks later steps not-run', () => {
+        const steps: Step[] = [{ ...fresh, id: 'a', outputs: {}, if: 'steps.x &&' }, { ...fresh, id: 'b', outputs: {} }];
+        const parsed = parseExpression('steps.x &&');
+        const problem = parsed.ok ? '' : parsed.problem;
+        const error = `if: steps.x && could not be read: ${problem}`;
+        expect(problem).not.toBe('');
+        expect(advance(steps, records(steps, {}))).toEqual({
+            kind: 'fail',
+            stepId: 'a',
+            error,
+            updates: [
+                { id: 'a', status: 'failed', error },
+                { id: 'b', status: 'not-run' },
+            ],
+        });
     });
 
     it('a reads of a skipped step skips the reader', () => {
@@ -341,6 +346,7 @@ describe('notRunAfter', () => {
         const settled = records(template, { fresh: 'failed', review: 'skipped', publish: 'pending' });
         expect(notRunAfter(template, settled, 'fresh')).toEqual([{ id: 'publish', status: 'not-run' }]);
         expect(notRunAfter(template, settled, 'publish')).toEqual([]);
+        expect(notRunAfter(template, settled, 'nope')).toEqual([]);
     });
 });
 

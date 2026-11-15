@@ -1,5 +1,6 @@
 import {
     evaluateExpression,
+    type Expr,
     expressionPaths,
     parseExpression,
     templatePaths,
@@ -8,7 +9,6 @@ import {
     type StepRun,
     type StepRunStatus,
 } from '@consola/factory-spec';
-import { STOPPED } from './commandIO';
 
 /*
  * What a steps run does next, decided from its record alone. Pure: it reads
@@ -49,13 +49,15 @@ function recorded(record: StepRun | undefined, name: string, file: boolean): Exp
     return hasArtifact ? name : undefined;
 }
 
-/** The word a producer's record gives for why it has no value. */
+/**
+ * The word a producer's record gives for why it has no value. Only the states
+ * a dependent can meet are named: a failed or stopped producer fails the run
+ * before any dependent is considered.
+ */
 function whyNothing(record: StepRun | undefined): string {
     switch (record?.status) {
         case 'skipped':
             return 'skipped';
-        case 'failed':
-            return record.error?.startsWith(STOPPED) ? 'stopped' : 'failed';
         case 'completed':
             return 'completed without it';
         default:
@@ -84,15 +86,12 @@ interface Reference {
 }
 
 /** What a pending step needs: its `if:`'s step outputs, its `reads:`, and the paths its templates fill. Item fields in an `if:` are the evaluator's to ask for. */
-function dependenciesOf(step: Step): { conditions: Reference[]; reads: Reference[]; templates: Reference[]; item: string[] } {
+function dependenciesOf(step: Step, condition: Expr | undefined): { conditions: Reference[]; reads: Reference[]; templates: Reference[]; item: string[] } {
     const conditions: Reference[] = [];
     const item: string[] = [];
-    if (step.if !== undefined) {
-        const parsed = parseExpression(step.if);
-        if (parsed.ok) {
-            for (const path of expressionPaths(parsed.expr)) {
-                if (path.kind === 'output') conditions.push({ path: path.text, step: path.step, name: path.output });
-            }
+    if (condition) {
+        for (const path of expressionPaths(condition)) {
+            if (path.kind === 'output') conditions.push({ path: path.text, step: path.step, name: path.output });
         }
     }
     const reads: Reference[] = step.kind === 'agent' ? step.reads.map((entry) => ({ path: entry, step: entry.split('.')[0] })) : [];
@@ -135,7 +134,13 @@ export function advanceSteps(input: {
             mine.skipped = reason;
             updates.push({ id: step.id, status: 'skipped', skipped: reason });
         };
-        const deps = dependenciesOf(step);
+        let condition: Expr | undefined;
+        if (step.if !== undefined) {
+            const parsed = parseExpression(step.if);
+            if (!parsed.ok) return failStep(step.id, `if: ${step.if} could not be read: ${parsed.problem}`);
+            condition = parsed.expr;
+        }
+        const deps = dependenciesOf(step, condition);
 
         // A dependency that did not complete skips the step; `if:` is not evaluated.
         const missed = [...deps.conditions, ...deps.reads].find((ref) => now.get(ref.step)?.status !== 'completed');
@@ -150,19 +155,16 @@ export function advanceSteps(input: {
             continue;
         }
 
-        if (step.if !== undefined) {
-            const parsed = parseExpression(step.if);
-            if (parsed.ok) {
-                const verdict = evaluateExpression(parsed.expr, (path) =>
-                    path.kind === 'output' ? recorded(now.get(path.step), path.output, false) : itemValue?.(path.field),
-                );
-                if (!verdict.ok) {
-                    return failStep(step.id, `${verdict.missing.text} has no value: this run has no such item field`);
-                }
-                if (!verdict.value) {
-                    skip(`if: ${step.if} is false`);
-                    continue;
-                }
+        if (condition) {
+            const verdict = evaluateExpression(condition, (path) =>
+                path.kind === 'output' ? recorded(now.get(path.step), path.output, false) : itemValue?.(path.field),
+            );
+            if (!verdict.ok) {
+                return failStep(step.id, `${verdict.missing.text} has no value: this run has no such item field`);
+            }
+            if (!verdict.value) {
+                skip(`if: ${step.if} is false`);
+                continue;
             }
         }
 
@@ -194,6 +196,7 @@ export function advanceSteps(input: {
 /** `not-run` for every step after `stepId` that has not settled. */
 export function notRunAfter(steps: Step[], records: StepRun[], stepId: string): StepUpdate[] {
     const from = steps.findIndex((step) => step.id === stepId);
+    if (from === -1) return [];
     const open: StepRunStatus[] = ['pending', 'queued'];
     return steps
         .slice(from + 1)
