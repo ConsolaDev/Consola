@@ -2,7 +2,7 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
 import { parseToolRef, type RunTarget } from './runTarget';
-import { LATER_KEYS, laterKeyMessage, stepsSchema, type Step } from './steps';
+import { checkSteps, LATER_KEYS, laterKeyMessage, stepsSchema, type Step } from './steps';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -264,6 +264,12 @@ function automationEntrySchema() {
                     if (!entry.scope) {
                         issue('scope', 'Say where this runs: `scope: <one of the workspace’s scopes>`. A schedule has no item to run on.');
                     }
+                }
+                // A step that failed its own checks leaves no list to resolve against.
+                if (Array.isArray(steps)) {
+                    checkSteps(steps, trigger, ['steps'], (message, path) =>
+                        ctx.addIssue({ code: z.ZodIssueCode.custom, path, message })
+                    );
                 }
                 return;
             }

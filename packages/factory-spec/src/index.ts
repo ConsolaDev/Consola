@@ -75,8 +75,12 @@ export {
     OUTPUT_NAME_PATTERN,
     STEP_ID_PATTERN,
     STRING_MAX_CEILING,
+    stepItemFieldProblems,
+    stepItemFields,
     stepsSchema,
     type AgentStep,
     type CommandStep,
+    type ItemField,
+    type ItemFieldTable,
     type Step,
 } from './steps';

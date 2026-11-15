@@ -8,9 +8,17 @@
  * pointing at the key it is about, so a refusal can say why.
  */
 import { z } from 'zod';
-import { MAX_IF_LENGTH, parseExpression } from './expression';
+import {
+    checkExpression,
+    expressionPaths,
+    MAX_IF_LENGTH,
+    parseExpression,
+    type Expr,
+    type ExprType,
+    type ExpressionScope,
+} from './expression';
 import type { OutputType } from './outputs';
-import { hasTemplateBraces, parseTemplate } from './template';
+import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
 
 export const STEP_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/;
 export const OUTPUT_NAME_PATTERN = /^[a-z][a-z0-9_]{0,31}$/;
@@ -490,4 +498,268 @@ export function stepsSchema(): z.ZodType<Step[], z.ZodTypeDef, unknown> {
         });
         return ok ? steps.map(({ step }) => step) : z.NEVER;
     });
+}
+
+// --- across steps ------------------------------------------------------------------
+
+/** What a connection says about one item field. */
+export interface ItemField {
+    type: ExprType;
+    trusted: boolean;
+}
+export type ItemFieldTable = Record<string, ItemField>;
+
+/** The item fields every connection gives, and so the ones a prompt may template without asking. */
+const TRUSTED_ITEM_FIELDS = ['key', 'url', 'repo', 'number', 'type'];
+
+const SCHEDULE_HAS_NO_ITEM = 'a schedule has no item, so there is no `item` to read';
+const UNNAMED = (id: string) => `\`${id}\` is an unnamed step; only steps with an \`id\` can be named`;
+const UNTRUSTED = (path: string) => `${path}: it is text someone else wrote; the step gets it below its prompt as data.`;
+
+const own = (object: object, key: string) => Object.prototype.hasOwnProperty.call(object, key);
+
+function exprTypeOf(type: OutputType, step: string, name: string): ExprType {
+    switch (type.type) {
+        case 'enum':
+            return { kind: 'string', enum: { values: type.values, owner: `${name} of ${step}` } };
+        case 'string':
+            return { kind: 'string' };
+        case 'integer':
+        case 'number':
+            return { kind: 'number' };
+        case 'boolean':
+            return { kind: 'boolean' };
+    }
+}
+
+/** The documents a step writes: its declared artifacts and handover, or a command's stdout. */
+function artifactsOf(step: Step): string[] {
+    return step.kind === 'agent' ? ['handover', ...step.artifacts] : step.stdout ? ['output'] : [];
+}
+
+type Lookup = { step: Step } | { problem: string };
+
+/** The earlier step an id names, or why it cannot be named from step `index`. */
+function earlierStep(steps: Step[], id: string, index: number): Lookup {
+    const at = steps.findIndex((step) => step.id === id);
+    if (at === -1) return { problem: `there is no step \`${id}\`` };
+    if (!steps[at].named) return { problem: UNNAMED(id) };
+    if (at >= index) {
+        return {
+            problem: `\`${id}\` is not before this step: it is ${at === index ? 'this step' : 'a later step'}, so it has not run when this one's turn comes`,
+        };
+    }
+    return { step: steps[at] };
+}
+
+function listed(names: string[]): string {
+    return names.length > 0 ? `it has: ${names.join(', ')}` : 'it has none';
+}
+
+/**
+ * Everything that looks across steps: each `if:`, `reads:`, `env:` value and
+ * prompt is resolved against the steps before it. Also sets a handover
+ * `required` when a later step uses it. Issues are reported at `path`, the
+ * `steps` key, so they land on the line of the node.
+ */
+export function checkSteps(steps: Step[], trigger: { kind: string }, path: Array<string | number>, fail: Fail): void {
+    const hasItem = trigger.kind !== 'cron';
+
+    steps.forEach((step, index) => {
+        const at = (...rest: Array<string | number>) => [...path, index, ...rest];
+
+        if (step.kind === 'agent' && step.action !== undefined && !hasItem) {
+            fail('An action is a verb on an item, and a schedule has no item: write the job as `run: { prompt: "…" }`.', at('action'));
+        }
+
+        if (step.if !== undefined) {
+            const parsed = parseExpression(step.if);
+            if (parsed.ok) {
+                const scope: ExpressionScope = {
+                    output(id, name) {
+                        const found = earlierStep(steps, id, index);
+                        if ('problem' in found) return found;
+                        const { step: earlier } = found;
+                        if (own(earlier.outputs, name)) return exprTypeOf(earlier.outputs[name], id, name);
+                        if (artifactsOf(earlier).includes(name)) {
+                            return { problem: `\`${name}\` is an artifact of \`${id}\`; artifacts are prose; branch on an output` };
+                        }
+                        return { problem: `\`${id}\` has no output \`${name}\` (${listed(Object.keys(earlier.outputs))})` };
+                    },
+                    item: () => (hasItem ? { kind: 'unknown' } : { problem: SCHEDULE_HAS_NO_ITEM }),
+                };
+                for (const message of checkExpression(parsed.expr, scope)) fail(message, at('if'));
+            }
+        }
+
+        if (step.kind === 'agent') {
+            step.reads.forEach((entry, readIndex) => {
+                const [id, name] = entry.split('.');
+                const found = earlierStep(steps, id, index);
+                if ('problem' in found) return fail(`\`${entry}\`: ${found.problem}`, at('reads', readIndex));
+                const earlier = found.step;
+                if (artifactsOf(earlier).includes(name)) {
+                    if (earlier.kind === 'agent' && name === 'handover') earlier.handover = 'required';
+                    return;
+                }
+                fail(
+                    own(earlier.outputs, name)
+                        ? `\`${entry}\`: \`${name}\` is an output, not a document; use it in an \`if:\` or a template`
+                        : `\`${entry}\`: \`${id}\` has no artifact \`${name}\` (${listed(artifactsOf(earlier))})`,
+                    at('reads', readIndex)
+                );
+            });
+        }
+
+        const checkText = (text: string, where: 'prompt' | 'env', location: Array<string | number>) => {
+            for (const ref of templatePaths(text)) {
+                const problem = templateProblem(ref, where);
+                if (problem) fail(problem, location);
+            }
+        };
+
+        const templateProblem = (ref: TemplatePath, where: 'prompt' | 'env'): string | undefined => {
+            const shown = `{{${ref.text}}}`;
+            if (ref.root === 'item') {
+                if (!hasItem) return `\`${shown}\`: ${SCHEDULE_HAS_NO_ITEM}`;
+                if (where === 'prompt' && !TRUSTED_ITEM_FIELDS.includes(ref.field)) return UNTRUSTED(ref.text);
+                return undefined;
+            }
+            const found = earlierStep(steps, ref.step, index);
+            if ('problem' in found) return `\`${shown}\`: ${found.problem}`;
+            const earlier = found.step;
+            if (own(earlier.outputs, ref.name)) {
+                if (ref.file) {
+                    return `\`${shown}\`: \`.file\` names an artifact's file, and ${ref.name} is an output`;
+                }
+                const type = earlier.outputs[ref.name];
+                if (where === 'prompt' && type.type === 'string') return UNTRUSTED(ref.text);
+                return undefined;
+            }
+            if (artifactsOf(earlier).includes(ref.name)) {
+                if (where === 'prompt') return UNTRUSTED(ref.text);
+                if (earlier.kind === 'agent' && ref.name === 'handover') earlier.handover = 'required';
+                return undefined;
+            }
+            const names = [...Object.keys(earlier.outputs), ...artifactsOf(earlier)];
+            return `\`${shown}\`: \`${ref.step}\` has no output or artifact \`${ref.name}\` (${listed(names)})`;
+        };
+
+        if (step.kind === 'agent' && step.prompt !== undefined) checkText(step.prompt, 'prompt', at('prompt'));
+        if (step.kind === 'run') {
+            for (const [name, value] of Object.entries(step.env)) checkText(value, 'env', at('env', name));
+        }
+    });
+}
+
+/** Every `item.<field>` the steps use, and where: for the runner's re-check against its connection. */
+export function stepItemFields(steps: Step[]): Array<{ step: string; field: string; where: 'prompt' | 'env' | 'if' }> {
+    const found: Array<{ step: string; field: string; where: 'prompt' | 'env' | 'if' }> = [];
+    for (const step of steps) {
+        if (step.if !== undefined) {
+            const parsed = parseExpression(step.if);
+            if (parsed.ok) {
+                for (const ref of expressionPaths(parsed.expr)) {
+                    if (ref.kind === 'item') found.push({ step: step.id, field: ref.field, where: 'if' });
+                }
+            }
+        }
+        const texts: Array<[string, 'prompt' | 'env']> =
+            step.kind === 'run'
+                ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
+                : step.prompt !== undefined
+                  ? [[step.prompt, 'prompt']]
+                  : [];
+        for (const [text, where] of texts) {
+            for (const ref of templatePaths(text)) {
+                if (ref.root === 'item') found.push({ step: step.id, field: ref.field, where });
+            }
+        }
+    }
+    return found;
+}
+
+function typeWord(type: ExprType): string {
+    return type.kind === 'unknown' ? 'an item field' : `a ${type.kind}`;
+}
+
+/** An `if:`'s uses of item fields, checked against what the connection says each is. */
+function ifItemProblems(expr: Expr, field: (name: string, text: string) => ExprType | undefined): string[] {
+    const problems: string[] = [];
+    const visit = (node: Expr, wantsBoolean: boolean): void => {
+        switch (node.kind) {
+            case 'item': {
+                const type = field(node.field, node.text);
+                if (type && wantsBoolean && type.kind !== 'boolean') {
+                    problems.push(`\`${node.text}\` is ${typeWord(type)}; here it needs true or false`);
+                }
+                return;
+            }
+            case 'output':
+            case 'literal':
+                return;
+            case 'not':
+                return visit(node.operand, true);
+            case 'and':
+            case 'or':
+                visit(node.left, true);
+                return visit(node.right, true);
+            case 'compare': {
+                const { left, right, op } = node;
+                const itemSide = left.kind === 'item' ? left : right.kind === 'item' ? right : undefined;
+                const other = itemSide === left ? right : left;
+                const type = itemSide ? field(itemSide.field, itemSide.text) : undefined;
+                if (left.kind === 'item' && itemSide !== left) visit(left, false);
+                if (right.kind === 'item' && itemSide !== right) visit(right, false);
+                if (!itemSide || !type || type.kind === 'unknown' || other.kind !== 'literal') return;
+                const literal = typeof other.value === 'string' ? 'string' : typeof other.value === 'number' ? 'number' : 'boolean';
+                if (op !== '==' && op !== '!=') {
+                    if (type.kind !== 'number' || literal !== 'number') problems.push(`\`${node.text}\`: \`${op}\` compares numbers`);
+                    return;
+                }
+                if (type.kind !== literal) {
+                    const [a, b] = itemSide === left ? [type.kind, literal] : [literal, type.kind];
+                    problems.push(`\`${node.text}\` compares a ${a} with a ${b}`);
+                } else if (type.kind === 'string' && type.enum && typeof other.value === 'string' && !type.enum.values.includes(other.value)) {
+                    problems.push(`\`${other.value}\` is not a ${type.enum.owner} (${type.enum.values.join(', ')})`);
+                }
+                return;
+            }
+        }
+    };
+    visit(expr, true);
+    return problems;
+}
+
+/**
+ * The runner's problems for one connection's field table: unknown fields,
+ * untrusted fields in prompts, `if:` literals of the wrong type.
+ */
+export function stepItemFieldProblems(steps: Step[], table: ItemFieldTable, connection: string): string[] {
+    const problems: string[] = [];
+    const lookup = (name: string, text: string): ItemField | undefined => {
+        if (own(table, name)) return table[name];
+        problems.push(`\`${text}\`: ${connection} items have no field \`${name}\` (they have: ${Object.keys(table).join(', ')})`);
+        return undefined;
+    };
+    for (const step of steps) {
+        if (step.if !== undefined) {
+            const parsed = parseExpression(step.if);
+            if (parsed.ok) problems.push(...ifItemProblems(parsed.expr, (name, text) => lookup(name, text)?.type));
+        }
+        const texts: Array<[string, 'prompt' | 'env']> =
+            step.kind === 'run'
+                ? Object.values(step.env).map((value): [string, 'env'] => [value, 'env'])
+                : step.prompt !== undefined
+                  ? [[step.prompt, 'prompt']]
+                  : [];
+        for (const [text, where] of texts) {
+            for (const ref of templatePaths(text)) {
+                if (ref.root !== 'item') continue;
+                const field = lookup(ref.field, `item.${ref.field}`);
+                if (field && where === 'prompt' && !field.trusted) problems.push(UNTRUSTED(ref.text));
+            }
+        }
+    }
+    return [...new Set(problems)];
 }
