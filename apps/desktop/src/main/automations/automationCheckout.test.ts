@@ -4,11 +4,10 @@ import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { StartedByHandError } from '@consola/automation-engine';
-import { workItemKey } from '../../shared/workItems';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import { chainWorktreeStep, itemActionLaunchKey } from '../providers/launchWorkItem';
-import { WorktreeService } from '../WorktreeService';
+import { HeadCheckoutError, WorktreeService } from '../WorktreeService';
 import { automationCheckoutPort, type AutomationCheckoutDeps } from './automationCheckout';
 
 const STUB_GH = path.resolve(__dirname, '../../../tests/fixtures/stub-gh/gh');
@@ -48,8 +47,11 @@ function workspace(sessions: Partial<Session>[] = []): Workspace {
 }
 
 function fakes(overrides: Partial<AutomationCheckoutDeps> = {}) {
+    const getWorkspace = overrides.getWorkspace ?? (() => workspace());
     return {
-        getWorkspace: () => workspace(),
+        getWorkspace,
+        // One workspace unless a test says otherwise.
+        allSessions: () => getWorkspace('ws-1')?.sessions ?? [],
         resolveDriver: () => ({}) as GitProviderDriver,
         resolveRepo: () => CLONE,
         composeEnv: async () => ({ GH_TOKEN: 'gho_test' }),
@@ -67,6 +69,16 @@ describe('automationCheckoutPort', () => {
         const d = fakes({ getWorkspace: () => workspace([{ id: 's-1', name: 'Fix it myself', cwd: CHECKOUT, workItem }]) });
         await expect(automationCheckoutPort(d).prepare(request)).rejects.toThrow(
             'A full-tools session was launched in this item\'s automation checkout (“Fix it myself”), so Consola will not move it. Delete that session, then retry.'
+        );
+        expect(d.syncCheckout).not.toHaveBeenCalled();
+    });
+
+    it('refuses for a full-tools session another workspace launched in the same folder', async () => {
+        // Bound to the same clone, both workspaces share the item's one automation checkout.
+        const elsewhere = { id: 's-9', workspaceId: 'ws-2', name: 'Fixing it from Sprocket Web', cwd: CHECKOUT, workItem } as Session;
+        const d = fakes({ allSessions: () => [...workspace().sessions, elsewhere] });
+        await expect(automationCheckoutPort(d).prepare(request)).rejects.toThrow(
+            'A full-tools session was launched in this item\'s automation checkout (“Fixing it from Sprocket Web”), so Consola will not move it. Delete that session, then retry.'
         );
         expect(d.syncCheckout).not.toHaveBeenCalled();
     });
@@ -115,21 +127,29 @@ describe('automationCheckoutPort', () => {
                 return { dir: CHECKOUT, head: '5f3a9c1' };
             }),
         });
-        let release!: () => void;
+        let releaseClick!: () => void;
+        let releaseFolder!: () => void;
         // An Inbox click on the same item and action, holding the lock.
-        const click = chainWorktreeStep(itemActionLaunchKey('ws-1', workItem, 'Review'), () => new Promise<void>((resolve) => (release = resolve)));
+        const click = chainWorktreeStep(itemActionLaunchKey('ws-1', workItem, 'Review'), () => new Promise<void>((resolve) => (releaseClick = resolve)));
         const settle = () => new Promise((resolve) => setTimeout(resolve, 20));
 
         const prepared = automationCheckoutPort(d).prepare({ ...request, startedByHand: { label: 'Review', since: new Date(0).toISOString() } });
         await settle();
-        // Waiting on the item lock, it has not taken the worktree chain: other work on the item goes first.
-        const other = chainWorktreeStep(`ws-1:${workItemKey(workItem)}`, async () => {
+        // Waiting on the item lock, it has not taken the folder's chain: a
+        // preparation of the same folder (another workspace's, say) gets it first.
+        const other = chainWorktreeStep(`automation-checkout:${CHECKOUT}`, () => {
             order.push('other');
+            return new Promise<void>((resolve) => (releaseFolder = resolve));
         });
         await settle();
         expect(order).toEqual(['other']);
 
-        release();
+        // Past the item lock, the sync waits on that folder's chain, whichever workspace holds it.
+        releaseClick();
+        await settle();
+        expect(order).toEqual(['other']);
+
+        releaseFolder();
         await Promise.all([click, other, prepared]);
         expect(order).toEqual(['other', 'sync']);
     });
@@ -153,10 +173,18 @@ describe('automationCheckoutPort', () => {
     });
 
     it('says why the head could not be fetched, and that nothing was read', async () => {
-        const d = fakes({ syncCheckout: vi.fn(async () => Promise.reject(new Error('gh: canned failure (STUB_GH_FAIL=1)'))) });
+        const d = fakes({ syncCheckout: vi.fn(async () => Promise.reject(new HeadCheckoutError('gh: canned failure (STUB_GH_FAIL=1)'))) });
         await expect(automationCheckoutPort(d).prepare(request)).rejects.toThrow(
             'Could not bring the automation checkout to the head of sprocket/catalog-portal#51: gh: canned failure (STUB_GH_FAIL=1). Nothing was read; retry once it can be fetched.'
         );
+    });
+
+    it('passes any other failure through with its own reason', async () => {
+        const stuck = `fatal: '${CHECKOUT}' already exists`;
+        const d = fakes({ syncCheckout: vi.fn(async () => Promise.reject(new Error(stuck))) });
+        const refused = automationCheckoutPort(d).prepare(request);
+        await expect(refused).rejects.toThrow(stuck);
+        await expect(refused).rejects.not.toThrow(/retry once it can be fetched/);
     });
 });
 

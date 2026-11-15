@@ -1,3 +1,4 @@
+import { withoutGitHooks } from '@consola/automation-engine';
 import { execFile, execFileSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
@@ -37,9 +38,29 @@ export interface WorktreeInspection {
 
 export type PublishedVerdict = 'published' | 'local-commits' | 'unverifiable';
 
+/**
+ * The automation checkout exists and is Consola's, but could not be brought
+ * to the item's head: the provider's checkout, or the fetch, failed. Retrying
+ * once the head can be fetched may work, unlike any other failure there.
+ */
+export class HeadCheckoutError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'HeadCheckoutError';
+  }
+}
+
 function realpathOrNull(target: string): string | null {
   try {
     return fs.realpathSync(target);
+  } catch {
+    return null;
+  }
+}
+
+async function lstatOrNull(target: string): Promise<fs.Stats | null> {
+  try {
+    return await fs.promises.lstat(target);
   } catch {
     return null;
   }
@@ -293,33 +314,92 @@ export class WorktreeService {
    * PR's. Each preparation first undoes what an earlier run's commands left
    * (`reset --hard`, `clean -fd`), keeping ignored files such as a build
    * cache. A PR is then checked out the provider's way, detached; an issue
-   * at origin's HEAD. Every call runs in `env`, which the caller composes
-   * with hooks off: this is a PR author's tree.
+   * at origin's HEAD. This is a PR author's tree, so every call runs with git
+   * hooks off, whatever `env` the caller composed.
+   *
+   * Nothing is reset until the folder is proven to be the linked worktree
+   * this made (`assertOwnAutomationCheckout`): a reset in anything else, a
+   * symlink to the clone say, would destroy someone's work. A failure to
+   * reach the head is a `HeadCheckoutError`; any other failure is not.
    */
   public async syncAutomationCheckout(
     clonePath: string,
     workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
+    callerEnv: NodeJS.ProcessEnv
   ): Promise<{ dir: string; head: string }> {
+    const env = withoutGitHooks(callerEnv);
     const dir = this.automationCheckoutPathFor(workItem);
     await fs.promises.mkdir(this.root, { recursive: true });
     await this.run('git', clonePath, ['worktree', 'prune'], env);
-    if (fs.existsSync(path.join(dir, '.git'))) {
-      await this.assertBelongsToClone(dir, clonePath, workItem, env);
+    const entry = await lstatOrNull(dir);
+    if (entry && (entry.isSymbolicLink() || fs.existsSync(path.join(dir, '.git')))) {
+      await this.assertOwnAutomationCheckout(dir, clonePath, workItem, env);
       await this.run('git', dir, ['reset', '--hard', '-q'], env);
       await this.run('git', dir, ['clean', '-fdq'], env);
     } else {
+      // Missing, or a folder with no .git: git's own refusal says which.
       await this.run('git', clonePath, ['worktree', 'add', '--detach', dir], env);
     }
-    if (workItem.type === 'pr') {
-      await this.resolveDriver(workItem.provider).checkout(dir, workItem, env, { detach: true });
-    } else {
-      // Nobody is there to answer a credential prompt.
-      await this.run('git', dir, ['fetch', '--quiet', 'origin', 'HEAD'], { ...env, GIT_TERMINAL_PROMPT: '0' });
-      await this.run('git', dir, ['checkout', '--quiet', '--detach', 'FETCH_HEAD'], env);
+    try {
+      if (workItem.type === 'pr') {
+        await this.resolveDriver(workItem.provider).checkout(dir, workItem, env, { detach: true });
+      } else {
+        // Nobody is there to answer a credential prompt.
+        await this.run('git', dir, ['fetch', '--quiet', 'origin', 'HEAD'], { ...env, GIT_TERMINAL_PROMPT: '0' });
+        await this.run('git', dir, ['checkout', '--quiet', '--detach', 'FETCH_HEAD'], env);
+      }
+    } catch (error) {
+      throw new HeadCheckoutError(error instanceof Error ? error.message : String(error));
     }
     const head = (await this.run('git', dir, ['rev-parse', 'HEAD'], env)).trim();
     return { dir, head };
+  }
+
+  /**
+   * Refuse, before anything is reset, unless `dir` is provably the item's
+   * automation checkout: a real folder (not a symlink), a linked worktree of
+   * `clonePath` whose git dir is its own (git's back-pointer names this
+   * folder), at its own top level, and neither the clone nor the Inbox's
+   * worktree. `existsSync` follows symlinks and every worktree of a clone
+   * shares its common dir, so neither alone proves it.
+   */
+  private async assertOwnAutomationCheckout(
+    dir: string,
+    clonePath: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv
+  ): Promise<void> {
+    const refuse = (why: string) =>
+      new Error(
+        `Refusing to reset ${dir}: ${why}, so it is not an automation checkout Consola made. ` +
+          `Nothing in it was changed; move it aside, then retry.`
+      );
+    const entry = await fs.promises.lstat(dir);
+    if (entry.isSymbolicLink()) throw refuse('it is a symbolic link');
+    if (!entry.isDirectory()) throw refuse('it is not a folder');
+    await this.assertBelongsToClone(dir, clonePath, workItem, env);
+    const [toplevel, gitDir, commonDir] = (
+      await this.run('git', dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], env)
+    )
+      .trim()
+      .split('\n');
+    const real = realpathOrNull(dir);
+    if (!toplevel || !gitDir || !commonDir || !real) throw refuse('git cannot say what it is');
+    if (realpathOrNull(path.dirname(gitDir)) !== realpathOrNull(path.join(commonDir, 'worktrees'))) {
+      throw refuse('it is not a linked worktree of the clone');
+    }
+    let backPointer: string | null = null;
+    try {
+      backPointer = realpathOrNull(fs.readFileSync(path.join(gitDir, 'gitdir'), 'utf8').trim());
+    } catch {
+      backPointer = null;
+    }
+    if (!backPointer || backPointer !== realpathOrNull(path.join(dir, '.git'))) {
+      throw refuse('its git dir belongs to another worktree');
+    }
+    if (realpathOrNull(toplevel) !== real) throw refuse(`it is inside ${toplevel}`);
+    if (real === realpathOrNull(clonePath)) throw refuse('it is the clone itself');
+    if (real === realpathOrNull(this.worktreePathFor(workItem))) throw refuse('it is the Inbox’s worktree for this item');
   }
 
   /**

@@ -9,7 +9,7 @@ import type { WorkItemRef } from '../shared/workItems';
 import type { Scope, Workspace } from '../shared/workspace';
 import { getProviderDriver, type GitProviderDriver } from './providers';
 import { createStubDriver } from './providers/stubDriver.test-helpers';
-import { WorktreeService, worktreeDirName } from './WorktreeService';
+import { HeadCheckoutError, WorktreeService, worktreeDirName } from './WorktreeService';
 
 vi.mock('child_process', async (importOriginal) => ({
   ...await importOriginal<typeof import('child_process')>(),
@@ -463,6 +463,44 @@ describe('WorktreeService.syncAutomationCheckout', () => {
     expect(fs.readFileSync(path.join(dir, 'README.md'), 'utf8')).toBe('newer on origin');
     // Unlike the Inbox's issue worktree, no consola/issue-<n> branch.
     expect(localBranches(clone)).toEqual(['main']);
+  }, 30_000);
+
+  it('marks only a failure to reach the head as one, and passes others through', async () => {
+    const { clone, service } = setup();
+
+    const unreachable = await service
+      .syncAutomationCheckout(clone, pr51, { ...process.env, STUB_GH_FAIL: '1' })
+      .catch((error: unknown) => error);
+    expect(unreachable).toBeInstanceOf(HeadCheckoutError);
+    expect((unreachable as Error).message).toMatch(/gh: canned failure \(STUB_GH_FAIL=1\)/);
+
+    // A folder a crashed `worktree add` left without .git fails on every retry, saying so.
+    const pr52 = { ...pr51, number: 52 };
+    fs.mkdirSync(service.automationCheckoutPathFor(pr52));
+    fs.writeFileSync(path.join(service.automationCheckoutPathFor(pr52), 'half-made.txt'), '');
+    const stuck = await service.syncAutomationCheckout(clone, pr52, { ...process.env }).catch((error: unknown) => error);
+    expect(stuck).not.toBeInstanceOf(HeadCheckoutError);
+    expect((stuck as Error).message).toMatch(/already exists/);
+  }, 30_000);
+
+  it('turns git hooks off itself, whatever env it is given', async () => {
+    const { clone, service } = setup();
+    const marker = path.join(tmpDir('consola-ac-hook-'), 'hook-ran');
+    fs.mkdirSync(path.join(clone, '.husky'));
+    fs.writeFileSync(path.join(clone, '.husky', 'post-checkout'), `#!/bin/sh\ntouch '${marker}'\n`, { mode: 0o755 });
+    execFileSync('git', ['-C', clone, 'config', 'core.hooksPath', '.husky']);
+    execFileSync('git', ['-C', clone, 'add', '.husky']);
+    execFileSync('git', ['-C', clone, 'commit', '-q', '-m', 'husky']);
+    execFileSync('git', ['-C', clone, 'remote', 'set-url', 'origin', clone]);
+
+    await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+    await service.syncAutomationCheckout(clone, pr51, { ...process.env });
+    await service.syncAutomationCheckout(clone, issue87, { ...process.env });
+    expect(fs.existsSync(marker)).toBe(false);
+
+    // The tree's hook is live: a plain checkout there runs it.
+    execFileSync('git', ['-C', service.automationCheckoutPathFor(pr51), 'checkout', '-q', '--detach', 'HEAD']);
+    expect(fs.existsSync(marker)).toBe(true);
   }, 30_000);
 });
 

@@ -27,6 +27,15 @@ export interface AgentLaunchDeps {
 }
 
 /**
+ * Whether `session` was launched in `dir` with full tools. Claude then trusts
+ * that folder for it, running or not, so nothing may move the folder to a
+ * PR's newer head: its next launch would load the author's new hooks.
+ */
+export function launchedWithFullTools(session: Pick<Session, 'cwd' | 'toolPolicy'>, dir: string): boolean {
+    return session.cwd === dir && session.toolPolicy !== 'read-only';
+}
+
+/**
  * Whether an item worktree must stay as it is, so nothing refreshes it.
  *
  * - A running session works in it, launched there or moved in since: its
@@ -42,7 +51,7 @@ export interface AgentLaunchDeps {
  */
 export function worktreeHeld(sessions: readonly Session[], dir: string, isRunning: (session: Session) => boolean): boolean {
     return sessions.some((session) => {
-        if (session.cwd === dir && session.toolPolicy !== 'read-only') return true;
+        if (launchedWithFullTools(session, dir)) return true;
         return (session.cwd === dir || session.agentCwd === dir) && isRunning(session);
     });
 }

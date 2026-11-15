@@ -251,6 +251,78 @@ describe('deleteBranchAt', () => {
   });
 });
 
+describe('syncAutomationCheckout never resets a folder it cannot prove is its own', () => {
+  const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
+  const automationDir = () => path.join(r.root, 'catalog-portal-pr-51-automation');
+
+  beforeEach(() => {
+    process.env.CONSOLA_GH_PATH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
+  });
+  afterEach(() => {
+    delete process.env.CONSOLA_GH_PATH;
+  });
+
+  /** Untracked, modified and staged work in `dir`, and a check that all of it is still there. */
+  function workIn(dir: string, tracked: string) {
+    fs.writeFileSync(path.join(dir, 'wip.txt'), 'untracked work');
+    fs.writeFileSync(path.join(dir, tracked), 'edited, not staged');
+    fs.writeFileSync(path.join(dir, 'staged.txt'), 'staged work');
+    git(dir, 'add', 'staged.txt');
+    const branch = git(dir, 'symbolic-ref', '--short', 'HEAD');
+    return () => {
+      expect(fs.readFileSync(path.join(dir, 'wip.txt'), 'utf8')).toBe('untracked work');
+      expect(fs.readFileSync(path.join(dir, tracked), 'utf8')).toBe('edited, not staged');
+      expect(git(dir, 'diff', '--cached', '--name-only')).toBe('staged.txt');
+      expect(git(dir, 'symbolic-ref', '--short', 'HEAD')).toBe(branch);
+    };
+  }
+
+  it('refuses a symlink to the clone', async () => {
+    const survives = workIn(r.clone, 'README');
+    fs.symlinkSync(r.clone, automationDir());
+
+    await expect(r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env })).rejects.toThrow(/symbolic link/);
+    survives();
+  });
+
+  it('refuses a symlink to the Inbox worktree', async () => {
+    const inbox = r.addWorktree('catalog-portal-pr-51', 'feature');
+    const survives = workIn(inbox.dir, 'catalog-portal-pr-51.txt');
+    fs.symlinkSync(inbox.dir, automationDir());
+
+    await expect(r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env })).rejects.toThrow(/symbolic link/);
+    survives();
+    expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
+  });
+
+  it('refuses a folder whose .git names the clone’s own git dir', async () => {
+    const survives = workIn(r.clone, 'README');
+    fs.mkdirSync(automationDir());
+    fs.writeFileSync(path.join(automationDir(), '.git'), `gitdir: ${path.join(r.clone, '.git')}\n`);
+
+    await expect(r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env })).rejects.toThrow(/not a linked worktree/);
+    survives();
+  });
+
+  it('refuses a folder whose .git names the Inbox worktree’s git dir', async () => {
+    const inbox = r.addWorktree('catalog-portal-pr-51', 'feature');
+    const survives = workIn(inbox.dir, 'catalog-portal-pr-51.txt');
+    fs.mkdirSync(automationDir());
+    fs.writeFileSync(path.join(automationDir(), '.git'), `gitdir: ${path.join(r.clone, '.git', 'worktrees', 'catalog-portal-pr-51')}\n`);
+
+    await expect(r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env })).rejects.toThrow(/another worktree/);
+    survives();
+    expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
+  });
+
+  it('still prepares the one it made', async () => {
+    const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+  });
+});
+
 describe('checking a pull request out onto a branch an earlier checkout left behind', () => {
   const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
   // The fixture gh checks out origin's `feature` the way real gh does a
