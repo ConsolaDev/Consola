@@ -9,6 +9,7 @@ import {
     REVIEW_BODY,
     stepsHarness,
     WORKSPACE_ID,
+    type FakeCommand,
     type StepsHarness,
     type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
@@ -428,19 +429,20 @@ describe('firing a steps run', () => {
         expect(next).toMatchObject({ trigger: { item: { number: 52 } }, mode: 'notify', dryRun: true });
         expect(firstRecorded(h, next.id)?.status).toBe('queued');
 
-        // Only reported commands: nothing would start, so it never asks.
+        // Only reported commands: nothing would start, so it never asks. It reports, and says what would have run.
         const reportsOnly = factory(`${DAILY_IN_API}    mode: notify\n`, '- run: git log -1');
         const reports = await stepsHarness({ yaml: reportsOnly });
         const byPerson = (await reports.service.trigger(WORKSPACE_ID, NAME))!;
         expect(byPerson).toMatchObject({ mode: 'notify', dryRun: true });
         expect(firstRecorded(reports, byPerson.id)?.status).toBe('queued');
-        expect(reports.notices).toEqual([]);
+        const done = (runId: string) => [{ title: `${NAME}: done`, body: 'step-1 would have run', runId, workspaceId: WORKSPACE_ID, needsApproval: false }];
+        expect(reports.notices).toEqual(done(byPerson.id));
         // Nor when an agent asks: a run of its own, in line.
         const asking = await stepsHarness({ yaml: reportsOnly });
         const byAgent = (await asking.service.trigger(WORKSPACE_ID, NAME, { sessionId: 's-9' }))!;
         expect(byAgent).toMatchObject({ mode: 'notify', dryRun: true, trigger: { by: 'agent', actorId: 's-9' } });
         expect(firstRecorded(asking, byAgent.id)?.status).toBe('queued');
-        expect(asking.notices).toEqual([]);
+        expect(asking.notices).toEqual(done(byAgent.id));
 
         // A command marked to run in a dry run would start something: it asks.
         const fetches = await stepsHarness({ yaml: factory(`${DAILY_IN_API}    mode: notify\n`, '- run: git fetch --prune\n  dry_run: run', '- run: git log -1') });
@@ -594,10 +596,21 @@ describe('firing a steps run', () => {
         expect(h.world.launches).toEqual([]);
     });
 
-    it('a schedule keeps one steps run at a time', async () => {
-        // No agent slot at first, so the run waits in line.
-        const h = await stepsHarness({ yaml: SUMMARY, maxConcurrentAgents: 0 });
-        h.store.accept(KEY, automationVersion(only(SUMMARY)));
+    it.each<[string, string, StepsHarnessOptions, (h: StepsHarness) => Promise<void>]>([
+        ['an agent step', SUMMARY, { maxConcurrentAgents: 0 }, (h) => h.world.endTurn('session-1')],
+        [
+            'commands only',
+            COMMANDS_ONLY,
+            { maxConcurrentCommands: 0 },
+            async (h) => {
+                await h.world.commands[0].end();
+                await h.world.commands[1].end();
+            },
+        ],
+    ])('a schedule keeps one steps run at a time (%s)', async (_name, yaml, noSlot, finish) => {
+        // No slot in its first step's lane at first, so the run waits in line.
+        const h = await stepsHarness({ yaml, ...noSlot });
+        h.store.accept(KEY, automationVersion(only(yaml)));
         h.advance(HOUR);
         await h.tick();
         const [first] = h.store.runs();
@@ -611,6 +624,7 @@ describe('firing a steps run', () => {
 
         // Started, it holds its place while it runs.
         h.world.maxConcurrentAgents = undefined;
+        h.world.maxConcurrentCommands = undefined;
         await h.tick();
         expect(h.store.get(first.id)).toMatchObject({ status: 'running', startedAt: h.now().toISOString() });
         h.advance(DAY);
@@ -619,7 +633,7 @@ describe('firing a steps run', () => {
         expect(h.store.runs()).toHaveLength(1);
 
         // Once it ends, the next fire is a run of its own.
-        await h.world.endTurn('session-1');
+        await finish(h);
         expect(h.store.get(first.id)?.status).toBe('completed');
         const next = (await h.service.trigger(WORKSPACE_ID, NAME))!;
         expect(firstRecorded(h, next.id)?.status).toBe('queued');
@@ -1202,6 +1216,31 @@ describe('running a steps run', () => {
         expect(running.every((run) => run.steps!.some((step) => step.status === 'running'))).toBe(true);
     });
 
+    it("a started run's next step goes ahead of a run that has not started, even one queued while a launch was awaited", async () => {
+        const monthly = entry('monthly', DAILY_AUTO, '- id: digest\n  prompt: Sum up the month in api.');
+        const h = await accepted(file(NIGHTLY, WEEKLY, monthly), { maxConcurrentAgents: 1 });
+        await h.service.trigger(WORKSPACE_ID, 'nightly');
+        h.advance(1000);
+        await h.service.trigger(WORKSPACE_ID, 'weekly');
+        h.advance(1000);
+        const waiting = (await h.service.trigger(WORKSPACE_ID, 'monthly'))!;
+        await h.flush();
+        expect(launched(h)).toEqual(['nightly · one']);
+
+        // A second slot: weekly starts, and while its step launches, nightly's first step
+        // ends, freeing a slot and queueing its second. That one is first in line.
+        h.world.onLaunch = (request) => {
+            if (request.run.automation !== 'weekly') return;
+            h.world.setOutputs('session-1', { mood: 'calm' });
+            h.service.turnEnded('session-1', { exitCode: 0 });
+        };
+        h.world.maxConcurrentAgents = 2;
+        await h.tick();
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest', 'nightly · two']);
+        expect(h.store.get(waiting.id)?.status).toBe('queued');
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [waiting.id]: 1 });
+    });
+
     it('a step a restart cut off is not started again in a new session, and holds no slot meanwhile', async () => {
         const yaml = file(NIGHTLY, WEEKLY);
         let h = await accepted(yaml, { maxConcurrentAgents: 1 });
@@ -1288,6 +1327,406 @@ describe('running a steps run', () => {
         // The pump ran again: #52 has the slot now.
         expect(h.world.checkouts.prepared).toHaveLength(2);
         expect(h.store.get(second.id)?.status).toBe('running');
+    });
+});
+
+/** The shipped review template, shortened: fresh asks whether a review is needed, then the review, then the post. */
+const FRESH = '- id: fresh\n  run: echo "needed=true" >> "$CONSOLA_OUTPUT"\n  env: { PR: "{{item.url}}" }\n  outputs: { needed: boolean }\n  dry_run: run';
+const REVIEW_IT =
+    '- id: review\n  if: steps.fresh.needed\n  prompt: Review this pull request and write the review as your handover.\n  outputs:\n    verdict: { enum: [approve, comment, request-changes] }';
+const POST =
+    `- id: publish\n  if: steps.fresh.needed\n  run: ${PUBLISH}\n` +
+    '  env: { REPO: "{{item.repo}}", NUMBER: "{{item.number}}", VERDICT: "{{steps.review.verdict}}", BODY_FILE: "{{steps.review.handover.file}}" }';
+const REVIEWS = (mode: string) => factory(`${ON_REVIEW}    mode: ${mode}\n`, FRESH, REVIEW_IT, POST);
+/** What publish's command.json says it runs with: the rendered `env:` and nothing else. */
+const PUBLISH_ENV = (h: StepsHarness, runId: string) => [
+    { name: 'REPO', template: '{{item.repo}}', value: 'sprocket/catalog-portal' },
+    { name: 'NUMBER', template: '{{item.number}}', value: '51' },
+    { name: 'VERDICT', template: '{{steps.review.verdict}}', value: 'request-changes' },
+    { name: 'BODY_FILE', template: '{{steps.review.handover.file}}', value: h.folder.artifactPath(WORKSPACE_ID, runId, 'review', 1, 'handover') },
+];
+
+/** An item run of `yaml` on #51, accepted, its first command started. */
+async function onPr51(yaml: string): Promise<{ h: StepsHarness; run: RunRecord }> {
+    const h = await watching({ yaml });
+    acceptEvery(h, yaml);
+    await h.poll([PR51]);
+    return { h, run: h.store.runs()[0] };
+}
+
+/** The review step of `REVIEWS` ends: its verdict set, its handover written. */
+async function reviewed(h: StepsHarness, sessionId: string, handover = 'Two retries are unbounded.'): Promise<void> {
+    h.world.setOutputs(sessionId, { verdict: 'request-changes' });
+    h.world.writeArtifact(sessionId, 'handover', handover);
+    await h.world.endTurn(sessionId);
+}
+
+type FakeCommandEnd = FakeCommand['end'];
+
+const commandFile = (h: StepsHarness, runId: string, stepId: string) =>
+    JSON.parse(fs.readFileSync(path.join(h.folder.attemptDir(WORKSPACE_ID, runId, stepId, 1), 'command.json'), 'utf8'));
+
+describe('command steps', () => {
+    it("outputs flow into the next command's env, and CONSOLA_ variables are set", async () => {
+        const { h, run } = await onPr51(REVIEWS('auto'));
+        const freshDir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'fresh', 1);
+        const [fresh] = h.world.commands;
+        expect(h.world.commands).toHaveLength(1);
+        expect(fresh.spec).toMatchObject({
+            command: 'echo "needed=true" >> "$CONSOLA_OUTPUT"',
+            cwd: CHECKOUT,
+            timeoutMs: 600_000,
+            stdoutPath: path.join(freshDir, 'stdout.log'),
+            stderrPath: path.join(freshDir, 'stderr.log'),
+            secrets: ['gho_stub'],
+        });
+        // The login env and the token, the rendered env:, Consola's variables, then git hooks off.
+        expect(fresh.spec.env).toEqual({
+            PATH: '/bin',
+            GH_TOKEN: 'gho_stub',
+            PR: PR51.url,
+            CONSOLA_OUTPUT: path.join(freshDir, 'outputs.env'),
+            CONSOLA_RUN_ID: run.id,
+            CONSOLA_STEP: 'fresh',
+            CONSOLA_CHECKOUT_HEAD: CHECKOUT_HEAD,
+            GIT_CONFIG_COUNT: '1',
+            GIT_CONFIG_KEY_0: 'core.hooksPath',
+            GIT_CONFIG_VALUE_0: '/dev/null',
+        });
+        // Its $CONSOLA_OUTPUT is there, empty, when it starts.
+        expect(fs.readFileSync(path.join(freshDir, 'outputs.env'), 'utf8')).toBe('');
+        expect(commandFile(h, run.id, 'fresh')).toEqual({ cwd: CHECKOUT, command: 'echo "needed=true" >> "$CONSOLA_OUTPUT"', env: [{ name: 'PR', template: '{{item.url}}', value: PR51.url }] });
+
+        h.advance(MINUTE);
+        const broadcasts = h.world.broadcasts.length;
+        const said = 'Asked for the latest review.\n';
+        await fresh.end({ outputs: 'needed=true\n', stdout: said });
+        const ended = h.now().toISOString();
+        expect(h.store.get(run.id)!.steps![0]).toEqual({
+            id: 'fresh',
+            kind: 'run',
+            status: 'completed',
+            attempt: 1,
+            queuedAt: run.createdAt,
+            startedAt: run.createdAt,
+            finishedAt: ended,
+            outputs: { needed: true },
+            command: { envNames: ['PR'], intentAt: run.createdAt, exitCode: 0, stdoutBytes: said.length, stderrBytes: 0, truncated: false },
+        });
+        expect(h.store.get(run.id)!.updatedAt).toBe(ended);
+        expect(h.world.broadcasts.length).toBeGreaterThan(broadcasts);
+        expect(JSON.parse(fs.readFileSync(path.join(freshDir, 'outputs.json'), 'utf8'))).toEqual({ needed: true });
+        expect(launched(h)).toEqual(['Add retries · review']);
+
+        await reviewed(h, 'session-1');
+        const publish = h.world.commands[1];
+        expect(publish.spec.command).toBe(PUBLISH);
+        expect(publish.spec.env).toMatchObject({
+            REPO: 'sprocket/catalog-portal',
+            NUMBER: '51',
+            VERDICT: 'request-changes',
+            BODY_FILE: h.folder.artifactPath(WORKSPACE_ID, run.id, 'review', 1, 'handover'),
+            CONSOLA_CHECKOUT_HEAD: h.store.get(run.id)!.checkout!.head,
+            CONSOLA_RUN_ID: run.id,
+            CONSOLA_STEP: 'publish',
+            GH_TOKEN: 'gho_stub',
+        });
+        expect(publish.spec.secrets).toEqual(['gho_stub']);
+        // command.json holds the rendered env: only, never the login env or the token.
+        expect(commandFile(h, run.id, 'publish')).toEqual({ cwd: CHECKOUT, command: PUBLISH, env: PUBLISH_ENV(h, run.id) });
+        expect(JSON.stringify(commandFile(h, run.id, 'publish'))).not.toMatch(/gho_stub|GH_TOKEN|PATH/);
+
+        await publish.end();
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed', summary: 'fresh → review → publish (request-changes)' });
+        expect(h.world.commandEnvAsked).toEqual([WORKSPACE_ID, WORKSPACE_ID]);
+        // Each transition its own line; a command's result is written with its status, never after it.
+        expect(stepLines(h, run.id)).toEqual([
+            'pending pending pending',
+            'queued pending pending',
+            'running pending pending',
+            'completed pending pending',
+            'completed queued pending',
+            'completed running pending',
+            'completed completed pending',
+            'completed completed queued',
+            'completed completed running',
+            'completed completed completed',
+        ]);
+        const resultWhileRunning = h.history.appends.some(({ run: line }) =>
+            line.steps?.some((step) => step.status === 'running' && step.command?.exitCode !== undefined)
+        );
+        expect(resultWhileRunning).toBe(false);
+    });
+
+    it('intent is on disk before the spawn', async () => {
+        const h = await accepted(COMMANDS_ONLY);
+        const durable: RunRecord[] = [];
+        const appendDurably = h.history.appendDurably;
+        h.history.appendDurably = (workspaceId, run, live) => {
+            appendDurably(workspaceId, run, live);
+            durable.push(structuredClone(run));
+        };
+        const seen: unknown[] = [];
+        h.world.onCommand = (spec) => {
+            const run = h.store.get(String(spec.env.CONSOLA_RUN_ID))!;
+            seen.push({ step: run.steps![0], durable: durable.at(-1)?.steps![0] });
+        };
+        await h.service.trigger(WORKSPACE_ID, NAME);
+        await h.flush();
+        const at = h.now().toISOString();
+        const intent = { id: 'fresh', status: 'running', startedAt: at, command: { envNames: [], intentAt: at } };
+        expect(seen).toEqual([{ step: expect.objectContaining(intent), durable: expect.objectContaining(intent) }]);
+        expect(durable).toHaveLength(1);
+    });
+
+    it('a failed intent write spawns nothing', async () => {
+        const h = await accepted(COMMANDS_ONLY);
+        h.history.failDurable = new Error('No space left on device.');
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        const error = 'Could not record that it was about to run (No space left on device); nothing ran.';
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'fresh', status: 'failed', error },
+                { id: 'log', status: 'not-run' },
+            ],
+        });
+        // No intent on the record: nothing may have run.
+        expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('command');
+        expect(h.world.commands).toEqual([]);
+    });
+
+    describe('from: stdout', () => {
+        const fetchThenRead = (format: string) =>
+            factory(
+                ON_REVIEW_AUTO,
+                `- id: fetch\n  run: gh pr view "$PR" --json files\n  env: { PR: "{{item.url}}" }\n  outputs: { from: stdout, format: ${format} }`,
+                '- id: summary\n  prompt: Summarise the files {{item.url}} changes.\n  reads: [fetch.output]'
+            );
+        const FILES = '{"files":[{"path":"src/retry.ts"}]}\n';
+
+        it('JSON stdout becomes artifact output, which a later step reads', async () => {
+            const { h, run } = await onPr51(fetchThenRead('json'));
+            await h.world.commands[0].end({ stdout: FILES });
+            expect(h.store.get(run.id)!.steps![0]).toMatchObject({ status: 'completed', artifacts: [{ name: 'output', bytes: FILES.length }] });
+            expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('outputs');
+            const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'fetch', 1);
+            expect(fs.readFileSync(path.join(dir, 'output.json'), 'utf8')).toBe(FILES);
+            expect(h.folder.readArtifact(WORKSPACE_ID, run.id, 'fetch', 1, 'output')).toBe(FILES);
+            expect(h.world.launches[0].prompt).toContain(`\n  - fetch.output (from step "fetch", ${FILES.length} B)\n`);
+        });
+
+        it('text stdout likewise, as the masked log holds it', async () => {
+            const { h, run } = await onPr51(fetchThenRead('text'));
+            await h.world.commands[0].end({ stdout: 'src/retry.ts\nauthorised as gho_stub\n' });
+            expect(h.store.get(run.id)!.steps![0]).toMatchObject({ status: 'completed', artifacts: [{ name: 'output' }] });
+            const dir = h.folder.attemptDir(WORKSPACE_ID, run.id, 'fetch', 1);
+            expect(fs.readFileSync(path.join(dir, 'output.txt'), 'utf8')).toBe('src/retry.ts\nauthorised as ***\n');
+            expect(h.world.launches[0].prompt).toContain('\n  - fetch.output (from step "fetch", ');
+        });
+
+        it.each<[string, string, Parameters<FakeCommandEnd>[0], RegExp]>([
+            ['stdout that is not JSON', 'json', { stdout: 'Not Found (gho_stub)\n\x1b[31m' }, /^Its stdout is not JSON \([^\x00-\x1f]+\)\.$/],
+            ['stdout over the 256 KB an output holds', 'text', { stdout: 'x'.repeat(256 * 1024 + 1) }, /^Its stdout is over 256 KB, the most an output may hold\.$/],
+            ['a log that was cut short', 'json', { stdout: FILES, result: { truncated: true } }, /^Its logs were cut short, so its stdout may not be whole\.$/],
+        ])('%s fails the step', async (_name, format, how, error) => {
+            const { h, run } = await onPr51(fetchThenRead(format));
+            await h.world.commands[0].end(how);
+            expect(h.store.get(run.id)).toMatchObject({
+                status: 'failed',
+                error: expect.stringMatching(error),
+                steps: [{ id: 'fetch', status: 'failed' }, { id: 'summary', status: 'not-run' }],
+            });
+            expect(JSON.stringify(h.store.get(run.id))).not.toContain('gho_stub');
+            expect(h.world.launches).toEqual([]);
+        });
+    });
+
+    describe('fails before starting, with nothing run', () => {
+        /** The run, its fresh step completed and its review handed over, with no command slot left for publish. */
+        async function upToPublish(handover?: string) {
+            const { h, run } = await onPr51(REVIEWS('auto'));
+            await h.world.commands[0].end({ outputs: 'needed=true\n' });
+            h.world.maxConcurrentCommands = 0;
+            await reviewed(h, 'session-1', handover);
+            expect(h.store.get(run.id)!.steps![2]).toMatchObject({ id: 'publish', status: 'queued' });
+            return { h, run };
+        }
+        const failedAtPublish = (error: string) => ({
+            status: 'failed',
+            error,
+            steps: [{ status: 'completed' }, { status: 'completed' }, { id: 'publish', status: 'failed', error }],
+        });
+
+        it('an absent value', async () => {
+            const { h, run } = await upToPublish();
+            fs.rmSync(h.folder.artifactPath(WORKSPACE_ID, run.id, 'review', 1, 'handover'));
+            h.world.maxConcurrentCommands = undefined;
+            await h.tick();
+            expect(h.store.get(run.id)).toMatchObject(failedAtPublish('steps.review.handover.file has no value: its file is gone from the run folder'));
+            expect(h.world.commands).toHaveLength(1);
+            expect(h.world.commandEnvAsked).toHaveLength(1);
+            expect(h.store.get(run.id)!.steps![2]).not.toHaveProperty('command');
+        });
+
+        it('env over 64 KB', async () => {
+            const yaml = factory(
+                DAILY_AUTO,
+                '- id: one\n  prompt: Read what changed in api overnight.',
+                '- id: post\n  run: echo "$NOTES"\n  env: { NOTES: "{{steps.one.handover}}" }'
+            );
+            const h = await accepted(yaml);
+            const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+            await h.flush();
+            h.world.writeArtifact('session-1', 'handover', 'x'.repeat(64 * 1024 + 1));
+            await h.world.endTurn('session-1');
+            const error = "env: this step's values are over 64 KB; pass a file with {{steps.<step>.<artifact>.file}} instead.";
+            expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error, steps: [{ status: 'completed' }, { id: 'post', status: 'failed', error }] });
+            expect(h.world.commands).toEqual([]);
+            expect(h.world.commandEnvAsked).toEqual([]);
+        });
+
+        it('a token that cannot be borrowed', async () => {
+            const h = await accepted(COMMANDS_ONLY);
+            h.world.commandEnvThrows = new Error('no oauth token found for github.com account JaviDev');
+            const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+            await h.flush();
+            const error = 'Its environment could not be prepared (no oauth token found for github.com account JaviDev); nothing ran.';
+            expect(h.store.get(run.id)).toMatchObject({
+                status: 'failed',
+                error,
+                steps: [
+                    { id: 'fresh', status: 'failed', error },
+                    { id: 'log', status: 'not-run' },
+                ],
+            });
+            expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('command');
+            expect(h.world.commands).toEqual([]);
+        });
+    });
+
+    it.each<[string, Parameters<FakeCommandEnd>[0], string, Record<string, unknown>]>([
+        ['exits non-zero', { result: { exitCode: 1, lastStderrLine: 'HTTP 401: Bad credentials (gho_stub)' } }, 'exit 1: HTTP 401: Bad credentials (***)', { exitCode: 1 }],
+        ['times out, even at exit 0', { result: { exitCode: 0, timedOut: true } }, 'timed out after 10m', { exitCode: 0 }],
+        ['is stopped, even at exit 0', { result: { exitCode: 0, stopped: true } }, 'Stopped while running: it may have done its work', { exitCode: 0 }],
+        ['is killed by a signal', { result: { exitCode: null, signal: 'SIGKILL' } }, 'killed by SIGKILL', { signal: 'SIGKILL' }],
+        ['writes an output it does not declare', { outputs: 'gho_stub=1\n' }, '$CONSOLA_OUTPUT line 1: *** is not an output of this step (it declares none)', { exitCode: 0 }],
+    ])('a command that %s fails its step, its words masked', async (_name, how, error, ended) => {
+        const h = await accepted(COMMANDS_ONLY);
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        await h.world.commands[0].end(how);
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'fresh', status: 'failed', error, command: { intentAt: expect.any(String), ...ended } },
+                { id: 'log', status: 'not-run' },
+            ],
+        });
+        expect(JSON.stringify(h.store.get(run.id))).not.toContain('gho_stub');
+        expect(h.notices).toMatchObject([{ title: `${NAME} did not finish`, body: error }]);
+        expect(h.world.commands).toHaveLength(1);
+    });
+
+    it('an output that repeats the token is recorded masked', async () => {
+        const yaml = factory(DAILY_AUTO, '- id: whoami\n  run: echo "note=signed in as $GH_TOKEN" >> "$CONSOLA_OUTPUT"\n  outputs: { note: string }');
+        const h = await accepted(yaml);
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        await h.world.commands[0].end({ outputs: 'note=signed in as gho_stub\n' });
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed', steps: [{ status: 'completed', outputs: { note: 'signed in as ***' } }] });
+        const outputs = path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'whoami', 1), 'outputs.json');
+        expect(JSON.parse(fs.readFileSync(outputs, 'utf8'))).toEqual({ note: 'signed in as ***' });
+    });
+
+    it('a command that never started fails its step, saying nothing ran', async () => {
+        const h = await accepted(COMMANDS_ONLY);
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        await h.world.commands[0].neverStarted(new Error('spawn /bin/bash EACCES'));
+        const error = 'The command could not start (spawn /bin/bash EACCES); nothing ran.';
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error, steps: [{ id: 'fresh', status: 'failed', error, command: { envNames: [] } }, { status: 'not-run' }] });
+        // Not the shape of a command a quit cut off: it did not run.
+        expect(h.store.get(run.id)!.steps![0].command).not.toHaveProperty('intentAt');
+    });
+
+    it('notify reports commands and spawns nothing, except dry_run: run', async () => {
+        const { h, run } = await onPr51(REVIEWS('notify'));
+        expect(run).toMatchObject({ mode: 'notify', dryRun: true, status: 'running' });
+        // fresh only reads, so it runs in a dry run too.
+        await h.world.commands[0].end({ outputs: 'needed=true\n' });
+        expect(launched(h)).toEqual(['Add retries · review']);
+        await reviewed(h, 'session-1');
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'completed',
+            summary: 'fresh → review (request-changes); publish would have run',
+            steps: [{ status: 'completed' }, { status: 'completed' }, { id: 'publish', status: 'reported', finishedAt: h.now().toISOString() }],
+        });
+        expect(h.store.get(run.id)!.steps![2]).not.toHaveProperty('startedAt');
+        // Never spawned, nor its environment asked for; what it would have run is on disk.
+        expect(h.world.commands).toHaveLength(1);
+        expect(h.world.commandEnvAsked).toEqual([WORKSPACE_ID]);
+        expect(commandFile(h, run.id, 'publish')).toEqual({ cwd: CHECKOUT, command: PUBLISH, env: PUBLISH_ENV(h, run.id) });
+        expect(JSON.stringify(commandFile(h, run.id, 'publish'))).not.toMatch(/gho_stub|GH_TOKEN|PATH/);
+    });
+
+    it('a command starts while both agent slots are taken', async () => {
+        const yaml = file(entry(NAME, ON_REVIEW_AUTO, '- id: review\n  action: Review'), entry('fetches', DAILY_AUTO, '- id: fresh\n  run: git fetch --prune'));
+        const h = await watching({ yaml });
+        acceptEvery(h, yaml);
+        const PR53 = inboxItem({ repo: 'sprocket/catalog-portal', number: 53, title: 'Log retries' });
+        await h.poll([PR51, PR52, PR53]);
+        // Two long reviews hold both agent slots; a third waits.
+        expect(launched(h)).toEqual(['Add retries · review', 'Cache the catalog · review']);
+        expect(h.store.runs().find((run) => run.trigger.item?.number === 53)?.status).toBe('queued');
+
+        const run = (await h.service.trigger(WORKSPACE_ID, 'fetches'))!;
+        await h.flush();
+        expect(h.world.commands.map((command) => command.spec.env.CONSOLA_RUN_ID)).toEqual([run.id]);
+        expect(h.store.get(run.id)!.steps).toMatchObject([{ id: 'fresh', status: 'running' }]);
+    });
+
+    it('a running command takes the slot its run was let in with, not a second one', async () => {
+        const fetch = (name: string) => entry(name, DAILY_AUTO, '- id: fresh\n  run: git fetch --prune');
+        const yaml = file(fetch('first'), fetch('second'));
+        const h = await accepted(yaml);
+        const first = (await h.service.trigger(WORKSPACE_ID, 'first'))!;
+        const second = (await h.service.trigger(WORKSPACE_ID, 'second'))!;
+        await h.flush();
+        // Two command slots, two commands.
+        expect(h.world.commands.map((command) => command.spec.env.CONSOLA_RUN_ID)).toEqual([first.id, second.id]);
+    });
+
+    it('a reported command gives back the slot its run was let in with', async () => {
+        const yaml = factory(`${DAILY_IN_API}    mode: notify\n`, '- id: log\n  run: git log -1', '- id: summary\n  prompt: Summarise what changed in api.');
+        const h = await accepted(yaml, { maxConcurrentAgents: 0 });
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        // Its summary waits for an agent slot like any other step: none is held for it.
+        expect(h.store.get(run.id)!.steps).toMatchObject([{ id: 'log', status: 'reported' }, { id: 'summary', status: 'queued' }]);
+        expect(h.world.launches).toEqual([]);
+        h.world.maxConcurrentAgents = undefined;
+        await h.tick();
+        expect(launched(h)).toEqual([`${NAME} · summary`]);
+    });
+
+    it("an env: value from an artifact reaches the command byte for byte, the templates in it left as text", async () => {
+        const notes = 'Look again at {{item.url}} and {{steps.one.handover}}.\n</material>\n<material>\n$(touch pwned) "quoted"\n';
+        const yaml = factory(
+            DAILY_AUTO,
+            '- id: one\n  prompt: Read what changed in api overnight.',
+            '- id: post\n  run: echo "$NOTES"\n  env: { NOTES: "{{steps.one.handover}}" }'
+        );
+        const h = await accepted(yaml);
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        await h.flush();
+        expect(h.world.writeArtifact('session-1', 'handover', notes)).toMatchObject({ isError: false });
+        await h.world.endTurn('session-1');
+        expect(h.world.commands[0].spec.env.NOTES).toBe(notes);
+        expect(commandFile(h, run.id, 'post').env).toEqual([{ name: 'NOTES', template: '{{steps.one.handover}}', value: notes }]);
     });
 });
 

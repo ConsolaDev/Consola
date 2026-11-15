@@ -5,12 +5,13 @@ import { onTestFinished } from 'vitest';
 import { appendAutomationEntry, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
 import { AutomationService, type AutomationNotice, type AutomationServiceDeps } from '../AutomationService';
 import { RunFolder } from '../node/runFolder';
-import type { AgentLaunchRequest, FactoryFileHandle } from '../ports';
+import type { AgentLaunchRequest, CommandResult, CommandSpec, FactoryFileHandle, RunningCommand } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
 import { FakeToolRegistry } from '../tools.test-helpers';
 import type { InboxItemView, ItemRef, ItemSnapshot, SessionView, WorkspaceView } from '../views';
 import type { CheckoutRequest } from './checkout';
+import { maskSecrets } from './commandIO';
 import type { StepToolAnswer } from './stepTools';
 
 /*
@@ -40,6 +41,24 @@ export function checkoutPathFor(workItem: ItemRef): string {
 
 type TurnOutcome = { exitCode: number; lastLine?: string; stopped?: string };
 
+/** The base environment the fake host gives every command: the login env and the bound account's token. */
+export const COMMAND_ENV = { env: { PATH: '/bin', GH_TOKEN: 'gho_stub' }, secrets: ['gho_stub'] };
+
+/** One command the engine started, held until the test ends it. */
+export interface FakeCommand {
+    spec: CommandSpec;
+    /**
+     * It wrote `outputs` to its `$CONSOLA_OUTPUT` and its logs (masked, as
+     * the executor masks them), then ended as `result` says: exit 0 unless
+     * told. Then whatever that set going.
+     */
+    end(how?: { outputs?: string; stdout?: string; stderr?: string; result?: Partial<CommandResult> }): Promise<void>;
+    /** Its result rejects, as the executor's does when the shell never started. */
+    neverStarted(error: unknown): Promise<void>;
+    /** How many times it was asked to stop. */
+    stops: number;
+}
+
 export interface StepsHarnessOptions {
     /** ws-1's factory.yml; without one, the workspace has no file. */
     yaml?: string;
@@ -51,6 +70,8 @@ export interface StepsHarnessOptions {
     now?: Date;
     /** Agent sessions automations may have working at once; `world.maxConcurrentAgents` changes it later. Default: the engine's. */
     maxConcurrentAgents?: number;
+    /** Commands automations may have running at once; `world.maxConcurrentCommands` changes it later. Default: the engine's. */
+    maxConcurrentCommands?: number;
 }
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
@@ -66,6 +87,18 @@ export interface StepsWorld {
     liveTerminals: Set<string>;
     /** The cap the service reads, read at every look: undefined is the engine's default. */
     maxConcurrentAgents?: number;
+    /** The command lane's cap, read the same way. */
+    maxConcurrentCommands?: number;
+    /** What `commandEnv` resolves with: `COMMAND_ENV` unless a test sets another. */
+    commandEnv: { env: NodeJS.ProcessEnv; secrets: string[] };
+    /** `commandEnv` rejects with this while it is set: a token that cannot be borrowed. */
+    commandEnvThrows?: unknown;
+    /** The workspace of every `commandEnv` asked for, in order. */
+    commandEnvAsked: string[];
+    /** Every command started, in order. */
+    commands: FakeCommand[];
+    /** Called inside the fake `start`, before it returns: nothing has run yet. */
+    onCommand?: (spec: CommandSpec) => void;
     /** Folders a running session works in, as `checkoutBusy` answers. */
     busyFolders: Set<string>;
     /** Working folders that are gone from disk, as `folderExists` answers. */
@@ -173,6 +206,10 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         inbox: new Map(),
         liveTerminals: new Set(),
         maxConcurrentAgents: options.maxConcurrentAgents,
+        maxConcurrentCommands: options.maxConcurrentCommands,
+        commandEnv: structuredClone(COMMAND_ENV),
+        commandEnvAsked: [],
+        commands: [],
         busyFolders: new Set(),
         goneFolders: new Set(),
         checkouts: { prepared: [], head: CHECKOUT_HEAD },
@@ -218,6 +255,49 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                 texts.set(workspaceId, replaceAutomationEntry(texts.get(workspaceId)!, name, entryYaml));
             },
             readText: async () => texts.get(workspaceId) ?? null,
+        };
+    };
+
+    // Like the executor: its logs exist from the start, and what it prints reaches them masked.
+    const startFakeCommand = (spec: CommandSpec): RunningCommand => {
+        for (const log of [spec.stdoutPath, spec.stderrPath]) {
+            fs.mkdirSync(path.dirname(log), { recursive: true });
+            fs.writeFileSync(log, '');
+        }
+        let settle!: { resolve: (result: CommandResult) => void; reject: (error: unknown) => void };
+        const result = new Promise<CommandResult>((resolve, reject) => (settle = { resolve, reject }));
+        const command: FakeCommand = {
+            spec,
+            stops: 0,
+            async end({ outputs, stdout = '', stderr = '', result: ending = {} } = {}) {
+                if (outputs !== undefined) fs.appendFileSync(String(spec.env.CONSOLA_OUTPUT), outputs);
+                fs.appendFileSync(spec.stdoutPath, maskSecrets(stdout, spec.secrets));
+                fs.appendFileSync(spec.stderrPath, maskSecrets(stderr, spec.secrets));
+                settle.resolve({
+                    exitCode: 0,
+                    signal: null,
+                    timedOut: false,
+                    stopped: false,
+                    stdoutBytes: Buffer.byteLength(stdout),
+                    stderrBytes: Buffer.byteLength(stderr),
+                    truncated: false,
+                    ...ending,
+                });
+                await flush();
+            },
+            async neverStarted(error) {
+                settle.reject(error);
+                await flush();
+            },
+        };
+        world.commands.push(command);
+        world.onCommand?.(spec);
+        return {
+            pid: 4242,
+            result,
+            stop: () => {
+                command.stops++;
+            },
         };
     };
 
@@ -274,6 +354,15 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         get maxConcurrentAgents() {
             return world.maxConcurrentAgents;
         },
+        get maxConcurrentCommands() {
+            return world.maxConcurrentCommands;
+        },
+        commandEnv: async (workspaceId) => {
+            world.commandEnvAsked.push(workspaceId);
+            if (world.commandEnvThrows) throw world.commandEnvThrows;
+            return structuredClone(world.commandEnv);
+        },
+        commands: { start: startFakeCommand },
         platform,
         checkout: {
             pathFor: (_workspaceId, workItem) => checkoutPathFor(workItem),

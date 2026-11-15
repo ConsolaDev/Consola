@@ -274,6 +274,13 @@ function setup({
         },
         checkoutBusy: () => false,
         folderExists: () => true,
+        // Nor runs a command.
+        commands: {
+            start: () => {
+                throw new Error('These tests run no commands.');
+            },
+        },
+        commandEnv: async () => ({ env: {}, secrets: [] }),
     });
     const t = {
         service,

@@ -132,6 +132,13 @@ async function runner(
         },
         checkoutBusy: () => false,
         folderExists: () => true,
+        // Nor runs a command.
+        commands: {
+            start: () => {
+                throw new Error('These tests run no commands.');
+            },
+        },
+        commandEnv: async () => ({ env: {}, secrets: [] }),
     });
     await service.start();
     return { service, text: () => text };

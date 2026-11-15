@@ -18,7 +18,8 @@ import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
-import { composeProviderEnv, getProviderDriver } from './providers';
+import { borrowProviderEnv, composeProviderEnv, getProviderDriver } from './providers';
+import { getLoginEnv, loginEnvRetry } from './LoginEnvironment';
 import { InboxService } from './providers/InboxService';
 import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
 import { createRunInSessionCoalescer } from './providers/runActionInSession';
@@ -55,6 +56,7 @@ import {
     RunFolder,
     RunHistoryFiles,
     RunStore,
+    startCommand,
     stepToolSpecs,
     workspaceFactoryPath,
     type AutomationStateFile,
@@ -1011,6 +1013,18 @@ export function setupIpcHandlers(): boolean {
         }),
         checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
         folderExists: (dir) => fs.existsSync(dir),
+        // run: steps: spawned by the engine's own executor.
+        commands: { start: startCommand },
+        // What they start from: the login env, and the bound account's token, which their logs mask.
+        commandEnv: async (workspaceId) => {
+            const provider = workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.provider;
+            if (!provider) {
+                await loginEnvRetry();
+                return { env: { ...getLoginEnv() }, secrets: [] };
+            }
+            const { env, token } = await borrowProviderEnv(getProviderDriver(provider.id), provider.accountLogin);
+            return { env, secrets: [token] };
+        },
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));

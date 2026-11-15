@@ -28,13 +28,39 @@ import { agentToolContext, CONSOLA_NAMESPACE, describeError, firstActionFor, Sta
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { describeKind, describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
-import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResult, FactoryFileHandle, LaunchedSession, LoadedFactoryFile, RunFolderPort, ToolsPort } from './ports';
+import type {
+    AgentLaunchRequest,
+    CommandPort,
+    CommandResult,
+    CommandSpec,
+    EngineTool,
+    EngineToolContext,
+    EngineToolResult,
+    FactoryFileHandle,
+    LaunchedSession,
+    LoadedFactoryFile,
+    RunFolderPort,
+    RunningCommand,
+    ToolsPort,
+} from './ports';
 import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunKind, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, runEventSource } from './steps/agentStep';
 import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
+import { maskSecrets } from './steps/commandIO';
+import {
+    commandOutcome,
+    commandSpec,
+    createOutputFile,
+    describeReason,
+    neverStarted,
+    prepareCommand,
+    withCommandIntent,
+    writeCommandFile,
+    type PreparedCommand,
+} from './steps/commandStep';
 import type { RunDefinition, StepsRunPreview } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
@@ -146,6 +172,17 @@ export interface AutomationServiceDeps {
     checkoutBusy(dir: string): boolean;
     /** Whether a step's working folder (its item's checkout, or its scope's folder) is still there. */
     folderExists(dir: string): boolean;
+    /** Runs a `run:` step's command; the engine's `startCommand` (its Node adapter) is the one that spawns. */
+    commands: CommandPort;
+    /**
+     * What a workspace's commands start from: the login environment and, for
+     * a workspace with a bound account, its token under the provider's
+     * variable, listed in `secrets` so the logs mask it. Rejects when that
+     * token cannot be borrowed; a workspace with no bound account gets none.
+     */
+    commandEnv(workspaceId: string): Promise<{ env: NodeJS.ProcessEnv; secrets: string[] }>;
+    /** Commands automations may have running at once, across every workspace. */
+    maxConcurrentCommands?: number;
 }
 
 /** A `steps:` entry's problem on a host whose platform is `win32`. */
@@ -154,8 +191,8 @@ const NO_POSIX_SHELL = 'run: steps need a POSIX shell, which Windows does not ha
 /** What a run says while another run, or a session, holds its item's checkout. */
 const WAITING_FOR_CHECKOUT = "waiting for this item's checkout";
 
-/** Commands automations may have running at once, across every workspace. */
-const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
+/** Commands automations may have running at once, across every workspace, by default. */
+export const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
 
 /** The lanes slots are counted in: agent turns, and commands, each with a cap of its own. */
 const LANES: readonly Lane[] = ['agent', 'command'];
@@ -292,6 +329,8 @@ export class AutomationService {
      * first step takes that slot: no other run can take it meanwhile.
      */
     private readonly admitted = new Map<string, Lane>();
+    /** Each run's command now running, from its spawn until its step settles: what a stop or a quit reaches. */
+    private readonly runningCommands = new Map<string, RunningCommand>();
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
@@ -1011,20 +1050,34 @@ export class AutomationService {
                     if (verdict.go) this.startStepsRun(run, verdict.item, null);
                     else if (!verdict.wait) this.endUnstarted(run, verdict);
                 }
-                for (const lane of LANES) {
-                    for (const waiting of lines[lane]) {
-                        // The lines were taken before the last launch was awaited:
-                        // a run dismissed, dropped or started meanwhile is not in line.
-                        if (!this.stillWaiting(waiting)) continue;
-                        // A run started from the line already holds the slot its first step takes.
-                        const holdsSlot = this.admitted.get(waiting.run.id) === lane;
-                        if (!holdsSlot && this.slotsInUse(lane) >= this.capacityOf(lane)) continue;
-                        await this.startWaiting(waiting);
-                    }
-                }
+                await this.startInLine(lines);
             } while (this.pumpAgain);
         } finally {
             this.pumping = false;
+        }
+    }
+
+    /**
+     * One pass down each lane's line. Once a run in it must wait for a slot,
+     * only runs that already hold one start behind it, so nothing overtakes
+     * it. A start that set something else going (a step queued, a slot
+     * freed, a run ended), whether while it was awaited or by itself, leaves
+     * the rest of the pass to a line taken afresh: this one is out of date.
+     */
+    private async startInLine(lines: Record<Lane, Waiting[]>): Promise<void> {
+        for (const lane of LANES) {
+            let full = false;
+            for (const waiting of lines[lane]) {
+                // A run dismissed, dropped or started since the line was taken is not in line.
+                if (!this.stillWaiting(waiting)) continue;
+                // A run started from the line already holds the slot its first step takes.
+                if (this.admitted.get(waiting.run.id) !== lane) {
+                    full ||= this.slotsInUse(lane) >= this.capacityOf(lane);
+                    if (full) continue;
+                }
+                await this.startWaiting(waiting);
+                if (this.pumpAgain) return;
+            }
         }
     }
 
@@ -1037,8 +1090,8 @@ export class AutomationService {
             // in that session, or gives it attempt 2. Until then it keeps its
             // place and takes no slot.
             if (this.stepsOf(run.id).find((step) => step.id === stepId)?.sessionId) return;
-            // A command waits in its lane: commands do not run yet.
             if (lane === 'agent') await this.startAgentStep(run.id, stepId);
+            else await this.startCommandStep(run.id, stepId);
             return;
         }
         const verdict = this.checkQueued(run);
@@ -1274,7 +1327,9 @@ export class AutomationService {
     }
 
     private capacityOf(lane: Lane): number {
-        return lane === 'agent' ? (this.deps.maxConcurrentAgents ?? DEFAULT_MAX_CONCURRENT_AGENTS) : DEFAULT_MAX_CONCURRENT_COMMANDS;
+        return lane === 'agent'
+            ? (this.deps.maxConcurrentAgents ?? DEFAULT_MAX_CONCURRENT_AGENTS)
+            : (this.deps.maxConcurrentCommands ?? DEFAULT_MAX_CONCURRENT_COMMANDS);
     }
 
     /**
@@ -1490,6 +1545,141 @@ export class AutomationService {
     }
 
     /**
+     * Start a command step's attempt in its run's checkout, in the order that
+     * keeps it from running twice: render its `env:`, borrow the environment
+     * it starts from, write `command.json` and an empty `$CONSOLA_OUTPUT`,
+     * record the intent durably, and only then spawn. Every failure before
+     * the intent is on disk is clean: the step fails, and nothing ran. In a
+     * dry run, a command not marked `dry_run: run` is reported instead.
+     */
+    private async startCommandStep(runId: string, stepId: string): Promise<void> {
+        const run = this.deps.store.get(runId)!;
+        const loaded = this.definitionOf(run);
+        if ('problem' in loaded) {
+            this.failRun(runId, loaded.problem);
+            return;
+        }
+        const cwd = run.checkout?.cwd;
+        if (!cwd) {
+            this.settleStep(runId, stepId, { status: 'failed', error: 'It has no working folder.' });
+            return;
+        }
+        if (!this.deps.folderExists(cwd)) {
+            this.settleStep(runId, stepId, { status: 'failed', error: `Its working folder is gone: ${cwd}.` });
+            return;
+        }
+        const workspaceId = run.attribution.workspaceId!;
+        const prepared = prepareCommand({ run, definition: loaded.definition, stepId, cwd, workspaceId, folder: this.deps.runFolder });
+        if (!prepared.ok) {
+            this.settleStep(runId, stepId, { status: 'failed', error: prepared.error });
+            return;
+        }
+        const { command } = prepared;
+        if (run.dryRun && command.step.dryRun === 'report') {
+            this.reportCommand(runId, command);
+            return;
+        }
+
+        let base: { env: NodeJS.ProcessEnv; secrets: string[] };
+        try {
+            base = await this.deps.commandEnv(workspaceId);
+        } catch (error) {
+            if (this.stepWaiting(runId, stepId, command.attempt)) {
+                const why = `Its environment could not be prepared (${describeReason(error)}); nothing ran.`;
+                this.settleStep(runId, stepId, { status: 'failed', error: why });
+            }
+            return;
+        }
+        // Its run may have ended while that was borrowed.
+        if (!this.stepWaiting(runId, stepId, command.attempt)) return;
+        const refused = writeCommandFile(this.deps.runFolder, command, base.secrets) ?? createOutputFile(this.deps.runFolder, command);
+        if (refused) {
+            this.settleStep(runId, stepId, { status: 'failed', error: maskSecrets(refused, base.secrets) });
+            return;
+        }
+        const now = this.iso();
+        const envNames = command.values.map((value) => value.name);
+        try {
+            this.deps.store.updateDurably(runId, { steps: withCommandIntent(this.stepsOf(runId), stepId, now, envNames), updatedAt: now });
+        } catch (error) {
+            const why = `Could not record that it was about to run (${describeReason(error)}); nothing ran.`;
+            this.settleStep(runId, stepId, { status: 'failed', error: why });
+            return;
+        }
+        // The running step now holds the slot its run was let in with.
+        this.admitted.delete(runId);
+        this.broadcastRun(runId);
+        this.spawnCommand(command, commandSpec(command, base), base.secrets);
+    }
+
+    /** A dry run's command: reported, never spawned, its `command.json` saying what it would have run. */
+    private reportCommand(runId: string, command: PreparedCommand): void {
+        const refused = writeCommandFile(this.deps.runFolder, command, []);
+        if (refused) {
+            this.settleStep(runId, command.step.id, { status: 'failed', error: refused });
+            return;
+        }
+        // It settles without running: the slot its run was let in with is free.
+        this.admitted.delete(runId);
+        this.settleStep(runId, command.step.id, { status: 'reported' });
+    }
+
+    /** Spawn a command whose intent is on disk; its step settles from the result, which is handled at once. */
+    private spawnCommand(command: PreparedCommand, spec: CommandSpec, secrets: string[]): void {
+        let running: RunningCommand;
+        try {
+            running = this.deps.commands.start(spec);
+        } catch (error) {
+            this.commandSettled(command, secrets, { error });
+            return;
+        }
+        this.runningCommands.set(command.runId, running);
+        void running.result.then(
+            (result) => this.commandSettled(command, secrets, { result }, running),
+            (error: unknown) => this.commandSettled(command, secrets, { error }, running)
+        );
+    }
+
+    /**
+     * A command ended, or never started. Its result is written with its
+     * status, in one line, then the run advances. A run that ended meanwhile
+     * keeps what it has. Nothing awaits this, so nothing may escape it.
+     */
+    private commandSettled(
+        command: PreparedCommand,
+        secrets: string[],
+        ended: { result: CommandResult } | { error: unknown },
+        running?: RunningCommand
+    ): void {
+        const { runId, step, attempt } = command;
+        if (this.runningCommands.get(runId) === running) this.runningCommands.delete(runId);
+        try {
+            if (!this.stepRunning(runId, step.id, attempt)) return;
+            const record = this.stepsOf(runId).find((candidate) => candidate.id === step.id)!;
+            if ('error' in ended) {
+                const error = maskSecrets(`The command could not start (${describeReason(ended.error)}); nothing ran.`, secrets);
+                this.settleStep(runId, step.id, { status: 'failed', error }, { also: { command: neverStarted(record.command) } });
+                return;
+            }
+            const outcome = commandOutcome({ folder: this.deps.runFolder, command, record, result: ended.result, secrets });
+            this.settleStep(runId, step.id, outcome.end, { also: outcome.changes });
+        } catch (error) {
+            console.error(`Run ${runId} could not record how its command ended.`, error);
+            try {
+                if (this.stillRunning(runId)) this.failRun(runId, describeError(error));
+            } catch (failing) {
+                console.error(`Run ${runId} could not be recorded as failed.`, failing);
+            }
+        }
+    }
+
+    /** Whether the run still has that step queued at that attempt: it may have ended while something was awaited. */
+    private stepWaiting(runId: string, stepId: string, attempt: number): boolean {
+        const step = this.stillRunning(runId) ? this.stepsOf(runId).find((candidate) => candidate.id === stepId) : undefined;
+        return step?.status === 'queued' && step.attempt === attempt;
+    }
+
+    /**
      * A step's turn ended. A stop or a non-zero exit fails it, in the words a
      * one-step run uses. A clean exit completes it only when every output it
      * declares is set and every document it must write is written; its
@@ -1557,16 +1747,20 @@ export class AutomationService {
         });
     }
 
-    /** A step ended: how, on its own line, then the run advances from it and its slot is free. */
+    /**
+     * A step ended: how, on its own line, with whatever is recorded alongside
+     * it (`also`: a command's result), then the run advances from it and its
+     * slot is free.
+     */
     private settleStep(
         runId: string,
         stepId: string,
-        end: { status: 'completed' } | { status: 'failed'; error: string },
-        options: { quiet?: boolean } = {}
+        end: { status: 'completed' | 'reported' } | { status: 'failed'; error: string },
+        options: { quiet?: boolean; also?: Partial<StepRun> } = {}
     ): void {
-        this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { ...end, finishedAt: this.iso() }));
+        this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { ...options.also, ...end, finishedAt: this.iso() }));
         this.broadcastRun(runId);
-        this.advance(runId, options);
+        this.advance(runId, { quiet: options.quiet });
     }
 
     /** A started steps run that cannot go on: a step still running fails with it, and the rest did not run. */

@@ -144,6 +144,14 @@ describe.skipIf(process.platform === 'win32')('startCommand', () => {
         expect(result.stdoutBytes).toBe(Buffer.byteLength(stdout()));
     });
 
+    it('an env value is data, never code', async () => {
+        const value = '$(touch pwned)\nsecond line';
+        const result = await start(`printf '%s' "$A" > out`, { env: layerCommandEnv(BASE, { A: value }, {}) }).result;
+        expect(result.exitCode).toBe(0);
+        expect(fs.readFileSync(path.join(dir, 'out'), 'utf8')).toBe(value);
+        expect(fs.existsSync(path.join(dir, 'pwned'))).toBe(false);
+    });
+
     it('stdin is /dev/null', async () => {
         const result = await start('read line').result;
         expect(result.exitCode).toBe(1);
