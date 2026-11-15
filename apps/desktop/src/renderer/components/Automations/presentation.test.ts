@@ -34,6 +34,7 @@ import {
     olderRunsCursor,
     triggerLabel,
     approvalStep,
+    runAgainTitle,
     commandFoot,
     formatElapsed,
     groupRunsByDay,
@@ -757,6 +758,39 @@ describe('runsByDay', () => {
         );
         expect(days[4].runs.map((entry) => entry.id)).toEqual(['late', 'early']);
         expect(days.flatMap((day) => day.runs).map((entry) => entry.id)).not.toContain('old');
+    });
+});
+
+describe('runAgainTitle', () => {
+    const agent = { id: 'review', kind: 'agent' as const, summary: 'Review action' };
+    const fetch = { id: 'fresh', kind: 'run' as const, summary: 'git fetch', dryRun: true as const };
+    const publish = { id: 'publish', kind: 'run' as const, summary: 'gh pr review' };
+    const PREVIEW = 'Preview it again now; nothing changes until you approve';
+
+    it('says an accepted notify steps entry starts its agent steps and dry_run: run commands at once', () => {
+        expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent, publish] })).toBe(
+            'Run it again now. Runs review read-only; publish only reports.',
+        );
+        expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })).toBe(
+            'Run it again now. Runs review read-only and fresh as you; publish only reports.',
+        );
+    });
+
+    it('says a notify steps entry that only reports starts nothing', () => {
+        expect(runAgainTitle({ mode: 'notify', kind: 'tool', steps: [publish] })).toBe(
+            'Run it again now; it starts nothing and reports what it would run',
+        );
+    });
+
+    it('previews an entry that asks first or waits for approval, and keeps the other words', () => {
+        expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent, publish], asksFirst: true })).toBe(PREVIEW);
+        expect(runAgainTitle({ mode: 'confirm', kind: 'agent', steps: [agent] })).toBe(PREVIEW);
+        expect(runAgainTitle({ mode: 'notify', kind: 'tool' })).toBe(PREVIEW);
+        expect(runAgainTitle({ mode: 'auto', kind: 'agent', steps: [agent], asksFirst: true })).toBe(PREVIEW);
+        expect(runAgainTitle({ mode: 'auto', kind: 'agent', steps: [agent] })).toBe('Run it again now');
+        expect(runAgainTitle({ mode: 'notify', kind: 'agent', steps: [agent], problem: 'no scope named "api"' })).toBe(
+            'Not running: no scope named "api"',
+        );
     });
 });
 

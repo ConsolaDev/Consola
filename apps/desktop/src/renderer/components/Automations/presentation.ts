@@ -588,6 +588,23 @@ export function templateModeWords(mode: AutomationMode): string {
     return 'Asks once, then runs on its own';
 }
 
+/**
+ * Run again's tooltip: what pressing it will do. An `auto` entry it no longer
+ * asks about runs now. So does a `notify` steps entry: it starts its agent
+ * steps (read-only) and its `dry_run: run` commands at once, said as its
+ * pipeline's approval node says it, or, when every step only reports, starts
+ * nothing. Anything that asks first previews and waits.
+ */
+export function runAgainTitle(automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps' | 'problem'>): string {
+    if (automation.problem) return `Not running: ${automation.problem}`;
+    if (automation.mode === 'auto' && !automation.asksFirst) return 'Run it again now';
+    if (automation.mode === 'notify' && automation.steps && !automation.asksFirst) {
+        const starts = automation.steps.some((step) => step.kind === 'agent' || step.dryRun);
+        return starts ? `Run it again now. ${approvalStep(automation)!.detail}` : 'Run it again now; it starts nothing and reports what it would run';
+    }
+    return 'Preview it again now; nothing changes until you approve';
+}
+
 export function approvalStep(
     automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps'>,
     /** Not in the file yet (a template): an `auto` entry's first run is the one it asks about. */

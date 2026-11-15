@@ -34,6 +34,7 @@ import {
   formatAgo,
   formatDuration,
   formatTime,
+  runAgainTitle,
   runRowWords,
   runTitle,
   statusLabel,
@@ -556,13 +557,7 @@ export function RunAgainButton({
         Boolean(automation.problem) ||
         history.some((candidate) => candidate.status === 'running' || candidate.status === 'queued')
       }
-      title={
-        automation.problem
-          ? `Not running: ${automation.problem}`
-          : automation.mode === 'auto' && !automation.asksFirst
-            ? 'Run it again now'
-            : 'Preview it again now; nothing changes until you approve'
-      }
+      title={runAgainTitle(automation)}
       onClick={() =>
         void act('rerun', async () => {
           const next = await automationsBridge.runNow(workspaceId, run.automationId);
