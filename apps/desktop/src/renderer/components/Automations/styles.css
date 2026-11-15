@@ -3415,3 +3415,56 @@
   line-height: var(--line-height-normal);
   color: var(--color-text-primary);
 }
+
+/* A step's own detail: dense blocks, each with a quiet label. Logs, variables and outputs are plain text. */
+.automations-step-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.automations-step-block {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.automations-step-label {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+
+.automations-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-step-code {
+  font-family: var(--font-mono);
+  font-size: var(--font-size-sm);
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.automations-step-command,
+.automations-step-log {
+  max-height: 320px;
+}
+
+.automations-step-error {
+  color: var(--color-error);
+}
+
+.automations-step-artifact {
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+}

@@ -5,6 +5,7 @@ import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { RunAgainButton, useIntent } from './parts';
 import { RunGraph } from './RunGraph';
+import { StepDetail } from './StepDetailView';
 import { isInterruptedCommand, retryTargetOf, type RunStage } from './runPage';
 
 /** The retry warning for a command Consola quit on, word for word. */
@@ -133,7 +134,7 @@ export function StepsRunView({
         />
       </section>
 
-      {selected && <StepPlaceholder step={selected} />}
+      {selected && <StepDetail key={`${run.id}:${selected.id}`} workspace={workspace} run={run} step={selected} />}
     </div>
   );
 }
@@ -149,20 +150,4 @@ function defaultStep(steps: StepRun[]): StepRun | undefined {
   if (live) return live;
   const ran = steps.filter((step) => step.status === 'completed' || step.status === 'reported');
   return ran[ran.length - 1] ?? steps[0];
-}
-
-/** Until the step's own detail lands: what it is, how it went, and why if it did not. */
-function StepPlaceholder({ step }: { step: StepRun }) {
-  return (
-    <section className="automations-detail-section automations-run-section" aria-label={`Step ${step.id}`}>
-      <div className="automations-detail-section-head">
-        <h3 className="automations-section-title">{step.id}</h3>
-      </div>
-      <p className="automations-hint">
-        {step.kind === 'agent' ? 'Agent step' : 'Command'} · {step.status}
-      </p>
-      {step.skipped && <p className="automations-hint">{step.skipped}</p>}
-      {step.error && <p className="automations-hint">{step.error}</p>}
-    </section>
-  );
 }

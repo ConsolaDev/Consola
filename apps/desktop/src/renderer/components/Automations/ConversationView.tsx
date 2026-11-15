@@ -35,12 +35,15 @@ const dropImage = () => undefined;
  * again every two seconds until the run settles — paused while the window
  * is hidden, and read at once on coming back; the caller turns `follow`
  * off then, which reads it once more for the end. Not read at all until
- * `enabled`: a run with no session has no transcript.
+ * `enabled`: a run with no session has no transcript. With `stepId` it reads
+ * that step's conversation instead of the run's; a component showing steps
+ * is keyed by the step, so its state never carries over.
  */
 export function useRunConversation(
   runId: string,
   enabled: boolean,
   follow: boolean,
+  stepId?: string,
 ): { conversation: RunConversation | null; error: string | null } {
   const [conversation, setConversation] = useState<RunConversation | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +67,9 @@ export function useRunConversation(
     const read = async () => {
       reading = true;
       try {
-        const next = await automationsBridge.readConversation(runId);
+        const next = await (stepId === undefined
+          ? automationsBridge.readConversation(runId)
+          : automationsBridge.readStepConversation(runId, stepId));
         if (!live) return;
         setConversation(next);
         setError(null);
@@ -91,7 +96,7 @@ export function useRunConversation(
       if (timer !== undefined) clearTimeout(timer);
       document.removeEventListener('visibilitychange', onVisibilityChange);
     };
-  }, [runId, enabled, follow]);
+  }, [runId, enabled, follow, stepId]);
 
   return { conversation, error };
 }
