@@ -247,6 +247,11 @@ export function filterRuns(runs: RunListEntry[], filter: RunListFilter, now: Dat
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
+/** Newest first by `createdAt`, ties by id descending: the engine's `newestFirst`, so both sides order one way. */
+export function newestRunFirst(a: { createdAt: string; id: string }, b: { createdAt: string; id: string }): number {
+    return Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
+}
+
 /**
  * Pages of runs laid together, newest first: `first` wins for a run in both,
  * so the live snapshot's copy of a run is never replaced by an older fetch.
@@ -259,7 +264,33 @@ export function mergeRunPages(first: RunListEntry[], ...rest: RunListEntry[][]):
         seen.add(run.id);
         merged.push(run);
     }
-    return merged.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return merged.sort(newestRunFirst);
+}
+
+/**
+ * The snapshot holds every live run and the newest 200 ended ones, so each
+ * push can move its edge: a run that ends pushes the 200th out. The ended
+ * runs the previous snapshot held and this one dropped go into `older`, so
+ * no run falls between the snapshot and the pages loaded below it.
+ */
+export function foldDroppedRuns(
+    previous: RunListEntry[],
+    next: RunListEntry[],
+    older: RunListEntry[],
+): RunListEntry[] {
+    const held = new Set(next.map((run) => run.id));
+    const dropped = previous.filter((run) => !LIVE_STATUSES.has(run.status) && !held.has(run.id));
+    return dropped.length === 0 ? older : mergeRunPages(older, dropped);
+}
+
+/**
+ * A row's words: its title, and where a steps run is beside it. An event
+ * run's title stays its item's; any other steps run says its step as its title.
+ */
+export function runRowWords(run: RunListEntry): { about: string; step: string | null } {
+    const step = stepWords(run);
+    if (step && !(run.trigger.kind === 'event' && run.trigger.item?.title)) return { about: step, step: null };
+    return { about: runAbout(run), step };
 }
 
 /**

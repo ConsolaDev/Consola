@@ -32,8 +32,7 @@ import {
   formatAgo,
   formatDuration,
   formatTime,
-  runAbout,
-  stepWords,
+  runRowWords,
   runTitle,
   statusLabel,
   triggerInWords,
@@ -97,7 +96,7 @@ export function RunItem({
   onOpen: () => void;
 }) {
   const washed = useArrivedOnMount(arrived);
-  const about = stepWords(run) ?? runAbout(run);
+  const { about, step } = runRowWords(run);
   const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
   // With nothing to say about itself, a run's "about" is its status: the title says that instead.
   const title = about !== run.status ? about : status;
@@ -117,7 +116,7 @@ export function RunItem({
         className={`automations-run-item ${washed ? 'automations-run-arrived' : ''}`}
         aria-current={selected ? 'true' : undefined}
         // The cells are laid out apart, so their text has no separators of its own to read out.
-        aria-label={[name, status, title !== status ? title : null, fired, full, duration ? `took ${duration}` : null]
+        aria-label={[name, status, title !== status ? title : null, step, fired, full, duration ? `took ${duration}` : null]
           .filter(Boolean)
           .join(', ')}
         onClick={onOpen}
@@ -138,6 +137,7 @@ export function RunItem({
                 {' · '}
               </>
             )}
+            {step && `${step} · `}
             {fired}
           </span>
         </span>

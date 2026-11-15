@@ -10,7 +10,9 @@ import {
   filterRuns,
   groupRunsByDay,
   isRunFilterNarrowed,
+  foldDroppedRuns,
   mergeRunPages,
+  newestRunFirst,
   olderRunsCursor,
   NO_RUN_FILTER,
   runAutomationOptions,
@@ -172,7 +174,8 @@ function RunList({
               onClick={() => onChange({ kind: id })}
             >
               {label}
-              <span className="automations-segment-count">{kindCounts[id]}</span>
+              {/* Counts come from the snapshot: beside narrowed or paged rows they could read "Failed 0". */}
+              {!narrowed && !paged && <span className="automations-segment-count">{kindCounts[id]}</span>}
             </button>
           ))}
         </div>
@@ -278,8 +281,12 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
   const [more, setMore] = useState<boolean | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // One counter for the first page of a filter, one for "Show older runs": a
+  // live refresh bumps only the first, so it cannot drop an older page.
   const request = useRef(0);
-  const askedFor = useRef('');
+  const olderRequest = useRef(0);
+  const lastQuery = useRef('');
+  const lastShape = useRef('');
   const pagedOlder = useRef(false);
 
   // The live runs' ids and statuses: when they change, a narrowed list is stale.
@@ -290,37 +297,59 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
     .join(',');
   const shape = `${workspaceId}|${narrowed ? `${query}|${kind}|${automation}` : ''}`;
 
+  // The snapshot's edge moves as runs end: what it dropped goes into `older`.
+  const [seen, setSeen] = useState({ workspaceId, runs: snapshot.runs });
+  if (seen.runs !== snapshot.runs || seen.workspaceId !== workspaceId) {
+    if (seen.workspaceId === workspaceId && older.length > 0 && !narrowed) {
+      setOlder(foldDroppedRuns(seen.runs, snapshot.runs, older));
+    }
+    setSeen({ workspaceId, runs: snapshot.runs });
+  }
+
   // A different workspace or filter starts over; anything still in flight is stale.
   useEffect(() => {
     request.current++;
+    olderRequest.current++;
     pagedOlder.current = false;
+    setFound([]);
     setOlder([]);
     setMore(null);
     setError(null);
     setLoading(false);
   }, [shape]);
 
+  // Nothing sets state after the list is gone.
+  useEffect(
+    () => () => {
+      request.current++;
+      olderRequest.current++;
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!narrowed) return;
     const id = ++request.current;
-    const sameFilter = askedFor.current === shape;
-    // Typing waits for a pause; a kind, an automation or a live change asks at once.
-    const typing = !askedFor.current.startsWith(`${workspaceId}|${query}|`);
+    const filterChanged = lastShape.current !== shape;
+    // Only a kind or automation change asks at once; typing and live changes wait for a pause.
+    const immediate = filterChanged && lastQuery.current === query;
+    lastShape.current = shape;
+    lastQuery.current = query;
+    if (filterChanged) setLoading(true);
     const timer = setTimeout(
       () => {
-        setLoading(true);
         automationsBridge
           .listRuns(workspaceId, { limit: PAGE, query, kind, automation })
           .then((page) => {
             if (id !== request.current) return;
-            askedFor.current = shape;
             setError(null);
             // A refresh from a live change keeps the older pages already loaded.
-            if (sameFilter && pagedOlder.current) {
-              const edge = page.runs.length ? Date.parse(page.runs[page.runs.length - 1].createdAt) : Infinity;
-              setFound((prev) => mergeRunPages(page.runs, prev.filter((run) => Date.parse(run.createdAt) < edge)));
+            if (pagedOlder.current) {
+              const edge = page.runs[page.runs.length - 1];
+              setFound((prev) =>
+                mergeRunPages(page.runs, edge ? prev.filter((run) => newestRunFirst(run, edge) > 0) : []),
+              );
             } else {
-              pagedOlder.current = false;
               setFound(page.runs);
               setMore(page.hasOlder);
             }
@@ -332,27 +361,29 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
             if (id === request.current) setLoading(false);
           });
       },
-      typing ? SEARCH_DEBOUNCE_MS : 0,
+      immediate ? 0 : SEARCH_DEBOUNCE_MS,
     );
     return () => clearTimeout(timer);
   }, [workspaceId, narrowed, query, kind, automation, liveKey, shape]);
 
   const rows = narrowed ? found : filterRuns(mergeRunPages(snapshot.runs, older), filter, now);
-  const hasOlder = narrowed ? (more ?? false) : (more ?? snapshot.hasOlder);
+  const cursor = olderRunsCursor(rows);
+  // Without a cursor the page would start over at the newest run.
+  const hasOlder = (narrowed ? (more ?? false) : (more ?? snapshot.hasOlder)) && cursor !== undefined;
 
   const showOlder = useCallback(() => {
-    const id = request.current;
+    const id = olderRequest.current;
     setLoading(true);
     automationsBridge
       .listRuns(workspaceId, {
-        before: olderRunsCursor(rows),
+        before: cursor,
         limit: PAGE,
         query: narrowed ? query : undefined,
         kind: narrowed ? kind : undefined,
         automation: narrowed ? automation : undefined,
       })
       .then((page) => {
-        if (id !== request.current) return;
+        if (id !== olderRequest.current) return;
         setError(null);
         pagedOlder.current = true;
         setMore(page.hasOlder);
@@ -360,13 +391,12 @@ function useRunPages(workspaceId: string, snapshot: AutomationsSnapshot, filter:
         else setOlder((prev) => mergeRunPages(prev, page.runs));
       })
       .catch((reason: unknown) => {
-        if (id === request.current) setError(reason instanceof Error ? reason.message : String(reason));
+        if (id === olderRequest.current) setError(reason instanceof Error ? reason.message : String(reason));
       })
       .finally(() => {
-        if (id === request.current) setLoading(false);
+        if (id === olderRequest.current) setLoading(false);
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [workspaceId, narrowed, query, kind, automation, rows]);
+  }, [workspaceId, narrowed, query, kind, automation, cursor]);
 
   return { runs: rows, hasOlder, loading, error, showOlder, paged: older.length > 0 };
 }

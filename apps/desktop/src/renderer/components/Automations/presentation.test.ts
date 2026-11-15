@@ -27,6 +27,9 @@ import {
     statusWord,
     stepWords,
     mergeRunPages,
+    foldDroppedRuns,
+    runRowWords,
+    newestRunFirst,
     olderRunsCursor,
     triggerLabel,
     approvalStep,
@@ -170,6 +173,57 @@ describe('mergeRunPages / olderRunsCursor', () => {
         ];
         expect(olderRunsCursor(runs)).toBe('ended');
         expect(olderRunsCursor([run({ status: 'queued' })])).toBeUndefined();
+    });
+});
+
+describe('foldDroppedRuns', () => {
+    it('keeps a run the snapshot dropped as its edge moved, once', () => {
+        const r200 = run({ id: 'r200', createdAt: ago(10 * HOUR) });
+        const r1 = run({ id: 'r1', createdAt: ago(2 * HOUR) });
+        const fresh = run({ id: 'fresh', createdAt: ago(HOUR) });
+        const older = [run({ id: 'r201', createdAt: ago(11 * HOUR) })];
+        const folded = foldDroppedRuns([r1, r200], [fresh, r1], older);
+        expect(folded.map((r) => r.id)).toEqual(['r200', 'r201']);
+        expect(foldDroppedRuns([r1, r200], [fresh, r1], folded).map((r) => r.id)).toEqual(['r200', 'r201']);
+    });
+
+    it('follows a run from live to ended without dropping or doubling it, and ignores dropped live runs', () => {
+        const live = run({ id: 'x', status: 'running', createdAt: ago(40 * DAY) });
+        const ended = { ...live, status: 'completed' as const };
+        const older = [run({ id: 'o', createdAt: ago(5 * HOUR) })];
+        // Still in the snapshot, now ended: nothing to fold.
+        expect(foldDroppedRuns([live], [ended], older)).toBe(older);
+        // A live run that vanished is not an ended run to keep.
+        expect(foldDroppedRuns([live], [], older)).toBe(older);
+        // Ended, then pushed out of the edge: kept below.
+        expect(foldDroppedRuns([ended], [], older).map((r) => r.id)).toEqual(['o', 'x']);
+        expect(mergeRunPages([ended], [live]).map((r) => r.status)).toEqual(['completed']);
+    });
+
+    it('orders ties by id descending, as the engine does', () => {
+        const at = ago(HOUR);
+        const sorted = [run({ id: 'a', createdAt: at }), run({ id: 'b', createdAt: at })].sort(newestRunFirst);
+        expect(sorted.map((r) => r.id)).toEqual(['b', 'a']);
+    });
+});
+
+describe('runRowWords', () => {
+    const item = { key: 'k', url: 'u', title: 'Fix the cart' };
+    const step = { id: 'publish', status: 'failed' as const, index: 2, count: 3 };
+
+    it('keeps an event run\'s item title and puts the step beside it', () => {
+        const failed = run({ status: 'failed', trigger: { kind: 'event', at: '', item }, step, error: 'boom' });
+        expect(runRowWords(failed)).toEqual({ about: 'Fix the cart', step: 'failed at publish' });
+    });
+
+    it('uses the step as the title of a steps run with no item', () => {
+        expect(runRowWords(run({ status: 'failed', step }))).toEqual({ about: 'failed at publish', step: null });
+    });
+
+    it('keeps a legacy failed run\'s error line', () => {
+        const legacy = run({ status: 'failed', error: 'It stopped before finishing (exit 1)\nmore' });
+        expect(stepWords(legacy)).toBeNull();
+        expect(runRowWords(legacy)).toEqual({ about: 'It stopped before finishing (exit 1)', step: null });
     });
 });
 
