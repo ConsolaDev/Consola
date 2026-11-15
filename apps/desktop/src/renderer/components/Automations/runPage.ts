@@ -184,6 +184,42 @@ export function isInterruptedCommand(step: StepRun): boolean {
     );
 }
 
+/** The error of a command Consola stopped, word for word: the engine's `describeFailure` (`stepWords.parity.test.ts`). */
+export const COMMAND_STOPPED = 'Stopped while running: it may have done its work';
+/** How the error of a command its timeout ended begins: "timed out after 10m". */
+export const COMMAND_TIMED_OUT = /^timed out after /;
+
+/**
+ * How a failed command step was ended while it ran, though it has a result:
+ * Consola stopped it, its timeout ended it, or a signal killed it. Null for
+ * any other step. The sibling of `isInterruptedCommand` (a command with no
+ * result at all): either may have done its work, so retrying either warns.
+ */
+export function endedWhileRunning(step: StepRun): 'stopped' | 'timed-out' | 'killed' | null {
+    if (step.kind !== 'run' || step.status !== 'failed') return null;
+    if (step.error === COMMAND_STOPPED) return 'stopped';
+    if (COMMAND_TIMED_OUT.test(step.error ?? '')) return 'timed-out';
+    return step.command?.signal !== undefined ? 'killed' : null;
+}
+
+/** The retry warning for a command Consola quit on, word for word. */
+const INTERRUPTED_WARNING = 'Consola quit while this command ran; check the pull request first — it may already be posted.';
+
+/**
+ * What Retry warns before it retries a step that may have done its work, or
+ * null when it retries at once: a command Consola quit on, word for word; a
+ * command ended while it ran, saying how, and what to check first (the run's
+ * item, if it has one).
+ */
+export function retryWarningOf(step: StepRun, item: { type?: 'pr' | 'issue' } | undefined): string | null {
+    if (isInterruptedCommand(step)) return INTERRUPTED_WARNING;
+    const ended = endedWhileRunning(step);
+    if (!ended) return null;
+    const how = { stopped: 'It was stopped', 'timed-out': 'It timed out', killed: 'It was killed' }[ended];
+    const check = item?.type === 'pr' ? 'the pull request' : item?.type === 'issue' ? 'the issue' : 'what it did';
+    return `${how} while it ran and may have done its work; check ${check} first.`;
+}
+
 /** The stage the run is in now, or ended in, and how. */
 function stopPoint(run: RunRecord, keys: RunStageKey[], agent: boolean): { key: RunStageKey; state: RunStageState } {
     const last = keys[keys.length - 1];

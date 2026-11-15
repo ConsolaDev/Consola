@@ -5,8 +5,10 @@ import {
     adjacentRuns,
     durationAgainstUsual,
     foundNothingToDo,
+    endedWhileRunning,
     isInterruptedCommand,
     retryTargetOf,
+    retryWarningOf,
     runRetryTarget,
     runNotes,
     runStages,
@@ -350,6 +352,61 @@ describe('isInterruptedCommand', () => {
         expect(isInterruptedCommand({ ...interrupted, command: { envNames: [], intentAt: ago(MINUTE), exitCode: 0 } })).toBe(false);
         expect(isInterruptedCommand({ ...interrupted, command: { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' } })).toBe(false);
         expect(isInterruptedCommand({ ...interrupted, command: undefined })).toBe(false);
+    });
+});
+
+describe('endedWhileRunning', () => {
+    const publish = (changes: Partial<StepRun>) =>
+        stepOf({ id: 'publish', kind: 'run', status: 'failed', command: { envNames: [], intentAt: ago(MINUTE), exitCode: 1 }, ...changes });
+
+    it('says how a failed command was ended while it ran: stopped, timed out, or killed', () => {
+        const stopped = { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' };
+        expect(endedWhileRunning(publish({ error: 'Stopped while running: it may have done its work', command: stopped }))).toBe('stopped');
+        // A shell that traps the signal exits with a code: the error still says it was stopped.
+        expect(endedWhileRunning(publish({ error: 'Stopped while running: it may have done its work' }))).toBe('stopped');
+        expect(endedWhileRunning(publish({ error: 'timed out after 10m', command: stopped }))).toBe('timed-out');
+        expect(endedWhileRunning(publish({ error: 'timed out after 30s' }))).toBe('timed-out');
+        expect(endedWhileRunning(publish({ error: 'killed by SIGKILL', command: { envNames: [], intentAt: ago(MINUTE), signal: 'SIGKILL' } }))).toBe('killed');
+    });
+
+    it('is null for a command that exited on its own, one with no result, an agent step, or another status', () => {
+        expect(endedWhileRunning(publish({ error: 'exit 1: HTTP 502: Bad Gateway' }))).toBeNull();
+        // Interrupted by a quit: no result at all. That is isInterruptedCommand's.
+        expect(endedWhileRunning(publish({ error: 'Interrupted', command: { envNames: [], intentAt: ago(MINUTE) } }))).toBeNull();
+        expect(endedWhileRunning(publish({ kind: 'agent', error: 'Stopped while running: it may have done its work' }))).toBeNull();
+        expect(endedWhileRunning(publish({ status: 'completed', error: 'timed out after 10m' }))).toBeNull();
+    });
+});
+
+describe('retryWarningOf', () => {
+    const publish = (changes: Partial<StepRun>) => stepOf({ id: 'publish', kind: 'run', status: 'failed', ...changes });
+    const PR = { type: 'pr' as const };
+
+    it('warns before retrying a command Consola quit on, word for word', () => {
+        const interrupted = publish({ command: { envNames: [], intentAt: ago(MINUTE) } });
+        expect(retryWarningOf(interrupted, PR)).toBe('Consola quit while this command ran; check the pull request first — it may already be posted.');
+    });
+
+    it('warns before retrying a command ended while it ran, saying how, and what to check', () => {
+        const ran = { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' };
+        expect(retryWarningOf(publish({ error: 'Stopped while running: it may have done its work', command: ran }), PR)).toBe(
+            'It was stopped while it ran and may have done its work; check the pull request first.',
+        );
+        expect(retryWarningOf(publish({ error: 'timed out after 10m', command: ran }), PR)).toBe(
+            'It timed out while it ran and may have done its work; check the pull request first.',
+        );
+        expect(retryWarningOf(publish({ error: 'killed by SIGKILL', command: { ...ran, signal: 'SIGKILL' } }), { type: 'issue' })).toBe(
+            'It was killed while it ran and may have done its work; check the issue first.',
+        );
+        // A schedule's run has no item to check.
+        expect(retryWarningOf(publish({ error: 'timed out after 10m', command: ran }), undefined)).toBe(
+            'It timed out while it ran and may have done its work; check what it did first.',
+        );
+    });
+
+    it('is null for a step that ended on its own', () => {
+        expect(retryWarningOf(publish({ error: 'exit 1: HTTP 502', command: { envNames: [], intentAt: ago(MINUTE), exitCode: 1 } }), PR)).toBeNull();
+        expect(retryWarningOf(stepOf({ id: 'review', status: 'failed', error: 'It stopped before finishing (exit 1).' }), PR)).toBeNull();
     });
 });
 

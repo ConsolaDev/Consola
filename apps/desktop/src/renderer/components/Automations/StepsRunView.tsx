@@ -7,10 +7,7 @@ import { RunAgainButton, useIntent } from './parts';
 import { RunGraph } from './RunGraph';
 import { StepDetail } from './StepDetailView';
 import { StepsApprovalCard } from './StepsApprovalCard';
-import { isInterruptedCommand, runRetryTarget, type RunStage } from './runPage';
-
-/** The retry warning for a command Consola quit on, word for word. */
-const INTERRUPTED_WARNING = 'Consola quit while this command ran; check the pull request first — it may already be posted.';
+import { retryWarningOf, runRetryTarget, type RunStage } from './runPage';
 
 /**
  * A `steps:` run's page: the run's lead and facts, one node per step, and the
@@ -49,7 +46,8 @@ export function StepsRunView({
   const retryTarget = runRetryTarget(run);
   const selected = steps.find((step) => step.id === picked) ?? defaultStep(steps);
   const selectedIndex = selected ? stages.findIndex((stage) => stage.step?.id === selected.id) : -1;
-  const interrupted = retryTarget ? isInterruptedCommand(retryTarget) : false;
+  // A command that may have done its work (Consola quit on it, or it was stopped, timed out or killed) asks first.
+  const warning = retryTarget ? retryWarningOf(retryTarget, run.trigger.item) : null;
 
   const retry = (target: StepRun) =>
     act('retry', async () => {
@@ -83,7 +81,7 @@ export function StepsRunView({
               type="button"
               className="dialog-button-secondary automations-small-button"
               disabled={busy !== null}
-              onClick={() => (interrupted ? setConfirming(true) : void retry(retryTarget))}
+              onClick={() => (warning ? setConfirming(true) : void retry(retryTarget))}
             >
               <RotateCcw size={12} aria-hidden="true" />
               {busy === 'retry' ? 'Retrying…' : `Retry from ${retryTarget.id}`}
@@ -92,9 +90,9 @@ export function StepsRunView({
           <RunAgainButton workspaceId={workspace.id} run={run} automation={automation} history={history} busy={busy} act={act} />
           {nav}
         </div>
-        {retryTarget && confirming && (
+        {retryTarget && warning && confirming && (
           <div className="automations-retry-warning" role="group" aria-label={`Retry from ${retryTarget.id}`}>
-            <p className="automations-retry-warning-text">{INTERRUPTED_WARNING}</p>
+            <p className="automations-retry-warning-text">{warning}</p>
             <div className="automations-card-actions">
               <button
                 type="button"
