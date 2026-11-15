@@ -34,6 +34,11 @@ describe('noticeTarget', () => {
         });
     });
 
+    it('a notice naming an automation opens it', () => {
+        const allow = notice({ runId: undefined, needsApproval: false, automation: 're-review-on-new-commits' });
+        expect(noticeTarget(allow, WORKSPACES)).toEqual({ kind: 'automation', name: 're-review-on-new-commits' });
+    });
+
     it('only routes an approval to the Assistant', () => {
         expect(noticeTarget(notice({ needsApproval: false, actorId: 'a' }), WORKSPACES)).toEqual({ kind: 'automations' });
     });

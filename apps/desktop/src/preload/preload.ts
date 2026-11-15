@@ -437,11 +437,12 @@ function readWindowContext(): WindowContext {
         const context = JSON.parse(arg.slice(prefix.length)) as WindowContext;
         // Main always sends a known overlay; anything else is read as none.
         const overlay = context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
-        const { automationsRunId: runId, ...rest } = context;
+        const { automationsRunId: runId, automationsName: name, ...rest } = context;
         return {
             ...rest,
             overlay,
             ...(typeof runId === 'string' && runId.length > 0 ? { automationsRunId: runId } : {}),
+            ...(typeof name === 'string' && name.length > 0 ? { automationsName: name } : {}),
         };
     } catch {
         return empty;

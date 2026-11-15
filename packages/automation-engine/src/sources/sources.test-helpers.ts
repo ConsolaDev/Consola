@@ -1,6 +1,7 @@
+import type { RunRecord, RunTrigger } from '@consola/factory-spec';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
-import { stepsHarness, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
+import { stepsHarness, WORKSPACE_ID, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
 import type { ItemRef } from '../views';
 
 /*
@@ -12,7 +13,7 @@ import type { ItemRef } from '../views';
  * `SourcesWorld` and the helpers below; earlier tests keep working as written.
  */
 
-export { WORKSPACE_ID } from '../steps/steps.test-helpers';
+export { WORKSPACE_ID };
 
 export const RE_REVIEW_NAME = 're-review-on-new-commits';
 
@@ -106,7 +107,20 @@ export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'>
     setPoll(entry?: string): Promise<void>;
     /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
     relaunch(): Promise<SourcesHarness>;
+    /** Quit, replace ws-1's factory.yml while nothing watches it, then start a new service: an edit made while Consola was closed. */
+    relaunchWith(yaml: string): Promise<SourcesHarness>;
+    /**
+     * One run of ws-1's poll entry `name` (default: the spec's template) on
+     * #51, as a check that finds it makes one, then whatever it set going.
+     * Checks fire nothing yet, so this is the service's own path for a fire,
+     * reached past `private`, with a poll trigger.
+     */
+    fire(name?: string): Promise<RunRecord>;
 }
+
+/** sprocket/catalog-portal#51, as a poll with `item: { github: .url }` reads it. */
+export const PR_51 = { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' as const };
+export const PR_51_URL = 'https://github.com/sprocket/catalog-portal/pull/51';
 
 const GITHUB_WORK_ITEM_URL = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
 
@@ -145,6 +159,26 @@ export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promi
         },
         async relaunch() {
             return wrap(await harness.relaunch());
+        },
+        async relaunchWith(yaml) {
+            harness.service.shutdown();
+            // A service that quit reads no file: this only changes what the next one loads.
+            await harness.setYaml(yaml);
+            return wrap(await harness.relaunch());
+        },
+        async fire(name = RE_REVIEW_NAME) {
+            const { service } = harness;
+            const entry = service['factories'].get(WORKSPACE_ID)?.resolved.find((candidate) => candidate.automation.name === name);
+            if (!entry) throw new Error(`ws-1 has no automation named ${name}.`);
+            const trigger: RunTrigger = {
+                kind: 'poll',
+                at: harness.now().toISOString(),
+                connection: 'github',
+                item: { key: itemKey({ provider: 'github', ...PR_51 }), url: PR_51_URL, title: 'Fix the cart total' },
+            };
+            const run = await service['fire'](entry, trigger);
+            await harness.flush();
+            return harness.store.get(run.id)!;
         },
     });
     return wrap(base);

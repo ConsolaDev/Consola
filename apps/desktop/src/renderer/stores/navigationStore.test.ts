@@ -401,6 +401,16 @@ describe('remembering where each workspace was left', () => {
     expect(closePanel).not.toHaveBeenCalled();
   });
 
+  it('a push naming an automation opens its panel', () => {
+    openPanel.mockClear();
+    useNavigationStore.setState({ overlay: null, activeSessionId: 'session-3' });
+    subscribeToShowAutomations();
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1', automation: 're-review-on-new-commits' });
+    expect(useNavigationStore.getState().overlay).toBe('automations');
+    expect(useNavigationStore.getState().activeSessionId).toBe('session-3');
+    expect(openPanel).toHaveBeenCalledWith({ kind: 'automation', name: 're-review-on-new-commits' });
+  });
+
   it('a notification without a run opens Automations and leaves the panel alone', () => {
     openPanel.mockClear();
     useNavigationStore.setState({ overlay: null });

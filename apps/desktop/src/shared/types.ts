@@ -528,6 +528,8 @@ export interface WindowContext extends WorkspaceView {
      * so the run travels with the window instead.
      */
     automationsRunId?: string;
+    /** The automation to open beside the dashboard, the same way: a window opened by a notification about it. */
+    automationsName?: string;
 }
 
 /**
@@ -543,11 +545,12 @@ export type ActivateWorkspaceResult =
 
 /**
  * The Automations dashboard, opened by main: how a notification about an
- * automation lands on its run.
+ * automation lands on its run, or on the automation's page.
  */
 export interface AutomationsRequest {
     workspaceId: string;
     runId?: string;
+    automation?: string;
 }
 
 /**

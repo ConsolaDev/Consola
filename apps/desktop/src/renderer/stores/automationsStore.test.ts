@@ -92,6 +92,18 @@ describe('automationsStore', () => {
     });
 });
 
+describe('a window opened by a notification about an automation', () => {
+    it('panelFromWindowContext opens the automation it names', () => {
+        const base: WindowContext = { workspaceId: 'w1', activeSessionId: null, overlay: 'automations' };
+        expect(panelFromWindowContext({ ...base, automationsName: 're-review-on-new-commits' })).toEqual({
+            kind: 'automation',
+            name: 're-review-on-new-commits',
+        });
+        // With the dashboard closed it names nothing to show.
+        expect(panelFromWindowContext({ ...base, overlay: null, automationsName: 're-review-on-new-commits' })).toBeNull();
+    });
+});
+
 describe('a window opened by a notification about a run', () => {
     it('opens on that run when the window opened on the dashboard with one', () => {
         const base: WindowContext = { workspaceId: 'w1', activeSessionId: null, overlay: 'automations' };

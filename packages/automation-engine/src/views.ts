@@ -135,6 +135,8 @@ export interface SavedAutomation {
     entry: string;
     /** 1-based line of the entry in factory.yml. */
     line?: number;
+    /** A poll entry it wrote: it does not check until a person allows it on its page. */
+    needsAllow?: true;
 }
 
 /** What a run is, as the activity list groups it: an agent session, an in-process tool, or an agent's call waiting for a person. */

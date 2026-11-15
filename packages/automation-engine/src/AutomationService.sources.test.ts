@@ -218,3 +218,189 @@ ${PROMPT}`;
         expect(listDefinition({ automation }, provider)).toBe(before);
     });
 });
+
+describe('allowing', () => {
+    const KEY = `${WORKSPACE_ID} ${RE_REVIEW_NAME}`;
+    /** What a run of a poll entry not allowed yet says it asks for. */
+    const NOT_CHECKING_YET = 'It is not checking yet: approving runs this run only. Allow it on its page to let it check and run on its own.';
+    /** The template with its check command edited: a new version. */
+    const EDITED = RE_REVIEW_ENTRY.replace('first: 50', 'first: 20');
+
+    const needsOk = (name: string) => ({
+        title: `\`${name}\` needs your OK to start checking`,
+        body: 'Review it in Consola.',
+        workspaceId: WORKSPACE_ID,
+        automation: name,
+        needsApproval: false,
+    });
+    const changed = (name: string) => ({ ...needsOk(name), title: `\`${name}\` changed, and has stopped checking until you allow it` });
+
+    /** Allow the entry `name` at the version its view shows; that version. */
+    function allowAsShown(h: SourcesHarness, name = RE_REVIEW_NAME): string {
+        const shown = h.service.list(WORKSPACE_ID).find((candidate) => candidate.name === name)!;
+        expect(shown).toMatchObject({ needsAllow: true, version: expect.any(String) });
+        h.service.allow(WORKSPACE_ID, name, shown.version!);
+        return shown.version!;
+    }
+
+    it('nothing is spawned before allow', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        for (let tick = 0; tick < 3; tick++) {
+            h.advance(40 * 60_000);
+            await h.tick();
+        }
+        expect(h.world.commands).toEqual([]);
+        expect(view(h).needsAllow).toBe(true);
+    });
+
+    it('allow with a stale version is refused', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        const allowed = allowAsShown(h);
+        await h.setPoll(EDITED);
+        expect(() => h.service.allow(WORKSPACE_ID, RE_REVIEW_NAME, allowed)).toThrow('It changed since you looked; review it again.');
+        expect(h.store.acceptedVersion(KEY)).toBe(allowed);
+        expect(view(h).needsAllow).toBe(true);
+    });
+
+    it('allow accepts, and the entry no longer needs it', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        const broadcasts = h.world.broadcasts.length;
+        const allowed = allowAsShown(h);
+        expect(h.store.acceptedVersion(KEY)).toBe(allowed);
+        expect(view(h)).not.toHaveProperty('needsAllow');
+        expect(view(h)).not.toHaveProperty('version');
+        // The page drops its banner without waiting for anything else to change.
+        expect(h.world.broadcasts.length).toBeGreaterThan(broadcasts);
+    });
+
+    it('allow refuses an entry that cannot check, and one with no check', async () => {
+        const daily = `- name: daily\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n${PROMPT}`;
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY, daily) });
+        const shown = view(h).version!;
+        await unbound(h);
+        expect(() => h.service.allow(WORKSPACE_ID, RE_REVIEW_NAME, shown)).toThrow(
+            `${RE_REVIEW_NAME} can't check while it has a problem: this workspace has no github account bound; bind one in its settings.`
+        );
+        expect(() => h.service.allow(WORKSPACE_ID, 'daily', shown)).toThrow('daily has no check command to allow.');
+        expect(h.store.acceptedVersion(KEY)).toBeUndefined();
+        expect(h.store.acceptedVersion(`${WORKSPACE_ID} daily`)).toBeUndefined();
+    });
+
+    it('saveEntry takes it back', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        allowAsShown(h);
+        const saved = await h.service.saveEntry(WORKSPACE_ID, RE_REVIEW_ENTRY, { replace: true });
+        expect(saved).toMatchObject({ name: RE_REVIEW_NAME, replaced: true, needsAllow: true });
+        expect(view(h).needsAllow).toBe(true);
+        expect(h.store.acceptedVersion(KEY)).toBeUndefined();
+        // The same version, allowed once and taken back: a notification asks again.
+        expect(h.notices).toEqual([needsOk(RE_REVIEW_NAME)]);
+    });
+
+    it('saveEntry of an entry with no check says nothing about allowing', async () => {
+        const h = await sourcesHarness();
+        const saved = await h.service.saveEntry(WORKSPACE_ID, `- name: daily\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n${PROMPT}`, { replace: false });
+        expect(saved).not.toHaveProperty('needsAllow');
+        expect(h.notices).toEqual([]);
+    });
+
+    it('a hand edit that changes the version notifies once', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        allowAsShown(h);
+        await h.setPoll(EDITED);
+        await h.service.reload(WORKSPACE_ID);
+        expect(h.notices).toEqual([changed(RE_REVIEW_NAME)]);
+        expect(h.notices[0]).not.toHaveProperty('runId');
+        expect(view(h).needsAllow).toBe(true);
+    });
+
+    it('an edit to every alone keeps it allowed', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        const allowed = allowAsShown(h);
+        await h.setPoll(RE_REVIEW_ENTRY.replace('every: 30m', 'every: 2h'));
+        expect(view(h).check?.every).toBe('2 hours');
+        expect(view(h)).not.toHaveProperty('needsAllow');
+        expect(h.store.acceptedVersion(KEY)).toBe(allowed);
+        expect(h.notices).toEqual([]);
+    });
+
+    it('a new poll entry asks once', async () => {
+        const h = await sourcesHarness();
+        await h.setPoll();
+        expect(h.notices).toEqual([needsOk(RE_REVIEW_NAME)]);
+        expect(h.notices[0]).not.toHaveProperty('runId');
+        await h.service.reload(WORKSPACE_ID);
+        await h.service.syncWorkspaces();
+        expect(h.notices).toHaveLength(1);
+    });
+
+    it('a launch does not re-announce an entry that was never allowed', async () => {
+        const h = await sourcesHarness();
+        await h.setPoll();
+        expect(h.notices).toHaveLength(1);
+        const next = await h.relaunch();
+        expect(next.notices).toHaveLength(1);
+        expect(view(next).needsAllow).toBe(true);
+        // Recorded at launch, not just passed over: a later look stays quiet too.
+        await next.service.reload(WORKSPACE_ID);
+        expect(next.notices).toHaveLength(1);
+    });
+
+    it('an entry edited while Consola was closed is announced as changed at launch', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        allowAsShown(h);
+        // Unedited, an allowed entry is not announced at all.
+        const same = await h.relaunch();
+        expect(same.notices).toEqual([]);
+        const next = await same.relaunchWith(factoryWith(EDITED));
+        expect(next.notices).toEqual([changed(RE_REVIEW_NAME)]);
+        expect(view(next).needsAllow).toBe(true);
+    });
+
+    it('a run of an entry not allowed yet says approving runs only that run', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        const run = await h.fire();
+        expect(run.status).toBe('needs-approval');
+        expect(run.summary!.slice(-NOT_CHECKING_YET.length)).toBe(NOT_CHECKING_YET);
+        expect(run.summary).not.toContain('Approve once to let this new or changed automation run on its own.');
+    });
+
+    it('an allowed confirm poll still asks for each run', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY.replace('mode: auto', 'mode: confirm')) });
+        allowAsShown(h);
+        const run = await h.fire();
+        expect(run).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+        expect(run.summary).not.toContain(NOT_CHECKING_YET);
+    });
+
+    it('an allowed notify poll runs dry runs', async () => {
+        const notifyReview = `- name: notify-review
+  on:
+    poll: { every: 30m, run: ./list-prs, item: { github: .url } }
+  mode: notify
+  steps:
+    - id: review
+      prompt: Review it and say what should change.
+`;
+        // No agent slot is free, so the run stays in line where the test can see it.
+        const h = await sourcesHarness({ yaml: factoryWith(notifyReview), maxConcurrentAgents: 0 });
+        allowAsShown(h, 'notify-review');
+        const run = await h.fire('notify-review');
+        expect(run).toMatchObject({ status: 'queued', mode: 'notify', dryRun: true });
+    });
+
+    it('editing an action a step names stops the checks', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(pollOnItems(ACTION_STEP('Review'))) });
+        const allowed = allowAsShown(h, 'checker');
+        h.world.workspace.actions = h.world.workspace.actions.map((action) =>
+            action.name === 'Review' ? { ...action, prompt: 'Review {{title}} again, more briefly.' } : action
+        );
+        await h.service.syncWorkspaces();
+        expect(view(h)).toMatchObject({ needsAllow: true });
+        expect(view(h).version).not.toBe(allowed);
+        expect(h.notices).toEqual([changed('checker')]);
+        h.advance(30 * 60_000);
+        await h.tick();
+        expect(h.world.commands).toEqual([]);
+    });
+});

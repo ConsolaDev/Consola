@@ -131,7 +131,10 @@ import { StepIO } from './steps/stepTools';
 export interface AutomationNotice {
     title: string;
     body: string;
-    runId: string;
+    /** The run it is about: a click opens it. */
+    runId?: string;
+    /** The automation it is about, when no run is: a click opens its page. */
+    automation?: string;
     /** Whose Automations panel a click opens. */
     workspaceId: string;
     needsApproval: boolean;
@@ -227,6 +230,12 @@ const RETRY_HELD = 'Another run on this item is working; retry once it ends.';
 /** What a retry of a run that never started is refused with: there is no step it got to, and its approval did not cover a start. */
 const NEVER_STARTED = 'It never started; run it again.';
 
+/**
+ * What a run of a poll entry not allowed yet says when it asks: approving it
+ * runs that run, and only Allow lets the entry check.
+ */
+const NOT_CHECKING_YET = 'It is not checking yet: approving runs this run only. Allow it on its page to let it check and run on its own.';
+
 /** Why an unattended turn whose run ended under it is ended at once: nothing would record what it did. */
 const RUN_ENDED = 'its run had ended';
 
@@ -318,6 +327,10 @@ function automationKey(entry: { workspaceId: string; automation: Pick<Automation
 
 function cronOf(entry: Resolved): CronTrigger | null {
     return entry.automation.trigger.kind === 'cron' ? entry.automation.trigger : null;
+}
+
+function pollOf(entry: Resolved): PollTrigger | null {
+    return entry.automation.trigger.kind === 'poll' ? entry.automation.trigger : null;
 }
 
 /** A schedule's identity: a renamed automation or an edited cron starts afresh rather than catching up. */
@@ -413,6 +426,14 @@ export class AutomationService {
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
+    /**
+     * Every poll entry's version that was told it needs Allow (`<key> <version>`),
+     * so none is told twice. In memory: a launch records what it finds quietly
+     * (`announceAllows`). Allowing one forgets it, so taking it back asks again.
+     */
+    private readonly allowsAnnounced = new Set<string>();
+    /** Whether a version that needs Allow is announced when first seen: once start-up's first sync is done. */
+    private announcingAllows = false;
     private io: StepIO | undefined;
     constructor(private readonly deps: AutomationServiceDeps) {}
 
@@ -440,6 +461,7 @@ export class AutomationService {
         this.sweepRunFolders();
         this.started = true;
         await this.syncWorkspaces();
+        this.announcingAllows = true;
         this.stopTicking = this.deps.every(TICK_MS, () => void this.tick());
         // Catch up on anything missed while Consola was closed, and resume
         // whatever was queued when it quit.
@@ -546,6 +568,8 @@ export class AutomationService {
         // catch-up for whatever it missed while Consola was closed.
         await Promise.all(added.map((workspaceId) => this.load(workspaceId)));
         if (added.length > 0 || removed.length > 0) this.settleSchedules();
+        // A settings edit can change a poll entry's version too: an action a step names.
+        for (const workspaceId of this.factories.keys()) this.announceAllows(workspaceId);
         for (const workspaceId of added) this.broadcast(workspaceId);
         // A session closed mid-turn never reports its exit (closing drops the
         // terminal's listeners): its run ends here, and its slot frees.
@@ -582,7 +606,47 @@ export class AutomationService {
     public async reload(workspaceId: string): Promise<void> {
         if (!(await this.load(workspaceId))) return;
         this.settleSchedules();
+        this.announceAllows(workspaceId);
         this.broadcast(workspaceId);
+    }
+
+    /**
+     * Tell the person, once per (automation, version), that a poll entry is
+     * not checking until they allow it: "changed" when an earlier version
+     * was allowed, else "needs your OK". At start-up a version is recorded
+     * without a notice, unless an earlier one was allowed (it was edited
+     * while Consola was closed): one never allowed was announced in the
+     * session it appeared in, so a launch does not nag about it again.
+     */
+    private announceAllows(workspaceId: string): void {
+        for (const entry of this.factories.get(workspaceId)?.resolved ?? []) {
+            if (!this.needsAllow(entry)) continue;
+            const key = automationKey(entry);
+            const announced = `${key} ${entry.version}`;
+            if (this.allowsAnnounced.has(announced)) continue;
+            this.allowsAnnounced.add(announced);
+            const allowedBefore = this.deps.store.acceptedVersion(key) !== undefined;
+            if (!allowedBefore && !this.announcingAllows) continue;
+            const name = entry.automation.name;
+            this.deps.notify({
+                title: allowedBefore
+                    ? `\`${name}\` changed, and has stopped checking until you allow it`
+                    : `\`${name}\` needs your OK to start checking`,
+                body: 'Review it in Consola.',
+                workspaceId,
+                automation: name,
+                needsApproval: false,
+            });
+        }
+    }
+
+    /**
+     * Whether a poll entry's check command waits for a person's Allow: it has
+     * no problem, and the version they allowed (if any) is not this one. It
+     * does not check meanwhile, in any mode.
+     */
+    private needsAllow(entry: Resolved): boolean {
+        return pollOf(entry) !== null && !entry.problem && this.deps.store.acceptedVersion(automationKey(entry)) !== entry.version;
     }
 
     /**
@@ -699,10 +763,11 @@ export class AutomationService {
         await this.reload(workspaceId);
         // Again once it is live: a run fired while the file was being reloaded was of the entry before.
         this.deps.store.markRevoked(key, this.iso());
-        const line = this.factories
-            .get(workspaceId)
-            ?.loaded.spec.automations.find((candidate) => candidate.name === automation.name)?.line;
-        return { name: automation.name, replaced, entry: item, ...(line ? { line } : {}) };
+        const live = this.factories.get(workspaceId)?.resolved.find((candidate) => candidate.automation.name === automation.name);
+        const line = live?.automation.line;
+        // A poll entry it wrote does not check until a person allows it, whoever saved it.
+        const waits = live !== undefined && this.needsAllow(live);
+        return { name: automation.name, replaced, entry: item, ...(line ? { line } : {}), ...(waits ? { needsAllow: true as const } : {}) };
     }
 
     /**
@@ -979,7 +1044,8 @@ export class AutomationService {
      * automation changed since. An agent or steps run joins the queue, so
      * approving one never steps past the cap. Approving a new or edited `auto`
      * entry (or a `notify` one whose dry run starts something) also lets it
-     * run on its own from now on.
+     * run on its own from now on, unless it is a poll entry: only Allow lets
+     * one check, so approving its run starts that run and nothing else.
      */
     public async approve(runId: string): Promise<RunRecord> {
         const run = this.waiting(runId);
@@ -1024,10 +1090,12 @@ export class AutomationService {
      * An approved run of an entry that asks until accepted (`asksUntilAccepted`)
      * lets it run on its own from now on — unless `saveEntry` wrote the entry
      * since the run was asked for, or in the same instant: that approval was
-     * for the entry before.
+     * for the entry before. Only Allow accepts a poll entry: otherwise an
+     * agent could save one, ask for a run, and have the person's approval of
+     * that run start a check command they never saw.
      */
     private acceptApproved(key: string, entry: Resolved, run: RunRecord): void {
-        if (!asksUntilAccepted(entry)) return;
+        if (!asksUntilAccepted(entry) || pollOf(entry)) return;
         const revoked = this.deps.store.revokedAt(key);
         if (revoked !== undefined && !(Date.parse(run.createdAt) > Date.parse(revoked))) return;
         this.deps.store.accept(key, entry.version);
@@ -1039,6 +1107,32 @@ export class AutomationService {
         if (run?.status !== 'queued') this.waiting(runId);
         this.finish(runId, 'rejected', {});
         return this.deps.store.get(runId)!;
+    }
+
+    /**
+     * A person's Allow on a poll entry's page: its check command may run as
+     * them, at the version they looked at, in every mode. Refused once the
+     * entry is no longer that version, and while it cannot check. The first
+     * check runs at once.
+     */
+    public allow(workspaceId: string, name: string, version: string): void {
+        const factory = this.factoryOf(workspaceId);
+        const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
+        if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
+        if (!pollOf(entry)) throw new Error(`${name} has no check command to allow.`);
+        if (entry.version !== version) throw new Error('It changed since you looked; review it again.');
+        if (entry.problem) throw new Error(`${name} can't check while it has a problem: ${entry.problem}.`);
+        const key = automationKey(entry);
+        this.deps.store.accept(key, version);
+        // Settled: should something take it back, that asks again.
+        this.allowsAnnounced.delete(`${key} ${version}`);
+        this.broadcast(workspaceId);
+        this.runDueChecks();
+    }
+
+    /** Start every check that is due. The engine runs no check command yet, so none is. */
+    private runDueChecks(): void {
+        // Nothing to start: no entry checks yet.
     }
 
     /** A workspace's automations as its panel and `list_automations` show them. */
@@ -1062,6 +1156,7 @@ export class AutomationService {
                 onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
                 ...(takesItem ? { takesItem } : {}),
                 ...(trigger.kind === 'poll' ? { check: checkViewOf(trigger) } : {}),
+                ...(this.needsAllow(entry) ? { needsAllow: true as const, version: entry.version } : {}),
                 kind: describeKind(automation),
                 runs: describeRun(automation),
                 target: automation.run?.ref ?? 'steps',
@@ -2770,7 +2865,9 @@ export class AutomationService {
         if (!asksUntilAccepted(entry)) return { mode };
         if (trigger.by === 'agent') return { mode: 'confirm', asks: 'An agent asked for this run.' };
         if (this.deps.store.acceptedVersion(automationKey(entry)) !== entry.version) {
-            return { mode: 'confirm', asks: 'Approve once to let this new or changed automation run on its own.' };
+            // Approving a poll entry's run does not accept it (`acceptApproved`), so it must not say it does.
+            const asks = pollOf(entry) ? NOT_CHECKING_YET : 'Approve once to let this new or changed automation run on its own.';
+            return { mode: 'confirm', asks };
         }
         return { mode };
     }
@@ -3254,7 +3351,8 @@ function runKind(run: RunRecord): RunKind {
  * new or edited one asks first: `auto`, and a `notify` steps entry whose dry
  * run starts something (an agent step, or a `dry_run: run` command). A dry
  * run that only reports starts nothing, and a one-step entry under `notify`
- * starts nothing either; neither asks.
+ * starts nothing either; neither asks. A poll entry asks by the same rule,
+ * but only Allow accepts one (`allow`), never an approved run.
  */
 function asksUntilAccepted(entry: Resolved): boolean {
     const { mode } = entry.automation;

@@ -962,13 +962,14 @@ export function setupIpcHandlers(): boolean {
             if (!Notification.isSupported()) return;
             const notification = new Notification({ title: notice.title, body: notice.body });
             // Lands on what the notice is about: the session a run started,
-            // the Assistant for what it asked for (its tray holds it), or
-            // else that workspace's Automations dashboard with the run open,
-            // in the window holding it.
+            // the Assistant for what it asked for (its tray holds it), the
+            // automation's page, or else that workspace's Automations
+            // dashboard with the run open, in the window holding it.
             notification.on('click', () => {
                 const target = noticeTarget(notice, workspaces.getAll());
                 if (target.kind === 'session') focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
-                else showAutomations(notice.workspaceId, notice.runId, viewMemoryPort());
+                else if (target.kind === 'automation') showAutomations(notice.workspaceId, { automation: target.name }, viewMemoryPort());
+                else showAutomations(notice.workspaceId, notice.runId ? { runId: notice.runId } : {}, viewMemoryPort());
             });
             notification.show();
         },
