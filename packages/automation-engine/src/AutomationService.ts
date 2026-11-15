@@ -51,7 +51,9 @@ import type {
     RunningCommand,
     ToolsPort,
 } from './ports';
-import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunKind, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import { filterRuns } from './runFilter';
+import { SNAPSHOT_ENDED_RUNS } from './views';
+import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, itemRefOf, runEventSource } from './steps/agentStep';
@@ -1173,12 +1175,37 @@ export class AutomationService {
         return { ...this.deps.store.get(runId)! };
     }
 
-    public snapshot(workspaceId: string): AutomationsSnapshot {
-        const factory = this.factoryOf(workspaceId);
-        const runs = this.deps.store
+    /**
+     * One page of a workspace's history, newest first, narrowed by the panel's
+     * own filter before it is paged, so a search covers every run kept.
+     */
+    public listRuns(workspaceId: string, query: ListRunsQuery): RunListPage {
+        const limit = Math.min(200, Math.max(1, Math.floor(query.limit)));
+        const entries = this.deps.store
             .runs()
             .filter((run) => run.attribution.workspaceId === workspaceId)
             .map(toListEntry);
+        const ordered = filterRuns(
+            entries,
+            { query: query.query ?? '', kind: query.kind ?? 'all', automation: query.automation ?? null },
+            this.deps.now(),
+        ).sort(newestFirst);
+        let start = 0;
+        if (query.before !== undefined) {
+            const at = ordered.findIndex((run) => run.id === query.before);
+            if (at < 0) return { runs: [], hasOlder: false };
+            start = at + 1;
+        }
+        return { runs: ordered.slice(start, start + limit), hasOlder: ordered.length > start + limit };
+    }
+
+    public snapshot(workspaceId: string): AutomationsSnapshot {
+        const factory = this.factoryOf(workspaceId);
+        const all = this.deps.store.runs().filter((run) => run.attribution.workspaceId === workspaceId);
+        // Every live run, and the newest ended ones; the rest are `listRuns`'s.
+        const ended = all.filter((run) => !isLiveRun(run)).sort(newestFirst);
+        const left = new Set(ended.slice(SNAPSHOT_ENDED_RUNS));
+        const runs = all.filter((run) => !left.has(run)).map(toListEntry);
         // A place in its lane's line, which every workspace shares.
         const queue: Record<string, number> = {};
         const { lines } = this.waitingRuns();
@@ -1193,6 +1220,7 @@ export class AutomationService {
             automations: this.list(workspaceId),
             issues: factory.loaded.spec.issues,
             runs,
+            hasOlder: left.size > 0,
             queue,
             suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
             templates: this.templatesOf(workspaceId, factory),
@@ -2865,8 +2893,37 @@ function isAgentRun(run: RunRecord): boolean {
  * it waits for a person or a slot. Everything else is `getRun`'s.
  */
 function toListEntry(run: RunRecord): RunListEntry {
-    const { result, approval: _approval, ...rest } = run;
-    return { ...rest, kind: runKind(run), ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}) };
+    const { result, approval: _approval, steps, ...rest } = run;
+    const step = currentStep(steps);
+    return {
+        ...rest,
+        kind: runKind(run),
+        ...(run.status === 'needs-approval' || run.status === 'queued' ? { result } : {}),
+        ...(step ? { step } : {}),
+    };
+}
+
+/** The step a list row names: the first queued or running one, else the last that ran (a failed step is the last one that ran). */
+function currentStep(steps: RunRecord['steps']): RunListEntry['step'] {
+    if (!steps?.length) return undefined;
+    let at = steps.findIndex((step) => step.status === 'queued' || step.status === 'running');
+    if (at < 0) {
+        const failed = steps.findIndex((step) => step.status === 'failed');
+        if (failed >= 0) at = failed;
+        else for (let index = steps.length - 1; index >= 0 && at < 0; index--) if (steps[index].status === 'completed' || steps[index].status === 'reported') at = index;
+    }
+    if (at < 0) return undefined;
+    return { id: steps[at].id, status: steps[at].status, index: at + 1, count: steps.length };
+}
+
+/** Waiting for a person or a slot, or working: the snapshot never leaves these out. */
+function isLiveRun(run: RunRecord): boolean {
+    return run.status === 'needs-approval' || run.status === 'queued' || run.status === 'running';
+}
+
+/** Newest first by `createdAt`, ties by id descending, so the order is stable. */
+function newestFirst(a: { createdAt: string; id: string }, b: { createdAt: string; id: string }): number {
+    return Date.parse(b.createdAt) - Date.parse(a.createdAt) || (a.id < b.id ? 1 : a.id > b.id ? -1 : 0);
 }
 
 /** A steps run is an agent run when any step is an agent step, so "Prompts & reviews" holds it; else a tool run. */

@@ -1,4 +1,5 @@
-import type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
+import type { AutomationMode, FactorySpecIssue, RunRecord, StepRunStatus } from '@consola/factory-spec';
+import type { RunFilter } from './runFilter';
 
 /** One automation from a workspace's factory.yml, as the app shows it. */
 export interface AutomationView {
@@ -106,7 +107,38 @@ export type RunKind = 'agent' | 'tool' | 'request';
  * while it waits (the Waiting card's preview). The panel reads the rest
  * with getRun.
  */
-export type RunListEntry = Omit<RunRecord, 'result' | 'approval'> & { kind: RunKind; result?: unknown };
+export type RunListEntry = Omit<RunRecord, 'result' | 'approval' | 'steps'> & {
+    kind: RunKind;
+    result?: unknown;
+    /**
+     * Where a steps run is: its queued or running step, else the step it
+     * ended at (the failed one; for a completed run the last that ran).
+     * `index` is 1-based. Absent for a legacy run and for one no step of
+     * which ran. The rest of the steps are `getRun`'s.
+     */
+    step?: { id: string; status: StepRunStatus; index: number; count: number };
+};
+
+/** How many ended runs a snapshot carries beside every live one. */
+export const SNAPSHOT_ENDED_RUNS = 200;
+
+/** One page of a workspace's history, newest first, read from main rather than pushed. */
+export interface ListRunsQuery {
+    /** The id of the last run shown: the page starts strictly after it. */
+    before?: string;
+    /** How many runs, 1 to 200. */
+    limit: number;
+    query?: string;
+    kind?: RunFilter;
+    /** A run's `automationId`. */
+    automation?: string | null;
+}
+
+export interface RunListPage {
+    runs: RunListEntry[];
+    /** Whether runs remain after this page. */
+    hasOlder: boolean;
+}
 
 /**
  * What an agent run will start, kept on its run as `result`: shown before a
@@ -131,8 +163,10 @@ export interface AutomationsSnapshot {
     automations: AutomationView[];
     /** Problems with the file itself or with individual entries. */
     issues: FactorySpecIssue[];
-    /** This workspace's runs, newest first, capped. Includes runs waiting for approval or a slot. */
+    /** This workspace's runs, newest first: every live run (waiting for approval or a slot, or working) and the newest ended ones. */
     runs: RunListEntry[];
+    /** Whether ended runs were left out; `listRuns` pages them. */
+    hasOlder: boolean;
     /** Each queued run's place in the one line every workspace shares, 1 first. */
     queue: Record<string, number>;
     /**

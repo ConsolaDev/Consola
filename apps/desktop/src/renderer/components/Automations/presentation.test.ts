@@ -73,6 +73,7 @@ function snapshot(runs: RunListEntry[], automations: AutomationsSnapshot['automa
         automations,
         issues: [],
         runs,
+        hasOlder: false,
         queue: {},
         suggestAssignedReviews: null,
         templates: [],
