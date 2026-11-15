@@ -5,7 +5,7 @@ import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
 import { RunAgainButton, useIntent } from './parts';
 import { RunGraph } from './RunGraph';
-import { isInterruptedCommand, type RunStage } from './runPage';
+import { isInterruptedCommand, retryTargetOf, type RunStage } from './runPage';
 
 /** The retry warning for a command Consola quit on, word for word. */
 const INTERRUPTED_WARNING = 'Consola quit while this command ran; check the pull request first — it may already be posted.';
@@ -44,18 +44,14 @@ export function StepsRunView({
   const [stopping, setStopping] = useState(false);
   const { busy, error, act } = useIntent();
 
-  const failed = steps.find((step) => step.status === 'failed');
-  // A run that failed before any step began (its checkout, say) retries from its first step.
-  const retryTarget =
-    run.status === 'failed' ? (failed ?? (steps.length > 0 && steps.every((step) => step.status === 'not-run') ? steps[0] : undefined)) : undefined;
+  const retryTarget = run.status === 'failed' ? retryTargetOf(steps) : undefined;
   const selected = steps.find((step) => step.id === picked) ?? defaultStep(steps);
   const selectedIndex = selected ? stages.findIndex((stage) => stage.step?.id === selected.id) : -1;
   const interrupted = retryTarget ? isInterruptedCommand(retryTarget) : false;
 
   const retry = (target: StepRun) =>
     act('retry', async () => {
-      // A run that never began has no failed step to name: a retry from its first step names none.
-      await automationsBridge.retry(run.id, target === failed ? target.id : undefined);
+      await automationsBridge.retry(run.id, target.id);
       setConfirming(false);
     });
 

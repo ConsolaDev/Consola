@@ -6,6 +6,7 @@ import {
     durationAgainstUsual,
     foundNothingToDo,
     isInterruptedCommand,
+    retryTargetOf,
     runNotes,
     runStages,
     stepBar,
@@ -437,6 +438,31 @@ describe('runStages for a steps run', () => {
         const run = stepsRecord([stepOf({ id: 'a', status: 'pending' })], { mode: 'confirm', status: 'rejected', finishedAt: ago(8 * MINUTE) });
         expect(stepShape(run)).toEqual(['trigger:passed', 'approval:stopped', 'step:a:skipped']);
         expect(msOf(run, 'approval')).toBe(2 * MINUTE);
+    });
+});
+
+describe('retryTargetOf', () => {
+    it('is the failed step', () => {
+        const steps = [stepOf({ id: 'a', status: 'completed' }), stepOf({ id: 'b', status: 'failed' }), stepOf({ id: 'c', status: 'not-run' })];
+        expect(retryTargetOf(steps)?.id).toBe('b');
+    });
+
+    it('is the first step not run when the run ended between steps', () => {
+        const steps = [stepOf({ id: 'a', status: 'completed' }), stepOf({ id: 'b', status: 'not-run' }), stepOf({ id: 'c', status: 'not-run' })];
+        expect(retryTargetOf(steps)?.id).toBe('b');
+    });
+
+    it('is the first step when none ran, and nothing when every step did', () => {
+        expect(retryTargetOf([stepOf({ id: 'a', status: 'not-run' }), stepOf({ id: 'b', status: 'not-run' })])?.id).toBe('a');
+        expect(retryTargetOf([stepOf({ id: 'a', status: 'completed' })])).toBeUndefined();
+    });
+});
+
+describe('a step status this build does not know', () => {
+    it('is pending while the run is open and skipped once it ended', () => {
+        const odd = stepOf({ id: 'a', status: 'paused' as StepRun['status'] });
+        expect(stepShape(stepsRecord([odd], { status: 'running' }))).toEqual(['trigger:passed', 'step:a:pending']);
+        expect(stepShape(stepsRecord([odd], { status: 'failed', finishedAt: ago(MINUTE) }))).toEqual(['trigger:passed', 'step:a:skipped']);
     });
 });
 

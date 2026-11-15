@@ -145,9 +145,19 @@ function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
         case 'not-run':
             return 'skipped';
         default:
-            // Statuses only grow: one this build does not know is not drawn as an outcome.
-            return 'pending';
+            // Statuses only grow: one this build does not know is not drawn as an outcome,
+            // and once the run is over it never came, like a pending step.
+            return open ? 'pending' : 'skipped';
     }
+}
+
+/**
+ * The step a failed run retries from, as the engine's `retryTargetOf` reads
+ * it: the one it failed at, else (it ended between steps, or before the
+ * first) the first it did not run.
+ */
+export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
+    return steps.find((step) => step.status === 'failed') ?? steps.find((step) => step.status === 'not-run');
 }
 
 /**

@@ -149,6 +149,7 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
   if (isStepsRunPreview(run.result)) {
     return (
       <StepsRunView
+        key={run.id}
         workspace={workspace}
         run={run}
         stages={stages}
