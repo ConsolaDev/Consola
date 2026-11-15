@@ -2477,6 +2477,8 @@ export class AutomationService {
         const base = automationVersion(automation);
         const unable = (problem: string): Resolved => ({ workspaceId, automation, version: base, problem });
         const { trigger } = automation;
+        // Placeholder: the runner for these arrives with the sources slice's engine task, which deletes this.
+        if (trigger.kind === 'poll' || trigger.kind === 'manual') return unable('poll: this build does not check yet');
 
         let event: EventSource | undefined;
         if (trigger.kind === 'event') {

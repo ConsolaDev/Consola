@@ -43,5 +43,10 @@ function commandSummary(command: string): string {
 /** An event trigger that did not resolve, said as written. */
 export function describeTriggerAsWritten(automation: Automation): string {
     const { trigger } = automation;
-    return trigger.kind === 'event' ? `${trigger.connection}: ${trigger.events.join(', ')}` : trigger.cron;
+    if (trigger.kind === 'event') return `${trigger.connection}: ${trigger.events.join(', ')}`;
+    if (trigger.kind === 'poll') {
+        const minutes = trigger.everyMs / 60_000;
+        return `poll: every ${minutes % 60 === 0 ? `${minutes / 60}h` : `${minutes}m`}`;
+    }
+    return trigger.kind === 'manual' ? 'manual' : trigger.cron;
 }

@@ -17,6 +17,7 @@ import {
     type ExprType,
     type ExpressionScope,
 } from './expression';
+import { parseDurationMs } from './duration';
 import type { OutputType } from './outputs';
 import { hasTemplateBraces, parseTemplate, templatePaths, type TemplatePath } from './template';
 
@@ -311,12 +312,11 @@ function parseOutputs(raw: unknown, fail: Fail): Record<string, OutputType> | nu
 const TIMEOUT_FORMAT = 'Write the timeout as `<n>s`, `<n>m` or `<n>h`, e.g. `10m`.';
 
 function parseTimeout(value: unknown, fail: Fail): number | null {
-    const match = typeof value === 'string' ? /^(\d+)([smh])$/.exec(value.trim()) : null;
-    if (!match) {
+    const ms = parseDurationMs(value);
+    if (ms === null) {
         fail(TIMEOUT_FORMAT, ['timeout']);
         return null;
     }
-    const ms = Number(match[1]) * { s: 1000, m: 60_000, h: 3_600_000 }[match[2] as 's' | 'm' | 'h'];
     if (ms < 1000) {
         fail('A timeout is at least 1s.', ['timeout']);
         return null;

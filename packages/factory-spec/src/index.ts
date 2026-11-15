@@ -30,6 +30,15 @@ export {
     type OutputValue,
 } from './outputs';
 export { FIELD_NAME_PATTERN, parseFieldPath, readFieldPath, type FieldPath } from './fieldPath';
+export {
+    DEFAULT_CHECK_TIMEOUT_MS,
+    MAX_CHECK_TIMEOUT_MS,
+    MAX_POLL_EVERY_MS,
+    MIN_POLL_EVERY_MS,
+    RESERVED_TRIGGER_NAMES,
+    type ManualTrigger,
+    type PollTrigger,
+} from './poll';
 export { parseAutomationEntry, type AutomationEntryResult } from './entry';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
 export {

@@ -246,7 +246,7 @@ export function previewOf(entry: string, now: Date): TemplatePreview | null {
     return {
         trigger: event?.ok ? event.source.describe : cron ? describeSchedule(cron) : describeTriggerAsWritten(automation),
         ...(cron ? { schedule: cron } : {}),
-        onEvent: trigger.kind === 'event',
+        onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
         kind: automation.run?.kind === 'tool' ? 'tool' : 'agent',
         runs: describeRun(automation),
         target: automation.run?.ref ?? 'steps',
