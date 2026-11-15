@@ -25,6 +25,9 @@ import {
     tableShowsUnseenFailures,
     unseenFailures,
     statusWord,
+    stepWords,
+    mergeRunPages,
+    olderRunsCursor,
     triggerLabel,
     approvalStep,
     formatElapsed,
@@ -149,7 +152,59 @@ describe('runAbout', () => {
     });
 });
 
+describe('mergeRunPages / olderRunsCursor', () => {
+    it('lists each run once, newest first, the first page winning', () => {
+        const live = run({ id: 'a', createdAt: ago(HOUR), summary: 'live copy' });
+        const stale = run({ id: 'a', createdAt: ago(HOUR), summary: 'stale copy' });
+        const older = run({ id: 'b', createdAt: ago(2 * HOUR) });
+        const merged = mergeRunPages([live], [older, stale]);
+        expect(merged.map((r) => r.id)).toEqual(['a', 'b']);
+        expect(merged[0].summary).toBe('live copy');
+    });
+
+    it('continues from the oldest ended run, not an old live one at the end', () => {
+        const runs = [
+            run({ id: 'new' }),
+            run({ id: 'ended', createdAt: ago(2 * HOUR) }),
+            run({ id: 'old-live', status: 'running', createdAt: ago(40 * DAY) }),
+        ];
+        expect(olderRunsCursor(runs)).toBe('ended');
+        expect(olderRunsCursor([run({ status: 'queued' })])).toBeUndefined();
+    });
+});
+
+describe('stepWords', () => {
+    const at = (status: RunListEntry['status'], stepStatus: 'queued' | 'running' | 'failed' | 'completed', extra: Partial<RunListEntry> = {}) =>
+        run({ status, step: { id: 'publish', status: stepStatus, index: 2, count: 3 }, ...extra });
+
+    it('says which step a run is at', () => {
+        expect(stepWords(at('running', 'running'))).toBe('running · publish');
+        expect(stepWords(at('running', 'queued'))).toBe('waiting for a slot before publish');
+        expect(stepWords(at('failed', 'failed'))).toBe('failed at publish');
+    });
+
+    it("says a run waits for its item's checkout", () => {
+        expect(stepWords(run({ status: 'queued', summary: "waiting for this item's checkout" }))).toBe(
+            "waiting for this item's checkout",
+        );
+    });
+
+    it('is null for a legacy run, and for states with nothing to add', () => {
+        expect(stepWords(run({ status: 'running' }))).toBeNull();
+        expect(stepWords(run({ status: 'queued', summary: 'queued' }))).toBeNull();
+        expect(stepWords(at('completed', 'completed'))).toBeNull();
+    });
+});
+
 describe('filterRuns', () => {
+    it('lists a steps run of kind agent under Prompts & reviews', () => {
+        const runs = [
+            run({ id: 's', kind: 'agent', step: { id: 'review', status: 'completed', index: 1, count: 2 } }),
+            run({ id: 't', kind: 'tool' }),
+        ];
+        expect(filterRuns(runs, by({ kind: 'agent' }), NOW).map((r) => r.id)).toEqual(['s']);
+    });
+
     it('keeps what history keeps: a run that ended in the last 30 days, and every live one; newest first', () => {
         const runs = [
             run({ id: 'old', createdAt: ago(31 * DAY) }),

@@ -3360,3 +3360,10 @@
     display: none;
   }
 }
+
+/* A list that could not be fetched keeps its rows and says why above them. */
+.automations-runs-error {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--color-error);
+}

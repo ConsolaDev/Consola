@@ -33,6 +33,7 @@ import {
   formatDuration,
   formatTime,
   runAbout,
+  stepWords,
   runTitle,
   statusLabel,
   triggerInWords,
@@ -96,7 +97,7 @@ export function RunItem({
   onOpen: () => void;
 }) {
   const washed = useArrivedOnMount(arrived);
-  const about = runAbout(run);
+  const about = stepWords(run) ?? runAbout(run);
   const status = `${statusLabel(run.status)}${run.status === 'queued' && place !== undefined ? ` · ${place} in line` : ''}`;
   // With nothing to say about itself, a run's "about" is its status: the title says that instead.
   const title = about !== run.status ? about : status;

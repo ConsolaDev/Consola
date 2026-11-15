@@ -131,6 +131,26 @@ export function runAbout(run: RunFacts): string {
     return run.summary || run.status;
 }
 
+/** The summary the engine gives a run held for another run's checkout of the same item. */
+const CHECKOUT_WAIT = "waiting for this item's checkout";
+
+/**
+ * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
+ * "running · publish", "waiting for a slot before publish", "failed at
+ * publish", or that it waits for its item's checkout. Null when there is
+ * nothing step-shaped to say (a legacy run, a run that finished), so the
+ * row keeps `runAbout`.
+ */
+export function stepWords(run: RunListEntry): string | null {
+    if (run.status === 'queued' && run.summary === CHECKOUT_WAIT) return CHECKOUT_WAIT;
+    const step = run.step;
+    if (!step) return null;
+    if (run.status === 'running' && step.status === 'running') return `running · ${step.id}`;
+    if (run.status === 'running' && step.status === 'queued') return `waiting for a slot before ${step.id}`;
+    if (run.status === 'failed') return `failed at ${step.id}`;
+    return null;
+}
+
 export type RunFilter = 'all' | 'agent' | 'tool' | 'failed';
 
 /** What narrows the run list: free text, a kind, and one automation. */
@@ -225,6 +245,33 @@ export function filterRuns(runs: RunListEntry[], filter: RunListFilter, now: Dat
             );
         })
         .sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/**
+ * Pages of runs laid together, newest first: `first` wins for a run in both,
+ * so the live snapshot's copy of a run is never replaced by an older fetch.
+ */
+export function mergeRunPages(first: RunListEntry[], ...rest: RunListEntry[][]): RunListEntry[] {
+    const seen = new Set<string>();
+    const merged: RunListEntry[] = [];
+    for (const run of [first, ...rest].flat()) {
+        if (seen.has(run.id)) continue;
+        seen.add(run.id);
+        merged.push(run);
+    }
+    return merged.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+}
+
+/**
+ * Where "Show older runs" continues from: the oldest run that has ended. Never
+ * the last row, which may be an old live run: continuing after it would skip
+ * ended runs (`ListRunsQuery.before`).
+ */
+export function olderRunsCursor(runs: RunListEntry[]): string | undefined {
+    for (let i = runs.length - 1; i >= 0; i--) {
+        if (!LIVE_STATUSES.has(runs[i].status)) return runs[i].id;
+    }
+    return undefined;
 }
 
 /** One automation the run list can narrow to, as its rows name it, with how many runs it has there. */
