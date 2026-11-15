@@ -1025,9 +1025,9 @@ export function setupIpcHandlers(): boolean {
         }),
         checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
         folderExists: (dir) => fs.existsSync(dir),
-        // run: steps: spawned by the engine's own executor.
+        // run: steps and poll checks: spawned by the engine's own executor.
         commands: { start: startCommand },
-        // What they start from: the login env, and the bound account's token, which their logs mask.
+        // What both start from: the login env, and the bound account's token, which their logs mask.
         commandEnv: async (workspaceId) => {
             const provider = workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.provider;
             if (!provider) {

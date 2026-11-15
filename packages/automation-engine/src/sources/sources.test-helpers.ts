@@ -1,7 +1,8 @@
+import * as path from 'path';
 import type { RunRecord, RunTrigger } from '@consola/factory-spec';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
-import { stepsHarness, WORKSPACE_ID, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
+import { stepsHarness, WORKSPACE_ID, type FakeCommand, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
 import type { ItemRef } from '../views';
 
 /*
@@ -116,6 +117,15 @@ export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'>
      * reached past `private`, with a poll trigger.
      */
     fire(name?: string): Promise<RunRecord>;
+    /** What every check prints from now on, as its stdout: these objects, as a JSON array. Until set, none (`[]`). */
+    pollOutput(items: object[]): void;
+    /**
+     * Run the due checks to completion: a tick, then every check command
+     * still running ends at exit 0, printing `pollOutput`'s items, and so
+     * does each one their ending let start. A check a test ended itself is
+     * left as it is.
+     */
+    check(): Promise<void>;
 }
 
 /** sprocket/catalog-portal#51, as a poll with `item: { github: .url }` reads it. */
@@ -150,6 +160,10 @@ export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promi
     const base = await stepsHarness({ ...rest, workItems });
     const world: SourcesWorld = Object.assign(base.world, sets, { workItems });
     sets = world;
+    // Kept across relaunches, as the world is.
+    let printed = '[]';
+    const checksDir = path.join(base.folder.workspaceDir(WORKSPACE_ID), 'checks');
+    const isCheck = (command: FakeCommand) => path.dirname(path.dirname(command.spec.stdoutPath)) === checksDir;
 
     const wrap = (harness: StepsHarness): SourcesHarness => ({
         ...harness,
@@ -179,6 +193,19 @@ export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promi
             const run = await service['fire'](entry, trigger);
             await harness.flush();
             return harness.store.get(run.id)!;
+        },
+        pollOutput(items) {
+            printed = JSON.stringify(items);
+        },
+        async check() {
+            await harness.tick();
+            // Ending one frees the lane for another that is due: that one ends too.
+            for (let round = 0; round < 20; round++) {
+                const running = world.commands.filter((command) => isCheck(command) && !command.ended);
+                if (running.length === 0) return;
+                for (const command of running) await command.end({ stdout: printed });
+            }
+            throw new Error('Checks kept starting: a check() never settled.');
         },
     });
     return wrap(base);

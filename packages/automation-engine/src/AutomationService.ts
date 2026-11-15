@@ -63,11 +63,21 @@ import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapsh
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
+import { MAX_CHECK_STDOUT_BYTES, readCheckResult, type PolledItem } from './sources/checkResult';
 import { runItemSource, type ItemSource } from './sources/itemSource';
 import { pollSource } from './sources/pollSource';
+import {
+    afterFailure,
+    afterSuccess,
+    checkSpec,
+    dueNow,
+    MAX_CONCURRENT_CHECKS,
+    nextCheckAt,
+    type CheckState,
+} from './sources/pollRunner';
 import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
-import { LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
+import { describeFailure, LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
     commandOutcome,
     commandSpec,
@@ -365,6 +375,12 @@ type RunItemOf =
     | { source: ItemSource | undefined; polled: Record<string, unknown> | undefined }
     | { source: ItemSource | undefined; error: string };
 
+/** The check a `CheckState` says is running: what its result is matched against when it lands. */
+type CheckRunning = NonNullable<CheckState['running']>;
+
+/** How a check ended: with items, failed and why (masked), or dropped before it spawned, its entry no longer the one it was started for. */
+type CheckEnd = { ok: true; items: PolledItem[] } | { ok: false; error: string } | { dropped: true };
+
 type QueueVerdict =
     | { go: true; item?: InboxItemView }
     | { go: false; wait: true }
@@ -434,6 +450,14 @@ export class AutomationService {
     private readonly allowsAnnounced = new Set<string>();
     /** Whether a version that needs Allow is announced when first seen: once start-up's first sync is done. */
     private announcingAllows = false;
+    /**
+     * Each poll entry's checks since start-up, by automation key: when the
+     * next is due, the one running, what the last found. Memory only: a
+     * launch checks every allowed entry at its first tick.
+     */
+    private readonly checks = new Map<string, CheckState>();
+    /** Each running check's command, by automation key: what a quit, or deleting its workspace, stops. */
+    private readonly checkCommands = new Map<string, RunningCommand>();
     private io: StepIO | undefined;
     constructor(private readonly deps: AutomationServiceDeps) {}
 
@@ -493,8 +517,9 @@ export class AutomationService {
      * group, without waiting), so none outlives the app to post after a
      * person retried it. Let go of first, so its exit during the quit is not
      * recorded as a stop: its step keeps its intent-only record, which the
-     * next start fails as interrupted. Then stop ticking and let go of every
-     * workspace's file.
+     * next start fails as interrupted. Stop every running check too: what it
+     * reports afterwards is dropped, as Consola is no longer running. Then
+     * stop ticking and let go of every workspace's file.
      */
     public shutdown(): void {
         for (const running of this.runningCommands.values()) {
@@ -502,6 +527,9 @@ export class AutomationService {
             running.stop();
         }
         this.runningCommands.clear();
+        for (const check of this.checkCommands.values()) check.stop();
+        this.checkCommands.clear();
+        this.checks.clear();
         this.started = false;
         this.stopTicking?.();
         this.stopTicking = null;
@@ -522,8 +550,11 @@ export class AutomationService {
 
         const removed = [...this.factories.keys()].filter((id) => !current.has(id));
         for (const workspaceId of removed) {
-            this.factories.get(workspaceId)!.file.unwatch();
+            const factory = this.factories.get(workspaceId)!;
+            factory.file.unwatch();
             this.factories.delete(workspaceId);
+            // Its checks have nowhere to report either: their results are dropped, as their entries are gone.
+            for (const [key, check] of this.checkCommands) if (key.startsWith(`${workspaceId} `)) check.stop();
             for (const run of this.deps.store.runs()) {
                 if (run.attribution.workspaceId === workspaceId && (run.status === 'needs-approval' || run.status === 'queued')) {
                     this.finish(run.id, 'rejected', { summary: 'Its workspace was deleted.' });
@@ -531,9 +562,11 @@ export class AutomationService {
                 // Its record goes with the workspace: a command it was running has nowhere to report, so it ends.
                 if (run.attribution.workspaceId === workspaceId) this.runningCommands.get(run.id)?.stop();
             }
-            const hasRunFolders = this.deps.store.workspacesWithStepsRuns().has(workspaceId);
+            // A workspace whose file checks has check logs, whether or not a run ever came of them.
+            const hasFolders =
+                this.deps.store.workspacesWithStepsRuns().has(workspaceId) || factory.resolved.some((entry) => pollOf(entry) !== null);
             this.deps.store.forgetWorkspace(workspaceId);
-            if (hasRunFolders) {
+            if (hasFolders) {
                 try {
                     this.deps.runFolder.removeAll(workspaceId);
                 } catch (error) {
@@ -827,11 +860,12 @@ export class AutomationService {
         return workspace ? templateViews(workspace, factory.loaded.spec.automations, this.deps.now()) : [];
     }
 
-    /** Fire everything that is due, and start what the queue has room for. Public so wake-from-sleep can call it. */
+    /** Start the checks that are due, fire everything else that is, and start what the queue has room for. Public so wake-from-sleep can call it. */
     public async tick(): Promise<void> {
         if (this.ticking) return;
         this.ticking = true;
         try {
+            this.runDueChecks();
             const now = this.deps.now();
             for (const entry of this.allResolved()) {
                 // A run still in progress keeps the occurrence for a later
@@ -927,9 +961,10 @@ export class AutomationService {
 
     /**
      * Run one of a workspace's automations now: its panel's Run now, or an
-     * agent's `run_automation`. An event automation has no run to start on
-     * request — its "Check now" fetches the Inbox, and only what is new fires
-     * — so it returns null; an agent cannot ask for one at all.
+     * agent's `run_automation`. An event or poll automation has no run to
+     * start on request: its "Check now" fetches the Inbox, or runs its check
+     * (refused until it is allowed), and only what is new fires. So it returns
+     * null; an agent cannot ask for one at all.
      */
     public async trigger(
         workspaceId: string,
@@ -948,7 +983,8 @@ export class AutomationService {
                 const when = entry.event ? 'its event happens' : 'its check finds an item';
                 throw new Error(`${name} runs when ${when} (${source.describe.toLowerCase()}), not on request.`);
             }
-            if (entry.event) await this.deps.refreshInbox(workspaceId);
+            if (pollOf(entry)) this.checkNow(entry);
+            else if (entry.event) await this.deps.refreshInbox(workspaceId);
             return null;
         }
         // An agent never replaces a plan a person may be reviewing, nor
@@ -1126,13 +1162,210 @@ export class AutomationService {
         this.deps.store.accept(key, version);
         // Settled: should something take it back, that asks again.
         this.allowsAnnounced.delete(`${key} ${version}`);
+        // Its first check at this version is due at once, and starts a run of failures of its own.
+        this.checks.set(key, { ...dueNow(this.checkStateOf(key)), failures: 0 });
         this.broadcast(workspaceId);
         this.runDueChecks();
     }
 
-    /** Start every check that is due. The engine runs no check command yet, so none is. */
+    /**
+     * A person's Check now on a poll entry: its check runs at once when the
+     * lane has room, else as soon as a slot frees. One already running is the
+     * check asked for. Refused until the entry is allowed at this version.
+     */
+    private checkNow(entry: Resolved): void {
+        const key = automationKey(entry);
+        if (this.deps.store.acceptedVersion(key) !== entry.version) {
+            throw new Error(`\`${entry.automation.name}\` is not checking yet: allow it first.`);
+        }
+        const state = this.checkStateOf(key);
+        if (state.running) return;
+        this.checks.set(key, dueNow(state));
+        this.runDueChecks();
+    }
+
+    /** A poll entry's trigger when its check may run: it has no problem, and its version is the one a person allowed, in every mode. */
+    private mayCheck(entry: Resolved): PollTrigger | null {
+        const trigger = pollOf(entry);
+        if (!trigger || entry.problem) return null;
+        return this.deps.store.acceptedVersion(automationKey(entry)) === entry.version ? trigger : null;
+    }
+
+    private checkStateOf(key: string): CheckState {
+        return this.checks.get(key) ?? { failures: 0 };
+    }
+
+    /**
+     * Start every check that is due, in file order, while the lane has room:
+     * at most `MAX_CONCURRENT_CHECKS` across every workspace, and one per
+     * automation. A check never takes an agent or a command slot. Only an
+     * entry that may check is ever started.
+     */
     private runDueChecks(): void {
-        // Nothing to start: no entry checks yet.
+        if (!this.started) return;
+        const now = this.deps.now().getTime();
+        let running = [...this.checks.values()].filter((state) => state.running).length;
+        for (const entry of this.allResolved()) {
+            if (running >= MAX_CONCURRENT_CHECKS) return;
+            const trigger = this.mayCheck(entry);
+            if (!trigger) continue;
+            const key = automationKey(entry);
+            const state = this.checkStateOf(key);
+            if (state.running) continue;
+            const due = nextCheckAt(state, trigger.everyMs);
+            if (due !== 'now' && due > now) continue;
+            const started: CheckRunning = { version: entry.version, acceptedVersion: this.deps.store.acceptedVersion(key), startedAt: this.iso() };
+            // Running before anything is awaited, so neither a second pass nor Check now starts it twice.
+            this.checks.set(key, { ...state, running: started });
+            running++;
+            void this.runCheck(entry, trigger, started);
+        }
+    }
+
+    /**
+     * One check, from start to what it came to. Whatever happens on the way,
+     * it stops counting as running when it ends, and the lane it frees goes
+     * to the next check that is due: no path leaves an automation that never
+     * checks again. Nothing awaits this, so nothing may escape it.
+     */
+    private async runCheck(entry: Resolved, trigger: PollTrigger, running: CheckRunning): Promise<void> {
+        const key = automationKey(entry);
+        let ended: CheckEnd;
+        try {
+            ended = await this.check(entry, trigger, running);
+        } catch (error) {
+            // What `check` did not foresee fails the check too, rather than nothing at all.
+            ended = { ok: false, error: describeReason(error) };
+        }
+        try {
+            if (!('dropped' in ended)) {
+                const current = this.entryCheckedBy(entry, running);
+                if (current) this.checkEnded(current, ended);
+            }
+        } catch (error) {
+            console.error(`Automation ${entry.automation.name}'s check could not be recorded.`, error);
+        } finally {
+            const state = this.checks.get(key);
+            if (state?.running === running) {
+                const { running: _ended, ...rest } = state;
+                this.checks.set(key, rest);
+            }
+            this.runDueChecks();
+        }
+    }
+
+    /**
+     * Run a check's command and read what it printed. It runs as the person:
+     * the workspace's command environment, in the workspace's folder, its
+     * logs overwritten. Every failure on the way to a result is the check's
+     * failure, its reason masked; one whose entry changed, or Consola quit,
+     * while its environment was prepared never spawns.
+     */
+    private async check(entry: Resolved, trigger: PollTrigger, running: CheckRunning): Promise<CheckEnd> {
+        const { workspaceId } = entry;
+        const name = entry.automation.name;
+        let base: { env: NodeJS.ProcessEnv; secrets: string[] };
+        try {
+            base = await this.deps.commandEnv(workspaceId);
+        } catch (error) {
+            return { ok: false, error: `Its environment could not be prepared (${describeReason(error)}); nothing ran.` };
+        }
+        if (!this.entryCheckedBy(entry, running)) return { dropped: true };
+        const fail = (error: string): CheckEnd => ({ ok: false, error: maskSecrets(error, base.secrets) });
+
+        let spec: CommandSpec;
+        try {
+            const logs = this.deps.runFolder.checkFiles(workspaceId, name);
+            this.deps.runFolder.ensureEmptyFile(logs.stdout);
+            this.deps.runFolder.ensureEmptyFile(logs.stderr);
+            spec = checkSpec({ trigger, automation: name, cwd: this.deps.runFolder.workspaceDir(workspaceId), logs, base });
+        } catch (error) {
+            return fail(`Could not create its logs (${describeReason(error)}); nothing ran.`);
+        }
+
+        const key = automationKey(entry);
+        let result: CommandResult;
+        try {
+            const command = this.deps.commands.start(spec);
+            this.checkCommands.set(key, command);
+            result = await command.result;
+        } catch (error) {
+            return fail(`The command could not start (${describeReason(error)}); nothing ran.`);
+        } finally {
+            this.checkCommands.delete(key);
+        }
+        if (result.exitCode !== 0 || result.timedOut || result.stopped) return fail(describeFailure(result, trigger.timeoutMs));
+
+        let stdout: string | null;
+        try {
+            stdout = this.deps.runFolder.readText(spec.stdoutPath, MAX_CHECK_STDOUT_BYTES + 1);
+        } catch (error) {
+            return fail(`Could not read its stdout (${describeReason(error)}).`);
+        }
+        if (stdout === null) return fail('Its stdout log is gone, so it has no output.');
+        // Over the limit by what it wrote, not by whether a log was cut: its stderr may be the one that was.
+        const truncated = result.stdoutBytes > MAX_CHECK_STDOUT_BYTES || utf8Bytes(stdout) > MAX_CHECK_STDOUT_BYTES;
+        const read = readCheckResult({ stdout, truncated, trigger, workItems: this.deps.workItems });
+        return read.ok ? { ok: true, items: read.items } : fail(read.problem);
+    }
+
+    /**
+     * The entry a check's result speaks for, or null when it no longer does
+     * (Call 16): Consola quit, the check is not its automation's running one
+     * any more, or the entry is gone, has a problem, or is not the version,
+     * allowed the same way, that it was when the check started. A result
+     * that does not speak for it fires nothing and moves nothing.
+     */
+    private entryCheckedBy(started: Resolved, running: CheckRunning): Resolved | null {
+        if (!this.started) return null;
+        const key = automationKey(started);
+        if (this.checks.get(key)?.running !== running) return null;
+        const entry = this.factories.get(started.workspaceId)?.resolved.find((candidate) => candidate.automation.name === started.automation.name);
+        if (!entry || !pollOf(entry) || entry.problem) return null;
+        if (entry.version !== running.version || this.deps.store.acceptedVersion(key) !== running.acceptedVersion) return null;
+        return entry;
+    }
+
+    /**
+     * A check that counts ended: its items go to its source, or its failure
+     * is recorded, with one notice per run of failures, never one per check.
+     * A failed check fires nothing and moves nothing else.
+     */
+    private checkEnded(entry: Resolved, ended: Exclude<CheckEnd, { dropped: true }>): void {
+        const key = automationKey(entry);
+        const state = this.checkStateOf(key);
+        const at = this.iso();
+        if (ended.ok) {
+            this.checks.set(key, afterSuccess(state, at));
+            this.observeSource(entry, ended.items, at);
+        } else {
+            this.checks.set(key, afterFailure(state, at, ended.error));
+            if (state.failures === 0) {
+                const name = entry.automation.name;
+                this.deps.notify({
+                    title: `\`${name}\` can't check: ${ended.error}`,
+                    body: 'Review it in Consola.',
+                    workspaceId: entry.workspaceId,
+                    automation: name,
+                    needsApproval: false,
+                });
+            }
+        }
+        this.broadcast(entry.workspaceId);
+    }
+
+    /**
+     * A poll's check succeeded with `items`. They are kept as its latest
+     * result, which a queued run's item is checked against and Run on…
+     * lists, and summed up as its outcome. Nothing fires from them yet.
+     */
+    private observeSource(entry: Resolved, items: PolledItem[], at: string): void {
+        const key = automationKey(entry);
+        this.checks.set(key, {
+            ...this.checkStateOf(key),
+            result: { at, items },
+            outcome: { at, items: items.length, fired: 0, skipped: 0, baseline: false },
+        });
     }
 
     /** A workspace's automations as its panel and `list_automations` show them. */
@@ -1155,7 +1388,7 @@ export class AutomationService {
                 source: trigger.kind,
                 onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
                 ...(takesItem ? { takesItem } : {}),
-                ...(trigger.kind === 'poll' ? { check: checkViewOf(trigger) } : {}),
+                ...(trigger.kind === 'poll' ? { check: this.checkView(entry, trigger, now) } : {}),
                 ...(this.needsAllow(entry) ? { needsAllow: true as const, version: entry.version } : {}),
                 kind: describeKind(automation),
                 runs: describeRun(automation),
@@ -1174,6 +1407,21 @@ export class AutomationService {
                     : {}),
             };
         });
+    }
+
+    /**
+     * A poll's check as its page shows it: as written, how the last check
+     * that counted went, and, while it checks and none is running, when the
+     * next is due (now, for one that is).
+     */
+    private checkView(entry: Resolved, trigger: PollTrigger, now: Date): CheckView {
+        const state = this.checks.get(automationKey(entry));
+        const view = checkViewOf(trigger, state?.outcome);
+        if (this.mayCheck(entry) && !state?.running) {
+            const due = nextCheckAt(state ?? { failures: 0 }, trigger.everyMs);
+            view.nextAt = new Date(due === 'now' ? now.getTime() : Math.max(due, now.getTime())).toISOString();
+        }
+        return view;
     }
 
     /** A run's definition snapshot, whole; null for a run without one (a legacy run, or one the history dropped). */
@@ -2597,9 +2845,30 @@ export class AutomationService {
         if (!factory) return false;
         const loaded = await factory.file.load();
         if (this.factories.get(workspaceId) !== factory) return false;
+        const checkedBefore = factory.resolved.some((entry) => pollOf(entry) !== null);
         factory.loaded = loaded;
         this.resolveAll(workspaceId, factory);
+        this.sweepCheckLogs(workspaceId, factory, checkedBefore);
         return true;
+    }
+
+    /**
+     * Remove the logs of checks a file that loaded cleanly no longer has (an
+     * automation renamed or removed), at start-up as after a reload. A file
+     * with issues keeps them all, as it keeps its lists: it may be hiding an
+     * entry behind a typo. Only a file that has a poll entry, or had one at
+     * its last load, is swept, so a workspace that never checks is never
+     * looked at. A failure costs disk, not the load.
+     */
+    private sweepCheckLogs(workspaceId: string, factory: WorkspaceFactory, checkedBefore: boolean): void {
+        if (factory.loaded.spec.issues.length > 0) return;
+        const names = factory.resolved.filter((entry) => pollOf(entry) !== null).map((entry) => entry.automation.name);
+        if (names.length === 0 && !checkedBefore) return;
+        try {
+            this.deps.runFolder.sweepChecks(workspaceId, new Set(names));
+        } catch (error) {
+            console.error(`Could not sweep ${workspaceId}'s check logs.`, error);
+        }
     }
 
     private resolveAll(workspaceId: string, factory: WorkspaceFactory): void {
@@ -3243,12 +3512,28 @@ function takesItemOf(entry: Resolved): AutomationView['takesItem'] {
     return types[0];
 }
 
-/** A poll's check as written: its command, its interval in words, and the field whose change fires an item again. */
-function checkViewOf(trigger: PollTrigger): CheckView {
+/**
+ * A poll's check as written (its command, its interval in words, and the
+ * field whose change fires an item again), and what its last check came to:
+ * when it ended, and what it found or why it failed.
+ */
+function checkViewOf(trigger: PollTrigger, outcome: CheckState['outcome']): CheckView {
+    const last: Partial<CheckView> = !outcome
+        ? {}
+        : 'error' in outcome
+          ? { lastAt: outcome.at, error: outcome.error }
+          : {
+                lastAt: outcome.at,
+                items: outcome.items,
+                fired: outcome.fired,
+                skipped: outcome.skipped,
+                ...(outcome.baseline ? { baseline: true as const } : {}),
+            };
     return {
         command: trigger.run,
         every: describeEvery(trigger.everyMs).words,
         ...(trigger.changed !== undefined ? { changed: trigger.changed } : {}),
+        ...last,
     };
 }
 

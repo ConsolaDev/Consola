@@ -59,6 +59,8 @@ export interface FakeCommand {
     neverStarted(error: unknown): Promise<void>;
     /** How many times it was asked to stop. */
     stops: number;
+    /** It was ended, or its result rejected: `end` or `neverStarted` was called. */
+    ended: boolean;
 }
 
 export interface StepsHarnessOptions {
@@ -294,7 +296,9 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         const command: FakeCommand = {
             spec,
             stops: 0,
+            ended: false,
             async end({ outputs, stdout = '', stderr = '', result: ending = {} } = {}) {
+                command.ended = true;
                 if (outputs !== undefined) fs.appendFileSync(String(spec.env.CONSOLA_OUTPUT), outputs);
                 fs.appendFileSync(spec.stdoutPath, maskSecrets(stdout, spec.secrets));
                 fs.appendFileSync(spec.stderrPath, maskSecrets(stderr, spec.secrets));
@@ -311,6 +315,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
                 await flush();
             },
             async neverStarted(error) {
+                command.ended = true;
                 settle.reject(error);
                 await flush();
             },

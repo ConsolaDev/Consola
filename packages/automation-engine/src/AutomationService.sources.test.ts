@@ -1,9 +1,12 @@
 import { createHash } from 'crypto';
+import * as fs from 'fs';
+import * as path from 'path';
 import { describe, expect, it } from 'vitest';
-import { parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
 import { listDefinition } from './AutomationService';
 import {
     factoryWith,
+    PR_51_URL,
     RE_REVIEW_COMMAND,
     RE_REVIEW_ENTRY,
     RE_REVIEW_NAME,
@@ -11,6 +14,7 @@ import {
     WORKSPACE_ID,
     type SourcesHarness,
 } from './sources/sources.test-helpers';
+import type { FakeCommand } from './steps/steps.test-helpers';
 
 /** A poll on GitHub work items, with the job and any other keys as given (each line at the entry's indent). */
 function pollOnItems(job: string, extra = ''): string {
@@ -37,6 +41,14 @@ const ACTION_STEP = (name: string) => `  steps:\n    - id: act\n      action: ${
 
 const view = (h: SourcesHarness) => h.service.list(WORKSPACE_ID)[0];
 const problemOf = (h: SourcesHarness) => view(h).problem;
+
+/** Allow the entry `name` at the version its view shows; that version. Its first check starts at once. */
+function allowAsShown(h: SourcesHarness, name = RE_REVIEW_NAME): string {
+    const shown = h.service.list(WORKSPACE_ID).find((candidate) => candidate.name === name)!;
+    expect(shown).toMatchObject({ needsAllow: true, version: expect.any(String) });
+    h.service.allow(WORKSPACE_ID, name, shown.version!);
+    return shown.version!;
+}
 
 /** Sprocket with no account bound. */
 async function unbound(h: SourcesHarness): Promise<void> {
@@ -235,14 +247,6 @@ describe('allowing', () => {
     });
     const changed = (name: string) => ({ ...needsOk(name), title: `\`${name}\` changed, and has stopped checking until you allow it` });
 
-    /** Allow the entry `name` at the version its view shows; that version. */
-    function allowAsShown(h: SourcesHarness, name = RE_REVIEW_NAME): string {
-        const shown = h.service.list(WORKSPACE_ID).find((candidate) => candidate.name === name)!;
-        expect(shown).toMatchObject({ needsAllow: true, version: expect.any(String) });
-        h.service.allow(WORKSPACE_ID, name, shown.version!);
-        return shown.version!;
-    }
-
     it('nothing is spawned before allow', async () => {
         const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
         for (let tick = 0; tick < 3; tick++) {
@@ -392,6 +396,9 @@ describe('allowing', () => {
     it('editing an action a step names stops the checks', async () => {
         const h = await sourcesHarness({ yaml: factoryWith(pollOnItems(ACTION_STEP('Review'))) });
         const allowed = allowAsShown(h, 'checker');
+        // Allowing ran its first check at once; it ends before the edit.
+        await h.check();
+        const checked = h.world.commands.length;
         h.world.workspace.actions = h.world.workspace.actions.map((action) =>
             action.name === 'Review' ? { ...action, prompt: 'Review {{title}} again, more briefly.' } : action
         );
@@ -401,6 +408,323 @@ describe('allowing', () => {
         expect(h.notices).toEqual([changed('checker')]);
         h.advance(30 * 60_000);
         await h.tick();
+        expect(h.world.commands).toHaveLength(checked);
+    });
+});
+
+describe('checking', () => {
+    const MINUTE = 60_000;
+    /** What #51 looks like to the template's check: its URL, title and head. */
+    const PR_51_ROW = { url: PR_51_URL, title: 'Fix the cart total', head: 'a' };
+    /** The template with its check command edited: a new version, which needs Allow again. */
+    const EDITED_CHECK = RE_REVIEW_ENTRY.replace('first: 50', 'first: 20');
+    const BOOM = { stderr: 'boom\n', result: { exitCode: 1, lastStderrLine: 'boom' } };
+
+    const checkOf = (h: SourcesHarness, name = RE_REVIEW_NAME) => h.service.list(WORKSPACE_ID).find((entry) => entry.name === name)!.check!;
+    const automationOf = (command: FakeCommand) => command.spec.env.CONSOLA_AUTOMATION;
+    const cantCheck = (error: string, name = RE_REVIEW_NAME) => ({
+        title: `\`${name}\` can't check: ${error}`,
+        body: 'Review it in Consola.',
+        workspaceId: WORKSPACE_ID,
+        automation: name,
+        needsApproval: false,
+    });
+    /** A poll on GitHub work items named `name`, running a prompt. */
+    const checker = (name: string) => pollOnItems(PROMPT).replace('name: checker', `name: ${name}`);
+
+    /** ws-1 holding the template, allowed: its first check is running. */
+    async function allowedTemplate(options: Parameters<typeof sourcesHarness>[0] = {}): Promise<SourcesHarness> {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY), ...options });
+        allowAsShown(h);
+        await h.flush();
+        return h;
+    }
+
+    it('the first check comes at the first tick after start, once allowed', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
         expect(h.world.commands).toEqual([]);
+        allowAsShown(h);
+        await h.flush();
+        expect(h.world.commands.map(automationOf)).toEqual([RE_REVIEW_NAME]);
+        await h.check();
+        // Nothing of when it last checked outlives a quit: the first tick after start-up checks.
+        const next = await h.relaunch();
+        await next.flush();
+        expect(next.world.commands.map(automationOf)).toEqual([RE_REVIEW_NAME, RE_REVIEW_NAME]);
+    });
+
+    it('the next is due every after the last ended', async () => {
+        const h = await allowedTemplate();
+        // The check takes five minutes: the interval counts from its end.
+        h.advance(5 * MINUTE);
+        await h.check();
+        const ended = h.now().getTime();
+        expect(checkOf(h)).toMatchObject({ lastAt: new Date(ended).toISOString(), nextAt: new Date(ended + 30 * MINUTE).toISOString() });
+        h.advance(30 * MINUTE - 1);
+        await h.tick();
+        expect(h.world.commands).toHaveLength(1);
+        h.advance(1);
+        await h.tick();
+        expect(h.world.commands).toHaveLength(2);
+    });
+
+    it("a check runs in the workspace's folder as you, with hooks off", async () => {
+        const h = await allowedTemplate();
+        const [{ spec }] = h.world.commands;
+        const logs = h.folder.checkFiles(WORKSPACE_ID, RE_REVIEW_NAME);
+        expect(spec).toMatchObject({
+            command: RE_REVIEW_COMMAND,
+            cwd: h.folder.workspaceDir(WORKSPACE_ID),
+            env: { CONSOLA_AUTOMATION: RE_REVIEW_NAME, GH_TOKEN: 'gho_stub', GIT_CONFIG_KEY_0: 'core.hooksPath' },
+            secrets: ['gho_stub'],
+            timeoutMs: 60_000,
+            stdoutPath: logs.stdout,
+            stderrPath: logs.stderr,
+        });
+        // No env: of its own, no run and no step: there is no item yet.
+        expect(Object.keys(spec.env).filter((name) => name.startsWith('CONSOLA_'))).toEqual(['CONSOLA_AUTOMATION']);
+        expect(h.world.commandEnvAsked).toEqual([WORKSPACE_ID]);
+        expect(h.store.runs()).toEqual([]);
+    });
+
+    it('at most two checks at once, one per automation', async () => {
+        const names = ['checker-a', 'checker-b', 'checker-c'];
+        const h = await sourcesHarness({ yaml: factoryWith(...names.map(checker)) });
+        for (const name of names) allowAsShown(h, name);
+        await h.flush();
+        expect(h.world.commands.map(automationOf)).toEqual(['checker-a', 'checker-b']);
+        await h.world.commands[0].end({ stdout: '[]' });
+        expect(h.world.commands.map(automationOf)).toEqual(['checker-a', 'checker-b', 'checker-c']);
+        // Check now on one that is running: that check is the one asked for.
+        expect(await h.service.trigger(WORKSPACE_ID, 'checker-b')).toBeNull();
+        await h.flush();
+        expect(h.world.commands).toHaveLength(3);
+        await h.check();
+        expect(h.world.commands).toHaveLength(3);
+        // All three due together: two start, the third once one ends.
+        h.advance(30 * MINUTE);
+        await h.tick();
+        expect(h.world.commands.slice(3).map(automationOf)).toEqual(['checker-a', 'checker-b']);
+        await h.world.commands[4].end({ stdout: '[]' });
+        expect(h.world.commands.slice(3).map(automationOf)).toEqual(['checker-a', 'checker-b', 'checker-c']);
+    });
+
+    it('Check now with no free slot checks as soon as one frees', async () => {
+        const names = ['checker-a', 'checker-b', 'checker-c'];
+        const h = await sourcesHarness({ yaml: factoryWith(...names.map(checker)) });
+        for (const name of names) allowAsShown(h, name);
+        await h.check();
+        expect(h.world.commands).toHaveLength(3);
+        h.advance(MINUTE);
+        for (const name of names) await h.service.trigger(WORKSPACE_ID, name);
+        await h.flush();
+        expect(h.world.commands.slice(3).map(automationOf)).toEqual(['checker-a', 'checker-b']);
+        await h.world.commands[3].end({ stdout: '[]' });
+        expect(h.world.commands.slice(3).map(automationOf)).toEqual(['checker-a', 'checker-b', 'checker-c']);
+    });
+
+    describe('a check that fails before it runs is a failed check', () => {
+        it.each<[string, (h: SourcesHarness) => void, (h: SourcesHarness) => Promise<void>, string]>([
+            [
+                'its token cannot be borrowed',
+                (h) => {
+                    h.world.commandEnvThrows = new Error('no oauth token found for github.com account JaviDev');
+                },
+                async () => {},
+                'Its environment could not be prepared (no oauth token found for github.com account JaviDev); nothing ran.',
+            ],
+            [
+                'its command cannot be started',
+                (h) => {
+                    h.world.onCommand = () => {
+                        throw new Error('spawn failed with GH_TOKEN=gho_stub');
+                    };
+                },
+                async () => {},
+                'The command could not start (spawn failed with GH_TOKEN=***); nothing ran.',
+            ],
+            [
+                'its result rejects',
+                () => {},
+                async (h) => h.world.commands[h.world.commands.length - 1].neverStarted(new Error('spawn /bin/sh ENOENT')),
+                'The command could not start (spawn /bin/sh ENOENT); nothing ran.',
+            ],
+        ])('when %s', async (_name, arrange, settle, error) => {
+            const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+            arrange(h);
+            allowAsShown(h);
+            await h.flush();
+            await settle(h);
+            expect(checkOf(h)).toMatchObject({ error, lastAt: h.now().toISOString() });
+            expect(h.notices).toEqual([cantCheck(error)]);
+            // Not left running: the next due tick tries again, as the same run of failures.
+            expect(h.world.commandEnvAsked).toHaveLength(1);
+            h.advance(60 * MINUTE);
+            await h.tick();
+            await settle(h);
+            expect(h.world.commandEnvAsked).toHaveLength(2);
+            expect(checkOf(h).error).toBe(error);
+            expect(h.notices).toHaveLength(1);
+        });
+    });
+
+    it('a check never takes an agent or a command slot', async () => {
+        const busy = (name: string) => `- name: ${name}\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n  mode: auto\n  steps:\n    - id: wait\n      run: sleep 600\n`;
+        const yaml = factoryWith(busy('busy-a'), busy('busy-b'), RE_REVIEW_ENTRY);
+        const h = await sourcesHarness({ yaml, maxConcurrentAgents: 0, maxConcurrentCommands: 2 });
+        for (const automation of parseFactorySpec(yaml).automations) {
+            if (automation.trigger.kind === 'cron') h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation));
+        }
+        await h.service.trigger(WORKSPACE_ID, 'busy-a');
+        await h.service.trigger(WORKSPACE_ID, 'busy-b');
+        await h.flush();
+        // Both command slots are held by running steps.
+        expect(h.world.commands.map((command) => command.spec.env.CONSOLA_STEP)).toEqual(['wait', 'wait']);
+        expect(h.store.runs().map((run) => run.status)).toEqual(['running', 'running']);
+        allowAsShown(h);
+        await h.flush();
+        expect(h.world.commands.map(automationOf)).toEqual([undefined, undefined, RE_REVIEW_NAME]);
+    });
+
+    it('a failed check records why and notifies once per run of failures', async () => {
+        const h = await allowedTemplate();
+        await h.world.commands[0].end(BOOM);
+        expect(h.service.list(WORKSPACE_ID)[0].check!.error).toBe('exit 1: boom');
+        // A failure doubles the wait.
+        h.advance(60 * MINUTE);
+        await h.tick();
+        await h.world.commands[1].end(BOOM);
+        expect(h.service.list(WORKSPACE_ID)[0].check!.error).toBe('exit 1: boom');
+        expect(h.notices).toEqual([cantCheck('exit 1: boom')]);
+        h.advance(60 * MINUTE);
+        await h.check();
+        expect(h.world.commands).toHaveLength(3);
+        expect(checkOf(h)).not.toHaveProperty('error');
+        expect(checkOf(h)).toMatchObject({ items: 0, fired: 0, skipped: 0 });
+        // Its next failure starts a new run of them.
+        h.advance(30 * MINUTE);
+        await h.tick();
+        await h.world.commands[3].end(BOOM);
+        expect(h.notices).toEqual([cantCheck('exit 1: boom'), cantCheck('exit 1: boom')]);
+    });
+
+    it('output it cannot read is a failed check', async () => {
+        const h = await allowedTemplate();
+        await h.world.commands[0].end({ stdout: '{}' });
+        const error = 'Its stdout is a JSON object, not an array of objects.';
+        expect(checkOf(h)).toMatchObject({ error });
+        expect(checkOf(h)).not.toHaveProperty('items');
+        expect(h.notices).toEqual([cantCheck(error)]);
+    });
+
+    it('a check that succeeds keeps what it found', async () => {
+        const h = await allowedTemplate();
+        h.pollOutput([PR_51_ROW, { ...PR_51_ROW, url: PR_51_URL.replace('/51', '/52'), title: 'Tidy the basket' }]);
+        await h.check();
+        expect(checkOf(h)).toEqual({
+            command: RE_REVIEW_COMMAND,
+            every: '30 minutes',
+            changed: '.head',
+            lastAt: h.now().toISOString(),
+            items: 2,
+            fired: 0,
+            skipped: 0,
+            nextAt: new Date(h.now().getTime() + 30 * MINUTE).toISOString(),
+        });
+        // A check is not a run: nothing is recorded while nothing fires.
+        expect(h.store.runs()).toEqual([]);
+        expect(h.notices).toEqual([]);
+    });
+
+    it('a result that lands after the entry changed is dropped', async () => {
+        const h = await allowedTemplate();
+        await h.setPoll(EDITED_CHECK);
+        await h.world.commands[0].end({ stdout: JSON.stringify([PR_51_ROW]) });
+        expect(checkOf(h)).not.toHaveProperty('lastAt');
+        expect(checkOf(h)).not.toHaveProperty('items');
+        expect(view(h).needsAllow).toBe(true);
+        // The new version does not check until it is allowed.
+        expect(h.world.commands).toHaveLength(1);
+        h.advance(30 * MINUTE);
+        await h.tick();
+        expect(h.world.commands).toHaveLength(1);
+        expect(h.notices.map((notice) => notice.title)).toEqual([`\`${RE_REVIEW_NAME}\` changed, and has stopped checking until you allow it`]);
+    });
+
+    it('a result that lands after its allowance was taken back is dropped', async () => {
+        const h = await allowedTemplate();
+        await h.service.saveEntry(WORKSPACE_ID, RE_REVIEW_ENTRY, { replace: true });
+        await h.world.commands[0].end(BOOM);
+        expect(checkOf(h)).not.toHaveProperty('error');
+        expect(h.notices.map((notice) => notice.title)).toEqual([`\`${RE_REVIEW_NAME}\` needs your OK to start checking`]);
+    });
+
+    it('Check now starts it at once', async () => {
+        const h = await allowedTemplate();
+        await h.check();
+        h.advance(MINUTE);
+        expect(await h.service.trigger(WORKSPACE_ID, RE_REVIEW_NAME)).toBeNull();
+        await h.flush();
+        expect(h.world.commands.map(automationOf)).toEqual([RE_REVIEW_NAME, RE_REVIEW_NAME]);
+        expect(h.store.runs()).toEqual([]);
+    });
+
+    it('Check now refuses an entry not allowed yet', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        await expect(h.service.trigger(WORKSPACE_ID, RE_REVIEW_NAME)).rejects.toThrow(
+            `\`${RE_REVIEW_NAME}\` is not checking yet: allow it first.`
+        );
+        await h.flush();
+        expect(h.world.commands).toEqual([]);
+        expect(h.world.commandEnvAsked).toEqual([]);
+    });
+
+    it('quitting stops a running check', async () => {
+        const h = await allowedTemplate();
+        h.service.shutdown();
+        expect(h.world.commands[0].stops).toBe(1);
+        await h.world.commands[0].end({ result: { exitCode: null, signal: 'SIGTERM', stopped: true } });
+        await h.tick();
+        expect(h.notices).toEqual([]);
+        expect(h.world.commands).toHaveLength(1);
+    });
+
+    it('deleting a workspace stops its check and removes its logs', async () => {
+        const h = await allowedTemplate();
+        const logs = path.dirname(h.folder.checkFiles(WORKSPACE_ID, RE_REVIEW_NAME).stdout);
+        expect(fs.existsSync(logs)).toBe(true);
+        h.world.workspaceDeleted = true;
+        await h.service.syncWorkspaces();
+        expect(h.world.commands[0].stops).toBe(1);
+        expect(fs.existsSync(logs)).toBe(false);
+        // Whatever it reports afterwards changes nothing.
+        await h.world.commands[0].neverStarted(new Error('spawn /bin/sh ENOENT'));
+        expect(h.notices).toEqual([]);
+    });
+
+    it("a clean load sweeps the logs of checks it no longer has; a broken one keeps them", async () => {
+        const h = await allowedTemplate();
+        await h.check();
+        const logs = path.dirname(h.folder.checkFiles(WORKSPACE_ID, RE_REVIEW_NAME).stdout);
+        expect(fs.existsSync(logs)).toBe(true);
+        // A typo hides the entry: its logs stay, as its records do.
+        const broken = factoryWith(RE_REVIEW_ENTRY.replace('every: 30m', 'every: 30x'));
+        expect(parseFactorySpec(broken).issues).not.toEqual([]);
+        await h.setYaml(broken);
+        expect(fs.existsSync(logs)).toBe(true);
+        await h.setPoll();
+        expect(fs.existsSync(logs)).toBe(true);
+        // Renamed: the old name's logs go.
+        await h.setPoll(RE_REVIEW_ENTRY.replace(`name: ${RE_REVIEW_NAME}`, 'name: re-review'));
+        expect(fs.existsSync(logs)).toBe(false);
+    });
+
+    it('a launch sweeps the logs of a check renamed while Consola was closed', async () => {
+        const h = await allowedTemplate();
+        await h.check();
+        const logs = path.dirname(h.folder.checkFiles(WORKSPACE_ID, RE_REVIEW_NAME).stdout);
+        expect(fs.existsSync(logs)).toBe(true);
+        await h.relaunchWith(factoryWith(RE_REVIEW_ENTRY.replace(`name: ${RE_REVIEW_NAME}`, 'name: re-review')));
+        expect(fs.existsSync(logs)).toBe(false);
     });
 });
