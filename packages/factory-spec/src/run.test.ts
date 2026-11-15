@@ -237,4 +237,51 @@ describe('automationVersion', () => {
             expect(new Set(changed.map((yaml) => versionOf(yaml))).size).toBe(changed.length);
         });
     });
+
+    describe('a poll and applies_to', () => {
+        // A keyed poll names its identity with `key:` and a scope; an item poll names `item:` and takes no scope.
+        const KEYED = (extra = '', every = '30m') =>
+            `- name: watch\n  on: { poll: { every: ${every}, run: gh api graphql, key: .id${extra} } }\n  mode: auto\n  scope: api\n  run: { prompt: "Look at it." }`;
+        const ITEM = (extra = '', every = '30m') =>
+            `- name: watch\n  on: { poll: { every: ${every}, run: gh api graphql, item: { github: .url }${extra} } }\n  mode: auto\n  run: { prompt: "Look at it." }`;
+        const versionOf = (yaml: string) => {
+            const parsed = parseAutomationEntry(yaml);
+            if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+            return automationVersion(parsed.automation);
+        };
+
+        it("a poll's command, key, item, changed and timeout each change the version", () => {
+            const keyed = versionOf(KEYED());
+            const item = versionOf(ITEM());
+            const changed = [
+                [KEYED().replace('gh api graphql', 'gh api graphql --jq .x'), keyed],
+                [KEYED().replace('key: .id', 'key: .number'), keyed],
+                [ITEM().replace('item: { github: .url }', 'item: { github: .html_url }'), item],
+                [ITEM(', changed: .head'), item],
+                [ITEM(', timeout: 5m'), item],
+            ] as const;
+            for (const [yaml, base] of changed) expect(versionOf(yaml)).not.toBe(base);
+            expect(new Set(changed.map(([yaml]) => versionOf(yaml))).size).toBe(changed.length);
+        });
+
+        it('its interval does not', () => {
+            expect(versionOf(KEYED('', '30m'))).toBe(versionOf(KEYED('', '1h')));
+            expect(versionOf(ITEM('', '30m'))).toBe(versionOf(ITEM('', '1h')));
+        });
+
+        it('applies_to changes the version of a manual entry', () => {
+            const manual = (appliesTo: string) =>
+                `- name: m\n  on: manual\n  mode: confirm\n${appliesTo}  run: { prompt: "x" }`;
+            // A manual entry with no scope runs on an item, so it must say which kind.
+            const versions = ['[pr]', '[issue]', '[pr, issue]'].map((kinds) => versionOf(manual(`  applies_to: ${kinds}\n`)));
+            expect(new Set(versions).size).toBe(3);
+        });
+
+        it('a poll and an event entry with the same steps hash differently', () => {
+            const steps = '  mode: auto\n  steps:\n    - id: s\n      run: echo hi';
+            const poll = versionOf(`- name: w\n  on: { poll: { every: 30m, run: x, item: { github: .url } } }\n${steps}`);
+            const event = versionOf(`- name: w\n  on: { github: [pull_request.opened] }\n${steps}`);
+            expect(poll).not.toBe(event);
+        });
+    });
 });
