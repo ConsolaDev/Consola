@@ -465,6 +465,72 @@ function writeFactory(steps: Steps, entry: string): void {
   fs.writeFileSync(path.join(dir, 'factory.yml'), `version: 1\nautomations:\n${entry.replace(/^/gm, '  ')}\n`);
 }
 
+/**
+ * Whether main holds a terminal for `instanceId` whose agent has not exited:
+ * exactly what main's `isRunning` asks of a session, so what `checkoutBusy`
+ * and `worktreeInUse` see.
+ */
+async function terminalRunning(page: Page, instanceId: string): Promise<boolean> {
+  return page.evaluate(async (id) => (await window.terminalAPI.getStatusSnapshot())[id]?.hasExited === false, instanceId);
+}
+
+/** A session's record as main has it now, or null when it is gone. */
+async function sessionRecord(steps: Steps, sessionId: string) {
+  return steps.page.evaluate(
+    async ([workspaceId, id]) => {
+      const { workspaces } = await window.workspaceAPI.getSnapshot();
+      return workspaces.find((workspace) => workspace.id === workspaceId)?.sessions.find((session) => session.id === id) ?? null;
+    },
+    [steps.workspaceId, sessionId] as const
+  );
+}
+
+/**
+ * Everything git says about a checkout that a run could change: the commit,
+ * the branch (`HEAD` when detached), the index's entries, and every change in
+ * the working tree, untracked and ignored files included. Read without
+ * optional locks, so reading it never rewrites the index itself.
+ */
+function checkoutState(dir: string) {
+  return {
+    head: git(dir, 'rev-parse', 'HEAD'),
+    branch: git(dir, 'rev-parse', '--abbrev-ref', 'HEAD'),
+    index: git(dir, 'ls-files', '--stage'),
+    status: git(dir, '--no-optional-locks', 'status', '--porcelain', '--untracked-files=all', '--ignored'),
+  };
+}
+
+/** What the scheduled pipeline's agent writes as its handover, and so what `post` copies. */
+const SUMMARY = `## What fetch found
+
+Two items, \`1\` and \`2\`.
+`;
+
+/**
+ * A pipeline on a schedule, in `catalog-portal`'s folder: `fetch` prints
+ * JSON kept as its `output`, `summarise` reads it, and `post` copies the
+ * summary's handover file to `notes`. The cron is due once a year (1 January,
+ * 09:00), so in a test only Run now starts it.
+ */
+function scheduledPipeline(notes: string): string {
+  return `- name: summarise-items
+  on: { cron: "0 9 1 1 *" }
+  scope: catalog-portal
+  mode: auto
+  steps:
+    - id: fetch
+      run: printf '{"items":[1,2]}'
+      outputs: { from: stdout, format: json }
+    - id: summarise
+      prompt: Summarise what fetch found.
+      reads: [fetch.output]
+    - id: post
+      run: cp "$NOTES" "$OUT"
+      env:
+        NOTES: "{{steps.summarise.handover.file}}"
+        OUT: "${notes}"`;
+}
+
 test('the template reviews #51 read-only and posts through gh, pinned to the commit it read', async () => {
   test.setTimeout(180_000);
   const steps = await setUpSteps();
@@ -877,6 +943,161 @@ test('notify runs the agents and only reports the post', async () => {
     // The run has settled: nothing was posted, and the post was never called.
     expect(reviewCalls(steps)).toEqual([]);
     expect(fs.existsSync(steps.files.ghPosted)).toBe(false);
+  } finally {
+    await steps.close();
+  }
+});
+
+test('a full-tools session on the Inbox worktree does not hold the review back', async () => {
+  test.setTimeout(180_000);
+  const steps = await setUpSteps();
+  const { page } = steps;
+  try {
+    // #51's Inbox worktree, at the commit before the PR's: where a Review the
+    // person started by hand left it.
+    const inboxDir = path.join(steps.worktreesDir, 'catalog-portal-pr-51');
+    const init = git(steps.clone, 'rev-parse', 'main');
+    expect(init).not.toBe(steps.head);
+    git(steps.clone, 'worktree', 'add', '--quiet', inboxDir, init);
+    const left = checkoutState(inboxDir);
+    expect(left).toMatchObject({ head: init, branch: 'HEAD', status: '' });
+
+    // The person's session there, made as a window makes one: full tools (no
+    // tool policy), in that folder, on #51.
+    const instanceId = 'inbox-51-by-hand';
+    const created = await page.evaluate(
+      async ([workspaceId, cwd, id]) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const scopeId = workspaces.find((workspace) => workspace.id === workspaceId)!.scopes[0].id;
+        return window.workspaceAPI.createSession(workspaceId, {
+          name: 'Reviewing #51 by hand',
+          workspaceId,
+          instanceId: id,
+          harnessId: 'stub',
+          scopeId,
+          cwd,
+          workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+        });
+      },
+      [steps.workspaceId, inboxDir, instanceId] as const
+    );
+    if (!created) throw new Error('The session was not created.');
+    const session = await sessionRecord(steps, created.id);
+    expect(session).toMatchObject({ cwd: inboxDir, instanceId, workItem: { repo: REPO, type: 'pr', number: 51 } });
+    // Full tools, launched there: `worktreeInUse` holds the folder for it, running or not.
+    expect(session?.toolPolicy).toBeUndefined();
+    expect(session?.agentCwd).toBeUndefined();
+
+    // Opened, so its agent is running there: what `checkoutBusy` asks of it too.
+    expect(await terminalRunning(page, instanceId)).toBe(false);
+    await page.locator('.session-nav-item', { hasText: 'Reviewing #51 by hand' }).click();
+    await expect.poll(() => terminalRunning(page, instanceId), { timeout: 15_000 }).toBe(true);
+    const inInbox = () => steps.launches().filter((line) => line.startsWith(`${inboxDir} :: `));
+    await expect.poll(() => inInbox().length, { timeout: 15_000 }).toBe(1);
+    const byHand = inInbox()[0].split(' :: ')[1].split(' ');
+    expect(byHand.slice(0, 2)).toEqual(['--session-id', session!.claudeSessionId]);
+    expect(byHand).not.toContain('-p');
+    expect(byHand).not.toContain('--restricted');
+    // Starting it moved nothing.
+    expect(checkoutState(inboxDir)).toEqual(left);
+
+    const dashboard = await openAutomations(page);
+    await addReviewTemplate(steps);
+    await fireOn51(steps);
+    await startTheRun(steps);
+    await expect(runItems(page)).toContainText('Completed', { timeout: 60_000 });
+    await expect(dashboard.locator('.automations-run-item')).toHaveCount(1);
+    expect(freshCalls(steps), "fresh's gh call is in the stub's log").toHaveLength(1);
+
+    // The review read #51's head, in the automation checkout.
+    expect(git(steps.checkoutDir, 'rev-parse', 'HEAD')).toBe(steps.head);
+    const turns = steps.launches().filter((line) => line.split(' :: ')[1].startsWith('-p '));
+    expect(turns).toHaveLength(1);
+    expect(turns[0].startsWith(`${steps.checkoutDir} :: -p --session-id `)).toBe(true);
+    expect(turns[0]).toContain(' --restricted');
+    expect((await theRun(steps)).checkout).toMatchObject({ cwd: steps.checkoutDir, head: steps.head });
+
+    // And posted it, pinned to that head.
+    const posted = steps.posted();
+    expect(posted).toHaveLength(1);
+    expect(posted[0].startsWith(REVIEWS_CALL)).toBe(true);
+    expect(posted[0]).toContain(`-f commit_id=${steps.head} -f event=REQUEST_CHANGES -F body=@`);
+    expect(reviewCalls(steps)).toHaveLength(1);
+
+    // The person's checkout is as they left it: the same commit, still
+    // detached, the same index, and no change in its tree.
+    expect(checkoutState(inboxDir)).toEqual(left);
+    expect(fs.existsSync(path.join(inboxDir, 'src', 'search.ts'))).toBe(false);
+    // Their session worked there the whole time, and still does: one launch, still running, still in that folder.
+    expect(inInbox()).toHaveLength(1);
+    expect(await terminalRunning(page, instanceId)).toBe(true);
+    const after = await sessionRecord(steps, created.id);
+    expect(after).toMatchObject({ cwd: inboxDir });
+    expect(after?.toolPolicy).toBeUndefined();
+    expect(after?.agentCwd).toBeUndefined();
+  } finally {
+    await steps.close();
+  }
+});
+
+test("a scheduled pipeline passes a command's output to an agent and its handover to a command", async () => {
+  test.setTimeout(180_000);
+  // The agent writes the summary as its handover and sets nothing: the step declares no outputs.
+  const steps = await setUpSteps({ outputs: null, handover: SUMMARY });
+  const notes = path.join(steps.base, 'notes.md');
+  try {
+    const dashboard = await openAutomations(steps.page);
+    const entry = scheduledPipeline(notes);
+    // The file means what this test says it does.
+    const parsed = parseAutomationEntry(entry);
+    if (!parsed.ok) throw new Error(`The pipeline does not parse: ${JSON.stringify(parsed.issues)}`);
+    expect(parsed.automation.steps?.map((step) => step.kind === 'run' ? [step.id, step.run] : [step.id, step.kind])).toEqual([
+      ['fetch', `printf '{"items":[1,2]}'`],
+      ['summarise', 'agent'],
+      ['post', 'cp "$NOTES" "$OUT"'],
+    ]);
+    writeFactory(steps, entry);
+    await dashboard.getByRole('tab', { name: 'Automations' }).click();
+    const row = dashboard.locator('.automations-row', { hasText: 'summarise-items' });
+    await expect(row).toHaveCount(1, { timeout: 15_000 });
+    await row.getByRole('button', { name: 'Run now' }).click();
+    await startTheRun(steps);
+    await expect(runItems(steps.page)).toContainText('Completed', { timeout: 60_000 });
+
+    // `post` got the summary's handover as a file, and copied it.
+    expect(fs.readFileSync(notes, 'utf8')).toBe(SUMMARY);
+
+    // `summarise`: one read-only turn in the scope's folder, told to read fetch's output.
+    const launches = steps.launches();
+    expect(launches).toHaveLength(1);
+    const [summarise] = launches;
+    expect(summarise.startsWith(`${steps.clone} :: -p --session-id `)).toBe(true);
+    expect(summarise).toContain(' --restricted');
+    expect(summarise).toContain(', in catalog-portal. ');
+    expect(summarise).toContain(' Summarise what fetch found. ');
+    expect(summarise).toContain(' - fetch.output (from step "fetch", 15 B) Read them with consola_read_artifact.');
+    expect(steps.claudeLog().filter((line) => line.startsWith('TOOL '))).toEqual([
+      expect.stringMatching(/^TOOL consola_write_artifact Wrote handover \(/),
+    ]);
+
+    const record = await theRun(steps);
+    expect(record.status).toBe('completed');
+    expect(statuses(record)).toEqual({ fetch: 'completed', summarise: 'completed', post: 'completed' });
+    const byId = stepsOf(record);
+    expect(byId.fetch.artifacts?.map((artifact) => [artifact.name, artifact.bytes])).toEqual([['output', 15]]);
+    expect(byId.summarise.artifacts?.map((artifact) => artifact.name)).toEqual(['handover']);
+    expect(record.checkout?.cwd).toBe(steps.clone);
+
+    // Each command ran in the scope's folder: the clone.
+    const run = await openRun(steps);
+    await expect(run.locator('.automations-run-status')).toHaveText('Completed');
+    await stepNode(run, 'fetch').click();
+    const fetchDetail = run.getByRole('region', { name: 'Step fetch' });
+    await expect(fetchDetail.getByText(`printf '{"items":[1,2]}'`, { exact: true })).toBeVisible();
+    await expect(fetchDetail.getByText(steps.clone, { exact: true })).toBeVisible();
+    await stepNode(run, 'post').click();
+    const postDetail = run.getByRole('region', { name: 'Step post' });
+    await expect(postDetail.getByText(steps.clone, { exact: true })).toBeVisible();
   } finally {
     await steps.close();
   }

@@ -43,7 +43,8 @@
 //                               until this file exists before it reads the two files
 //                               above, so a test can change them between turns without
 //                               racing the relaunch. It logs `GATE open` when it goes on,
-//                               or `GATE timed out` and fails after 60 s.
+//                               or `GATE timed out` and fails after 30 s: sooner than a
+//                               test's own wait for the run, so the stub's failure shows first.
 'use strict';
 const fs = require('node:fs');
 const path = require('node:path');
@@ -53,8 +54,8 @@ const { spawn } = require('node:child_process');
 const PROTOCOL_VERSION = '2025-06-18';
 /** Long enough for a loaded machine; short of the test's own timeouts. */
 const REQUEST_TIMEOUT_MS = 20_000;
-/** How long a resumed turn waits for STUB_CLAUDE_RESUME_GATE before failing. */
-const GATE_TIMEOUT_MS = 60_000;
+/** How long a resumed turn waits for STUB_CLAUDE_RESUME_GATE before failing: under the 60 s a test waits for its run. */
+const GATE_TIMEOUT_MS = 30_000;
 
 const args = process.argv.slice(2);
 const dashes = args.indexOf('--');
