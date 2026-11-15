@@ -3,7 +3,7 @@
  * `node/`) is pure: no I/O module, no Electron. `node/` holds the adapters that
  * touch the machine, and this file re-exports them.
  */
-export { advanceSeen, type SeenRecord } from './seenRecord';
+export { advanceSeen, forgetFired, markFired, type OpenState, type SeenRecord } from './seenRecord';
 export { filterRuns, NO_RUN_FILTER, isRunFilterNarrowed, type RunFilter, type RunListFilter } from './runFilter';
 export { SNAPSHOT_ENDED_RUNS } from './views';
 export { describeSchedule } from './describeSchedule';
