@@ -210,8 +210,8 @@ export interface AutomationServiceDeps {
 /** A `steps:` entry's problem on a host whose platform is `win32`. */
 const NO_POSIX_SHELL = 'run: steps need a POSIX shell, which Windows does not have';
 
-/** What a run says while another run, or a session, holds its item's checkout. */
-const WAITING_FOR_CHECKOUT = "waiting for this item's checkout";
+/** What a run says while another run, or a session, holds its item's checkout. The renderer reads it by its text. */
+export const WAITING_FOR_CHECKOUT = "waiting for this item's checkout";
 
 /** What a retry is refused with while another run, or a session, holds its item's checkout. */
 const RETRY_HELD = 'Another run on this item is working; retry once it ends.';

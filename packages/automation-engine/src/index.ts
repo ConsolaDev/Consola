@@ -80,6 +80,7 @@ export { ASSIGNED_REVIEWS_NAME, yamlName, assignedReviewsEntry, EMPTY_FACTORY_FI
 export {
     AutomationService,
     INTERRUPTED_PROMPT,
+    WAITING_FOR_CHECKOUT,
     TICK_MS,
     DEFAULT_MAX_CONCURRENT_AGENTS,
     MAX_WAITING_PER_SESSION,

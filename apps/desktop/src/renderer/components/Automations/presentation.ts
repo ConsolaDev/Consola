@@ -131,8 +131,12 @@ export function runAbout(run: RunFacts): string {
     return run.summary || run.status;
 }
 
-/** The summary the engine gives a run held for another run's checkout of the same item. */
-const CHECKOUT_WAIT = "waiting for this item's checkout";
+/**
+ * The summary the engine gives a run held for another run's checkout of the
+ * same item: its `WAITING_FOR_CHECKOUT`, which `stepWords.parity.test.ts`
+ * keeps this equal to.
+ */
+export const CHECKOUT_WAIT = "waiting for this item's checkout";
 
 /**
  * Where a `steps:` run is, in the words a row shows in place of `runAbout`:
