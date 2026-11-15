@@ -4,6 +4,7 @@
  */
 import type { FactorySpecParseResult, RunRecord } from '@consola/factory-spec';
 import type { ItemRef, SessionView } from './views';
+import type { RunDefinition } from './steps/definition';
 
 /** One persisted JSON document, read and written whole. The engine's stores take this; `node/JsonStateFile` is the disk-backed one. */
 export interface StateFile<T> {
@@ -115,3 +116,38 @@ export interface AgentLaunchRequest {
  * to it must throw `StartedByHandError`.
  */
 export type LaunchedSession = Pick<SessionView, 'id' | 'name' | 'harnessId' | 'claudeSessionId' | 'cwd' | 'scopeId'>;
+
+/**
+ * One run's folder: its definition snapshot and, per step attempt, artifacts,
+ * outputs and logs. Every path component is a validated token. `node/runFolder`
+ * is the disk-backed one.
+ */
+export interface RunFolderPort {
+    runDir(workspaceId: string, runId: string): string;
+    attemptDir(workspaceId: string, runId: string, stepId: string, attempt: number): string;
+    writeDefinition(workspaceId: string, runId: string, definition: RunDefinition): void;
+    readDefinition(workspaceId: string, runId: string): RunDefinition | null;
+    /** Atomic; throws over `MAX_ARTIFACT_BYTES`. `format` is required for `output`. */
+    writeArtifact(
+        workspaceId: string,
+        runId: string,
+        stepId: string,
+        attempt: number,
+        name: string,
+        content: string,
+        format?: 'json' | 'text',
+    ): { bytes: number };
+    artifactPath(workspaceId: string, runId: string, stepId: string, attempt: number, name: string, format?: 'json' | 'text'): string;
+    readArtifact(workspaceId: string, runId: string, stepId: string, attempt: number, name: string): string | null;
+    writeJson(dir: string, file: 'command.json' | 'outputs.json', value: unknown): void;
+    tail(file: string, bytes?: number): { text: string; bytes: number; truncated: boolean } | null;
+    /** Null when missing; throws past `maxBytes`. */
+    readText(file: string, maxBytes: number): string | null;
+    /** Creates the file (and its folder) empty, or truncates it. */
+    ensureEmptyFile(file: string): void;
+    exists(file: string): boolean;
+    /** Removes every `runs/<id>` not in `keep`. */
+    sweep(workspaceId: string, keep: ReadonlySet<string>): void;
+    /** Removes `runs/` only. */
+    removeAll(workspaceId: string): void;
+}

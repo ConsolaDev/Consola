@@ -40,7 +40,9 @@ export type {
     ToolsPort,
     AgentLaunchRequest,
     LaunchedSession,
+    RunFolderPort,
 } from './ports';
+export { MAX_ARTIFACT_BYTES, type RunDefinition } from './steps/definition';
 export {
     describeError,
     agentToolContext,

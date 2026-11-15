@@ -5,3 +5,4 @@
 export { RunHistoryFiles } from './RunHistoryFiles';
 export { JsonStateFile, StateFileCorruptError } from './JsonStateFile';
 export { FactoryFile, workspaceDataDir, workspaceFactoryPath } from './factoryFile';
+export { RunFolder } from './runFolder';
