@@ -24,6 +24,20 @@ function tmp(prefix: string): string {
   return dir;
 }
 
+/** `worktree.useRelativePaths` arrived in git 2.48. */
+const GIT_HAS_RELATIVE_WORKTREE_PATHS = (() => {
+  const [major, minor] = (execFileSync('git', ['--version'], { encoding: 'utf8' }).match(/(\d+)\.(\d+)/) ?? [])
+    .slice(1)
+    .map(Number);
+  return major > 2 || (major === 2 && minor >= 48);
+})();
+
+/** Whether the temp folder's filesystem ignores case, as macOS's does by default. */
+const CASE_INSENSITIVE_TMP = (() => {
+  const probe = tmp('consola-case-');
+  return fs.existsSync(path.join(path.dirname(probe), path.basename(probe).toUpperCase()));
+})();
+
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
@@ -315,10 +329,67 @@ describe('syncAutomationCheckout never resets a folder it cannot prove is its ow
     expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
   });
 
+  it('refuses a folder whose .git is a link to the Inbox worktree’s .git', async () => {
+    const inbox = r.addWorktree('catalog-portal-pr-51', 'feature');
+    const survives = workIn(inbox.dir, 'catalog-portal-pr-51.txt');
+    fs.mkdirSync(automationDir());
+    fs.symlinkSync(path.join(inbox.dir, '.git'), path.join(automationDir(), '.git'));
+
+    await expect(r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env })).rejects.toThrow(/its \.git is a symbolic link/);
+    survives();
+    expect(git(inbox.dir, 'rev-parse', 'HEAD')).toBe(inbox.head);
+  });
+
+  it('refuses a folder whose .git is a link to a linked worktree outside the root', async () => {
+    const mine = path.join(tmp('consola-outside-'), 'mine');
+    git(r.clone, 'worktree', 'add', '-q', '-b', 'mine', mine);
+    const head = commit(mine, 'mine.txt');
+    const survives = workIn(mine, 'mine.txt');
+    fs.mkdirSync(automationDir());
+    fs.symlinkSync(path.join(mine, '.git'), path.join(automationDir(), '.git'));
+
+    await expect(r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env })).rejects.toThrow(/its \.git is a symbolic link/);
+    survives();
+    expect(git(mine, 'rev-parse', 'HEAD')).toBe(head);
+  });
+
+  it('keeps the clone’s index when the env points git at it', async () => {
+    const survives = workIn(r.clone, 'README');
+    // A login shell that exports GIT_INDEX_FILE would aim every git call at the clone's index.
+    const env = { ...process.env, GIT_INDEX_FILE: path.join(r.clone, '.git', 'index') };
+
+    const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, env);
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    await r.service.syncAutomationCheckout(r.clone, pr51, env);
+
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+    survives();
+  });
+
   it('still prepares the one it made', async () => {
     const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
     fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
     await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+  });
+
+  it.skipIf(!GIT_HAS_RELATIVE_WORKTREE_PATHS)('still prepares the one it made when git writes relative paths', async () => {
+    git(r.clone, 'config', 'worktree.useRelativePaths', 'true');
+    const { dir } = await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    const admin = git(dir, 'rev-parse', '--path-format=absolute', '--git-dir');
+    // The setting took: git's back-pointer to this folder is relative.
+    expect(path.isAbsolute(fs.readFileSync(path.join(admin, 'gitdir'), 'utf8').trim())).toBe(false);
+
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    await r.service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
+  });
+
+  it.skipIf(!CASE_INSENSITIVE_TMP)('still prepares the one it made under a root written in another case', async () => {
+    const service = new WorktreeService(path.join(path.dirname(r.root), path.basename(r.root).toUpperCase()));
+    const { dir } = await service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
+    fs.writeFileSync(path.join(dir, 'left-behind.txt'), 'a command wrote this');
+    await service.syncAutomationCheckout(r.clone, pr51, { ...process.env });
     expect(fs.existsSync(path.join(dir, 'left-behind.txt'))).toBe(false);
   });
 });

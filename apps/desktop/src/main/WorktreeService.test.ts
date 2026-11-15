@@ -483,6 +483,20 @@ describe('WorktreeService.syncAutomationCheckout', () => {
     expect((stuck as Error).message).toMatch(/already exists/);
   }, 30_000);
 
+  it('says a provider this build lacks is not a failure to reach the head, before making anything', async () => {
+    const clone = path.join(tmpDir('consola-ac-clone-'), 'catalog-portal');
+    initCloneWithCommit(clone, 'git@github.com:sprocket/catalog-portal.git');
+    const service = new WorktreeService(tmpDir('consola-ac-worktrees-'), () => {
+      throw new Error('Unknown git provider "github".');
+    });
+
+    const error = await service.syncAutomationCheckout(clone, pr51, { ...process.env }).catch((caught: unknown) => caught);
+
+    expect(error).not.toBeInstanceOf(HeadCheckoutError);
+    expect((error as Error).message).toBe('Unknown git provider "github".');
+    expect(fs.existsSync(service.automationCheckoutPathFor(pr51))).toBe(false);
+  }, 30_000);
+
   it('turns git hooks off itself, whatever env it is given', async () => {
     const { clone, service } = setup();
     const marker = path.join(tmpDir('consola-ac-hook-'), 'hook-ran');

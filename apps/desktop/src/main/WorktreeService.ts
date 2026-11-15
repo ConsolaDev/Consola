@@ -58,12 +58,41 @@ function realpathOrNull(target: string): string | null {
   }
 }
 
+/** A real path in the disk's own case (macOS's filesystem ignores case), or null when it is gone. */
+function canonicalPathOrNull(target: string): string | null {
+  try {
+    return fs.realpathSync.native(target);
+  } catch {
+    return null;
+  }
+}
+
 async function lstatOrNull(target: string): Promise<fs.Stats | null> {
   try {
     return await fs.promises.lstat(target);
   } catch {
     return null;
   }
+}
+
+/**
+ * Variables that aim git at another repository, index or object store than
+ * the folder it runs in. A login shell may export one; in a checkout that is
+ * reset, it would reset someone else's.
+ */
+const GIT_REPOSITORY_VARIABLES = [
+  'GIT_DIR',
+  'GIT_WORK_TREE',
+  'GIT_INDEX_FILE',
+  'GIT_COMMON_DIR',
+  'GIT_OBJECT_DIRECTORY',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES',
+] as const;
+
+function withoutRepositoryOverrides(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const clean = { ...env };
+  for (const name of GIT_REPOSITORY_VARIABLES) delete clean[name];
+  return clean;
 }
 
 /** Spec naming: `<repo-basename>-<type>-<number>`, e.g. catalog-portal-pr-51. */
@@ -315,7 +344,8 @@ export class WorktreeService {
    * (`reset --hard`, `clean -fd`), keeping ignored files such as a build
    * cache. A PR is then checked out the provider's way, detached; an issue
    * at origin's HEAD. This is a PR author's tree, so every call runs with git
-   * hooks off, whatever `env` the caller composed.
+   * hooks off, and without any variable that aims git at another repository
+   * or index, whatever `env` the caller composed.
    *
    * Nothing is reset until the folder is proven to be the linked worktree
    * this made (`assertOwnAutomationCheckout`): a reset in anything else, a
@@ -327,12 +357,14 @@ export class WorktreeService {
     workItem: WorkItemRef,
     callerEnv: NodeJS.ProcessEnv
   ): Promise<{ dir: string; head: string }> {
-    const env = withoutGitHooks(callerEnv);
+    const env = withoutGitHooks(withoutRepositoryOverrides(callerEnv));
+    // Before anything is made: a provider this build lacks is not a fetch that may work later.
+    const driver = workItem.type === 'pr' ? this.resolveDriver(workItem.provider) : null;
     const dir = this.automationCheckoutPathFor(workItem);
     await fs.promises.mkdir(this.root, { recursive: true });
     await this.run('git', clonePath, ['worktree', 'prune'], env);
     const entry = await lstatOrNull(dir);
-    if (entry && (entry.isSymbolicLink() || fs.existsSync(path.join(dir, '.git')))) {
+    if (entry && (entry.isSymbolicLink() || (await lstatOrNull(path.join(dir, '.git'))))) {
       await this.assertOwnAutomationCheckout(dir, clonePath, workItem, env);
       await this.run('git', dir, ['reset', '--hard', '-q'], env);
       await this.run('git', dir, ['clean', '-fdq'], env);
@@ -341,8 +373,8 @@ export class WorktreeService {
       await this.run('git', clonePath, ['worktree', 'add', '--detach', dir], env);
     }
     try {
-      if (workItem.type === 'pr') {
-        await this.resolveDriver(workItem.provider).checkout(dir, workItem, env, { detach: true });
+      if (driver) {
+        await driver.checkout(dir, workItem, env, { detach: true });
       } else {
         // Nobody is there to answer a credential prompt.
         await this.run('git', dir, ['fetch', '--quiet', 'origin', 'HEAD'], { ...env, GIT_TERMINAL_PROMPT: '0' });
@@ -357,11 +389,17 @@ export class WorktreeService {
 
   /**
    * Refuse, before anything is reset, unless `dir` is provably the item's
-   * automation checkout: a real folder (not a symlink), a linked worktree of
-   * `clonePath` whose git dir is its own (git's back-pointer names this
-   * folder), at its own top level, and neither the clone nor the Inbox's
-   * worktree. `existsSync` follows symlinks and every worktree of a clone
-   * shares its common dir, so neither alone proves it.
+   * automation checkout:
+   * - a real folder (not a symlink), directly in Consola's worktree root;
+   * - whose `.git` is the plain file a linked worktree has, not a link to
+   *   another worktree's;
+   * - a linked worktree of `clonePath` whose git dir is its own: git's
+   *   back-pointer names this folder's `.git`;
+   * - at its own top level, and neither the clone nor the Inbox's worktree.
+   *
+   * `existsSync` follows symlinks and every worktree of a clone shares its
+   * common dir, so neither alone proves it. Paths are compared in the disk's
+   * own case, so a root written in another case still finds its own.
    */
   private async assertOwnAutomationCheckout(
     dir: string,
@@ -377,29 +415,35 @@ export class WorktreeService {
     const entry = await fs.promises.lstat(dir);
     if (entry.isSymbolicLink()) throw refuse('it is a symbolic link');
     if (!entry.isDirectory()) throw refuse('it is not a folder');
+    const dotGit = await lstatOrNull(path.join(dir, '.git'));
+    if (dotGit?.isSymbolicLink()) throw refuse('its .git is a symbolic link');
+    if (!dotGit?.isFile()) throw refuse('its .git is not the file a linked worktree has');
+    const real = canonicalPathOrNull(dir);
+    if (!real || !this.isDirectChildOfRoot(dir, canonicalPathOrNull)) throw refuse('it is not in Consola’s worktree folder');
     await this.assertBelongsToClone(dir, clonePath, workItem, env);
     const [toplevel, gitDir, commonDir] = (
       await this.run('git', dir, ['rev-parse', '--path-format=absolute', '--show-toplevel', '--git-dir', '--git-common-dir'], env)
     )
       .trim()
       .split('\n');
-    const real = realpathOrNull(dir);
-    if (!toplevel || !gitDir || !commonDir || !real) throw refuse('git cannot say what it is');
-    if (realpathOrNull(path.dirname(gitDir)) !== realpathOrNull(path.join(commonDir, 'worktrees'))) {
+    if (!toplevel || !gitDir || !commonDir) throw refuse('git cannot say what it is');
+    if (canonicalPathOrNull(path.dirname(gitDir)) !== canonicalPathOrNull(path.join(commonDir, 'worktrees'))) {
       throw refuse('it is not a linked worktree of the clone');
     }
-    let backPointer: string | null = null;
+    // Git writes it absolute, or relative to the git dir (`worktree.useRelativePaths`).
+    let pointsAt: string | null = null;
     try {
-      backPointer = realpathOrNull(fs.readFileSync(path.join(gitDir, 'gitdir'), 'utf8').trim());
+      const written = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'gitdir'), 'utf8').trim());
+      const folder = canonicalPathOrNull(path.dirname(written));
+      pointsAt = folder ? path.join(folder, path.basename(written)) : null;
     } catch {
-      backPointer = null;
+      pointsAt = null;
     }
-    if (!backPointer || backPointer !== realpathOrNull(path.join(dir, '.git'))) {
-      throw refuse('its git dir belongs to another worktree');
-    }
-    if (realpathOrNull(toplevel) !== real) throw refuse(`it is inside ${toplevel}`);
-    if (real === realpathOrNull(clonePath)) throw refuse('it is the clone itself');
-    if (real === realpathOrNull(this.worktreePathFor(workItem))) throw refuse('it is the Inbox’s worktree for this item');
+    // This folder's own `.git`, never wherever a link there leads.
+    if (pointsAt !== path.join(real, '.git')) throw refuse('its git dir belongs to another worktree');
+    if (canonicalPathOrNull(toplevel) !== real) throw refuse(`it is inside ${toplevel}`);
+    if (real === canonicalPathOrNull(clonePath)) throw refuse('it is the clone itself');
+    if (real === canonicalPathOrNull(this.worktreePathFor(workItem))) throw refuse('it is the Inbox’s worktree for this item');
   }
 
   /**
@@ -500,8 +544,12 @@ export class WorktreeService {
    * folder or a hand-made worktree in.
    */
   public isManagedPath(dir: string): boolean {
-    const root = realpathOrNull(this.root);
-    const target = realpathOrNull(dir);
+    return this.isDirectChildOfRoot(dir, realpathOrNull);
+  }
+
+  private isDirectChildOfRoot(dir: string, resolve: (target: string) => string | null): boolean {
+    const root = resolve(this.root);
+    const target = resolve(dir);
     return root !== null && target !== null && path.dirname(target) === root;
   }
 
