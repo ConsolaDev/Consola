@@ -179,4 +179,17 @@ describe('mcpConfigForSession', () => {
     const broken = { register: () => Promise.reject(new Error('EACCES')) };
     await expect(mcpConfigForSession({ id: 'a', kind: 'assistant' }, broken)).rejects.toThrow('EACCES');
   });
+
+  it('mcpConfigForSession throws for a step session when the endpoint fails', async () => {
+    // Its outputs and artifacts reach Consola only through these tools: a step
+    // without them fails rather than running blind.
+    const broken = { register: () => Promise.reject(new Error('EACCES')) };
+    const step = { name: 'review-assigned-prs', runId: 'r1', step: { id: 'review', attempt: 1 } };
+    await expect(mcpConfigForSession({ id: 's', kind: 'interactive', automation: step }, broken)).rejects.toThrow('EACCES');
+    // A one-step automation's session (no step) still launches without them, as before.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    await expect(
+      mcpConfigForSession({ id: 'l', kind: 'interactive', automation: { name: 'review-assigned-prs', runId: 'r0' } }, broken)
+    ).resolves.toBeUndefined();
+  });
 });

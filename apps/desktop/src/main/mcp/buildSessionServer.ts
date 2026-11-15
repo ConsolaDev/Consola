@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RunRecord } from '@consola/factory-spec';
+import type { StepToolSpec } from '@consola/automation-engine';
 import type { Workspace } from '../../shared/workspace';
 import { agentContext, type ToolRegistry, type ToolResult } from '../tools/Tool';
 import { mcpToolName } from './names';
@@ -15,6 +16,8 @@ export interface SessionServerDeps {
     conductorTools: { addTo(server: McpServer, conductorSessionId: string): void };
     /** Adds prompt, read and the Assistant's own start_session; called only for the Assistant. */
     assistantTools: { addTo(server: McpServer, sessionId: string): void };
+    /** A step session's outputs and documents (`stepToolSpecs`); none for any other session. */
+    stepTools(sessionId: string): StepToolSpec[];
     getWorkspaces(): Workspace[];
 }
 
@@ -44,8 +47,8 @@ function describeFor(tool: { name: string; description: string; destructive?: bo
  * The MCP server one session sees, built fresh for each connection.
  *
  * Every session gets the Consola tools, acting on its own workspace and never
- * on itself; a conductor also gets its group tools, and the Assistant its
- * workspace tools. The session id comes from the endpoint the connection
+ * on itself; a conductor also gets its group tools, the Assistant its
+ * workspace tools, and a step of a run its step tools. The session id comes from the endpoint the connection
  * arrived on (SessionMcpHost), and the caller is re-resolved on every call,
  * so a deleted or moved session loses its authority immediately.
  *
@@ -101,6 +104,19 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
 
     if (caller?.kind === 'conductor' && !readOnly) deps.conductorTools.addTo(server, sessionId);
     if (assistant && !readOnly) deps.assistantTools.addTo(server, sessionId);
+
+    // Even for a read-only session: a step's outputs and documents reach
+    // Consola only through these, scoped by its provenance, never its args.
+    for (const spec of deps.stepTools(sessionId)) {
+        server.registerTool(
+            mcpToolName(spec.name),
+            { description: spec.description, inputSchema: spec.inputSchema, annotations: spec.annotations },
+            (args: unknown) => {
+                const { text, isError } = spec.handle(args);
+                return { content: [{ type: 'text' as const, text }], isError };
+            }
+        );
+    }
 
     return server;
 }

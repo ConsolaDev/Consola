@@ -92,6 +92,11 @@ export interface SessionProvenance {
   name: string;
   /** The run that launched it. */
   runId: string;
+  /**
+   * For a step of a `steps:` run: which step, and which of its attempts.
+   * Fixed like the rest, and the only scope its step tools act in.
+   */
+  step?: { id: string; attempt: number };
 }
 
 /** A durable *place* sessions run in. Few per workspace; nesting is allowed. */

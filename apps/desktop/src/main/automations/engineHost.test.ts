@@ -8,6 +8,7 @@ import {
 import {
     AUTOMATION_TEMPLATES,
     AutomationService,
+    RunFolder,
     RunStore,
     type RunHistory,
     type WorkspaceView,
@@ -100,6 +101,10 @@ async function runner(
             readText: async () => text,
         }),
         store: new RunStore({ read: () => null, write: () => {} }, noHistory),
+        // Nothing here runs steps: any path it is asked for throws.
+        runFolder: new RunFolder(() => {
+            throw new Error('These tests have no run folder.');
+        }),
         registry,
         getWorkspaces: () => [owner],
         now: () => new Date(2026, 10, 4, 8, 0),

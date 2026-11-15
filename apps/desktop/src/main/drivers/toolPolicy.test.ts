@@ -26,7 +26,11 @@ describe('Claude read-only launches', () => {
             // Reading files, and nothing that runs: no shell rule is safe.
             '--tools', 'Read,Grep,Glob',
             // The item and the Inbox come from Consola, which holds the token.
-            '--allowedTools', 'mcp__consola__consola_work_item_context', 'mcp__consola__consola_list_inbox',
+            '--allowedTools',
+            'mcp__consola__consola_work_item_context', 'mcp__consola__consola_list_inbox',
+            // A step's one door back to Consola: its outputs and documents.
+            'mcp__consola__consola_set_outputs', 'mcp__consola__consola_write_artifact',
+            'mcp__consola__consola_read_artifact', 'mcp__consola__consola_list_artifacts',
             // A flag that takes no value: it ends the tool list above, and
             // nothing after it can be read as one of its values.
             '--restricted',
@@ -82,7 +86,10 @@ describe('Claude unattended and forked launches', () => {
         '--strict-mcp-config',
         '--permission-mode', 'dontAsk',
         '--tools', 'Read,Grep,Glob',
-        '--allowedTools', 'mcp__consola__consola_work_item_context', 'mcp__consola__consola_list_inbox',
+        '--allowedTools',
+        'mcp__consola__consola_work_item_context', 'mcp__consola__consola_list_inbox',
+        'mcp__consola__consola_set_outputs', 'mcp__consola__consola_write_artifact',
+        'mcp__consola__consola_read_artifact', 'mcp__consola__consola_list_artifacts',
         '--restricted',
     ];
 

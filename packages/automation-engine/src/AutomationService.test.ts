@@ -1,11 +1,15 @@
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 import { z } from 'zod/v3';
-import { appendAutomationEntry, automationVersion, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
+import { appendAutomationEntry, automationVersion, isStepsEntry, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
 import { defineTool, FakeToolRegistry } from './tools.test-helpers';
 import { AutomationService, INTERRUPTED_PROMPT, type AutomationNotice } from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import { EMPTY_FACTORY_FILE } from './factoryTemplates';
-import type { AgentLaunchRequest, EngineToolContext } from './ports';
+import { RunFolder } from './node/runFolder';
+import type { AgentLaunchRequest, EngineToolContext, RunFolderPort } from './ports';
 import { RunStore, type AutomationStateFile } from './RunStore';
 import { memoryHistory } from './runHistory.test-helpers';
 import { StartedByHandError } from './support';
@@ -56,7 +60,14 @@ interface Setup {
     harness?: { name: string; problem: string | null };
     /** Whether a running turn could be stopped. */
     stopAgent?: (session: SessionView, reason: string) => boolean;
+    /** Where runs keep their definitions and documents; by default, nowhere a test can reach. */
+    runFolder?: RunFolderPort;
 }
+
+/** A run folder for tests that never touch one: any path it is asked for throws. */
+const NO_RUN_FOLDER = new RunFolder(() => {
+    throw new Error('This test has no run folder.');
+});
 
 /** What the fake main side recorded and decides for agent runs. */
 interface AgentWorld {
@@ -105,6 +116,7 @@ function setup({
     cap,
     harness = { name: 'Claude', problem: null },
     stopAgent = vi.fn(() => true),
+    runFolder = NO_RUN_FOLDER,
 }: Setup = {}) {
     let clock = now;
     const world: AgentWorld = { inbox: new Map(), launches: [], refreshes: [], liveTerminals: new Set(), resumed: [] };
@@ -208,6 +220,7 @@ function setup({
             };
         },
         store,
+        runFolder,
         registry,
         getWorkspaces: () => workspaces,
         now: () => clock,
@@ -2078,5 +2091,56 @@ automations:
         const none = setup({ files: { 'ws-1': undefined as unknown as string } });
         await none.start();
         expect(await none.service.entryText('ws-1', 'sweep')).toBeNull();
+    });
+});
+
+describe('stepIO', () => {
+    it("answers a step session from the service's own runs, run folder and workspaces", async () => {
+        const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'service-step-io-'));
+        try {
+            const folder = new RunFolder((workspaceId) => path.join(tmp, workspaceId));
+            const session = {
+                id: 's-1',
+                workspaceId: 'ws-1',
+                automation: { name: 'review-assigned-prs', runId: 'run-steps', step: { id: 'review', attempt: 1 } },
+            } as SessionView;
+            const t = setup({ workspaces: [{ id: 'ws-1', sessions: [session], scopes: [], actions: [] } as unknown as WorkspaceView], runFolder: folder });
+            await t.start();
+            const [automation] = parseFactorySpec(`version: 1
+automations:
+  - name: review-assigned-prs
+    on: { github: pull_request.review_requested }
+    steps:
+      - id: review
+        prompt: Review it.
+        outputs:
+          verdict: { enum: [approve, comment, request-changes] }
+`).automations;
+            if (!automation || !isStepsEntry(automation)) throw new Error('The steps entry does not parse.');
+            folder.writeDefinition('ws-1', 'run-steps', { automation, version: 'v1', actions: {} });
+            const at = '2026-11-04T08:00:00.000Z';
+            t.store.add({
+                id: 'run-steps',
+                runner: 'local',
+                source: 'personal',
+                automationId: 'review-assigned-prs',
+                actionName: 'steps',
+                actionVersion: 'v1',
+                mode: 'auto',
+                trigger: { kind: 'event', at },
+                status: 'running',
+                steps: [{ id: 'review', kind: 'agent', status: 'running', attempt: 1, sessionId: 's-1' }],
+                attribution: { automationId: 'review-assigned-prs', actionName: 'steps', triggerKind: 'event', workspaceId: 'ws-1' },
+                createdAt: at,
+                updatedAt: at,
+            });
+            const io = t.service.stepIO();
+            expect(io.setOutputs('s-1', { verdict: 'approve' })).toEqual({ text: 'Set: verdict. Every output is set.', isError: false });
+            expect(t.store.get('run-steps')!.steps![0].outputs).toEqual({ verdict: 'approve' });
+            expect(io.missing('run-steps', 'review')).toEqual({ outputs: [], artifacts: [] });
+            expect(t.service.stepIO()).toBe(io);
+        } finally {
+            fs.rmSync(tmp, { recursive: true, force: true });
+        }
     });
 });

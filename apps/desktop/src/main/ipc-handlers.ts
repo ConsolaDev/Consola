@@ -51,8 +51,10 @@ import {
     AUTOMATION_TEMPLATES,
     AutomationService,
     FactoryFile,
+    RunFolder,
     RunHistoryFiles,
     RunStore,
+    stepToolSpecs,
     workspaceFactoryPath,
     type AutomationStateFile,
 } from '@consola/automation-engine';
@@ -870,6 +872,7 @@ export function setupIpcHandlers(): boolean {
                 },
                 conductorTools,
                 assistantTools,
+                stepTools: (id) => stepToolSpecs(automations.stepIO(), id),
                 getWorkspaces: () => workspaces.getAll(),
             }),
     });
@@ -937,6 +940,7 @@ export function setupIpcHandlers(): boolean {
             new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
             new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
         ),
+        runFolder: new RunFolder(),
         registry: tools,
         getWorkspaces: () => workspaces.getAll().map(toWorkspaceView),
         now: () => new Date(),

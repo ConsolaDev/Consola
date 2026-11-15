@@ -103,6 +103,14 @@ describe('the mappers', () => {
         expect('workItemKey' in view.sessions[1]).toBe(false);
     });
 
+    it("maps a step session's provenance", () => {
+        const provenance = { name: 'review-assigned-prs', runId: 'r1', step: { id: 'review', attempt: 2 } };
+        const [view] = toWorkspaceView(workspace({ sessions: [session('one', { automation: provenance })] })).sessions;
+        expect(view.automation).toEqual(provenance);
+        // A copy: the view never hands the engine the record's own object.
+        expect(view.automation?.step).not.toBe(provenance.step);
+    });
+
     it('leaves the provider off an unbound workspace', () => {
         expect('provider' in toWorkspaceView(workspace({ provider: undefined }))).toBe(false);
     });

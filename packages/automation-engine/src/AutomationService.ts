@@ -23,10 +23,11 @@ import { agentToolContext, CONSOLA_NAMESPACE, describeError, firstActionFor, Sta
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { describeRun, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
-import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResult, FactoryFileHandle, LaunchedSession, LoadedFactoryFile, ToolsPort } from './ports';
+import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResult, FactoryFileHandle, LaunchedSession, LoadedFactoryFile, RunFolderPort, ToolsPort } from './ports';
 import type { AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
+import { StepIO } from './steps/stepTools';
 
 /**
  * The runner for personal automations: one `factory.yml` per workspace, whose
@@ -84,6 +85,8 @@ export interface AutomationServiceDeps {
     /** A workspace's spec file; asked for once, when the workspace is first seen. */
     fileFor(workspaceId: string): FactoryFileHandle;
     store: RunStore;
+    /** Each run's folder: its definition snapshot and its steps' documents. */
+    runFolder: RunFolderPort;
     registry: ToolsPort;
     getWorkspaces(): WorkspaceView[];
     now(): Date;
@@ -217,7 +220,26 @@ export class AutomationService {
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
+    private io: StepIO | undefined;
     constructor(private readonly deps: AutomationServiceDeps) {}
+
+    /** The step tools' logic, over these runs and their folders; the host mounts it on each step session's MCP server. */
+    public stepIO(): StepIO {
+        this.io ??= new StepIO({
+            store: this.deps.store,
+            folder: this.deps.runFolder,
+            definitionOf: (run) => {
+                const workspaceId = run.attribution.workspaceId;
+                return workspaceId ? this.deps.runFolder.readDefinition(workspaceId, run.id) : null;
+            },
+            sessionOf: (sessionId) =>
+                this.deps
+                    .getWorkspaces()
+                    .flatMap((workspace) => workspace.sessions)
+                    .find((session) => session.id === sessionId),
+        });
+        return this.io;
+    }
 
     public async start(): Promise<void> {
         this.deps.store.load(this.iso());

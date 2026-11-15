@@ -192,7 +192,12 @@ export interface SessionView {
     claudeSessionId: string;
     cwd?: string;
     createdAt: number;
-    automation?: { name: string; runId: string };
+    /**
+     * The automation run that started it, and for a step of a `steps:` run,
+     * which step and attempt: fixed for the session's life, and the only
+     * scope its step tools act in.
+     */
+    automation?: { name: string; runId: string; step?: { id: string; attempt: number } };
     /** The host's key for the item the session is about. */
     workItemKey?: string;
     workItemAction?: string;

@@ -31,7 +31,7 @@ export interface StepPromptInput {
 const RUN_ID_LENGTH = 8;
 
 /** KB with one decimal at 1024 bytes each; under one KB, whole bytes ("900 B"). */
-function describeSize(bytes: number): string {
+export function describeSize(bytes: number): string {
     return bytes < 1024 ? `${bytes} B` : `${(bytes / 1024).toFixed(1)} KB`;
 }
 

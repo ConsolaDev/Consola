@@ -1,11 +1,11 @@
 import type { InboxItemView, ItemRef, ItemSnapshot, SessionView, WorkspaceView } from '@consola/automation-engine';
 import { isGitProviderId } from '../../shared/providers';
-import type { Session, Workspace } from '../../shared/workspace';
+import type { Session, SessionProvenance, Workspace } from '../../shared/workspace';
 import { workItemKey, type InboxItem, type InboxSnapshot, type WorkItemRef } from '../../shared/workItems';
 
 /** The desktop's records, narrowed to what the engine reads. */
 
-function toSessionView(session: Session): SessionView {
+export function toSessionView(session: Session): SessionView {
     return {
         id: session.id,
         workspaceId: session.workspaceId,
@@ -15,11 +15,15 @@ function toSessionView(session: Session): SessionView {
         claudeSessionId: session.claudeSessionId,
         ...(session.cwd !== undefined ? { cwd: session.cwd } : {}),
         createdAt: session.createdAt,
-        ...(session.automation ? { automation: { name: session.automation.name, runId: session.automation.runId } } : {}),
+        ...(session.automation ? { automation: toProvenanceView(session.automation) } : {}),
         ...(session.workItem ? { workItemKey: workItemKey(session.workItem) } : {}),
         ...(session.workItemAction !== undefined ? { workItemAction: session.workItemAction } : {}),
         ...(session.toolPolicy ? { toolPolicy: session.toolPolicy } : {}),
     };
+}
+
+function toProvenanceView({ name, runId, step }: SessionProvenance): NonNullable<SessionView['automation']> {
+    return { name, runId, ...(step ? { step: { id: step.id, attempt: step.attempt } } : {}) };
 }
 
 export function toWorkspaceView(workspace: Workspace): WorkspaceView {
