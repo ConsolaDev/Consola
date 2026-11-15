@@ -584,12 +584,17 @@ export function approvalStep(
         const runs = steps?.filter((step) => step.kind === 'agent' || step.dryRun) ?? [];
         if (steps && runs.length > 0) {
             const reports = steps.filter((step) => !runs.includes(step)).map((step) => step.id);
-            const names = runs.map((step) => step.id);
-            const list = names.length > 1 ? `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}` : names[0];
+            const agents = runs.filter((step) => step.kind === 'agent').map((step) => step.id);
+            const commands = runs.filter((step) => step.kind === 'run').map((step) => step.id);
+            // Two groups, said apart: an agent step is read-only, a command runs as the person.
+            const groups = [
+                ...(agents.length > 0 ? [`${agents.join(' and ')} read-only`] : []),
+                ...(commands.length > 0 ? [`${commands.join(' and ')} as you`] : []),
+            ].join(' and ');
             return {
                 kind: 'notify',
                 title: 'Asks once, then runs',
-                detail: `Runs ${list}${runs.some((step) => step.kind === 'agent') ? ' read-only' : ''}${reports.length > 0 ? `; ${reports.join(', ')} only ${reports.length > 1 ? 'report' : 'reports'}` : ''}.`,
+                detail: `Runs ${groups}${reports.length > 0 ? `; ${reports.join(', ')} only ${reports.length > 1 ? 'report' : 'reports'}` : ''}.`,
             };
         }
         return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };

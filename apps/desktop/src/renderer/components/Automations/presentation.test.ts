@@ -790,9 +790,14 @@ describe('approvalStep', () => {
             detail: 'Runs review read-only; publish only reports.',
         });
         expect(approvalStep({ mode: 'notify', kind: 'agent', steps: [fetch, agent, publish] })?.detail).toBe(
-            'Runs fresh and review read-only; publish only reports.',
+            'Runs review read-only and fresh as you; publish only reports.',
         );
-        expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [fetch] })?.detail).toBe('Runs fresh.');
+        expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [fetch] })?.detail).toBe('Runs fresh as you.');
+        const second = { id: 'summarise', kind: 'agent' as const, summary: 'Summarise action' };
+        const fetchMore = { id: 'fetch', kind: 'run' as const, summary: 'git fetch', dryRun: true as const };
+        expect(approvalStep({ mode: 'notify', kind: 'agent', steps: [fetch, agent, fetchMore, second, publish] })?.detail).toBe(
+            'Runs review and summarise read-only and fresh and fetch as you; publish only reports.',
+        );
         // Nothing starts: every step is a command that only reports.
         expect(approvalStep({ mode: 'notify', kind: 'tool', steps: [publish] })).toMatchObject({ detail: 'Starts nothing' });
         // Other modes.
