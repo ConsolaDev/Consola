@@ -2516,17 +2516,37 @@ describe('retry', () => {
         await h.service.retry(run.id);
         await h.flush();
         expect(h.world.checkouts.prepared).toHaveLength(2);
-        // It never ran, so this is still its first attempt, with nothing earlier to remember.
         expect(h.store.get(run.id)).toMatchObject({
             status: 'running',
             checkout: { cwd: CHECKOUT, head: CHECKOUT_HEAD },
             steps: [
-                { id: 'review', status: 'running', attempt: 1, sessionId: 'session-1' },
+                { id: 'review', status: 'running', attempt: 2, sessionId: 'session-1', previous: [{ attempt: 1, status: 'not-run' }] },
                 { id: 'publish', status: 'pending' },
             ],
         });
-        expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('previous');
-        expect(h.world.launches).toMatchObject([{ step: { id: 'review', attempt: 1 } }]);
+        expect(h.world.launches).toMatchObject([{ step: { id: 'review', attempt: 2 } }]);
+    });
+
+    it('a run that failed before any step is retried even after a review by hand', async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        h.world.byHandRefuses = true;
+        h.world.checkouts.fails = new Error('fetch failed');
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(run).toMatchObject({ status: 'failed', steps: [{ id: 'review', status: 'not-run' }, { id: 'publish', status: 'not-run' }] });
+        // The automation never reviewed it; the person does, by hand, then retries the run anyway.
+        h.world.checkouts.fails = undefined;
+        h.advance(MINUTE);
+        h.world.workspace.sessions.push(byHand(PR51, h.now()));
+        await h.service.retry(run.id);
+        await h.flush();
+        expect(h.world.launches).toMatchObject([{ step: { id: 'review', attempt: 2 } }]);
+        expect(h.world.launches[0].item).not.toHaveProperty('startedByHandSince');
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'running',
+            steps: [{ id: 'review', status: 'running', attempt: 2, sessionId: 'session-1' }, { id: 'publish', status: 'pending' }],
+        });
     });
 
     it('a schedule retries in its scope folder, preparing nothing; a run not failed, another step, or a lost definition is refused', async () => {
