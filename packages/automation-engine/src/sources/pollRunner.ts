@@ -25,8 +25,13 @@ export interface CheckState {
     failures: number;
     /** What the last check that counted came to: how many items, what fired, or why it failed. */
     outcome?: { at: string; items: number; fired: number; skipped: number; baseline: boolean } | { at: string; error: string };
-    /** The last successful result, kept in memory only. */
-    result?: { at: string; items: PolledItem[] };
+    /**
+     * The last successful result, kept in memory only, and the entry's version
+     * it was taken at: one taken at another version says nothing about this
+     * version's items (another command may have printed it), so it is not
+     * this version's latest (`latestResult`).
+     */
+    result?: { at: string; version: string; items: PolledItem[] };
 }
 
 /** When the next check is due: now when it never ran since start-up or Allow. */
@@ -44,6 +49,11 @@ export function waitAfter(failures: number, everyMs: number): number {
 /** After a check that ended at `at` with a result: the run of failures is over. Its result and outcome are the source's to record. */
 export function afterSuccess(state: CheckState, at: string): CheckState {
     return { ...state, lastEndedAt: at, failures: 0 };
+}
+
+/** The latest successful result taken at `version`; undefined when there is none since start-up, or only one taken at another. */
+export function latestResult(state: CheckState | undefined, version: string): PolledItem[] | undefined {
+    return state?.result?.version === version ? state.result.items : undefined;
 }
 
 /** After a check that ended at `at` without one: one more failure in a row, and why. */

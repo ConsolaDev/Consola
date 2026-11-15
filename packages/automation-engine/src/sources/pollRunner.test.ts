@@ -4,6 +4,7 @@ import {
     afterSuccess,
     checkSpec,
     dueNow,
+    latestResult,
     MAX_BACKOFF_MS,
     MAX_CONCURRENT_CHECKS,
     nextCheckAt,
@@ -62,7 +63,7 @@ describe('waitAfter', () => {
 describe('the state', () => {
     it('is new each time, and keeps the check running and what the last success found', () => {
         const running = { version: 'v1', acceptedVersion: 'v1', startedAt: ENDED };
-        const result = { at: ENDED, items: [] };
+        const result = { at: ENDED, version: 'v1', items: [] };
         const state: CheckState = { failures: 0, running, result };
         const failedOnce = afterFailure(state, LATER, 'exit 1');
         expect(failedOnce).not.toBe(state);
@@ -70,6 +71,18 @@ describe('the state', () => {
         expect(failedOnce).toMatchObject({ running, result });
         expect(afterSuccess(failedOnce, LATER)).toMatchObject({ running, result });
         expect(dueNow(failedOnce)).toMatchObject({ running, result, failures: 1, outcome: { error: 'exit 1' } });
+    });
+});
+
+describe('latestResult', () => {
+    it('is the last success taken at this version, and none for another', () => {
+        const items = [{ key: 'T-7', title: 'Ticket 7', url: '', object: { id: 'T-7' } }];
+        const state: CheckState = { failures: 0, result: { at: ENDED, version: 'v1', items } };
+        expect(latestResult(state, 'v1')).toBe(items);
+        // Taken by the version before an edit: another command may have printed it.
+        expect(latestResult(state, 'v2')).toBeUndefined();
+        expect(latestResult({ failures: 0 }, 'v1')).toBeUndefined();
+        expect(latestResult(undefined, 'v1')).toBeUndefined();
     });
 });
 

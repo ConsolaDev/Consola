@@ -4,8 +4,12 @@ import type { Step, StepRun, StepsAutomation } from '@consola/factory-spec';
 export interface RunDefinition {
     automation: StepsAutomation;
     version: string;
-    /** By step id. */
-    actions: Record<string, { name: string; body: string; groupId?: string }>;
+    /**
+     * By step id. `appliesTo` is kept only when the run's items may be of a
+     * type the action does not apply to (a poll's with `item:`, whose check
+     * says which only when it runs): a step on one of those fails.
+     */
+    actions: Record<string, { name: string; body: string; groupId?: string; appliesTo?: Array<'pr' | 'issue'> }>;
 }
 
 /**

@@ -44,7 +44,7 @@ export interface PreparedCommand {
     dir: string;
     files: { output: string; stdout: string; stderr: string };
     values: RenderedValue[];
-    /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, and an item run's `CONSOLA_CHECKOUT_HEAD`. */
+    /** `CONSOLA_OUTPUT`, `CONSOLA_RUN_ID`, `CONSOLA_STEP`, an item run's `CONSOLA_CHECKOUT_HEAD`, and a poll run's `CONSOLA_ITEM_FILE`. */
     variables: Record<string, string>;
 }
 
@@ -174,11 +174,14 @@ export function prepareCommand(input: {
         const dir = folder.attemptDir(workspaceId, run.id, stepId, record.attempt);
         const files = { output: inFolder(dir, 'outputs.env'), stdout: inFolder(dir, 'stdout.log'), stderr: inFolder(dir, 'stderr.log') };
         const head = run.trigger.item ? run.checkout?.head : undefined;
+        // A poll entry's run on an item keeps the whole object its check printed beside its definition.
+        const polledFile = definition.automation.trigger.kind === 'poll' && run.trigger.item ? folder.itemPath(workspaceId, run.id) : undefined;
         const variables = {
             CONSOLA_OUTPUT: files.output,
             CONSOLA_RUN_ID: run.id,
             CONSOLA_STEP: stepId,
             ...(head ? { CONSOLA_CHECKOUT_HEAD: head } : {}),
+            ...(polledFile ? { CONSOLA_ITEM_FILE: polledFile } : {}),
         };
         const { attempt } = record;
         return { ok: true, command: { workspaceId, runId: run.id, step, attempt, cwd, dir, files, values: rendered.values, variables } };

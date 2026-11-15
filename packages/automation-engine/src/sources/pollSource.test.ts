@@ -89,6 +89,19 @@ describe('pollSource: item fields', () => {
         expect(withItem.itemValue(pr, 'constructor', object)).toBeUndefined();
     });
 
+    it('with item:, an identity field the run item lacks has no value, whatever the object prints', () => {
+        // Trusted in prompts, so never read from what the check printed: only from the URL Consola parsed.
+        const bare: RunItem = { key: pr.key, url: '', title: 'Add retries' };
+        const object = { key: 'k', url: 'https://evil.example/x', repo: 'evil/repo', number: 7, type: 'pr', head: 'abc' };
+        for (const field of ['key', 'url', 'repo', 'number', 'type']) {
+            expect(withItem.itemValue(bare, field, object), field).toBeUndefined();
+        }
+        expect(withItem.itemValue(bare, 'head', object)).toBe('abc');
+        // Nor without the connection's work-item part: nothing makes it identity.
+        const unread = pollSource(trigger({ item: { connection: 'github', path: '.url' } }));
+        expect(unread.itemValue(pr, 'url', object)).toBeUndefined();
+    });
+
     it('without item:, item.key is the poll key and nothing else is identity', () => {
         expect(keyed.itemValue(keyItem, 'key', { key: 'something-else', id: 'ticket-7' })).toBe('ticket-7');
         expect(keyed.itemValue(keyItem, 'number', { number: 3 })).toBe(3);

@@ -25,6 +25,16 @@ export function itemRefOf(run: RunRecord): ItemRef | undefined {
     return { provider: connection, repo: item.repo, type: item.type, number: item.number };
 }
 
+/**
+ * Why an action cannot run on an item of this type, in the words the entry's
+ * problem uses ("the Review action does not apply to issues"); null when it
+ * can, or when nothing recorded which types it applies to.
+ */
+export function actionTypeRefusal(action: { name: string; appliesTo?: ReadonlyArray<'pr' | 'issue'> }, type: 'pr' | 'issue'): string | null {
+    if (!action.appliesTo || action.appliesTo.includes(type)) return null;
+    return `the ${action.name} action does not apply to ${type === 'pr' ? 'pull requests' : 'issues'}`;
+}
+
 const utf8Bytes = (text: string): number => new TextEncoder().encode(text).length;
 
 /**
@@ -142,6 +152,8 @@ export function agentStepLaunch(input: {
     let body: string;
     if (action) {
         if (!item || !workItem) return { ok: false, error: `${action.name} is an action, and this run has no item for it.` };
+        const refused = actionTypeRefusal(action, workItem.type);
+        if (refused) return { ok: false, error: refused };
         // The title is the author's: the body points at it, the fence holds it.
         body = fillActionPlaceholders(action.body, { workItem, title: 'the title quoted below', url: item.url });
     } else {

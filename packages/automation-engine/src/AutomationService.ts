@@ -29,7 +29,7 @@ import {
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, workItemSource, type EventSource } from './connections';
-import { advanceSeen } from './seenRecord';
+import { advanceSeen, forgetFired, type OpenState } from './seenRecord';
 import {
     agentToolContext,
     CONSOLA_NAMESPACE,
@@ -59,18 +59,19 @@ import type {
 } from './ports';
 import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
 import { SNAPSHOT_ENDED_RUNS } from './views';
-import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, CheckView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, CheckView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
-import { agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
+import { actionTypeRefusal, agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
 import { MAX_CHECK_STDOUT_BYTES, readCheckResult, type PolledItem } from './sources/checkResult';
-import { runItemSource, type ItemSource } from './sources/itemSource';
-import { pollSource } from './sources/pollSource';
+import { runItemSource, type ItemSource, type SourceItem } from './sources/itemSource';
+import { polledSourceItem, pollSource } from './sources/pollSource';
 import {
     afterFailure,
     afterSuccess,
     checkSpec,
     dueNow,
+    latestResult,
     MAX_CONCURRENT_CHECKS,
     nextCheckAt,
     type CheckState,
@@ -276,9 +277,6 @@ const MAX_RESULT_CHARS = 20_000;
 /** Requests one agent session may leave waiting before it must wait for the person. */
 export const MAX_WAITING_PER_SESSION = 10;
 
-/** A run that has not finished: one more of these for the same thing would be a duplicate. */
-const OPEN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'needs-approval'];
-
 interface Resolved {
     workspaceId: string;
     automation: Automation;
@@ -297,6 +295,8 @@ interface Resolved {
         scope?: ScopeView;
         /** "Review action", "Prompt" — for previews. */
         runs: string;
+        /** The action's item types, when the entry's items may be of another (a poll's with `item:`): a run on one fails. */
+        appliesTo?: Array<'pr' | 'issue'>;
     };
     /** A `steps:` entry that can run: what a run of it executes, as of now, and what firing one needs to know. */
     steps?: {
@@ -381,10 +381,15 @@ type CheckRunning = NonNullable<CheckState['running']>;
 /** How a check ended: with items, failed and why (masked), or dropped before it spawned, its entry no longer the one it was started for. */
 type CheckEnd = { ok: true; items: PolledItem[] } | { ok: false; error: string } | { dropped: true };
 
+/**
+ * Whether a queued run may start: with its item as its source has it now,
+ * when it has one; or it waits; or it ends without starting, and `giveBack`
+ * says Consola itself turned it away, so its item fires again (Call 12).
+ */
 type QueueVerdict =
-    | { go: true; item?: InboxItemView }
+    | { go: true; item?: SourceItem }
     | { go: false; wait: true }
-    | { go: false; wait?: false; status: 'rejected' | 'failed'; message: string };
+    | { go: false; wait?: false; status: 'rejected' | 'failed'; message: string; giveBack?: true };
 
 /**
  * A run waiting in a lane's line for a slot. One that has started (a legacy
@@ -889,41 +894,90 @@ export class AutomationService {
     }
 
     /**
-     * One workspace's Inbox, freshly fetched: each event automation's set is
-     * compared with what it held last time (`advanceSeen`), and every member
-     * that passes its filter and has not fired since it entered is one run.
-     * A failed fetch — the last good list carried forward with an error —
-     * says nothing about what changed, so it fires nothing and moves nothing.
-     *
-     * The seen record is written before any run is created, so a crash can
-     * never fire one event twice. An automation with no record of its own —
-     * new, or with a trigger or filter edited — records what is there and
-     * fires nothing: turning one on never works through the backlog already
-     * waiting, the same rule as a new schedule never firing for a past
-     * occurrence. A record that survived a restart is diffed as usual, so a
-     * request that arrived while Consola was closed fires once.
+     * One workspace's Inbox, freshly fetched: each event automation's set,
+     * every item in any of its events' views, fires under the one rule polls
+     * follow too (`fireFromSet`). A failed fetch — the last good list carried
+     * forward with an error — says nothing about what changed, so it fires
+     * nothing and moves nothing. An Inbox item carries no revision: a record
+     * from before revisions reads as it did.
      */
     public observeInbox(snapshot: ItemSnapshot): void {
         if (!this.started || snapshot.error || snapshot.fetchedAt === 0) return;
         const factory = this.factories.get(snapshot.workspaceId);
         if (!factory) return;
-        const provider = this.deps.getWorkspaces().find((workspace) => workspace.id === snapshot.workspaceId)?.provider;
         const at = new Date(snapshot.fetchedAt).toISOString();
         for (const entry of factory.resolved) {
             const { event } = entry;
             // An entry with a problem is paused: its record stays where it
             // was, so fixing it catches up rather than forgetting.
             if (!event || entry.problem) continue;
-            const inSet = new Map<string, InboxItemView>();
-            for (const item of snapshot.items) if (event.inSet(item)) inSet.set(event.keyOf(item), item);
-            const key = automationKey(entry);
-            const previous = this.deps.store.seen(key);
-            const current = [...inSet].map(([itemKey, item]) => ({ key: itemKey, passes: event.passesFilter(item) }));
-            const { record, fire } = advanceSeen(previous, listDefinition(entry, provider), current, at);
-            this.deps.store.setSeen(key, record);
-            for (const itemKey of fire) this.fireEvent(entry, inSet.get(itemKey)!, previous!.at, at);
+            const inSet = new Map<string, SourceItem>();
+            for (const item of snapshot.items) {
+                // The set, not the filter: a draft is in it, and fires once it is ready.
+                if (event.inSet(item)) inSet.set(event.keyOf(item), event.toSourceItem(item, event.passesFilter(item)));
+            }
+            this.fireFromSet(entry, [...inSet.values()], at);
         }
         void this.pump();
+    }
+
+    /**
+     * One successful look at an entry's source (an Inbox fetch, or a check),
+     * whatever the source: its set, compared with what it held last time
+     * (`advanceSeen`). An item fires when it passes and is new to the set, or
+     * its revision moved; one whose run on it is still open is absorbed by a
+     * run waiting for a person or a slot, or held until a working one ends
+     * (`openStates`). Each item fired is one run.
+     *
+     * The seen record is written before any run is created, so a crash can
+     * never fire one change twice. An entry with no record of its own — new,
+     * or with what it watches edited — records what is there and fires
+     * nothing: turning one on never works through the backlog already
+     * waiting, the same rule as a new schedule never firing for a past
+     * occurrence. A record that survived a restart is diffed as usual, so what
+     * arrived while Consola was closed fires once. Returns how many fired, and
+     * whether this look only recorded what is there.
+     */
+    private fireFromSet(entry: Resolved, current: SourceItem[], at: string): { fired: number; baseline: boolean } {
+        const key = automationKey(entry);
+        const provider = this.deps.getWorkspaces().find((workspace) => workspace.id === entry.workspaceId)?.provider;
+        const definition = listDefinition(entry, provider);
+        const previous = this.deps.store.seen(key);
+        const open = this.openStates(entry);
+        const { record, fire } = advanceSeen(
+            previous,
+            definition,
+            current.map((item) => ({
+                key: item.key,
+                passes: item.passes,
+                ...(item.rev !== undefined ? { rev: item.rev } : {}),
+                ...(open.has(item.key) ? { open: open.get(item.key) } : {}),
+            })),
+            at
+        );
+        this.deps.store.setSeen(key, record);
+        const byKey = new Map(current.map((item) => [item.key, item]));
+        // Only a record of the same list fires anything, so `previous` is there.
+        for (const itemKey of fire) this.fireItem(entry, byKey.get(itemKey)!, previous!.at, at);
+        return { fired: fire.length, baseline: previous?.definition !== definition };
+    }
+
+    /**
+     * Each item's open run of this automation (Call 11): the newest one not
+     * ended. `waiting` for a person, or in line without ever having started;
+     * `working` once started, a turn a quit interrupted and now waiting to
+     * resume included.
+     */
+    private openStates(entry: Resolved): Map<string, OpenState> {
+        const open = new Map<string, OpenState>();
+        // Newest first: the first one seen for a key is its newest.
+        for (const run of this.deps.store.runs()) {
+            const itemKey = run.trigger.item?.key;
+            if (itemKey === undefined || open.has(itemKey) || !isRunOf(run, entry)) continue;
+            if (run.status === 'needs-approval' || (run.status === 'queued' && !run.startedAt)) open.set(itemKey, 'waiting');
+            else if (run.status === 'running' || run.status === 'queued') open.set(itemKey, 'working');
+        }
+        return open;
     }
 
     /**
@@ -1356,16 +1410,26 @@ export class AutomationService {
 
     /**
      * A poll's check succeeded with `items`. They are kept as its latest
-     * result, which a queued run's item is checked against and Run on…
-     * lists, and summed up as its outcome. Nothing fires from them yet.
+     * result at this version, which a queued run's item is checked against
+     * and Run on… lists, before anything fires (a run fired here may be
+     * checked at once), then fired as its set (`fireFromSet`), and summed up
+     * as its outcome. A work item whose repository the workspace does not
+     * hold does not pass: it fires nothing and is not marked fired, so it
+     * fires once the repository is cloned, and it counts as skipped. Then the
+     * line moves, since a run waiting for a first check may start now.
      */
     private observeSource(entry: Resolved, items: PolledItem[], at: string): void {
         const key = automationKey(entry);
-        this.checks.set(key, {
-            ...this.checkStateOf(key),
-            result: { at, items },
-            outcome: { at, items: items.length, fired: 0, skipped: 0, baseline: false },
+        this.checks.set(key, { ...this.checkStateOf(key), result: { at, version: entry.version, items } });
+        let skipped = 0;
+        const current = items.map((item) => {
+            const passes = !item.workItem || this.deps.workItems.inWorkspace(entry.workspaceId, item.workItem);
+            if (!passes) skipped++;
+            return polledSourceItem(item, passes);
         });
+        const { fired, baseline } = this.fireFromSet(entry, current, at);
+        this.checks.set(key, { ...this.checkStateOf(key), outcome: { at, items: items.length, fired, skipped, baseline } });
+        void this.pump();
     }
 
     /** A workspace's automations as its panel and `list_automations` show them. */
@@ -1814,9 +1878,19 @@ export class AutomationService {
         else await this.startAgentRun(run, verdict.item);
     }
 
-    /** A queued run the check turned away: it ends without starting. */
+    /**
+     * A queued run the check turned away: it ends without starting. When
+     * Consola itself turned it away because its automation changed, the item
+     * it fired for is given back: nothing had started, so it fires again under
+     * the new version once that is allowed (Call 12).
+     */
     private endUnstarted(run: RunRecord, verdict: Extract<QueueVerdict, { status: string }>): void {
         this.finish(run.id, verdict.status, verdict.status === 'failed' ? { error: verdict.message } : { summary: verdict.message });
+        const itemKey = run.trigger.item?.key;
+        if (!verdict.giveBack || itemKey === undefined || !firedBySource(run)) return;
+        const key = automationKey({ workspaceId: run.attribution.workspaceId ?? '', automation: { name: run.automationId } });
+        const record = this.deps.store.seen(key);
+        if (record) this.deps.store.setSeen(key, forgetFired(record, itemKey));
     }
 
     /** Whether a run is still where the line saw it: queued, or, for a started run, with the same step queued. */
@@ -1885,10 +1959,10 @@ export class AutomationService {
             this.advance(run.id);
             return;
         }
-        // As at its start: a trigger fired it and its first agent step is an action, so a review the person started by hand wins.
+        // As at its start: a source fired it and its first agent step is an action, so a review the person started by hand wins.
         const first = definition.automation.steps.find((step) => step.kind === 'agent');
         const label = first ? definition.actions[first.id]?.name : undefined;
-        const byHand = run.trigger.kind === 'event' && label ? { startedByHand: { label, since: run.createdAt } } : {};
+        const byHand = firedBySource(run) && label ? { startedByHand: { label, since: run.createdAt } } : {};
         void this.prepareCheckout(run.id, { workspaceId: run.attribution.workspaceId!, workItem, ...byHand });
     }
 
@@ -1915,10 +1989,14 @@ export class AutomationService {
     }
 
     /**
-     * Whether a queued run may start now. Its automation must still say the
-     * same thing, and an event run's item must still be in the list — a
-     * review the person did by hand while it waited is not done twice. An
-     * item the runner cannot check yet (no Inbox since launch) waits.
+     * Whether a queued run may start now, and its item as its source has it
+     * now. Its automation must still say the same thing. An event run's item
+     * must still be in the Inbox's set, and a run on a poll entry's item is
+     * refreshed from its latest result (Call 13); a fired run whose item is
+     * no longer there is turned away, and one that fired before a review the
+     * person did by hand is not done twice. An item the runner cannot check
+     * yet (no Inbox, or no check, since launch) waits. A run a person or an
+     * agent started on an item goes on with what it recorded.
      */
     private checkQueued(run: RunRecord): QueueVerdict {
         // A turn cut off by a quit resumes in its session, whatever the file
@@ -1935,29 +2013,50 @@ export class AutomationService {
         if (!entry) return { go: false, status: 'rejected', message: 'It is no longer in its workspace’s factory.yml.' };
         if (entry.problem) return { go: false, status: 'failed', message: `Not run: ${entry.problem}.` };
         if (entry.version !== run.actionVersion) {
-            return { go: false, status: 'rejected', message: 'Its automation changed since it was queued.' };
+            return { go: false, status: 'rejected', message: 'Its automation changed since it was queued.', giveBack: true };
         }
         const wanted = run.trigger.item;
         const { source, event } = entry;
-        // An Inbox item must still be in its set; a run on demand has no set to leave.
-        if (!wanted || !source || !event) return { go: true };
-        const snapshot = this.deps.inboxSnapshot(entry.workspaceId);
-        if (!snapshot || snapshot.fetchedAt === 0) return { go: false, wait: true };
-        const item = snapshot.items.find((candidate) => event.keyOf(candidate) === wanted.key);
-        // The set, not the filter: a queued review is not dropped for going back to draft.
-        if (!item || !event.inSet(item)) return { go: false, status: 'rejected', message: source.goneReason };
-        const byHand = this.startedByHand(entry, item, run.createdAt);
+        if (!wanted || !source) return { go: true };
+        const fired = firedBySource(run);
+        let item: SourceItem;
+        if (pollOf(entry)) {
+            // Its latest result at this version: one taken at another may have come from another command.
+            const items = latestResult(this.checks.get(automationKey(entry)), entry.version);
+            if (!items) return fired ? { go: false, wait: true } : { go: true };
+            const polled = items.find((candidate) => candidate.key === wanted.key);
+            if (!polled) return fired ? { go: false, status: 'rejected', message: source.goneReason } : { go: true };
+            item = polledSourceItem(polled, true);
+        } else if (event) {
+            const snapshot = this.deps.inboxSnapshot(entry.workspaceId);
+            if (!snapshot || snapshot.fetchedAt === 0) return { go: false, wait: true };
+            const inbox = snapshot.items.find((candidate) => event.keyOf(candidate) === wanted.key);
+            // The set, not the filter: a queued review is not dropped for going back to draft.
+            if (!inbox || !event.inSet(inbox)) return { go: false, status: 'rejected', message: source.goneReason };
+            item = event.toSourceItem(inbox, event.passesFilter(inbox));
+        } else {
+            // A run on demand has no set to leave.
+            return { go: true };
+        }
+        const byHand = fired ? this.startedByHand(entry, wanted.key, run.createdAt) : undefined;
         if (byHand) return { go: false, status: 'rejected', message: `Already started by hand: “${byHand.name}”.` };
         return { go: true, item };
     }
 
     /**
      * Start a queued agent run. Its status is `running` from here until its
-     * turn ends (`turnEnded`): the run is the turn, and what holds a slot.
+     * turn ends (`turnEnded`): the run is the turn, and what holds a slot. A
+     * run on a poll's item takes its title as last checked, in the same
+     * update; its prompt stays the one its preview showed.
      */
-    private async startAgentRun(run: RunRecord, item: InboxItemView | undefined): Promise<void> {
+    private async startAgentRun(run: RunRecord, item: SourceItem | undefined): Promise<void> {
         // An interrupted run picked up again keeps the time it first started.
-        this.deps.store.update(run.id, { status: 'running', startedAt: run.startedAt ?? this.iso(), updatedAt: this.iso() });
+        this.deps.store.update(run.id, {
+            status: 'running',
+            startedAt: run.startedAt ?? this.iso(),
+            updatedAt: this.iso(),
+            ...(item?.object !== undefined ? refreshedTrigger(run, item) : {}),
+        });
         this.broadcastRun(run.id);
         this.starting.add(run.id);
         try {
@@ -1987,7 +2086,7 @@ export class AutomationService {
         void this.pump();
     }
 
-    private async launchAgentRun(run: RunRecord, item: InboxItemView | undefined): Promise<void> {
+    private async launchAgentRun(run: RunRecord, item: SourceItem | undefined): Promise<void> {
         const entry = this.entryOf(run)!;
         const agent = entry.agent!;
         const name = entry.automation.name;
@@ -1996,7 +2095,8 @@ export class AutomationService {
                 workspaceId: entry.workspaceId,
                 run: { id: run.id, automation: name },
                 prompt: String(run.approval?.args.prompt ?? ''),
-                ...(item
+                // A work item runs in a worktree of its own; anything else, a poll's keyed item included, in its scope.
+                ...(item?.workItem
                     ? {
                           item: {
                               workItem: item.workItem,
@@ -2110,21 +2210,35 @@ export class AutomationService {
      *
      * An item run's checkout must be free: one another run works in, or a
      * session runs in, makes it wait, saying so. Then one update marks it
-     * running, refreshes its item from the Inbox, and claims its checkout,
-     * before anything is awaited, so no second run on the item slips in
-     * while this one is still fetching. From here it holds a slot in its
-     * first step's lane until that step runs (`admitted`), so no run behind
-     * it in line starts in the same pass. An item run then prepares its
-     * checkout; a schedule's is its scope's folder. Then it advances.
+     * running, refreshes its item from its source (the Inbox, or a poll's
+     * latest result, whose object it also writes over `item.json`: a run that
+     * absorbed a change reads the item as it is now), and claims its
+     * checkout, before anything is awaited, so no second run on the item
+     * slips in while this one is still fetching. From here it holds a slot in
+     * its first step's lane until that step runs (`admitted`), so no run
+     * behind it in line starts in the same pass. An item run then prepares
+     * its checkout, for the work item it recorded; a schedule's is its
+     * scope's folder. Then it advances.
      */
-    private startStepsRun(run: RunRecord, item: InboxItemView | undefined, lane: Lane | null): void {
+    private startStepsRun(run: RunRecord, item: SourceItem | undefined, lane: Lane | null): void {
         const entry = this.entryOf(run)!;
         const { scope, byHandLabel, definition } = entry.steps!;
-        const workItem = lane && !scope ? item?.workItem : undefined;
+        const workItem = lane && !scope ? itemRefOf(run) : undefined;
         const dir = workItem ? this.deps.checkout.pathFor(entry.workspaceId, workItem) : undefined;
         if (dir && (this.checkoutHeld(dir, run.trigger.item?.key) || this.deps.checkoutBusy(dir))) {
             this.waitForCheckout(run);
             return;
+        }
+        if (item?.object !== undefined) {
+            try {
+                this.deps.runFolder.writeItem(entry.workspaceId, run.id, item.object);
+            } catch (error) {
+                // It would read the item as it fired, not as it is: it does not start.
+                const reason = describeReason(error);
+                this.finish(run.id, 'failed', { error: `Could not write its item: ${reason}.` });
+                this.notify(`${run.automationId} could not start`, `Could not write its item: ${reason}.`, run.id);
+                return;
+            }
         }
         const now = this.iso();
         const preview = run.result as StepsRunPreview;
@@ -2135,7 +2249,7 @@ export class AutomationService {
             ...(run.summary === WAITING_FOR_CHECKOUT
                 ? { summary: stepsRunLine(definition.automation, preview.item ? { item: preview.item.label } : { scope: preview.scope }) }
                 : {}),
-            ...(item && run.trigger.item ? { trigger: { ...run.trigger, item: { ...run.trigger.item, title: item.title, author: item.author } } } : {}),
+            ...(item ? refreshedTrigger(run, item) : {}),
             ...(lane && scope ? { checkout: { cwd: scope.path, scopeId: scope.id } } : {}),
             ...(dir ? { checkout: { cwd: dir } } : {}),
         });
@@ -2145,8 +2259,8 @@ export class AutomationService {
             this.advance(run.id);
             return;
         }
-        // A trigger fired it and its first agent step is an action: a review the person started by hand meanwhile wins.
-        const byHand = run.trigger.kind === 'event' && byHandLabel ? { startedByHand: { label: byHandLabel, since: run.createdAt } } : {};
+        // A source fired it and its first agent step is an action: a review the person started by hand meanwhile wins.
+        const byHand = firedBySource(run) && byHandLabel ? { startedByHand: { label: byHandLabel, since: run.createdAt } } : {};
         void this.prepareCheckout(run.id, { workspaceId: entry.workspaceId, workItem, ...byHand });
     }
 
@@ -2782,11 +2896,12 @@ export class AutomationService {
     }
 
     /**
-     * A session the person started on this item with the same action since
-     * `sinceIso` — the review they clicked before the automation got to it.
-     * A steps entry's action is its first agent step's, when that names one.
+     * A session the person started on this item (by its key, the work item's)
+     * with the same action since `sinceIso` — the review they clicked before
+     * the automation got to it. A steps entry's action is its first agent
+     * step's, when that names one.
      */
-    private startedByHand(entry: Resolved, item: InboxItemView, sinceIso: string): SessionView | undefined {
+    private startedByHand(entry: Resolved, itemKey: string, sinceIso: string): SessionView | undefined {
         const label = entry.agent?.label ?? entry.steps?.byHandLabel;
         if (!label) return undefined;
         const since = Date.parse(sinceIso);
@@ -2796,7 +2911,7 @@ export class AutomationService {
             ?.sessions.find(
                 (session) =>
                     !session.automation &&
-                    session.workItemKey === item.key &&
+                    session.workItemKey === itemKey &&
                     session.workItemAction === label &&
                     session.createdAt > since
             );
@@ -2891,7 +3006,7 @@ export class AutomationService {
         // typo: its workspace's lists are kept until the file says otherwise,
         // so fixing the typo catches up instead of starting from scratch.
         // An agent's addition is kept the same way, so its mark survives too.
-        const kept = new Set(resolved.filter((entry) => entry.automation.trigger.kind === 'event').map(automationKey));
+        const kept = new Set(resolved.filter((entry) => entry.automation.trigger.kind === 'event' || pollOf(entry)).map(automationKey));
         const named = new Set(resolved.map(automationKey));
         for (const [workspaceId, factory] of this.factories) {
             if (factory.loaded.spec.issues.length === 0) continue;
@@ -3011,6 +3126,7 @@ export class AutomationService {
             const { action } = named;
             const refused = this.harnessProblem(workspaceId);
             if (refused) return unable(refused);
+            const appliesTo = typesItMayMiss(action, source);
             return {
                 workspaceId,
                 automation,
@@ -3023,6 +3139,7 @@ export class AutomationService {
                     label: action.name,
                     ...(action.groupId ? { groupId: action.groupId } : {}),
                     runs: `${action.name} action`,
+                    ...(appliesTo ? { appliesTo } : {}),
                 },
             };
         }
@@ -3069,7 +3186,13 @@ export class AutomationService {
             const named = actionNamed(workspace, step.action, automation, source);
             if ('problem' in named) return unable(named.problem);
             const { action } = named;
-            actions[step.id] = { name: action.name, body: action.prompt, ...(action.groupId ? { groupId: action.groupId } : {}) };
+            const appliesTo = typesItMayMiss(action, source);
+            actions[step.id] = {
+                name: action.name,
+                body: action.prompt,
+                ...(action.groupId ? { groupId: action.groupId } : {}),
+                ...(appliesTo ? { appliesTo } : {}),
+            };
         }
 
         // A schedule has no item: a step that reads one does not load at all. A poll's fields are known only once
@@ -3210,12 +3333,14 @@ export class AutomationService {
 
     /**
      * A `steps:` run. Scheduled or requested (no `item`), one waits at a time,
-     * as an agent automation's does; an event's caller keeps it to one open
-     * run per item. Its definition — the entry and every action a step names,
-     * as of now — is written to its folder before it is recorded: it is what
-     * the approval shows and what the run executes, whatever is edited later.
+     * as an agent automation's does; for an item, its source's firing keeps it
+     * to one open run per item. Its definition — the entry and every action a
+     * step names, as of now — is written to its folder before it is recorded:
+     * it is what the approval shows and what the run executes, whatever is
+     * edited later. A poll's item is written beside it (`item.json`), the
+     * object as its check printed it.
      */
-    private fireSteps(entry: Resolved, trigger: RunTrigger, item?: InboxItemView): RunRecord {
+    private fireSteps(entry: Resolved, trigger: RunTrigger, item?: SourceItem): RunRecord {
         if (!item) {
             const lined = this.inLine(entry);
             if (lined) return lined;
@@ -3223,18 +3348,21 @@ export class AutomationService {
         const { definition, scope } = entry.steps!;
         const { mode, asks } = this.effectiveMode(entry, trigger);
         const run = this.newStepsRun(entry, trigger, mode, item);
+        let writing = 'definition';
         try {
             this.deps.runFolder.writeDefinition(entry.workspaceId, run.id, definition);
+            writing = 'item';
+            if (item?.object !== undefined) this.deps.runFolder.writeItem(entry.workspaceId, run.id, item.object);
         } catch (error) {
             // Recorded, so it is seen; ended, so it holds no place in line.
             const reason = describeError(error).trim().replace(/\.$/, '');
             const now = this.iso();
-            this.deps.store.add({ ...run, status: 'failed', error: `Could not write its definition: ${reason}.`, steps: closeSteps(run.steps!, now), finishedAt: now });
+            this.deps.store.add({ ...run, status: 'failed', error: `Could not write its ${writing}: ${reason}.`, steps: closeSteps(run.steps!, now), finishedAt: now });
             this.broadcast(entry.workspaceId);
             this.notify(`${entry.automation.name} could not start`, describeError(error), run.id);
             return this.deps.store.get(run.id)!;
         }
-        const label = item ? inboxLabel(entry, item) : undefined;
+        const label = item ? entry.source!.label(item) : undefined;
         const summary = stepsRunLine(definition.automation, label ? { item: label } : { scope: scope?.name });
         return this.recordByMode(entry, run, asks, { summary, described: label ?? `${describeRun(definition.automation)} in ${scope?.name ?? ''}` });
     }
@@ -3244,30 +3372,19 @@ export class AutomationService {
         return this.deps.store.runs().find((run) => isRunOf(run, entry) && (run.status === 'queued' || run.status === 'running'));
     }
 
-    /** One event — an item entering an automation's list — made one run. */
-    private fireEvent(entry: Resolved, item: InboxItemView, since: string, at: string): void {
-        // The Inbox's part names the item and its events; the source, which is the same object, says the rest.
-        const event = entry.event!;
+    /**
+     * One item its source fired, made one run: recorded as rejected when the
+     * person already started its action by hand since the last look, or as
+     * failed when it is a work item of a type the entry's one-step action
+     * does not apply to. A step's action is checked when its turn comes.
+     */
+    private fireItem(entry: Resolved, item: SourceItem, since: string, at: string): void {
         const source = entry.source!;
-        const itemKey = event.keyOf(item);
-        // One at a time per (automation, item); items run side by side.
-        const open = this.deps.store
-            .runs()
-            .some((run) => isRunOf(run, entry) && run.trigger.item?.key === itemKey && OPEN_STATUSES.includes(run.status));
-        if (open) return;
-        const trigger: RunTrigger = {
-            kind: 'event',
-            at,
-            connection: event.connection,
-            events: event.eventsOf(item),
-            // A steps run's commands read the item as it was when it fired.
-            item: entry.steps ? itemSnapshot(itemKey, item) : { key: itemKey, url: item.url, title: item.title },
-        };
-        const sourceItem = event.toSourceItem(item, true);
-        const described = source.label(sourceItem);
-        const byHand = this.startedByHand(entry, item, since);
+        const trigger = this.firedTrigger(entry, item, at);
+        const described = source.label(item);
+        const { mode } = entry.automation;
+        const byHand = this.startedByHand(entry, item.key, since);
         if (byHand) {
-            const { mode } = entry.automation;
             // Never run, so it has nothing to snapshot.
             const run = entry.steps ? this.newStepsRun(entry, trigger, mode, item) : this.newRun(entry, trigger, mode);
             const now = this.iso();
@@ -3284,10 +3401,46 @@ export class AutomationService {
         const preview: AgentRunPreview = {
             kind: 'agent-run',
             runs: agent.runs,
-            prompt: source.renderPrompt(agent.body, sourceItem, entry.automation.name),
-            item: { url: item.url, title: item.title, author: item.author, label: described },
+            prompt: source.renderPrompt(agent.body, item, entry.automation.name),
+            item: { url: item.url, title: item.title, author: item.author ?? '', label: described },
         };
+        // Only a one-step action keeps the types it applies to (`typesItMayMiss`), and its label is the action's name.
+        const refused = item.workItem && agent.appliesTo ? actionTypeRefusal({ name: agent.label!, appliesTo: agent.appliesTo }, item.workItem.type) : null;
+        if (refused) {
+            // Nothing it could run: recorded, so it is seen, and said, never left waiting for an approval it cannot use.
+            const run: RunRecord = { ...this.newRun(entry, trigger, mode), result: preview, status: 'failed', error: refused, finishedAt: this.iso() };
+            this.deps.store.add(run);
+            this.broadcast(entry.workspaceId);
+            this.notify(`${entry.automation.name} could not start`, refused, run.id);
+            return;
+        }
         this.recordAgentRun(entry, trigger, preview, described);
+    }
+
+    /**
+     * What fired an item's run, as the run records it: the Inbox's event, with
+     * its connection and the events whose views hold the item; or a poll's
+     * check, with the connection when the item is its work item. A steps
+     * run's item keeps what its steps may read, as it was when it fired.
+     */
+    private firedTrigger(entry: Resolved, item: SourceItem, at: string): RunTrigger {
+        const source = entry.source!;
+        const { event } = entry;
+        if (event) {
+            return {
+                kind: 'event',
+                at,
+                connection: event.connection,
+                events: event.eventsOf(item.inbox!),
+                item: entry.steps ? source.runItem(item) : { key: item.key, url: item.url, title: item.title },
+            };
+        }
+        return {
+            kind: 'poll',
+            at,
+            ...(item.workItem && source.connection !== undefined ? { connection: source.connection } : {}),
+            item: source.runItem(item),
+        };
     }
 
     /** An agent run: its preview, and the prompt approving it sends. */
@@ -3383,13 +3536,13 @@ export class AutomationService {
      * folder's definition), every step pending, and a dry run under `notify`.
      * It carries no approval: approving queues it, and it runs its snapshot.
      */
-    private newStepsRun(entry: Resolved, trigger: RunTrigger, mode: AutomationMode, item?: InboxItemView): RunRecord {
+    private newStepsRun(entry: Resolved, trigger: RunTrigger, mode: AutomationMode, item?: SourceItem): RunRecord {
         const { definition, scope } = entry.steps!;
         const { steps } = definition.automation;
         const preview: StepsRunPreview = {
             kind: 'steps-run',
             steps: steps.map((step) => ({ id: step.id, kind: step.kind })),
-            ...(item ? { item: { url: item.url, title: item.title, author: item.author, label: inboxLabel(entry, item) } } : {}),
+            ...(item ? { item: { url: item.url, title: item.title, author: item.author ?? '', label: entry.source!.label(item) } } : {}),
             ...(scope ? { scope: scope.name } : {}),
         };
         return {
@@ -3479,7 +3632,9 @@ function scopeNamed(workspace: WorkspaceView | undefined, name: string | undefin
  * it does not apply to its items: it must apply to every type the source's
  * items can be. A poll with `item:` is the exception, since which types its
  * check returns is known only when it runs: there it must apply to one of
- * them, and a run on an item of the other type fails at that step.
+ * them, and a run on an item of the other type fails at that step
+ * (`agentStepLaunch`, from the types `typesItMayMiss` kept in its
+ * definition), or, for a one-step entry, as it fires (`fireItem`).
  */
 function actionNamed(
     workspace: WorkspaceView | undefined,
@@ -3500,6 +3655,19 @@ function actionNamed(
     const missing = types.find((type) => !action.appliesTo.includes(type));
     if (missing) return { problem: `the ${name} action does not apply to ${missing === 'pr' ? 'pull requests' : 'issues'}` };
     return { action };
+}
+
+/**
+ * The types an action applies to, kept when the source's items may be of
+ * another (a poll's with `item:`, which `actionNamed` lets through when the
+ * action applies to one of them), so that a run on an item of another type
+ * is refused (`actionTypeRefusal`). Undefined when it applies to every type
+ * its items can be: then nothing records them, and definitions stay as they
+ * were.
+ */
+function typesItMayMiss(action: ActionView, source: ItemSource | undefined): Array<'pr' | 'issue'> | undefined {
+    const types = source?.itemTypes ?? [];
+    return types.every((type) => action.appliesTo.includes(type)) ? undefined : [...action.appliesTo];
 }
 
 /** What one of an entry's runs is about, by its source's items; undefined when its runs have no item. */
@@ -3660,15 +3828,16 @@ function stepItemOf(
     return { itemValue: (field) => source.itemValue(item, field, polled), ...(source.itemFields ? {} : { untypedItem: true }) };
 }
 
-/** An Inbox item as its entry's source names it: "sprocket/catalog-portal#51 “Title” by @alice". */
-function inboxLabel(entry: Resolved, item: InboxItemView): string {
-    return entry.source!.label(entry.event!.toSourceItem(item, true));
+/** Whether a source fired the run (the Inbox, or a poll's check), rather than a person or an agent asking. */
+function firedBySource(run: RunRecord): boolean {
+    return run.trigger.kind === 'event' || run.trigger.kind === 'poll';
 }
 
-/** An item as a steps run keeps it: its key and what its steps may read, as they were when it fired. */
-function itemSnapshot(key: string, item: InboxItemView): RunItem {
-    const { repo, number, type } = item.workItem;
-    return { key, url: item.url, title: item.title, repo, number, type, author: item.author };
+/** A run's trigger with its item's title (and author, when the source knows one) as its source has it now. */
+function refreshedTrigger(run: RunRecord, item: SourceItem): Pick<RunRecord, 'trigger'> | Record<string, never> {
+    const recorded = run.trigger.item;
+    if (!recorded) return {};
+    return { trigger: { ...run.trigger, item: { ...recorded, title: item.title, ...(item.author !== undefined ? { author: item.author } : {}) } } };
 }
 
 /** A problem with one entry, rather than with the file as a whole. */

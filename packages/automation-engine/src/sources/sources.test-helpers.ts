@@ -1,5 +1,5 @@
 import * as path from 'path';
-import type { RunRecord, RunTrigger } from '@consola/factory-spec';
+import type { RunRecord } from '@consola/factory-spec';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
 import { stepsHarness, WORKSPACE_ID, type FakeCommand, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
@@ -112,9 +112,9 @@ export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'>
     relaunchWith(yaml: string): Promise<SourcesHarness>;
     /**
      * One run of ws-1's poll entry `name` (default: the spec's template) on
-     * #51, as a check that finds it makes one, then whatever it set going.
-     * Checks fire nothing yet, so this is the service's own path for a fire,
-     * reached past `private`, with a poll trigger.
+     * #51, as its checks make one: the due checks end finding nothing (the
+     * first after Allow records what is there), then a Check now finds
+     * `PR_51_ROW`. The entry must be allowed: one that is not never checks.
      */
     fire(name?: string): Promise<RunRecord>;
     /** What every check prints from now on, as its stdout: these objects, as a JSON array. Until set, none (`[]`). */
@@ -126,11 +126,17 @@ export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'>
      * left as it is.
      */
     check(): Promise<void>;
+    /** A Check now on `name` (default: the spec's template) that prints `items`, run to completion with every other due check. */
+    checkSees(items: object[], name?: string): Promise<void>;
 }
 
 /** sprocket/catalog-portal#51, as a poll with `item: { github: .url }` reads it. */
 export const PR_51 = { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' as const };
 export const PR_51_URL = 'https://github.com/sprocket/catalog-portal/pull/51';
+/** #51's work item key, as the host keys it: the key of its seen record's member, its runs' item, and `previous`. */
+export const PR_51_KEY = itemKey({ provider: 'github', ...PR_51 });
+/** What the template's check prints for #51: its URL, title and head. */
+export const PR_51_ROW = { url: PR_51_URL, title: 'Fix the cart total', head: 'a' };
 
 const GITHUB_WORK_ITEM_URL = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
 
@@ -165,6 +171,23 @@ export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promi
     const checksDir = path.join(base.folder.workspaceDir(WORKSPACE_ID), 'checks');
     const isCheck = (command: FakeCommand) => path.dirname(path.dirname(command.spec.stdoutPath)) === checksDir;
 
+    const checkAll = async (harness: StepsHarness) => {
+        await harness.tick();
+        // Ending one frees the lane for another that is due: that one ends too.
+        for (let round = 0; round < 20; round++) {
+            const running = world.commands.filter((command) => isCheck(command) && !command.ended);
+            if (running.length === 0) return;
+            for (const command of running) await command.end({ stdout: printed });
+        }
+        throw new Error('Checks kept starting: a check() never settled.');
+    };
+    const checkSees = async (harness: StepsHarness, items: object[], name: string) => {
+        printed = JSON.stringify(items);
+        // Check now: refused for an entry not allowed, as a person's click is.
+        await harness.service.trigger(WORKSPACE_ID, name);
+        await checkAll(harness);
+    };
+
     const wrap = (harness: StepsHarness): SourcesHarness => ({
         ...harness,
         world,
@@ -181,32 +204,19 @@ export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promi
             return wrap(await harness.relaunch());
         },
         async fire(name = RE_REVIEW_NAME) {
-            const { service } = harness;
-            const entry = service['factories'].get(WORKSPACE_ID)?.resolved.find((candidate) => candidate.automation.name === name);
-            if (!entry) throw new Error(`ws-1 has no automation named ${name}.`);
-            const trigger: RunTrigger = {
-                kind: 'poll',
-                at: harness.now().toISOString(),
-                connection: 'github',
-                item: { key: itemKey({ provider: 'github', ...PR_51 }), url: PR_51_URL, title: 'Fix the cart total' },
-            };
-            const run = await service['fire'](entry, trigger);
-            await harness.flush();
+            const before = new Set(harness.store.runs().map((run) => run.id));
+            printed = '[]';
+            await checkAll(harness);
+            await checkSees(harness, [PR_51_ROW], name);
+            const run = harness.store.runs().find((candidate) => !before.has(candidate.id) && candidate.automationId === name);
+            if (!run) throw new Error(`A check of ${name} that found #51 made no run.`);
             return harness.store.get(run.id)!;
         },
         pollOutput(items) {
             printed = JSON.stringify(items);
         },
-        async check() {
-            await harness.tick();
-            // Ending one frees the lane for another that is due: that one ends too.
-            for (let round = 0; round < 20; round++) {
-                const running = world.commands.filter((command) => isCheck(command) && !command.ended);
-                if (running.length === 0) return;
-                for (const command of running) await command.end({ stdout: printed });
-            }
-            throw new Error('Checks kept starting: a check() never settled.');
-        },
+        check: () => checkAll(harness),
+        checkSees: (items, name = RE_REVIEW_NAME) => checkSees(harness, items, name),
     });
     return wrap(base);
 }

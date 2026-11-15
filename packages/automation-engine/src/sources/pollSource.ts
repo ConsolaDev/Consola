@@ -1,6 +1,7 @@
 import type { ExprValue, PollTrigger, RunItem } from '@consola/factory-spec';
 import { describeEvery } from '../describeEntry';
 import { fallbackWorkItemTitle, fillActionPlaceholders } from '../support';
+import type { PolledItem } from './checkResult';
 import {
     fenceUntrusted,
     MAX_FENCED_CHARS,
@@ -58,6 +59,24 @@ function cut(text: string): string {
     return characters.length > MAX_FENCED_CHARS ? characters.slice(0, MAX_FENCED_CHARS).join('') : text;
 }
 
+/**
+ * One item a check returned, as firing, a queued run's check and its start
+ * pass it around: its key, revision, identity and object as printed.
+ * `passes` is whether it may fire (an item of `item:` whose repository the
+ * workspace does not hold may not).
+ */
+export function polledSourceItem(polled: PolledItem, passes: boolean): SourceItem {
+    return {
+        key: polled.key,
+        ...(polled.rev !== undefined ? { rev: polled.rev } : {}),
+        passes,
+        title: polled.title,
+        url: polled.url,
+        ...(polled.workItem ? { workItem: polled.workItem } : {}),
+        object: polled.object,
+    };
+}
+
 export function pollSource(trigger: PollTrigger, workItemPart?: ItemSource): ItemSource {
     // A poll with `key:` has no work items; one with `item:` has them only through a connection that reads URLs.
     const part = trigger.item ? workItemPart : undefined;
@@ -93,7 +112,10 @@ export function pollSource(trigger: PollTrigger, workItemPart?: ItemSource): Ite
         describeItemHeader,
         fenceItem,
         itemValue(item, field, polled) {
-            if (IDENTITY.has(field) && identityOf(item)) return (item as unknown as Record<string, ExprValue | undefined>)[field];
+            // With `item:`, identity is trusted in prompts: it comes from the URL Consola parsed, or not at all, never from the object.
+            if (trigger.item && IDENTITY.has(field)) {
+                return identityOf(item) ? (item as unknown as Record<string, ExprValue | undefined>)[field] : undefined;
+            }
             if (!trigger.item && field === 'key') return item.key;
             return scalarOf(polled, field);
         },
