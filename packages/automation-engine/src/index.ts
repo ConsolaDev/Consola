@@ -94,3 +94,11 @@ export { resolveEventSource, scheduledPrompt, connectionCatalog, type EventSourc
 export { describeCapabilities, type AutomationCapabilities, type CapabilitiesInput } from './capabilities';
 export { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews, type AutomationTemplate, type TemplateRequirement } from './templates';
 export * from './node';
+export {
+    readCheckResult,
+    MAX_CHECK_STDOUT_BYTES,
+    MAX_CHECK_ITEMS,
+    MAX_CHECK_ITEM_BYTES,
+    TITLE_CHARS,
+    type PolledItem,
+} from './sources/checkResult';
