@@ -1,4 +1,4 @@
-import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
+import { isAgentRunPreview, isStepsRunPreview, type RunRecord, type StepRun, type StepRunStatus } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import { formatElapsed, type RunFacts } from './presentation';
 
@@ -12,18 +12,27 @@ import { formatElapsed, type RunFacts } from './presentation';
 /** A run in one of these is over. The renderer's copy: factory-spec's own pulls in Node's crypto. */
 const ENDED: ReadonlySet<RunFacts['status']> = new Set(['completed', 'failed', 'rejected']);
 
-export type RunStageKey = 'trigger' | 'preview' | 'approval' | 'queue' | 'run' | 'notify';
+export type RunStageKey = 'trigger' | 'preview' | 'approval' | 'queue' | 'run' | 'notify' | 'step';
 
 /**
  * How a run went through one stage, as a CI graph colours its jobs: through
  * it, broke there, turned down there, standing in it now, or never reached
  * it — `skipped` once the run is over, `pending` while it may still come.
  */
-export type RunStageState = 'passed' | 'failed' | 'stopped' | 'waiting' | 'queued' | 'running' | 'skipped' | 'pending';
+export type RunStageState = 'passed' | 'failed' | 'stopped' | 'waiting' | 'queued' | 'running' | 'skipped' | 'pending' | 'reported';
 
 export interface RunStage {
     key: RunStageKey;
     state: RunStageState;
+    /** For a `step` stage: the step this node is, as the record has it. */
+    step?: {
+        id: string;
+        kind: 'agent' | 'run';
+        status: StepRunStatus;
+        skipped?: string;
+        error?: string;
+        attempt: number;
+    };
     /** How long the run spent in it, when the record says; still counting while the run is in it. */
     ms: number | null;
 }
@@ -42,6 +51,7 @@ export interface RunStage {
  * approval when it asked for one.
  */
 export function runStages(run: RunRecord, now: Date): RunStage[] {
+    if (isStepsRunPreview(run.result)) return stepsRunStages(run, now);
     const agent = isAgentRunPreview(run.result);
     const keys: RunStageKey[] = ['trigger'];
     if (!agent && run.mode !== 'auto') keys.push('preview');
@@ -77,6 +87,82 @@ export function runStages(run: RunRecord, now: Date): RunStage[] {
         if (key === 'run') ms = span(started, until(finished));
         return { key, state, ms };
     });
+}
+
+/**
+ * A `steps:` run's stages: its trigger, its approval when it asked, then one
+ * node per step in file order. A step's own status says where the run is, so
+ * only a `pending` step reads the run: once the run is over it never came.
+ */
+function stepsRunStages(run: RunRecord, now: Date): RunStage[] {
+    const open = !ENDED.has(run.status);
+    const nowMs = now.getTime();
+    const stages: RunStage[] = [{ key: 'trigger', state: 'passed', ms: null }];
+    if (run.mode === 'confirm') {
+        const waiting = run.status === 'needs-approval';
+        const turnedDown = run.status === 'rejected' && !run.approvedAt;
+        const created = Date.parse(run.createdAt);
+        const until = waiting ? nowMs : turnedDown ? Date.parse(run.finishedAt ?? '') : firstOf(Date.parse(run.approvedAt ?? ''), Date.parse(run.startedAt ?? ''));
+        stages.push({ key: 'approval', state: waiting ? 'waiting' : turnedDown ? 'stopped' : 'passed', ms: span(created, until) });
+    }
+    for (const step of run.steps ?? []) {
+        const state = stepStageState(step.status, open);
+        const from = firstOf(Date.parse(step.queuedAt ?? ''), Date.parse(step.startedAt ?? ''));
+        const live = step.status === 'running' || step.status === 'queued';
+        const to = step.finishedAt ? Date.parse(step.finishedAt) : live ? nowMs : NaN;
+        stages.push({
+            key: 'step',
+            state,
+            ms: span(from, to),
+            step: {
+                id: step.id,
+                kind: step.kind,
+                status: step.status,
+                ...(step.skipped ? { skipped: step.skipped } : {}),
+                ...(step.error ? { error: step.error } : {}),
+                attempt: step.attempt,
+            },
+        });
+    }
+    return stages;
+}
+
+function stepStageState(status: StepRunStatus, open: boolean): RunStageState {
+    switch (status) {
+        case 'pending':
+            return open ? 'pending' : 'skipped';
+        case 'queued':
+            return 'queued';
+        case 'running':
+            return 'running';
+        case 'completed':
+            return 'passed';
+        case 'failed':
+            return 'failed';
+        case 'reported':
+            return 'reported';
+        case 'skipped':
+        case 'not-run':
+            return 'skipped';
+        default:
+            // Statuses only grow: one this build does not know is not drawn as an outcome.
+            return 'pending';
+    }
+}
+
+/**
+ * Whether a command step was cut off mid-run: it recorded that it was about
+ * to run (`intentAt`) and never recorded a result. It may or may not have
+ * done its work, which is why retrying it warns first.
+ */
+export function isInterruptedCommand(step: StepRun): boolean {
+    return (
+        step.kind === 'run' &&
+        step.status === 'failed' &&
+        Boolean(step.command?.intentAt) &&
+        step.command?.exitCode === undefined &&
+        step.command?.signal === undefined
+    );
 }
 
 /** The stage the run is in now, or ended in, and how. */

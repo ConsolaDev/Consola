@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import type { AgentRunPreview, RunRecord } from '../../../shared/automations';
+import type { AgentRunPreview, RunRecord, StepRun, StepsRunPreview } from '../../../shared/automations';
 import type { ConversationEntry } from '../../../shared/conversation';
 import {
     adjacentRuns,
     durationAgainstUsual,
     foundNothingToDo,
+    isInterruptedCommand,
     runNotes,
     runStages,
     stepBar,
@@ -316,5 +317,133 @@ describe('stepTimeline and stepBar', () => {
         expect(stepTimeline(unstarted, entries, NOW)).toEqual({ start: NOW.getTime() - 30 * SECOND, end: NOW.getTime() - 10 * SECOND });
         expect(stepTimeline(unstarted, [step('Read')], NOW)).toBeNull();
         expect(stepBar(step('Read'), 'unknown', { start: 0, end: 1 }, NOW)).toBeNull();
+    });
+});
+
+const STEPS_PREVIEW: StepsRunPreview = { kind: 'steps-run', steps: [], scope: 'api' } as unknown as StepsRunPreview;
+
+function stepOf(overrides: Partial<StepRun> & Pick<StepRun, 'id'>): StepRun {
+    return { kind: 'agent', status: 'pending', attempt: 1, ...overrides };
+}
+
+const stepsRecord = (steps: StepRun[], overrides: Partial<RunRecord> = {}) =>
+    record({ result: STEPS_PREVIEW, steps, ...overrides });
+
+const stepShape = (run: RunRecord) =>
+    runStages(run, NOW).map((stage) => (stage.step ? `step:${stage.step.id}:${stage.state}` : `${stage.key}:${stage.state}`));
+const stepMs = (run: RunRecord, id: string) => runStages(run, NOW).find((stage) => stage.step?.id === id)?.ms;
+
+describe('isInterruptedCommand', () => {
+    const interrupted = stepOf({ id: 'publish', kind: 'run', status: 'failed', command: { envNames: [], intentAt: ago(MINUTE) } });
+
+    it('is true for a failed command that recorded its intent and no result', () => {
+        expect(isInterruptedCommand(interrupted)).toBe(true);
+    });
+
+    it('is false for an agent step, another status, no intent, or a result', () => {
+        expect(isInterruptedCommand({ ...interrupted, kind: 'agent' })).toBe(false);
+        expect(isInterruptedCommand({ ...interrupted, status: 'completed' })).toBe(false);
+        expect(isInterruptedCommand({ ...interrupted, command: { envNames: [] } })).toBe(false);
+        expect(isInterruptedCommand({ ...interrupted, command: { envNames: [], intentAt: ago(MINUTE), exitCode: 1 } })).toBe(false);
+        expect(isInterruptedCommand({ ...interrupted, command: { envNames: [], intentAt: ago(MINUTE), exitCode: 0 } })).toBe(false);
+        expect(isInterruptedCommand({ ...interrupted, command: { envNames: [], intentAt: ago(MINUTE), signal: 'SIGTERM' } })).toBe(false);
+        expect(isInterruptedCommand({ ...interrupted, command: undefined })).toBe(false);
+    });
+});
+
+describe('runStages for a steps run', () => {
+    it('an asked and approved run has trigger, approval, then a node per step', () => {
+        const run = stepsRecord(
+            [
+                stepOf({ id: 'fetch', kind: 'run', status: 'completed', queuedAt: ago(8 * MINUTE), startedAt: ago(8 * MINUTE), finishedAt: ago(7 * MINUTE) }),
+                stepOf({ id: 'review', status: 'completed', queuedAt: ago(7 * MINUTE), startedAt: ago(6 * MINUTE), finishedAt: ago(4 * MINUTE) }),
+            ],
+            { mode: 'confirm', approvedAt: ago(9 * MINUTE), startedAt: ago(8 * MINUTE), finishedAt: ago(4 * MINUTE) },
+        );
+        expect(stepShape(run)).toEqual(['trigger:passed', 'approval:passed', 'step:fetch:passed', 'step:review:passed']);
+        expect(msOf(run, 'approval')).toBe(MINUTE);
+        expect(stepMs(run, 'fetch')).toBe(MINUTE);
+        // From queuedAt, so the wait for a slot counts.
+        expect(stepMs(run, 'review')).toBe(3 * MINUTE);
+    });
+
+    it('carries the step on its stage', () => {
+        const run = stepsRecord([stepOf({ id: 'fetch', kind: 'run', status: 'failed', attempt: 2, error: 'boom' })], { status: 'failed' });
+        expect(runStages(run, NOW)[1].step).toEqual({ id: 'fetch', kind: 'run', status: 'failed', error: 'boom', attempt: 2 });
+    });
+
+    it('a run at step 2 with step 3 pending counts the running step to now', () => {
+        const run = stepsRecord(
+            [
+                stepOf({ id: 'a', kind: 'run', status: 'completed', startedAt: ago(5 * MINUTE), finishedAt: ago(4 * MINUTE) }),
+                stepOf({ id: 'b', status: 'running', queuedAt: ago(4 * MINUTE), startedAt: ago(3 * MINUTE) }),
+                stepOf({ id: 'c', status: 'pending' }),
+            ],
+            { status: 'running', startedAt: ago(5 * MINUTE) },
+        );
+        expect(stepShape(run)).toEqual(['trigger:passed', 'step:a:passed', 'step:b:running', 'step:c:pending']);
+        expect([stepMs(run, 'a'), stepMs(run, 'b'), stepMs(run, 'c')]).toEqual([MINUTE, 4 * MINUTE, null]);
+    });
+
+    it('a queued step is queued, counting its wait', () => {
+        const run = stepsRecord([stepOf({ id: 'a', status: 'queued', queuedAt: ago(30 * SECOND) })], { status: 'running' });
+        expect(stepShape(run)).toEqual(['trigger:passed', 'step:a:queued']);
+        expect(stepMs(run, 'a')).toBe(30 * SECOND);
+    });
+
+    it('a completed run with a skipped step keeps it skipped', () => {
+        const run = stepsRecord(
+            [
+                stepOf({ id: 'a', status: 'completed', startedAt: ago(2 * MINUTE), finishedAt: ago(MINUTE) }),
+                stepOf({ id: 'b', status: 'skipped', skipped: 'if: false' }),
+            ],
+            { finishedAt: ago(MINUTE) },
+        );
+        expect(stepShape(run)).toEqual(['trigger:passed', 'step:a:passed', 'step:b:skipped']);
+        expect(stepMs(run, 'b')).toBeNull();
+    });
+
+    it('a run that failed at review leaves publish skipped, and a pending step of an ended run is skipped too', () => {
+        const run = stepsRecord(
+            [
+                stepOf({ id: 'review', status: 'failed', startedAt: ago(2 * MINUTE), finishedAt: ago(MINUTE), error: 'no' }),
+                stepOf({ id: 'publish', kind: 'run', status: 'not-run' }),
+                stepOf({ id: 'tidy', kind: 'run', status: 'pending' }),
+            ],
+            { status: 'failed', finishedAt: ago(MINUTE) },
+        );
+        expect(stepShape(run)).toEqual(['trigger:passed', 'step:review:failed', 'step:publish:skipped', 'step:tidy:skipped']);
+        expect(stepMs(run, 'review')).toBe(MINUTE);
+    });
+
+    it('a dry run draws a reported step as reported', () => {
+        const run = stepsRecord(
+            [
+                stepOf({ id: 'review', status: 'completed', startedAt: ago(2 * MINUTE), finishedAt: ago(MINUTE) }),
+                stepOf({ id: 'publish', kind: 'run', status: 'reported' }),
+            ],
+            { mode: 'notify', finishedAt: ago(MINUTE) },
+        );
+        expect(stepShape(run)).toEqual(['trigger:passed', 'step:review:passed', 'step:publish:reported']);
+    });
+
+    it('a run waiting for approval stands at approval with its steps pending', () => {
+        const run = stepsRecord([stepOf({ id: 'a', status: 'pending' })], { mode: 'confirm', status: 'needs-approval' });
+        expect(stepShape(run)).toEqual(['trigger:passed', 'approval:waiting', 'step:a:pending']);
+        expect(msOf(run, 'approval')).toBe(10 * MINUTE);
+    });
+
+    it('a dismissed run stopped at approval', () => {
+        const run = stepsRecord([stepOf({ id: 'a', status: 'pending' })], { mode: 'confirm', status: 'rejected', finishedAt: ago(8 * MINUTE) });
+        expect(stepShape(run)).toEqual(['trigger:passed', 'approval:stopped', 'step:a:skipped']);
+        expect(msOf(run, 'approval')).toBe(2 * MINUTE);
+    });
+});
+
+describe('legacy runs keep their stages', () => {
+    it('a run without steps has no step stages', () => {
+        const stages = runStages(record(), NOW);
+        expect(stages.map((stage) => stage.key)).toEqual(['trigger', 'run']);
+        expect(stages.every((stage) => stage.step === undefined)).toBe(true);
     });
 });

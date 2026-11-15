@@ -13,6 +13,7 @@ import {
   LoaderCircle,
   Play,
   RefreshCw,
+  RotateCcw,
   Timer,
   Trash2,
   type LucideIcon,
@@ -25,6 +26,7 @@ import type {
   SessionVerdict,
   StalePreview,
 } from '../../../shared/sessionCleanup';
+import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { isLookedAt } from '../../utils/windowAttention';
@@ -516,4 +518,60 @@ function outcomeEffect(outcome: SessionOutcome): string {
     ...outcome.notes,
   ].filter((part): part is string => Boolean(part));
   return parts.join(' · ');
+}
+
+/** A run still moving: Run again waits for it to end. */
+const MOVING: ReadonlySet<RunRecord['status']> = new Set(['running', 'queued', 'needs-approval']);
+
+/**
+ * Run again, as a run's page offers it: a new run of the automation's current
+ * version through its mode, for an automation that is not triggered by events,
+ * once this run is over and nothing of the automation is working. Renders
+ * nothing otherwise. `act` is the page's intent runner, so its busy state and
+ * error stay the page's.
+ */
+export function RunAgainButton({
+  workspaceId,
+  run,
+  automation,
+  history,
+  busy,
+  act,
+}: {
+  workspaceId: string;
+  run: RunRecord;
+  automation: AutomationView | undefined;
+  history: RunListEntry[];
+  busy: string | null;
+  act: (key: string, intent: () => Promise<unknown>) => Promise<void>;
+}) {
+  const openPanel = useAutomationsStore((state) => state.openPanel);
+  if (!automation || automation.onEvent || MOVING.has(run.status)) return null;
+  return (
+    <button
+      type="button"
+      className="dialog-button-secondary automations-small-button"
+      disabled={
+        busy !== null ||
+        Boolean(automation.problem) ||
+        history.some((candidate) => candidate.status === 'running' || candidate.status === 'queued')
+      }
+      title={
+        automation.problem
+          ? `Not running: ${automation.problem}`
+          : automation.mode === 'auto' && !automation.asksFirst
+            ? 'Run it again now'
+            : 'Preview it again now; nothing changes until you approve'
+      }
+      onClick={() =>
+        void act('rerun', async () => {
+          const next = await automationsBridge.runNow(workspaceId, run.automationId);
+          if (next) openPanel({ kind: 'run', runId: next.id });
+        })
+      }
+    >
+      <RotateCcw size={12} aria-hidden="true" />
+      {busy === 'rerun' ? 'Starting…' : 'Run again'}
+    </button>
+  );
 }

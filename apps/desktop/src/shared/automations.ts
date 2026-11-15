@@ -1,6 +1,6 @@
 import type { RunRecord } from '@consola/factory-spec';
 
-export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
+export type { AutomationMode, FactorySpecIssue, RunRecord, StepRun, StepRunStatus } from '@consola/factory-spec';
 import type { RunConversation } from './conversation';
 import type { Session } from './workspace';
 import type {
