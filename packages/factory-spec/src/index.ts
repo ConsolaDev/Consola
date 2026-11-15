@@ -22,8 +22,23 @@ export {
     type ExpressionScope,
     type PathExpr,
 } from './expression';
+export {
+    checkOutputs,
+    coerceOutput,
+    describeOutputType,
+    type OutputType,
+    type OutputValue,
+} from './outputs';
 export { parseAutomationEntry, type AutomationEntryResult } from './entry';
 export { parseFactorySpec, type FactorySpecIssue, type FactorySpecParseResult } from './parse';
+export {
+    hasTemplateBraces,
+    parseTemplate,
+    renderTemplate,
+    templatePaths,
+    type TemplatePart,
+    type TemplatePath,
+} from './template';
 export {
     TERMINAL_RUN_STATUSES,
     automationVersion,
