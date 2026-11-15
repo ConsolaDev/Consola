@@ -640,7 +640,7 @@ describe('across steps', () => {
         it('stays optional for a one-agent entry', () => expect(handoverOf(['- id: only\n  prompt: Go.'])).toBe('optional'));
         it('becomes required when a later step reads it', () =>
             expect(handoverOf(['- id: only\n  prompt: Go.', '- id: next\n  prompt: Go.\n  reads: [only.handover]'])).toBe('required'));
-        it('stays optional when only a prompt template mentions another artifact', () =>
+        it('stays optional when a later step does not read it', () =>
             expect(handoverOf(['- id: only\n  prompt: Go.', '- id: next\n  prompt: Go.'])).toBe('optional'));
     });
 

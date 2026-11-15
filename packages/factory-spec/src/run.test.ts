@@ -160,14 +160,12 @@ describe('automationVersion', () => {
             expect(versionOf(cron.replace('{{item.url}}', 'x'))).toBe(versionOf(later.replace('{{item.url}}', 'x')));
         });
 
-        it('an action body changes it only for the entry whose step names that action', () => {
+        // That an entry naming no action hashes no body is the service's to show ("hashes no body when no step names an action").
+        it('an action body changes it for an entry whose step names that action', () => {
             const named = '- name: r\n  on: { github: [pull_request.opened] }\n  mode: auto\n  steps:\n    - id: review\n      action: Review';
-            const inline = '- name: r\n  on: { github: [pull_request.opened] }\n  mode: auto\n  steps:\n    - id: review\n      prompt: Do it.';
             const body = (text: string) => stableStringify({ review: text });
             expect(versionOf(named, body('A'))).toBe(versionOf(named, body('A')));
             expect(versionOf(named, body('A'))).not.toBe(versionOf(named, body('B')));
-            // An entry that names no action resolves no body, so an action edit leaves it alone.
-            expect(versionOf(inline)).toBe(versionOf(inline));
         });
 
         it('if, outputs, artifacts, reads, env, timeout and dry_run each change it', () => {
