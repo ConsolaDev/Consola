@@ -3047,3 +3047,101 @@ describe('quitting', () => {
         expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error: STOPPED_COMMAND });
     });
 });
+
+describe('reading a run: steps, logs, artifacts', () => {
+    /** TEMPLATE's run with its review done and its command posted (its stdout and stderr on disk). */
+    async function published() {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        h.world.setOutputs('session-1', { verdict: 'comment' });
+        h.world.writeArtifact('session-1', 'handover', 'Two retries are unbounded.');
+        await h.world.endTurn('session-1');
+        await h.world.commands[0].end({ stdout: 'posted\n', stderr: 'warning: slow\n' });
+        return { h, run };
+    }
+    const unchanged = (h: StepsHarness) => ({
+        launches: h.world.launches.length,
+        commands: h.world.commands.length,
+        checkouts: h.world.checkouts.prepared.length,
+        notices: h.notices.length,
+    });
+
+    it('step detail, logs and artifacts are read from the run folder and start nothing', async () => {
+        const { h, run } = await published();
+        const before = unchanged(h);
+
+        const detail = h.service.getStepDetail(run.id, 'publish')!;
+        expect(detail).toMatchObject({ runId: run.id, step: { id: 'publish', kind: 'run' }, record: { id: 'publish', status: 'completed' } });
+        expect(detail.command?.env.map((row) => row.name)).toEqual(['REPO', 'NUMBER', 'BODY_FILE']);
+        expect(detail.command?.env[0]).toEqual({ name: 'REPO', template: '{{item.repo}}', value: 'sprocket/catalog-portal' });
+        expect(detail.stdout).toEqual({ text: 'posted\n', bytes: 7, truncated: false });
+        expect(detail.stderr?.text).toBe('warning: slow\n');
+        expect(h.service.readStepLog(run.id, 'publish', 'stdout')).toEqual({ text: 'posted\n', bytes: 7, truncated: false });
+        expect(h.service.readStepLog(run.id, 'publish', 'stderr')?.text).toBe('warning: slow\n');
+        expect(h.service.readArtifact(run.id, { step: 'review', name: 'handover' })).toEqual({ content: 'Two retries are unbounded.', bytes: 26 });
+        expect(h.service.getRunDefinition(run.id)?.automation.steps.map((step) => step.id)).toEqual(['review', 'publish']);
+
+        // An agent step has no command or logs, and a step or run that does not exist answers null.
+        const review = h.service.getStepDetail(run.id, 'review')!;
+        expect(review).toMatchObject({ step: { kind: 'agent' }, record: { id: 'review' } });
+        expect(review).not.toHaveProperty('command');
+        expect(h.service.getStepDetail(run.id, 'nope')).toBeNull();
+        expect(h.service.getStepDetail('no-such-run', 'publish')).toBeNull();
+        expect(h.service.getRunDefinition('no-such-run')).toBeNull();
+        expect(h.service.readStepLog(run.id, 'review', 'stdout')).toBeNull();
+        expect(h.service.readArtifact(run.id, { step: 'review', name: 'summary' })).toBeNull();
+
+        expect(unchanged(h)).toEqual(before);
+    });
+
+    it('readArtifact refuses a name that is not a token', async () => {
+        const { h, run } = await published();
+        const read = vi.spyOn(h.folder, 'readArtifact');
+        const outside = path.join(path.dirname(h.folder.runDir(WORKSPACE_ID, run.id)), 'definition.md');
+        fs.writeFileSync(outside, 'outside');
+
+        for (const name of ['../definition', '../../definition', 'handover/../../x', '', 'Handover', 'outputs.env', 'a'.repeat(65)]) {
+            expect(h.service.readArtifact(run.id, { step: 'review', name })).toBeNull();
+        }
+        for (const step of ['../review', 'review/..', '', 'nope', 'REVIEW']) {
+            expect(h.service.readArtifact(run.id, { step, name: 'handover' })).toBeNull();
+            expect(h.service.getStepDetail(run.id, step)).toBeNull();
+            expect(h.service.readStepLog(run.id, step, 'stdout')).toBeNull();
+        }
+        expect(read).not.toHaveBeenCalled();
+    });
+
+    it('never serves outputs.env, nor an artifact the step does not declare', async () => {
+        const { h, run } = await published();
+        const attempt = h.folder.attemptDir(WORKSPACE_ID, run.id, 'publish', 1);
+        fs.writeFileSync(path.join(attempt, 'outputs.env'), 'TOKEN=gho_stub\n');
+        // Even named `outputs`, and even once a file of that name exists.
+        h.folder.writeArtifact(WORKSPACE_ID, run.id, 'publish', 1, 'outputs', 'gho_stub');
+        h.folder.writeArtifact(WORKSPACE_ID, run.id, 'publish', 1, 'stray', 'gho_stub');
+        for (const name of ['outputs', 'outputs.env', 'outputs-env', 'stray', 'command', 'stdout']) {
+            expect(h.service.readArtifact(run.id, { step: 'publish', name })).toBeNull();
+        }
+        const everything = JSON.stringify([h.service.getStepDetail(run.id, 'publish'), h.service.readStepLog(run.id, 'publish', 'stdout')]);
+        expect(everything).not.toContain('gho_stub');
+    });
+
+    it("a step's conversation target is the step's own pointer and window", async () => {
+        const { h, run } = await published();
+        const target = h.service.stepConversationTarget(run.id, 'review')!;
+        const review = h.store.get(run.id)!.steps![0];
+        expect(target).toMatchObject({
+            conversation: review.conversation,
+            sessionId: review.sessionId,
+            startedAt: review.startedAt,
+            finishedAt: review.finishedAt,
+            createdAt: run.createdAt,
+            attribution: run.attribution,
+        });
+        expect(target.sessionId).toBeDefined();
+        expect(h.service.stepConversationTarget(run.id, 'publish')).toMatchObject({ sessionId: undefined, conversation: undefined });
+        expect(h.service.stepConversationTarget(run.id, 'nope')).toBeNull();
+        expect(h.service.stepConversationTarget('no-such-run', 'review')).toBeNull();
+    });
+});

@@ -60,6 +60,7 @@ import {
     stepToolSpecs,
     workspaceFactoryPath,
     type AutomationStateFile,
+    type ListRunsQuery,
 } from '@consola/automation-engine';
 import { createConductor } from './conductor/createConductor';
 import { scaffold } from './conductor/ConductorScaffold';
@@ -1066,6 +1067,49 @@ export function setupIpcHandlers(): boolean {
                 workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.sessions ?? [],
         });
     });
+    // A step's own part of its transcript, from disk like the run's. A step or run that is not there is unreadable.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION, async (_event, runId: unknown, stepId: unknown) => {
+        if (typeof runId !== 'string' || typeof stepId !== 'string') return { readable: false };
+        const target = automations.stepConversationTarget(runId, stepId);
+        if (!target) return { readable: false };
+        return readRunConversation(target, {
+            harnesses: () => harnesses.getAll(),
+            sessions: (workspaceId) =>
+                workspaces.getAll().find((candidate) => candidate.id === workspaceId)?.sessions ?? [],
+        });
+    });
+    // History's pages. A malformed request throws, like the intents above.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS, (_event, workspaceId: unknown, query: unknown) => {
+        const limit = (query as { limit?: unknown } | null)?.limit;
+        if (typeof workspaceId !== 'string' || typeof query !== 'object' || query === null || typeof limit !== 'number') {
+            throw new Error('Workspace id and a query with a limit required.');
+        }
+        return automations.listRuns(workspaceId, query as ListRunsQuery);
+    });
+    // The reads answer null for a bad argument or something that is not there, and start nothing.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, (_event, runId: unknown) =>
+        typeof runId === 'string' ? automations.getRunDefinition(runId) : null
+    );
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL, (_event, runId: unknown, stepId: unknown) =>
+        typeof runId === 'string' && typeof stepId === 'string' ? automations.getStepDetail(runId, stepId) : null
+    );
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG, (_event, runId: unknown, stepId: unknown, stream: unknown) =>
+        typeof runId === 'string' && typeof stepId === 'string' && (stream === 'stdout' || stream === 'stderr')
+            ? automations.readStepLog(runId, stepId, stream)
+            : null
+    );
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, (_event, runId: unknown, ref: unknown) => {
+        const { step, name } = (typeof ref === 'object' && ref !== null ? ref : {}) as { step?: unknown; name?: unknown };
+        return typeof runId === 'string' && typeof step === 'string' && typeof name === 'string'
+            ? automations.readArtifact(runId, { step, name })
+            : null;
+    });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RETRY, (_event, runId: unknown, stepId: unknown) => {
+        if (typeof runId !== 'string' || (stepId !== undefined && typeof stepId !== 'string')) {
+            throw new Error('Run id, and a step id or none, required.');
+        }
+        return automations.retry(runId, stepId);
+    });
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_STOP, (_event, runId: string) => {
         if (typeof runId !== 'string') throw new Error('Run id required.');
         automations.stop(runId);
@@ -1633,6 +1677,13 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RETRY);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_STOP);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING);

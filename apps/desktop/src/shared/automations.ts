@@ -3,7 +3,16 @@ import type { RunRecord } from '@consola/factory-spec';
 export type { AutomationMode, FactorySpecIssue, RunRecord } from '@consola/factory-spec';
 import type { RunConversation } from './conversation';
 import type { Session } from './workspace';
-import type { AgentRunPreview, AutomationsSnapshot, StepsRunPreview } from '@consola/automation-engine';
+import type {
+    AgentRunPreview,
+    AutomationsSnapshot,
+    ListRunsQuery,
+    LogTail,
+    RunDefinition,
+    RunListPage,
+    StepDetail,
+    StepsRunPreview,
+} from '@consola/automation-engine';
 export type {
     AutomationView,
     TemplateView,
@@ -22,6 +31,9 @@ export type {
     AutomationsSnapshot,
     RunDefinition,
     StepsRunPreview,
+    StepDetail,
+    LogTail,
+    CommandFile,
 } from '@consola/automation-engine';
 
 /** What a new automation's session starts from: one of the file's entries, or a template. */
@@ -67,6 +79,20 @@ export interface AutomationsAPI {
     getRun: (runId: string) => Promise<RunRecord | null>;
     /** A run's part of its conversation, read from the transcript; never starts or resumes anything. */
     readConversation: (runId: string) => Promise<RunConversation>;
+    /** One step's part of its conversation, from the transcript, with the step's own pointer and window; never starts anything. */
+    readStepConversation: (runId: string, stepId: string) => Promise<RunConversation>;
+    /** One page of a workspace's history, newest first, narrowed before it is paged; `before` is the last run of the page before. */
+    listRuns: (workspaceId: string, query: ListRunsQuery) => Promise<RunListPage>;
+    /** A steps run's whole definition snapshot; null for a run without one. */
+    getRunDefinition: (runId: string) => Promise<RunDefinition | null>;
+    /** A step's latest attempt: record, definition, `command.json` and the last 64 KB of each log. Null when there is no such step. */
+    getStepDetail: (runId: string, stepId: string) => Promise<StepDetail | null>;
+    /** "Show all": a step log up to the 1 MB it holds. Null when there is no such step or log. */
+    readStepLog: (runId: string, stepId: string, stream: 'stdout' | 'stderr') => Promise<LogTail | null>;
+    /** A declared artifact of the step's latest attempt; null when the step, the name or the file is not there. */
+    readArtifact: (runId: string, ref: { step: string; name: string }) => Promise<{ content: string; bytes: number } | null>;
+    /** Retry a failed steps run, from its failed step (the only one a retry accepts); the click is the approval. */
+    retry: (runId: string, stepId?: string) => Promise<RunRecord>;
     stop: (runId: string) => Promise<void>;
     /** Add a ready-made automation to the workspace's factory.yml. */
     addTemplate: (workspaceId: string, templateId: string) => Promise<void>;

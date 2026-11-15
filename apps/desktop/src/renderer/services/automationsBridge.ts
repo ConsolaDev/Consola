@@ -1,4 +1,14 @@
-import type { AuthoringRequest, AutomationsChange, AutomationsSnapshot, RunRecord } from '../../shared/automations';
+import type {
+    AuthoringRequest,
+    AutomationsChange,
+    AutomationsSnapshot,
+    ListRunsQuery,
+    LogTail,
+    RunDefinition,
+    RunListPage,
+    RunRecord,
+    StepDetail,
+} from '../../shared/automations';
 import type { RunConversation } from '../../shared/conversation';
 import type { Session } from '../../shared/workspace';
 
@@ -45,6 +55,33 @@ export const automationsBridge = {
     /** A run's conversation from its transcript on disk: never starts or resumes a session. */
     readConversation: async (runId: string): Promise<RunConversation> =>
         (getAPI() ?? unavailable()).readConversation(runId),
+
+    /** One step's conversation from its transcript on disk, with the step's own pointer and window. */
+    readStepConversation: async (runId: string, stepId: string): Promise<RunConversation> =>
+        (getAPI() ?? unavailable()).readStepConversation(runId, stepId),
+
+    /** One page of history, newest first; the filter narrows before the page is cut. */
+    listRuns: async (workspaceId: string, query: ListRunsQuery): Promise<RunListPage> =>
+        (getAPI() ?? unavailable()).listRuns(workspaceId, query),
+
+    /** A steps run's whole definition snapshot; null for a run without one. */
+    getRunDefinition: async (runId: string): Promise<RunDefinition | null> =>
+        getAPI()?.getRunDefinition(runId) ?? null,
+
+    /** A step's latest attempt, with its command and the end of each log; null when there is no such step. */
+    getStepDetail: async (runId: string, stepId: string): Promise<StepDetail | null> =>
+        getAPI()?.getStepDetail(runId, stepId) ?? null,
+
+    /** A whole step log (up to 1 MB); null when there is none. */
+    readStepLog: async (runId: string, stepId: string, stream: 'stdout' | 'stderr'): Promise<LogTail | null> =>
+        getAPI()?.readStepLog(runId, stepId, stream) ?? null,
+
+    /** A declared artifact of the step's latest attempt; null when it is not there. */
+    readArtifact: async (runId: string, ref: { step: string; name: string }): Promise<{ content: string; bytes: number } | null> =>
+        getAPI()?.readArtifact(runId, ref) ?? null,
+
+    /** Retry a failed steps run from its failed step. */
+    retry: async (runId: string, stepId?: string): Promise<RunRecord> => (getAPI() ?? unavailable()).retry(runId, stepId),
 
     stop: async (runId: string): Promise<void> => (getAPI() ?? unavailable()).stop(runId),
 

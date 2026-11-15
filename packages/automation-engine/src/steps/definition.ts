@@ -1,4 +1,4 @@
-import type { StepsAutomation } from '@consola/factory-spec';
+import type { Step, StepRun, StepsAutomation } from '@consola/factory-spec';
 
 /** What a steps run executes: the entry as it was approved, with every action a step names. */
 export interface RunDefinition {
@@ -24,3 +24,29 @@ export interface StepsRunPreview {
 
 /** The most one artifact (and a step's `output`) may hold. */
 export const MAX_ARTIFACT_BYTES = 256 * 1024;
+
+/** The end of a log, as stored: masked and stripped of escapes when written, so it is passed on untouched. */
+export interface LogTail {
+    text: string;
+    /** The whole file's size. */
+    bytes: number;
+    truncated: boolean;
+}
+
+/** `command.json`: where a command ran, what it ran, and each `env:` value as its file wrote it and as it rendered. */
+export interface CommandFile {
+    cwd: string;
+    command: string;
+    env: Array<{ name: string; template: string; value: string }>;
+}
+
+/** One step's latest attempt, as the run folder holds it. Tails are the last 64 KB. */
+export interface StepDetail {
+    runId: string;
+    step: Step;
+    /** `previous` lists the earlier attempts. */
+    record: StepRun;
+    command?: CommandFile;
+    stdout?: LogTail;
+    stderr?: LogTail;
+}

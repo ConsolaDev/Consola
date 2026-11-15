@@ -6,6 +6,9 @@ import type { Session } from '../../shared/workspace';
 import { getDriver, toHarnessConfig, type HarnessDriver } from '../drivers';
 import { launchFieldsFor } from '../SessionLauncher';
 
+/** What a conversation is read from: a run's own fields, or a step's pointer and window laid over them. */
+export type ConversationTarget = Pick<RunRecord, 'conversation' | 'sessionId' | 'startedAt' | 'createdAt' | 'finishedAt' | 'attribution'>;
+
 export interface RunConversationDeps {
     /** Every harness record, archived ones included. */
     harnesses(): Harness[];
@@ -21,7 +24,7 @@ export interface RunConversationDeps {
  * runs): a session can carry on past the run. A run from before runs
  * recorded their conversation falls back to its session, if that still exists.
  */
-export async function readRunConversation(run: RunRecord, deps: RunConversationDeps): Promise<RunConversation> {
+export async function readRunConversation(run: ConversationTarget, deps: RunConversationDeps): Promise<RunConversation> {
     let pointer = run.conversation && { harnessId: run.conversation.harnessId, id: run.conversation.id };
     if (!pointer && run.sessionId && run.attribution.workspaceId) {
         const session = deps

@@ -32,7 +32,7 @@ export function layerCommandEnv(
     return withoutGitHooks({ ...base, ...rendered, ...consola });
 }
 
-function utf8Bytes(text: string): number {
+export function utf8Bytes(text: string): number {
     return new TextEncoder().encode(text).length;
 }
 

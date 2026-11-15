@@ -1,5 +1,6 @@
 import { createHash } from 'crypto';
 import {
+    ARTIFACT_NAME_PATTERN,
     automationEntryText,
     automationVersion,
     isStepsEntry,
@@ -7,6 +8,7 @@ import {
     parseAutomationEntry,
     parseFactorySpec,
     stableStringify,
+    STEP_ID_PATTERN,
     stepItemFieldProblems,
     TERMINAL_RUN_STATUSES,
     type AgentStep,
@@ -18,6 +20,7 @@ import {
     type RunRecord,
     type RunStatus,
     type RunTrigger,
+    type Step,
     type StepRun,
     type StepsAutomation,
 } from '@consola/factory-spec';
@@ -59,7 +62,7 @@ import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './te
 import { agentStepLaunch, endedWithout, itemRefOf, runEventSource } from './steps/agentStep';
 import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
-import { maskSecrets } from './steps/commandIO';
+import { LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
 import {
     commandOutcome,
     commandSpec,
@@ -71,7 +74,7 @@ import {
     writeCommandFile,
     type PreparedCommand,
 } from './steps/commandStep';
-import type { RunDefinition, StepsRunPreview } from './steps/definition';
+import type { CommandFile, LogTail, RunDefinition, StepDetail, StepsRunPreview } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
 import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
 import {
@@ -225,6 +228,8 @@ const RESUME_SESSION_OPENED = 'Consola quit while it ran, and you opened its ses
 export const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
 
 /** The lanes slots are counted in: agent turns, and commands, each with a cap of its own. */
+/** What a step's detail carries of each log: the end of it. */
+const STEP_TAIL_BYTES = 64 * 1024;
 const LANES: readonly Lane[] = ['agent', 'command'];
 
 /** The turn an automation session gets when Consola quit before its first one finished. */
@@ -1031,6 +1036,122 @@ export class AutomationService {
                     : {}),
             };
         });
+    }
+
+    /** A run's definition snapshot, whole; null for a run without one (a legacy run, or one the history dropped). */
+    public getRunDefinition(runId: string): RunDefinition | null {
+        return this.readSteps(runId)?.definition ?? null;
+    }
+
+    /**
+     * One step's latest attempt: its record, definition, `command.json` and the
+     * last 64 KB of each log. Read from the record and the run folder only —
+     * nothing starts, and nothing is broadcast. Log text is passed on as stored.
+     */
+    public getStepDetail(runId: string, stepId: string): StepDetail | null {
+        const found = this.stepOf(runId, stepId);
+        if (!found) return null;
+        const { run, workspaceId, step, record } = found;
+        const detail: StepDetail = { runId, step, record };
+        if (step.kind !== 'run') return detail;
+        const dir = this.deps.runFolder.attemptDir(workspaceId, run.id, step.id, record.attempt);
+        const command = this.readCommandFile(`${dir}/command.json`);
+        const stdout = this.readTail(`${dir}/stdout.log`, STEP_TAIL_BYTES);
+        const stderr = this.readTail(`${dir}/stderr.log`, STEP_TAIL_BYTES);
+        return { ...detail, ...(command ? { command } : {}), ...(stdout ? { stdout } : {}), ...(stderr ? { stderr } : {}) };
+    }
+
+    /** "Show all": up to the 1 MB a log holds. Null when the step, the attempt's folder or the log is not there. */
+    public readStepLog(runId: string, stepId: string, stream: 'stdout' | 'stderr'): LogTail | null {
+        const found = this.stepOf(runId, stepId);
+        if (!found || (stream !== 'stdout' && stream !== 'stderr')) return null;
+        const dir = this.deps.runFolder.attemptDir(found.workspaceId, runId, stepId, found.record.attempt);
+        return this.readTail(`${dir}/${stream}.log`, LOG_CAP_BYTES);
+    }
+
+    /**
+     * An artifact of the step's latest attempt, only one the step declares (or
+     * `handover` or `output`), by a name that is a token: so `outputs.env`,
+     * which is raw on disk, and anything outside the folder are unreachable.
+     */
+    public readArtifact(runId: string, ref: { step: string; name: string }): { content: string; bytes: number } | null {
+        const name = ref?.name;
+        if (typeof name !== 'string' || !ARTIFACT_NAME_PATTERN.test(name)) return null;
+        const found = this.stepOf(runId, ref.step);
+        if (!found) return null;
+        const declared = found.step.kind === 'agent' ? found.step.artifacts : [];
+        if (name !== 'handover' && name !== 'output' && !declared.includes(name)) return null;
+        try {
+            const content = this.deps.runFolder.readArtifact(found.workspaceId, runId, found.step.id, found.record.attempt, name);
+            return content === null ? null : { content, bytes: utf8Bytes(content) };
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * What `readRunConversation` needs to read one step's transcript: the run's
+     * own fields, with the step's pointer, session and window in place of the
+     * run's. Null for a step that is not there. Reads nothing itself.
+     */
+    public stepConversationTarget(
+        runId: string,
+        stepId: string
+    ): Pick<RunRecord, 'conversation' | 'sessionId' | 'startedAt' | 'createdAt' | 'finishedAt' | 'attribution'> | null {
+        const run = this.deps.store.get(runId);
+        const record = typeof stepId === 'string' ? run?.steps?.find((candidate) => candidate.id === stepId) : undefined;
+        if (!run || !record) return null;
+        return {
+            conversation: record.conversation,
+            sessionId: record.sessionId,
+            startedAt: record.startedAt,
+            finishedAt: record.finishedAt,
+            createdAt: run.createdAt,
+            attribution: run.attribution,
+        };
+    }
+
+    /** A steps run's workspace and definition, read from its folder; null when either is missing or unreadable. */
+    private readSteps(runId: string): { run: RunRecord; workspaceId: string; definition: RunDefinition } | null {
+        if (typeof runId !== 'string') return null;
+        const run = this.deps.store.get(runId);
+        const workspaceId = run?.attribution.workspaceId;
+        if (!run || !workspaceId) return null;
+        try {
+            const definition = this.deps.runFolder.readDefinition(workspaceId, run.id);
+            return definition ? { run, workspaceId, definition } : null;
+        } catch {
+            return null;
+        }
+    }
+
+    /** A step of a steps run, by an id that is a step id: its record's latest attempt and its definition. */
+    private stepOf(runId: string, stepId: string): { run: RunRecord; workspaceId: string; step: Step; record: StepRun } | null {
+        if (typeof stepId !== 'string' || !STEP_ID_PATTERN.test(stepId)) return null;
+        const read = this.readSteps(runId);
+        const step = read?.definition.automation.steps.find((candidate) => candidate.id === stepId);
+        const record = read?.run.steps?.find((candidate) => candidate.id === stepId);
+        return read && step && record ? { run: read.run, workspaceId: read.workspaceId, step, record } : null;
+    }
+
+    private readCommandFile(file: string): CommandFile | undefined {
+        try {
+            const text = this.deps.runFolder.readText(file, LOG_CAP_BYTES);
+            const parsed: unknown = text === null ? null : JSON.parse(text);
+            const { cwd, command, env } = (parsed ?? {}) as Partial<CommandFile>;
+            if (typeof cwd !== 'string' || typeof command !== 'string' || !Array.isArray(env)) return undefined;
+            return { cwd, command, env: env.map((row) => ({ name: String(row?.name), template: String(row?.template), value: String(row?.value) })) };
+        } catch {
+            return undefined;
+        }
+    }
+
+    private readTail(file: string, bytes: number): LogTail | null {
+        try {
+            return this.deps.runFolder.tail(file, bytes);
+        } catch {
+            return null;
+        }
     }
 
     /** One run, whole: its result and approval too, which the activity list leaves out. */
