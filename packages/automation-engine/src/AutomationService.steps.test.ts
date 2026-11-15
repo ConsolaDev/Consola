@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
-import { automationVersion, parseFactorySpec, stableStringify, type RunRecord } from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify, type RunRecord, type StepRunStatus } from '@consola/factory-spec';
 import { INTERRUPTED_PROMPT } from './AutomationService';
 import { inboxItem } from './inboxItems.test-helpers';
 import { INTERRUPTED_COMMAND, recoverAfterRestart } from './steps/recover';
@@ -1762,6 +1762,185 @@ describe('a steps run, as Activity lists it', () => {
                 { id: 'summary', status: 'not-run' },
             ],
         });
+    });
+});
+
+describe('the snapshot and history by page', () => {
+    const DAY = 86_400_000;
+
+    /**
+     * `count` ended runs of ws-1, a minute apart, the newest `run-<count-1>`: the
+     * harness's own run is the oldest, `run-001` to `run-<count-1>` clone it.
+     */
+    async function withHistory(count: number): Promise<{ h: StepsHarness; template: RunRecord }> {
+        const h = await stepsHarness({ yaml: DAILY });
+        const template = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        h.service.dismiss(template.id);
+        const base = h.now().getTime() - 3600_000;
+        const oldest = new Date(base - (count + 1) * 60_000).toISOString();
+        h.store.update(template.id, { createdAt: oldest, updatedAt: oldest, finishedAt: oldest });
+        for (let index = 1; index < count; index++) {
+            const at = new Date(base - (count - index) * 60_000).toISOString();
+            h.store.add({
+                ...structuredClone(h.store.get(template.id)!),
+                id: `run-${String(index).padStart(3, '0')}`,
+                createdAt: at,
+                updatedAt: at,
+                finishedAt: at,
+            });
+        }
+        return { h, template };
+    }
+
+    const ids = (runs: Array<{ id: string }>) => runs.map((run) => run.id);
+
+    it('the snapshot holds live runs plus the newest 200', async () => {
+        const { h, template } = await withHistory(300);
+        // One live run is older than the 200th ended run: it is still there.
+        for (const [id, createdAt] of [['live-a', '2026-01-01T00:00:00.000Z'], ['live-b', h.now().toISOString()]]) {
+            h.store.add({ ...structuredClone(template), id, status: 'queued', finishedAt: undefined, createdAt });
+        }
+        const snapshot = h.service.snapshot(WORKSPACE_ID);
+        expect(snapshot.runs).toHaveLength(202);
+        expect(ids(snapshot.runs)).toEqual(expect.arrayContaining(['live-a', 'live-b']));
+        expect(ids(snapshot.runs)).toContain('run-299');
+        expect(ids(snapshot.runs)).toContain('run-100');
+        expect(ids(snapshot.runs)).not.toContain('run-099');
+        expect(snapshot.hasOlder).toBe(true);
+    });
+
+    it('hasOlder counts this workspace only', async () => {
+        const { h, template } = await withHistory(5);
+        for (let index = 0; index < 250; index++) {
+            h.store.add({ ...structuredClone(template), id: `other-${index}`, attribution: { ...template.attribution, workspaceId: 'ws-2' } });
+        }
+        const snapshot = h.service.snapshot(WORKSPACE_ID);
+        expect(snapshot.hasOlder).toBe(false);
+        expect(snapshot.runs).toHaveLength(5);
+    });
+
+    it('hasOlder is false when what lies past 200 is older than the 30-day window, as listRuns lists nothing of it', async () => {
+        const { h, template } = await withHistory(200);
+        // filterRuns keeps an ended run only if it finished (else updated, else was created) within 30 days.
+        // Added last: retention measures each added run against its own clock.
+        const old = new Date(h.now().getTime() - 40 * DAY).toISOString();
+        for (const id of ['stale-a', 'stale-b']) {
+            h.store.add({ ...structuredClone(template), id, createdAt: old, updatedAt: old, finishedAt: old });
+        }
+        expect(h.service.snapshot(WORKSPACE_ID).runs).toHaveLength(200);
+        expect(h.service.snapshot(WORKSPACE_ID).hasOlder).toBe(false);
+        expect(h.service.listRuns(WORKSPACE_ID, { limit: 50, before: template.id })).toEqual({ runs: [], hasOlder: false });
+    });
+
+    it('a list entry never carries steps, and names its current step', async () => {
+        const h = await stepsHarness({ yaml: DAILY });
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        h.store.update(run.id, {
+            status: 'queued',
+            steps: [
+                { id: 'a', kind: 'run', status: 'completed', attempt: 1 },
+                { id: 'b', kind: 'run', status: 'skipped', attempt: 1 },
+                { id: 'publish', kind: 'run', status: 'queued', attempt: 1 },
+            ],
+        });
+        const [entry] = h.service.snapshot(WORKSPACE_ID).runs;
+        expect(entry).not.toHaveProperty('steps');
+        expect(entry.step).toEqual({ id: 'publish', status: 'queued', index: 3, count: 3 });
+    });
+
+    describe('the step an ended run names', () => {
+        async function stepOf(status: RunRecord['status'], steps: RunRecord['steps']) {
+            const h = await stepsHarness({ yaml: DAILY });
+            const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+            h.store.update(run.id, { status, steps, finishedAt: h.now().toISOString() });
+            return h.service.snapshot(WORKSPACE_ID).runs[0].step;
+        }
+        const step = (id: string, status: StepRunStatus, attempt = 1) => ({ id, kind: 'run' as const, status, attempt });
+
+        it('is the failed step of a failed run', async () => {
+            expect(await stepOf('failed', [step('s1', 'completed'), step('s2', 'failed'), step('s3', 'not-run')])).toEqual({
+                id: 's2',
+                status: 'failed',
+                index: 2,
+                count: 3,
+            });
+        });
+
+        it('is the last step that ran for any other ended run, a failed one included, and differs from a failed run', async () => {
+            const steps = [step('s1', 'failed'), step('s2', 'completed'), step('s3', 'skipped')];
+            expect(await stepOf('completed', steps)).toEqual({ id: 's2', status: 'completed', index: 2, count: 3 });
+            expect(await stepOf('failed', steps)).toEqual({ id: 's1', status: 'failed', index: 1, count: 3 });
+            expect(await stepOf('rejected', [step('s1', 'completed'), step('s2', 'failed')])).toMatchObject({ id: 's2', status: 'failed' });
+        });
+
+        it('is a dry run\'s last reported step', async () => {
+            expect(await stepOf('completed', [step('s1', 'reported'), step('s2', 'reported'), step('s3', 'skipped')])).toEqual({
+                id: 's2',
+                status: 'reported',
+                index: 2,
+                count: 3,
+            });
+        });
+
+        it('is the retried step as it finished, not its earlier failure', async () => {
+            const retried = { ...step('s2', 'completed', 2), previous: [{ attempt: 1, status: 'failed' as const }] };
+            expect(await stepOf('completed', [step('s1', 'completed'), retried, step('s3', 'skipped')])).toMatchObject({ id: 's2', index: 2 });
+        });
+
+        it('is none for a run that failed before any step ran, or that has no steps', async () => {
+            expect(await stepOf('failed', [step('s1', 'not-run'), step('s2', 'not-run')])).toBeUndefined();
+            expect(await stepOf('rejected', [step('s1', 'not-run')])).toBeUndefined();
+            expect(await stepOf('completed', undefined)).toBeUndefined();
+        });
+    });
+
+    it('listRuns pages from the run before, with no duplicate or skip across a tied createdAt', async () => {
+        const { h, template } = await withHistory(300);
+        // Two runs at the same instant across the page boundary: newest first, ties by id descending.
+        // `run-2499` was added last, so only the tie-break puts `run-250` ahead of it.
+        const at = h.store.get('run-250')!.createdAt;
+        h.store.add({ ...structuredClone(template), id: 'run-2499', createdAt: at, updatedAt: at, finishedAt: at });
+        const first = h.service.listRuns(WORKSPACE_ID, { limit: 50 });
+        expect(first.runs).toHaveLength(50);
+        expect(first.hasOlder).toBe(true);
+        const second = h.service.listRuns(WORKSPACE_ID, { limit: 50, before: first.runs[49].id });
+        const listed = [...ids(first.runs), ...ids(second.runs)];
+        const num = (n: number) => `run-${String(n).padStart(3, '0')}`;
+        expect(new Set(listed).size).toBe(100);
+        expect(listed).toEqual([
+            ...Array.from({ length: 50 }, (_, index) => num(299 - index)),
+            'run-2499',
+            ...Array.from({ length: 49 }, (_, index) => num(249 - index)),
+        ]);
+        expect(first.runs[49].id).toBe('run-250');
+        expect(second.runs[0]).not.toHaveProperty('steps');
+    });
+
+    it('listRuns answers an unknown run with an empty page, clamps the limit, and ends with hasOlder false', async () => {
+        const { h } = await withHistory(250);
+        expect(h.service.listRuns(WORKSPACE_ID, { limit: 10, before: 'nope' })).toEqual({ runs: [], hasOlder: false });
+        expect(h.service.listRuns(WORKSPACE_ID, { limit: 5000 }).runs).toHaveLength(200);
+        expect(h.service.listRuns(WORKSPACE_ID, { limit: 0 }).runs).toHaveLength(1);
+        expect(h.service.listRuns(WORKSPACE_ID, { limit: -4 }).runs).toHaveLength(1);
+        const last = h.service.listRuns(WORKSPACE_ID, { limit: 200, before: 'run-050' });
+        expect(last.runs).toHaveLength(50);
+        expect(last.hasOlder).toBe(false);
+    });
+
+    it('listRuns lists only the workspace asked for', async () => {
+        const { h, template } = await withHistory(3);
+        h.store.add({ ...structuredClone(template), id: 'elsewhere', attribution: { ...template.attribution, workspaceId: 'ws-2' } });
+        expect(ids(h.service.listRuns(WORKSPACE_ID, { limit: 50 }).runs)).not.toContain('elsewhere');
+        expect(h.service.listRuns(WORKSPACE_ID, { limit: 50, before: 'elsewhere' }).runs).toEqual([]);
+    });
+
+    it('listRuns searches all of history', async () => {
+        const { h } = await withHistory(300);
+        h.store.update('run-005', { summary: 'Published the catalog digest.' });
+        expect(ids(h.service.snapshot(WORKSPACE_ID).runs)).not.toContain('run-005');
+        const found = h.service.listRuns(WORKSPACE_ID, { limit: 50, query: 'catalog digest' });
+        expect(ids(found.runs)).toEqual(['run-005']);
+        expect(found.hasOlder).toBe(false);
     });
 });
 

@@ -124,7 +124,14 @@ export const SNAPSHOT_ENDED_RUNS = 200;
 
 /** One page of a workspace's history, newest first, read from main rather than pushed. */
 export interface ListRunsQuery {
-    /** The id of the last run shown: the page starts strictly after it. */
+    /**
+     * A run id: the page holds the runs strictly older in newest-first order.
+     * A caller paging after the snapshot passes the oldest *ended* run it
+     * shows, never the snapshot's last row, and dedupes by id: that last row
+     * can be an old live run, and starting after it would skip ended runs.
+     * An id that names no run of the workspace (or one the filter drops)
+     * gives an empty page.
+     */
     before?: string;
     /** How many runs, 1 to 200. */
     limit: number;

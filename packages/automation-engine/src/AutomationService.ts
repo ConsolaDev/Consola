@@ -51,7 +51,7 @@ import type {
     RunningCommand,
     ToolsPort,
 } from './ports';
-import { filterRuns } from './runFilter';
+import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
 import { SNAPSHOT_ENDED_RUNS } from './views';
 import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
@@ -1181,22 +1181,24 @@ export class AutomationService {
      */
     public listRuns(workspaceId: string, query: ListRunsQuery): RunListPage {
         const limit = Math.min(200, Math.max(1, Math.floor(query.limit)));
+        const after = this.historyAfter(workspaceId, query.before, {
+            query: query.query ?? '',
+            kind: query.kind ?? 'all',
+            automation: query.automation ?? null,
+        });
+        return { runs: after.slice(0, limit), hasOlder: after.length > limit };
+    }
+
+    /** The runs `listRuns` would list after `before` (all of them without one), newest first; none for a `before` it does not list. */
+    private historyAfter(workspaceId: string, before: string | undefined, filter: RunListFilter): RunListEntry[] {
         const entries = this.deps.store
             .runs()
             .filter((run) => run.attribution.workspaceId === workspaceId)
             .map(toListEntry);
-        const ordered = filterRuns(
-            entries,
-            { query: query.query ?? '', kind: query.kind ?? 'all', automation: query.automation ?? null },
-            this.deps.now(),
-        ).sort(newestFirst);
-        let start = 0;
-        if (query.before !== undefined) {
-            const at = ordered.findIndex((run) => run.id === query.before);
-            if (at < 0) return { runs: [], hasOlder: false };
-            start = at + 1;
-        }
-        return { runs: ordered.slice(start, start + limit), hasOlder: ordered.length > start + limit };
+        const ordered = filterRuns(entries, filter, this.deps.now()).sort(newestFirst);
+        if (before === undefined) return ordered;
+        const at = ordered.findIndex((run) => run.id === before);
+        return at < 0 ? [] : ordered.slice(at + 1);
     }
 
     public snapshot(workspaceId: string): AutomationsSnapshot {
@@ -1220,7 +1222,10 @@ export class AutomationService {
             automations: this.list(workspaceId),
             issues: factory.loaded.spec.issues,
             runs,
-            hasOlder: left.size > 0,
+            // True only when `listRuns` would hand over an ended run after the oldest one shown.
+            hasOlder:
+                left.size > 0 &&
+                this.historyAfter(workspaceId, ended[SNAPSHOT_ENDED_RUNS - 1].id, NO_RUN_FILTER).some((run) => !LIVE_RUN_STATUSES.has(run.status)),
             queue,
             suggestAssignedReviews: this.assignedReviewsSuggestion(workspaceId, factory),
             templates: this.templatesOf(workspaceId, factory),
@@ -2894,7 +2899,7 @@ function isAgentRun(run: RunRecord): boolean {
  */
 function toListEntry(run: RunRecord): RunListEntry {
     const { result, approval: _approval, steps, ...rest } = run;
-    const step = currentStep(steps);
+    const step = currentStep(steps, run.status);
     return {
         ...rest,
         kind: runKind(run),
@@ -2903,22 +2908,29 @@ function toListEntry(run: RunRecord): RunListEntry {
     };
 }
 
-/** The step a list row names: the first queued or running one, else the last that ran (a failed step is the last one that ran). */
-function currentStep(steps: RunRecord['steps']): RunListEntry['step'] {
+/**
+ * The step a list row names: the first queued or running one. Otherwise where
+ * the run ended: a failed run's failed step, and for any other ended run the
+ * last step that ran. A skipped or not-run step has not run.
+ */
+function currentStep(steps: RunRecord['steps'], status: RunRecord['status']): RunListEntry['step'] {
     if (!steps?.length) return undefined;
     let at = steps.findIndex((step) => step.status === 'queued' || step.status === 'running');
+    if (at < 0 && status === 'failed') at = steps.findIndex((step) => step.status === 'failed');
     if (at < 0) {
-        const failed = steps.findIndex((step) => step.status === 'failed');
-        if (failed >= 0) at = failed;
-        else for (let index = steps.length - 1; index >= 0 && at < 0; index--) if (steps[index].status === 'completed' || steps[index].status === 'reported') at = index;
+        for (let index = steps.length - 1; index >= 0 && at < 0; index--) {
+            if (['completed', 'failed', 'reported'].includes(steps[index].status)) at = index;
+        }
     }
     if (at < 0) return undefined;
     return { id: steps[at].id, status: steps[at].status, index: at + 1, count: steps.length };
 }
 
 /** Waiting for a person or a slot, or working: the snapshot never leaves these out. */
+const LIVE_RUN_STATUSES: ReadonlySet<RunRecord['status']> = new Set(['needs-approval', 'queued', 'running']);
+
 function isLiveRun(run: RunRecord): boolean {
-    return run.status === 'needs-approval' || run.status === 'queued' || run.status === 'running';
+    return LIVE_RUN_STATUSES.has(run.status);
 }
 
 /** Newest first by `createdAt`, ties by id descending, so the order is stable. */
