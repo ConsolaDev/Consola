@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { SessionOpenedError } from '@consola/automation-engine';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
 import type { ActionConversation } from '../shared/workItemActions';
@@ -182,7 +183,7 @@ export class SessionLauncher {
         if (!workspace || !session) throw new Error('Its session was closed.');
         if (session.toolPolicy !== 'read-only') throw new Error('Consola resumes a turn unattended only in a read-only session.');
         const opened = () => {
-            if (this.terminals.has(session.instanceId)) throw new Error('You opened its session before Consola could resume it.');
+            if (this.terminals.has(session.instanceId)) throw new SessionOpenedError();
         };
         opened();
         const cwd = workingFolder(workspace, session);

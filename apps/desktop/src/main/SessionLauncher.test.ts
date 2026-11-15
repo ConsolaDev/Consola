@@ -2,6 +2,7 @@ import { afterAll, describe, expect, it, vi } from 'vitest';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
+import { SessionOpenedError } from '@consola/automation-engine';
 import { SessionLauncher, type ExistingTerminal } from './SessionLauncher';
 import type { Session, Workspace } from '../shared/workspace';
 import type { Harness } from '../shared/harness';
@@ -290,9 +291,10 @@ describe('SessionLauncher', () => {
                 return '/tmp/session.json';
             },
         };
-        await expect(launcher.resumeUnattended('ws-1', 'session-1', 'Go on.')).rejects.toThrow(
-            'You opened its session before Consola could resume it.'
-        );
+        const refused = launcher.resumeUnattended('ws-1', 'session-1', 'Go on.');
+        await expect(refused).rejects.toThrow('You opened its session before Consola could resume it.');
+        // Typed, so the engine tells it from any other failed resume without reading its words.
+        await expect(refused).rejects.toBeInstanceOf(SessionOpenedError);
         expect(terminals.startHeadless).not.toHaveBeenCalled();
     });
 
@@ -306,9 +308,9 @@ describe('SessionLauncher', () => {
         const two = buildLauncher(restricted);
         two.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [restricted] }]);
         two.terminals.has.mockReturnValue(true);
-        await expect(two.launcher.resumeUnattended('ws-1', 'session-1', 'Go on.')).rejects.toThrow(
-            'You opened its session before Consola could resume it.'
-        );
+        const opened = two.launcher.resumeUnattended('ws-1', 'session-1', 'Go on.');
+        await expect(opened).rejects.toThrow('You opened its session before Consola could resume it.');
+        await expect(opened).rejects.toBeInstanceOf(SessionOpenedError);
         await expect(two.launcher.resumeUnattended('ws-1', 'gone', 'Go on.')).rejects.toThrow('Its session was closed.');
         expect(one.terminals.startHeadless).not.toHaveBeenCalled();
         expect(two.terminals.startHeadless).not.toHaveBeenCalled();

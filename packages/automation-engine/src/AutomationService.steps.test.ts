@@ -15,7 +15,7 @@ import {
     type StepsHarness,
     type StepsHarnessOptions,
 } from './steps/steps.test-helpers';
-import { StartedByHandError } from './support';
+import { SessionOpenedError, StartedByHandError } from './support';
 import type { InboxItemView, SessionView } from './views';
 
 const NAME = 'review-assigned-prs';
@@ -2264,6 +2264,25 @@ describe('stop in every state', () => {
         expect(h.notices).toEqual([]);
     });
 
+    it('a stop that arrives after the last step completed lets the run complete', async () => {
+        const h = await accepted(file(entry('nightly', DAILY_AUTO, ONE)));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        const reminder = held();
+        h.world.remindGate = reminder.promise;
+        await h.world.endTurn('session-1');
+        // Stopped while its reminder is delivered; the reminder's turn completes the step meanwhile.
+        h.service.stop(run.id);
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        await h.world.endTurn('session-1');
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed', summary: 'one (calm)', steps: [{ id: 'one', status: 'completed' }] });
+        expect(h.store.get(run.id)!.error).toBeUndefined();
+        h.world.remindGate = undefined;
+        reminder.release();
+        await h.flush();
+        expect(h.store.get(run.id)?.status).toBe('completed');
+    });
+
     it('a run waiting for approval or in line is dismissed', async () => {
         const asking = await stepsHarness({ yaml: SUMMARY });
         const asked = (await asking.service.trigger(WORKSPACE_ID, NAME))!;
@@ -2527,6 +2546,31 @@ describe('retry', () => {
         expect(h.world.launches).toMatchObject([{ step: { id: 'review', attempt: 2 } }]);
     });
 
+    it('a retry from a command before the review is not refused by a review the person started by hand', async () => {
+        const yaml = factory(ON_REVIEW_AUTO, '- id: fetch\n  run: git fetch --prune', '- id: review\n  action: Review');
+        const h = await watching({ yaml });
+        acceptEvery(h, yaml);
+        h.world.byHandRefuses = true;
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        await h.world.commands[0].end({ result: { exitCode: 1, lastStderrLine: 'fatal: unable to access' } });
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', steps: [{ id: 'fetch', status: 'failed' }, { id: 'review', status: 'not-run' }] });
+        // The person reviews it by hand, then retries the run anyway.
+        h.advance(MINUTE);
+        h.world.workspace.sessions.push(byHand(PR51, h.now()));
+        await h.service.retry(run.id);
+        await h.flush();
+        expect(h.world.commands[1].spec.env.CONSOLA_OUTPUT).toBe(path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'fetch', 2), 'outputs.env'));
+        await h.world.commands[1].end();
+        // Its review is still a first attempt, but the run was retried: nothing asks after the review by hand.
+        expect(h.world.launches).toMatchObject([{ step: { id: 'review', attempt: 1 } }]);
+        expect(h.world.launches[0].item).not.toHaveProperty('startedByHandSince');
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'running',
+            steps: [{ id: 'fetch', status: 'completed', attempt: 2 }, { id: 'review', status: 'running', attempt: 1, sessionId: 'session-1' }],
+        });
+    });
+
     it('a run that failed before any step is retried even after a review by hand', async () => {
         const h = await watching({ yaml: TEMPLATE });
         h.store.accept(KEY, TEMPLATE_VERSION);
@@ -2612,12 +2656,26 @@ describe('picking runs up after a restart', () => {
         expect(h.world.reminders.map((reminder) => reminder.sessionId)).toEqual(['session-1', 'session-2']);
     });
 
+    it('a launch a quit cut off comes back at the same attempt, and still asks after a review by hand', async () => {
+        let h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        // Consola quits while the review launches: no session is recorded.
+        h.world.launchGate = new Promise(() => {});
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        h.world.launchGate = undefined;
+        h = await h.relaunch();
+        expect(h.world.launches.map((launch) => launch.step?.attempt)).toEqual([1, 1]);
+        expect(h.world.launches[1].item).toMatchObject({ startedByHandSince: run.createdAt });
+        expect(h.store.get(run.id)!.steps![0]).not.toHaveProperty('previous');
+    });
+
     it('a session opened while its resume starts runs the step again in a new session; any other refusal fails it', async () => {
         let h = await accepted(THREE);
         const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
         await h.flush();
         // The person's pane mounts after the look, before the resume spawns: the desktop refuses it.
-        h.world.resumeThrows = new Error('You opened its session before Consola could resume it.');
+        h.world.resumeThrows = new SessionOpenedError();
         h = await h.relaunch();
         expect(h.world.resumes).toEqual([{ sessionId: 'session-1', prompt: INTERRUPTED_PROMPT }]);
         expect(h.world.launches.map((launch) => launch.step)).toMatchObject([

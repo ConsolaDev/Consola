@@ -71,8 +71,8 @@ export type AgentStepLaunch = { ok: true; request: AgentLaunchRequest } | { ok: 
  *
  * The run's first agent step, when it is an action of a run a trigger fired,
  * asks the host to look for the same review started by hand
- * (`startedByHandSince`) on its first attempt: the checkout's lock is let go
- * once it is prepared, and an Inbox click may land between the two.
+ * (`startedByHandSince`) until the run is retried: the checkout's lock is
+ * let go once it is prepared, and an Inbox click may land between the two.
  */
 export function agentStepLaunch(input: {
     workspaceId: string;
@@ -121,8 +121,10 @@ export function agentStepLaunch(input: {
     });
     const name = `${item ? item.title : automation} · ${step.id}`;
     const firstAgentStep = steps.find((candidate) => candidate.kind === 'agent')?.id === step.id;
-    // A later attempt is a person's retry or a restart's: the first attempt's launch already looked, and the click is the approval.
-    const askByHand = run.trigger.kind === 'event' && firstAgentStep && action !== undefined && record.attempt === 1;
+    // Only while the run is as its trigger fired it: a retry, or a restart's next attempt, leaves an earlier attempt in some
+    // step's `previous`, and from then on the run is the person's click, whichever step that was.
+    const retried = (run.steps ?? []).some((candidate) => (candidate.previous?.length ?? 0) > 0);
+    const askByHand = run.trigger.kind === 'event' && firstAgentStep && action !== undefined && !retried;
     return {
         ok: true,
         request: {

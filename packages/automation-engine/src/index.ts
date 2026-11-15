@@ -69,6 +69,7 @@ export {
     fillActionPlaceholders,
     CONSOLA_NAMESPACE,
     StartedByHandError,
+    SessionOpenedError,
 } from './support';
 export { ASSIGNED_REVIEWS_NAME, yamlName, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 export {

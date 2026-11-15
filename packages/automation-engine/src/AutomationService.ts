@@ -24,7 +24,15 @@ import {
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
 import { advanceSeen } from './seenRecord';
-import { agentToolContext, CONSOLA_NAMESPACE, describeError, firstActionFor, StartedByHandError } from './support';
+import {
+    agentToolContext,
+    CONSOLA_NAMESPACE,
+    describeError,
+    firstActionFor,
+    SESSION_OPENED_MESSAGE,
+    SessionOpenedError,
+    StartedByHandError,
+} from './support';
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { describeKind, describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
@@ -210,9 +218,6 @@ const RUN_ENDED = 'its run had ended';
 /** How a step a restart cut off is remembered when it could not resume in its own session. */
 const RESUME_SESSION_GONE = 'Consola quit while it ran, and its session is gone.';
 const RESUME_SESSION_OPENED = 'Consola quit while it ran, and you opened its session.';
-
-/** How the host refuses a resume when a pane opened the session first (the desktop's `resumeUnattended`). */
-const OPENED_BEFORE_RESUME = 'You opened its session before Consola could resume it.';
 
 /** Commands automations may have running at once, across every workspace, by default. */
 export const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
@@ -1386,7 +1391,7 @@ export class AutomationService {
             const session = this.sessionOf(run);
             if (!session) return { go: false, status: 'rejected', message: 'Its session was closed.' };
             if (this.deps.hasLiveTerminal(session)) {
-                return { go: false, status: 'rejected', message: 'You opened its session before Consola could resume it.' };
+                return { go: false, status: 'rejected', message: SESSION_OPENED_MESSAGE };
             }
             return { go: true };
         }
@@ -1697,15 +1702,12 @@ export class AutomationService {
         });
         if (next.kind === 'wait') return;
         const stopping = this.stopRequested.delete(runId);
-        if (stopping && next.kind === 'complete') {
-            // A stopped run never completes. Every step left would skip: the one it would look at next fails, never started.
-            const pending = run.steps.find((step) => step.status === 'pending');
-            if (pending) {
-                this.settleStep(runId, pending.id, { status: 'failed', error: stoppedBefore(pending.id) }, { quiet: true });
-            } else {
-                this.finish(runId, 'failed', { error: 'Stopped before it finished.' });
-                void this.pump();
-            }
+        // A stopped run never completes by skips: when every step left would skip, the one it would look at next fails,
+        // never started. With none left, its steps all ended on their own before the stop could reach them: it
+        // completes as it would have.
+        const pending = stopping && next.kind === 'complete' ? run.steps.find((step) => step.status === 'pending') : undefined;
+        if (pending) {
+            this.settleStep(runId, pending.id, { status: 'failed', error: stoppedBefore(pending.id) }, { quiet: true });
             return;
         }
         for (const update of next.updates) this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
@@ -1818,7 +1820,7 @@ export class AutomationService {
                 if (!this.stepRunning(runId, stepId, attempt)) return;
                 // Its pane mounted after the look, before the resume spawned: opened, as if it had been at the look.
                 // Still starting meanwhile, so a stop asked for is honoured by the new launch.
-                if (error instanceof Error && error.message === OPENED_BEFORE_RESUME) {
+                if (error instanceof SessionOpenedError) {
                     await this.runStepAgain(runId, stepId, RESUME_SESSION_OPENED);
                     return;
                 }

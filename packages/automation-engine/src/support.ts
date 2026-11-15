@@ -71,3 +71,18 @@ export class StartedByHandError extends Error {
         this.name = 'StartedByHandError';
     }
 }
+
+/** What a run says when the person opened its session before Consola could resume it. */
+export const SESSION_OPENED_MESSAGE = 'You opened its session before Consola could resume it.';
+
+/**
+ * A resume the host refused because the person opened the session first:
+ * their pane's terminal has it now, and a second process on one conversation
+ * would fork it. Typed, so the runner tells it from any other failed resume.
+ */
+export class SessionOpenedError extends Error {
+    constructor() {
+        super(SESSION_OPENED_MESSAGE);
+        this.name = 'SessionOpenedError';
+    }
+}
