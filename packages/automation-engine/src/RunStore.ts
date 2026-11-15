@@ -22,6 +22,8 @@ export interface AutomationStateFile {
     seen?: Record<string, SeenRecord>;
     /** Entries an agent added, by workspace id and name, until a person has seen them. */
     added?: Record<string, AddedBy>;
+    /** When `saveEntry` last rewrote each entry (ISO), by automation key. A run asked for before then cannot accept the rewrite. */
+    revoked?: Record<string, string>;
     /** Version 1 only: newest first, capped; every workspace's together. Version 2 moves them to `RunHistory`. */
     runs?: RunRecord[];
 }
@@ -45,7 +47,7 @@ type StoredState = Required<Omit<AutomationStateFile, 'runs' | 'version'>>;
  * and one approval per `auto` automation, never the app.
  */
 export class RunStore {
-    private state: StoredState = { lastFired: {}, accepted: {}, seen: {}, added: {} };
+    private state: StoredState = { lastFired: {}, accepted: {}, seen: {}, added: {}, revoked: {} };
     /** Every workspace's runs, newest first. */
     private all: RunRecord[] = [];
 
@@ -64,6 +66,7 @@ export class RunStore {
                     accepted: isRecord(stored.accepted) ? stored.accepted : {},
                     seen: isRecord(stored.seen) ? (stored.seen as Record<string, SeenRecord>) : {},
                     added: isRecord(stored.added) ? (stored.added as unknown as Record<string, AddedBy>) : {},
+                    revoked: isRecord(stored.revoked) ? stored.revoked : {},
                 };
                 if (stored.version === 1) migrating = Array.isArray(stored.runs) ? stored.runs : [];
             }
@@ -201,6 +204,25 @@ export class RunStore {
         this.persist();
     }
 
+    /** Remember when an entry was last rewritten, so an older run's approval cannot accept it. Survives a restart. */
+    public markRevoked(automationKey: string, iso: string): void {
+        this.state.revoked[automationKey] = iso;
+        this.persist();
+    }
+
+    public revokedAt(automationKey: string): string | undefined {
+        const iso = this.state.revoked[automationKey];
+        return typeof iso === 'string' ? iso : undefined;
+    }
+
+    /** Forget entries no file names any more. */
+    public keepRevoked(automationKeys: ReadonlySet<string>): void {
+        const stale = Object.keys(this.state.revoked).filter((key) => !automationKeys.has(key));
+        if (stale.length === 0) return;
+        for (const key of stale) delete this.state.revoked[key];
+        this.persist();
+    }
+
     /** Every workspace's runs, newest first. */
     public runs(): RunRecord[] {
         return this.all;
@@ -230,6 +252,31 @@ export class RunStore {
         // What an approval would execute means nothing once the run has ended.
         if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;
         this.record(run);
+        return run;
+    }
+
+    /**
+     * `update`, but the line is appended and fsynced before this returns, and a
+     * failure throws. The one exception to "history is a convenience": a
+     * command's intent must be on disk before the command spawns, so a write
+     * that failed must not look like one that succeeded. On failure the
+     * in-memory record is put back as it was.
+     */
+    public updateDurably(id: string, changes: Partial<RunRecord>): RunRecord {
+        const run = this.get(id);
+        if (!run) throw new Error(`No run ${id}.`);
+        const before = { ...run };
+        Object.assign(run, changes);
+        if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;
+        const workspaceId = run.attribution?.workspaceId;
+        if (!workspaceId) return run;
+        try {
+            this.history.appendDurably(workspaceId, run, () => this.runsOf(workspaceId).reverse());
+        } catch (error) {
+            for (const key of Object.keys(run)) delete (run as unknown as Record<string, unknown>)[key];
+            Object.assign(run, before);
+            throw error;
+        }
         return run;
     }
 

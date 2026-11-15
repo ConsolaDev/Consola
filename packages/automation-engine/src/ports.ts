@@ -23,6 +23,8 @@ export interface RunHistory {
     load(): Map<string, RunRecord[]>;
     /** Persist one run's current state; `live` is the workspace's runs now, for compaction. */
     append(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void;
+    /** `append`, then fsync, with the same compaction rule. Throws on any failure: the caller needs to know the line is on disk. */
+    appendDurably(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void;
     rewrite(workspaceId: string, runs: RunRecord[]): void;
     remove(workspaceId: string): void;
 }

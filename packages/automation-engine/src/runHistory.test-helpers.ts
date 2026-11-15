@@ -10,6 +10,8 @@ export function memoryHistory(initial: Record<string, RunRecord[]> = {}) {
     const rewrites: string[] = [];
     const clone = <T>(value: T): T => JSON.parse(JSON.stringify(value));
     const history: RunHistory & {
+        /** Make `appendDurably` throw this, until cleared. */
+        failDurable?: Error;
         logs: typeof logs;
         appends: typeof appends;
         removed: typeof removed;
@@ -27,6 +29,10 @@ export function memoryHistory(initial: Record<string, RunRecord[]> = {}) {
             if (at >= 0) runs[at] = clone(run);
             else runs.push(clone(run));
             logs.set(workspaceId, runs);
+        },
+        appendDurably: (workspaceId, run, live) => {
+            if (history.failDurable) throw history.failDurable;
+            history.append(workspaceId, run, live);
         },
         rewrite: (workspaceId, runs) => {
             rewrites.push(workspaceId);

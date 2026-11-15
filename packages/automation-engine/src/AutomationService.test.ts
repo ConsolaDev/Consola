@@ -1939,6 +1939,27 @@ automations:
         expect(t.service.list('ws-1')[0].asksFirst).toBeUndefined();
     });
 
+    it('approving a run asked for before a save does not accept the saved entry, even after a restart', async () => {
+        const first = setup({ now: new Date(2026, 10, 4, 8, 0) });
+        await first.start();
+        const asked = await first.trigger('ws-1', 'sweep');
+        expect(asked).toMatchObject({ status: 'needs-approval', mode: 'confirm' });
+
+        first.setClock(new Date(2026, 10, 4, 8, 5));
+        const moved = '- name: sweep\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#sweep }\n  mode: auto\n';
+        await first.service.saveEntry('ws-1', moved, { replace: true });
+
+        const relaunched = setup({
+            now: new Date(2026, 10, 4, 8, 10),
+            yaml: entry('    mode: auto\n', '0 10 * * *'),
+            state: first.file.stored,
+            history: first.history,
+        });
+        await relaunched.start();
+        await relaunched.service.approve(asked.id);
+        expect(relaunched.store.acceptedVersion('ws-1 sweep')).toBeUndefined();
+    });
+
     it('a tool run approved before the tool rewrote its entry, still running when it lands, does not accept the rewrite', async () => {
         const t = setup({ now: new Date(2026, 10, 4, 8, 0) });
         await t.start();

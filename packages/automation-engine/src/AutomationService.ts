@@ -217,14 +217,6 @@ export class AutomationService {
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
-    /**
-     * When `saveEntry` last wrote each entry, by automation key. A run asked
-     * for before then was approved for what the entry said before, so its
-     * approval accepts nothing: a schedule-only change keeps the version, and
-     * would otherwise run unasked on the strength of the old entry's approval.
-     */
-    private readonly savedAt = new Map<string, number>();
-
     constructor(private readonly deps: AutomationServiceDeps) {}
 
     public async start(): Promise<void> {
@@ -422,11 +414,11 @@ export class AutomationService {
         }
         const key = automationKey({ workspaceId, automation });
         this.deps.store.revokeAcceptance(key);
-        this.savedAt.set(key, this.deps.now().getTime());
+        this.deps.store.markRevoked(key, this.iso());
         if (options.by) this.deps.store.markAdded(key, { ...options.by, at: this.iso() });
         await this.reload(workspaceId);
         // Again once it is live: a run fired while the file was being reloaded was of the entry before.
-        this.savedAt.set(key, this.deps.now().getTime());
+        this.deps.store.markRevoked(key, this.iso());
         const line = this.factories
             .get(workspaceId)
             ?.loaded.spec.automations.find((candidate) => candidate.name === automation.name)?.line;
@@ -751,8 +743,8 @@ export class AutomationService {
      */
     private acceptApproved(key: string, entry: Resolved, run: RunRecord): void {
         if (entry.automation.mode !== 'auto') return;
-        const saved = this.savedAt.get(key);
-        if (saved !== undefined && !(Date.parse(run.createdAt) > saved)) return;
+        const revoked = this.deps.store.revokedAt(key);
+        if (revoked !== undefined && !(Date.parse(run.createdAt) > Date.parse(revoked))) return;
         this.deps.store.accept(key, entry.version);
     }
 
@@ -1146,6 +1138,7 @@ export class AutomationService {
         }
         this.deps.store.keepSeen(kept);
         this.deps.store.keepAdded(named);
+        this.deps.store.keepRevoked(named);
     }
 
     private allResolved(): Resolved[] {

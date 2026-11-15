@@ -217,4 +217,28 @@ describe('RunStore history', () => {
         expect(store.lastFired('k')).toBe('v');
         expect(store.get('a')).toBeDefined();
     });
+
+    it('updateDurably throws and leaves the record as it was when the write fails', () => {
+        const { store, history } = loaded({ 'ws-1': [run('r1', 'ws-1', { status: 'queued', finishedAt: undefined })] });
+        history.failDurable = new Error('disk full');
+        expect(() => store.updateDurably('r1', { status: 'failed', error: 'x' })).toThrow('disk full');
+        expect(store.get('r1')).toMatchObject({ status: 'queued' });
+        expect(store.get('r1')?.error).toBeUndefined();
+
+        history.failDurable = undefined;
+        expect(store.updateDurably('r1', { status: 'failed' })).toMatchObject({ status: 'failed' });
+        expect(history.logs.get('ws-1')![0]).toMatchObject({ status: 'failed' });
+    });
+
+    it('revoked survives a reload and is pruned like added', () => {
+        const first = loaded();
+        first.store.markRevoked('ws-1 sweep', '2026-11-12T09:00:00.000Z');
+        const again = loaded({}, first.file.stored);
+        expect(again.store.revokedAt('ws-1 sweep')).toBe('2026-11-12T09:00:00.000Z');
+        again.store.keepRevoked(new Set(['ws-1 sweep']));
+        expect(again.store.revokedAt('ws-1 sweep')).toBe('2026-11-12T09:00:00.000Z');
+        again.store.keepRevoked(new Set());
+        expect(again.store.revokedAt('ws-1 sweep')).toBeUndefined();
+        expect(loaded({}, again.file.stored).store.revokedAt('ws-1 sweep')).toBeUndefined();
+    });
 });

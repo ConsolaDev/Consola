@@ -26,6 +26,7 @@ import { ToolRegistry } from '../tools/Tool';
 const noHistory: RunHistory = {
     load: () => new Map(),
     append: () => {},
+    appendDurably: () => {},
     rewrite: () => {},
     remove: () => {},
 };

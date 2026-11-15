@@ -113,4 +113,18 @@ describe('RunHistoryFiles', () => {
     it('loads from a folder that does not exist yet', () => {
         expect(new RunHistoryFiles(path.join(dir, 'missing')).load().size).toBe(0);
     });
+
+    it('appendDurably writes a line a reload sees, and throws when the directory cannot be written', () => {
+        const history = new RunHistoryFiles(dir);
+        history.appendDurably('ws-1', run('r1'), () => [run('r1')]);
+        expect(new RunHistoryFiles(dir).load().get('ws-1')).toEqual([run('r1')]);
+
+        if (process.getuid?.() === 0) return; // root ignores the mode
+        fs.chmodSync(dir, 0o500);
+        try {
+            expect(() => history.appendDurably('ws-2', run('r2', { attribution: { workspaceId: 'ws-2' } } as never), () => [])).toThrow();
+        } finally {
+            fs.chmodSync(dir, 0o700);
+        }
+    });
 });

@@ -83,11 +83,30 @@ export class RunHistoryFiles implements RunHistory {
     }
 
     public append(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void {
+        this.write(workspaceId, run, live, false);
+    }
+
+    public appendDurably(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void {
+        this.write(workspaceId, run, live, true);
+    }
+
+    private write(workspaceId: string, run: RunRecord, live: () => RunRecord[], durably: boolean): void {
         const file = this.fileFor(workspaceId);
         if (!run.attribution?.workspaceId) return;
         fs.mkdirSync(this.dir, { recursive: true });
         const count = this.lines.get(workspaceId) ?? this.adopt(file, workspaceId);
-        fs.appendFileSync(file, `${JSON.stringify(run)}\n`);
+        const line = `${JSON.stringify(run)}\n`;
+        if (durably) {
+            const fd = fs.openSync(file, 'a');
+            try {
+                fs.writeSync(fd, line);
+                fs.fsyncSync(fd);
+            } finally {
+                fs.closeSync(fd);
+            }
+        } else {
+            fs.appendFileSync(file, line);
+        }
         this.lines.set(workspaceId, count + 1);
         if (!this.owned.has(workspaceId)) return;
         const runs = live();
