@@ -27,9 +27,12 @@
 //                        `FINDINGS: done`. Then it prints `FINDINGS: done` and exits 0.
 //   otherwise            shows an empty composer (`❯ `) and sleeps.
 //
-// A failure to reach the MCP server, or an error answer, is logged as
-// `MCP <what went wrong>` / `TOOL <name> ERROR <message>` and the turn still
-// ends cleanly, as Claude carries on without a server it could not use.
+// A planned call that fails fails the turn, loudly. A tool answer with
+// `isError: true` (how a server reports a failed tool) or a rejected call is
+// logged as `TOOL <name> ERROR <first line>`; a server that cannot be reached
+// as `MCP <what went wrong>`. The remaining calls are still made, then the
+// turn writes no findings, prints nothing to stdout, says so on stderr, and
+// exits 1. A launch that plans no call (neither file usable) is not a failure.
 //
 // Env knobs:
 //   STUB_CLAUDE_LOG=path        the launch and tool log above
@@ -152,34 +155,45 @@ function plannedCalls() {
   return calls;
 }
 
+/** Makes every call, in order; true only when each one succeeded. */
 async function callTools(calls) {
   const configPath = flagValue('--mcp-config');
   if (!configPath) {
     log('MCP no --mcp-config');
-    return;
+    return false;
   }
   const server = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers?.consola;
   if (!server) {
     log(`MCP no mcpServers.consola in ${configPath}`);
-    return;
+    return false;
   }
   const client = connect(server);
+  let ok = true;
   try {
     await client.initialize();
     for (const [name, toolArgs] of calls) {
       try {
         const result = await client.callTool(name, toolArgs);
         const text = (result?.content ?? []).find((part) => part.type === 'text')?.text ?? '';
-        log(`TOOL ${name} ${firstLine(text)}`);
+        // How a server reports a tool that failed: an answer, not a JSON-RPC error.
+        if (result?.isError === true) {
+          ok = false;
+          log(`TOOL ${name} ERROR ${firstLine(text)}`);
+        } else {
+          log(`TOOL ${name} ${firstLine(text)}`);
+        }
       } catch (error) {
+        ok = false;
         log(`TOOL ${name} ERROR ${firstLine(error.message)}`);
       }
     }
   } catch (error) {
+    ok = false;
     log(`MCP ${firstLine(error.message)}`);
   } finally {
     client.close();
   }
+  return ok;
 }
 
 async function printTurn() {
@@ -192,7 +206,11 @@ async function printTurn() {
   const record = (type, content) => JSON.stringify({ type, timestamp: new Date().toISOString(), message: { role: type, content } });
   fs.appendFileSync(transcript, record('user', prompt) + '\n');
   const calls = plannedCalls();
-  if (calls.length > 0) await callTools(calls);
+  if (calls.length > 0 && !(await callTools(calls))) {
+    // A turn whose tool failed is a failed turn: no findings, a non-zero exit.
+    process.stderr.write('stub claude: a step tool call failed (see STUB_CLAUDE_LOG)\n', () => process.exit(1));
+    return;
+  }
   fs.appendFileSync(transcript, record('assistant', [{ type: 'text', text: 'FINDINGS: done' }]) + '\n');
   process.stdout.write('FINDINGS: done\n', () => process.exit(0));
 }

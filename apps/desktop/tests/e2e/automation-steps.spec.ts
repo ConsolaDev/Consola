@@ -17,7 +17,9 @@ import { launchElectron } from './helpers/electron';
  * endpoint, so a step's outputs and handover arrive the way a real CLI's
  * would. The `run:` steps find the stub `gh` through the real login
  * environment: `SHELL` is a fixture login shell (`tests/fixtures/login-shell.sh`)
- * that puts the stub's folder first on `PATH`.
+ * that puts the stub's folder first on `PATH`. The app's own `PATH` has it
+ * first too, so a login probe that fails falls back to the stub, never to a
+ * real `gh`.
  *
  * Each scenario launches its own app on its own temp base (environment knobs
  * are fixed per launch), and `close()` removes all of it, profile included.
@@ -229,6 +231,10 @@ async function setUpSteps(options: StepsOptions = {}): Promise<Steps> {
     const binaryPath = writeStubClaude(base);
 
     const env: Record<string, string> = {
+      // The stub first on the app's own PATH too: should the login probe fail,
+      // its fallback is this environment, and `run:` steps still find the stub,
+      // never a real gh.
+      PATH: `${STUB_GH_DIR}${path.delimiter}${process.env.PATH ?? ''}`,
       CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
       GRAPHQL_INBOX_FIXTURE: files.inbox,
       CONSOLA_WORKTREES_DIR: worktreesDir,
@@ -419,13 +425,16 @@ test('the template reviews #51 read-only and posts through gh, pinned to the com
     await expect(runItems(page)).toHaveCount(1);
     await expect(runItems(page)).toContainText('Completed', { timeout: 60_000 });
 
+    // The `gh` the commands found on PATH is the stub: its log has `fresh`'s call.
+    // First, so no check below can pass against a run that reached a real gh.
+    const fresh = steps.ghLog().filter((line) => line.startsWith(`api graphql -f url=${PR_URL} `));
+    expect(fresh, "fresh's gh call is in the stub's log").toHaveLength(1);
+
     // The run reviewed the commit its checkout holds: #51's head, detached in its own folder.
     const checkoutHead = git(steps.checkoutDir, 'rev-parse', 'HEAD');
     expect(checkoutHead).toBe(steps.head);
 
     // `fresh` asked GitHub, as the bound account, which commit it last reviewed: none.
-    const fresh = steps.ghLog().filter((line) => line.startsWith(`api graphql -f url=${PR_URL} `));
-    expect(fresh).toHaveLength(1);
     expect(fresh[0]).toMatch(/ GH_TOKEN=gho_stub_token_for_JaviDev$/);
 
     // `review`: one read-only, unattended turn in the automation checkout, its step tools allowed.
