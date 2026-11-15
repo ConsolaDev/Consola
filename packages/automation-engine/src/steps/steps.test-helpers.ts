@@ -92,6 +92,10 @@ export interface StepsWorld {
 
     launches: AgentLaunchRequest[];
     resumes: Array<{ sessionId: string; prompt: string }>;
+    /** Every reminder turn asked for, in order. */
+    reminders: Array<{ sessionId: string; prompt: string }>;
+    /** Every reminder throws this while it is set, after recording the call. */
+    remindThrows?: unknown;
     stops: Array<{ sessionId: string; reason: string }>;
     refreshes: string[];
     /** The workspace id of every snapshot broadcast, in order. */
@@ -180,6 +184,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         writeArtifact: (sessionId, name, content) => current.stepIO().writeArtifact(sessionId, name, content),
         launches: [],
         resumes: [],
+        reminders: [],
         stops: [],
         refreshes: [],
         broadcasts: [],
@@ -255,6 +260,10 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         },
         resumeAgent: async (session, prompt) => {
             world.resumes.push({ sessionId: session.id, prompt });
+        },
+        remindAgent: async (session, prompt) => {
+            world.reminders.push({ sessionId: session.id, prompt });
+            if (world.remindThrows) throw world.remindThrows;
         },
         hasLiveTerminal: (session) => world.liveTerminals.has(session.id),
         agentHarness: () => world.harness,

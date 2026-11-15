@@ -988,6 +988,8 @@ export function setupIpcHandlers(): boolean {
             ),
         // A turn Consola quit in the middle of picks up in its own session.
         resumeAgent: (session, prompt) => launcher.resumeUnattended(session.workspaceId, session.id, prompt),
+        // A step that ended without its outputs is resumed once, in place, to set them.
+        remindAgent: (session, prompt) => launcher.relaunchUnattended(session.workspaceId, session.id, prompt),
         hasLiveTerminal: (session) => automationTerminal(session.id)?.hasClaudeExited() === false,
         agentHarness: (workspaceId) => {
             const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);

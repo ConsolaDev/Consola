@@ -549,6 +549,69 @@ describe('SessionLauncher', () => {
         expect(options.configDirOverride).toBeUndefined();
     });
 
+    describe('relaunchUnattended', () => {
+        function setup(overrides: Partial<Session>, terminal?: Partial<ExistingTerminal>) {
+            const session = sessionFixture({ toolPolicy: 'read-only', hasStarted: true, ...overrides });
+            const built = buildLauncher(session);
+            built.workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+            if (terminal) built.terminals.get.mockReturnValue({ ...existingTerminal(), ...terminal });
+            const beforeRerun = vi.fn(async () => {});
+            built.launcher.beforeRerun = beforeRerun;
+            return { ...built, beforeRerun };
+        }
+        const exited = { hasClaudeExited: () => true };
+
+        it('relaunches an exited terminal in place, without refreshing the worktree', async () => {
+            const { launcher, terminals, beforeRerun } = setup({}, exited);
+            await launcher.relaunchUnattended('ws-1', 'session-1', 'Set it now.');
+            expect(terminals.relaunch).toHaveBeenCalledWith('instance-1', { cwd: scopeDir, prompt: 'Set it now.', unattended: true });
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+            expect(beforeRerun).not.toHaveBeenCalled();
+        });
+
+        it('refuses while the CLI is running', async () => {
+            const { launcher, terminals } = setup({}, {});
+            await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'x')).rejects.toThrow(
+                'You opened its session before Consola could remind it.'
+            );
+            expect(terminals.relaunch).not.toHaveBeenCalled();
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+        });
+
+        it('spawns a resume when there is no terminal, without refreshing the worktree', async () => {
+            const { launcher, terminals, beforeRerun } = setup({});
+            await launcher.relaunchUnattended('ws-1', 'session-1', 'Set it now.');
+            expect(terminals.startHeadless).toHaveBeenCalledWith(
+                'instance-1',
+                expect.objectContaining({ resume: true, unattended: true, initialPrompt: 'Set it now.', toolPolicy: 'read-only' })
+            );
+            expect(beforeRerun).not.toHaveBeenCalled();
+        });
+
+        it('refuses a terminal that appeared while it prepared', async () => {
+            const { launcher, terminals } = setup({});
+            launcher.mcpHost = {
+                register: async () => {
+                    terminals.has.mockReturnValue(true);
+                    return '/tmp/session.json';
+                },
+            };
+            await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'x')).rejects.toThrow(
+                'You opened its session before Consola could remind it.'
+            );
+            expect(terminals.startHeadless).not.toHaveBeenCalled();
+        });
+
+        it('refuses a session that is not read-only, or that is gone', async () => {
+            const { launcher, terminals } = setup({ toolPolicy: undefined }, exited);
+            await expect(launcher.relaunchUnattended('ws-1', 'session-1', 'x')).rejects.toThrow(
+                'Consola resumes a turn unattended only in a read-only session.'
+            );
+            await expect(launcher.relaunchUnattended('ws-1', 'gone', 'x')).rejects.toThrow('Its session was closed.');
+            expect(terminals.relaunch).not.toHaveBeenCalled();
+        });
+    });
+
     describe('deliverPrompt', () => {
         function setup(overrides: Partial<Session>, terminal?: Partial<ExistingTerminal>) {
             const session = sessionFixture(overrides);

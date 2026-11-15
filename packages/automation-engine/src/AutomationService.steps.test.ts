@@ -772,6 +772,8 @@ describe('running a steps run', () => {
         const h = await accepted(yaml);
         const nothing = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
         await h.flush();
+        // Once reminded, and still without, it fails.
+        await h.world.endTurn('session-1');
         await h.world.endTurn('session-1');
         expect(h.store.get(nothing.id)).toMatchObject({
             status: 'failed',
@@ -784,6 +786,7 @@ describe('running a steps run', () => {
         const noNotes = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
         await h.flush();
         h.world.setOutputs('session-2', { mood: 'calm' });
+        await h.world.endTurn('session-2');
         await h.world.endTurn('session-2');
         expect(h.store.get(noNotes.id)).toMatchObject({ status: 'failed', error: 'ended without writing notes' });
 
@@ -1364,5 +1367,82 @@ describe('run folders', () => {
         expect(logged).toHaveBeenCalledWith(`Could not sweep ${WORKSPACE_ID}'s run folders.`, expect.any(Error));
         expect(h.service.list(WORKSPACE_ID).map((entry) => entry.name)).toEqual([NAME]);
         expect(h.store.get(run.id)?.status).toBe('needs-approval');
+    });
+});
+
+describe('the reminder turn', () => {
+    const REMINDER = 'You ended without: mood (consola_set_outputs). Set it now; do nothing else.';
+
+    it('is used once, then the step fails', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        await h.world.endTurn('session-1');
+        expect(h.world.reminders).toEqual([{ sessionId: 'session-1', prompt: REMINDER }]);
+        expect(h.store.get(run.id)).toMatchObject({ status: 'running', steps: [{ id: 'one', status: 'running', reminded: true }, { id: 'two', status: 'pending' }] });
+
+        await h.world.endTurn('session-1');
+        expect(h.world.reminders).toHaveLength(1);
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error: 'ended without setting mood',
+            steps: [{ id: 'one', status: 'failed', error: 'ended without setting mood' }, { id: 'two', status: 'not-run' }],
+        });
+    });
+
+    it('that sets the outputs completes the step', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        await h.world.endTurn('session-1');
+        expect(h.world.setOutputs('session-1', { mood: 'calm' })).toMatchObject({ isError: false });
+        await h.world.endTurn('session-1');
+        expect(h.world.reminders).toHaveLength(1);
+        expect(h.store.get(run.id)?.steps).toMatchObject([{ id: 'one', status: 'completed', outputs: { mood: 'calm' } }, { id: 'two', status: 'running' }]);
+        expect(fs.existsSync(path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'one', 1), 'outputs.json'))).toBe(true);
+    });
+
+    it('holds the slot while it runs', async () => {
+        const h = await accepted(file(NIGHTLY, WEEKLY), { maxConcurrentAgents: 1 });
+        await h.service.trigger(WORKSPACE_ID, 'nightly');
+        const weekly = (await h.service.trigger(WORKSPACE_ID, 'weekly'))!;
+        await h.flush();
+        await h.world.endTurn('session-1');
+        expect(h.world.reminders).toHaveLength(1);
+        expect(h.store.get(weekly.id)?.status).toBe('queued');
+        expect(launched(h)).toEqual(['nightly · one']);
+        await h.world.endTurn('session-1');
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
+    });
+
+    it('that cannot be delivered fails the step with the reason', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        h.world.remindThrows = new Error('You opened its session before Consola could remind it.');
+        await h.world.endTurn('session-1');
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error: 'You opened its session before Consola could remind it.',
+            steps: [{ id: 'one', status: 'failed' }, { id: 'two', status: 'not-run' }],
+        });
+    });
+
+    it('is not asked for after a failed exit or a stop', async () => {
+        const h = await accepted(file(NIGHTLY));
+        await h.service.trigger(WORKSPACE_ID, 'nightly');
+        await h.flush();
+        await h.world.endTurn('session-1', { exitCode: 1 });
+        expect(h.world.reminders).toEqual([]);
+    });
+
+    it('is not asked for once its session is closed', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        h.world.workspace.sessions = [];
+        await h.world.endTurn('session-1');
+        expect(h.world.reminders).toEqual([]);
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error: 'Its session was closed before it finished.' });
     });
 });

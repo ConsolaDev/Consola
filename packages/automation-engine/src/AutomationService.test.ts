@@ -255,6 +255,7 @@ function setup({
             workspace.sessions.push(session);
             return session;
         },
+        remindAgent: async () => {},
         resumeAgent: async (session, prompt) => {
             if (world.resumeGate) await world.resumeGate;
             world.resumed.push({ sessionId: session.id, prompt });

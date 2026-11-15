@@ -33,6 +33,7 @@ import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, 
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, runEventSource } from './steps/agentStep';
+import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import type { RunDefinition, StepsRunPreview } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
@@ -120,6 +121,12 @@ export interface AutomationServiceDeps {
     launchAgent(request: AgentLaunchRequest): Promise<LaunchedSession>;
     /** Run `prompt` as an unattended turn in a recorded automation session; throws with the reason it could not. */
     resumeAgent(session: SessionView, prompt: string): Promise<void>;
+    /**
+     * Run a step's one reminder turn: its session's exited terminal relaunched in place, or
+     * resumed if it has none, unattended, with `prompt` as its turn; throws with the reason
+     * it could not. It never refreshes the step's checkout.
+     */
+    remindAgent(session: SessionView, prompt: string): Promise<void>;
     /** Whether a session has a terminal whose process is still running: someone opened it. */
     hasLiveTerminal(session: SessionView): boolean;
     /**
@@ -693,7 +700,7 @@ export class AutomationService {
     public turnEnded(sessionId: string, outcome: TurnOutcome): void {
         const step = this.runningStepOf(sessionId);
         if (step) {
-            this.stepTurnEnded(step.run, step.record, outcome);
+            this.stepTurnEnded(step.run, step.record, outcome, sessionId);
             return;
         }
         const run = this.deps.store
@@ -1486,9 +1493,11 @@ export class AutomationService {
      * A step's turn ended. A stop or a non-zero exit fails it, in the words a
      * one-step run uses. A clean exit completes it only when every output it
      * declares is set and every document it must write is written; its
-     * outputs are then kept beside its documents.
+     * outputs are then kept beside its documents. A clean exit that left
+     * something out is given one reminder turn, the step still running and
+     * holding its slot; a second one fails it.
      */
-    private stepTurnEnded(run: RunRecord, record: StepRun, outcome: TurnOutcome): void {
+    private stepTurnEnded(run: RunRecord, record: StepRun, outcome: TurnOutcome, sessionId: string): void {
         const failure = turnFailure(outcome);
         if (failure) {
             this.settleStep(run.id, record.id, { status: 'failed', error: failure });
@@ -1500,12 +1509,19 @@ export class AutomationService {
             return;
         }
         let without: string | null;
+        let missing: { outputs: string[]; artifacts: string[] } | undefined;
         try {
-            without = endedWithout(this.stepIO().missing(run.id, record.id));
+            missing = this.stepIO().missing(run.id, record.id);
+            without = endedWithout(missing);
         } catch (error) {
+            missing = undefined;
             without = describeError(error);
         }
         if (without) {
+            if (!record.reminded && missing) {
+                this.remindStep(run, record, sessionId, missing);
+                return;
+            }
             this.settleStep(run.id, record.id, { status: 'failed', error: without });
             return;
         }
@@ -1519,6 +1535,26 @@ export class AutomationService {
             return;
         }
         this.settleStep(run.id, record.id, { status: 'completed' });
+    }
+
+    /**
+     * The step's one reminder turn. `reminded` is written first, so a crash or
+     * a second exit cannot remind twice; the step stays `running`, so its slot
+     * stays held and its tools still accept writes. A reminder that cannot be
+     * delivered fails the step with the reason.
+     */
+    private remindStep(run: RunRecord, record: StepRun, sessionId: string, missing: { outputs: string[]; artifacts: string[] }): void {
+        const session = this.sessionNamed(run, sessionId);
+        if (!session) {
+            this.settleStep(run.id, record.id, { status: 'failed', error: 'Its session was closed before it finished.' });
+            return;
+        }
+        this.writeSteps(run.id, withStep(this.stepsOf(run.id), record.id, { reminded: true }));
+        this.broadcastRun(run.id);
+        void this.deps.remindAgent(session, reminderPrompt(missing)).catch((error) => {
+            if (!this.stepRunning(run.id, record.id, record.attempt)) return;
+            this.settleStep(run.id, record.id, { status: 'failed', error: describeError(error) });
+        });
     }
 
     /** A step ended: how, on its own line, then the run advances from it and its slot is free. */

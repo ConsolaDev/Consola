@@ -117,6 +117,7 @@ async function runner(
         launchAgent: async () => {
             throw new Error('Nothing launches in these tests.');
         },
+        remindAgent: async () => {},
         resumeAgent: async () => {},
         hasLiveTerminal: () => false,
         agentHarness: () => harness,
