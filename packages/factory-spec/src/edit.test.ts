@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { appendAutomationEntry, automationEntryText, replaceAutomationEntry } from './edit';
+import { parseAutomationEntry } from './entry';
 import { parseFactorySpec } from './parse';
 
 const FILE = `# factory.yml
@@ -18,6 +19,44 @@ automations:
   # - name: example
   #   on: { cron: "0 12 * * *" }
 `;
+
+const STEPS_ENTRY = [
+    '- name: review-assigned-prs',
+    '  on: { github: [pull_request.review_requested, pull_request.assigned] }',
+    '  filter: { authors_not: ["dependabot[bot]"] }',
+    '  mode: auto',
+    '  steps:',
+    '    - id: fresh',
+    '      run: |',
+    '        reviewed=$(gh api graphql -f url="$PR" -f query=\'',
+    '          query($url: URI!) { resource(url: $url) { ... on PullRequest {',
+    '            viewerLatestReview { commit { oid } } } } }\' \\',
+    '          --jq \'.data.resource.viewerLatestReview.commit.oid // ""\')',
+    '        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi',
+    '        echo "needed=$needed" >> "$CONSOLA_OUTPUT"',
+    '      env: { PR: "{{item.url}}" }',
+    '      outputs: { needed: boolean }',
+    '      dry_run: run',
+    '    - id: review',
+    '      if: steps.fresh.needed',
+    '      prompt: >-',
+    '        Review this pull request. Read it with Consola\'s work_item_context tool, and read the changed files',
+    '        in this folder where it helps. Then set verdict: approve if you would merge it as it is.',
+    '      outputs:',
+    '        verdict: { enum: [approve, comment, request-changes] }',
+    '    - id: publish',
+    '      if: steps.fresh.needed',
+    '      run: |',
+    '        event=COMMENT',
+    '        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi',
+    '        gh api "repos/$REPO/pulls/$NUMBER/reviews" \\',
+    '          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"',
+    '      env:',
+    '        REPO: "{{item.repo}}"',
+    '        NUMBER: "{{item.number}}"',
+    '        VERDICT: "{{steps.review.verdict}}"',
+    '        BODY_FILE: "{{steps.review.handover.file}}"',
+].join('\n');
 
 const NEW_B = '- name: b\n  on: { cron: "30 10 * * *" }\n  mode: auto\n  run: { tool: consola#y }';
 
@@ -71,5 +110,33 @@ describe('automationEntryText', () => {
     it('returns the entry dedented, or null', () => {
         expect(automationEntryText(FILE, 'b')).toBe('- name: b\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#y }');
         expect(automationEntryText(FILE, 'nope')).toBeNull();
+    });
+});
+
+describe('an entry with nested steps and block scalars', () => {
+    it('parses, appends and replaces an entry with nested steps and block scalars', () => {
+        const parsed = parseAutomationEntry(STEPS_ENTRY);
+        expect(parsed.ok).toBe(true);
+        if (!parsed.ok) return;
+        expect(parsed.automation.steps?.map((step) => step.id)).toEqual(['fresh', 'review', 'publish']);
+        const fresh = parsed.automation.steps?.[0];
+        expect(fresh?.kind === 'run' && fresh.run).toContain('echo "needed=$needed" >> "$CONSOLA_OUTPUT"\n');
+
+        const indented = STEPS_ENTRY.split('\n').map((line) => `  ${line}`).join('\n');
+        // It lands after the last entry and before the trailing comment, as any entry does.
+        const tail = '  # - name: example\n  #   on: { cron: "0 12 * * *" }\n';
+        expect(FILE.endsWith(tail)).toBe(true);
+        const appended = appendAutomationEntry(FILE, STEPS_ENTRY);
+        expect(appended).toBe(`${FILE.slice(0, -tail.length)}${indented}\n${tail}`);
+        const reparsed = parseFactorySpec(appended);
+        expect(reparsed.issues).toEqual([]);
+        expect(reparsed.automations.map((a) => a.name)).toEqual(['a', 'b', 'c', 'review-assigned-prs']);
+
+        const replaced = replaceAutomationEntry(appended, 'b', STEPS_ENTRY.replace('review-assigned-prs', 'b'));
+        const oldB = '  - name: b\n    on: { cron: "0 10 * * *" }\n    run: { tool: consola#y }\n';
+        expect(appended).toContain(oldB);
+        expect(replaced).toBe(appended.replace(oldB, `${indented.replace('review-assigned-prs', 'b')}\n`));
+        // And back: replacing it with the original entry restores the file byte for byte.
+        expect(replaceAutomationEntry(replaced, 'b', '- name: b\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#y }')).toBe(appended);
     });
 });

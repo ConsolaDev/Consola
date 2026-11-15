@@ -49,6 +49,8 @@ export {
     type RunSource,
     type RunStatus,
     type RunTrigger,
+    type StepRun,
+    type StepRunStatus,
 } from './run';
 export { isAgentRun, parseToolRef, type AgentRunTarget, type RunTarget } from './runTarget';
 export {

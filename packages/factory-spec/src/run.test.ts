@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { parseAutomationEntry } from './entry';
-import { automationVersion } from './run';
+import { automationVersion, stableStringify } from './run';
 import type { Automation } from './schema';
 
 const tool: Automation = {
@@ -109,5 +109,88 @@ describe('automationVersion', () => {
                 '- name: clean-up\n  on: { cron: "0 9 * * *" }\n  run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }\n  mode: auto'
             )
         ).toBe('9c2fbd9ab4277088');
+    });
+
+    describe('with steps', () => {
+        const ENTRY = [
+            '- name: review-assigned-prs',
+            '  on: { github: [pull_request.review_requested] }',
+            '  mode: auto',
+            '  steps:',
+            '    - id: fresh',
+            '      run: |',
+            '        echo "needed=true" >> "$CONSOLA_OUTPUT"',
+            '      env: { PR: "{{item.url}}" }',
+            '      outputs: { needed: boolean }',
+            '      dry_run: run',
+            '    - id: review',
+            '      if: steps.fresh.needed',
+            '      prompt: Review this pull request.',
+            '      outputs:',
+            '        verdict: { enum: [approve, comment] }',
+            '    - id: publish',
+            '      if: steps.fresh.needed',
+            '      run: echo "$VERDICT"',
+            '      env: { VERDICT: "{{steps.review.verdict}}" }',
+        ].join('\n');
+        const READER = '\n    - id: summary\n      prompt: Summarise.\n      reads: [review.notes]';
+        const versionOf = (yaml: string, body?: string) => {
+            const parsed = parseAutomationEntry(yaml);
+            if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+            return automationVersion(parsed.automation, body);
+        };
+        const edit = (from: string, to: string) => {
+            expect(ENTRY).toContain(from);
+            return ENTRY.replace(from, to);
+        };
+
+        it('a one-character change to a command asks again', () => {
+            expect(versionOf(ENTRY)).toMatch(/^[0-9a-f]{16}$/);
+            expect(versionOf(ENTRY)).toBe(versionOf(ENTRY));
+            expect(versionOf(edit('echo "$VERDICT"', 'echo "$VERDICT";'))).not.toBe(versionOf(ENTRY));
+            expect(versionOf(edit('echo "$VERDICT"', 'echo "$VERDICt"'))).not.toBe(versionOf(ENTRY));
+        });
+
+        it('a cron-only change to a steps entry does not', () => {
+            const cron = ENTRY.replace('on: { github: [pull_request.review_requested] }', 'on: { cron: "0 9 * * *" }').replace(
+                '  steps:',
+                '  scope: api\n  steps:'
+            );
+            const later = cron.replace('0 9 * * *', '30 10 * * 1');
+            expect(versionOf(cron.replace('{{item.url}}', 'x'))).toBe(versionOf(later.replace('{{item.url}}', 'x')));
+        });
+
+        it('an action body changes it only for the entry whose step names that action', () => {
+            const named = '- name: r\n  on: { github: [pull_request.opened] }\n  mode: auto\n  steps:\n    - id: review\n      action: Review';
+            const inline = '- name: r\n  on: { github: [pull_request.opened] }\n  mode: auto\n  steps:\n    - id: review\n      prompt: Do it.';
+            const body = (text: string) => stableStringify({ review: text });
+            expect(versionOf(named, body('A'))).toBe(versionOf(named, body('A')));
+            expect(versionOf(named, body('A'))).not.toBe(versionOf(named, body('B')));
+            // An entry that names no action resolves no body, so an action edit leaves it alone.
+            expect(versionOf(inline)).toBe(versionOf(inline));
+        });
+
+        it('if, outputs, artifacts, reads, env, timeout and dry_run each change it', () => {
+            const base = versionOf(ENTRY);
+            const changed = [
+                edit('if: steps.fresh.needed\n      prompt', 'if: "!steps.fresh.needed"\n      prompt'),
+                edit('verdict: { enum: [approve, comment] }', 'verdict: { enum: [approve, comment, other] }'),
+                edit('outputs: { needed: boolean }', 'outputs: { needed: boolean, extra: string }'),
+                edit('prompt: Review this pull request.', 'prompt: Review this pull request.\n      artifacts: [notes]'),
+                edit('prompt: Review this pull request.', 'prompt: Review this pull request.\n      artifacts: [notes]') + READER,
+                edit('env: { PR: "{{item.url}}" }', 'env: { PR: "{{item.title}}" }'),
+                edit('dry_run: run', 'dry_run: report'),
+                edit('dry_run: run', 'dry_run: run\n      timeout: 5m'),
+                edit('prompt: Review this pull request.', 'prompt: Review this pull request, kindly.'),
+            ];
+            for (const yaml of changed) {
+                const parsed = parseAutomationEntry(yaml);
+                if (!parsed.ok) throw new Error(JSON.stringify(parsed.issues));
+                expect(versionOf(yaml)).not.toBe(base);
+            }
+            const withNotes = edit('prompt: Review this pull request.', 'prompt: Review this pull request.\n      artifacts: [notes]');
+            expect(versionOf(withNotes + READER)).not.toBe(versionOf(withNotes + READER.replace('\n      reads: [review.notes]', '')));
+            expect(new Set(changed.map((yaml) => versionOf(yaml))).size).toBe(changed.length);
+        });
     });
 });
