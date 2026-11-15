@@ -9,7 +9,7 @@ import { MarkdownRenderer } from '../Markdown';
 import { RunSteps, useRunConversation } from './ConversationView';
 import { useNow } from './parts';
 import { formatElapsed } from './presentation';
-import { attemptsLine, durationOf, stepHeading, variableRows } from './stepDetail';
+import { attemptsLine, durationOf, logWasCapped, stepHeading, variableRows, visibleTail } from './stepDetail';
 
 /** What a log read said when the file's own cap cut it short. */
 export const LOG_CAPPED = 'The command wrote more than this; Consola kept the first 1 MB.';
@@ -310,7 +310,9 @@ function CommandBody({
 
 /** One stream's tail as plain text, with Show all for the rest of the file. */
 function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; stream: 'stdout' | 'stderr'; initial: LogTail | undefined }) {
-  const [tail, setTail] = useState<LogTail | undefined>(initial);
+  // What Show all read; it wins only while the file is the size it was read at.
+  const [full, setFull] = useState<LogTail | undefined>(undefined);
+  const tail = visibleTail(initial, full);
   const [all, setAll] = useState<{ state: 'idle' | 'loading' } | { state: 'failed'; reason: string } | { state: 'gone' }>({ state: 'idle' });
   const requests = useRef(0);
   useEffect(
@@ -319,9 +321,6 @@ function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; s
     },
     [],
   );
-  useEffect(() => {
-    setTail(initial);
-  }, [initial]);
 
   const showAll = () => {
     const request = ++requests.current;
@@ -330,7 +329,7 @@ function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; s
       (value) => {
         if (request !== requests.current) return;
         if (value === null) return setAll({ state: 'gone' });
-        setTail(value);
+        setFull(value);
         setAll({ state: 'idle' });
       },
       (failure: unknown) => {
@@ -340,7 +339,7 @@ function Log({ runId, step, stream, initial }: { runId: string; step: StepRun; s
   };
 
   const wrote = step.command?.[stream === 'stdout' ? 'stdoutBytes' : 'stderrBytes'];
-  const capped = step.command?.truncated === true;
+  const capped = logWasCapped(wrote);
   if (!tail && !wrote && all.state === 'idle') {
     return (
       <div className="automations-step-block">

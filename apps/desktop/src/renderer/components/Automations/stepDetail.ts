@@ -1,4 +1,4 @@
-import type { CommandFile, StepRun, StepRunStatus } from '../../../shared/automations';
+import type { CommandFile, LogTail, StepRun, StepRunStatus } from '../../../shared/automations';
 
 /** A value past this many characters is collapsed in a `<details>`. */
 const LONG_VALUE = 120;
@@ -38,7 +38,7 @@ function earlierWords(status: StepRunStatus): string {
 
 /**
  * Which attempt this is and how the earlier ones ended, in attempt order
- * (`Attempt 2 · earlier: 1 failed, 2 did not run`), then `reminded once` when
+ * (`Attempt 3 · earlier: 1 failed, 2 did not run`: attempt numbers, one by one), then `reminded once` when
  * the agent had to be reminded. Null for a first, unreminded attempt.
  */
 export function attemptsLine(record: StepRun): string | null {
@@ -47,12 +47,8 @@ export function attemptsLine(record: StepRun): string | null {
   if (record.attempt > 1 || previous.length > 0) {
     let line = `Attempt ${record.attempt}`;
     if (previous.length > 0) {
-      const counts = new Map<string, number>();
-      for (const earlier of [...previous].sort((a, b) => a.attempt - b.attempt)) {
-        const words = earlierWords(earlier.status);
-        counts.set(words, (counts.get(words) ?? 0) + 1);
-      }
-      line += ` · earlier: ${[...counts].map(([words, count]) => `${count} ${words}`).join(', ')}`;
+      const listed = [...previous].sort((a, b) => a.attempt - b.attempt).map((earlier) => `${earlier.attempt} ${earlierWords(earlier.status)}`);
+      line += ` · earlier: ${listed.join(', ')}`;
     }
     parts.push(line);
   }
@@ -69,4 +65,21 @@ export function durationOf(record: StepRun, now: Date): number | null {
   const end = record.finishedAt ? Date.parse(record.finishedAt) : record.status === 'running' ? now.getTime() : NaN;
   if (Number.isNaN(start) || Number.isNaN(end)) return null;
   return Math.max(0, end - start);
+}
+
+/** A command's log file holds at most this much; mirrors the engine's `LOG_CAP_BYTES` (`steps/commandIO.ts`), which the renderer may not import. */
+export const LOG_CAP_BYTES = 1024 * 1024;
+
+/** Whether a stream produced more than its file holds. Decided per stream, from its own byte count. */
+export function logWasCapped(wrote: number | undefined): boolean {
+  return wrote !== undefined && wrote > LOG_CAP_BYTES;
+}
+
+/**
+ * The tail to show: what Show all read, for as long as the file is the size it
+ * was read at; else the latest tail. A refetch hands back a fresh object, so
+ * identity is no signal; the size is.
+ */
+export function visibleTail(initial: LogTail | undefined, full: LogTail | undefined): LogTail | undefined {
+  return full && (!initial || initial.bytes === full.bytes) ? full : initial;
 }
