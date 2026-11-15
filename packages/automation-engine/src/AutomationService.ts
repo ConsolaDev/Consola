@@ -216,6 +216,9 @@ const WAITING_FOR_CHECKOUT = "waiting for this item's checkout";
 /** What a retry is refused with while another run, or a session, holds its item's checkout. */
 const RETRY_HELD = 'Another run on this item is working; retry once it ends.';
 
+/** What a retry of a run that never started is refused with: there is no step it got to, and its approval did not cover a start. */
+const NEVER_STARTED = 'It never started; run it again.';
+
 /** Why an unattended turn whose run ended under it is ended at once: nothing would record what it did. */
 const RUN_ENDED = 'its run had ended';
 
@@ -1227,6 +1230,9 @@ export class AutomationService {
      * it ended before reaching one, the first it did not run. `stepId` must
      * name that step, so a page out of date cannot retry another. The click is
      * the approval: it runs the run's own snapshot, whatever the file says now.
+     * So only a run that started can be retried: one refused at approval (its
+     * file changed or lost the entry) or turned away in line never did, and
+     * retrying it would step past that refusal.
      *
      * The step gets its next attempt (`retrySteps`): a new folder and, for an
      * agent step, a new session, with what it did before kept in `previous`;
@@ -1240,6 +1246,8 @@ export class AutomationService {
     public async retry(runId: string, stepId?: string): Promise<RunRecord> {
         const run = this.deps.store.get(runId);
         if (!run || !isStepsRun(run) || run.status !== 'failed') throw new Error(`Run ${runId} is not a failed steps run.`);
+        // Refused at approval or turned away in line: its approval never covered a start, so the click must not be one.
+        if (!run.startedAt) throw new Error(NEVER_STARTED);
         if (this.retrying.has(runId)) throw new Error(`Run ${runId} is already being retried.`);
         const loaded = this.definitionOf(run);
         if ('problem' in loaded) throw new Error(loaded.problem);

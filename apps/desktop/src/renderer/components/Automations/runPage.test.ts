@@ -7,6 +7,7 @@ import {
     foundNothingToDo,
     isInterruptedCommand,
     retryTargetOf,
+    runRetryTarget,
     runNotes,
     runStages,
     stepBar,
@@ -455,6 +456,26 @@ describe('retryTargetOf', () => {
     it('is the first step when none ran, and nothing when every step did', () => {
         expect(retryTargetOf([stepOf({ id: 'a', status: 'not-run' }), stepOf({ id: 'b', status: 'not-run' })])?.id).toBe('a');
         expect(retryTargetOf([stepOf({ id: 'a', status: 'completed' })])).toBeUndefined();
+    });
+});
+
+describe('runRetryTarget', () => {
+    const failedAtReview = [stepOf({ id: 'review', status: 'failed' }), stepOf({ id: 'publish', kind: 'run', status: 'not-run' })];
+    const notRun = [stepOf({ id: 'review', status: 'not-run' }), stepOf({ id: 'publish', kind: 'run', status: 'not-run' })];
+
+    it('is the step a failed run that started retries from', () => {
+        expect(runRetryTarget(stepsRecord(failedAtReview, { status: 'failed', startedAt: ago(2 * MINUTE) }))?.id).toBe('review');
+        // Its checkout could not be prepared: it started, so it retries from its first step.
+        expect(runRetryTarget(stepsRecord(notRun, { status: 'failed', startedAt: ago(2 * MINUTE) }))?.id).toBe('review');
+    });
+
+    it('is nothing for a run that never started: refused at approval, or turned away in line', () => {
+        expect(runRetryTarget(stepsRecord(notRun, { status: 'failed', mode: 'confirm', error: 'Not run: factory.yml changed since this preview; run it again.' }))).toBeUndefined();
+    });
+
+    it('is nothing for a run that did not fail', () => {
+        expect(runRetryTarget(stepsRecord(failedAtReview, { status: 'rejected', startedAt: ago(2 * MINUTE) }))).toBeUndefined();
+        expect(runRetryTarget(stepsRecord(failedAtReview, { status: 'running', startedAt: ago(2 * MINUTE) }))).toBeUndefined();
     });
 });
 

@@ -161,6 +161,15 @@ export function retryTargetOf(steps: StepRun[]): StepRun | undefined {
 }
 
 /**
+ * The step a run's page offers Retry from: a failed run's `retryTargetOf`,
+ * only once it started, as the engine's `retry` allows. A run refused at
+ * approval or turned away in line never started, so it is run again instead.
+ */
+export function runRetryTarget(run: RunRecord): StepRun | undefined {
+    return run.status === 'failed' && run.startedAt ? retryTargetOf(run.steps ?? []) : undefined;
+}
+
+/**
  * Whether a command step was cut off mid-run: it recorded that it was about
  * to run (`intentAt`) and never recorded a result. It may or may not have
  * done its work, which is why retrying it warns first.

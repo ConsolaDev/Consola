@@ -2084,6 +2084,8 @@ const STOPPED_BY_YOU = 'It stopped before finishing: you stopped it.';
 const STOPPED_COMMAND = 'Stopped while running: it may have done its work';
 const NO_TURN = 'Stopped: its session was no longer running.';
 const HELD = 'Another run on this item is working; retry once it ends.';
+/** What a retry of a run that never started is refused with: its approval was refused, or the line turned it away. */
+const NEVER_STARTED = 'It never started; run it again.';
 const NEW_HEAD = '0a1b2c3d4e5f60718293a4b5c6d7e8f901234567';
 /** How the executor reports a command its stop ended. */
 const SIGTERMED = { result: { exitCode: null, signal: 'SIGTERM', stopped: true } };
@@ -2770,6 +2772,56 @@ describe('retry', () => {
             status: 'running',
             steps: [{ id: 'review', status: 'running', attempt: 2, sessionId: 'session-1' }, { id: 'publish', status: 'pending' }],
         });
+    });
+
+    it.each<[string, (h: StepsHarness) => Promise<void>, string]>([
+        [
+            'factory.yml changed since its preview',
+            (h) => h.setYaml(TEMPLATE.replace("if: steps.review.verdict != 'approve'", "if: steps.review.verdict == 'request-changes'")),
+            'Not run: factory.yml changed since this preview; run it again.',
+        ],
+        ['its entry left factory.yml', (h) => h.setYaml('version: 1\nautomations: []\n'), 'Not run: it is no longer in its workspace’s factory.yml.'],
+    ])('a run whose approval was refused because %s never started: retry refuses it and launches nothing', async (_, change, refused) => {
+        const h = await watching({ yaml: TEMPLATE });
+        await h.poll([PR51]);
+        const [asked] = h.store.runs();
+        expect(asked.status).toBe('needs-approval');
+        await change(h);
+        await expect(h.service.approve(asked.id)).rejects.toThrow(refused);
+        const before = structuredClone(h.store.get(asked.id))!;
+        expect(before).toMatchObject({ status: 'failed', error: refused, steps: [{ status: 'not-run' }, { status: 'not-run' }] });
+        expect(before.startedAt).toBeUndefined();
+
+        await expect(h.service.retry(asked.id)).rejects.toThrow(NEVER_STARTED);
+        await h.flush();
+        expect(h.store.get(asked.id)).toEqual(before);
+        expect(h.world.checkouts.prepared).toEqual([]);
+        expect(h.world.launches).toEqual([]);
+        expect(h.world.commands).toEqual([]);
+    });
+
+    it('a queued run its entry problem turned away never started: retry refuses it', async () => {
+        // No agent slot: approved, it waits in line.
+        const h = await watching({ yaml: TEMPLATE, maxConcurrentAgents: 0 });
+        await h.poll([PR51]);
+        const [asked] = h.store.runs();
+        await h.service.approve(asked.id);
+        await h.flush();
+        expect(h.store.get(asked.id)?.status).toBe('queued');
+
+        // Its action goes; the next pump turns it away.
+        h.world.workspace.actions = [];
+        await h.service.syncWorkspaces();
+        h.world.maxConcurrentAgents = 2;
+        await h.tick();
+        const before = structuredClone(h.store.get(asked.id))!;
+        expect(before).toMatchObject({ status: 'failed', error: 'Not run: no action named Review in this workspace.' });
+        expect(before.startedAt).toBeUndefined();
+
+        await expect(h.service.retry(asked.id)).rejects.toThrow(NEVER_STARTED);
+        await h.flush();
+        expect(h.store.get(asked.id)).toEqual(before);
+        expect(h.world.launches).toEqual([]);
     });
 
     it('a schedule retries in its scope folder, preparing nothing; a run not failed, another step, or a lost definition is refused', async () => {

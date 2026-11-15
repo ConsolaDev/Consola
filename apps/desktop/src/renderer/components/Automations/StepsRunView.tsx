@@ -7,7 +7,7 @@ import { RunAgainButton, useIntent } from './parts';
 import { RunGraph } from './RunGraph';
 import { StepDetail } from './StepDetailView';
 import { StepsApprovalCard } from './StepsApprovalCard';
-import { isInterruptedCommand, retryTargetOf, type RunStage } from './runPage';
+import { isInterruptedCommand, runRetryTarget, type RunStage } from './runPage';
 
 /** The retry warning for a command Consola quit on, word for word. */
 const INTERRUPTED_WARNING = 'Consola quit while this command ran; check the pull request first — it may already be posted.';
@@ -46,7 +46,7 @@ export function StepsRunView({
   const [stopping, setStopping] = useState(false);
   const { busy, error, act } = useIntent();
 
-  const retryTarget = run.status === 'failed' ? retryTargetOf(steps) : undefined;
+  const retryTarget = runRetryTarget(run);
   const selected = steps.find((step) => step.id === picked) ?? defaultStep(steps);
   const selectedIndex = selected ? stages.findIndex((stage) => stage.step?.id === selected.id) : -1;
   const interrupted = retryTarget ? isInterruptedCommand(retryTarget) : false;
