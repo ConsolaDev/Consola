@@ -3,7 +3,7 @@ import { createWorkItemAssetCache } from './providers/workItemAssets';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { ShellManager } from './ShellManager';
 import type { ShellOptions } from '../shared/shell';
-import { checkoutPathForSession, scopeForSession, type WorkspaceUpdates } from '../shared/workspace';
+import { checkoutPathForSession, scopeForSession, type Session, type WorkspaceUpdates } from '../shared/workspace';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { ipcMain, BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
@@ -42,7 +42,8 @@ import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { sessionRecord, toItemSnapshot, toWorkspaceView } from './automations/engineViews';
-import { launchAgentRun, refreshIdleWorktree, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
+import { launchAgentRun, refreshIdleWorktree, runningIn, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
+import { automationCheckoutPort } from './automations/automationCheckout';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
@@ -881,18 +882,17 @@ export function setupIpcHandlers(): boolean {
 
     // What preparing a work item's worktree needs, shared by automations and
     // the Assistant so both take the same chain and keep git hooks off.
+    const allSessions = () => workspaces.getAll().flatMap((workspace) => workspace.sessions);
+    const isRunning = (session: Session) => manager.get(session.instanceId)?.hasClaudeExited() === false;
     const itemWorktreeDeps: ItemWorktreeDeps = {
         resolveDriver: getProviderDriver,
         resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
         worktreePathFor: (workItem) => worktrees.worktreePathFor(workItem),
         ensureWorktree: (clonePath, workItem, env) => worktrees.ensureWorktree(clonePath, workItem, env),
         refreshWorktree: (dir, workItem, env) => worktrees.refreshPullRequest(dir, workItem, env),
-        worktreeInUse: (dir) =>
-            worktreeHeld(
-                workspaces.getAll().flatMap((workspace) => workspace.sessions),
-                dir,
-                (session) => manager.get(session.instanceId)?.hasClaudeExited() === false
-            ),
+        // A checkout a working steps run holds is never moved either. Read at
+        // call time, once the runner below exists.
+        worktreeInUse: (dir) => worktreeHeld(allSessions(), dir, isRunning) || automations.checkoutHeld(dir),
         composeEnv: composeProviderEnv,
     };
     // A re-run of a read-only review reads the PR as it is now.
@@ -999,6 +999,16 @@ export function setupIpcHandlers(): boolean {
         },
         stopAgent: (session, reason) => automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
         platform: process.platform,
+        // An item run's own checkout, beside the Inbox's worktree.
+        checkout: automationCheckoutPort({
+            ...itemWorktreeDeps,
+            automationCheckoutPathFor: (item) => worktrees.automationCheckoutPathFor(item),
+            syncCheckout: (clone, item, env) => worktrees.syncAutomationCheckout(clone, item, env),
+            getWorkspace: (id) => workspaces.getAll().find((candidate) => candidate.id === id),
+            allSessions,
+        }),
+        checkoutBusy: (dir) => runningIn(allSessions(), dir, isRunning),
+        folderExists: (dir) => fs.existsSync(dir),
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));

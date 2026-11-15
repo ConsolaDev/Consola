@@ -149,6 +149,69 @@ describe('launchAgentRun', () => {
         expect(d.launchSession).toHaveBeenCalledTimes(1);
     });
 
+    it("a step launch uses the engine's folder and records the step", async () => {
+        const checkout = '/worktrees/api-pr-123-automation';
+        const d = deps();
+        const step = { id: 'review', attempt: 2, cwd: checkout, scopeId: 'scope-api', name: 'Add retries · review' };
+        await launchAgentRun(d, { ...itemRun, step });
+        expect(d.launchSession).toHaveBeenCalledWith('ws-1', {
+            name: 'Add retries · review',
+            workspaceId: 'ws-1',
+            instanceId: expect.stringMatching(/^workspace-ws-1-session-/),
+            harnessId: 'work',
+            kind: 'interactive',
+            scopeId: 'scope-api',
+            cwd: checkout,
+            workItem,
+            workItemAction: 'Review',
+            groupId: 'g-reviews',
+            toolPolicy: 'read-only',
+            automation: { name: 'review-requests', runId: 'run-1', step: { id: 'review', attempt: 2 } },
+            initialPrompt: 'Review it.',
+            unattended: true,
+        });
+        // The engine prepared the folder: the Inbox's worktree is neither made nor moved.
+        expect(d.ensureWorktree).not.toHaveBeenCalled();
+        expect(d.refreshWorktree).not.toHaveBeenCalled();
+
+        // A schedule's step runs in its scope's folder.
+        const scheduled = deps();
+        const inScope = { id: 'digest', attempt: 1, cwd: '/code/api', scopeId: 'scope-api', name: 'morning · digest' };
+        await launchAgentRun(scheduled, { workspaceId: 'ws-1', run: { id: 'run-2', automation: 'morning' }, prompt: 'Sum up.', step: inScope });
+        expect(scheduled.launchSession).toHaveBeenCalledWith(
+            'ws-1',
+            expect.objectContaining({
+                name: 'morning · digest',
+                scopeId: 'scope-api',
+                cwd: '/code/api',
+                automation: { name: 'morning', runId: 'run-2', step: { id: 'digest', attempt: 1 } },
+                toolPolicy: 'read-only',
+                unattended: true,
+            })
+        );
+        expect(scheduled.launchSession.mock.calls[0][1]).not.toHaveProperty('workItem');
+        expect(scheduled.ensureWorktree).not.toHaveBeenCalled();
+    });
+
+    it('a step launch looks for a review started by hand only when the engine asks it to', async () => {
+        const ws = workspace();
+        ws.sessions = [{ id: 'mine', name: 'My review', workItem, workItemAction: 'Review', createdAt: 3_000 }] as unknown as Session[];
+        const d = deps({ getWorkspace: () => ws });
+        const step = { id: 'review', attempt: 1, cwd: '/worktrees/api-pr-123-automation', scopeId: 'scope-api', name: 'Add retries · review' };
+
+        // A later step, or a prompt step: the person's session is no reason not to run it.
+        await launchAgentRun(d, { ...itemRun, step });
+        expect(d.launchSession).toHaveBeenCalledTimes(1);
+
+        // The run's first agent step, an action: checked under the Inbox's lock, after the checkout was prepared.
+        const since = new Date(1_000).toISOString();
+        const refused = launchAgentRun(d, { ...itemRun, item: { ...itemRun.item, startedByHandSince: since }, step });
+        await expect(refused).rejects.toBeInstanceOf(StartedByHandError);
+        await expect(refused).rejects.toMatchObject({ sessionName: 'My review' });
+        expect(d.launchSession).toHaveBeenCalledTimes(1);
+        expect(d.ensureWorktree).not.toHaveBeenCalled();
+    });
+
     it('starts a scheduled run in its scope, with no item', async () => {
         const d = deps();
         await launchAgentRun(d, { workspaceId: 'ws-1', run: { id: 'run-2', automation: 'morning' }, prompt: 'Sum up.', scopeId: 'scope-api' });

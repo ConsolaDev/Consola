@@ -9,7 +9,9 @@ import type { AgentLaunchRequest, FactoryFileHandle } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
 import { FakeToolRegistry } from '../tools.test-helpers';
-import type { InboxItemView, ItemSnapshot, SessionView, WorkspaceView } from '../views';
+import type { InboxItemView, ItemRef, ItemSnapshot, SessionView, WorkspaceView } from '../views';
+import type { CheckoutRequest } from './checkout';
+import type { StepToolAnswer } from './stepTools';
 
 /*
  * The one harness every steps test runs through: a real `AutomationService`
@@ -28,6 +30,16 @@ export const WORKSPACE_ID = 'ws-1';
 export const REVIEW_BODY = 'Review {{title}} and say what should change before it merges.';
 export const TRIAGE_BODY = 'Triage {{title}}: say what it needs and who should look at it.';
 
+/** The commit every fake preparation reports, unless a test sets another. */
+export const CHECKOUT_HEAD = '5f3c2a1b9d8e7f6a5b4c3d2e1f0a9b8c7d6e5f4a';
+
+/** Where the fake host keeps an item's automation checkout: `/worktrees/catalog-portal-pr-51-automation`. */
+export function checkoutPathFor(workItem: ItemRef): string {
+    return `/worktrees/${workItem.repo.split('/')[1]}-${workItem.type}-${workItem.number}-automation`;
+}
+
+type TurnOutcome = { exitCode: number; lastLine?: string; stopped?: string };
+
 export interface StepsHarnessOptions {
     /** ws-1's factory.yml; without one, the workspace has no file. */
     yaml?: string;
@@ -37,6 +49,8 @@ export interface StepsHarnessOptions {
     harness?: { name: string; problem: string | null };
     /** Local wall-clock start. */
     now?: Date;
+    /** Agent sessions automations may have working at once; `world.maxConcurrentAgents` changes it later. Default: the engine's. */
+    maxConcurrentAgents?: number;
 }
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
@@ -50,6 +64,31 @@ export interface StepsWorld {
     inbox: Map<string, ItemSnapshot>;
     /** Sessions a pane has a live terminal for: a person opened them. */
     liveTerminals: Set<string>;
+    /** The cap the service reads, read at every look: undefined is the engine's default. */
+    maxConcurrentAgents?: number;
+    /** Folders a running session works in, as `checkoutBusy` answers. */
+    busyFolders: Set<string>;
+    /** Working folders that are gone from disk, as `folderExists` answers. */
+    goneFolders: Set<string>;
+    /** The automation checkout: every `prepare` asked for, the head it reports, and how the next one ends. */
+    checkouts: {
+        prepared: CheckoutRequest[];
+        head: string;
+        /** Every `prepare` throws this while it is set. */
+        fails?: unknown;
+        /** Every `prepare` waits for this while it is set. */
+        gate?: Promise<void>;
+    };
+    /** Every launch throws this while it is set, after recording the request. */
+    launchThrows?: unknown;
+    /** Called inside the fake launch, once its session is on the workspace's record and before it resolves. */
+    onLaunch?: (request: AgentLaunchRequest, session: SessionView) => void;
+    /** A session's unattended turn ended, as the desktop reports it; then whatever that set going. Exit 0 unless told. */
+    endTurn(sessionId: string, outcome?: TurnOutcome): Promise<void>;
+    /** A step session's `consola_set_outputs`, through the service's step tools. */
+    setOutputs(sessionId: string, values: Record<string, unknown>): StepToolAnswer;
+    /** A step session's `consola_write_artifact`, through the service's step tools. */
+    writeArtifact(sessionId: string, name: string, content: string): StepToolAnswer;
 
     launches: AgentLaunchRequest[];
     resumes: Array<{ sessionId: string; prompt: string }>;
@@ -62,6 +101,8 @@ export interface StepsWorld {
 export interface StepsHarness {
     service: AutomationService;
     store: RunStore;
+    /** The run logs the store writes: one appended line per recorded change. */
+    history: ReturnType<typeof memoryHistory>;
     folder: RunFolder;
     world: StepsWorld;
     notices: AutomationNotice[];
@@ -118,6 +159,8 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
     let clock = now;
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'steps-harness-'));
     onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
+    // The service now running: `relaunch` replaces it, and the world's step calls follow.
+    let current: AutomationService;
 
     const world: StepsWorld = {
         workspace: sprocket(),
@@ -125,6 +168,16 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         harness,
         inbox: new Map(),
         liveTerminals: new Set(),
+        maxConcurrentAgents: options.maxConcurrentAgents,
+        busyFolders: new Set(),
+        goneFolders: new Set(),
+        checkouts: { prepared: [], head: CHECKOUT_HEAD },
+        async endTurn(sessionId, outcome = { exitCode: 0 }) {
+            current.turnEnded(sessionId, outcome);
+            await flush();
+        },
+        setOutputs: (sessionId, values) => current.stepIO().setOutputs(sessionId, values),
+        writeArtifact: (sessionId, name, content) => current.stepIO().writeArtifact(sessionId, name, content),
         launches: [],
         resumes: [],
         stops: [],
@@ -181,18 +234,23 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         // Like the desktop: the session is on the workspace's record by the time the launch resolves.
         launchAgent: async (request) => {
             world.launches.push(request);
+            if (world.launchThrows) throw world.launchThrows;
+            const { step } = request;
             const session: SessionView = {
                 id: `session-${world.launches.length}`,
                 workspaceId: request.workspaceId,
-                name: request.item?.title ?? request.run.automation,
-                scopeId: request.scopeId ?? 'scope-catalog-portal',
+                name: step?.name ?? request.item?.title ?? request.run.automation,
+                scopeId: step?.scopeId ?? request.scopeId ?? 'scope-catalog-portal',
                 harnessId: 'claude',
                 claudeSessionId: `claude-${world.launches.length}`,
+                ...(step ? { cwd: step.cwd } : {}),
                 createdAt: clock.getTime(),
-                automation: { name: request.run.automation, runId: request.run.id },
+                automation: { name: request.run.automation, runId: request.run.id, ...(step ? { step: { id: step.id, attempt: step.attempt } } : {}) },
+                ...(request.item ? { workItemAction: request.item.label } : {}),
                 toolPolicy: 'read-only',
             };
             world.workspace.sessions.push(session);
+            world.onLaunch?.(request, session);
             return session;
         },
         resumeAgent: async (session, prompt) => {
@@ -204,17 +262,33 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
             world.stops.push({ sessionId: session.id, reason });
             return true;
         },
+        get maxConcurrentAgents() {
+            return world.maxConcurrentAgents;
+        },
         platform,
+        checkout: {
+            pathFor: (_workspaceId, workItem) => checkoutPathFor(workItem),
+            prepare: async (request) => {
+                world.checkouts.prepared.push(request);
+                if (world.checkouts.gate) await world.checkouts.gate;
+                if (world.checkouts.fails) throw world.checkouts.fails;
+                return { cwd: checkoutPathFor(request.workItem), scopeId: 'scope-catalog-portal', head: world.checkouts.head };
+            },
+        },
+        checkoutBusy: (dir) => world.busyFolders.has(dir),
+        folderExists: (dir) => !world.goneFolders.has(dir),
     });
 
     const launch = async (): Promise<StepsHarness> => {
         const store = new RunStore(stateFile, history);
         const service = new AutomationService(deps(store));
+        current = service;
         await service.start();
 
         return {
             service,
             store,
+            history,
             folder,
             world,
             notices,

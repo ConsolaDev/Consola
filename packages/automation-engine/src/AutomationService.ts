@@ -32,8 +32,12 @@ import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResul
 import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunKind, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
+import { agentStepLaunch, endedWithout, runEventSource } from './steps/agentStep';
+import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import type { RunDefinition, StepsRunPreview } from './steps/definition';
 import { isEngineRun, isStepsRun } from './steps/recover';
+import { advanceSteps, type Lane, type StepUpdate } from './steps/sequence';
+import { closeSteps, laneOfRecord, withStep, withUpdate } from './steps/stepRecords';
 import { StepIO } from './steps/stepTools';
 
 /**
@@ -129,10 +133,25 @@ export interface AutomationServiceDeps {
     maxConcurrentAgents?: number;
     /** The host's platform, as `process.platform` says it. `run:` steps need a POSIX shell, which `win32` lacks. */
     platform: NodeJS.Platform;
+    /** Where an item run's automation checkout is, and bringing it to the item's head. */
+    checkout: CheckoutPort;
+    /** Whether a session is running in `dir`, launched there or moved in since: a run on that checkout waits for it. */
+    checkoutBusy(dir: string): boolean;
+    /** Whether a step's working folder (its item's checkout, or its scope's folder) is still there. */
+    folderExists(dir: string): boolean;
 }
 
 /** A `steps:` entry's problem on a host whose platform is `win32`. */
 const NO_POSIX_SHELL = 'run: steps need a POSIX shell, which Windows does not have';
+
+/** What a run says while another run, or a session, holds its item's checkout. */
+const WAITING_FOR_CHECKOUT = "waiting for this item's checkout";
+
+/** Commands automations may have running at once, across every workspace. */
+const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
+
+/** The lanes slots are counted in: agent turns, and commands, each with a cap of its own. */
+const LANES: readonly Lane[] = ['agent', 'command'];
 
 /** The turn an automation session gets when Consola quit before its first one finished. */
 export const INTERRUPTED_PROMPT = 'Consola closed before you finished. Continue where you left off.';
@@ -228,6 +247,25 @@ type QueueVerdict =
     | { go: false; wait: true }
     | { go: false; wait?: false; status: 'rejected' | 'failed'; message: string };
 
+/**
+ * A run waiting in a lane's line for a slot. One that has started (a legacy
+ * turn a quit interrupted, or a steps run with a queued step, `stepId`) is
+ * ahead of every one that has not.
+ */
+interface Waiting {
+    run: RunRecord;
+    lane: Lane;
+    started: boolean;
+    stepId?: string;
+}
+
+/** Started runs first, oldest start first; then the rest, by when each joined the line. */
+function byPlaceInLine(a: Waiting, b: Waiting): number {
+    if (a.started !== b.started) return a.started ? -1 : 1;
+    const at = (waiting: Waiting) => (waiting.started ? (waiting.run.startedAt ?? waiting.run.updatedAt) : waiting.run.updatedAt);
+    return at(a) < at(b) ? -1 : at(a) > at(b) ? 1 : 0;
+}
+
 export class AutomationService {
     private readonly factories = new Map<string, WorkspaceFactory>();
     private stopTicking: (() => void) | null = null;
@@ -240,6 +278,12 @@ export class AutomationService {
     private readonly starting = new Set<string>();
     /** Of those, the ones a person asked to stop; honoured as soon as the turn exists. */
     private readonly stopRequested = new Set<string>();
+    /**
+     * Steps runs preparing their item's checkout, and the lane their first
+     * step will need: each holds that slot meanwhile, so a run that has not
+     * started cannot take it.
+     */
+    private readonly preparing = new Map<string, Lane>();
     private pumpAgain = false;
     /** Each workspace's last save, settled either way: the next one waits for it. */
     private readonly saving = new Map<string, Promise<void>>();
@@ -368,6 +412,21 @@ export class AutomationService {
             if (run.status === 'running' && run.sessionId && isAgentRun(run) && !this.sessionOf(run)) {
                 this.finish(run.id, 'failed', { error: 'Its session was closed before it finished.' });
             }
+        }
+        // The same for a step's session. A started steps run whose definition
+        // went with its folder has nothing left to run: it ends here too.
+        for (const run of this.deps.store.runs()) {
+            if (run.status !== 'running' || !isStepsRun(run)) continue;
+            const loaded = this.definitionOf(run);
+            if ('problem' in loaded) {
+                this.failRun(run.id, loaded.problem);
+                continue;
+            }
+            const closed = run.steps?.find(
+                (step) => step.kind === 'agent' && step.status === 'running' && step.sessionId && !this.sessionNamed(run, step.sessionId)
+            );
+            // The person closed it: as for a one-step run, there is nothing to tell them.
+            if (closed) this.settleStep(run.id, closed.id, { status: 'failed', error: 'Its session was closed before it finished.' }, { quiet: true });
         }
         void this.pump();
     }
@@ -622,32 +681,31 @@ export class AutomationService {
     }
 
     /**
-     * A session's unattended turn ended: its run is done, one way or the
-     * other, and its slot is free. The run is the session's `running` one —
-     * a later exit of the same session, the person continuing it, is not.
+     * A session's unattended turn ended: its run, or its step, is done one
+     * way or the other, and its slot is free. The run is the session's
+     * `running` one — a later exit of the same session, the person
+     * continuing it, is not.
      */
-    public turnEnded(sessionId: string, outcome: { exitCode: number; lastLine?: string; stopped?: string }): void {
+    public turnEnded(sessionId: string, outcome: TurnOutcome): void {
+        const step = this.runningStepOf(sessionId);
+        if (step) {
+            this.stepTurnEnded(step.run, step.record, outcome);
+            return;
+        }
         const run = this.deps.store
             .runs()
             .find((candidate) => candidate.sessionId === sessionId && candidate.status === 'running' && isAgentRun(candidate));
         if (!run) return;
         const name = this.sessionOf(run)?.name ?? 'its session';
         let notice: { title: string; body: string };
-        if (outcome.stopped) {
-            // Stopped before it answered — by the person, the limit, or a
-            // signal — whatever code the process exited with.
-            const error = `It stopped before finishing: ${outcome.stopped.trim().replace(/[.\s]+$/, '')}.`;
+        const error = turnFailure(outcome);
+        if (error) {
             this.finish(run.id, 'failed', { error });
             notice = { title: `${run.automationId} did not finish`, body: error };
-        } else if (outcome.exitCode === 0) {
+        } else {
             this.finish(run.id, 'completed', { summary: `Ready in “${name}”.` });
             const item = (run.result as AgentRunPreview).item?.label;
             notice = { title: `${run.automationId}: ready`, body: `${item ?? name} — the findings are waiting. Click to open them.` };
-        } else {
-            const said = outcome.lastLine?.trim().replace(/[.\s]+$/, '');
-            const error = `It stopped before finishing (exit ${outcome.exitCode})${said ? `: ${said}` : ''}.`;
-            this.finish(run.id, 'failed', { error });
-            notice = { title: `${run.automationId} did not finish`, body: error };
         }
         // The click opens the session, where the findings — or the reason — are.
         const { workspaceId } = run.attribution;
@@ -898,11 +956,14 @@ export class AutomationService {
             .runs()
             .filter((run) => run.attribution.workspaceId === workspaceId)
             .map(toListEntry);
-        // A place in the one line every workspace shares.
+        // A place in its lane's line, which every workspace shares.
         const queue: Record<string, number> = {};
-        this.queuedRuns().forEach((run, index) => {
-            if (run.attribution.workspaceId === workspaceId) queue[run.id] = index + 1;
-        });
+        const { lines } = this.waitingRuns();
+        for (const lane of LANES) {
+            lines[lane].forEach(({ run }, index) => {
+                if (run.attribution.workspaceId === workspaceId) queue[run.id] = index + 1;
+            });
+        }
         return {
             filePath: factory.file.filePath,
             fileExists: factory.loaded.exists,
@@ -916,9 +977,11 @@ export class AutomationService {
     }
 
     /**
-     * Start queued agent runs while there is room: oldest first, each checked
-     * once more right before it starts. Re-entrant calls fold into one more
-     * pass rather than racing the one in progress.
+     * Start what waits while its lane has room: in each lane's line, runs
+     * that started first, then the rest, oldest first, each checked once more
+     * right before it starts. A steps run whose every step would skip needs
+     * no slot: it settles as soon as it is checked. Re-entrant calls fold
+     * into one more pass rather than racing the one in progress.
      */
     private async pump(): Promise<void> {
         if (!this.started) return;
@@ -930,27 +993,104 @@ export class AutomationService {
         try {
             do {
                 this.pumpAgain = false;
-                for (const run of this.queuedRuns()) {
-                    // The list was taken before the last launch was awaited:
-                    // a run dismissed or dropped meanwhile is not in line.
+                const { lines, settling } = this.waitingRuns();
+                for (const run of settling) {
                     if (this.deps.store.get(run.id)?.status !== 'queued') continue;
-                    if (this.slotsInUse() >= this.capacity()) break;
                     const verdict = this.checkQueued(run);
-                    if (!verdict.go) {
-                        if (!verdict.wait) {
-                            this.finish(run.id, verdict.status, verdict.status === 'failed' ? { error: verdict.message } : { summary: verdict.message });
-                        }
-                        continue;
+                    if (verdict.go) this.startStepsRun(run, verdict.item, null);
+                    else if (!verdict.wait) this.endUnstarted(run, verdict);
+                }
+                for (const lane of LANES) {
+                    for (const waiting of lines[lane]) {
+                        // The lines were taken before the last launch was awaited:
+                        // a run dismissed, dropped or started meanwhile is not in line.
+                        if (!this.stillWaiting(waiting)) continue;
+                        if (this.slotsInUse(lane) >= this.capacityOf(lane)) break;
+                        await this.startWaiting(waiting);
                     }
-                    // A steps run is checked like any other, but nothing starts one yet: it stays in
-                    // line until the step sequencer (its checkout, then its first step) lands.
-                    if (isStepsRun(run)) continue;
-                    await this.startAgentRun(run, verdict.item);
                 }
             } while (this.pumpAgain);
         } finally {
             this.pumping = false;
         }
+    }
+
+    /** Start one run at its turn in line: a queued step of a started run, or a run, checked first. */
+    private async startWaiting(waiting: Waiting): Promise<void> {
+        const { run, lane, stepId } = waiting;
+        if (stepId) {
+            // A command waits in its lane: commands do not run yet.
+            if (lane === 'agent') await this.startAgentStep(run.id, stepId);
+            return;
+        }
+        const verdict = this.checkQueued(run);
+        if (!verdict.go) {
+            if (!verdict.wait) this.endUnstarted(run, verdict);
+            return;
+        }
+        if (isStepsRun(run)) this.startStepsRun(run, verdict.item, lane);
+        else await this.startAgentRun(run, verdict.item);
+    }
+
+    /** A queued run the check turned away: it ends without starting. */
+    private endUnstarted(run: RunRecord, verdict: Extract<QueueVerdict, { status: string }>): void {
+        this.finish(run.id, verdict.status, verdict.status === 'failed' ? { error: verdict.message } : { summary: verdict.message });
+    }
+
+    /** Whether a run is still where the line saw it: queued, or, for a started run, with the same step queued. */
+    private stillWaiting(waiting: Waiting): boolean {
+        const run = this.deps.store.get(waiting.run.id);
+        if (!waiting.stepId) return run?.status === 'queued';
+        return run?.status === 'running' && run.steps?.find((step) => step.id === waiting.stepId)?.status === 'queued';
+    }
+
+    /**
+     * Every run waiting for a slot, each in its lane's line, in order; and the
+     * steps runs that need none, because every step they would run skips (or
+     * the first fails at once).
+     */
+    private waitingRuns(): { lines: Record<Lane, Waiting[]>; settling: RunRecord[] } {
+        const waiting: Waiting[] = [];
+        const settling: RunRecord[] = [];
+        // Oldest first, so runs joining at the same instant keep the order they joined in.
+        for (const run of [...this.deps.store.runs()].reverse()) {
+            if (run.status === 'queued' && isAgentRun(run)) {
+                waiting.push({ run, lane: 'agent', started: !!run.sessionId });
+            } else if (run.status === 'running' && isStepsRun(run)) {
+                const step = run.steps?.find((candidate) => candidate.status === 'queued');
+                if (step) waiting.push({ run, lane: laneOfRecord(step), started: true, stepId: step.id });
+            } else if (run.status === 'queued' && isStepsRun(run)) {
+                const lane = this.firstLaneOf(run);
+                if (lane) waiting.push({ run, lane, started: false });
+                else settling.push(run);
+            }
+        }
+        waiting.sort(byPlaceInLine);
+        const lines: Record<Lane, Waiting[]> = { agent: [], command: [] };
+        for (const entry of waiting) lines[entry.lane].push(entry);
+        return { lines, settling };
+    }
+
+    /**
+     * The lane of the first step a steps run that has not started would run,
+     * asked of the sequencer over its pending record; null when it would run
+     * none. One whose automation changed waits where its first step would:
+     * its check rejects it when its turn comes, as for any other run.
+     */
+    private firstLaneOf(run: RunRecord): Lane | null {
+        const records = run.steps ?? [];
+        const entry = this.entryOf(run);
+        if (!entry?.steps || entry.version !== run.actionVersion) return records[0] ? laneOfRecord(records[0]) : null;
+        // At this version the entry's definition is the run's snapshot.
+        const { event } = entry;
+        const item = run.trigger.item;
+        const next = advanceSteps({
+            steps: entry.steps.definition.automation.steps,
+            records,
+            dryRun: run.dryRun === true,
+            itemValue: event && item ? (field) => event.itemValue(item, field) : undefined,
+        });
+        return next.kind === 'start' ? next.lane : null;
     }
 
     /**
@@ -1091,35 +1231,325 @@ export class AutomationService {
 
     /** The session an agent run started, while its workspace still has it. */
     private sessionOf(run: RunRecord): SessionView | undefined {
-        if (!run.sessionId) return undefined;
-        return this.deps
-            .getWorkspaces()
-            .find((workspace) => workspace.id === run.attribution.workspaceId)
-            ?.sessions.find((session) => session.id === run.sessionId);
+        return run.sessionId ? this.sessionNamed(run, run.sessionId) : undefined;
     }
 
     /**
-     * Oldest in line first, by when each joined the queue — after the turns
-     * a quit interrupted, which were already running and go back first.
+     * A lane's slots in use. The agent lane's: legacy agent runs whose turn
+     * is running or being launched, and running agent steps, each one
+     * process. The command lane's: running commands. A steps run preparing
+     * its checkout holds a slot in the lane of the step it is preparing for.
      */
-    private queuedRuns(): RunRecord[] {
+    private slotsInUse(lane: Lane): number {
+        let used = [...this.preparing.values()].filter((reserved) => reserved === lane).length;
+        for (const run of this.deps.store.runs()) {
+            if (run.status !== 'running') continue;
+            if (isAgentRun(run)) used += lane === 'agent' ? 1 : 0;
+            else if (run.steps) used += run.steps.filter((step) => step.status === 'running' && laneOfRecord(step) === lane).length;
+        }
+        return used;
+    }
+
+    private capacityOf(lane: Lane): number {
+        return lane === 'agent' ? (this.deps.maxConcurrentAgents ?? DEFAULT_MAX_CONCURRENT_AGENTS) : DEFAULT_MAX_CONCURRENT_COMMANDS;
+    }
+
+    /**
+     * Whether a started, unfinished steps run holds `dir`: its checkout is
+     * there, or it is on the item `itemKey`. Every workspace's runs count:
+     * one service serves them all, and the folder is one per item.
+     */
+    public checkoutHeld(dir: string, itemKey?: string): boolean {
         return this.deps.store
             .runs()
-            .filter((run) => run.status === 'queued')
-            .reverse()
-            .sort((a, b) => {
-                if (!!a.sessionId !== !!b.sessionId) return a.sessionId ? -1 : 1;
-                return a.updatedAt < b.updatedAt ? -1 : a.updatedAt > b.updatedAt ? 1 : 0;
-            });
+            .some(
+                (run) =>
+                    run.status === 'running' &&
+                    isStepsRun(run) &&
+                    (run.checkout?.cwd === dir || (itemKey !== undefined && run.trigger.item?.key === itemKey))
+            );
     }
 
-    /** Agent runs whose turn is running, or being launched: each is one process. */
-    private slotsInUse(): number {
-        return this.deps.store.runs().filter((run) => run.status === 'running' && isAgentRun(run)).length;
+    /**
+     * Start a queued steps run, checked (`checkQueued`) and at the head of
+     * its first step's lane (`lane`; null for one whose every step skips).
+     *
+     * An item run's checkout must be free: one another run works in, or a
+     * session runs in, makes it wait, saying so. Then one update marks it
+     * running, refreshes its item from the Inbox, and claims its checkout,
+     * before anything is awaited, so no second run on the item slips in
+     * while this one is still fetching. An item run then prepares its
+     * checkout; a schedule's is its scope's folder. Then it advances.
+     */
+    private startStepsRun(run: RunRecord, item: InboxItemView | undefined, lane: Lane | null): void {
+        const entry = this.entryOf(run)!;
+        const { scope, byHandLabel, definition } = entry.steps!;
+        const workItem = lane && !scope ? item?.workItem : undefined;
+        const dir = workItem ? this.deps.checkout.pathFor(entry.workspaceId, workItem) : undefined;
+        if (dir && (this.checkoutHeld(dir, run.trigger.item?.key) || this.deps.checkoutBusy(dir))) {
+            this.waitForCheckout(run);
+            return;
+        }
+        const now = this.iso();
+        const preview = run.result as StepsRunPreview;
+        this.deps.store.update(run.id, {
+            status: 'running',
+            startedAt: now,
+            updatedAt: now,
+            ...(run.summary === WAITING_FOR_CHECKOUT
+                ? { summary: stepsRunLine(definition.automation, preview.item ? { item: preview.item.label } : { scope: preview.scope }) }
+                : {}),
+            ...(item && run.trigger.item ? { trigger: { ...run.trigger, item: { ...run.trigger.item, title: item.title, author: item.author } } } : {}),
+            ...(lane && scope ? { checkout: { cwd: scope.path, scopeId: scope.id } } : {}),
+            ...(dir ? { checkout: { cwd: dir } } : {}),
+        });
+        this.broadcastRun(run.id);
+        if (!lane || !workItem) {
+            this.advance(run.id);
+            return;
+        }
+        this.preparing.set(run.id, lane);
+        // A trigger fired it and its first agent step is an action: a review the person started by hand meanwhile wins.
+        const byHand = run.trigger.kind === 'event' && byHandLabel ? { startedByHand: { label: byHandLabel, since: run.createdAt } } : {};
+        void this.prepareCheckout(run.id, { workspaceId: entry.workspaceId, workItem, ...byHand });
     }
 
-    private capacity(): number {
-        return this.deps.maxConcurrentAgents ?? DEFAULT_MAX_CONCURRENT_AGENTS;
+    /** A run whose item's checkout is held waits, saying so once: not at every look. */
+    private waitForCheckout(run: RunRecord): void {
+        if (run.summary === WAITING_FOR_CHECKOUT) return;
+        // Not `updatedAt`: that is its place in line.
+        this.deps.store.update(run.id, { summary: WAITING_FOR_CHECKOUT });
+        this.broadcastRun(run.id);
+    }
+
+    /**
+     * Bring an item run's checkout to its head and record what it got, then
+     * advance. A failure fails the run before its first step, saying why; a
+     * review the person started by hand rejects it, as at the launch.
+     */
+    private async prepareCheckout(runId: string, request: CheckoutRequest): Promise<void> {
+        let prepared: PreparedCheckout;
+        try {
+            prepared = await this.deps.checkout.prepare(request);
+        } catch (error) {
+            this.preparing.delete(runId);
+            if (this.stillRunning(runId)) this.checkoutRefused(runId, error);
+            void this.pump();
+            return;
+        }
+        this.preparing.delete(runId);
+        if (this.stillRunning(runId)) {
+            const { cwd, scopeId, head } = prepared;
+            this.deps.store.update(runId, { checkout: { cwd, scopeId, head }, updatedAt: this.iso() });
+            this.broadcastRun(runId);
+            this.advance(runId);
+        }
+        void this.pump();
+    }
+
+    /** The checkout could not be prepared: the run ends before its first step. */
+    private checkoutRefused(runId: string, error: unknown): void {
+        // The person got there first: nothing failed, their review exists.
+        if (error instanceof StartedByHandError) {
+            this.finish(runId, 'rejected', { summary: error.message });
+            return;
+        }
+        this.finish(runId, 'failed', { error: describeError(error) });
+        this.notify(`${this.deps.store.get(runId)!.automationId} could not start`, describeError(error), runId);
+    }
+
+    /**
+     * After a run starts, or a step settles: apply what the sequencer says
+     * from the record and the run's own definition, each change its own line,
+     * then queue the next step for the pump to start, or end the run. A
+     * completed run tells the person; the notice opens the run page, since a
+     * steps run has no session of its own. `quiet` keeps a failure to the
+     * record.
+     */
+    private advance(runId: string, options: { quiet?: boolean } = {}): void {
+        const run = this.deps.store.get(runId);
+        if (run?.status !== 'running' || !run.steps) return;
+        const loaded = this.definitionOf(run);
+        if ('problem' in loaded) {
+            this.failRun(runId, loaded.problem, options);
+            return;
+        }
+        const event = runEventSource(loaded.definition);
+        const item = run.trigger.item;
+        const next = advanceSteps({
+            steps: loaded.definition.automation.steps,
+            records: run.steps,
+            dryRun: run.dryRun === true,
+            itemValue: event && item ? (field) => event.itemValue(item, field) : undefined,
+        });
+        if (next.kind === 'wait') return;
+        for (const update of next.updates) this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
+        if (next.kind === 'start') {
+            this.writeSteps(runId, withStep(this.stepsOf(runId), next.stepId, { status: 'queued', queuedAt: this.iso() }));
+            this.broadcastRun(runId);
+        } else if (next.kind === 'complete') {
+            this.finish(runId, 'completed', { summary: next.summary });
+            this.notify(`${run.automationId}: done`, next.summary, runId);
+        } else {
+            this.finish(runId, 'failed', { error: next.error });
+            if (!options.quiet) this.notify(`${run.automationId} did not finish`, next.error, runId);
+        }
+        void this.pump();
+    }
+
+    /**
+     * Start an agent step's attempt in its run's checkout. The step is
+     * `running` before the launch, as its session's CLI asks for its step
+     * tools while it starts and they answer only a running attempt; that is
+     * also what holds its slot. A folder that is gone fails the step.
+     */
+    private async startAgentStep(runId: string, stepId: string): Promise<void> {
+        const run = this.deps.store.get(runId)!;
+        const loaded = this.definitionOf(run);
+        if ('problem' in loaded) {
+            this.failRun(runId, loaded.problem);
+            return;
+        }
+        const { cwd, scopeId } = run.checkout ?? {};
+        if (!cwd || !scopeId) {
+            this.settleStep(runId, stepId, { status: 'failed', error: 'It has no working folder.' });
+            return;
+        }
+        if (!this.deps.folderExists(cwd)) {
+            this.settleStep(runId, stepId, { status: 'failed', error: `Its working folder is gone: ${cwd}.` });
+            return;
+        }
+        const workspaceId = run.attribution.workspaceId!;
+        const launch = agentStepLaunch({ workspaceId, run, definition: loaded.definition, stepId, checkout: { cwd, scopeId } });
+        if (!launch.ok) {
+            this.settleStep(runId, stepId, { status: 'failed', error: launch.error });
+            return;
+        }
+        const { attempt } = launch.request.step!;
+        this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { status: 'running', startedAt: this.iso() }));
+        this.broadcastRun(runId);
+        let session: LaunchedSession;
+        try {
+            session = await this.deps.launchAgent(launch.request);
+        } catch (error) {
+            if (!this.stepRunning(runId, stepId, attempt)) return;
+            // The person got there first: nothing failed, their review exists.
+            if (error instanceof StartedByHandError) {
+                this.finish(runId, 'rejected', { summary: error.message }, [{ id: stepId, status: 'not-run' }]);
+                void this.pump();
+                return;
+            }
+            this.settleStep(runId, stepId, { status: 'failed', error: describeError(error) });
+            return;
+        }
+        if (!this.stepRunning(runId, stepId, attempt)) return;
+        const conversation = { harnessId: session.harnessId, id: session.claudeSessionId, cwd: session.cwd ?? cwd };
+        this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { sessionId: session.id, conversation }));
+        this.broadcastRun(runId);
+    }
+
+    /**
+     * A step's turn ended. A stop or a non-zero exit fails it, in the words a
+     * one-step run uses. A clean exit completes it only when every output it
+     * declares is set and every document it must write is written; its
+     * outputs are then kept beside its documents.
+     */
+    private stepTurnEnded(run: RunRecord, record: StepRun, outcome: TurnOutcome): void {
+        const failure = turnFailure(outcome);
+        if (failure) {
+            this.settleStep(run.id, record.id, { status: 'failed', error: failure });
+            return;
+        }
+        const loaded = this.definitionOf(run);
+        if ('problem' in loaded) {
+            this.failRun(run.id, loaded.problem);
+            return;
+        }
+        let without: string | null;
+        try {
+            without = endedWithout(this.stepIO().missing(run.id, record.id));
+        } catch (error) {
+            without = describeError(error);
+        }
+        if (without) {
+            this.settleStep(run.id, record.id, { status: 'failed', error: without });
+            return;
+        }
+        const workspaceId = run.attribution.workspaceId!;
+        try {
+            const dir = this.deps.runFolder.attemptDir(workspaceId, run.id, record.id, record.attempt);
+            this.deps.runFolder.writeJson(dir, 'outputs.json', record.outputs ?? {});
+        } catch (error) {
+            const reason = describeError(error).trim().replace(/\.$/, '');
+            this.settleStep(run.id, record.id, { status: 'failed', error: `Could not write its outputs: ${reason}.` });
+            return;
+        }
+        this.settleStep(run.id, record.id, { status: 'completed' });
+    }
+
+    /** A step ended: how, on its own line, then the run advances from it and its slot is free. */
+    private settleStep(
+        runId: string,
+        stepId: string,
+        end: { status: 'completed' } | { status: 'failed'; error: string },
+        options: { quiet?: boolean } = {}
+    ): void {
+        this.writeSteps(runId, withStep(this.stepsOf(runId), stepId, { ...end, finishedAt: this.iso() }));
+        this.broadcastRun(runId);
+        this.advance(runId, options);
+    }
+
+    /** A started steps run that cannot go on: a step still running fails with it, and the rest did not run. */
+    private failRun(runId: string, error: string, options: { quiet?: boolean } = {}): void {
+        const running = this.stepsOf(runId).filter((step) => step.status === 'running');
+        this.finish(runId, 'failed', { error }, running.map((step): StepUpdate => ({ id: step.id, status: 'failed', error })));
+        if (!options.quiet) this.notify(`${this.deps.store.get(runId)!.automationId} did not finish`, error, runId);
+        void this.pump();
+    }
+
+    /** The definition a started run executes, from its folder; or why it cannot go on without it. */
+    private definitionOf(run: RunRecord): { definition: RunDefinition } | { problem: string } {
+        const workspaceId = run.attribution.workspaceId ?? '';
+        try {
+            const definition = this.deps.runFolder.readDefinition(workspaceId, run.id);
+            if (definition) return { definition };
+            return { problem: `Its definition is gone from ${this.deps.runFolder.runDir(workspaceId, run.id)}; it cannot continue.` };
+        } catch (error) {
+            return { problem: `Its definition could not be read (${describeError(error).trim().replace(/\.$/, '')}); it cannot continue.` };
+        }
+    }
+
+    /** The running agent step whose session this is, with its run. */
+    private runningStepOf(sessionId: string): { run: RunRecord; record: StepRun } | undefined {
+        for (const run of this.deps.store.runs()) {
+            if (run.status !== 'running' || !isStepsRun(run)) continue;
+            const record = run.steps?.find((step) => step.kind === 'agent' && step.status === 'running' && step.sessionId === sessionId);
+            if (record) return { run, record };
+        }
+        return undefined;
+    }
+
+    /** Whether the run is still running that step at that attempt: it may have ended while its launch was awaited. */
+    private stepRunning(runId: string, stepId: string, attempt: number): boolean {
+        const step = this.stillRunning(runId) ? this.stepsOf(runId).find((candidate) => candidate.id === stepId) : undefined;
+        return step?.status === 'running' && step.attempt === attempt;
+    }
+
+    private stepsOf(runId: string): StepRun[] {
+        return this.deps.store.get(runId)?.steps ?? [];
+    }
+
+    /** One change to a run's steps: its own line, and the run's `updatedAt`. */
+    private writeSteps(runId: string, steps: StepRun[]): void {
+        this.deps.store.update(runId, { steps, updatedAt: this.iso() });
+    }
+
+    /** A session of the run's workspace, by id, while it still has it. */
+    private sessionNamed(run: RunRecord, sessionId: string): SessionView | undefined {
+        return this.deps
+            .getWorkspaces()
+            .find((workspace) => workspace.id === run.attribution.workspaceId)
+            ?.sessions.find((session) => session.id === sessionId);
     }
 
     /**
@@ -1502,14 +1932,15 @@ export class AutomationService {
         } catch (error) {
             // Recorded, so it is seen; ended, so it holds no place in line.
             const reason = describeError(error).trim().replace(/\.$/, '');
-            this.deps.store.add({ ...run, status: 'failed', error: `Could not write its definition: ${reason}.`, finishedAt: this.iso() });
+            const now = this.iso();
+            this.deps.store.add({ ...run, status: 'failed', error: `Could not write its definition: ${reason}.`, steps: closeSteps(run.steps!, now), finishedAt: now });
             this.broadcast(entry.workspaceId);
             this.notify(`${entry.automation.name} could not start`, describeError(error), run.id);
             return this.deps.store.get(run.id)!;
         }
-        const runs = describeRun(definition.automation);
-        const described = item ? entry.event!.describeItem(item) : `${runs} in ${scope?.name ?? ''}`;
-        return this.recordByMode(entry, run, asks, { summary: item ? `${runs}: ${described}.` : `${described}.`, described });
+        const label = item ? entry.event!.describeItem(item) : undefined;
+        const summary = stepsRunLine(definition.automation, label ? { item: label } : { scope: scope?.name });
+        return this.recordByMode(entry, run, asks, { summary, described: label ?? `${describeRun(definition.automation)} in ${scope?.name ?? ''}` });
     }
 
     /** The run of a scheduled or requested automation that is queued or running: the one a fire returns instead of adding another. */
@@ -1541,7 +1972,8 @@ export class AutomationService {
             // Never run, so it has nothing to snapshot.
             const run = entry.steps ? this.newStepsRun(entry, trigger, mode, item) : this.newRun(entry, trigger, mode);
             const now = this.iso();
-            this.deps.store.add({ ...run, status: 'rejected', summary: `Already started by hand: “${byHand.name}”.`, finishedAt: now });
+            const summary = `Already started by hand: “${byHand.name}”.`;
+            this.deps.store.add({ ...run, status: 'rejected', summary, ...(run.steps ? { steps: closeSteps(run.steps, now) } : {}), finishedAt: now });
             this.broadcast(entry.workspaceId);
             return;
         }
@@ -1685,20 +2117,27 @@ export class AutomationService {
         return run;
     }
 
+    /**
+     * End a run. A steps run's `stepUpdates` are applied as it ends, and
+     * every step it had not reached is `not-run` (`closeSteps`).
+     */
     private finish(
         runId: string,
         status: Extract<RunStatus, 'completed' | 'failed' | 'rejected'>,
-        outcome: { result?: EngineToolResult; summary?: string; error?: string }
+        outcome: { result?: EngineToolResult; summary?: string; error?: string },
+        stepUpdates: StepUpdate[] = []
     ): void {
         const now = this.iso();
+        const run = this.deps.store.get(runId);
         // A failed agent run's launch-time "Running in …" says nothing true any more.
-        const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(this.deps.store.get(runId)) : null;
+        const stale = status === 'failed' && !outcome.summary ? sessionRunningIn(run) : null;
         this.deps.store.update(runId, {
             status,
             ...(stale !== null ? { summary: `Did not finish in “${stale}”.` } : {}),
             ...(outcome.result ? { summary: outcome.result.summary, result: compact(outcome.result.data) } : {}),
             ...(outcome.summary ? { summary: outcome.summary } : {}),
             ...(outcome.error ? { error: outcome.error } : {}),
+            ...(run?.steps ? { steps: closeSteps(run.steps, now, stepUpdates) } : {}),
             updatedAt: now,
             finishedAt: now,
         });
@@ -1748,6 +2187,21 @@ function actionNamed(
     return { action };
 }
 
+/** How an unattended turn's process ended, as the host reports it. */
+type TurnOutcome = { exitCode: number; lastLine?: string; stopped?: string };
+
+/** Why an unattended turn did not finish, in the words every automation run uses; null when it exited cleanly. */
+function turnFailure(outcome: TurnOutcome): string | null {
+    if (outcome.stopped) {
+        // Stopped before it answered — by the person, the limit, or a
+        // signal — whatever code the process exited with.
+        return `It stopped before finishing: ${outcome.stopped.trim().replace(/[.\s]+$/, '')}.`;
+    }
+    if (outcome.exitCode === 0) return null;
+    const said = outcome.lastLine?.trim().replace(/[.\s]+$/, '');
+    return `It stopped before finishing (exit ${outcome.exitCode})${said ? `: ${said}` : ''}.`;
+}
+
 /** What an agent run says while its turn runs. */
 function runningIn(sessionName: string): string {
     return `Running in “${sessionName}”.`;
@@ -1791,6 +2245,12 @@ function runKind(run: RunRecord): RunKind {
 function asksUntilAccepted(entry: Resolved): boolean {
     const { mode } = entry.automation;
     return mode === 'auto' || (mode === 'notify' && entry.steps?.startsInDryRun === true);
+}
+
+/** What a steps run says while it waits to start: what it runs, and the item or scope it is about. */
+function stepsRunLine(automation: StepsAutomation, about: { item?: string; scope?: string }): string {
+    const runs = describeRun(automation);
+    return about.item ? `${runs}: ${about.item}.` : `${runs} in ${about.scope ?? ''}.`;
 }
 
 /** An item as a steps run keeps it: its key and what its steps may read, as they were when it fired. */

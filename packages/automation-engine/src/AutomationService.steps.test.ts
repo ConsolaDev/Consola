@@ -1,19 +1,34 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { describe, expect, it, onTestFinished, vi } from 'vitest';
-import { automationVersion, parseFactorySpec, stableStringify } from '@consola/factory-spec';
+import { automationVersion, parseFactorySpec, stableStringify, type RunRecord } from '@consola/factory-spec';
 import { inboxItem } from './inboxItems.test-helpers';
-import { REVIEW_BODY, stepsHarness, WORKSPACE_ID, type StepsHarness, type StepsHarnessOptions } from './steps/steps.test-helpers';
+import {
+    CHECKOUT_HEAD,
+    checkoutPathFor,
+    REVIEW_BODY,
+    stepsHarness,
+    WORKSPACE_ID,
+    type StepsHarness,
+    type StepsHarnessOptions,
+} from './steps/steps.test-helpers';
+import { StartedByHandError } from './support';
 import type { InboxItemView, SessionView } from './views';
 
 const NAME = 'review-assigned-prs';
 const KEY = `${WORKSPACE_ID} ${NAME}`;
 const SUMMARISE_BODY = 'Summarise {{title}} for someone who has not read it.';
 
-/** A file holding one entry: its `on:` and other keys as given, then `steps:` with each item's lines. */
-function factory(head: string, ...steps: string[]): string {
+/** One `- name:` entry: its `on:` and other keys as given, then `steps:` with each item's lines. */
+function entry(name: string, head: string, ...steps: string[]): string {
     const items = steps.map((step) => `      ${step.replace(/\n/g, '\n      ')}`).join('\n');
-    return `version: 1\nautomations:\n  - name: ${NAME}\n${head}    steps:\n${items}\n`;
+    return `  - name: ${name}\n${head}    steps:\n${items}\n`;
+}
+const file = (...entries: string[]) => `version: 1\nautomations:\n${entries.join('')}`;
+
+/** A file holding one entry named review-assigned-prs. */
+function factory(head: string, ...steps: string[]): string {
+    return file(entry(NAME, head, ...steps));
 }
 const ON_REVIEW = '    on: { github: pull_request.review_requested }\n';
 const DAILY_IN_API = '    on: { cron: "0 9 * * 1-5" }\n    scope: api\n';
@@ -230,12 +245,31 @@ const TEMPLATE_VERSION = automationVersion(only(TEMPLATE), stableStringify({ rev
 /** Weekdays at 9 in api: a command, then an agent step. */
 const DAILY = factory(`${DAILY_IN_API}    mode: auto\n`, '- id: fresh\n  run: git fetch --prune', '- id: summary\n  prompt: Summarise what changed in api.');
 const COMMANDS_ONLY = factory(`${DAILY_IN_API}    mode: auto\n`, '- id: fresh\n  run: git fetch --prune', '- id: log\n  run: git log -1');
+/** Weekdays at 9 in api: one prompt step. */
+const SUMMARY = factory(`${DAILY_IN_API}    mode: auto\n`, '- id: summary\n  prompt: Summarise what changed in api.');
 
 /** A harness whose event automations have had their first look at an empty Inbox, which fires nothing. */
 async function watching(options: StepsHarnessOptions): Promise<StepsHarness> {
     const h = await stepsHarness(options);
     await h.poll([]);
     return h;
+}
+
+/** Accept every entry in `yaml` at its current version, as a person approving each once would. */
+function acceptEvery(h: StepsHarness, yaml: string): void {
+    for (const automation of parseFactorySpec(yaml).automations) {
+        const bodies: Record<string, string> = {};
+        for (const step of automation.steps ?? []) {
+            if (step.kind === 'agent' && step.action) bodies[step.id] = h.world.workspace.actions.find((action) => action.name === step.action)!.prompt;
+        }
+        const body = Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined;
+        h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation, body));
+    }
+}
+
+/** A run as history first recorded it: what it was the moment it was added. */
+function firstRecorded(h: StepsHarness, runId: string): RunRecord | undefined {
+    return h.history.appends.find((line) => line.run.id === runId)?.run;
 }
 
 /** ws-1's `runs/`. */
@@ -324,17 +358,23 @@ describe('firing a steps run', () => {
         expect(h.store.acceptedVersion(KEY)).toBe(TEMPLATE_VERSION);
         expect(h.service.list(WORKSPACE_ID)[0].asksFirst).toBeUndefined();
 
+        // Approved, it started: its review is working in #51's checkout.
+        await h.flush();
+        expect(h.store.get(asked.id)?.status).toBe('running');
+        expect(h.world.launches.map((launch) => launch.step?.name)).toEqual(['Add retries · review']);
+
         await h.poll([PR51, PR52]);
-        expect(h.store.runs()[0]).toMatchObject({
+        const next = h.store.runs()[0];
+        expect(next).toMatchObject({
             trigger: { item: { number: 52 } },
-            status: 'queued',
+            status: 'running',
             mode: 'auto',
             summary: 'Steps: review → publish: sprocket/catalog-portal#52 “Cache the catalog” by @alice.',
         });
+        // It went in line without asking, and started on its own.
+        expect(firstRecorded(h, next.id)?.status).toBe('queued');
         expect(h.notices).toHaveLength(1);
-        // The pump checked both and started neither: nothing starts a steps run yet.
-        expect(h.store.get(asked.id)?.status).toBe('queued');
-        expect(h.world.launches).toEqual([]);
+        expect(h.world.launches.map((launch) => launch.step?.name)).toEqual(['Add retries · review', 'Cache the catalog · review']);
     });
 
     it('confirm waits before the first step', async () => {
@@ -363,7 +403,10 @@ describe('firing a steps run', () => {
 
         // A person's Run now of the same accepted version goes straight in line.
         h.service.dismiss(asked.id);
-        expect(await h.service.trigger(WORKSPACE_ID, NAME)).toMatchObject({ status: 'queued', mode: 'auto', trigger: { by: 'person' } });
+        const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        expect(run).toMatchObject({ mode: 'auto', trigger: { by: 'person' } });
+        expect(firstRecorded(h, run.id)?.status).toBe('queued');
+        expect(h.notices).toHaveLength(1);
     });
 
     it('notify is a dry run that asks first when it starts anything', async () => {
@@ -381,13 +424,23 @@ describe('firing a steps run', () => {
         expect(h.store.acceptedVersion(KEY)).toBe(automationVersion(only(reviews), stableStringify({ review: REVIEW_BODY })));
         expect(h.service.list(WORKSPACE_ID)[0].asksFirst).toBeUndefined();
         await h.poll([PR51, PR52]);
-        expect(h.store.runs()[0]).toMatchObject({ trigger: { item: { number: 52 } }, status: 'queued', mode: 'notify', dryRun: true });
+        const next = h.store.runs()[0];
+        expect(next).toMatchObject({ trigger: { item: { number: 52 } }, mode: 'notify', dryRun: true });
+        expect(firstRecorded(h, next.id)?.status).toBe('queued');
 
         // Only reported commands: nothing would start, so it never asks.
-        const reports = await stepsHarness({ yaml: factory(`${DAILY_IN_API}    mode: notify\n`, '- run: git log -1') });
-        expect(await reports.service.trigger(WORKSPACE_ID, NAME)).toMatchObject({ status: 'queued', mode: 'notify', dryRun: true });
-        expect(await reports.service.trigger(WORKSPACE_ID, NAME, { sessionId: 's-9' })).toMatchObject({ status: 'queued' });
+        const reportsOnly = factory(`${DAILY_IN_API}    mode: notify\n`, '- run: git log -1');
+        const reports = await stepsHarness({ yaml: reportsOnly });
+        const byPerson = (await reports.service.trigger(WORKSPACE_ID, NAME))!;
+        expect(byPerson).toMatchObject({ mode: 'notify', dryRun: true });
+        expect(firstRecorded(reports, byPerson.id)?.status).toBe('queued');
         expect(reports.notices).toEqual([]);
+        // Nor when an agent asks: a run of its own, in line.
+        const asking = await stepsHarness({ yaml: reportsOnly });
+        const byAgent = (await asking.service.trigger(WORKSPACE_ID, NAME, { sessionId: 's-9' }))!;
+        expect(byAgent).toMatchObject({ mode: 'notify', dryRun: true, trigger: { by: 'agent', actorId: 's-9' } });
+        expect(firstRecorded(asking, byAgent.id)?.status).toBe('queued');
+        expect(asking.notices).toEqual([]);
 
         // A command marked to run in a dry run would start something: it asks.
         const fetches = await stepsHarness({ yaml: factory(`${DAILY_IN_API}    mode: notify\n`, '- run: git fetch --prune\n  dry_run: run', '- run: git log -1') });
@@ -433,27 +486,45 @@ describe('firing a steps run', () => {
     });
 
     it('a queued run is rejected when its automation changes', async () => {
-        const h = await stepsHarness({ yaml: DAILY });
+        const summarise = factory(`${DAILY_IN_API}    mode: auto\n`, '- id: summary\n  prompt: Summarise what changed in api.');
+        // No agent slot: it waits in line.
+        const h = await stepsHarness({ yaml: summarise, maxConcurrentAgents: 0 });
         const asked = (await h.service.trigger(WORKSPACE_ID, NAME))!;
         const queued = await h.service.approve(asked.id);
         await h.flush();
         expect(h.store.get(queued.id)?.status).toBe('queued');
 
-        await h.setYaml(DAILY.replace('Summarise what changed in api.', 'Summarise what changed in api this week.'));
+        await h.setYaml(summarise.replace('Summarise what changed in api.', 'Summarise what changed in api this week.'));
+        h.world.maxConcurrentAgents = 2;
         // It has not started, so its approval no longer covers what it would run. The next pump (a tick's) says so.
         await h.tick();
-        expect(h.store.get(queued.id)).toMatchObject({ status: 'rejected', summary: 'Its automation changed since it was queued.' });
+        expect(h.store.get(queued.id)).toMatchObject({
+            status: 'rejected',
+            summary: 'Its automation changed since it was queued.',
+            steps: [{ id: 'summary', status: 'not-run' }],
+        });
+        expect(h.world.launches).toEqual([]);
     });
 
     it('a review started by hand on the item is not done twice', async () => {
-        const h = await watching({ yaml: TEMPLATE });
+        // No agent slot, so a run that fires waits in line.
+        const h = await watching({ yaml: TEMPLATE, maxConcurrentAgents: 0 });
         h.store.accept(KEY, TEMPLATE_VERSION);
         h.advance(1000);
         h.world.workspace.sessions.push(byHand(PR51, h.now()));
         h.advance(1000);
         await h.poll([PR51]);
         const [rejected] = h.store.runs();
-        expect(rejected).toMatchObject({ status: 'rejected', summary: 'Already started by hand: “PR 51”.', result: { kind: 'steps-run' } });
+        expect(rejected).toMatchObject({
+            status: 'rejected',
+            summary: 'Already started by hand: “PR 51”.',
+            result: { kind: 'steps-run' },
+            // Ended before its first step.
+            steps: [
+                { id: 'review', status: 'not-run' },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
         // It never runs, so there is nothing to snapshot.
         expect(h.folder.readDefinition(WORKSPACE_ID, rejected.id)).toBeNull();
 
@@ -463,8 +534,10 @@ describe('firing a steps run', () => {
         expect(queued).toMatchObject({ trigger: { item: { number: 52 } }, status: 'queued' });
         h.advance(1000);
         h.world.workspace.sessions.push(byHand(PR52, h.now()));
+        h.world.maxConcurrentAgents = 2;
         await h.tick();
         expect(h.store.get(queued.id)).toMatchObject({ status: 'rejected', summary: 'Already started by hand: “PR 52”.' });
+        expect(h.world.checkouts.prepared).toEqual([]);
 
         // Only an action step names what a session started by hand would be labelled.
         const prompted = await watching({ yaml: factory(`${ON_REVIEW}    mode: confirm\n`, '- prompt: Review it.') });
@@ -481,46 +554,598 @@ describe('firing a steps run', () => {
         fs.mkdirSync(path.dirname(runsDir(h)), { recursive: true });
         fs.writeFileSync(runsDir(h), '');
         const failed = (await h.service.trigger(WORKSPACE_ID, NAME))!;
-        expect(failed).toMatchObject({ status: 'failed', finishedAt: h.now().toISOString(), result: { kind: 'steps-run' } });
+        expect(failed).toMatchObject({
+            status: 'failed',
+            finishedAt: h.now().toISOString(),
+            result: { kind: 'steps-run' },
+            steps: [
+                { id: 'fresh', status: 'not-run' },
+                { id: 'summary', status: 'not-run' },
+            ],
+        });
         expect(failed.error).toMatch(/^Could not write its definition: \S.*[^.]\.$/);
         expect(h.notices).toMatchObject([{ title: `${NAME} could not start`, needsApproval: false, runId: failed.id }]);
 
         fs.rmSync(runsDir(h));
-        expect(fs.existsSync(h.folder.runDir(WORKSPACE_ID, failed.id))).toBe(false);
         const next = (await h.service.trigger(WORKSPACE_ID, NAME))!;
         expect(next).toMatchObject({ status: 'needs-approval' });
         expect(next.id).not.toBe(failed.id);
         expect(h.folder.readDefinition(WORKSPACE_ID, next.id)).not.toBeNull();
     });
 
+    it('records an item run whose definition could not be written as failed, and says so', async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        fs.mkdirSync(path.dirname(runsDir(h)), { recursive: true });
+        fs.writeFileSync(runsDir(h), '');
+        await h.poll([PR51]);
+        const [failed] = h.store.runs();
+        expect(failed).toMatchObject({
+            status: 'failed',
+            trigger: { kind: 'event', item: { number: 51 } },
+            steps: [
+                { id: 'review', status: 'not-run' },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
+        expect(failed.error).toMatch(/^Could not write its definition: \S.*[^.]\.$/);
+        expect(h.notices).toMatchObject([{ title: `${NAME} could not start`, body: expect.any(String), runId: failed.id, needsApproval: false }]);
+        expect(h.world.checkouts.prepared).toEqual([]);
+        expect(h.world.launches).toEqual([]);
+    });
+
     it('a schedule keeps one steps run at a time', async () => {
-        for (const yaml of [DAILY, COMMANDS_ONLY]) {
-            const h = await stepsHarness({ yaml });
-            h.store.accept(KEY, automationVersion(only(yaml)));
-            h.advance(HOUR);
-            await h.tick();
-            const [first] = h.store.runs();
-            expect(first).toMatchObject({ status: 'queued', trigger: { kind: 'cron' } });
+        // No agent slot at first, so the run waits in line.
+        const h = await stepsHarness({ yaml: SUMMARY, maxConcurrentAgents: 0 });
+        h.store.accept(KEY, automationVersion(only(SUMMARY)));
+        h.advance(HOUR);
+        await h.tick();
+        const [first] = h.store.runs();
+        expect(first).toMatchObject({ status: 'queued', trigger: { kind: 'cron' } });
 
-            // The next occurrence, and a Run now, while it waits in line: that run is the answer.
-            h.advance(DAY);
-            await h.tick();
-            expect(await h.service.trigger(WORKSPACE_ID, NAME)).toMatchObject({ id: first.id });
-            expect(h.store.runs()).toHaveLength(1);
+        // The next occurrence, and a Run now, while it waits in line: that run is the answer.
+        h.advance(DAY);
+        await h.tick();
+        expect(await h.service.trigger(WORKSPACE_ID, NAME)).toMatchObject({ id: first.id });
+        expect(h.store.runs()).toHaveLength(1);
 
-            // Nothing starts a steps run yet. As if it had: it holds its place while it runs.
-            h.store.update(first.id, { status: 'running', startedAt: h.now().toISOString() });
-            h.advance(DAY);
-            await h.tick();
-            expect(await h.service.trigger(WORKSPACE_ID, NAME)).toMatchObject({ id: first.id });
-            expect(h.store.runs()).toHaveLength(1);
+        // Started, it holds its place while it runs.
+        h.world.maxConcurrentAgents = undefined;
+        await h.tick();
+        expect(h.store.get(first.id)).toMatchObject({ status: 'running', startedAt: h.now().toISOString() });
+        h.advance(DAY);
+        await h.tick();
+        expect(await h.service.trigger(WORKSPACE_ID, NAME)).toMatchObject({ id: first.id });
+        expect(h.store.runs()).toHaveLength(1);
 
-            // Once it ends, the next fire is a run of its own.
-            h.store.update(first.id, { status: 'completed', finishedAt: h.now().toISOString() });
-            const next = (await h.service.trigger(WORKSPACE_ID, NAME))!;
-            expect(next).toMatchObject({ status: 'queued' });
-            expect(next.id).not.toBe(first.id);
-        }
+        // Once it ends, the next fire is a run of its own.
+        await h.world.endTurn('session-1');
+        expect(h.store.get(first.id)?.status).toBe('completed');
+        const next = (await h.service.trigger(WORKSPACE_ID, NAME))!;
+        expect(firstRecorded(h, next.id)?.status).toBe('queued');
+        expect(next.id).not.toBe(first.id);
+    });
+});
+
+const MINUTE = 60 * 1000;
+/** #51's automation checkout, as the fake host places it. */
+const CHECKOUT = checkoutPathFor(PR51.workItem);
+const ON_REVIEW_AUTO = `${ON_REVIEW}    mode: auto\n`;
+const DAILY_AUTO = `${DAILY_IN_API}    mode: auto\n`;
+/** A first step that decides how the night went, and a second that writes it up. */
+const ONE = '- id: one\n  prompt: Read what changed in api overnight.\n  outputs:\n    mood: { enum: [calm, worrying] }';
+const TWO = '- id: two\n  prompt: Write up the {{steps.one.mood}} night for the team.';
+const NIGHTLY = entry('nightly', DAILY_AUTO, ONE, TWO);
+const WEEKLY = entry('weekly', DAILY_AUTO, '- id: digest\n  prompt: Sum up the week in api.');
+/** A one-step prompt on the same schedule: a legacy agent run, in the same lane as agent steps. */
+const legacy = (name: string) => `  - name: ${name}\n${DAILY_AUTO}    run: { prompt: Sum up api. }\n`;
+/** One prompt step on #51's review requests, under `name`. */
+const look = (name: string, verb: string) => entry(name, ON_REVIEW_AUTO, `- id: look\n  prompt: ${verb} {{item.url}}.`);
+const TWO_LOOKS = file(look(NAME, 'Look at'), look('second-look', 'Look again at'));
+/** The review, then a summary that reads its handover: two agent steps on one item. */
+const PAIR = factory(
+    ON_REVIEW_AUTO,
+    '- id: review\n  action: Review\n  outputs:\n    verdict: { enum: [approve, comment, request-changes] }',
+    '- id: summary\n  prompt: Summarise the review of {{item.url}} for the team.\n  reads: [review.handover]'
+);
+
+/** A started harness over `yaml`, every entry in it accepted, so each runs on its own. */
+async function accepted(yaml: string, options: StepsHarnessOptions = {}): Promise<StepsHarness> {
+    const h = await stepsHarness({ yaml, ...options });
+    acceptEvery(h, yaml);
+    return h;
+}
+
+/** The statuses of a run's steps on each line history recorded for it, repeats folded. */
+function stepLines(h: StepsHarness, runId: string): string[] {
+    const lines = h.history.appends
+        .filter((line) => line.run.id === runId)
+        .map((line) => (line.run.steps ?? []).map((step) => step.status).join(' '));
+    return lines.filter((line, index) => line !== lines[index - 1]);
+}
+
+const byName = (h: StepsHarness, name: string) => h.store.runs().find((run) => run.automationId === name)!;
+const launched = (h: StepsHarness) => h.world.launches.map((launch) => launch.step?.name ?? launch.run.automation);
+
+describe('running a steps run', () => {
+    it('two prompt steps on a schedule run one after the other in the scope folder', async () => {
+        const h = await accepted(file(NIGHTLY));
+        h.advance(HOUR);
+        await h.tick();
+        const [run] = h.store.runs();
+        expect(run).toMatchObject({
+            automationId: 'nightly',
+            status: 'running',
+            trigger: { kind: 'cron' },
+            startedAt: h.now().toISOString(),
+            checkout: { cwd: '/code/api', scopeId: 'scope-api' },
+        });
+        const [one] = h.world.launches;
+        expect(h.world.launches).toHaveLength(1);
+        expect(one).toMatchObject({
+            workspaceId: WORKSPACE_ID,
+            run: { id: run.id, automation: 'nightly' },
+            step: { id: 'one', attempt: 1, cwd: '/code/api', scopeId: 'scope-api', name: 'nightly · one' },
+        });
+        expect(one).not.toHaveProperty('item');
+        expect(one.prompt).toContain('[Consola] Step "one" (1 of 2) of the automation "nightly" (run run-1), in api. ');
+        expect(one.prompt).toContain('\n\nRead what changed in api overnight.\n\n');
+        expect(h.store.get(run.id)!.steps).toMatchObject([
+            { id: 'one', status: 'running', attempt: 1, sessionId: 'session-1', conversation: { harnessId: 'claude', id: 'claude-1', cwd: '/code/api' } },
+            { id: 'two', status: 'pending' },
+        ]);
+
+        // Step two waits for one to end with its outputs.
+        h.advance(MINUTE);
+        const broadcasts = h.world.broadcasts.length;
+        expect(h.world.setOutputs('session-1', { mood: 'calm' })).toMatchObject({ isError: false });
+        await h.world.endTurn('session-1');
+        const ended = h.now().toISOString();
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({ status: 'completed', outputs: { mood: 'calm' }, finishedAt: ended });
+        expect(h.store.get(run.id)!.updatedAt).toBe(ended);
+        expect(h.world.broadcasts.length).toBeGreaterThan(broadcasts);
+        const outputsFile = path.join(h.folder.attemptDir(WORKSPACE_ID, run.id, 'one', 1), 'outputs.json');
+        expect(JSON.parse(fs.readFileSync(outputsFile, 'utf8'))).toEqual({ mood: 'calm' });
+        expect(h.world.launches[1].step).toEqual({ id: 'two', attempt: 1, cwd: '/code/api', scopeId: 'scope-api', name: 'nightly · two' });
+        expect(h.world.launches[1].prompt).toContain('\n\nWrite up the calm night for the team.\n\n');
+
+        await h.world.endTurn('session-2');
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed', summary: 'one → two (calm)', finishedAt: ended });
+        expect(h.store.get(run.id)).not.toHaveProperty('sessionId');
+        // The click opens the run page: there is no session to open.
+        expect(h.notices).toEqual([{ title: 'nightly: done', body: 'one → two (calm)', runId: run.id, workspaceId: WORKSPACE_ID, needsApproval: false }]);
+        // Each transition is its own line, written before the next step starts.
+        expect(stepLines(h, run.id)).toEqual([
+            'pending pending',
+            'queued pending',
+            'running pending',
+            'completed pending',
+            'completed queued',
+            'completed running',
+            'completed completed',
+        ]);
+    });
+
+    it('if: false skips, a failure makes later steps not-run', async () => {
+        const yaml = file(
+            entry(
+                'nightly',
+                DAILY_AUTO,
+                ONE,
+                "- id: alarm\n  if: steps.one.mood == 'worrying'\n  prompt: Say what is worrying.",
+                '- id: two\n  prompt: Write up the night.',
+                '- id: three\n  prompt: File the write-up.'
+            )
+        );
+        const h = await accepted(yaml);
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        await h.world.endTurn('session-1');
+        expect(h.store.get(run.id)!.steps).toMatchObject([
+            { id: 'one', status: 'completed' },
+            { id: 'alarm', status: 'skipped', skipped: "if: steps.one.mood == 'worrying' is false" },
+            { id: 'two', status: 'running', sessionId: 'session-2' },
+            { id: 'three', status: 'pending' },
+        ]);
+        // The skip is recorded on its own, before the next step is queued.
+        expect(stepLines(h, run.id)).toContain('completed skipped pending pending');
+
+        await h.world.endTurn('session-2', { exitCode: 1, lastLine: 'Rate limited.' });
+        const error = 'It stopped before finishing (exit 1): Rate limited.';
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [
+                { id: 'one', status: 'completed' },
+                { id: 'alarm', status: 'skipped' },
+                { id: 'two', status: 'failed', error },
+                { id: 'three', status: 'not-run' },
+            ],
+        });
+        expect(launched(h)).toEqual(['nightly · one', 'nightly · two']);
+        expect(h.notices).toEqual([{ title: 'nightly did not finish', body: error, runId: run.id, workspaceId: WORKSPACE_ID, needsApproval: false }]);
+    });
+
+    it('a step that ends without what it declares fails, saying what is missing', async () => {
+        const yaml = file(entry('nightly', DAILY_AUTO, `${ONE}\n  artifacts: [notes]`, TWO));
+        const h = await accepted(yaml);
+        const nothing = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        await h.world.endTurn('session-1');
+        expect(h.store.get(nothing.id)).toMatchObject({
+            status: 'failed',
+            error: 'ended without setting mood, and without writing notes',
+            steps: [{ id: 'one', status: 'failed' }, { id: 'two', status: 'not-run' }],
+        });
+        // Its outputs are written only for an attempt that has them all.
+        expect(fs.existsSync(path.join(h.folder.attemptDir(WORKSPACE_ID, nothing.id, 'one', 1), 'outputs.json'))).toBe(false);
+
+        const noNotes = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        h.world.setOutputs('session-2', { mood: 'calm' });
+        await h.world.endTurn('session-2');
+        expect(h.store.get(noNotes.id)).toMatchObject({ status: 'failed', error: 'ended without writing notes' });
+
+        // A stop is told in the words a one-step run uses.
+        const stopped = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        await h.world.endTurn('session-3', { exitCode: 143, stopped: 'you stopped it' });
+        expect(h.store.get(stopped.id)).toMatchObject({ status: 'failed', error: 'It stopped before finishing: you stopped it.' });
+    });
+
+    it('a step session finds its step tools when its CLI first connects', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const seen: unknown[] = [];
+        // Inside the launch: the session is on the record, and its CLI is about to ask for its tools.
+        h.world.onLaunch = (request, session) => {
+            seen.push({
+                declaration: h.service.stepIO().declaration(session.id),
+                step: h.store.get(request.run.id)?.steps?.[0].status,
+                written: !h.world.setOutputs(session.id, { mood: 'calm' }).isError,
+            });
+        };
+        await h.service.trigger(WORKSPACE_ID, 'nightly');
+        await h.flush();
+        expect(seen).toEqual([
+            { declaration: { outputs: { mood: { type: 'enum', values: ['calm', 'worrying'] } }, writable: ['handover'] }, step: 'running', written: true },
+        ]);
+    });
+
+    it('a step whose working folder is gone fails before it launches', async () => {
+        const h = await accepted(file(NIGHTLY));
+        h.world.goneFolders.add('/code/api');
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        const error = 'Its working folder is gone: /code/api.';
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [{ id: 'one', status: 'failed', error }, { id: 'two', status: 'not-run' }],
+        });
+        expect(h.world.launches).toEqual([]);
+    });
+
+    it('an item run prepares its automation checkout once and records head', async () => {
+        const h = await watching({ yaml: PAIR });
+        acceptEvery(h, PAIR);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(h.world.checkouts.prepared).toEqual([
+            { workspaceId: WORKSPACE_ID, workItem: PR51.workItem, startedByHand: { label: 'Review', since: run.createdAt } },
+        ]);
+        expect(run).toMatchObject({ status: 'running', checkout: { cwd: CHECKOUT, scopeId: 'scope-catalog-portal', head: CHECKOUT_HEAD } });
+
+        h.world.setOutputs('session-1', { verdict: 'comment' });
+        h.world.writeArtifact('session-1', 'handover', 'Two retries are unbounded.');
+        await h.world.endTurn('session-1');
+        expect(h.world.checkouts.prepared).toHaveLength(1);
+        // Every step names the run's own checkout as its folder, so the host never prepares the Inbox's worktree for it.
+        expect(h.world.launches.map((launch) => launch.step?.cwd)).toEqual([CHECKOUT, CHECKOUT]);
+        const summary = h.world.launches[1];
+        expect(summary).toMatchObject({
+            step: { id: 'summary', attempt: 1, cwd: CHECKOUT, scopeId: 'scope-catalog-portal', name: 'Add retries · summary' },
+            item: { workItem: PR51.workItem, title: 'Add retries', label: NAME },
+        });
+        // Only the first agent step, an action, is what a person may have started by hand; a prompt step has no group.
+        expect(summary.item).not.toHaveProperty('startedByHandSince');
+        expect(summary.item).not.toHaveProperty('groupId');
+        expect(summary.prompt).toContain('\n\nSummarise the review of https://github.com/sprocket/catalog-portal/pull/51 for the team.\n\n');
+        expect(summary.prompt).toContain('\n  - review.handover (from step "review", 26 B)\n');
+
+        await h.world.endTurn('session-2');
+        expect(h.store.get(run.id)).toMatchObject({ status: 'completed', summary: 'review → summary (comment)', checkout: { head: CHECKOUT_HEAD } });
+    });
+
+    it("an action step renders the action's placeholders with the title pointed at the fence, and carries its name and group", async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        const [review] = h.world.launches;
+        expect(review).toMatchObject({
+            workspaceId: WORKSPACE_ID,
+            run: { id: run.id, automation: NAME },
+            item: { workItem: PR51.workItem, title: 'Add retries', label: 'Review', groupId: 'g-1', startedByHandSince: run.createdAt },
+            step: { id: 'review', attempt: 1, cwd: CHECKOUT, scopeId: 'scope-catalog-portal', name: 'Add retries · review' },
+        });
+        const sections = review.prompt.split('\n\n');
+        expect(sections[0]).toMatch(
+            /^\[Consola\] Step "review" \(1 of 2\) of the automation "review-assigned-prs" \(run run-1\), for pull request #51 in sprocket\/catalog-portal \(https:\/\/github\.com\/sprocket\/catalog-portal\/pull\/51\), in a dedicated git worktree for it\. /
+        );
+        expect(sections[1]).toBe('Review the title quoted below and say what should change before it merges.');
+        expect(review.prompt).toMatch(/\n<untrusted-data>\ntitle: "Add retries"\nauthor: "alice"\n<\/untrusted-data>$/);
+        expect(h.store.get(run.id)!.steps![0]).toMatchObject({
+            status: 'running',
+            sessionId: 'session-1',
+            conversation: { harnessId: 'claude', id: 'claude-1', cwd: CHECKOUT },
+        });
+    });
+
+    it('a run reads its item as it is when it starts', async () => {
+        const h = await watching({ yaml: TEMPLATE, maxConcurrentAgents: 0 });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        await h.poll([{ ...PR51, title: 'Add retries with backoff', author: 'bob' }]);
+        h.world.maxConcurrentAgents = undefined;
+        await h.tick();
+        expect(h.store.get(run.id)!.trigger.item).toMatchObject({ number: 51, title: 'Add retries with backoff', author: 'bob' });
+        expect(h.world.launches[0]).toMatchObject({ item: { title: 'Add retries with backoff' }, step: { name: 'Add retries with backoff · review' } });
+        expect(h.world.launches[0].prompt).toMatch(/\ntitle: "Add retries with backoff"\nauthor: "bob"\n/);
+    });
+
+    it('a checkout failure fails the run before its first step, saying why', async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        const why = 'A full-tools session was launched in this item\'s automation checkout (“PR 51”), so Consola will not move it. Delete that session, then retry.';
+        h.world.checkouts.fails = new Error(why);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(run).toMatchObject({
+            status: 'failed',
+            error: why,
+            checkout: { cwd: CHECKOUT },
+            steps: [
+                { id: 'review', status: 'not-run' },
+                { id: 'publish', status: 'not-run' },
+            ],
+        });
+        expect(run.checkout).not.toHaveProperty('head');
+        expect(h.world.launches).toEqual([]);
+        expect(h.notices).toEqual([{ title: `${NAME} could not start`, body: why, runId: run.id, workspaceId: WORKSPACE_ID, needsApproval: false }]);
+    });
+
+    it('a review started by hand while the run was getting ready is not done twice', async () => {
+        // At the launch: the first step, an action, asks the host to look under the lock an Inbox click takes.
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        h.world.launchThrows = new StartedByHandError('PR 51');
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(h.world.launches).toMatchObject([{ item: { label: 'Review', startedByHandSince: run.createdAt } }]);
+        const rejected = {
+            status: 'rejected',
+            summary: 'Already started by hand: “PR 51”.',
+            steps: [
+                { id: 'review', status: 'not-run' },
+                { id: 'publish', status: 'not-run' },
+            ],
+        };
+        expect(h.store.get(run.id)).toMatchObject(rejected);
+        expect(h.notices).toEqual([]);
+
+        // At the preparation: the checkout refuses under the same lock.
+        const preparing = await watching({ yaml: TEMPLATE });
+        preparing.store.accept(KEY, TEMPLATE_VERSION);
+        preparing.world.checkouts.fails = new StartedByHandError('PR 51');
+        await preparing.poll([PR51]);
+        expect(preparing.store.runs()[0]).toMatchObject(rejected);
+        expect(preparing.world.launches).toEqual([]);
+        expect(preparing.notices).toEqual([]);
+    });
+
+    it('a second run on the same item waits for the checkout, then prepares it afresh', async () => {
+        const h = await watching({ yaml: TWO_LOOKS });
+        acceptEvery(h, TWO_LOOKS);
+        await h.poll([PR51]);
+        const first = byName(h, NAME);
+        const second = byName(h, 'second-look');
+        expect(first.status).toBe('running');
+        expect(second).toMatchObject({ status: 'queued', summary: "waiting for this item's checkout" });
+        expect(h.world.checkouts.prepared).toHaveLength(1);
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([first.id]);
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [second.id]: 1 });
+
+        // Waiting is written when it starts, not at every look.
+        const lines = h.history.appends.length;
+        await h.tick();
+        expect(h.history.appends.length).toBe(lines);
+
+        await h.world.endTurn('session-1');
+        expect(h.store.get(first.id)?.status).toBe('completed');
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.store.get(second.id)).toMatchObject({
+            status: 'running',
+            summary: `Steps: look: ${PR51_LABEL}.`,
+            checkout: { cwd: CHECKOUT, head: CHECKOUT_HEAD },
+        });
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([first.id, second.id]);
+    });
+
+    it('a run still preparing its checkout holds it', async () => {
+        const h = await watching({ yaml: TWO_LOOKS });
+        acceptEvery(h, TWO_LOOKS);
+        let release!: () => void;
+        h.world.checkouts.gate = new Promise((resolve) => (release = resolve));
+        await h.poll([PR51]);
+        const first = byName(h, NAME);
+        const second = byName(h, 'second-look');
+        expect(h.world.checkouts.prepared).toHaveLength(1);
+        // Claimed before the fetch: the record names the folder, not yet the commit.
+        expect(first).toMatchObject({ status: 'running', checkout: { cwd: CHECKOUT } });
+        expect(first.checkout).not.toHaveProperty('head');
+        expect(second).toMatchObject({ status: 'queued', summary: "waiting for this item's checkout" });
+        expect(h.world.launches).toEqual([]);
+
+        h.world.checkouts.gate = undefined;
+        release();
+        await h.flush();
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([first.id]);
+        expect(h.world.checkouts.prepared).toHaveLength(1);
+        expect(h.store.get(second.id)?.status).toBe('queued');
+
+        await h.world.endTurn('session-1');
+        expect(h.world.checkouts.prepared).toHaveLength(2);
+        expect(h.world.launches.map((launch) => launch.run.id)).toEqual([first.id, second.id]);
+    });
+
+    it("a session running in the item's checkout holds it too", async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        h.world.busyFolders.add(CHECKOUT);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(run).toMatchObject({ status: 'queued', summary: "waiting for this item's checkout" });
+        expect(h.world.checkouts.prepared).toEqual([]);
+
+        h.world.busyFolders.clear();
+        await h.tick();
+        expect(h.store.get(run.id)).toMatchObject({ status: 'running', summary: `Steps: review → publish: ${PR51_LABEL}.` });
+        expect(h.world.checkouts.prepared).toHaveLength(1);
+    });
+
+    it('a working run holds its checkout, whichever workspace it is in', async () => {
+        const h = await watching({ yaml: TEMPLATE });
+        h.store.accept(KEY, TEMPLATE_VERSION);
+        // Its preparation never ends: it stays started and unfinished.
+        h.world.checkouts.gate = new Promise(() => {});
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(false);
+        await h.poll([PR51]);
+        const [run] = h.store.runs();
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(true);
+        // By its item too, wherever the folder is.
+        expect(h.service.checkoutHeld('/elsewhere', PR51.key)).toBe(true);
+        expect(h.service.checkoutHeld('/elsewhere')).toBe(false);
+        expect(h.service.checkoutHeld(checkoutPathFor(PR52.workItem), PR52.key)).toBe(false);
+
+        // One service serves every workspace, and the folder is one per item: another workspace's run holds it as well.
+        h.store.add({ ...structuredClone(run), id: 'run-ws-2', attribution: { ...run.attribution, workspaceId: 'ws-2' } });
+        h.store.update(run.id, { status: 'failed', finishedAt: h.now().toISOString() });
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(true);
+        h.store.update('run-ws-2', { status: 'completed', finishedAt: h.now().toISOString() });
+        expect(h.service.checkoutHeld(CHECKOUT)).toBe(false);
+    });
+
+    it('a started run goes ahead of runs that have not started', async () => {
+        const yaml = file(NIGHTLY, WEEKLY);
+        const h = await accepted(yaml, { maxConcurrentAgents: 1 });
+        await h.service.trigger(WORKSPACE_ID, 'nightly');
+        const weekly = (await h.service.trigger(WORKSPACE_ID, 'weekly'))!;
+        await h.flush();
+        expect(h.store.get(weekly.id)?.status).toBe('queued');
+
+        h.world.setOutputs('session-1', { mood: 'worrying' });
+        await h.world.endTurn('session-1');
+        expect(launched(h)).toEqual(['nightly · one', 'nightly · two']);
+        expect(h.store.get(weekly.id)?.status).toBe('queued');
+
+        await h.world.endTurn('session-2');
+        expect(launched(h)).toEqual(['nightly · one', 'nightly · two', 'weekly · digest']);
+    });
+
+    it("each lane numbers its own line, legacy runs and steps alike: started runs first, then the rest as they joined", async () => {
+        const yaml = file(NIGHTLY, WEEKLY, legacy('legacy'), legacy('legacy-two'));
+        const h = await accepted(yaml);
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        const legacyRun = (await h.service.trigger(WORKSPACE_ID, 'legacy'))!;
+        await h.flush();
+        expect(launched(h)).toEqual(['nightly · one', 'legacy']);
+
+        // One slot from here on: both of those are working, so what comes next waits.
+        h.world.maxConcurrentAgents = 1;
+        h.advance(MINUTE);
+        const weekly = (await h.service.trigger(WORKSPACE_ID, 'weekly'))!;
+        h.advance(MINUTE);
+        const legacyTwo = (await h.service.trigger(WORKSPACE_ID, 'legacy-two'))!;
+        h.advance(MINUTE);
+        h.world.setOutputs('session-1', { mood: 'calm' });
+        await h.world.endTurn('session-1');
+        // Nightly has started, so its next step is first in line.
+        expect(h.store.get(nightly.id)!.steps).toMatchObject([{ status: 'completed' }, { status: 'queued' }]);
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [nightly.id]: 1, [weekly.id]: 2, [legacyTwo.id]: 3 });
+
+        await h.world.endTurn('session-2');
+        expect(h.store.get(legacyRun.id)?.status).toBe('completed');
+        expect(launched(h)).toEqual(['nightly · one', 'legacy', 'nightly · two']);
+        expect(h.service.snapshot(WORKSPACE_ID).queue).toEqual({ [weekly.id]: 1, [legacyTwo.id]: 2 });
+    });
+
+    it('a started run finishes on its snapshot; a queued run of the old version is rejected', async () => {
+        const yaml = factory(ON_REVIEW_AUTO, '- id: one\n  prompt: Look at {{item.url}}.', '- id: two\n  prompt: Write up {{item.url}}.');
+        const h = await watching({ yaml, maxConcurrentAgents: 1 });
+        acceptEvery(h, yaml);
+        await h.poll([PR51, PR52]);
+        const started = h.store.runs().find((run) => run.trigger.item?.number === 51)!;
+        const waiting = h.store.runs().find((run) => run.trigger.item?.number === 52)!;
+        expect(waiting.status).toBe('queued');
+
+        await h.setYaml(yaml.replace('Write up {{item.url}}.', 'Write up {{item.url}} in one line.'));
+        await h.world.endTurn('session-1');
+        expect(launched(h)).toEqual(['Add retries · one', 'Add retries · two']);
+        expect(h.world.launches[1].prompt).toContain('\n\nWrite up https://github.com/sprocket/catalog-portal/pull/51.\n\n');
+
+        await h.world.endTurn('session-2');
+        expect(h.store.get(started.id)?.status).toBe('completed');
+        expect(h.store.get(waiting.id)).toMatchObject({
+            status: 'rejected',
+            summary: 'Its automation changed since it was queued.',
+            steps: [
+                { id: 'one', status: 'not-run' },
+                { id: 'two', status: 'not-run' },
+            ],
+        });
+        expect(h.world.launches).toHaveLength(2);
+    });
+
+    it('a session closed mid-step fails the step and frees its slot', async () => {
+        const yaml = file(NIGHTLY, WEEKLY);
+        const h = await accepted(yaml, { maxConcurrentAgents: 1 });
+        const nightly = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        const weekly = (await h.service.trigger(WORKSPACE_ID, 'weekly'))!;
+        await h.flush();
+        h.world.workspace.sessions = h.world.workspace.sessions.filter((session) => session.id !== 'session-1');
+        await h.service.syncWorkspaces();
+        await h.flush();
+        const error = 'Its session was closed before it finished.';
+        expect(h.store.get(nightly.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [{ id: 'one', status: 'failed', error }, { id: 'two', status: 'not-run' }],
+        });
+        expect(launched(h)).toEqual(['nightly · one', 'weekly · digest']);
+        expect(h.store.get(weekly.id)?.status).toBe('running');
+        // The person closed it: as for a one-step run, nothing to tell them.
+        expect(h.notices).toEqual([]);
+    });
+
+    it('a missing definition fails the run', async () => {
+        const h = await accepted(file(NIGHTLY));
+        const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+        await h.flush();
+        const folder = h.folder.runDir(WORKSPACE_ID, run.id);
+        fs.rmSync(path.join(folder, 'definition.json'));
+        await h.service.syncWorkspaces();
+        const error = `Its definition is gone from ${folder}; it cannot continue.`;
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'failed',
+            error,
+            steps: [{ id: 'one', status: 'failed', error }, { id: 'two', status: 'not-run' }],
+        });
+        expect(h.notices).toEqual([{ title: 'nightly did not finish', body: error, runId: run.id, workspaceId: WORKSPACE_ID, needsApproval: false }]);
+        // Its turn ending afterwards changes nothing.
+        await h.world.endTurn('session-1');
+        expect(h.store.get(run.id)).toMatchObject({ status: 'failed', error });
     });
 });
 
@@ -540,7 +1165,14 @@ describe('a steps run, as Activity lists it', () => {
         const run = (await h.service.trigger(WORKSPACE_ID, NAME))!;
         h.service.dismiss(run.id);
         expect(() => h.service.stop(run.id)).not.toThrow();
-        expect(h.store.get(run.id)?.status).toBe('rejected');
+        expect(h.store.get(run.id)).toMatchObject({
+            status: 'rejected',
+            // Dismissed before its first step.
+            steps: [
+                { id: 'fresh', status: 'not-run' },
+                { id: 'summary', status: 'not-run' },
+            ],
+        });
     });
 });
 

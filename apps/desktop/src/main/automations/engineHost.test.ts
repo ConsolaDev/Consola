@@ -122,6 +122,15 @@ async function runner(
         agentHarness: () => harness,
         stopAgent: () => false,
         platform: 'darwin',
+        // Nothing here runs steps: no item run asks for a checkout.
+        checkout: {
+            pathFor: () => '/nowhere',
+            prepare: async () => {
+                throw new Error('These tests prepare no automation checkout.');
+            },
+        },
+        checkoutBusy: () => false,
+        folderExists: () => true,
     });
     await service.start();
     return { service, text: () => text };

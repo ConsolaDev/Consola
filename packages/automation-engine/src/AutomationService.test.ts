@@ -264,6 +264,15 @@ function setup({
         stopAgent,
         ...(cap !== undefined ? { maxConcurrentAgents: cap } : {}),
         platform: 'darwin',
+        // Nothing here runs a steps entry: no item run asks for a checkout.
+        checkout: {
+            pathFor: () => '/nowhere',
+            prepare: async () => {
+                throw new Error('These tests prepare no automation checkout.');
+            },
+        },
+        checkoutBusy: () => false,
+        folderExists: () => true,
     });
     const t = {
         service,

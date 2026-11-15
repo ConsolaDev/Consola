@@ -204,7 +204,8 @@ export function notRunAfter(steps: Step[], records: StepRun[], stepId: string): 
         .map((step) => ({ id: step.id, status: 'not-run' as const }));
 }
 
-const joinNames = (names: string[]): string =>
+/** "a", "a and b", "a, b and c". */
+export const joinNames = (names: string[]): string =>
     names.length < 2 ? names.join('') : `${names.slice(0, -1).join(', ')} and ${names[names.length - 1]}`;
 
 /** "fresh → review → publish (request-changes)", then what a dry run left unrun and what was skipped. */

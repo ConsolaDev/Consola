@@ -108,6 +108,12 @@ export interface AgentLaunchRequest {
     item?: { workItem: ItemRef; title: string; label: string; groupId?: string; startedByHandSince?: string };
     /** A scheduled run: it runs in this scope's folder. */
     scopeId?: string;
+    /**
+     * A step of a `steps:` run: the session is that step's attempt, named
+     * `name`, in the folder the engine prepared (`cwd`, in scope `scopeId`),
+     * so the host prepares no worktree of its own.
+     */
+    step?: { id: string; attempt: number; cwd: string; scopeId: string; name: string };
 }
 
 /**
