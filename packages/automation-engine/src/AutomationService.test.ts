@@ -263,6 +263,7 @@ function setup({
         agentHarness: () => harness,
         stopAgent,
         ...(cap !== undefined ? { maxConcurrentAgents: cap } : {}),
+        platform: 'darwin',
     });
     const t = {
         service,

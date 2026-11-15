@@ -10,12 +10,17 @@ export interface AutomationView {
     schedule?: string;
     /** Fired by a connection's event rather than a clock: its Run now is "Check now". */
     onEvent: boolean;
-    /** A tool run in-process, or an agent session. */
+    /** A tool run in-process, or an agent session. A `steps:` entry is `agent` when any step is an agent step. */
     kind: 'tool' | 'agent';
-    /** What it runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions". */
+    /** What it runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions", "Steps: review → publish". */
     runs: string;
-    /** The `run:` target as written: a tool reference, an action's name, or `prompt`. */
+    /** The `run:` target as written: a tool reference, an action's name, or `prompt`; `steps` for a `steps:` entry. */
     target: string;
+    /**
+     * A `steps:` entry's steps in file order, as its pipeline draws them, problem or not.
+     * `summary` is "Prompt", "Review action", or a command's first line.
+     */
+    steps?: Array<{ id: string; kind: 'agent' | 'run'; if?: string; summary: string }>;
     /** 1-based line in factory.yml. */
     line?: number;
     /** Next scheduled occurrence (ISO), or null when it is not on a schedule or will not run. */

@@ -998,6 +998,7 @@ export function setupIpcHandlers(): boolean {
             };
         },
         stopAgent: (session, reason) => automationTerminal(session.id)?.stopUnattendedTurn(reason) ?? false,
+        platform: process.platform,
     });
     automationService = automations;
     void automations.start().catch((error) => console.error('Automations failed to start.', error));

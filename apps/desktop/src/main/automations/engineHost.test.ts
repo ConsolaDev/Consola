@@ -121,6 +121,7 @@ async function runner(
         hasLiveTerminal: () => false,
         agentHarness: () => harness,
         stopAgent: () => false,
+        platform: 'darwin',
     });
     await service.start();
     return { service, text: () => text };

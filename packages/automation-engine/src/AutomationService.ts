@@ -7,7 +7,9 @@ import {
     parseAutomationEntry,
     parseFactorySpec,
     stableStringify,
+    stepItemFieldProblems,
     TERMINAL_RUN_STATUSES,
+    type AgentStep,
     type Automation,
     type AutomationMode,
     type CronTrigger,
@@ -15,18 +17,20 @@ import {
     type RunRecord,
     type RunStatus,
     type RunTrigger,
+    type StepsAutomation,
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
 import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
 import { advanceSeen } from './seenRecord';
 import { agentToolContext, CONSOLA_NAMESPACE, describeError, firstActionFor, StartedByHandError } from './support';
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
-import { describeRun, describeTriggerAsWritten } from './describeEntry';
+import { describeKind, describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import type { AgentLaunchRequest, EngineTool, EngineToolContext, EngineToolResult, FactoryFileHandle, LaunchedSession, LoadedFactoryFile, RunFolderPort, ToolsPort } from './ports';
-import type { AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import type { ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, RunListEntry, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
+import type { RunDefinition } from './steps/definition';
 import { StepIO } from './steps/stepTools';
 
 /**
@@ -120,7 +124,12 @@ export interface AutomationServiceDeps {
     stopAgent(session: SessionView, reason: string): boolean;
     /** Agent sessions automations may have working at once, across every workspace. */
     maxConcurrentAgents?: number;
+    /** The host's platform, as `process.platform` says it. `run:` steps need a POSIX shell, which `win32` lacks. */
+    platform: NodeJS.Platform;
 }
+
+/** A `steps:` entry's problem on a host whose platform is `win32`. */
+const NO_POSIX_SHELL = 'run: steps need a POSIX shell, which Windows does not have';
 
 /** The turn an automation session gets when Consola quit before its first one finished. */
 export const INTERRUPTED_PROMPT = 'Consola closed before you finished. Continue where you left off.';
@@ -158,6 +167,17 @@ interface Resolved {
         scope?: ScopeView;
         /** "Review action", "Prompt" — for previews. */
         runs: string;
+    };
+    /** A `steps:` entry that can run: what a run of it executes, as of now, and what firing one needs to know. */
+    steps?: {
+        definition: RunDefinition;
+        /** A scheduled run's scope. */
+        scope?: ScopeView;
+        hasAgentStep: boolean;
+        /** Even a dry run (`notify`) would start something: an agent step, or a `dry_run: run` command. */
+        startsInDryRun: boolean;
+        /** The first agent step's action, when it is one: the label a session started by hand on the item carries. */
+        byHandLabel?: string;
     };
     /** An event trigger, resolved against the entry's filter. */
     event?: EventSource;
@@ -792,9 +812,10 @@ export class AutomationService {
                 trigger: entry.event?.describe ?? (cron ? describeSchedule(cron.cron) : describeTriggerAsWritten(automation)),
                 ...(cron ? { schedule: cron.cron } : {}),
                 onEvent: automation.trigger.kind === 'event',
-                kind: automation.run?.kind === 'tool' ? 'tool' : 'agent',
+                kind: describeKind(automation),
                 runs: describeRun(automation),
                 target: automation.run?.ref ?? 'steps',
+                ...(isStepsEntry(automation) ? { steps: describeSteps(automation.steps) } : {}),
                 ...(automation.line ? { line: automation.line } : {}),
                 // A due-but-unfired occurrence reads as "now", not as a time in the past.
                 nextRunAt: next ? new Date(Math.max(next.getTime(), now.getTime())).toISOString() : null,
@@ -1194,16 +1215,14 @@ export class AutomationService {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
         const base = automationVersion(automation);
         const unable = (problem: string): Resolved => ({ workspaceId, automation, version: base, problem });
-        // A placeholder: the step runner replaces it.
-        if (isStepsEntry(automation)) return unable('steps: this build does not run them yet');
-        const { run, trigger } = automation;
+        const { trigger } = automation;
 
         let event: EventSource | undefined;
         if (trigger.kind === 'event') {
             const resolution = resolveEventSource(trigger, automation.filter);
             if (!resolution.ok) return unable(resolution.problem);
             event = resolution.source;
-            if (run.kind === 'tool') {
+            if (automation.run?.kind === 'tool') {
                 return unable('tools run on a schedule; an event starts an agent session (`run: { action: … }` or `run: { prompt: … }`)');
             }
             if (workspace?.provider?.id !== trigger.connection) {
@@ -1216,6 +1235,10 @@ export class AutomationService {
                 return unable(`scope: ${trigger.connection} items have no repository, so say which scope this runs in`);
             }
         }
+
+        // The checks above are a steps entry's too; the rest are its own.
+        if (isStepsEntry(automation)) return this.resolveSteps(workspaceId, automation, event);
+        const { run } = automation;
 
         if (run.kind === 'tool') {
             if (run.namespace !== CONSOLA_NAMESPACE) {
@@ -1230,11 +1253,9 @@ export class AutomationService {
         }
 
         if (run.kind === 'action') {
-            const action = workspace?.actions.find((candidate) => candidate.name === run.name);
-            if (!action) return unable(`no action named ${run.name} in this workspace`);
-            if (event && !action.appliesTo.includes(event.itemType)) {
-                return unable(`the ${run.name} action does not apply to ${event.itemType === 'pr' ? 'pull requests' : 'issues'}`);
-            }
+            const named = actionNamed(workspace, run.name, event);
+            if ('problem' in named) return unable(named.problem);
+            const { action } = named;
             const refused = this.harnessProblem(workspaceId);
             if (refused) return unable(refused);
             return {
@@ -1252,14 +1273,9 @@ export class AutomationService {
             };
         }
 
-        let scope: ScopeView | undefined;
-        if (automation.scope) {
-            scope = workspace?.scopes.find((candidate) => candidate.name === automation.scope);
-            if (!scope) {
-                const names = workspace?.scopes.map((candidate) => candidate.name).join(', ');
-                return unable(`no scope named "${automation.scope}" in this workspace${names ? `; it has: ${names}` : ''}`);
-            }
-        }
+        const scoped = scopeNamed(workspace, automation.scope);
+        if ('problem' in scoped) return unable(scoped.problem);
+        const { scope } = scoped;
         const refused = this.harnessProblem(workspaceId);
         if (refused) return unable(refused);
         return {
@@ -1268,6 +1284,59 @@ export class AutomationService {
             version: base,
             event,
             agent: { body: run.prompt, ...(event ? { label: automation.name } : {}), ...(scope ? { scope } : {}), runs: 'Prompt' },
+        };
+    }
+
+    /**
+     * A `steps:` entry in its workspace, after the trigger and event checks it
+     * shares with a `run:` entry. When more than one thing is wrong, the
+     * problem is the first of: its scope; each step in file order (an action
+     * the workspace lacks, then one that does not apply to the items); item
+     * fields the connection lacks; `run:` steps on Windows; the harness, which
+     * only an entry with an agent step needs.
+     */
+    private resolveSteps(workspaceId: string, automation: StepsAutomation, event: EventSource | undefined): Resolved {
+        const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
+        const unable = (problem: string): Resolved => ({ workspaceId, automation, version: automationVersion(automation), problem });
+        const { steps } = automation;
+
+        const scoped = scopeNamed(workspace, automation.scope);
+        if ('problem' in scoped) return unable(scoped.problem);
+
+        const actions: RunDefinition['actions'] = {};
+        for (const step of steps) {
+            if (step.kind !== 'agent' || step.action === undefined) continue;
+            const named = actionNamed(workspace, step.action, event);
+            if ('problem' in named) return unable(named.problem);
+            const { action } = named;
+            actions[step.id] = { name: action.name, body: action.prompt, ...(action.groupId ? { groupId: action.groupId } : {}) };
+        }
+
+        // A schedule has no item: a step that reads one does not load at all.
+        const [fieldProblem] = event ? stepItemFieldProblems(steps, event.itemFields, event.connection) : [];
+        if (fieldProblem) return unable(fieldProblem);
+
+        if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run')) return unable(NO_POSIX_SHELL);
+        const hasAgentStep = steps.some((step) => step.kind === 'agent');
+        const refused = hasAgentStep ? this.harnessProblem(workspaceId) : null;
+        if (refused) return unable(refused);
+
+        // The bodies live in settings, not the file: editing one asks again.
+        const bodies = Object.fromEntries(Object.entries(actions).map(([id, action]) => [id, action.body]));
+        const version = automationVersion(automation, Object.keys(bodies).length > 0 ? stableStringify(bodies) : undefined);
+        const firstAgent = steps.find((step): step is AgentStep => step.kind === 'agent');
+        return {
+            workspaceId,
+            automation,
+            version,
+            event,
+            steps: {
+                definition: { automation, version, actions },
+                ...(scoped.scope ? { scope: scoped.scope } : {}),
+                hasAgentStep,
+                startsInDryRun: hasAgentStep || steps.some((step) => step.kind === 'run' && step.dryRun === 'run'),
+                ...(firstAgent?.action !== undefined ? { byHandLabel: actions[firstAgent.id].name } : {}),
+            },
         };
     }
 
@@ -1305,6 +1374,8 @@ export class AutomationService {
 
     private async fire(entry: Resolved, trigger: RunTrigger): Promise<RunRecord> {
         if (entry.agent) return this.fireAgent(entry, trigger);
+        // Starting a steps run is not built yet: the entry resolves and is listed, and starts nothing.
+        if (entry.steps) throw new Error(`${entry.automation.name} cannot run yet: this build does not start steps runs.`);
         const { automation } = entry;
         const key = automationKey(entry);
         this.assertIdle(key, automation.name);
@@ -1371,6 +1442,8 @@ export class AutomationService {
 
     /** One event — an item entering an automation's list — made one run. */
     private fireEvent(entry: Resolved, item: InboxItemView, since: string, at: string): void {
+        // Starting a steps run is not built yet: its events pass, and start nothing.
+        if (entry.steps) return;
         const event = entry.event!;
         const agent = entry.agent!;
         const itemKey = event.keyOf(item);
@@ -1537,6 +1610,29 @@ export class AutomationService {
     private iso(): string {
         return this.deps.now().toISOString();
     }
+}
+
+/** The scope an entry names in its workspace (none when it names none), or why there is no such scope. */
+function scopeNamed(workspace: WorkspaceView | undefined, name: string | undefined): { scope?: ScopeView } | { problem: string } {
+    if (!name) return {};
+    const scope = workspace?.scopes.find((candidate) => candidate.name === name);
+    if (scope) return { scope };
+    const names = workspace?.scopes.map((candidate) => candidate.name).join(', ');
+    return { problem: `no scope named "${name}" in this workspace${names ? `; it has: ${names}` : ''}` };
+}
+
+/** The workspace action an entry names, or why there is none by that name or it does not apply to the event's items. */
+function actionNamed(
+    workspace: WorkspaceView | undefined,
+    name: string,
+    event: EventSource | undefined
+): { action: ActionView } | { problem: string } {
+    const action = workspace?.actions.find((candidate) => candidate.name === name);
+    if (!action) return { problem: `no action named ${name} in this workspace` };
+    if (event && !action.appliesTo.includes(event.itemType)) {
+        return { problem: `the ${name} action does not apply to ${event.itemType === 'pr' ? 'pull requests' : 'issues'}` };
+    }
+    return { action };
 }
 
 /** What an agent run says while its turn runs. */
