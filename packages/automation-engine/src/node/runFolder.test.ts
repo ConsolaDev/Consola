@@ -72,11 +72,12 @@ describe('RunFolder', () => {
         expect(tail.text).toBe('b'.repeat(64 * 1024));
         expect(tail.bytes).toBe(100 * 1024);
         expect(folder.tail(file, 1024 * 1024)!.truncated).toBe(false);
-        expect(folder.tail(path.join(tmp, 'missing'))).toBeNull();
+        expect(folder.tail(path.join(folder.runDir('ws', 'r1'), 'missing'))).toBeNull();
     });
 
     it('readText returns null for a missing file and throws past maxBytes', () => {
-        const file = path.join(tmp, 'f.txt');
+        const file = path.join(folder.runDir('ws', 'r1'), 'f.txt');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
         expect(folder.readText(file, 10)).toBeNull();
         fs.writeFileSync(file, '12345678901');
         expect(() => folder.readText(file, 10)).toThrow(/most read is 10/);
@@ -84,7 +85,7 @@ describe('RunFolder', () => {
     });
 
     it('ensureEmptyFile creates a missing file with its folder and empties an existing one', () => {
-        const file = path.join(tmp, 'deep', 'er', 'f.log');
+        const file = path.join(folder.runDir('ws', 'r1'), 'deep', 'er', 'f.log');
         folder.ensureEmptyFile(file);
         expect(fs.readFileSync(file, 'utf8')).toBe('');
         fs.writeFileSync(file, 'data');
@@ -93,7 +94,8 @@ describe('RunFolder', () => {
     });
 
     it('exists', () => {
-        const file = path.join(tmp, 'f');
+        const file = path.join(folder.runDir('ws', 'r1'), 'f');
+        fs.mkdirSync(path.dirname(file), { recursive: true });
         expect(folder.exists(file)).toBe(false);
         fs.writeFileSync(file, '');
         expect(folder.exists(file)).toBe(true);
@@ -114,5 +116,52 @@ describe('RunFolder', () => {
         folder.writeArtifact('ws', 'r1', 'review', 1, 'handover', 'x');
         folder.removeAll('ws');
         expect(fs.readdirSync(path.join(tmp, 'ws'))).toEqual(['factory.yml']);
+    });
+
+    const BAD = ['.', '..', '../x', 'a/b', '/abs/path', 'a\0b', ''];
+
+    it.each(BAD)('refuses %j as a workspace id, run id, step id and artifact name', (bad) => {
+        expect(() => folder.runDir(bad, 'r1')).toThrow();
+        expect(() => folder.runDir('ws', bad)).toThrow();
+        expect(() => folder.attemptDir('ws', 'r1', bad, 1)).toThrow();
+        expect(() => folder.readArtifact('ws', 'r1', 'review', 1, bad)).toThrow();
+        expect(() => folder.artifactPath('ws', 'r1', 'review', 1, bad)).toThrow();
+        expect(() => folder.writeArtifact('ws', 'r1', 'review', 1, bad, 'x')).toThrow();
+    });
+
+    it('confines the path-taking methods to runs/', () => {
+        const inside = path.join(folder.attemptDir('ws', 'r1', 'review', 1), 'stdout.log');
+        const outside = [
+            path.join(tmp, 'ws', 'factory.yml'),
+            path.join(tmp, 'ws', 'runs-evil', 'x'),
+            path.join(tmp, 'ws', 'runs'),
+            path.join(tmp, 'ws', 'runs', '..', 'factory.yml'),
+            path.join(tmp, '..', 'x'),
+            '/etc/passwd',
+            '',
+        ];
+        const calls: Array<(p: string) => unknown> = [
+            (p) => folder.tail(p),
+            (p) => folder.readText(p, 10),
+            (p) => folder.ensureEmptyFile(p),
+            (p) => folder.exists(p),
+            (p) => folder.writeJson(p, 'command.json', {}),
+        ];
+        for (const call of calls) {
+            for (const bad of outside) expect(() => call(bad), bad).toThrow();
+        }
+        fs.mkdirSync(path.join(tmp, 'ws', 'runs-evil'), { recursive: true });
+        expect(fs.readdirSync(path.join(tmp, 'ws', 'runs-evil'))).toEqual([]);
+        folder.ensureEmptyFile(inside);
+        expect(folder.exists(inside)).toBe(true);
+        expect(folder.tail(inside)).not.toBeNull();
+        expect(folder.readText(inside, 10)).toBe('');
+        folder.writeJson(path.dirname(inside), 'command.json', {});
+    });
+
+    it('refuses a definition over its cap on write', () => {
+        const big = { automation: {}, version: 'v', actions: { a: { name: 'n', body: 'x'.repeat(16 * 1024 * 1024) } } } as unknown as RunDefinition;
+        expect(() => folder.writeDefinition('ws', 'r1', big)).toThrow(/16 MB/);
+        expect(folder.readDefinition('ws', 'r1')).toBeNull();
     });
 });
