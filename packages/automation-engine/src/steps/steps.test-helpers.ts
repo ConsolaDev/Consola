@@ -10,7 +10,7 @@ import type { AgentLaunchRequest, CommandResult, CommandSpec, FactoryFileHandle,
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
 import { StartedByHandError } from '../support';
-import { FakeToolRegistry } from '../tools.test-helpers';
+import { FakeToolRegistry, type TestTool } from '../tools.test-helpers';
 import type { InboxItemView, ItemRef, ItemSnapshot, SessionView, WorkspaceView } from '../views';
 import type { CheckoutRequest } from './checkout';
 import { maskSecrets } from './commandIO';
@@ -74,6 +74,8 @@ export interface StepsHarnessOptions {
     maxConcurrentAgents?: number;
     /** Commands automations may have running at once; `world.maxConcurrentCommands` changes it later. Default: the engine's. */
     maxConcurrentCommands?: number;
+    /** Tools the registry offers; none by default. */
+    tools?: TestTool[];
 }
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
@@ -322,11 +324,14 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         };
     };
 
+    const registry = new FakeToolRegistry();
+    for (const tool of options.tools ?? []) registry.register(tool);
+
     const deps = (store: RunStore): AutomationServiceDeps => ({
         fileFor,
         store,
         runFolder: folder,
-        registry: new FakeToolRegistry(),
+        registry,
         getWorkspaces: () => (world.workspaceDeleted ? [] : [world.workspace]),
         now: () => clock,
         newId: () => `run-${++id}`,
