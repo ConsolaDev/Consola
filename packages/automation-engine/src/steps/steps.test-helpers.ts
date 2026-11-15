@@ -4,10 +4,12 @@ import * as path from 'path';
 import { onTestFinished } from 'vitest';
 import { appendAutomationEntry, parseFactorySpec, replaceAutomationEntry } from '@consola/factory-spec';
 import { AutomationService, type AutomationNotice, type AutomationServiceDeps } from '../AutomationService';
+import { itemKey } from '../inboxItems.test-helpers';
 import { RunFolder } from '../node/runFolder';
 import type { AgentLaunchRequest, CommandResult, CommandSpec, FactoryFileHandle, RunningCommand } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
+import { StartedByHandError } from '../support';
 import { FakeToolRegistry } from '../tools.test-helpers';
 import type { InboxItemView, ItemRef, ItemSnapshot, SessionView, WorkspaceView } from '../views';
 import type { CheckoutRequest } from './checkout';
@@ -120,6 +122,13 @@ export interface StepsWorld {
     launchGate?: Promise<void>;
     /** Every resume waits for this while it is set, after recording the call. */
     resumeGate?: Promise<void>;
+    /** Every resume throws this while it is set, after recording the call. */
+    resumeThrows?: unknown;
+    /**
+     * While set, a launch that asks after a review by hand (`startedByHandSince`)
+     * refuses with `StartedByHandError` when the workspace has one, as the desktop's does.
+     */
+    byHandRefuses?: boolean;
     /** Every reminder waits for this while it is set, after recording the call. */
     remindGate?: Promise<void>;
     /** While set, `stopAgent` records the call and finds no turn running: it returns false. */
@@ -336,6 +345,15 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
             world.launches.push(request);
             if (world.launchGate) await world.launchGate;
             if (world.launchThrows) throw world.launchThrows;
+            const since = request.item?.startedByHandSince;
+            if (world.byHandRefuses && request.item && since !== undefined) {
+                const key = itemKey(request.item.workItem);
+                const label = request.item.label;
+                const byHand = world.workspace.sessions.find(
+                    (session) => !session.automation && session.workItemKey === key && session.workItemAction === label && session.createdAt > Date.parse(since)
+                );
+                if (byHand) throw new StartedByHandError(byHand.name);
+            }
             const { step } = request;
             const session: SessionView = {
                 id: `session-${world.launches.length}`,
@@ -357,6 +375,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         resumeAgent: async (session, prompt) => {
             world.resumes.push({ sessionId: session.id, prompt });
             if (world.resumeGate) await world.resumeGate;
+            if (world.resumeThrows) throw world.resumeThrows;
         },
         remindAgent: async (session, prompt) => {
             world.reminders.push({ sessionId: session.id, prompt });

@@ -211,6 +211,9 @@ const RUN_ENDED = 'its run had ended';
 const RESUME_SESSION_GONE = 'Consola quit while it ran, and its session is gone.';
 const RESUME_SESSION_OPENED = 'Consola quit while it ran, and you opened its session.';
 
+/** How the host refuses a resume when a pane opened the session first (the desktop's `resumeUnattended`). */
+const OPENED_BEFORE_RESUME = 'You opened its session before Consola could resume it.';
+
 /** Commands automations may have running at once, across every workspace, by default. */
 export const DEFAULT_MAX_CONCURRENT_COMMANDS = 2;
 
@@ -1694,6 +1697,17 @@ export class AutomationService {
         });
         if (next.kind === 'wait') return;
         const stopping = this.stopRequested.delete(runId);
+        if (stopping && next.kind === 'complete') {
+            // A stopped run never completes. Every step left would skip: the one it would look at next fails, never started.
+            const pending = run.steps.find((step) => step.status === 'pending');
+            if (pending) {
+                this.settleStep(runId, pending.id, { status: 'failed', error: stoppedBefore(pending.id) }, { quiet: true });
+            } else {
+                this.finish(runId, 'failed', { error: 'Stopped before it finished.' });
+                void this.pump();
+            }
+            return;
+        }
         for (const update of next.updates) this.writeSteps(runId, withUpdate(this.stepsOf(runId), update, this.iso()));
         if (next.kind === 'start' && stopping) {
             this.settleStep(runId, next.stepId, { status: 'failed', error: stoppedBefore(next.stepId) }, { quiet: true });
@@ -1789,10 +1803,7 @@ export class AutomationService {
         const record = this.stepsOf(runId).find((step) => step.id === stepId)!;
         const session = this.sessionNamed(run, record.sessionId!);
         if (!session || this.deps.hasLiveTerminal(session)) {
-            const now = this.iso();
-            const error = session ? RESUME_SESSION_OPENED : RESUME_SESSION_GONE;
-            this.writeSteps(runId, withNextAttempt(this.stepsOf(runId), stepId, { status: 'queued', nowIso: now, ended: { status: 'failed', error, finishedAt: now } }));
-            await this.startAgentStep(runId, stepId);
+            await this.runStepAgain(runId, stepId, session ? RESUME_SESSION_OPENED : RESUME_SESSION_GONE);
             return;
         }
         const { attempt } = record;
@@ -1804,7 +1815,14 @@ export class AutomationService {
             try {
                 await this.deps.resumeAgent(session, INTERRUPTED_PROMPT);
             } catch (error) {
-                if (this.stepRunning(runId, stepId, attempt)) this.settleStep(runId, stepId, { status: 'failed', error: describeError(error) });
+                if (!this.stepRunning(runId, stepId, attempt)) return;
+                // Its pane mounted after the look, before the resume spawned: opened, as if it had been at the look.
+                // Still starting meanwhile, so a stop asked for is honoured by the new launch.
+                if (error instanceof Error && error.message === OPENED_BEFORE_RESUME) {
+                    await this.runStepAgain(runId, stepId, RESUME_SESSION_OPENED);
+                    return;
+                }
+                this.settleStep(runId, stepId, { status: 'failed', error: describeError(error) });
                 return;
             }
             if (!this.stepRunning(runId, stepId, attempt)) {
@@ -1815,6 +1833,14 @@ export class AutomationService {
         } finally {
             this.doneStarting(runId, stepId);
         }
+    }
+
+    /** A step a restart cut off runs as its next attempt in a new session, its last remembered as `why` ended it. */
+    private async runStepAgain(runId: string, stepId: string, why: string): Promise<void> {
+        const now = this.iso();
+        const ended = { status: 'failed' as const, error: why, finishedAt: now };
+        this.writeSteps(runId, withNextAttempt(this.stepsOf(runId), stepId, { status: 'queued', nowIso: now, ended }));
+        await this.startAgentStep(runId, stepId);
     }
 
     /**

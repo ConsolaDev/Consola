@@ -42,8 +42,10 @@ export type EndedAttempt = NonNullable<StepRun['previous']>[number];
  * `records` with one step given its next attempt, in a new session and a new
  * folder: its attempt as it ended kept in `previous` (as its record has it,
  * unless `ended` says otherwise), and everything that attempt produced or
- * named cleared, so nothing of it can settle or feed the next. A retry and a
- * restart that runs a step again both go through this.
+ * named cleared, so nothing of it can settle or feed the next. A step that
+ * never ran (`not-run`) had no attempt: it keeps its first, and `previous`
+ * gains nothing. A retry and a restart that runs a step again both go
+ * through this.
  */
 export function withNextAttempt(
     records: StepRun[],
@@ -67,6 +69,10 @@ export function withNextAttempt(
             previous = [],
             ...kept
         } = record;
+        const queued = next.status === 'queued' ? { queuedAt: next.nowIso } : {};
+        if (record.status === 'not-run') {
+            return { ...kept, status: next.status, ...queued, ...(previous.length > 0 ? { previous } : {}) };
+        }
         const ended = next.ended ?? { status: record.status, error, finishedAt };
         const remembered: EndedAttempt = {
             attempt: record.attempt,
@@ -74,13 +80,7 @@ export function withNextAttempt(
             ...(ended.error !== undefined ? { error: ended.error } : {}),
             ...(ended.finishedAt !== undefined ? { finishedAt: ended.finishedAt } : {}),
         };
-        return {
-            ...kept,
-            status: next.status,
-            attempt: record.attempt + 1,
-            ...(next.status === 'queued' ? { queuedAt: next.nowIso } : {}),
-            previous: [...previous, remembered],
-        };
+        return { ...kept, status: next.status, attempt: record.attempt + 1, ...queued, previous: [...previous, remembered] };
     });
 }
 
