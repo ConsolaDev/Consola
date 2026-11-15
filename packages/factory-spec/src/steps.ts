@@ -569,7 +569,8 @@ export function checkSteps(steps: Step[], trigger: { kind: string }, path: Array
         const at = (...rest: Array<string | number>) => [...path, index, ...rest];
 
         if (step.kind === 'agent' && step.action !== undefined && !hasItem) {
-            fail('An action is a verb on an item, and a schedule has no item: write the job as `run: { prompt: "…" }`.', at('action'));
+            // Inside a step the job is the step's own `prompt:`; a step's `run:` is a command.
+            fail('An action is a verb on an item, and a schedule has no item: write the job as `prompt: …`.', at('action'));
         }
 
         if (step.if !== undefined) {

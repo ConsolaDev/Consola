@@ -653,12 +653,13 @@ describe('across steps', () => {
             expectIssue(onCron('- prompt: "{{item.url}}"'), 'automations[0].steps[0].prompt', 'prompt:', /a schedule has no item/);
         });
 
-        it('refuses an action, with today\'s message', () => {
+        it('refuses an action, saying to write the job as the step\'s own prompt', () => {
+            // Inside a step the job is `prompt:`; `run: { prompt }` is an entry's, and a step's `run:` is a command.
             expectIssue(
                 onCron('- action: Review'),
                 'automations[0].steps[0].action',
                 'action:',
-                'An action is a verb on an item, and a schedule has no item: write the job as `run: { prompt: "…" }`.'
+                'An action is a verb on an item, and a schedule has no item: write the job as `prompt: …`.'
             );
         });
 
