@@ -6,7 +6,7 @@ import { appendAutomationEntry, parseFactorySpec, replaceAutomationEntry } from 
 import { AutomationService, type AutomationNotice, type AutomationServiceDeps } from '../AutomationService';
 import { itemKey } from '../inboxItems.test-helpers';
 import { RunFolder } from '../node/runFolder';
-import type { AgentLaunchRequest, CommandResult, CommandSpec, FactoryFileHandle, RunningCommand } from '../ports';
+import type { AgentLaunchRequest, CommandResult, CommandSpec, FactoryFileHandle, RunningCommand, WorkItemPort } from '../ports';
 import { RunStore, type AutomationStateFile } from '../RunStore';
 import { memoryHistory } from '../runHistory.test-helpers';
 import { StartedByHandError } from '../support';
@@ -76,6 +76,8 @@ export interface StepsHarnessOptions {
     maxConcurrentCommands?: number;
     /** Tools the registry offers; none by default. */
     tools?: TestTool[];
+    /** The host's work items. Default: a host that reads no work item URL. */
+    workItems?: WorkItemPort;
 }
 
 /** What the fake host holds and recorded. A test edits the first part to move the world, then resyncs. */
@@ -331,7 +333,7 @@ export async function stepsHarness(options: StepsHarnessOptions = {}): Promise<S
         fileFor,
         store,
         runFolder: folder,
-        workItems: {
+        workItems: options.workItems ?? {
             canParseUrls: () => false,
             parseUrl: () => null,
             keyOf: (ref) => `${ref.provider}:${ref.repo.toLowerCase()}:${ref.type}:${ref.number}`,

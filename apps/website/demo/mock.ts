@@ -291,7 +291,7 @@ export function installMock() {
           category: 'Code review', services: ['github', 'git'],
           needs: [{ label: 'GitHub connection', met: true, fix: { label: 'Connect a GitHub account', section: 'provider' } }],
           preview: {
-            trigger: 'When a pull request asks for your review or is assigned to you', onEvent: true, kind: 'agent',
+            trigger: 'When a pull request asks for your review or is assigned to you', source: 'event', onEvent: true, kind: 'agent',
             runs: 'Steps: fresh → review → publish', target: 'steps', mode: 'auto', nextRunAt: null,
             steps: [
               { id: 'fresh', kind: 'run', dryRun: true, summary: `reviewed=$(gh api graphql -f url="$PR" -f query='` },
@@ -306,7 +306,7 @@ export function installMock() {
           category: 'Briefing', services: ['github'],
           needs: [{ label: 'A scope to run in', met: true, fix: { label: 'Add a scope', section: 'scopes' } }],
           preview: {
-            trigger: 'Weekdays at 8:30', schedule: '30 8 * * 1-5', onEvent: false, kind: 'agent', runs: 'Prompt', target: 'prompt',
+            trigger: 'Weekdays at 8:30', schedule: '30 8 * * 1-5', source: 'cron', onEvent: false, kind: 'agent', runs: 'Prompt', target: 'prompt',
             mode: 'auto', nextRunAt: null, entry: '- name: morning-inbox-digest\n  on: { cron: "30 8 * * 1-5" }\n  run: { prompt: Write a short digest of my Inbox. }\n  mode: auto',
           },
         },

@@ -9,8 +9,22 @@ export interface AutomationView {
     trigger: string;
     /** A cron trigger's expression, as written. */
     schedule?: string;
-    /** Fired by a connection's event rather than a clock: its Run now is "Check now". */
+    /** What starts it: a clock, the Inbox's events, a check command, or only a person (or an agent) asking. */
+    source: 'cron' | 'event' | 'poll' | 'manual';
+    /** Fired by what it watches (an event or a poll) rather than a clock: its Run now is "Check now". */
     onEvent: boolean;
+    /**
+     * What one of its runs is about: pull requests, issues or either (work
+     * items), or an item of its poll's last check. Absent when its runs have
+     * no item, as a schedule's do, and while it has a problem.
+     */
+    takesItem?: 'pr' | 'issue' | 'pr-or-issue' | 'item';
+    /** A poll's check: its command and interval as written, and how its last check went. */
+    check?: CheckView;
+    /** A poll entry whose command no person has allowed at this version: it does not check. */
+    needsAllow?: true;
+    /** Present with `needsAllow`: the version Allow sends back, refused once the entry changed. */
+    version?: string;
     /** A tool run in-process, or an agent session. A `steps:` entry is `agent` when any step is an agent step. */
     kind: 'tool' | 'agent';
     /** What it runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions", "Steps: review → publish". */
@@ -38,6 +52,27 @@ export interface AutomationView {
     problem?: string;
     /** The session whose agent wrote it into the file; new until a person opens its details. */
     addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
+}
+
+/** A poll entry's check, as its automation's page shows it. */
+export interface CheckView {
+    /** The command, in full, as written. */
+    command: string;
+    /** Its interval in words: "30 minutes". */
+    every: string;
+    /** The `changed:` field path as written (".head"), for "when `.head` changes". */
+    changed?: string;
+    /** When the last check ended (ISO), and what it found: items in its result, how many fired, how many were skipped. */
+    lastAt?: string;
+    items?: number;
+    fired?: number;
+    skipped?: number;
+    /** The last check recorded what was there and fired nothing. */
+    baseline?: true;
+    /** Why the last check failed. */
+    error?: string;
+    /** When the next check is due (ISO). */
+    nextAt?: string;
 }
 
 /** A ready-made automation Consola ships, as the Templates tab shows it. */
@@ -77,6 +112,7 @@ export interface TemplateNeed {
 export interface TemplatePreview {
     trigger: string;
     schedule?: string;
+    source: AutomationView['source'];
     onEvent: boolean;
     kind: 'tool' | 'agent';
     runs: string;

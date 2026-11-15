@@ -161,6 +161,7 @@ function draftAutomation(template: TemplateView, preview: TemplatePreview): Auto
     mode: preview.mode,
     trigger: preview.trigger,
     ...(preview.schedule ? { schedule: preview.schedule } : {}),
+    source: preview.source,
     onEvent: preview.onEvent,
     kind: preview.kind,
     runs: preview.runs,

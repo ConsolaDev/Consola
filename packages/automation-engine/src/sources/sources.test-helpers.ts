@@ -1,0 +1,151 @@
+import { itemKey } from '../inboxItems.test-helpers';
+import type { WorkItemPort } from '../ports';
+import { stepsHarness, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
+import type { ItemRef } from '../views';
+
+/*
+ * The harness every sources test runs through: PR A's steps harness, over a
+ * host that also reads work item URLs. Its `WorkItemPort` is a fake that knows
+ * GitHub's two URL shapes and nothing else, keys a work item as the desktop
+ * does (`github:sprocket/catalog-portal:pr:51`), and holds a repository as
+ * cloned while `world.clonedRepos` names it. A task that adds to it adds to
+ * `SourcesWorld` and the helpers below; earlier tests keep working as written.
+ */
+
+export { WORKSPACE_ID } from '../steps/steps.test-helpers';
+
+export const RE_REVIEW_NAME = 're-review-on-new-commits';
+
+/** The command the spec's template checks with, exactly as its `run: |` block reads. */
+export const RE_REVIEW_COMMAND = `gh api graphql -f query='
+  query { search(type: ISSUE, first: 50,
+      query: "is:pr is:open reviewed-by:@me -author:@me -review-requested:@me archived:false") {
+    nodes { ... on PullRequest { url title headRefOid viewerLatestReview { commit { oid } } } } } }' \\
+  --jq '[.data.search.nodes[] | select(.viewerLatestReview.commit.oid != .headRefOid) | {url, title, head: .headRefOid}]'
+`;
+
+const indented = (text: string, by: string) =>
+    text
+        .trimEnd()
+        .split('\n')
+        .map((line) => `${by}${line}`)
+        .join('\n');
+
+/** The spec's template (*Acceptance › PR B*): one `- name:` list item, at column 0. */
+export const RE_REVIEW_ENTRY = `- name: ${RE_REVIEW_NAME}
+  on:
+    poll:
+      every: 30m
+      run: |
+${indented(RE_REVIEW_COMMAND, '        ')}
+      item: { github: .url }
+      changed: .head
+  mode: auto
+  steps:
+    - id: fresh
+      run: |
+        reviewed=$(gh api graphql -f url="$PR" -f query='
+          query($url: URI!) { resource(url: $url) { ... on PullRequest {
+            viewerLatestReview { commit { oid } } } } }' \\
+          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
+        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
+        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
+      env: { PR: "{{item.url}}" }
+      outputs: { needed: boolean }
+      dry_run: run
+    - id: review
+      if: steps.fresh.needed
+      prompt: >-
+        This pull request has new commits since you last reviewed it. If there is an earlier review
+        (previous.review.handover), read it first and check whether each of its points was addressed.
+        Read the pull request with Consola's work_item_context tool, and the changed files in this folder
+        where it helps. Write your review as your handover, in Markdown, addressed to the author and under
+        60,000 characters: what was addressed, what was not, and anything new, each with its file and line.
+        Then set verdict: approve if you would merge it as it is, request-changes if something must change
+        first, comment otherwise.
+      reads: [previous.review.handover]
+      outputs:
+        verdict: { enum: [approve, comment, request-changes] }
+    - id: publish
+      if: steps.fresh.needed
+      run: |
+        event=COMMENT
+        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
+        gh api "repos/$REPO/pulls/$NUMBER/reviews" \\
+          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
+      env:
+        REPO: "{{item.repo}}"
+        NUMBER: "{{item.number}}"
+        VERDICT: "{{steps.review.verdict}}"
+        BODY_FILE: "{{steps.review.handover.file}}"
+`;
+
+/** ws-1's factory.yml holding these `- name:` list items, each written at column 0. */
+export function factoryWith(...entries: string[]): string {
+    return `version: 1\nautomations:\n${entries.map((entry) => `${indented(entry, '  ')}\n`).join('')}`;
+}
+
+export interface SourcesHarnessOptions extends Omit<StepsHarnessOptions, 'workItems'> {
+    /** Repositories cloned into one of ws-1's scopes, as `inWorkspace` answers. Default: sprocket/catalog-portal. */
+    clonedRepos?: string[];
+}
+
+/** PR A's world, plus the host's work items. Edit the sets, then `service.syncWorkspaces()` where resolving depends on them. */
+export interface SourcesWorld extends StepsWorld {
+    /** The fake host's `WorkItemPort`, which the service was given. */
+    workItems: WorkItemPort;
+    /** Connections whose work item URLs the host reads, as `canParseUrls` answers. Default: github. */
+    urlConnections: Set<string>;
+    /** Repositories cloned into one of ws-1's scopes, compared ignoring case. */
+    clonedRepos: Set<string>;
+}
+
+export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'> {
+    world: SourcesWorld;
+    /** Make ws-1's factory.yml hold this one `- name:` entry (default: the spec's template) and reload it. */
+    setPoll(entry?: string): Promise<void>;
+    /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
+    relaunch(): Promise<SourcesHarness>;
+}
+
+const GITHUB_WORK_ITEM_URL = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
+
+/** GitHub's URL rule, as the desktop's driver has it: exactly a pull request's or an issue's page. */
+function fakeWorkItems(world: () => Pick<SourcesWorld, 'urlConnections' | 'clonedRepos'>): WorkItemPort {
+    return {
+        canParseUrls: (connection) => world().urlConnections.has(connection),
+        parseUrl(connection, url): ItemRef | null {
+            if (connection !== 'github' || !world().urlConnections.has(connection)) return null;
+            const match = GITHUB_WORK_ITEM_URL.exec(url);
+            if (!match) return null;
+            const [, owner, name, kind, number] = match;
+            return { provider: 'github', repo: `${owner}/${name}`, type: kind === 'pull' ? 'pr' : 'issue', number: Number(number) };
+        },
+        keyOf: itemKey,
+        urlOf: (ref) => `https://github.com/${ref.repo}/${ref.type === 'pr' ? 'pull' : 'issues'}/${ref.number}`,
+        inWorkspace: (_workspaceId, ref) => [...world().clonedRepos].some((repo) => repo.toLowerCase() === ref.repo.toLowerCase()),
+    };
+}
+
+/** A started service over Sprocket whose host reads GitHub URLs. Call it inside a test, as `stepsHarness`. */
+export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promise<SourcesHarness> {
+    const { clonedRepos = ['sprocket/catalog-portal'], ...rest } = options;
+    // The fake reads the world it belongs to, which exists only once the steps harness made it; until then, these.
+    let sets: Pick<SourcesWorld, 'urlConnections' | 'clonedRepos'> = { urlConnections: new Set(['github']), clonedRepos: new Set(clonedRepos) };
+    const workItems = fakeWorkItems(() => sets);
+    const base = await stepsHarness({ ...rest, workItems });
+    const world: SourcesWorld = Object.assign(base.world, sets, { workItems });
+    sets = world;
+
+    const wrap = (harness: StepsHarness): SourcesHarness => ({
+        ...harness,
+        world,
+        async setPoll(entry = RE_REVIEW_ENTRY) {
+            await harness.setYaml(factoryWith(entry));
+        },
+        async relaunch() {
+            return wrap(await harness.relaunch());
+        },
+    });
+    return wrap(base);
+}

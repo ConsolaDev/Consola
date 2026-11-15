@@ -17,6 +17,7 @@ import {
     type CronTrigger,
     type ExprValue,
     type FactorySpecIssue,
+    type PollTrigger,
     type RunItem,
     type RunRecord,
     type RunStatus,
@@ -24,9 +25,10 @@ import {
     type Step,
     type StepRun,
     type StepsAutomation,
+    type Trigger,
 } from '@consola/factory-spec';
 import { describeCapabilities, type AutomationCapabilities } from './capabilities';
-import { resolveEventSource, scheduledPrompt, type EventSource } from './connections';
+import { resolveEventSource, scheduledPrompt, workItemSource, type EventSource } from './connections';
 import { advanceSeen } from './seenRecord';
 import {
     agentToolContext,
@@ -37,7 +39,7 @@ import {
     StartedByHandError,
 } from './support';
 import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
-import { describeKind, describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
+import { describeEvery, describeKind, describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
 import type {
     AgentLaunchRequest,
@@ -57,11 +59,12 @@ import type {
 } from './ports';
 import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
 import { SNAPSHOT_ENDED_RUNS } from './views';
-import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
+import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, CheckView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
 import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, itemRefOf } from './steps/agentStep';
 import { runItemSource, type ItemSource } from './sources/itemSource';
+import { pollSource } from './sources/pollSource';
 import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
 import { LOG_CAP_BYTES, maskSecrets, utf8Bytes } from './steps/commandIO';
@@ -287,7 +290,13 @@ interface Resolved {
         /** The first agent step's action, when it is one: the label a session started by hand on the item carries. */
         byHandLabel?: string;
     };
-    /** An event trigger, resolved against the entry's filter. */
+    /**
+     * Where its runs' items come from (roadmap contract 4): the event source,
+     * a poll's, or the work items of a run on demand with `applies_to`.
+     * Absent when its runs have no item, and when it has a problem.
+     */
+    source?: ItemSource;
+    /** An event trigger, resolved against the entry's filter: the Inbox's part of `source`, which is the same object. */
     event?: EventSource;
     /** Set when the entry parsed but cannot run: the reason it will not. */
     problem?: string;
@@ -317,16 +326,31 @@ function scheduleKey(entry: Resolved): string {
 }
 
 /**
- * Which list an event automation watches: its trigger and filter, and whose
- * Inbox it is — the account and org the workspace is bound to decide what
- * the searches return. Changing any of them re-baselines, so binding another
- * org never reads as every request in it arriving at once.
+ * Which list an event or poll automation watches: its trigger and filter,
+ * and whose Inbox it is — the account and org the workspace is bound to
+ * decide what the searches return, and a check runs as that account.
+ * Changing any of them re-baselines, so binding another org never reads as
+ * every request in it arriving at once. A poll's interval is when it looks,
+ * not what it sees, so changing only `every` keeps its record.
  */
-function listDefinition(entry: Resolved, provider: WorkspaceView['provider']): string {
-    const { trigger, filter } = entry.automation;
+export function listDefinition(entry: { automation: Automation }, provider: WorkspaceView['provider']): string {
+    const { filter } = entry.automation;
+    const trigger = withoutInterval(entry.automation.trigger);
     const account = provider ? { id: provider.id, login: provider.accountLogin, org: provider.org } : null;
     return createHash('sha256').update(stableStringify({ trigger, filter, account })).digest('hex').slice(0, 16);
 }
+
+/** A trigger as a list definition hashes it: a poll's without its interval, any other as written. */
+function withoutInterval(trigger: Trigger): Trigger | Omit<PollTrigger, 'everyMs'> {
+    if (trigger.kind !== 'poll') return trigger;
+    const { everyMs: _interval, ...watched } = trigger;
+    return watched;
+}
+
+/** A run's item source, and the polled object its fields are read from, or why that object could not be read. */
+type RunItemOf =
+    | { source: ItemSource | undefined; polled: Record<string, unknown> | undefined }
+    | { source: ItemSource | undefined; error: string };
 
 type QueueVerdict =
     | { go: true; item?: InboxItemView }
@@ -851,11 +875,15 @@ export class AutomationService {
         const entry = factory.resolved.find((candidate) => candidate.automation.name === name);
         if (!entry) throw new Error(`No automation named "${name}" in ${factory.file.filePath}.`);
         if (entry.problem) throw new Error(`${name} cannot run: ${entry.problem}`);
-        if (entry.event) {
+        // An entry whose runs take an item never runs without one: its source fires it, or a person names the item.
+        const { source } = entry;
+        if (source) {
+            if (entry.automation.trigger.kind === 'manual') throw new Error('Pick an item to run it on.');
             if (actor.sessionId) {
-                throw new Error(`${name} runs when its event happens (${entry.event.describe.toLowerCase()}), not on request.`);
+                const when = entry.event ? 'its event happens' : 'its check finds an item';
+                throw new Error(`${name} runs when ${when} (${source.describe.toLowerCase()}), not on request.`);
             }
-            await this.deps.refreshInbox(workspaceId);
+            if (entry.event) await this.deps.refreshInbox(workspaceId);
             return null;
         }
         // An agent never replaces a plan a person may be reviewing, nor
@@ -1021,12 +1049,19 @@ export class AutomationService {
             const cron = cronOf(entry);
             const next = cron && !entry.problem ? this.nextDue(entry, now) : null;
             const added = this.deps.store.addedBy(automationKey(entry));
+            const { trigger } = automation;
+            const takesItem = takesItemOf(entry);
             return {
                 name: automation.name,
                 mode: automation.mode,
-                trigger: entry.event?.describe ?? (cron ? describeSchedule(cron.cron) : describeTriggerAsWritten(automation)),
+                trigger:
+                    entry.source?.describe ??
+                    (cron ? describeSchedule(cron.cron) : trigger.kind === 'manual' ? 'On demand' : describeTriggerAsWritten(automation)),
                 ...(cron ? { schedule: cron.cron } : {}),
-                onEvent: automation.trigger.kind === 'event',
+                source: trigger.kind,
+                onEvent: trigger.kind === 'event' || trigger.kind === 'poll',
+                ...(takesItem ? { takesItem } : {}),
+                ...(trigger.kind === 'poll' ? { check: checkViewOf(trigger) } : {}),
                 kind: describeKind(automation),
                 runs: describeRun(automation),
                 target: automation.run?.ref ?? 'steps',
@@ -1524,9 +1559,9 @@ export class AutomationService {
         const records = run.steps ?? [];
         const entry = this.entryOf(run);
         if (!entry?.steps || entry.version !== run.actionVersion) return records[0] ? laneOfRecord(records[0]) : null;
-        // At this version the entry's definition is the run's snapshot. A guess at its lane: an `item.json` that
-        // cannot be read reads as none here, and fails the run when it starts.
-        const itemOf = this.runItemOf(run, entry.steps.definition);
+        // At this version the entry's definition is the run's snapshot, and its source the one the run builds. A
+        // guess at its lane: an `item.json` that cannot be read reads as none here, and fails the run when it starts.
+        const itemOf = this.itemOfSource(run, entry.source);
         const next = advanceSteps({
             steps: entry.steps.definition.automation.steps,
             records,
@@ -1560,12 +1595,14 @@ export class AutomationService {
             return { go: false, status: 'rejected', message: 'Its automation changed since it was queued.' };
         }
         const wanted = run.trigger.item;
-        if (!wanted || !entry.event) return { go: true };
+        const { source, event } = entry;
+        // An Inbox item must still be in its set; a run on demand has no set to leave.
+        if (!wanted || !source || !event) return { go: true };
         const snapshot = this.deps.inboxSnapshot(entry.workspaceId);
         if (!snapshot || snapshot.fetchedAt === 0) return { go: false, wait: true };
-        const item = snapshot.items.find((candidate) => entry.event!.keyOf(candidate) === wanted.key);
+        const item = snapshot.items.find((candidate) => event.keyOf(candidate) === wanted.key);
         // The set, not the filter: a queued review is not dropped for going back to draft.
-        if (!item || !entry.event.inSet(item)) return { go: false, status: 'rejected', message: entry.event.goneReason };
+        if (!item || !event.inSet(item)) return { go: false, status: 'rejected', message: source.goneReason };
         const byHand = this.startedByHand(entry, item, run.createdAt);
         if (byHand) return { go: false, status: 'rejected', message: `Already started by hand: “${byHand.name}”.` };
         return { go: true, item };
@@ -2335,11 +2372,12 @@ export class AutomationService {
      * for a source with no field table of its own (a poll's), since no other
      * reads it. Undefined when it has none; the error when it cannot be read.
      */
-    private runItemOf(
-        run: RunRecord,
-        definition: RunDefinition
-    ): { source: ItemSource | undefined; polled: Record<string, unknown> | undefined } | { source: ItemSource | undefined; error: string } {
-        const source = runItemSource(definition, this.deps.workItems);
+    private runItemOf(run: RunRecord, definition: RunDefinition): RunItemOf {
+        return this.itemOfSource(run, runItemSource(definition, this.deps.workItems));
+    }
+
+    /** A run's item as `runItemOf` reads it, from a source already in hand: its entry's, at the run's version. */
+    private itemOfSource(run: RunRecord, source: ItemSource | undefined): RunItemOf {
         if (!source || source.itemFields) return { source, polled: undefined };
         try {
             return { source, polled: this.deps.runFolder.readItem(run.attribution.workspaceId ?? '', run.id) ?? undefined };
@@ -2533,14 +2571,14 @@ export class AutomationService {
         const base = automationVersion(automation);
         const unable = (problem: string): Resolved => ({ workspaceId, automation, version: base, problem });
         const { trigger } = automation;
-        // Placeholder: the runner for these arrives with the sources slice's engine task, which deletes this.
-        if (trigger.kind === 'poll' || trigger.kind === 'manual') return unable('poll: this build does not check yet');
 
         let event: EventSource | undefined;
+        let source: ItemSource | undefined;
         if (trigger.kind === 'event') {
             const resolution = resolveEventSource(trigger, automation.filter);
             if (!resolution.ok) return unable(resolution.problem);
             event = resolution.source;
+            source = event;
             if (automation.run?.kind === 'tool') {
                 return unable('tools run on a schedule; an event starts an agent session (`run: { action: … }` or `run: { prompt: … }`)');
             }
@@ -2555,8 +2593,40 @@ export class AutomationService {
             }
         }
 
+        if (trigger.kind === 'poll') {
+            if (automation.run?.kind === 'tool') {
+                return unable(
+                    'tools run on a schedule; a poll starts an agent session or steps (`run: { action: … }`, `run: { prompt: … }` or `steps:`)'
+                );
+            }
+            // With `item:`, each item is a work item of that connection, read from its URL; with `key:`, the check's own object.
+            const connection = trigger.item?.connection;
+            let workItems: ItemSource | undefined;
+            if (connection !== undefined) {
+                if (workspace?.provider?.id !== connection) {
+                    return unable(`this workspace has no ${connection} account bound; bind one in its settings`);
+                }
+                workItems = (this.deps.workItems.canParseUrls(connection) && workItemSource(connection, ['pr', 'issue'])) || undefined;
+                if (!workItems) return unable(`${connection} cannot read work item URLs, so \`item:\` cannot name it`);
+                if (workItems.itemsHaveRepo && automation.scope) {
+                    return unable(`scope: a ${connection} item works in a checkout of its own repository, so it takes no scope`);
+                }
+                if (!workItems.itemsHaveRepo && !automation.scope) {
+                    return unable(`scope: ${connection} items have no repository, so say which scope this runs in`);
+                }
+            }
+            source = pollSource(trigger, workItems);
+        }
+
+        if (trigger.kind === 'manual' && automation.appliesTo && automation.appliesTo.length > 0) {
+            // A run on demand names no connection: its items are the bound one's.
+            const connection = workspace?.provider?.id;
+            source = (connection !== undefined && workItemSource(connection, automation.appliesTo)) || undefined;
+            if (!source) return unable('applies_to needs a connection bound to this workspace; bind one in its settings');
+        }
+
         // The checks above are a steps entry's too; the rest are its own.
-        if (isStepsEntry(automation)) return this.resolveSteps(workspaceId, automation, event);
+        if (isStepsEntry(automation)) return this.resolveSteps(workspaceId, automation, source, event);
         const { run } = automation;
 
         if (run.kind === 'tool') {
@@ -2572,7 +2642,7 @@ export class AutomationService {
         }
 
         if (run.kind === 'action') {
-            const named = actionNamed(workspace, run.name, event);
+            const named = actionNamed(workspace, run.name, automation, source);
             if ('problem' in named) return unable(named.problem);
             const { action } = named;
             const refused = this.harnessProblem(workspaceId);
@@ -2582,6 +2652,7 @@ export class AutomationService {
                 automation,
                 // The body lives in settings, not the file: editing it asks again.
                 version: automationVersion(automation, action.prompt),
+                source,
                 event,
                 agent: {
                     body: action.prompt,
@@ -2601,8 +2672,9 @@ export class AutomationService {
             workspaceId,
             automation,
             version: base,
+            source,
             event,
-            agent: { body: run.prompt, ...(event ? { label: automation.name } : {}), ...(scope ? { scope } : {}), runs: 'Prompt' },
+            agent: { body: run.prompt, ...(source ? { label: automation.name } : {}), ...(scope ? { scope } : {}), runs: 'Prompt' },
         };
     }
 
@@ -2614,7 +2686,12 @@ export class AutomationService {
      * fields the connection lacks; `run:` steps on Windows; the harness, which
      * only an entry with an agent step needs.
      */
-    private resolveSteps(workspaceId: string, automation: StepsAutomation, event: EventSource | undefined): Resolved {
+    private resolveSteps(
+        workspaceId: string,
+        automation: StepsAutomation,
+        source: ItemSource | undefined,
+        event: EventSource | undefined
+    ): Resolved {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
         const unable = (problem: string): Resolved => ({ workspaceId, automation, version: automationVersion(automation), problem });
         const { steps } = automation;
@@ -2625,14 +2702,16 @@ export class AutomationService {
         const actions: RunDefinition['actions'] = {};
         for (const step of steps) {
             if (step.kind !== 'agent' || step.action === undefined) continue;
-            const named = actionNamed(workspace, step.action, event);
+            const named = actionNamed(workspace, step.action, automation, source);
             if ('problem' in named) return unable(named.problem);
             const { action } = named;
             actions[step.id] = { name: action.name, body: action.prompt, ...(action.groupId ? { groupId: action.groupId } : {}) };
         }
 
-        // A schedule has no item: a step that reads one does not load at all.
-        const [fieldProblem] = event ? stepItemFieldProblems(steps, event.itemFields, event.connection) : [];
+        // A schedule has no item: a step that reads one does not load at all. A poll's fields are known only once
+        // its check prints them, so its steps are checked when their turn comes.
+        const fields = source?.itemFields;
+        const [fieldProblem] = fields && source.connection !== undefined ? stepItemFieldProblems(steps, fields, source.connection) : [];
         if (fieldProblem) return unable(fieldProblem);
 
         if (this.deps.platform === 'win32' && steps.some((step) => step.kind === 'run')) return unable(NO_POSIX_SHELL);
@@ -2648,6 +2727,7 @@ export class AutomationService {
             workspaceId,
             automation,
             version,
+            source,
             event,
             steps: {
                 definition: { automation, version, actions },
@@ -2788,7 +2868,7 @@ export class AutomationService {
             this.notify(`${entry.automation.name} could not start`, describeError(error), run.id);
             return this.deps.store.get(run.id)!;
         }
-        const label = item ? entry.event!.describeItem(item) : undefined;
+        const label = item ? inboxLabel(entry, item) : undefined;
         const summary = stepsRunLine(definition.automation, label ? { item: label } : { scope: scope?.name });
         return this.recordByMode(entry, run, asks, { summary, described: label ?? `${describeRun(definition.automation)} in ${scope?.name ?? ''}` });
     }
@@ -2800,7 +2880,9 @@ export class AutomationService {
 
     /** One event — an item entering an automation's list — made one run. */
     private fireEvent(entry: Resolved, item: InboxItemView, since: string, at: string): void {
+        // The Inbox's part names the item and its events; the source, which is the same object, says the rest.
         const event = entry.event!;
+        const source = entry.source!;
         const itemKey = event.keyOf(item);
         // One at a time per (automation, item); items run side by side.
         const open = this.deps.store
@@ -2815,7 +2897,8 @@ export class AutomationService {
             // A steps run's commands read the item as it was when it fired.
             item: entry.steps ? itemSnapshot(itemKey, item) : { key: itemKey, url: item.url, title: item.title },
         };
-        const described = event.describeItem(item);
+        const sourceItem = event.toSourceItem(item, true);
+        const described = source.label(sourceItem);
         const byHand = this.startedByHand(entry, item, since);
         if (byHand) {
             const { mode } = entry.automation;
@@ -2835,7 +2918,7 @@ export class AutomationService {
         const preview: AgentRunPreview = {
             kind: 'agent-run',
             runs: agent.runs,
-            prompt: event.renderPrompt(agent.body, event.toSourceItem(item, true), entry.automation.name),
+            prompt: source.renderPrompt(agent.body, sourceItem, entry.automation.name),
             item: { url: item.url, title: item.title, author: item.author, label: described },
         };
         this.recordAgentRun(entry, trigger, preview, described);
@@ -2940,7 +3023,7 @@ export class AutomationService {
         const preview: StepsRunPreview = {
             kind: 'steps-run',
             steps: steps.map((step) => ({ id: step.id, kind: step.kind })),
-            ...(item ? { item: { url: item.url, title: item.title, author: item.author, label: entry.event!.describeItem(item) } } : {}),
+            ...(item ? { item: { url: item.url, title: item.title, author: item.author, label: inboxLabel(entry, item) } } : {}),
             ...(scope ? { scope: scope.name } : {}),
         };
         return {
@@ -3025,18 +3108,51 @@ function scopeNamed(workspace: WorkspaceView | undefined, name: string | undefin
     return { problem: `no scope named "${name}" in this workspace${names ? `; it has: ${names}` : ''}` };
 }
 
-/** The workspace action an entry names, or why there is none by that name or it does not apply to the event's items. */
+/**
+ * The workspace action an entry names, or why there is none by that name or
+ * it does not apply to its items: it must apply to every type the source's
+ * items can be. A poll with `item:` is the exception, since which types its
+ * check returns is known only when it runs: there it must apply to one of
+ * them, and a run on an item of the other type fails at that step.
+ */
 function actionNamed(
     workspace: WorkspaceView | undefined,
     name: string,
-    event: EventSource | undefined
+    automation: Automation,
+    source: ItemSource | undefined
 ): { action: ActionView } | { problem: string } {
     const action = workspace?.actions.find((candidate) => candidate.name === name);
     if (!action) return { problem: `no action named ${name} in this workspace` };
-    if (event && !action.appliesTo.includes(event.itemType)) {
-        return { problem: `the ${name} action does not apply to ${event.itemType === 'pr' ? 'pull requests' : 'issues'}` };
+    const types = source?.itemTypes ?? [];
+    const { trigger } = automation;
+    if (trigger.kind === 'poll' && trigger.item !== undefined) {
+        if (!types.some((type) => action.appliesTo.includes(type))) {
+            return { problem: `the ${name} action applies to neither pull requests nor issues; write it as a prompt` };
+        }
+        return { action };
     }
+    const missing = types.find((type) => !action.appliesTo.includes(type));
+    if (missing) return { problem: `the ${name} action does not apply to ${missing === 'pr' ? 'pull requests' : 'issues'}` };
     return { action };
+}
+
+/** What one of an entry's runs is about, by its source's items; undefined when its runs have no item. */
+function takesItemOf(entry: Resolved): AutomationView['takesItem'] {
+    const { source } = entry;
+    if (!source) return undefined;
+    const types = source.itemTypes;
+    if (types.length === 0) return entry.automation.trigger.kind === 'poll' ? 'item' : undefined;
+    if (types.length > 1) return 'pr-or-issue';
+    return types[0];
+}
+
+/** A poll's check as written: its command, its interval in words, and the field whose change fires an item again. */
+function checkViewOf(trigger: PollTrigger): CheckView {
+    return {
+        command: trigger.run,
+        every: describeEvery(trigger.everyMs).words,
+        ...(trigger.changed !== undefined ? { changed: trigger.changed } : {}),
+    };
 }
 
 /** How an unattended turn's process ended, as the host reports it. */
@@ -3159,6 +3275,11 @@ function stepItemOf(
     const item = run.trigger.item;
     if (!source || !item) return {};
     return { itemValue: (field) => source.itemValue(item, field, polled), ...(source.itemFields ? {} : { untypedItem: true }) };
+}
+
+/** An Inbox item as its entry's source names it: "sprocket/catalog-portal#51 “Title” by @alice". */
+function inboxLabel(entry: Resolved, item: InboxItemView): string {
+    return entry.source!.label(entry.event!.toSourceItem(item, true));
 }
 
 /** An item as a steps run keeps it: its key and what its steps may read, as they were when it fired. */

@@ -115,6 +115,24 @@ describe('templates', () => {
         expect(previewOf(legacy, new Date())).not.toHaveProperty('steps');
     });
 
+    it('every preview has its source', () => {
+        const views = templateViews(workspace(), [], new Date(2026, 10, 13, 10, 0));
+        expect(views.map((template) => [template.id, template.preview?.source])).toEqual([
+            ['review-assigned-prs', 'event'],
+            ['clean-up-stale-sessions', 'cron'],
+            ['morning-inbox-digest', 'cron'],
+            ['brief-review-requests', 'event'],
+        ]);
+        const now = new Date(2026, 10, 13, 10, 0);
+        const poll = previewOf(
+            '- name: checker\n  on:\n    poll: { every: 30m, run: ./list-prs, item: { github: .url } }\n  run: { prompt: Look at it. }\n',
+            now
+        );
+        expect(poll).toMatchObject({ source: 'poll', onEvent: true });
+        const manual = previewOf('- name: on-demand\n  on: manual\n  applies_to: [pr]\n  run: { action: Review }\n', now);
+        expect(manual).toMatchObject({ source: 'manual', onEvent: false });
+    });
+
     it('an entry already in the file shows as added', () => {
         const file = `version: 1
 automations:

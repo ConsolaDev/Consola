@@ -10,6 +10,7 @@ export { describeSchedule } from './describeSchedule';
 export { describeEvery, describeRun, describeTriggerAsWritten } from './describeEntry';
 export type {
     AutomationView,
+    CheckView,
     TemplateView,
     TemplateService,
     TemplateNeedSection,
