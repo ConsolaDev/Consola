@@ -82,7 +82,8 @@ export const EMPTY_FACTORY_FILE = `# This workspace's automations, run by Consol
 # Each one acts only on this workspace.
 # Modes: auto | confirm (the default: you approve each run) | notify (report only).
 # Sessions an automation starts are read-only: they read and report, and never
-# run the code they look at or act on GitHub as you.
+# run the code they look at or act on GitHub as you. An automation's commands
+# run as you (your logins, the bound GitHub account).
 # To turn an example on, uncomment its lines.
 version: 1
 automations:
@@ -96,6 +97,13 @@ const ASSIGNED_REVIEWS_DESCRIPTION = [
     'approval. It skips a commit it already reviewed. "auto" asks you once',
     'first, with every command shown.',
 ].join('\n');
+
+/**
+ * Under the commented entry's name. True whether or not the workspace is bound — "Open
+ * file" writes it either way — and it stays in the file after the banner's Add
+ * appends a live copy, so it warns off turning this one on as well.
+ */
+const TURN_ON_HINT = 'Needs a GitHub account. Turn it on here by uncommenting it, or with Add on the Automations page — not both.';
 
 const CLEANUP_EXAMPLE = `  # - name: clean-up-stale-sessions
   #   # Every morning, remove sessions whose pull request was merged or closed,
@@ -121,9 +129,6 @@ export function factoryTemplate(options: { reviewsLive: boolean }): string {
     const [name, ...rest] = assignedReviewsEntry().split('\n');
     const review = options.reviewsLive
         ? `${indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # ')}\n${indent(assignedReviewsEntry(), '  ')}\n`
-        : `${indent(
-              [name, '  # Connect a GitHub account, then uncomment this.', indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # '), ...rest].join('\n'),
-              '  # '
-          )}\n`;
+        : `${indent([name, `  # ${TURN_ON_HINT}`, indent(ASSIGNED_REVIEWS_DESCRIPTION, '  # '), ...rest].join('\n'), '  # ')}\n`;
     return `${EMPTY_FACTORY_FILE}${review}${CLEANUP_EXAMPLE}`;
 }

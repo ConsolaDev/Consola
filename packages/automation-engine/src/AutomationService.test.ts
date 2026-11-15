@@ -1459,6 +1459,22 @@ describe('automatic reviews, offered by the banner', () => {
         expect(t.service.list('ws-1')[0]).not.toHaveProperty('problem');
     });
 
+    it('Open file, then Add: one live automation, and the file still loads', async () => {
+        const t = setup({ files: { 'ws-1': undefined as unknown as string }, workspaces: [bound()] });
+        await t.start();
+        await t.service.ensureFile('ws-1');
+        await t.service.addAssignedReviews('ws-1');
+        const text = t.text()!;
+        // Appended to what Open file wrote, every other byte as it was: the commented copy stays.
+        expect(text.replace(`${assignedReviewsEntry().replace(/^/gm, '  ')}\n`, '')).toBe(factoryTemplate({ reviewsLive: false }));
+        expect(parseFactorySpec(text).issues).toEqual([]);
+        expect(parseFactorySpec(text).automations.map((automation) => automation.name)).toEqual(['review-assigned-prs']);
+        expect(t.service.list('ws-1')).toMatchObject([{ name: 'review-assigned-prs', runs: STEPS }]);
+        expect(t.service.snapshot('ws-1')).toMatchObject({ issues: [], suggestAssignedReviews: false });
+        // What stays commented says not to turn it on as well.
+        expect(text).toContain('or with Add on the Automations page \u2014 not both.');
+    });
+
     it('a file with the one-step entry keeps running it, and is never rewritten', async () => {
         const oneStep = `version: 1
 automations:

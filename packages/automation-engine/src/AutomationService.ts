@@ -57,7 +57,7 @@ import { filterRuns, NO_RUN_FILTER, type RunListFilter } from './runFilter';
 import { SNAPSHOT_ENDED_RUNS } from './views';
 import type { ConversationTarget, ActionView, AgentRunPreview, AutomationsSnapshot, AutomationView, InboxItemView, ItemSnapshot, ListRunsQuery, RunKind, RunListEntry, RunListPage, SavedAutomation, ScopeView, SessionView, TemplateView, WorkspaceView } from './views';
 import type { RunStore } from './RunStore';
-import { AUTOMATION_TEMPLATES, coversAssignedReviews, templateViews } from './templates';
+import { AUTOMATION_TEMPLATES, coversAssignedReviews, GITHUB, templateViews } from './templates';
 import { agentStepLaunch, endedWithout, itemRefOf, runEventSource } from './steps/agentStep';
 import { reminderPrompt } from './steps/stepPrompt';
 import type { CheckoutPort, CheckoutRequest, PreparedCheckout } from './steps/checkout';
@@ -573,7 +573,7 @@ export class AutomationService {
      * review, with every command shown.
      */
     public async addAssignedReviews(workspaceId: string): Promise<void> {
-        if (!this.boundToGitHub(workspaceId)) throw new Error('Connect a GitHub account in Workspace settings first.');
+        if (!this.hasReviewAccount(workspaceId)) throw new Error(`${GITHUB.missing} first.`);
         const { file } = this.factoryOf(workspaceId);
         const loaded = await file.load();
         if (loaded.spec.automations.some((automation) => automation.name === ASSIGNED_REVIEWS_NAME)) {
@@ -584,10 +584,10 @@ export class AutomationService {
         await this.reload(workspaceId);
     }
 
-    /** Whether the workspace has the account automatic reviews post as. */
-    private boundToGitHub(workspaceId: string): boolean {
+    /** Whether the workspace has the account automatic reviews post as: the template's own need, so the banner and the card agree. */
+    private hasReviewAccount(workspaceId: string): boolean {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
-        return workspace?.provider?.id === 'github';
+        return workspace !== undefined && GITHUB.met(workspace);
     }
 
     /**
@@ -596,7 +596,7 @@ export class AutomationService {
      * already reviews requests or assignments — or goes by that name.
      */
     private assignedReviewsSuggestion(workspaceId: string, factory: WorkspaceFactory): boolean {
-        if (!this.boundToGitHub(workspaceId)) return false;
+        if (!this.hasReviewAccount(workspaceId)) return false;
         const { spec } = factory.loaded;
         if (spec.issues.some((issue) => !isEntryIssue(issue))) return false;
         return !spec.automations.some(coversAssignedReviews);

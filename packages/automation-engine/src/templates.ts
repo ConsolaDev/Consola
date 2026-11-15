@@ -51,7 +51,8 @@ function template(definition: Omit<AutomationTemplate, 'missing'>): AutomationTe
     };
 }
 
-const GITHUB: TemplateRequirement = {
+/** A GitHub account bound to the workspace; automatic reviews' banner asks the same of it. */
+export const GITHUB: TemplateRequirement = {
     label: 'GitHub connection',
     met: (workspace) => workspace.provider?.id === 'github',
     missing: 'Connect a GitHub account in Workspace settings',

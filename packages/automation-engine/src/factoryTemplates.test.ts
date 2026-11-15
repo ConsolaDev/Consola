@@ -127,7 +127,10 @@ describe('factoryTemplate', () => {
         // Commented: what "Open file" writes, whatever the workspace has. Nothing runs.
         const commented = factoryTemplate({ reviewsLive: false });
         expect(parseFactorySpec(commented)).toEqual({ automations: [], issues: [] });
-        expect(commented).toContain('# Connect a GitHub account, then uncomment this.');
+        // True whether or not the workspace is bound, and warns off a second copy beside the banner's.
+        expect(commented).toContain(
+            '#   # Needs a GitHub account. Turn it on here by uncommenting it, or with Add on the Automations page \u2014 not both.'
+        );
         const uncommented = parseFactorySpec(
             uncommentFrom(commented, '# - name: review-assigned-prs', TOGGLES[0][1], '# - name: clean-up-stale-sessions')
         );
@@ -144,6 +147,9 @@ describe('factoryTemplate', () => {
             expect(text).toMatch(/as a comment or a request for changes, never an approval/);
             expect(text).toMatch(/skips a commit it already reviewed/);
             expect(text).toMatch(/"auto" asks you once first, with every command shown/);
+            // The header says who acts: sessions read-only, commands as the person.
+            expect(text).toMatch(/Sessions an automation starts are read-only/);
+            expect(text).toMatch(/An automation's commands run as you \(your logins, the bound GitHub account\)\./);
         }
     });
 
