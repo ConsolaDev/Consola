@@ -102,12 +102,16 @@ export class RunStore {
 
         // A run still `running` was cut off by a quit or a crash; what it
         // becomes is `recoverAfterRestart`'s table.
+        // Every run is recovered before any is recorded: a compaction's
+        // snapshot reads `this.all`, and must not keep a pre-recovery copy.
+        const changed: RunRecord[] = [];
         this.all = this.all.map((run) => {
             const recovered = recoverAfterRestart(run, nowIso);
             if (!recovered) return run;
-            this.record(recovered);
+            changed.push(recovered);
             return recovered;
         });
+        for (const run of changed) this.record(run);
     }
 
     public lastFired(key: string): string | undefined {

@@ -97,9 +97,20 @@ describe('recoverAfterRestart', () => {
         expect(JSON.stringify(input)).toBe(before);
     });
 
-    it('does not touch a command step whose result was recorded', () => {
-        const done = commandStep({ command: { envNames: [], intentAt: EARLIER, exitCode: 0 } });
-        expect(recoverAfterRestart(stepsRun([done]), NOW)).toBeNull();
+    it.each([
+        ['an exit code', { exitCode: 0 }, 'exit 0'],
+        ['a signal', { signal: 'SIGKILL' }, 'SIGKILL'],
+    ])('fails a command step that has %s but was never settled, never re-queueing it', (_name, result, how) => {
+        const error = `Consola quit while recording this command's result (${how}). It ran; check what it did, then retry.`;
+        const done = commandStep({ command: { envNames: [], intentAt: EARLIER, ...result } });
+        expect(recoverAfterRestart(stepsRun([done, pending('after')], { approval: { args: {} } }), NOW)).toEqual(
+            stepsRun([{ ...done, status: 'failed', error, finishedAt: NOW }, { ...pending('after'), status: 'not-run' }], {
+                status: 'failed',
+                error,
+                updatedAt: NOW,
+                finishedAt: NOW,
+            })
+        );
     });
 
     it('pins the interrupted-command copy', () => {

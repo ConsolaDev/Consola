@@ -250,3 +250,23 @@ describe('RunStore history', () => {
         expect(store.get('r9')).toMatchObject({ status: 'queued' });
     });
 });
+
+describe('RunStore recovery', () => {
+    it('records recovered runs from recovered state, even when an append compacts', () => {
+        const stuck = (id: string) => run(id, 'ws-1', { status: 'running', finishedAt: undefined, result: { kind: 'agent-run' } });
+        const history = memoryHistory({ 'ws-1': [stuck('b'), stuck('a')] });
+        const rewritten: RunRecord[][] = [];
+        history.append = (workspaceId, _run, live) => {
+            // A compaction: rewrite the log from the live snapshot.
+            const snapshot = live();
+            rewritten.push(JSON.parse(JSON.stringify(snapshot)));
+            history.rewrite(workspaceId, snapshot);
+        };
+        const store = new RunStore(memoryFile(), history);
+        store.load(NOW);
+        expect(rewritten.length).toBe(2);
+        for (const snapshot of rewritten) {
+            expect(snapshot.map((r) => r.status)).toEqual(['queued', 'queued']);
+        }
+    });
+});
