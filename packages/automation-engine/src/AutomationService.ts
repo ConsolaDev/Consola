@@ -2,6 +2,7 @@ import { createHash } from 'crypto';
 import {
     automationEntryText,
     automationVersion,
+    isStepsEntry,
     nextCronOccurrence,
     parseAutomationEntry,
     parseFactorySpec,
@@ -777,9 +778,9 @@ export class AutomationService {
                 trigger: entry.event?.describe ?? (cron ? describeSchedule(cron.cron) : describeTriggerAsWritten(automation)),
                 ...(cron ? { schedule: cron.cron } : {}),
                 onEvent: automation.trigger.kind === 'event',
-                kind: automation.run.kind === 'tool' ? 'tool' : 'agent',
+                kind: automation.run?.kind === 'tool' ? 'tool' : 'agent',
                 runs: describeRun(automation),
-                target: automation.run.ref,
+                target: automation.run?.ref ?? 'steps',
                 ...(automation.line ? { line: automation.line } : {}),
                 // A due-but-unfired occurrence reads as "now", not as a time in the past.
                 nextRunAt: next ? new Date(Math.max(next.getTime(), now.getTime())).toISOString() : null,
@@ -1172,6 +1173,8 @@ export class AutomationService {
         const workspace = this.deps.getWorkspaces().find((candidate) => candidate.id === workspaceId);
         const base = automationVersion(automation);
         const unable = (problem: string): Resolved => ({ workspaceId, automation, version: base, problem });
+        // A placeholder: the step runner replaces it.
+        if (isStepsEntry(automation)) return unable('steps: this build does not run them yet');
         const { run, trigger } = automation;
 
         let event: EventSource | undefined;
@@ -1442,14 +1445,14 @@ export class AutomationService {
             runner: 'local',
             source: 'personal',
             automationId: automation.name,
-            actionName: automation.run.ref,
+            actionName: isStepsEntry(automation) ? 'steps' : automation.run.ref,
             actionVersion: version,
             mode,
             trigger,
             status: 'running',
             attribution: {
                 automationId: automation.name,
-                actionName: automation.run.ref,
+                actionName: isStepsEntry(automation) ? 'steps' : automation.run.ref,
                 triggerKind: trigger.kind,
                 workspaceId,
                 ...(trigger.actorId ? { actorId: trigger.actorId } : {}),

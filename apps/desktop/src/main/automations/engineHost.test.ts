@@ -176,7 +176,7 @@ describe('the runner against Consola\'s real tools', () => {
             expect(parsed.automation.name).toBe(template.id);
             expect(template.matches(parsed.automation), template.id).toBe(true);
             // A prompt runs read-only: Consola's own tools are all it has.
-            if (parsed.automation.run.kind === 'prompt') {
+            if (parsed.automation.run?.kind === 'prompt') {
                 expect(parsed.automation.run.prompt).toMatch(/list_inbox|work_item_context/);
                 expect(parsed.automation.run.prompt).not.toMatch(/\bgh\b|\bgit\b|\bcurl\b|\bbash\b|\bshell\b/i);
             }

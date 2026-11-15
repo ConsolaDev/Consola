@@ -103,7 +103,7 @@ function promptBlock(lines: string[]): string[] {
 /** Whether `automation` runs exactly this prompt, however it was wrapped. */
 function runsPrompt(automation: Automation, lines: string[]): boolean {
     const normalise = (text: string) => text.replace(/\s+/g, ' ').trim();
-    return automation.run.kind === 'prompt' && normalise(automation.run.prompt) === normalise(lines.join(' '));
+    return automation.run?.kind === 'prompt' && normalise(automation.run.prompt) === normalise(lines.join(' '));
 }
 
 const DIGEST_PROMPT = [
@@ -136,7 +136,7 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
         // Without an action the entry is the template's own example; "Add" is refused before it is written.
         entry: (workspace) => assignedReviewsEntry(firstActionFor(workspace.actions ?? [], 'pr')?.name ?? 'Review'),
         // A review by an action: a prompt on the same events is a brief, another template.
-        matches: (automation) => coversAssignedReviews(automation) && automation.run.kind === 'action',
+        matches: (automation) => coversAssignedReviews(automation) && automation.run?.kind === 'action',
     }),
     template({
         id: 'clean-up-stale-sessions',
@@ -156,7 +156,7 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
             ].join('\n'),
         matches: ({ name, run }) =>
             name === 'clean-up-stale-sessions' ||
-            (run.kind === 'tool' && run.namespace === 'consola' && run.tool === 'cleanup_stale_sessions'),
+            (run?.kind === 'tool' && run.namespace === 'consola' && run.tool === 'cleanup_stale_sessions'),
     }),
     template({
         id: 'morning-inbox-digest',
@@ -197,7 +197,7 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
                 '  mode: auto',
             ].join('\n'),
         // A prompt on review requests, whatever it says: an action there is a review, another template.
-        matches: (automation) => onReviewRequest(automation) && automation.run.kind === 'prompt',
+        matches: (automation) => onReviewRequest(automation) && automation.run?.kind === 'prompt',
     }),
 ];
 
@@ -251,9 +251,9 @@ function previewOf(entry: string, now: Date): TemplatePreview | null {
         trigger: event?.ok ? event.source.describe : cron ? describeSchedule(cron) : describeTriggerAsWritten(automation),
         ...(cron ? { schedule: cron } : {}),
         onEvent: trigger.kind === 'event',
-        kind: automation.run.kind === 'tool' ? 'tool' : 'agent',
+        kind: automation.run?.kind === 'tool' ? 'tool' : 'agent',
         runs: describeRun(automation),
-        target: automation.run.ref,
+        target: automation.run?.ref ?? 'steps',
         mode: automation.mode,
         nextRunAt: next ? next.toISOString() : null,
         entry: parsed.item,

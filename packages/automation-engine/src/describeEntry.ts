@@ -1,7 +1,8 @@
-import type { Automation } from '@consola/factory-spec';
+import { isStepsEntry, type Automation } from '@consola/factory-spec';
 
-/** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions". */
+/** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions", "Steps: review → publish". */
 export function describeRun(automation: Automation): string {
+    if (isStepsEntry(automation)) return `Steps: ${automation.steps.map((step) => step.id).join(' → ')}`;
     const { run } = automation;
     if (run.kind === 'tool') return `Tool: ${run.tool}`;
     return run.kind === 'action' ? `${run.name} action` : 'Prompt';

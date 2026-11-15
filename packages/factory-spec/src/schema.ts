@@ -2,6 +2,7 @@ import { stringify } from 'yaml';
 import { z } from 'zod';
 import { cronError } from './cron';
 import { parseToolRef, type RunTarget } from './runTarget';
+import { LATER_KEYS, laterKeyMessage, stepsSchema, type Step } from './steps';
 
 /**
  * `auto` runs as soon as the trigger fires. `confirm` previews and waits for
@@ -41,10 +42,9 @@ export interface EventTrigger {
 
 export type Trigger = CronTrigger | EventTrigger;
 
-export interface Automation {
+interface AutomationCommon {
     name: string;
     trigger: Trigger;
-    run: RunTarget;
     /** Which items fire an event trigger; fields are the connection's, validated by the runner. */
     filter?: Record<string, unknown>;
     /** One of the workspace's scopes, by name: where an agent runs when there is no item repo to run in. */
@@ -52,6 +52,19 @@ export interface Automation {
     mode: AutomationMode;
     /** 1-based line of the entry in the file, for error and UI pointers. */
     line?: number;
+}
+
+/**
+ * An entry has `run:` (one thing, today's shape) or `steps:` (a pipeline),
+ * never both. A legacy entry carries no `steps` key at all, so it parses and
+ * hashes exactly as it did before steps existed.
+ */
+export type Automation = AutomationCommon & ({ run: RunTarget; steps?: never } | { steps: Step[]; run?: never });
+
+export type StepsAutomation = Extract<Automation, { steps: Step[] }>;
+
+export function isStepsEntry(automation: Automation): automation is StepsAutomation {
+    return automation.steps !== undefined;
 }
 
 const TRIGGER_EXAMPLE = 'e.g. `on: { cron: "0 9 * * *" }` or `on: { github: pull_request.review_requested }`';
@@ -183,6 +196,15 @@ function explained(message: string) {
     return z.never({ errorMap: () => ({ message }) }).optional();
 }
 
+/** Every key a later slice owns, refused with what it arrives with; `with` keeps its own message above. */
+function laterEntryKeys() {
+    return Object.fromEntries(
+        Object.keys(LATER_KEYS)
+            .filter((key) => key !== 'with')
+            .map((key) => [key, explained(laterKeyMessage(key))])
+    );
+}
+
 export function automationSchema() {
     return z.preprocess(foldStringRun, automationEntrySchema());
 }
@@ -197,11 +219,13 @@ function automationEntrySchema() {
                     'Use lowercase letters, digits and dashes, e.g. clean-up-stale-sessions.'
                 ),
             on: triggerSchema,
-            run: runSchema,
+            run: runSchema.optional(),
+            steps: stepsSchema().optional(),
             filter: z.record(z.unknown()).optional(),
             scope: z.string().trim().min(1, 'Name one of the workspace’s scopes.').optional(),
             mode: z.enum(AUTOMATION_MODES).default('confirm'),
             with: explained('Move `with:` under `run:` — only a tool takes arguments: `run: { tool: …, with: { … } }`.'),
+            ...laterEntryKeys(),
             // A file belongs to one workspace, so there is nothing to select.
             workspace: explained('Not needed: this file belongs to one workspace, and its automations act only on it.'),
         })
@@ -209,9 +233,31 @@ function automationEntrySchema() {
         .superRefine((entry, ctx) => {
             const issue = (path: string, message: string) =>
                 ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
-            const { on: trigger, run } = entry;
+            const { on: trigger, run, steps } = entry;
             // A field that failed is already reported, and its value is not one.
-            if (!trigger?.kind || !run?.kind) return;
+            if (!trigger?.kind) return;
+            if (run && steps) {
+                ctx.addIssue({ code: z.ZodIssueCode.custom, path: [], message: 'An entry has `run:` or `steps:`, not both.' });
+                return;
+            }
+            if (!run && !steps) {
+                ctx.addIssue({
+                    code: z.ZodIssueCode.custom,
+                    path: [],
+                    message: 'Expected `run:` or `steps:`: say what this automation does.',
+                });
+                return;
+            }
+            if (steps) {
+                if (trigger.kind === 'cron') {
+                    if (entry.filter) issue('filter', '`filter` narrows which items fire an event; a schedule has no items.');
+                    if (!entry.scope) {
+                        issue('scope', 'Say where this runs: `scope: <one of the workspace’s scopes>`. A schedule has no item to run on.');
+                    }
+                }
+                return;
+            }
+            if (!run?.kind) return;
             if (trigger.kind === 'cron') {
                 if (entry.filter) issue('filter', '`filter` narrows which items fire an event; a schedule has no items.');
                 if (run.kind === 'action') {
@@ -228,16 +274,16 @@ function automationEntrySchema() {
                 issue('scope', 'A tool acts on the whole workspace; `scope` is only for runs that start an agent.');
             }
         })
-        .transform(
-            (entry): Automation => ({
+        .transform((entry): Automation => {
+            const common = {
                 name: entry.name,
                 trigger: entry.on,
-                run: entry.run,
                 ...(entry.filter ? { filter: entry.filter } : {}),
                 ...(entry.scope ? { scope: entry.scope } : {}),
                 mode: entry.mode,
-            })
-        );
+            };
+            return entry.steps ? { ...common, steps: entry.steps } : { ...common, run: entry.run! };
+        });
 }
 
 /**
