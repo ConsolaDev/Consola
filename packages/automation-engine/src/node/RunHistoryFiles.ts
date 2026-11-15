@@ -97,12 +97,22 @@ export class RunHistoryFiles implements RunHistory {
         const count = this.lines.get(workspaceId) ?? this.adopt(file, workspaceId);
         const line = `${JSON.stringify(run)}\n`;
         if (durably) {
+            const created = !fs.existsSync(file);
             const fd = fs.openSync(file, 'a');
             try {
                 fs.writeSync(fd, line);
                 fs.fsyncSync(fd);
             } finally {
                 fs.closeSync(fd);
+            }
+            // A new file's directory entry is its own write; without this a power loss can drop the file.
+            if (created) {
+                const dirFd = fs.openSync(this.dir, 'r');
+                try {
+                    fs.fsyncSync(dirFd);
+                } finally {
+                    fs.closeSync(dirFd);
+                }
             }
         } else {
             fs.appendFileSync(file, line);

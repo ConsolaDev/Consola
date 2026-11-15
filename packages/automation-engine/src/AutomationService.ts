@@ -1136,9 +1136,15 @@ export class AutomationService {
             for (const key of this.deps.store.seenKeys()) if (key.startsWith(`${workspaceId} `)) kept.add(key);
             for (const key of this.deps.store.addedKeys()) if (key.startsWith(`${workspaceId} `)) named.add(key);
         }
+        // A revocation is kept through a broken file too: the entry it guards is still in there.
+        const revoked = new Set(named);
+        for (const [workspaceId, factory] of this.factories) {
+            if (factory.loaded.spec.issues.length === 0) continue;
+            for (const key of this.deps.store.revokedKeys()) if (key.startsWith(`${workspaceId} `)) revoked.add(key);
+        }
         this.deps.store.keepSeen(kept);
         this.deps.store.keepAdded(named);
-        this.deps.store.keepRevoked(named);
+        this.deps.store.keepRevoked(revoked);
     }
 
     private allResolved(): Resolved[] {

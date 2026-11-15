@@ -241,4 +241,12 @@ describe('RunStore history', () => {
         expect(again.store.revokedAt('ws-1 sweep')).toBeUndefined();
         expect(loaded({}, again.file.stored).store.revokedAt('ws-1 sweep')).toBeUndefined();
     });
+
+    it('updateDurably throws before changing a run that has no workspace', () => {
+        const orphan = run('r9', 'ws-1', { status: 'queued', attribution: undefined } as never);
+        const { store } = loaded();
+        store.add(orphan);
+        expect(() => store.updateDurably('r9', { status: 'failed' })).toThrow(/no workspace/);
+        expect(store.get('r9')).toMatchObject({ status: 'queued' });
+    });
 });

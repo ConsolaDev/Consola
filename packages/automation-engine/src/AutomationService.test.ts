@@ -1960,6 +1960,25 @@ automations:
         expect(relaunched.store.acceptedVersion('ws-1 sweep')).toBeUndefined();
     });
 
+    it('a revocation holds through a broken file: an older approval does not accept the entry once fixed', async () => {
+        const t = setup({ now: new Date(2026, 10, 4, 8, 0) });
+        await t.start();
+        const asked = await t.trigger('ws-1', 'sweep');
+        t.setClock(new Date(2026, 10, 4, 8, 5));
+        const moved = '- name: sweep\n  on: { cron: "0 10 * * *" }\n  run: { tool: consola#sweep }\n  mode: auto\n';
+        await t.service.saveEntry('ws-1', moved, { replace: true });
+        expect(t.store.revokedAt('ws-1 sweep')).toBeDefined();
+
+        await t.edit('version: 1\nautomations:\n  - name: sweep\n    mode: sometimes\n');
+        expect(t.service.snapshot('ws-1').issues.length).toBeGreaterThan(0);
+        expect(t.store.revokedAt('ws-1 sweep')).toBeDefined();
+
+        await t.edit(entry('    mode: auto\n', '0 10 * * *'));
+        t.setClock(new Date(2026, 10, 4, 8, 10));
+        await t.service.approve(asked.id);
+        expect(t.store.acceptedVersion('ws-1 sweep')).toBeUndefined();
+    });
+
     it('a tool run approved before the tool rewrote its entry, still running when it lands, does not accept the rewrite', async () => {
         const t = setup({ now: new Date(2026, 10, 4, 8, 0) });
         await t.start();

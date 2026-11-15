@@ -215,6 +215,10 @@ export class RunStore {
         return typeof iso === 'string' ? iso : undefined;
     }
 
+    public revokedKeys(): string[] {
+        return Object.keys(this.state.revoked);
+    }
+
     /** Forget entries no file names any more. */
     public keepRevoked(automationKeys: ReadonlySet<string>): void {
         const stale = Object.keys(this.state.revoked).filter((key) => !automationKeys.has(key));
@@ -265,11 +269,12 @@ export class RunStore {
     public updateDurably(id: string, changes: Partial<RunRecord>): RunRecord {
         const run = this.get(id);
         if (!run) throw new Error(`No run ${id}.`);
+        const workspaceId = run.attribution?.workspaceId;
+        // Nothing is mutated first: a run with no log cannot have its intent recorded.
+        if (!workspaceId) throw new Error(`Run ${id} has no workspace, so its intent cannot be recorded.`);
         const before = { ...run };
         Object.assign(run, changes);
         if (TERMINAL_RUN_STATUSES.includes(run.status)) delete run.approval;
-        const workspaceId = run.attribution?.workspaceId;
-        if (!workspaceId) return run;
         try {
             this.history.appendDurably(workspaceId, run, () => this.runsOf(workspaceId).reverse());
         } catch (error) {
