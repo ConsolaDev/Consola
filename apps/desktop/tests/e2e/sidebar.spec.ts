@@ -506,7 +506,7 @@ test.describe('Home scopes and groups', () => {
     await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
   });
 
-  test('the Settled shelf is there and empty: nothing settles until slice 7', async () => {
+  test('the Settled shelf starts collapsed with a live count of zero', async () => {
     const header = page.getByRole('button', { name: /^Settled/ });
     await expect(header).toHaveAttribute('aria-expanded', 'false');
     await expect(header.locator('.shelf-header-count')).toHaveText('0');
@@ -594,12 +594,18 @@ test.describe('Home scopes and groups', () => {
     expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
     await expect(row).toHaveCount(1);
 
-    // Settling acts in place and must not activate the row it acts on.
+    // Settling acts in place and must not activate the row it acts on. It is a
+    // row the window is NOT showing: `row` above is the open session, whose live
+    // terminal is still starting up here, and any turn edge after a settle
+    // rightly un-settles it (activity is what brings a session back). Settling
+    // the open row is covered by openRowHold's unit tests.
+    const quiet = rowFor(page, 'Fix flaky test');
+    const settleQuiet = quiet.getByRole('button', { name: 'Settle session Fix flaky test', exact: true });
     const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
     await expect(settledHeader).toHaveText(/0/);
-    await row.hover();
-    await expect(settle).toBeVisible();
-    await settle.click();
+    await quiet.hover();
+    await expect(settleQuiet).toBeVisible();
+    await settleQuiet.click();
     await expect(settledHeader).toHaveText(/1/);
     await expect(recent(page).locator('.session-nav-item')).toHaveCount(3);
     expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
@@ -609,7 +615,7 @@ test.describe('Home scopes and groups', () => {
     await settledHeader.click();
     const shelved = page.getByRole('navigation', { name: 'Settled sessions' }).locator('.session-nav-item').first();
     await shelved.hover();
-    await shelved.getByRole('button', { name: 'Move Controller boot back to the list', exact: true }).click();
+    await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
     await expect(settledHeader).toHaveText(/0/);
     await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
 

@@ -99,6 +99,10 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
           className="dropdown-content"
           sideOffset={4}
           align="end"
+          // The menu is portaled, but React still bubbles its clicks to the row
+          // it belongs to, which would open the session the person only meant
+          // to rename or settle (and start its terminal, which takes the focus).
+          onClick={(event) => event.stopPropagation()}
           onCloseAutoFocus={(event) => {
             if (openingDialog.current) {
               event.preventDefault();

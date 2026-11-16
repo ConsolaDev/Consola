@@ -32,6 +32,10 @@ export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null
  * the entry then lands where its attention says. A tree that no longer exists
  * (deleted, filtered out) is simply not there to hold.
  *
+ * Settling is the person's own move, so a hold never pins a row into or out of
+ * Settled: otherwise settling the open row would leave it in place under a toast
+ * saying it is on the shelf, and moving it back would leave it on the shelf.
+ *
  * The hold never outranks a question: a tree whose aggregate needs the person
  * is released at once, so it appears under Needs you even while open. That is
  * bucketize's guarantee (a row that needs the person is never in a foldable
@@ -41,6 +45,7 @@ export function applyHold(placed: Placed, hold: Hold | null): Placed {
   if (hold === null) return placed;
   const from = BUCKETS.find((bucket) => placed[bucket].some((root) => root.entry.key === hold.rootKey));
   if (from === undefined || from === hold.bucket) return placed;
+  if (from === 'settled' || hold.bucket === 'settled') return placed;
   const node = placed[from].find((root) => root.entry.key === hold.rootKey)!;
   if (aggregateAttention(node) === 'needs-attention') return placed;
   const target = [...placed[hold.bucket]];

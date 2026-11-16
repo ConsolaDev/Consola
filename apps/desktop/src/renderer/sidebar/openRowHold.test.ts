@@ -69,4 +69,20 @@ describe('the open row holds its bucket', () => {
 
     expect(ids(held.waiting)).toEqual(['p']);
   });
+
+  describe('settling is a deliberate move, never one under the cursor', () => {
+    it('lets the open row leave its bucket when the person settles it', () => {
+      const hold = holdFor(placedOf(entry('a', 'ready'), entry('b', 'ready')), keyOf('a'));
+      const afterSettle = applyHold(placedOf(entry('a', 'settled'), entry('b', 'ready')), hold);
+      expect(ids(afterSettle.settled)).toEqual(['a']);
+      expect(ids(afterSettle.recent)).toEqual(['b']);
+    });
+
+    it('lets the open row leave the shelf when the person moves it back', () => {
+      const hold = holdFor(placedOf(entry('a', 'settled'), entry('b', 'ready')), keyOf('a'));
+      const afterRestore = applyHold(placedOf(entry('a', 'ready'), entry('b', 'ready')), hold);
+      expect(ids(afterRestore.settled)).toEqual([]);
+      expect(ids(afterRestore.recent).sort()).toEqual(['a', 'b']);
+    });
+  });
 });
