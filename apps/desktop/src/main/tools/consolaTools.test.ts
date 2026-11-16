@@ -2,8 +2,6 @@ import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import type { LaunchSessionFields } from '../SessionLauncher';
-import { readdirSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import type { AutomationCapabilities, AutomationView } from '@consola/automation-engine';
 import { consolaTools, type AutomationControl, type ConsolaToolDeps } from './consolaTools';
 import { agentContext, ToolRegistry, type ToolContext } from './Tool';
@@ -238,13 +236,15 @@ describe('save_automation and Allow', () => {
     expect(allow).not.toHaveBeenCalled();
   });
 
-  it('keeps `.allow(` out of every agent-facing source file', () => {
-    const roots = [join(__dirname), join(__dirname, '..', 'assistant')];
-    for (const root of roots) {
-      for (const file of readdirSync(root).filter((f) => f.endsWith('.ts') && !f.endsWith('.test.ts'))) {
-        expect(readFileSync(join(root, file), 'utf8'), `${root}/${file}`).not.toMatch(/\.allow\(/);
-      }
-    }
+  it('types the control agents receive without allow', () => {
+    // Compiled, never run: the pin is the typecheck.
+    const pin = (control: AutomationControl, deps: ConsolaToolDeps) => {
+      // @ts-expect-error Allow is the person's only: adding it to AutomationControl breaks the typecheck here.
+      void control.allow;
+      // @ts-expect-error The deps' own `automations()` is that same interface.
+      void deps.automations().allow;
+    };
+    expect(pin).toBeTypeOf('function');
   });
 });
 
