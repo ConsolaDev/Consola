@@ -49,6 +49,13 @@ export interface GitProviderDriver {
    */
   fetchInbox(binding: ProviderBinding, env: NodeJS.ProcessEnv): Promise<InboxItem[]>;
 
+  /**
+   * The work item a URL names, or null when it is not exactly one of this
+   * provider's item URLs. Optional: a provider that cannot read its own URLs
+   * leaves it out, and a trigger that needs them refuses that connection.
+   */
+  parseWorkItemUrl?(url: string): WorkItemRef | null;
+
   fetchDetails?(ref: WorkItemRef, env: NodeJS.ProcessEnv): Promise<SharedWorkItemDetails>;
   mutateItem?(ref: WorkItemRef, mutation: WorkItemMutation, env: NodeJS.ProcessEnv): Promise<void>;
 
