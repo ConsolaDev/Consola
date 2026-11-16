@@ -50,6 +50,7 @@ import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
 import { parseAuthoringRequest } from './automations/authoringRequest';
 import type { AutomationsChange } from '../shared/automations';
+import { asRunTarget } from './automations/runTarget';
 import {
     AUTOMATION_TEMPLATES,
     AutomationService,
@@ -1048,9 +1049,21 @@ export function setupIpcHandlers(): boolean {
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, (_event, workspaceId: string) =>
         automations.snapshot(String(workspaceId))
     );
-    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, (_event, workspaceId: string, name: string) => {
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, (_event, workspaceId: unknown, name: unknown, target: unknown) => {
+        if (typeof workspaceId !== 'string') throw new Error('Workspace id required.');
         if (typeof name !== 'string') throw new Error('Automation name required.');
-        return automations.trigger(String(workspaceId), name);
+        return automations.trigger(workspaceId, name, {}, target === undefined ? undefined : asRunTarget(target));
+    });
+    // The person's only: no tool an agent can call reaches this.
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_ALLOW, (_event, workspaceId: unknown, name: unknown, version: unknown) => {
+        if (typeof workspaceId !== 'string' || typeof name !== 'string' || typeof version !== 'string') {
+            throw new Error('Workspace, automation and version required.');
+        }
+        return automations.allow(workspaceId, name, version);
+    });
+    ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, (_event, workspaceId: unknown, name: unknown) => {
+        if (typeof workspaceId !== 'string' || typeof name !== 'string') throw new Error('Workspace and automation required.');
+        return automations.listRunTargets(workspaceId, name);
     });
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_APPROVE, (_event, runId: string) => automations.approve(String(runId)));
     ipcMain.handle(IPC_CHANNELS.AUTOMATIONS_DISMISS, (_event, runId: string) => automations.dismiss(String(runId)));
@@ -1687,6 +1700,8 @@ export function cleanupIpcHandlers(): void {
     }
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_RUN_NOW);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_ALLOW);
+    ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_APPROVE);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_DISMISS);
     ipcMain.removeHandler(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE);

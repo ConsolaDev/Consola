@@ -445,7 +445,7 @@ describe('MCP surface (in-memory)', () => {
       status: 'needs-approval',
     });
     // Only ever the caller's own workspace's automation.
-    expect(trigger).toHaveBeenCalledWith('ws-1', 'sweep', { sessionId: 'w-1' });
+    expect(trigger).toHaveBeenCalledWith('ws-1', 'sweep', { sessionId: 'w-1' }, undefined);
     await client.close();
   });
 

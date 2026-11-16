@@ -151,6 +151,8 @@ export const IPC_CHANNELS = {
     AUTOMATIONS_READ_STEP_LOG: 'automations:read-step-log', // One step log, up to the 1 MB it holds
     AUTOMATIONS_READ_ARTIFACT: 'automations:read-artifact', // One declared artifact of a step's latest attempt
     AUTOMATIONS_READ_STEP_CONVERSATION: 'automations:read-step-conversation', // A step's part of its transcript, read from disk
+    AUTOMATIONS_ALLOW: 'automations:allow',               // A person lets a poll entry's check command run, at one version
+    AUTOMATIONS_LIST_RUN_TARGETS: 'automations:list-run-targets', // The items Run on… offers an automation
     AUTOMATIONS_RETRY: 'automations:retry',               // Retry a failed steps run from its failed step
 
     // Personal automations (main -> every renderer)

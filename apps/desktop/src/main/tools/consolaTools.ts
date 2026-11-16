@@ -2,7 +2,7 @@ import * as path from 'path';
 import { z } from 'zod/v3';
 import type { RunRecord } from '@consola/factory-spec';
 import type { AutomationView, SavedAutomation } from '../../shared/automations';
-import type { AutomationCapabilities } from '@consola/automation-engine';
+import type { AutomationCapabilities, ItemTarget } from '@consola/automation-engine';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
@@ -27,7 +27,12 @@ import {
 export interface AutomationControl {
     list(workspaceId: string): AutomationView[];
     /** Fire one of a workspace's automations now, in its own mode: a `confirm` one still waits for a person. */
-    trigger(workspaceId: string, name: string, actor: { sessionId?: string }): Promise<RunRecord | null>;
+    trigger(
+        workspaceId: string,
+        name: string,
+        actor: { sessionId?: string },
+        target?: ItemTarget
+    ): Promise<RunRecord | null>;
     /** What entries can say in a workspace: the grammar, what exists, what is missing. */
     capabilities(workspaceId: string): AutomationCapabilities;
     /** Add or replace one entry in the workspace's factory.yml; throws `Not saved: <reason>` when refused. */
@@ -266,7 +271,8 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
             name: 'list_automations',
             description:
                 'List your workspace’s automations (its factory.yml): schedule, mode (auto | confirm | ' +
-                'notify), what each runs, the next run, and any problem keeping one from running.',
+                'notify), what each runs, the next run, whether it takes an item, of which type, and any ' +
+                'problem keeping one from running.',
             input: {},
             mutating: false,
             automatable: false,
@@ -284,16 +290,38 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
                 'it in Consola — `auto` included, since the person did not start this run. If a run is ' +
                 'already waiting for approval, returns that one instead of starting another. Returns ' +
                 'the run’s id, status and a one-line summary; the person reviews the details in Consola. ' +
-                'An automation fired by an event (a review request, say) runs only when that event happens.',
-            input: { name: z.string().min(1).describe('The automation’s name, as in factory.yml.') },
+                'An automation that runs on items takes one: work_item for a pull request or issue, ' +
+                'item_key for an item of a poll’s last check (see consola_list_automations, which says ' +
+                'what each takes). It waits for the person to approve it.',
+            input: {
+                name: z.string().min(1).describe('The automation’s name, as in factory.yml.'),
+                work_item: z
+                    .object({ repo: z.string(), number: z.number().int().positive(), type: z.enum(['pr', 'issue']) })
+                    .optional()
+                    .describe('The pull request or issue to run it on.'),
+                item_key: z.string().min(1).optional().describe('The key of an item of a poll’s last check.'),
+            },
             mutating: true,
             automatable: false,
             async run(args, context) {
                 const actor = context.caller.kind === 'agent' ? { sessionId: context.caller.sessionId } : {};
-                const run = await deps.automations().trigger(callerWorkspace(context), args.name, actor);
-                // Only an event automation starts nothing on request, and an
-                // agent is refused one before it gets here.
-                if (!run) return { summary: `${args.name} runs when its event happens.`, data: null };
+                if (args.work_item && args.item_key !== undefined) throw new Error('Pass work_item or item_key, not both.');
+                // Built from the validated fields only, never from the raw arguments.
+                const target: ItemTarget | undefined = args.work_item
+                    ? { workItem: { repo: args.work_item.repo, number: args.work_item.number, type: args.work_item.type } }
+                    : args.item_key !== undefined
+                      ? { key: args.item_key }
+                      : undefined;
+                const run = await deps.automations().trigger(callerWorkspace(context), args.name, actor, target);
+                // No run means nothing started on the spot: a poll's check was
+                // started (or marked due), and an event automation's Inbox is
+                // checked; either fires only for what is new.
+                if (!run) {
+                    return {
+                        summary: `${args.name} started no run: its check was started, or the Inbox is being checked, and it runs for what is new.`,
+                        data: null,
+                    };
+                }
                 // The outcome, not the plan: what would change is the
                 // person's to review, in Consola. Summaries are counts only.
                 return {
@@ -349,10 +377,18 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
                     replace: args.replace,
                     by: { sessionId: self.id, sessionName: self.name },
                 });
-                return {
-                    summary: `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in factory.yml.`,
-                    data: saved,
-                };
+                const base = `${saved.replaced ? 'Replaced' : 'Added'} ${saved.name} in factory.yml.`;
+                // An entry with a problem is not waiting for Allow (saveEntry
+                // returns no needsAllow for it): say the problem instead.
+                const problem = saved.needsAllow
+                    ? undefined
+                    : deps.automations().list(caller.workspaceId).find((view) => view.name === saved.name)?.problem;
+                const note = saved.needsAllow
+                    ? ' It does not check until the person allows it in Consola.'
+                    : problem
+                      ? ` It will not run: ${problem}.`
+                      : '';
+                return { summary: base + note, data: saved };
             },
         }),
 

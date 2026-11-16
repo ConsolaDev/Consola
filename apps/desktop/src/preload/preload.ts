@@ -453,7 +453,9 @@ function readWindowContext(): WindowContext {
 // reads a workspace's snapshot and sends intents.
 contextBridge.exposeInMainWorld('automationsAPI', {
     getSnapshot: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
-    runNow: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name),
+    runNow: (workspaceId, name, target) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name, target),
+    allow: (workspaceId, name, version) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ALLOW, workspaceId, name, version),
+    listRunTargets: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, workspaceId, name),
     approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
     dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
     openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),

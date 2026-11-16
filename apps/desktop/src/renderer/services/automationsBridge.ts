@@ -2,6 +2,8 @@ import type {
     AuthoringRequest,
     AutomationsChange,
     AutomationsSnapshot,
+    ItemTarget,
+    ItemTargets,
     ListRunsQuery,
     LogTail,
     RunDefinition,
@@ -36,8 +38,16 @@ export const automationsBridge = {
         getAPI()?.getSnapshot(workspaceId) ?? null,
 
     /** Run now — or, for an event automation, check now (null: only what is new fires). */
-    runNow: async (workspaceId: string, name: string): Promise<RunRecord | null> =>
-        (getAPI() ?? unavailable()).runNow(workspaceId, name),
+    runNow: async (workspaceId: string, name: string, target?: ItemTarget): Promise<RunRecord | null> =>
+        (getAPI() ?? unavailable()).runNow(workspaceId, name, target),
+
+    /** The person lets a poll entry's check command run, at the version they saw. */
+    allow: async (workspaceId: string, name: string, version: string): Promise<void> =>
+        (getAPI() ?? unavailable()).allow(workspaceId, name, version),
+
+    /** The items Run on… offers; read from memory and history, starts nothing. */
+    listRunTargets: async (workspaceId: string, name: string): Promise<ItemTargets> =>
+        (getAPI() ?? unavailable()).listRunTargets(workspaceId, name),
 
     approve: async (runId: string): Promise<RunRecord> => (getAPI() ?? unavailable()).approve(runId),
 
