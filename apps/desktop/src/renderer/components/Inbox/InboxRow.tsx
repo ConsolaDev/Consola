@@ -3,7 +3,7 @@ import { Check, CircleDot, GitPullRequest, GitPullRequestDraft, MessageSquare, X
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
+import type { AttentionMap } from '../../utils/sessionStatus';
 import {
   checksLabel,
   hasAccentBar,
@@ -16,7 +16,7 @@ interface InboxRowProps {
   item: InboxItem;
   /** This workspace's sessions linked to this item. */
   sessions: Session[];
-  terminals: Record<string, TerminalState>;
+  attention: AttentionMap;
   cloned: boolean;
   selected: boolean;
   onSelect: (item: InboxItem) => void;
@@ -28,12 +28,12 @@ interface InboxRowProps {
  * then review state, checks and comment count. No verbs -- selecting the
  * row opens the pane, and the pane is where sessions and actions live.
  */
-export function InboxRow({ item, sessions, terminals, cloned, selected, onSelect }: InboxRowProps) {
+export function InboxRow({ item, sessions, attention, cloned, selected, onSelect }: InboxRowProps) {
   const key = workItemKey(item.workItem);
   const review = reviewStateLabel(item);
   const checks = checksLabel(item.checks);
   const repoName = item.workItem.repo.split('/').pop() ?? item.workItem.repo;
-  const sessionStatus = sessions.length > 0 ? worstStatusForItem(sessions, terminals) : null;
+  const sessionStatus = sessions.length > 0 ? worstStatusForItem(sessions, attention) : null;
   const meta = [`${repoName}#${item.workItem.number}`, item.author, relativeTime(item.updatedAt)]
     .filter(Boolean)
     .join(' · ');

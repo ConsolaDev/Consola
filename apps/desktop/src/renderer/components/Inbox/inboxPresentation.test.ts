@@ -2,7 +2,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '../../../shared/workItems';
 import { createSessionRecord, type Session } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
 import {
   checksLabel,
   formatAge,
@@ -37,23 +36,19 @@ function makeItem(overrides: Partial<InboxItem> = {}): InboxItem {
 }
 
 function makeSession(instanceId: string, workItem?: Session['workItem']): Session {
-  return createSessionRecord({
-    name: instanceId,
-    workspaceId: 'ws-1',
-    instanceId,
-    harnessId: 'default',
-    scopeId: 'scope-1',
-    workItem,
-  });
+  // The id is the instance id too: attention is keyed by session id.
+  return {
+    ...createSessionRecord({
+      name: instanceId,
+      workspaceId: 'ws-1',
+      instanceId,
+      harnessId: 'default',
+      scopeId: 'scope-1',
+      workItem,
+    }),
+    id: instanceId,
+  };
 }
-
-const IDLE: TerminalState = {
-  isBusy: false,
-  isAwaitingConfirmation: false,
-  hasExited: false,
-  completedWhileAway: false,
-  status: 'ready',
-};
 
 const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
 const issue12 = { provider: 'github', repo: 'sprocket/media-upload-api', type: 'issue', number: 12 } as const;
@@ -217,12 +212,10 @@ describe('worstStatusForItem', () => {
   it('rolls the linked sessions up with the shared ranking', () => {
     const a = makeSession('a', { ...pr51 });
     const b = makeSession('b', { ...pr51 });
-    const terminals = {
-      a: { ...IDLE, isBusy: true },
-      b: { ...IDLE, isAwaitingConfirmation: true },
-    };
-    expect(worstStatusForItem([a, b], terminals)).toBe('needs-attention');
-    expect(worstStatusForItem([a], terminals)).toBe('working');
-    expect(worstStatusForItem([], terminals)).toBe('ready');
+    const attention = { a: 'working', b: 'needs-attention', c: 'done' } as const;
+    expect(worstStatusForItem([a, b], attention)).toBe('needs-attention');
+    expect(worstStatusForItem([a], attention)).toBe('working');
+    expect(worstStatusForItem([], attention)).toBe('ready');
+    expect(worstStatusForItem([a, makeSession('c', { ...pr51 })], attention)).toBe('done');
   });
 });

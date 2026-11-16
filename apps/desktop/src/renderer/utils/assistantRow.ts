@@ -1,4 +1,4 @@
-import type { SessionStatus } from './sessionStatus';
+import type { Attention } from '../../shared/attention';
 
 export type AssistantRowState =
   | { kind: 'disabled' }
@@ -17,7 +17,7 @@ export type AssistantRowState =
  */
 export function assistantRowState(input: {
   hasScopes: boolean;
-  status?: SessionStatus;
+  status?: Attention;
   unseenFinished: number;
   /** The Assistant's own requests waiting for the person's approval. */
   waitingApprovals: number;

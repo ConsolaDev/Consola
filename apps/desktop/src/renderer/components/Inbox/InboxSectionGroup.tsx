@@ -4,7 +4,7 @@ import type { InboxSection } from '../../../shared/inboxSections';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
+import type { AttentionMap } from '../../utils/sessionStatus';
 import { InboxRow } from './InboxRow';
 import { isRepoCloned } from './inboxPresentation';
 
@@ -16,7 +16,7 @@ interface InboxSectionGroupProps {
   onToggle: () => void;
   /** Keyed by workItemKey; computed once by the view, shared by every section. */
   sessionsByItem: Map<string, Session[]>;
-  terminals: Record<string, TerminalState>;
+  attention: AttentionMap;
   resolvedRepos: Record<string, string | null> | undefined;
   selectedKey: string | null;
   onSelectItem: (item: InboxItem) => void;
@@ -38,7 +38,7 @@ export function InboxSectionGroup({
   collapsed,
   onToggle,
   sessionsByItem,
-  terminals,
+  attention,
   resolvedRepos,
   selectedKey,
   onSelectItem,
@@ -66,7 +66,7 @@ export function InboxSectionGroup({
                 key={key}
                 item={item}
                 sessions={sessionsByItem.get(key) ?? []}
-                terminals={terminals}
+                attention={attention}
                 cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
                 selected={selectedKey === key}
                 onSelect={onSelectItem}

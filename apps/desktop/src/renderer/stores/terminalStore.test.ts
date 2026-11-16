@@ -25,63 +25,19 @@ beforeEach(() => {
 });
 
 describe('noteActivity', () => {
-  it('marks a completion when work stops', () => {
+  it('records the busy flag as it changes', () => {
+    store().noteActivity('t1', true);
+    expect(store().getState('t1').isBusy).toBe(true);
+
+    store().noteActivity('t1', false);
+    expect(store().getState('t1').isBusy).toBe(false);
+  });
+
+  it('keeps no derived done bookkeeping: that is main\'s attention now', () => {
     store().noteActivity('t1', true);
     store().noteActivity('t1', false);
 
-    expect(store().getState('t1')).toMatchObject({ isBusy: false, completedWhileAway: true });
-  });
-
-  it('does not mark a completion for a terminal never seen working', () => {
-    store().noteActivity('t1', false);
-
-    expect(store().getState('t1').completedWhileAway).toBe(false);
-  });
-
-  it('keeps a standing completion through a repeated idle report', () => {
-    store().noteActivity('t1', true);
-    store().noteActivity('t1', false);
-    store().noteActivity('t1', false);
-
-    expect(store().getState('t1').completedWhileAway).toBe(true);
-  });
-
-  it('clears a completion when new work starts', () => {
-    store().noteActivity('t1', true);
-    store().noteActivity('t1', false);
-    store().noteActivity('t1', true);
-
-    expect(store().getState('t1')).toMatchObject({ isBusy: true, completedWhileAway: false });
-  });
-});
-
-describe('acknowledgeCompletion', () => {
-  it('clears the completion once the session has been seen', () => {
-    store().noteActivity('t1', true);
-    store().noteActivity('t1', false);
-    store().acknowledgeCompletion('t1');
-
-    expect(store().getState('t1').completedWhileAway).toBe(false);
-  });
-
-  it('is a no-op for a terminal with no state, not a state creator', () => {
-    store().acknowledgeCompletion('t1');
-
-    expect(useTerminalStore.getState().terminals['t1']).toBeUndefined();
-  });
-});
-
-describe('hydrateTerminalStatus', () => {
-  it('derives status from the snapshot flags', async () => {
-    vi.mocked(terminalBridge.getStatusSnapshot).mockResolvedValueOnce({
-      t1: { isBusy: false, isAwaitingConfirmation: true, hasExited: false },
-      t2: { isBusy: false, isAwaitingConfirmation: false, hasExited: false },
-    });
-
-    await hydrateTerminalStatus();
-
-    expect(store().getState('t1').status).toBe('needs-attention');
-    expect(store().getState('t2').status).toBe('ready');
+    expect(store().getState('t1')).not.toHaveProperty('completedWhileAway');
   });
 });
 

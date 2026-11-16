@@ -14,6 +14,13 @@ export interface AttentionRecord {
 
 export type AttentionSnapshot = Record<string /* sessionId */, AttentionRecord>;
 
+/** What a window reads when it opens: the ledger and, beside it, what main derives from it. A window
+ *  opened after a status edge must agree with one that watched the edge happen. */
+export interface AttentionState {
+  records: AttentionSnapshot;
+  attention: Record<string /* EntryKey */, Attention>;
+}
+
 /**
  * When a session was last genuinely active.
  *

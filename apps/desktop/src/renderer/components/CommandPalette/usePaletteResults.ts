@@ -52,6 +52,7 @@ export function usePaletteContext(): PaletteContext {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const terminals = useTerminalStore((state) => state.terminals);
+  const statuses = useAttentionStore((state) => state.attention);
   const harnesses = useHarnessStore((state) => state.harnesses);
   const fileStatuses = useGitStatusStore((state) => state.fileStatuses);
   const gitStatusRootPath = useGitStatusStore((state) => state.rootPath);
@@ -111,7 +112,7 @@ export function usePaletteContext(): PaletteContext {
       selectableHarnesses,
       allSessions,
       exitedSessions,
-      terminals,
+      statuses,
       fileStatuses,
       gitStatusRootPath,
       stagedCount,
@@ -128,7 +129,7 @@ export function usePaletteContext(): PaletteContext {
       selectableHarnesses,
       allSessions,
       exitedSessions,
-      terminals,
+      statuses,
       fileStatuses,
       gitStatusRootPath,
       stagedCount,
@@ -161,14 +162,14 @@ function collectCandidates(
       case 'sessions':
         return buildSessionItems(ctx.allSessions);
       case 'workspaces':
-        return buildWorkspaceItems(ctx.workspaces, ctx.terminals);
+        return buildWorkspaceItems(ctx.workspaces, ctx.statuses);
       case 'files':
         return buildFileItems(ctx);
       default:
         return [
           ...buildActionItems(ctx),
           ...buildSessionItems(ctx.allSessions),
-          ...buildWorkspaceItems(ctx.workspaces, ctx.terminals),
+          ...buildWorkspaceItems(ctx.workspaces, ctx.statuses),
           ...buildFileItems(ctx),
         ];
     }

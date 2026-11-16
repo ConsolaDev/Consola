@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { Session, Workspace } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
 import { itemRowsFor, sessionRowsFor } from './linkSessionRows';
 
 const pr4118: WorkItemRef = { provider: 'github', repo: 'sprocket/forum-admin', type: 'pr', number: 4118 };
@@ -59,10 +58,9 @@ const workspace = {
   updatedAt: now,
 } as Workspace;
 
-const working: TerminalState = { isBusy: true, isAwaitingConfirmation: false, hasExited: false, completedWhileAway: false, status: 'working' };
 
 describe('sessionRowsFor', () => {
-  const rows = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), { 'inst-inv': working }, {}, now);
+  const rows = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), { 's-inv': 'working' }, {}, now);
 
   it('hides conductors and orders by recency', () => {
     expect(rows.map((row) => row.id)).toEqual(['s-inv', 's-fixci', 's-other', 's-scratch']);

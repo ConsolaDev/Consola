@@ -12,7 +12,6 @@ function terminal(status: TerminalState['status']): TerminalState {
         isBusy: false,
         isAwaitingConfirmation: false,
         hasExited: false,
-        completedWhileAway: false,
         status,
     };
 }

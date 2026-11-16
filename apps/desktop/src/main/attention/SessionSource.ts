@@ -12,6 +12,8 @@ export interface SessionSourceDeps {
   /** The terminal's live status; a terminal that is gone is `exited`. */
   terminalStatus(instanceId: string): TerminalStatus;
   ledger: Pick<AttentionLedger, 'get' | 'markFinished' | 'markSeen'>;
+  /** Whether a focused window is showing this terminal right now. */
+  isViewedInFocusedWindow?(instanceId: string): boolean;
   now?: () => number;
 }
 
@@ -42,7 +44,7 @@ export class SessionSource implements AttentionSource {
           deriveAttention({
             terminal: this.deps.terminalStatus(session.instanceId),
             record: this.deps.ledger.get(session.id),
-            isViewedInFocusedWindow: false,
+            isViewedInFocusedWindow: this.deps.isViewedInFocusedWindow?.(session.instanceId) ?? false,
             heldByOpenRun: false,
           })
         );
@@ -89,6 +91,8 @@ export class SessionSource implements AttentionSource {
     const located = findSessionByInstanceId(this.deps.getWorkspaces(), instanceId);
     if (!located) return;
     this.deps.ledger.markFinished(located.session.id, located.workspace.id, this.now());
+    // Finishing under the person's eyes is not news: nothing was missed.
+    if (this.deps.isViewedInFocusedWindow?.(instanceId)) this.deps.ledger.markSeen(located.session.id, this.now());
     this.refresh();
   }
 }

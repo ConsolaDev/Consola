@@ -110,6 +110,8 @@ import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/
 import { TurnActivity } from './attention/TurnActivity';
 import { AttentionService } from './attention/AttentionService';
 import { SessionSource } from './attention/SessionSource';
+import { ViewingTracker } from './attention/ViewingTracker';
+import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
@@ -197,7 +199,6 @@ export function setupIpcHandlers(): boolean {
         new Set(workspaces.getAll().flatMap((workspace) => workspace.sessions.map((session) => session.id)))
     );
     attentionLedgerService = attentionLedger;
-    ipcMain.handle(IPC_CHANNELS.ATTENTION_SNAPSHOT, () => attentionLedger.snapshot());
 
     // Every window renders the same records, so a change goes to all of them
     // rather than to whoever asked for it. A deleted workspace also has to be
@@ -716,6 +717,35 @@ export function setupIpcHandlers(): boolean {
         getWorkspaces: () => workspaces.getAll(),
         terminalStatus: (instanceId) => sessionStatus(instanceId),
         ledger: attentionLedger,
+        isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
+    });
+    // Looking at a finished session is what clears `done`. Main decides what
+    // looking means: a window must be focused as well as showing it.
+    const viewing = new ViewingTracker((instanceId) => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (located) attentionSessions.markSeen(located.session.id);
+    });
+    const watchedSenders = new Set<number>();
+    const watch = (sender: Electron.WebContents) => {
+        if (watchedSenders.has(sender.id)) return;
+        watchedSenders.add(sender.id);
+        const { id } = sender;
+        sender.once('destroyed', () => {
+            watchedSenders.delete(id);
+            viewing.closed(id);
+        });
+    };
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_SNAPSHOT, (): AttentionState => ({
+        records: attentionLedger.snapshot(),
+        attention: Object.fromEntries(attention.snapshot()),
+    }));
+    ipcMain.on(IPC_CHANNELS.ATTENTION_VIEWING, (event, instanceId: unknown) => {
+        watch(event.sender);
+        viewing.viewing(event.sender.id, typeof instanceId === 'string' ? instanceId : null);
+    });
+    ipcMain.on(IPC_CHANNELS.ATTENTION_FOCUSED, (event, focused: unknown) => {
+        watch(event.sender);
+        viewing.focused(event.sender.id, focused === true);
     });
     attention.register(attentionSessions);
     workspaces.onChange(() => attentionSessions.refresh());
@@ -1580,6 +1610,8 @@ export function cleanupIpcHandlers(): void {
     attentionLedgerService?.flush();
     attentionLedgerService = null;
     ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+    ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_VIEWING);
+    ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_FOCUSED);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_IMPORT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);

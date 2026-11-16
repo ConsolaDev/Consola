@@ -6,7 +6,7 @@ import { useSettingsStore } from './stores/settingsStore';
 import { hydrateWorkspaceStore } from './stores/workspaceStore';
 import { hydrateHarnessStore } from './stores/harnessStore';
 import { hydrateTerminalStatus } from './stores/terminalStore';
-import { hydrateAttention } from './stores/attentionStore';
+import { hydrateAttention, subscribeToAttention } from './stores/attentionStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
@@ -37,6 +37,10 @@ function StartupError({ error }: { error: unknown }) {
 
 async function bootstrap() {
   const root = ReactDOM.createRoot(document.getElementById('root')!);
+
+  // Before the read below, so a change landing while it is in flight is not lost.
+  // The window never closes this: it lives as long as the page does.
+  subscribeToAttention();
 
   try {
     // Records live in the main process now, so they have to arrive before the

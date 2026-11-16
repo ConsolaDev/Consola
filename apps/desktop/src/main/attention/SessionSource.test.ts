@@ -14,6 +14,7 @@ let ledger: JsonAttentionLedger;
 let terminals: Map<string, TerminalStatus>;
 let clock: number;
 let source: SessionSource;
+let viewed: Set<string>;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -21,11 +22,13 @@ beforeEach(() => {
   ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
   terminals = new Map([['inst-a', 'ready']]);
   clock = 1000;
+  viewed = new Set();
   const workspace = makeWorkspace({ id: 'w1', sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })] });
   source = new SessionSource({
     getWorkspaces: () => [workspace],
     terminalStatus: (instanceId) => terminals.get(instanceId) ?? 'exited',
     ledger,
+    isViewedInFocusedWindow: (instanceId) => viewed.has(instanceId),
     now: () => clock,
   });
 });
@@ -52,6 +55,17 @@ describe('SessionSource', () => {
     clock = 6000;
     source.markSeen('a');
     expect(source.read().get('a')).toBe('ready');
+  });
+
+  it('never calls a turn done when it finishes under a focused window', () => {
+    viewed.add('inst-a');
+    status('working');
+    status('ready');
+    clock = 5000;
+    vi.advanceTimersByTime(SETTLE_MS);
+
+    expect(source.read().get('a')).toBe('ready');
+    expect(ledger.get('a')?.seenAt).toBeGreaterThanOrEqual(ledger.get('a')!.finishedAt!);
   });
 
   it('does not call a turn done when it ends at a prompt, or the process exits', () => {

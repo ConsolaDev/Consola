@@ -58,7 +58,9 @@ export const IPC_CHANNELS = {
     CONDUCTOR_CREATE: 'conductor:create',
 
     // The workspace Assistant (renderer -> main; main makes or replaces its record)
-    ATTENTION_SNAPSHOT: 'attention:snapshot',  // Every session's recorded activity, once
+    ATTENTION_SNAPSHOT: 'attention:snapshot',  // Every session's record and derived attention, once
+    ATTENTION_VIEWING: 'attention:viewing',    // renderer -> main: the session this window is showing, or null
+    ATTENTION_FOCUSED: 'attention:focused',    // renderer -> main: whether this window has focus
     ATTENTION_CHANGED: 'attention:changed',    // main -> renderer: derived attention that changed, coalesced
     ASSISTANT_OPEN: 'assistant:open',
     ASSISTANT_START_FRESH: 'assistant:start-fresh',

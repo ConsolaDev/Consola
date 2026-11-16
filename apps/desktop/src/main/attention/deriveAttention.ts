@@ -4,7 +4,7 @@ import type { TerminalStatus } from '../../shared/terminalStatus';
 export interface AttentionInputs {
   terminal: TerminalStatus;
   record: AttentionRecord | undefined;
-  /** Always false until Task 2b wires it. Not yet consulted by the decision order. */
+  /** Whether a focused window shows it. Not consulted here: seeing it writes `seenAt`, which is. */
   isViewedInFocusedWindow: boolean;
   /** Always false until slice 6. Not yet consulted by the decision order. */
   heldByOpenRun: boolean;

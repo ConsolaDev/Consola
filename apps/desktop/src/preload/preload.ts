@@ -1,6 +1,6 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
-import type { AttentionSnapshot } from '../shared/attention';
+import type { AttentionChange, AttentionState } from '../shared/attention';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -397,8 +397,19 @@ interface GitDiffResult {
 
 // Expose Attention API to renderer
 contextBridge.exposeInMainWorld('attentionAPI', {
-    getSnapshot: (): Promise<AttentionSnapshot> => {
+    getSnapshot: (): Promise<AttentionState> => {
         return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+    },
+    onChanged: (callback: (change: AttentionChange) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, change: AttentionChange) => callback(change);
+        ipcRenderer.on(IPC_CHANNELS.ATTENTION_CHANGED, listener);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.ATTENTION_CHANGED, listener);
+    },
+    setViewing: (instanceId: string | null): void => {
+        ipcRenderer.send(IPC_CHANNELS.ATTENTION_VIEWING, instanceId);
+    },
+    setFocused: (focused: boolean): void => {
+        ipcRenderer.send(IPC_CHANNELS.ATTENTION_FOCUSED, focused);
     },
 });
 

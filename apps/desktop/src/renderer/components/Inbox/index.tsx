@@ -12,7 +12,7 @@ import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
-import { useTerminalStore } from '../../stores/terminalStore';
+import { useAttentionStore } from '../../stores/attentionStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { CloneDialog } from './CloneDialog';
 import { InboxHeader } from './InboxHeader';
@@ -72,7 +72,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
   const snapshot = useInboxStore((state) => state.snapshots[workspace.id]);
   const resolvedRepos = useInboxStore((state) => state.resolvedRepos[workspace.id]);
   const refresh = useInboxStore((state) => state.refresh);
-  const terminals = useTerminalStore((state) => state.terminals);
+  const attention = useAttentionStore((state) => state.attention);
   const filter = useSettingsStore((state) => state.inboxFilterFor(workspace.id));
   const setInboxRepoFilter = useSettingsStore((state) => state.setInboxRepoFilter);
   const setInboxUpdatedFilter = useSettingsStore((state) => state.setInboxUpdatedFilter);
@@ -237,7 +237,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                     collapsed={collapsed.has(section)}
                     onToggle={() => toggleSection(section)}
                     sessionsByItem={sessionsByItem}
-                    terminals={terminals}
+                    attention={attention}
                     resolvedRepos={resolvedRepos}
                     selectedKey={selectedKey}
                     onSelectItem={selectItem}
@@ -255,7 +255,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
                         key={key}
                         item={item}
                         sessions={sessionsByItem.get(key) ?? []}
-                        terminals={terminals}
+                        attention={attention}
                         cloned={isRepoCloned(resolvedRepos, item.workItem.repo)}
                         selected={selectedKey === key}
                         onSelect={selectItem}

@@ -9,6 +9,7 @@ import { AppHeader } from './AppHeader';
 import { WorkspaceRail } from './WorkspaceRail';
 import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useViewingReport } from '../../hooks/useViewingReport';
 import { useTheme } from '../../hooks/useTheme';
 import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -62,6 +63,7 @@ export function Layout() {
     },
   });
   useTheme();
+  useViewingReport();
   useWindowDropGuard();
 
   // Terminals report activity for every session, including ones whose pane is

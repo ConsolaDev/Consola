@@ -1,5 +1,5 @@
 import type { AppUpdateAPI } from '../../shared/appUpdates';
-import type { AttentionSnapshot } from '../../shared/attention';
+import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 export interface FolderInfo {
   path: string;
@@ -51,7 +51,10 @@ export interface GitDiffResult {
 }
 
 export interface AttentionAPI {
-  getSnapshot: () => Promise<AttentionSnapshot>;
+  getSnapshot: () => Promise<AttentionState>;
+  onChanged: (callback: (change: AttentionChange) => void) => () => void;
+  setViewing: (instanceId: string | null) => void;
+  setFocused: (focused: boolean) => void;
 }
 
 export interface GitAPI {

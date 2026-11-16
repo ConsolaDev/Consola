@@ -1,8 +1,8 @@
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
-import { sessionStatusFor, worstStatus, type SessionStatus } from '../../utils/sessionStatus';
+import { worstStatus, type Attention } from '../../../shared/attention';
+import type { AttentionMap } from '../../utils/sessionStatus';
 
 /** Human age of a fetch: 'just now', '2m ago', '3h ago', '2d ago', 'never'. */
 export function formatAge(fetchedAt: number, now: number = Date.now()): string {
@@ -130,9 +130,10 @@ export function groupSessionsByWorkItem(sessions: Session[]): Map<string, Sessio
 /** The one dot a row shows for its sessions: the most urgent of them. */
 export function worstStatusForItem(
   linked: Session[],
-  terminals: Record<string, TerminalState>
-): SessionStatus {
-  return worstStatus(linked.map((session) => sessionStatusFor(terminals[session.instanceId])));
+  attention: AttentionMap
+): Attention {
+  if (linked.length === 0) return 'ready';
+  return worstStatus(linked.map((session) => attention[session.id] ?? 'ready'));
 }
 
 /** The platform's modifier, as its keycap reads. */

@@ -4,7 +4,6 @@ import { sessionLabel } from '../../../shared/sessionLabel';
 import { checkoutRef } from '../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../shared/workspace';
 import { useCheckout } from '../../stores/checkoutStore';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { useSessionModel } from '../../hooks/useSessionModel';
 import { SessionHarnessIcon } from './SessionHarnessIcon';
@@ -12,7 +11,8 @@ import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
 import { SessionActionsMenu } from './SessionActionsMenu';
 import { startSessionDrag } from './sessionDrag';
 import { deleteSessionCompletely } from '../../utils/sessionActions';
-import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
+import type { Attention } from '../../../shared/attention';
+import { useSessionAttention } from '../../stores/attentionStore';
 import type { ScopeTrail } from '../../utils/scopeTrail';
 
 interface SessionNavItemProps {
@@ -33,19 +33,20 @@ interface SessionNavItemProps {
 }
 
 /** Spoken form of each status, for the row's accessible name and tooltip. */
-const STATUS_LABELS: Record<SessionStatus, string> = {
+const STATUS_LABELS: Record<Attention, string> = {
   working: 'working',
   ready: 'ready',
   'needs-attention': 'needs attention',
   done: 'done',
   exited: 'exited',
+  settled: 'settled',
 };
 
 /**
  * The trailing status word. Only the states that want a human get one —
  * calm rows are carried by the dot alone, so the list stays quiet.
  */
-const STATUS_WORDS: Partial<Record<SessionStatus, string>> = {
+const STATUS_WORDS: Partial<Record<Attention, string>> = {
   'needs-attention': 'attention',
   exited: 'exited',
 };
@@ -78,24 +79,11 @@ export function SessionNavItem({
     showWorktree && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
   const shownModel = showModel ? model : undefined;
 
-  const sessionStatus = useTerminalStore((state) =>
-    sessionStatusFor(state.terminals[session.instanceId])
-  );
-  const acknowledgeCompletion = useTerminalStore((state) => state.acknowledgeCompletion);
+  const displayStatus = useSessionAttention(session.id);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
 
-  // `done` means "finished while you were elsewhere" — being the active row is
-  // being looked at, so the completion stops being news the moment it lands.
-  useEffect(() => {
-    if (isActive && sessionStatus === 'done') {
-      acknowledgeCompletion(session.instanceId);
-    }
-  }, [isActive, sessionStatus, session.instanceId, acknowledgeCompletion]);
-
-  // Rendered status, not stored status: the effect above clears the flag only
-  // after paint, and the active row must never flash `done` for that frame.
-  const displayStatus: SessionStatus =
-    isActive && sessionStatus === 'done' ? 'ready' : sessionStatus;
+  // No acknowledgement here: whether `done` has been seen is main's call, from
+  // what this window reports it is showing and whether it has focus.
   const statusWord = STATUS_WORDS[displayStatus];
   // The row reads the derived label — "PR #4118 · Review", "⑂ name". A
   // launched work-item session's `name` is not shown under it: until the CLI

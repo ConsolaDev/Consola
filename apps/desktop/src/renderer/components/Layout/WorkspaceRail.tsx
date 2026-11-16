@@ -13,11 +13,10 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useSettings } from '../../contexts/SettingsContext';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
-import { sessionStatusFor } from '../../utils/sessionStatus';
+import { useAttentionStore } from '../../stores/attentionStore';
 import { isMac } from '../../utils/platform';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 
@@ -130,15 +129,15 @@ function SortableWorkspace({ workspace, index, canReorder, reordering, reducedMo
 }) {
   const activeWorkspaceId = useNavigationStore(state => state.activeWorkspaceId);
   const setActiveWorkspace = useNavigationStore(state => state.setActiveWorkspace);
-  const terminals = useTerminalStore(state => state.terminals);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: workspace.id,
     disabled: !canReorder,
     transition: reducedMotion ? null : { duration: 180, easing: EASING },
   });
-  const needsAttention = workspace.sessions.some(
-    session => sessionStatusFor(terminals[session.instanceId]) === 'needs-attention'
+  // A boolean, so a status change inside the workspace that is not a prompt re-renders nothing.
+  const needsAttention = useAttentionStore(state =>
+    workspace.sessions.some(session => state.attention[session.id] === 'needs-attention')
   );
   const shortcut = index < 9 ? index + 1 : null;
 

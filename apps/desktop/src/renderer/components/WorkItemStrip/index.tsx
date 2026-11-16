@@ -6,11 +6,10 @@ import { sameWorkItem, workItemUrl } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { tildePath } from '../../utils/displayPath';
 import { activateSession } from '../../utils/sessionActions';
-import { sessionStatusFor } from '../../utils/sessionStatus';
+import { attentionOf, useAttentionStore } from '../../stores/attentionStore';
 import { metaLineFor } from '../Inbox/inboxPresentation';
 import { RunActionMenu } from '../RunActionMenu';
 import './styles.css';
@@ -50,7 +49,7 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.find((candidate) => candidate.id === workspaceId)
   );
-  const terminals = useTerminalStore((state) => state.terminals);
+  const attention = useAttentionStore((state) => state.attention);
   const isPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
   const togglePanel = useNavigationStore((state) => state.toggleWorkItemPanel);
 
@@ -107,7 +106,7 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
           <DropdownMenu.Portal>
             <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="end">
               {siblings.map((sibling) => {
-                const status = sessionStatusFor(terminals[sibling.instanceId]);
+                const status = attentionOf(attention, sibling.id);
                 return (
                   <DropdownMenu.Item
                     key={sibling.id}
