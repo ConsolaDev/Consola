@@ -1,4 +1,4 @@
-import type { AutomationMode, FactorySpecIssue, RunRecord, StepRunStatus } from '@consola/factory-spec';
+import type { AutomationMode, FactorySpecIssue, RunRecord, RunStatus, StepRunStatus } from '@consola/factory-spec';
 import type { RunFilter } from './runFilter';
 
 /** One automation from a workspace's factory.yml, as the app shows it. */
@@ -52,6 +52,43 @@ export interface AutomationView {
     problem?: string;
     /** The session whose agent wrote it into the file; new until a person opens its details. */
     addedBy?: { sessionName: string; sessionId: string; isNew: boolean };
+}
+
+/**
+ * The item a person or an agent picks to run an automation on: a work item of
+ * its connection, by identity or by a pasted URL (Call 24), or an item of its
+ * poll's last check, by key. Not factory-spec's `RunTarget`, which is what a
+ * `run:` step runs.
+ */
+export type ItemTarget =
+    | { workItem: { repo: string; number: number; type: 'pr' | 'issue' } }
+    | { key: string }
+    | { url: string };
+
+/** One item Run on… offers (Call 26). */
+export interface ItemTargetRow {
+    /** What choosing it sends back. */
+    target: ItemTarget;
+    /** "sprocket/catalog-portal#51 “Fix the cart total”"; a key item's is "“Title”". */
+    label: string;
+    /** Its page; empty for an item of a poll with `key:`. */
+    url: string;
+    /**
+     * This automation's newest run on the item, from run history: `at` is
+     * when it ended, or, while it has not, when it was made.
+     */
+    lastRun?: { id: string; status: RunStatus; at: string };
+}
+
+/** What Run on… lists for an automation whose runs take an item. Read from memory and history only. */
+export interface ItemTargets {
+    takesItem: NonNullable<AutomationView['takesItem']>;
+    /** It takes a pasted pull request or issue URL: its items are work items of a connection that reads URLs. */
+    acceptsUrl: boolean;
+    /** Its poll's last successful check, in the order the command printed it; empty for an entry without a check. */
+    items: ItemTargetRow[];
+    /** For an entry on work items, the Inbox's items of a type it takes; empty otherwise. */
+    inbox: ItemTargetRow[];
 }
 
 /** A poll entry's check, as its automation's page shows it. */

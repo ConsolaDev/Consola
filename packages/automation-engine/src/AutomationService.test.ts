@@ -1603,7 +1603,9 @@ describe('agent run problems', () => {
         await t.start();
         expect(await t.service.trigger('ws-1', 'review-requests')).toBeNull();
         expect(t.world.refreshes).toEqual(['ws-1']);
-        await expect(t.service.trigger('ws-1', 'review-requests', { sessionId: 's-9' })).rejects.toThrow(/not on request/);
+        await expect(t.service.trigger('ws-1', 'review-requests', { sessionId: 's-9' })).rejects.toThrow(
+            new Error('review-requests runs on an item: pass work_item { repo, number, type }')
+        );
     });
 });
 

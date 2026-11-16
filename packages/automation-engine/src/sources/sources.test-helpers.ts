@@ -3,7 +3,7 @@ import type { RunRecord } from '@consola/factory-spec';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
 import { stepsHarness, WORKSPACE_ID, type FakeCommand, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
-import type { ItemRef } from '../views';
+import type { ItemRef, ItemTarget } from '../views';
 
 /*
  * The harness every sources test runs through: PR A's steps harness, over a
@@ -128,6 +128,13 @@ export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'>
     check(): Promise<void>;
     /** A Check now on `name` (default: the spec's template) that prints `items`, run to completion with every other due check. */
     checkSees(items: object[], name?: string): Promise<void>;
+    /**
+     * Run on…: a person's run of `name` (default: the spec's template) on
+     * `target`, or an agent's with `actor`, then whatever it set going. The
+     * run as it stands once that settled, copied: later changes do not reach
+     * it. A refusal rejects, as the click's does.
+     */
+    runOn(target: ItemTarget, name?: string, actor?: { sessionId?: string }): Promise<RunRecord>;
 }
 
 /** sprocket/catalog-portal#51, as a poll with `item: { github: .url }` reads it. */
@@ -217,6 +224,12 @@ export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promi
         },
         check: () => checkAll(harness),
         checkSees: (items, name = RE_REVIEW_NAME) => checkSees(harness, items, name),
+        async runOn(target, name = RE_REVIEW_NAME, actor = {}) {
+            const run = await harness.service.trigger(WORKSPACE_ID, name, actor, target);
+            await harness.flush();
+            if (!run) throw new Error(`Run on… ${name} made no run.`);
+            return structuredClone(harness.store.get(run.id)!);
+        },
     });
     return wrap(base);
 }

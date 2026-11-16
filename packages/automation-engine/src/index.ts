@@ -11,6 +11,9 @@ export { describeEvery, describeRun, describeTriggerAsWritten } from './describe
 export type {
     AutomationView,
     CheckView,
+    ItemTarget,
+    ItemTargetRow,
+    ItemTargets,
     TemplateView,
     TemplateService,
     TemplateNeedSection,

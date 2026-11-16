@@ -4,7 +4,7 @@ import * as path from 'path';
 import { describe, expect, it, vi } from 'vitest';
 import { automationVersion, parseFactorySpec, stableStringify, type RunRecord, type RunStatus } from '@consola/factory-spec';
 import { listDefinition } from './AutomationService';
-import { inboxItem } from './inboxItems.test-helpers';
+import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import type { SeenRecord } from './seenRecord';
 import { POLL_FENCE_HEADING } from './sources/itemSource';
 import { resolvePrevious } from './sources/previous';
@@ -23,7 +23,7 @@ import {
     type SourcesHarnessOptions,
 } from './sources/sources.test-helpers';
 import { REVIEW_BODY, type FakeCommand } from './steps/steps.test-helpers';
-import type { AgentRunPreview } from './views';
+import type { AgentRunPreview, InboxItemView, ItemTarget } from './views';
 
 /** A poll on GitHub work items, with the job and any other keys as given (each line at the entry's indent). */
 function pollOnItems(job: string, extra = ''): string {
@@ -164,6 +164,18 @@ ${PROMPT}`;
     });
 
     describe('a run on demand with applies_to', () => {
+        it('runs no tool', async () => {
+            const h = await sourcesHarness({ yaml: factoryWith(onDemand('[pr]', TOOL)) });
+            const problem =
+                'applies_to gives each run an item, and a tool takes none; run an action, a prompt or steps ' +
+                '(`run: { action: … }`, `run: { prompt: … }` or `steps:`), or remove applies_to';
+            expect(problemOf(h)).toBe(problem);
+            expect(view(h)).not.toHaveProperty('takesItem');
+            // Before anything about its items: an account bound, or not, does not change what it may run.
+            await unbound(h);
+            expect(problemOf(h)).toBe(problem);
+        });
+
         it('needs a connection bound', async () => {
             // Before the action: whether Triage applies to pull requests is asked of a connection's items.
             const h = await sourcesHarness({ yaml: factoryWith(onDemand('[pr]', ACTION('Triage'))) });
@@ -372,8 +384,7 @@ describe('allowing', () => {
 
     it('a run of an entry not allowed yet says approving runs only that run', async () => {
         // No check runs before Allow, and a check's result counts only at the version allowed when it started (Call 16),
-        // so no check ever makes a run of an entry not allowed yet: such a run comes only from Run on… or an agent's
-        // request, whose summary (`NOT_CHECKING_YET`) is pinned with them. Here: what it says instead of firing.
+        // so no check ever makes a run of an entry not allowed yet: Check now is refused, and ticks check nothing.
         const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
         await expect(h.fire()).rejects.toThrow(`\`${RE_REVIEW_NAME}\` is not checking yet: allow it first.`);
         h.pollOutput([PR_51_ROW]);
@@ -383,6 +394,11 @@ describe('allowing', () => {
         expect(h.store.runs()).toEqual([]);
         expect(view(h)).toMatchObject({ needsAllow: true, asksFirst: true });
         expect(h.notices.filter((notice) => notice.needsApproval)).toEqual([]);
+        // Such a run comes from Run on…, and says that approving it runs it and nothing else.
+        const run = await h.runOn({ workItem: PR_51 });
+        expect(run.status).toBe('needs-approval');
+        expect(run.summary!.slice(-NOT_CHECKING_YET.length)).toBe(NOT_CHECKING_YET);
+        expect(run.summary).not.toContain('Approve once to let this new or changed automation run on its own.');
     });
 
     it('an allowed confirm poll still asks for each run', async () => {
@@ -1429,5 +1445,475 @@ describe('firing', () => {
         expect(later.world.checkouts.prepared).toEqual([
             { workspaceId: WORKSPACE_ID, workItem: { provider: 'github', ...PR_51 }, startedByHand: { label: 'Review', since: run.createdAt } },
         ]);
+    });
+});
+
+describe('on a chosen item', () => {
+    const MINUTE = 60_000;
+    const KEY = `${WORKSPACE_ID} ${RE_REVIEW_NAME}`;
+    const NOT_CHECKING_YET = 'It is not checking yet: approving runs this run only. Allow it on its page to let it check and run on its own.';
+    const AN_AGENT_ASKED = 'An agent asked for this run.';
+    const BOOM = { stderr: 'boom\n', result: { exitCode: 1, lastStderrLine: 'boom' } };
+    /** The template asking a person for each run. */
+    const CONFIRM = RE_REVIEW_ENTRY.replace('mode: auto', 'mode: confirm');
+
+    const EVENT_NAME = 'on-review';
+    const EVENT_KEY = `${WORKSPACE_ID} ${EVENT_NAME}`;
+    /** Review requests reviewed with the Review action, in `mode`, with any other keys as given (each line at the entry's indent). */
+    const onReview = (mode: string, extra = '') =>
+        `- name: ${EVENT_NAME}\n  on: { github: pull_request.review_requested }\n  mode: ${mode}\n${extra}  run: { action: Review }\n`;
+    /** A poll with `key:`, on tickets its command prints, asking a person for each run. */
+    const TICKETS = `- name: tickets
+  on:
+    poll: { every: 1h, run: ./tickets, key: .id }
+  scope: api
+  mode: confirm
+  steps:
+    - id: look
+      run: ./look
+`;
+    const DAILY = `- name: daily\n  on: { cron: "0 9 * * 1-5" }\n  scope: api\n${PROMPT}`;
+    const T_1 = { id: 'T-1', title: 'The cart forgets its items', priority: 'high' };
+
+    /** #51 in the Inbox: alice's "Add retries", asking JaviDev for a review. */
+    const PR51 = inboxItem({ repo: 'sprocket/catalog-portal', number: 51 });
+    /** #77, which neither the Inbox nor any check holds. */
+    const PR_77 = { repo: 'sprocket/catalog-portal', number: 77, type: 'pr' as const };
+    const PR_77_KEY = itemKey({ provider: 'github', ...PR_77 });
+    const PR_77_URL = 'https://github.com/sprocket/catalog-portal/pull/77';
+    const ISSUE_60 = { repo: 'sprocket/catalog-portal', number: 60, type: 'issue' as const };
+    const ISSUE_60_URL = 'https://github.com/sprocket/catalog-portal/issues/60';
+    /** Issue #60 in the Inbox: bob's, assigned to JaviDev. */
+    const ISSUE60 = inboxItem({
+        repo: ISSUE_60.repo,
+        number: ISSUE_60.number,
+        workItem: { provider: 'github', ...ISSUE_60 },
+        url: ISSUE_60_URL,
+        title: 'The cart total is wrong',
+        author: 'bob',
+        roles: ['assigned'],
+    });
+
+    /** #51 as the template's check prints it at `head`, titled as given. */
+    const at = (head: string, title = PR_51_ROW.title) => ({ ...PR_51_ROW, title, head });
+    const runsOn51 = (h: SourcesHarness) => h.store.runs().filter((run) => run.automationId === RE_REVIEW_NAME && run.trigger.item?.key === PR_51_KEY);
+    const revOf51 = (h: SourcesHarness) => h.store.seen(KEY)?.revs?.[PR_51_KEY];
+    const itemJson = (h: SourcesHarness, run: RunRecord) => JSON.parse(fs.readFileSync(h.folder.itemPath(WORKSPACE_ID, run.id), 'utf8'));
+    const stepCommand = (h: SourcesHarness, run: RunRecord, step: string) =>
+        h.world.commands.find((command) => command.spec.env.CONSOLA_RUN_ID === run.id && command.spec.env.CONSOLA_STEP === step)!;
+    /** Every check command started: a command no step started. */
+    const checks = (h: SourcesHarness) => h.world.commands.filter((command) => !command.spec.env.CONSOLA_STEP);
+    const refused = (pending: Promise<unknown>, message: string) => expect(pending).rejects.toThrow(new Error(message));
+
+    /** ws-1 holding `entry` (named `name`), allowed, its first check over: it recorded `first`, and fired nothing. */
+    async function allowedPoll(entry: string, first: object[], options: SourcesHarnessOptions = {}, name = RE_REVIEW_NAME): Promise<SourcesHarness> {
+        const h = await sourcesHarness({ yaml: factoryWith(entry), ...options });
+        allowAsShown(h, name);
+        h.pollOutput(first);
+        await h.check();
+        return h;
+    }
+
+    /** ws-1 holding `entry`, approved once at its version (`body` its action's), after a first Inbox fetch holding `inbox`. */
+    async function approvedEvent(entry: string, inbox: InboxItemView[], options: SourcesHarnessOptions = {}, body = REVIEW_BODY): Promise<SourcesHarness> {
+        const h = await sourcesHarness({ yaml: factoryWith(entry), ...options });
+        const [automation] = parseFactorySpec(factoryWith(entry)).automations;
+        h.store.accept(`${WORKSPACE_ID} ${automation.name}`, automationVersion(automation, body));
+        await h.poll(inbox);
+        return h;
+    }
+
+    describe('takes what its items are', () => {
+        it("an event entry takes a work item: the Inbox's fields when it holds it, else identity only", async () => {
+            const h = await approvedEvent(onReview('confirm'), [PR51]);
+            const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+            expect(run.trigger).toEqual({
+                kind: 'manual',
+                at: h.now().toISOString(),
+                by: 'person',
+                connection: 'github',
+                item: { key: PR_51_KEY, url: PR_51_URL, title: 'Add retries', author: 'alice', ...PR_51 },
+            });
+            const other = await h.runOn({ workItem: PR_77 }, EVENT_NAME);
+            expect(other.trigger).toEqual({
+                kind: 'manual',
+                at: h.now().toISOString(),
+                by: 'person',
+                connection: 'github',
+                item: { key: PR_77_KEY, url: PR_77_URL, title: 'PR #77', ...PR_77 },
+            });
+            expect(h.store.runs().map((candidate) => candidate.status)).toEqual(['needs-approval', 'needs-approval']);
+        });
+
+        it('one on demand with applies_to takes a work item of a type it lists, the same way, and runs on it', async () => {
+            const h = await sourcesHarness({ yaml: factoryWith(onDemand('[pr, issue]', `  mode: confirm\n${PROMPT}`)) });
+            await h.poll([PR51]);
+            const onPr = await h.runOn({ workItem: PR_51 }, 'on-demand');
+            expect(onPr.trigger).toEqual({
+                kind: 'manual',
+                at: h.now().toISOString(),
+                by: 'person',
+                connection: 'github',
+                item: { key: PR_51_KEY, url: PR_51_URL, title: 'Add retries', author: 'alice', ...PR_51 },
+            });
+            const onIssue = await h.runOn({ workItem: ISSUE_60 }, 'on-demand');
+            expect(onIssue.trigger.item).toEqual({ key: itemKey({ provider: 'github', ...ISSUE_60 }), url: ISSUE_60_URL, title: 'Issue #60', ...ISSUE_60 });
+            // Approved, each starts on its work item: one the Inbox does not hold, with what it recorded.
+            await h.service.approve(onPr.id);
+            await h.service.approve(onIssue.id);
+            await h.flush();
+            expect(h.store.get(onIssue.id)!.status).toBe('running');
+            expect(h.world.launches.map((launch) => launch.item)).toEqual([
+                { workItem: { provider: 'github', ...PR_51 }, title: 'Add retries', label: 'on-demand' },
+                { workItem: { provider: 'github', ...ISSUE_60 }, title: 'Issue #60', label: 'on-demand' },
+            ]);
+        });
+
+        it('a poll with item: takes a work item: the polled object when its last check has it, else identity only', async () => {
+            const h = await allowedPoll(CONFIRM, [at('a')]);
+            const run = await h.runOn({ workItem: PR_51 });
+            expect(run.trigger).toEqual({
+                kind: 'manual',
+                at: h.now().toISOString(),
+                by: 'person',
+                connection: 'github',
+                item: { key: PR_51_KEY, url: PR_51_URL, title: 'Fix the cart total', ...PR_51 },
+            });
+            expect(itemJson(h, run)).toEqual(at('a'));
+            const other = await h.runOn({ workItem: PR_77 });
+            expect(other.trigger.item).toEqual({ key: PR_77_KEY, url: PR_77_URL, title: 'PR #77', ...PR_77 });
+            // Nothing the check printed: the work item's identity only.
+            expect(itemJson(h, other)).toEqual({ key: PR_77_KEY, url: PR_77_URL, ...PR_77 });
+        });
+
+        it('a poll with key: takes the key of an item in its last check, with the object it printed', async () => {
+            const h = await allowedPoll(TICKETS, [T_1, { id: 'T-2', title: 'Tidy the basket' }], {}, 'tickets');
+            const run = await h.runOn({ key: 'T-1' }, 'tickets');
+            expect(run.trigger).toEqual({ kind: 'manual', at: h.now().toISOString(), by: 'person', item: { key: 'T-1', url: '', title: T_1.title } });
+            expect(run.status).toBe('needs-approval');
+            expect(itemJson(h, run)).toEqual(T_1);
+        });
+    });
+
+    it('refuses a target its entry does not take, saying what it takes', async () => {
+        const h = await sourcesHarness({
+            yaml: factoryWith(onReview('confirm'), onDemand('[issue]', `  mode: confirm\n${PROMPT}`), RE_REVIEW_ENTRY, TICKETS, DAILY),
+        });
+        const runOn = (name: string, target: ItemTarget) => h.service.trigger(WORKSPACE_ID, name, {}, target);
+        await refused(runOn(EVENT_NAME, { key: PR_51_KEY }), 'on-review takes pull requests.');
+        await refused(runOn('on-demand', { key: PR_51_KEY }), 'on-demand takes issues.');
+        await refused(runOn(RE_REVIEW_NAME, { key: PR_51_KEY }), `${RE_REVIEW_NAME} takes pull requests or issues.`);
+        await refused(runOn('tickets', { workItem: PR_51 }), 'tickets takes an item of its last check.');
+        await refused(runOn('tickets', { url: PR_51_URL }), 'tickets takes an item of its last check.');
+        await refused(runOn('daily', { workItem: PR_51 }), 'daily takes no item.');
+        // A work item of a type it does not take, by identity or by URL.
+        await refused(runOn('on-demand', { workItem: PR_51 }), 'sprocket/catalog-portal#51 is a pull request; on-demand takes issues.');
+        await refused(runOn(EVENT_NAME, { workItem: ISSUE_60 }), 'sprocket/catalog-portal#60 is an issue; on-review takes pull requests.');
+        await refused(runOn(EVENT_NAME, { url: ISSUE_60_URL }), 'sprocket/catalog-portal#60 is an issue; on-review takes pull requests.');
+        for (const url of ['https://github.com/sprocket/catalog-portal/commit/abc', 'https://example.test/sprocket/catalog-portal/pull/51', 'PR 51']) {
+            await refused(runOn(EVENT_NAME, { url }), 'That is not a github pull request or issue URL.');
+            await refused(runOn(RE_REVIEW_NAME, { url }), 'That is not a github pull request or issue URL.');
+        }
+        // A key needs a successful check to be in.
+        await refused(runOn('tickets', { key: 'T-1' }), 'No successful check yet: Check now first.');
+        allowAsShown(h, 'tickets');
+        h.pollOutput([T_1]);
+        await h.check();
+        await refused(runOn('tickets', { key: 'T-2' }), 'No item with key "T-2" in its last check.');
+        expect(h.store.runs()).toEqual([]);
+        expect(h.notices.filter((notice) => notice.needsApproval)).toEqual([]);
+    });
+
+    it('an open run on the item is returned', async () => {
+        const h = await approvedEvent(onReview('confirm'), [PR51]);
+        const first = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+        expect((await h.runOn({ url: PR_51_URL }, EVENT_NAME)).id).toBe(first.id);
+        expect((await h.runOn({ workItem: PR_51 }, EVENT_NAME, { sessionId: 's-9' })).id).toBe(first.id);
+        // A run its source fired is the item's open run as well.
+        h.service.dismiss(first.id);
+        await h.poll([]);
+        await h.poll([PR51]);
+        const fired = h.store.runs().find((run) => run.trigger.kind === 'event')!;
+        expect(fired.status).toBe('needs-approval');
+        expect((await h.runOn({ workItem: PR_51 }, EVENT_NAME)).id).toBe(fired.id);
+        expect(h.store.runs()).toHaveLength(2);
+    });
+
+    it('confirm previews and waits', async () => {
+        const h = await approvedEvent(onReview('confirm'), [PR51]);
+        const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+        expect(run).toMatchObject({
+            status: 'needs-approval',
+            mode: 'confirm',
+            summary: 'Review action: sprocket/catalog-portal#51 “Add retries” by @alice.',
+            result: { kind: 'agent-run', runs: 'Review action', item: { url: PR_51_URL, title: 'Add retries', author: 'alice' } },
+        });
+        const { prompt } = run.result as AgentRunPreview;
+        expect(prompt).toContain('for pull request #51 in sprocket/catalog-portal');
+        expect(run.approval).toEqual({ args: { prompt } });
+        expect(h.notices).toMatchObject([{ title: 'on-review needs your approval', runId: run.id, needsApproval: true }]);
+        expect(h.world.launches).toEqual([]);
+    });
+
+    it("an agent's request waits, whatever the mode", async () => {
+        for (const mode of ['auto', 'confirm', 'notify']) {
+            const h = await allowedPoll(RE_REVIEW_ENTRY.replace('mode: auto', `mode: ${mode}`), [at('a')]);
+            const run = await h.runOn({ workItem: PR_51 }, RE_REVIEW_NAME, { sessionId: 's-9' });
+            expect(run, mode).toMatchObject({ status: 'needs-approval', trigger: { kind: 'manual', by: 'agent', actorId: 's-9' } });
+            // `confirm` asks anyway; the others ask because an agent asked.
+            expect(run.summary!.endsWith(AN_AGENT_ASKED), mode).toBe(mode !== 'confirm');
+            expect(h.world.checkouts.prepared, mode).toEqual([]);
+        }
+        const h = await approvedEvent(onReview('auto'), [PR51]);
+        const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME, { sessionId: 's-9' });
+        expect(run).toMatchObject({ status: 'needs-approval', mode: 'confirm', summary: expect.stringContaining(AN_AGENT_ASKED) });
+        expect(h.world.launches).toEqual([]);
+    });
+
+    it('the filter is not applied', async () => {
+        const h = await approvedEvent(onReview('auto', '  filter: { authors_not: [alice] }\n'), []);
+        await h.poll([PR51]);
+        expect(h.store.runs()).toEqual([]);
+        const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+        expect(run).toMatchObject({ status: 'running', sessionId: 'session-1', trigger: { kind: 'manual', item: { key: PR_51_KEY } } });
+        expect(h.world.launches).toMatchObject([{ item: { workItem: { provider: 'github', ...PR_51 }, title: 'Add retries', label: 'Review' } }]);
+    });
+
+    it("the run counts as the item's fire", async () => {
+        const h = await allowedPoll(RE_REVIEW_ENTRY, []);
+        await h.checkSees([at('a')]);
+        const [held] = runsOn51(h);
+        // Working when the head moves to `b`: held, left at `a`.
+        await h.checkSees([at('b')]);
+        expect(runsOn51(h)).toHaveLength(1);
+        expect(revOf51(h)).toBe('a');
+        await stepCommand(h, held, 'fresh').end(BOOM);
+        expect(h.store.get(held.id)!.status).toBe('failed');
+        // Not fired at `b`, which its last check says: the next check would fire it. A run on it counts instead.
+        const run = await h.runOn({ workItem: PR_51 });
+        expect(revOf51(h)).toBe('b');
+        expect(h.store.seen(KEY)).toMatchObject({ fired: [PR_51_KEY] });
+        expect(itemJson(h, run)).toEqual(at('b'));
+        await stepCommand(h, run, 'fresh').end({ outputs: 'needed=false\n' });
+        expect(h.store.get(run.id)!.status).toBe('completed');
+        await h.checkSees([at('b')]);
+        expect(runsOn51(h)).toHaveLength(2);
+    });
+
+    it('a manual run on an event draft counts too', async () => {
+        const h = await approvedEvent(onReview('auto'), []);
+        // In the set, a draft: it does not pass, so it has not fired.
+        await h.poll([{ ...PR51, isDraft: true }]);
+        expect(h.store.runs()).toEqual([]);
+        expect(h.store.seen(EVENT_KEY)).toMatchObject({ items: [PR_51_KEY], fired: [] });
+        const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+        expect(h.store.seen(EVENT_KEY)).toMatchObject({ items: [PR_51_KEY], fired: [PR_51_KEY] });
+        await h.world.endTurn(run.sessionId!);
+        expect(h.store.get(run.id)!.status).toBe('completed');
+        // Ready for review now: the run on it was its fire.
+        await h.poll([PR51]);
+        expect(h.store.runs()).toHaveLength(1);
+    });
+
+    it('a pasted URL runs on its work item', async () => {
+        const h = await approvedEvent(onReview('confirm'), [PR51]);
+        const run = await h.runOn({ url: PR_51_URL }, EVENT_NAME);
+        expect(run).toMatchObject({
+            status: 'needs-approval',
+            trigger: { kind: 'manual', connection: 'github', item: { key: PR_51_KEY, url: PR_51_URL, title: 'Add retries', ...PR_51 } },
+        });
+        // The same work item as by identity: one open run.
+        expect((await h.runOn({ workItem: PR_51 }, EVENT_NAME)).id).toBe(run.id);
+    });
+
+    it('a manual entry with applies_to and no target says to pick an item', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(onDemand('[pr]', ACTION('Review'))) });
+        await refused(h.service.trigger(WORKSPACE_ID, 'on-demand'), 'Pick an item to run it on.');
+        expect(h.store.runs()).toEqual([]);
+    });
+
+    it('an agent without a target is told which argument to pass', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(onReview('auto'), onDemand('[pr]', ACTION('Review')), RE_REVIEW_ENTRY, TICKETS) });
+        const agent = { sessionId: 's-9' };
+        for (const name of [EVENT_NAME, 'on-demand', RE_REVIEW_NAME]) {
+            await refused(h.service.trigger(WORKSPACE_ID, name, agent), `${name} runs on an item: pass work_item { repo, number, type }`);
+        }
+        await refused(h.service.trigger(WORKSPACE_ID, 'tickets', agent), 'tickets runs on an item: pass item_key');
+        expect(h.store.runs()).toEqual([]);
+        expect(h.world.refreshes).toEqual([]);
+        expect(h.world.commands).toEqual([]);
+    });
+
+    it('approving a run of a poll entry does not accept its version', async () => {
+        const h = await sourcesHarness({ yaml: factoryWith(RE_REVIEW_ENTRY) });
+        const run = await h.runOn({ workItem: PR_51 });
+        expect(run.status).toBe('needs-approval');
+        expect(run.summary!.slice(-NOT_CHECKING_YET.length)).toBe(NOT_CHECKING_YET);
+        await h.service.approve(run.id);
+        await h.flush();
+        // The run runs, with no check since launch: it goes on with what it recorded.
+        expect(h.store.get(run.id)!.status).toBe('running');
+        expect(stepCommand(h, run, 'fresh').spec.env.PR).toBe(PR_51_URL);
+        // And nothing else: the entry still needs Allow, and never checks.
+        expect(view(h)).toMatchObject({ needsAllow: true });
+        expect(h.store.acceptedVersion(KEY)).toBeUndefined();
+        h.advance(40 * MINUTE);
+        await h.tick();
+        expect(checks(h)).toEqual([]);
+    });
+
+    it("listRunTargets lists the last result with each item's last run, then the Inbox, and starts nothing", async () => {
+        const ROW_52 = { url: PR_51_URL.replace('/51', '/52'), title: 'Tidy the basket', head: 'x' };
+        const PR_52 = { ...PR_51, number: 52 };
+        const h = await allowedPoll(RE_REVIEW_ENTRY, []);
+        await h.setYaml(factoryWith(RE_REVIEW_ENTRY, onDemand('[issue]', `  mode: confirm\n${PROMPT}`), TICKETS, DAILY));
+        await h.checkSees([at('a')]);
+        const [older] = runsOn51(h);
+        await stepCommand(h, older, 'fresh').end({ outputs: 'needed=false\n' });
+        expect(h.store.get(older.id)!.status).toBe('completed');
+        await h.checkSees([at('b'), ROW_52]);
+        const newer = runsOn51(h).find((run) => run.id !== older.id)!;
+        const on52 = h.store.runs().find((run) => run.trigger.item?.number === 52)!;
+        expect([newer.status, on52.status]).toEqual(['running', 'running']);
+        await h.poll([PR51, ISSUE60]);
+        allowAsShown(h, 'tickets');
+        h.pollOutput([T_1]);
+        await h.check();
+        const ticket = await h.runOn({ key: 'T-1' }, 'tickets');
+        h.service.dismiss(ticket.id);
+        const dismissed = h.store.get(ticket.id)!;
+
+        // What reading them may not touch.
+        const world = () => ({
+            runs: structuredClone(h.store.runs()),
+            seen: structuredClone(h.store.seen(KEY)),
+            commands: h.world.commands.length,
+            launches: h.world.launches.length,
+            prepared: h.world.checkouts.prepared.length,
+            broadcasts: h.world.broadcasts.length,
+            refreshes: h.world.refreshes.length,
+            notices: h.notices.length,
+        });
+        const before = world();
+        const lastRun = (run: RunRecord) => ({ id: run.id, status: 'running', at: run.createdAt });
+        expect(h.service.listRunTargets(WORKSPACE_ID, RE_REVIEW_NAME)).toEqual({
+            takesItem: 'pr-or-issue',
+            acceptsUrl: true,
+            items: [
+                // The newest run on #51 is the one running at `b`, not the one that completed at `a`.
+                { target: { workItem: PR_51 }, label: 'sprocket/catalog-portal#51 “Fix the cart total”', url: PR_51_URL, lastRun: lastRun(newer) },
+                { target: { workItem: PR_52 }, label: 'sprocket/catalog-portal#52 “Tidy the basket”', url: ROW_52.url, lastRun: lastRun(on52) },
+            ],
+            inbox: [
+                { target: { workItem: PR_51 }, label: 'sprocket/catalog-portal#51 “Add retries” by @alice', url: PR_51_URL, lastRun: lastRun(newer) },
+                { target: { workItem: ISSUE_60 }, label: 'sprocket/catalog-portal#60 “The cart total is wrong” by @bob', url: ISSUE_60_URL },
+            ],
+        });
+        // Only the Inbox's items of a type it takes; no check, so no items of one.
+        expect(h.service.listRunTargets(WORKSPACE_ID, 'on-demand')).toEqual({
+            takesItem: 'issue',
+            acceptsUrl: true,
+            items: [],
+            inbox: [{ target: { workItem: ISSUE_60 }, label: 'sprocket/catalog-portal#60 “The cart total is wrong” by @bob', url: ISSUE_60_URL }],
+        });
+        // A key's item: no URL, and an ended run says when it ended.
+        expect(h.service.listRunTargets(WORKSPACE_ID, 'tickets')).toEqual({
+            takesItem: 'item',
+            acceptsUrl: false,
+            items: [{ target: { key: 'T-1' }, label: `“${T_1.title}”`, url: '', lastRun: { id: ticket.id, status: 'rejected', at: dismissed.finishedAt } }],
+            inbox: [],
+        });
+        expect(() => h.service.listRunTargets(WORKSPACE_ID, 'daily')).toThrow(new Error('daily takes no item.'));
+        expect(world()).toEqual(before);
+    });
+
+    it('a manual run of run: { action: Review } on #51 launches like an event run', async () => {
+        const h = await approvedEvent(onReview('auto'), []);
+        await h.poll([PR51]);
+        const [fired] = h.store.runs();
+        expect(fired).toMatchObject({ status: 'running', trigger: { kind: 'event' } });
+        await h.world.endTurn(fired.sessionId!);
+        const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+        expect(run).toMatchObject({ status: 'running', sessionId: 'session-2', trigger: { kind: 'manual' } });
+        expect((run.result as AgentRunPreview).prompt).toBe((fired.result as AgentRunPreview).prompt);
+        const [onEvent, onRequest] = h.world.launches;
+        // The same launch, but for the one check a person's pick skips: started by hand.
+        const { startedByHandSince, ...item } = onEvent.item!;
+        expect(startedByHandSince).toBe(fired.createdAt);
+        expect(onRequest).toEqual({ ...onEvent, run: { id: run.id, automation: EVENT_NAME }, item });
+    });
+
+    describe('starting (review B1)', () => {
+        it('a manual run on a pull request not in the Inbox starts and launches with workItem set', async () => {
+            const h = await approvedEvent(onReview('auto'), [PR51]);
+            const run = await h.runOn({ workItem: PR_77 }, EVENT_NAME);
+            expect(run).toMatchObject({ status: 'running', sessionId: 'session-1' });
+            expect(h.world.launches).toHaveLength(1);
+            expect(h.world.launches[0].item).toEqual({ workItem: { provider: 'github', ...PR_77 }, title: 'PR #77', label: 'Review', groupId: 'g-1' });
+        });
+
+        it('the same under confirm, once approved', async () => {
+            const h = await approvedEvent(onReview('confirm'), [PR51]);
+            const run = await h.runOn({ workItem: PR_77 }, EVENT_NAME);
+            expect(run.status).toBe('needs-approval');
+            await h.service.approve(run.id);
+            await h.flush();
+            expect(h.store.get(run.id)).toMatchObject({ status: 'running', sessionId: 'session-1' });
+            expect(h.world.launches.map((launch) => launch.item)).toEqual([
+                { workItem: { provider: 'github', ...PR_77 }, title: 'PR #77', label: 'Review', groupId: 'g-1' },
+            ]);
+        });
+
+        it('a pasted-URL run on a poll entry, for an item not in the last result, starts', async () => {
+            const h = await allowedPoll(RE_REVIEW_ENTRY, [at('a')]);
+            const run = await h.runOn({ url: PR_77_URL });
+            expect(run).toMatchObject({ status: 'running', trigger: { kind: 'manual', item: { key: PR_77_KEY, title: 'PR #77', ...PR_77 } } });
+            // Its own checkout, and no look for a review by hand.
+            expect(h.world.checkouts.prepared).toEqual([{ workspaceId: WORKSPACE_ID, workItem: { provider: 'github', ...PR_77 } }]);
+            expect(itemJson(h, run)).toEqual({ key: PR_77_KEY, url: PR_77_URL, ...PR_77 });
+            expect(stepCommand(h, run, 'fresh').spec.env).toMatchObject({ PR: PR_77_URL, CONSOLA_ITEM_FILE: h.folder.itemPath(WORKSPACE_ID, run.id) });
+        });
+
+        it('a session started by hand on the item does not reject a manual run', async () => {
+            // No agent slot: the run waits in line while the person starts a Review on #51 by hand.
+            const h = await approvedEvent(onReview('auto'), [PR51], { maxConcurrentAgents: 0 });
+            // The host refuses a launch that asks after a review by hand when there is one.
+            h.world.byHandRefuses = true;
+            const run = await h.runOn({ workItem: PR_51 }, EVENT_NAME);
+            expect(run.status).toBe('queued');
+            h.advance(MINUTE);
+            h.world.workspace.sessions.push({
+                id: 'by-hand',
+                workspaceId: WORKSPACE_ID,
+                name: 'Review #51',
+                scopeId: 'scope-catalog-portal',
+                harnessId: 'claude',
+                claudeSessionId: 'claude-by-hand',
+                createdAt: h.now().getTime(),
+                workItemKey: PR_51_KEY,
+                workItemAction: 'Review',
+            });
+            h.world.maxConcurrentAgents = undefined;
+            await h.tick();
+            expect(h.store.get(run.id)).toMatchObject({ status: 'running', sessionId: 'session-1' });
+            expect(h.world.launches).toHaveLength(1);
+            expect(h.world.launches[0].item).not.toHaveProperty('startedByHandSince');
+        });
+
+        it("a manual run waiting for approval absorbs a change, and starts with the latest result's object", async () => {
+            const h = await allowedPoll(CONFIRM, [at('a')]);
+            const run = await h.runOn({ workItem: PR_51 });
+            expect(run.status).toBe('needs-approval');
+            expect(itemJson(h, run)).toEqual(at('a'));
+            const moved = at('b', 'Fix the cart total, and the tax');
+            await h.checkSees([moved]);
+            // Absorbed: marked fired at `b`, and no new run.
+            expect(runsOn51(h)).toHaveLength(1);
+            expect(revOf51(h)).toBe('b');
+            await h.service.approve(run.id);
+            await h.flush();
+            expect(h.store.get(run.id)).toMatchObject({ status: 'running', trigger: { kind: 'manual', item: { key: PR_51_KEY, title: moved.title } } });
+            expect(itemJson(h, run)).toEqual(moved);
+        });
     });
 });
