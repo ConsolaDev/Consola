@@ -117,6 +117,10 @@ import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { HookSignals } from './attention/hookSignals';
 import { ViewingTracker } from './attention/ViewingTracker';
+import { AutoSettler } from './attention/AutoSettler';
+import { settleSession, unsettleSession } from './attention/settling';
+import { PreferencesService } from './state/PreferencesService';
+import type { SettleMemento } from '../shared/preferences';
 import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
@@ -127,6 +131,7 @@ let shellManager: ShellManager | null = null;
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
 let attentionLedgerService: JsonAttentionLedger | null = null;
+let autoSettler: AutoSettler | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
@@ -205,6 +210,13 @@ export function setupIpcHandlers(): boolean {
         new Set(workspaces.getAll().flatMap((workspace) => workspace.sessions.map((session) => session.id)))
     );
     attentionLedgerService = attentionLedger;
+
+    // Main runs the sweeper, so main owns the threshold. Never fatal: a lost
+    // file means the defaults, and the one-time explanation is simply given again.
+    const preferences = new PreferencesService(
+        new JsonStateFile<unknown>(path.join(app.getPath('userData'), 'preferences.json'))
+    );
+    preferences.load();
 
     // Every window renders the same records, so a change goes to all of them
     // rather than to whoever asked for it. A deleted workspace also has to be
@@ -796,6 +808,51 @@ export function setupIpcHandlers(): boolean {
         viewing.focused(event.sender.id, focused === true);
     });
     attention.register(attentionSessions);
+
+    // Old, idle work leaves the list on its own — and the first time it does,
+    // every window is told what happened (the renderer reads `pendingAutoSettle`).
+    const settler = new AutoSettler({
+        getWorkspaces: () => workspaces.getAll(),
+        attention: () => attention.snapshot(),
+        heldSessionIds: () => new Set(attention.holds().keys()),
+        isShown: (instanceId) => viewing.isShown(instanceId),
+        ledger: attentionLedger,
+        preferences,
+        changed: () => attentionSessions.refresh(),
+    });
+    autoSettler = settler;
+    let sweptDays = preferences.get().autoSettleDays;
+    preferences.onChange((next) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PREFERENCES_CHANGED, next);
+        }
+        // A threshold the person just changed applies now, not in five minutes.
+        if (next.autoSettleDays !== sweptDays) {
+            sweptDays = next.autoSettleDays;
+            settler.sweep();
+        }
+    });
+    ipcMain.handle(IPC_CHANNELS.PREFERENCES_GET, () => preferences.get());
+    ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, (_event, days: unknown) => {
+        if (typeof days === 'number') preferences.setAutoSettleDays(days);
+    });
+    ipcMain.handle(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE, () => preferences.acknowledgeAutoSettle());
+
+    const settleHandler = (write: typeof settleSession) => (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionId: unknown): SettleMemento => {
+        if (typeof workspaceId !== 'string' || typeof sessionId !== 'string') return {};
+        const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+        if (!workspace) return {};
+        const memento = write(workspace, sessionId, attentionLedger, Date.now());
+        attentionSessions.refresh();
+        return memento;
+    };
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_SETTLE, settleHandler(settleSession));
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_UNSETTLE, settleHandler(unsettleSession));
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_RESTORE, (_event, memento: unknown) => {
+        if (typeof memento !== 'object' || memento === null) return;
+        attentionLedger.restore(memento as SettleMemento);
+        attentionSessions.refresh();
+    });
     hookSignals.subscribe((instanceId) => attentionSessions.hookChanged(instanceId));
     workspaces.onChange(() => attentionSessions.refresh());
     attention.onChange((change) => {
@@ -1625,6 +1682,10 @@ ${truncatedDiff}`;
         }
     );
 
+    // Last: the first sweep reads every session's terminal status, which is
+    // defined further up and must exist by now.
+    autoSettler?.start();
+
     return true;
 }
 
@@ -1675,6 +1736,14 @@ export function cleanupIpcHandlers(): void {
     // The one thing debounced: a quit inside the window must not lose it.
     attentionLedgerService?.flush();
     attentionLedgerService = null;
+    autoSettler?.stop();
+    autoSettler = null;
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE);
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE);
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_RESTORE);
+    ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_GET);
+    ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS);
+    ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE);
     ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNAPSHOT);
     ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_VIEWING);
     ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_FOCUSED);

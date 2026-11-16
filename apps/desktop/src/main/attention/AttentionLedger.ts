@@ -1,4 +1,5 @@
 import type { AttentionRecord, AttentionSnapshot } from '../../shared/attention';
+import type { SettleMemento } from '../../shared/preferences';
 import { JsonStateFile } from '../state/JsonStateFile';
 
 /**
@@ -18,6 +19,19 @@ export interface AttentionLedger {
   clearFinished(sessionId: string): void;
   /** The person saw the session. Nothing to mark for a session the ledger has never heard of. */
   markSeen(sessionId: string, at: number): void;
+  /**
+   * Shelve sessions. `markSeen` is for the person's own decision to settle:
+   * deciding it is finished with is having seen it. One write for the batch.
+   * Returns the entries as they were, for `restore`.
+   */
+  settle(targets: SettleTarget[], at: number, options: { markSeen: boolean }): SettleMemento;
+  /**
+   * The person brought sessions back. Holds auto-settle off until the session
+   * has new activity, or the sweep would re-hide what was just recovered.
+   */
+  unsettle(sessionIds: string[], at: number): SettleMemento;
+  /** Put entries back exactly as a memento recorded them. */
+  restore(memento: SettleMemento): void;
   get(sessionId: string): AttentionRecord | undefined;
   /** Query-shaped read for a known set. */
   activityFor(sessionIds: string[]): Map<string, number>;
@@ -27,6 +41,14 @@ export interface AttentionLedger {
   prune(liveSessionIds: Set<string>): void;
   /** Flush any debounced write. Call on quit. */
   flush(): void;
+}
+
+/** A session to shelve, with what the ledger needs if it has never heard of it. */
+export interface SettleTarget {
+  sessionId: string;
+  workspaceId: string;
+  /** Its activity when the ledger has no record: the session's creation-time seed. */
+  activityAt: number;
 }
 
 /** The on-disk shape: one flat row per session id. */
@@ -126,21 +148,84 @@ export class JsonAttentionLedger implements AttentionLedger {
 
   /** Store a changed record and schedule its write. */
   private commit(record: AttentionRecord): void {
+    if (this.stage(record)) this.persist();
+  }
+
+  /** Several records, one write. */
+  private commitAll(records: AttentionRecord[]): void {
+    let due = false;
+    for (const record of records) due = this.stage(record) || due;
+    if (due) this.persist();
+  }
+
+  /** Keep a record in memory and arrange its write. True when the write is due now. */
+  private stage(record: AttentionRecord): boolean {
     const { sessionId } = record;
     this.records.set(sessionId, record);
     this.dirty.add(sessionId);
 
-    if (this.timers.has(sessionId)) return;
+    if (this.timers.has(sessionId)) return false;
     const due = (this.lastPersistedAt.get(sessionId) ?? -Infinity) + WRITE_INTERVAL_MS;
     const wait = due - Date.now();
-    if (wait <= 0) {
-      this.persist();
-      return;
-    }
+    if (wait <= 0) return true;
     const timer = setTimeout(() => this.persist(), wait);
     // A pending write must not keep the process alive; quit calls flush().
     timer.unref?.();
     this.timers.set(sessionId, timer);
+    return false;
+  }
+
+  public settle(targets: SettleTarget[], at: number, { markSeen }: { markSeen: boolean }): SettleMemento {
+    const memento: SettleMemento = {};
+    const next: AttentionRecord[] = [];
+    for (const { sessionId, workspaceId, activityAt } of targets) {
+      const current = this.records.get(sessionId);
+      memento[sessionId] = current ? { ...current } : null;
+      const lastActiveAt = current?.lastActiveAt ?? activityAt;
+      const settled: AttentionRecord = {
+        ...current,
+        sessionId,
+        workspaceId: current?.workspaceId ?? workspaceId,
+        lastActiveAt,
+        // Never earlier than the last activity, or it would not read as settled.
+        settledAt: Math.max(at, lastActiveAt),
+      };
+      if (markSeen) settled.seenAt = Math.max(at, current?.seenAt ?? at);
+      next.push(settled);
+    }
+    this.commitAll(next);
+    return memento;
+  }
+
+  public unsettle(sessionIds: string[], at: number): SettleMemento {
+    const memento: SettleMemento = {};
+    const next: AttentionRecord[] = [];
+    for (const sessionId of sessionIds) {
+      const current = this.records.get(sessionId);
+      if (!current) continue;
+      memento[sessionId] = { ...current };
+      const { settledAt: _gone, ...rest } = current;
+      next.push({ ...rest, settleHoldAt: at });
+    }
+    this.commitAll(next);
+    return memento;
+  }
+
+  public restore(memento: SettleMemento): void {
+    const next: AttentionRecord[] = [];
+    let removed = false;
+    for (const [sessionId, previous] of Object.entries(memento)) {
+      if (previous === null) {
+        if (this.records.delete(sessionId)) removed = true;
+        continue;
+      }
+      // A memento crosses IPC: trust its shape no further than a file on disk.
+      const record = normalizeRecord(previous);
+      if (record && record.sessionId === sessionId) next.push(record);
+    }
+    this.commitAll(next);
+    // A deleted record has nothing to mark dirty: write it out now.
+    if (removed) this.persist();
   }
 
   public get(sessionId: string): AttentionRecord | undefined {

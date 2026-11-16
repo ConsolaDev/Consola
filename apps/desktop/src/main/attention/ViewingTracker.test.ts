@@ -49,3 +49,14 @@ describe('ViewingTracker', () => {
     expect(tracker.isViewedInFocusedWindow('inst-a')).toBe(false);
   });
 });
+
+describe('ViewingTracker.isShown', () => {
+  it('is true for a shown terminal whether or not the window has focus', () => {
+    const tracker = new ViewingTracker(() => {});
+    tracker.viewing(1, 'inst-a');
+    expect(tracker.isShown('inst-a')).toBe(true);
+    expect(tracker.isViewedInFocusedWindow('inst-a')).toBe(false);
+    tracker.viewing(1, null);
+    expect(tracker.isShown('inst-a')).toBe(false);
+  });
+});

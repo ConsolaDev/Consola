@@ -25,6 +25,8 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useAssistantStore } from '../../stores/assistantStore';
+import { Toaster } from '../Toast/Toaster';
+import { AutoSettleExplanation } from '../AutoSettle/AutoSettleExplanation';
 import './styles.css';
 
 export function Layout() {
@@ -99,6 +101,8 @@ export function Layout() {
   return (
     <div ref={layoutRef} className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`} style={layoutStyle}>
       <NewSessionDialog />
+      <AutoSettleExplanation />
+      <Toaster />
       <AppHeader />
       <WorkspaceRail />
       <Sidebar />

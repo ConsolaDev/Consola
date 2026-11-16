@@ -1,5 +1,6 @@
 import type { AppUpdateAPI } from '../../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
+import type { Preferences, SettleMemento } from '../../shared/preferences';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 export interface FolderInfo {
   path: string;
@@ -55,6 +56,16 @@ export interface AttentionAPI {
   onChanged: (callback: (change: AttentionChange) => void) => () => void;
   setViewing: (instanceId: string | null) => void;
   setFocused: (focused: boolean) => void;
+  settle: (workspaceId: string, sessionId: string) => Promise<SettleMemento>;
+  unsettle: (workspaceId: string, sessionId: string) => Promise<SettleMemento>;
+  restore: (memento: SettleMemento) => Promise<void>;
+}
+
+export interface PreferencesAPI {
+  get: () => Promise<Preferences>;
+  setAutoSettleDays: (days: number) => Promise<void>;
+  acknowledgeAutoSettle: () => Promise<void>;
+  onChanged: (callback: (preferences: Preferences) => void) => () => void;
 }
 
 export interface GitAPI {
@@ -74,6 +85,7 @@ declare global {
     dialogAPI: DialogAPI;
     fileAPI: FileAPI;
     attentionAPI: AttentionAPI;
+    preferencesAPI: PreferencesAPI;
     gitAPI: GitAPI;
   }
 }

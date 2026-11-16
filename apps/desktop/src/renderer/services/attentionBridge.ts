@@ -1,4 +1,5 @@
 import type { AttentionChange, AttentionState } from '../../shared/attention';
+import type { SettleMemento } from '../../shared/preferences';
 
 /**
  * Attention Bridge - Isolates all window.attentionAPI access to this single file.
@@ -34,5 +35,18 @@ export const attentionBridge = {
   /** Whether this window has focus. Main decides what counts as seen from this and `setViewing`. */
   setFocused: (focused: boolean): void => {
     getAPI()?.setFocused(focused);
+  },
+
+  /** Settle a session and everything beneath it. The memento is what `restore` undoes it with. */
+  settle: async (workspaceId: string, sessionId: string): Promise<SettleMemento> =>
+    (await getAPI()?.settle(workspaceId, sessionId)) ?? {},
+
+  /** Bring a session back to the list; auto-settle leaves it alone until it has new activity. */
+  unsettle: async (workspaceId: string, sessionId: string): Promise<SettleMemento> =>
+    (await getAPI()?.unsettle(workspaceId, sessionId)) ?? {},
+
+  /** Put the ledger back as a memento recorded it. */
+  restore: async (memento: SettleMemento): Promise<void> => {
+    await getAPI()?.restore(memento);
   },
 };

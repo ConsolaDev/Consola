@@ -7,6 +7,7 @@ import { hydrateWorkspaceStore } from './stores/workspaceStore';
 import { hydrateHarnessStore } from './stores/harnessStore';
 import { hydrateTerminalStatus } from './stores/terminalStore';
 import { hydrateAttention, subscribeToAttention } from './stores/attentionStore';
+import { hydratePreferences, subscribeToPreferences } from './stores/preferencesStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
@@ -41,6 +42,7 @@ async function bootstrap() {
   // Before the read below, so a change landing while it is in flight is not lost.
   // The window never closes this: it lives as long as the page does.
   subscribeToAttention();
+  subscribeToPreferences();
 
   try {
     // Records live in the main process now, so they have to arrive before the
@@ -48,7 +50,7 @@ async function bootstrap() {
     // no workspaces at all. Terminal status comes along for the ride: it is
     // broadcast on change only, so a window that opened late has no other way
     // to learn a session is already waiting on a keypress.
-    await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore(), hydrateTerminalStatus(), hydrateAttention()]);
+    await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore(), hydrateTerminalStatus(), hydrateAttention(), hydratePreferences()]);
   } catch (error) {
     // A blank window is the one outcome worse than an error message: it looks
     // like the app started and the data is gone.

@@ -34,6 +34,12 @@ export class ViewingTracker {
     return false;
   }
 
+  /** Whether any window shows this terminal, focused or not. */
+  public isShown(instanceId: string): boolean {
+    for (const state of this.windows.values()) if (state.viewing === instanceId) return true;
+    return false;
+  }
+
   private effective(windowId: number): string | null {
     const state = this.windows.get(windowId);
     return state?.focused ? state.viewing : null;

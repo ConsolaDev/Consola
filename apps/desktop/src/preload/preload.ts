@@ -1,6 +1,7 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../shared/attention';
+import type { Preferences, SettleMemento } from '../shared/preferences';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -431,6 +432,27 @@ contextBridge.exposeInMainWorld('attentionAPI', {
     },
     setFocused: (focused: boolean): void => {
         ipcRenderer.send(IPC_CHANNELS.ATTENTION_FOCUSED, focused);
+    },
+    settle: (workspaceId: string, sessionId: string): Promise<SettleMemento> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE, workspaceId, sessionId);
+    },
+    unsettle: (workspaceId: string, sessionId: string): Promise<SettleMemento> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_UNSETTLE, workspaceId, sessionId);
+    },
+    restore: (memento: SettleMemento): Promise<void> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_RESTORE, memento);
+    },
+});
+
+contextBridge.exposeInMainWorld('preferencesAPI', {
+    get: (): Promise<Preferences> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_GET),
+    setAutoSettleDays: (days: number): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
+    acknowledgeAutoSettle: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE),
+    onChanged: (callback: (preferences: Preferences) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, preferences: Preferences) => callback(preferences);
+        ipcRenderer.on(IPC_CHANNELS.PREFERENCES_CHANGED, listener);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.PREFERENCES_CHANGED, listener);
     },
 });
 

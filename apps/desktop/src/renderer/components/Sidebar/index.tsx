@@ -190,7 +190,7 @@ export function Sidebar() {
             <div className="sidebar-section-header"><span className="sidebar-section-title">Recent</span></div>
             <nav className="session-list" aria-label="Recent sessions">{list(placed.recent, 'recent')}</nav>
           </section>}
-          {/* Empty until slice 7: the shelf exists so settling has somewhere to land. */}
+          {/* Where settled sessions land: by hand, or after sitting idle (see AutoSettler). Never deleted. */}
           {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
             <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
             <nav className="session-list" aria-label="Settled sessions">

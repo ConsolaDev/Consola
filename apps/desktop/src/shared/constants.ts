@@ -67,6 +67,13 @@ export const IPC_CHANNELS = {
     ATTENTION_VIEWING: 'attention:viewing',    // renderer -> main: the session this window is showing, or null
     ATTENTION_FOCUSED: 'attention:focused',    // renderer -> main: whether this window has focus
     ATTENTION_CHANGED: 'attention:changed',    // main -> renderer: derived attention that changed, coalesced
+    ATTENTION_SETTLE: 'attention:settle',      // renderer -> main: settle a session and its descendants; answers the memento
+    ATTENTION_UNSETTLE: 'attention:unsettle',  // renderer -> main: bring a session back, holding auto-settle off
+    ATTENTION_RESTORE: 'attention:restore',    // renderer -> main: undo, from a memento
+    PREFERENCES_GET: 'preferences:get',
+    PREFERENCES_SET_AUTO_SETTLE_DAYS: 'preferences:set-auto-settle-days',
+    PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE: 'preferences:acknowledge-auto-settle',
+    PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
     ASSISTANT_OPEN: 'assistant:open',
     ASSISTANT_START_FRESH: 'assistant:start-fresh',
     ASSISTANT_GET_ACTIVITY: 'assistant:get-activity',

@@ -2,6 +2,8 @@ import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Boxes,
+  Archive,
+  ArchiveRestore,
   Check,
   CornerUpLeft,
   Link2,
@@ -16,6 +18,8 @@ import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { moveSessionToGroup } from '../../utils/sessionActions';
+import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
+import { useSessionAttention } from '../../stores/attentionStore';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
 const EMPTY_GROUPS: Group[] = [];
@@ -68,6 +72,7 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
   const assignLabel = useWorkspaceStore((state) => state.assignLabel);
   const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
   const [creatingGroup, setCreatingGroup] = useState(false);
+  const isSettled = useSessionAttention(session.id) === 'settled';
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
@@ -198,6 +203,31 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
           )}
+          {isSettled ? (
+            <DropdownMenu.Item className="dropdown-item" onSelect={() => void unsettleWithUndo(workspaceId, session.id, session.name)}>
+              <ArchiveRestore size={14} />
+              <span>Move back to list</span>
+            </DropdownMenu.Item>
+          ) : (
+            <DropdownMenu.Item className="dropdown-item" onSelect={() => void settleWithUndo(workspaceId, session.id, session.name)}>
+              <Archive size={14} />
+              <span>Settle</span>
+            </DropdownMenu.Item>
+          )}
+          <DropdownMenu.CheckboxItem
+            className="dropdown-item"
+            checked={session.autoSettle === 'never'}
+            onCheckedChange={(keep) => {
+              void updateSession(workspaceId, session.id, { autoSettle: keep ? 'never' : undefined }).catch((error) => {
+                console.error('Failed to change auto-settle', error);
+              });
+            }}
+          >
+            <span className="navigation-settings-check">
+              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+            </span>
+            <span>Never auto-settle</span>
+          </DropdownMenu.CheckboxItem>
           {canLink &&
             (session.workItem ? (
               <DropdownMenu.Item className="dropdown-item" onSelect={handleUnlink}>
