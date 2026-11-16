@@ -1,0 +1,54 @@
+import { describe, expect, it } from 'vitest';
+import { bucketize } from './bucketize';
+import { entry, forest, ids, keyOf } from './entryFixtures';
+import { applyHold, holdFor } from './openRowHold';
+
+const placedOf = (...entries: ReturnType<typeof entry>[]) => bucketize(forest(entries));
+
+describe('the open row holds its bucket', () => {
+  it('keeps a finished session in Done after reading it makes it ready', () => {
+    const opened = placedOf(entry('a', 'done', { finishedAt: 5 }), entry('b', 'done', { finishedAt: 4 }));
+    const hold = holdFor(opened, keyOf('a'));
+
+    const afterRead = placedOf(entry('a', 'ready'), entry('b', 'done', { finishedAt: 4 }));
+
+    expect(ids(afterRead.recent)).toEqual(['a']);
+    const held = applyHold(afterRead, hold);
+    expect(ids(held.done)).toEqual(['a', 'b']);
+    expect(ids(held.recent)).toEqual([]);
+  });
+
+  it('puts it back at the position it had, not at the end', () => {
+    const opened = placedOf(entry('a', 'done', { finishedAt: 9 }), entry('b', 'done', { finishedAt: 5 }), entry('c', 'done', { finishedAt: 1 }));
+    const hold = holdFor(opened, keyOf('b'));
+
+    const held = applyHold(placedOf(entry('a', 'done', { finishedAt: 9 }), entry('b', 'ready'), entry('c', 'done', { finishedAt: 1 })), hold);
+
+    expect(ids(held.done)).toEqual(['a', 'b', 'c']);
+  });
+
+  it('holds the whole tree when the open session is a child', () => {
+    const opened = placedOf(entry('p', 'ready'), entry('c', 'done', { parent: keyOf('p'), finishedAt: 3 }));
+    const hold = holdFor(opened, keyOf('c'));
+    expect(hold).toMatchObject({ rootKey: keyOf('p'), bucket: 'done' });
+
+    const held = applyHold(placedOf(entry('p', 'ready'), entry('c', 'ready', { parent: keyOf('p') })), hold);
+
+    expect(ids(held.done)).toEqual(['p']);
+  });
+
+  it('does nothing without a hold, with nothing open, or once the tree is gone', () => {
+    const placed = placedOf(entry('a', 'ready'));
+    expect(applyHold(placed, null)).toBe(placed);
+    expect(holdFor(placed, null)).toBeNull();
+    expect(holdFor(placed, keyOf('gone'))).toBeNull();
+    const hold = holdFor(placed, keyOf('a'));
+    const without = placedOf(entry('z', 'ready'));
+    expect(applyHold(without, hold)).toBe(without);
+  });
+
+  it('leaves a tree alone while it is still in the bucket it was held in', () => {
+    const placed = placedOf(entry('a', 'done'));
+    expect(applyHold(placed, holdFor(placed, keyOf('a')))).toBe(placed);
+  });
+});

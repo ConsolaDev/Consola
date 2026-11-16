@@ -2,6 +2,8 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { DEFAULT_INBOX_FILTER } from '../components/Inbox/inboxFilters';
 import {
+  isShelfOpen,
+  sanitizeShelfOpen,
   sanitizeCollapsedSections,
   sanitizeInboxFilters,
   useSettingsStore,
@@ -148,5 +150,38 @@ describe('sidebar section actions', () => {
     useSettingsStore.getState().expandSidebarSection('group-b');
 
     expect(useSettingsStore.getState().collapsedSidebarSections).toBe(before);
+  });
+});
+
+describe('sidebar shelves', () => {
+  it('starts Working and Settled shut and everything else open', () => {
+    expect(isShelfOpen({}, 'working')).toBe(false);
+    expect(isShelfOpen({}, 'settled')).toBe(false);
+    expect(isShelfOpen({}, 'session:some-conductor')).toBe(true);
+  });
+
+  it('lets an explicit choice win over the default, both ways', () => {
+    expect(isShelfOpen({ working: true }, 'working')).toBe(true);
+    expect(isShelfOpen({ 'session:c': false }, 'session:c')).toBe(false);
+  });
+
+  it('toggles from the effective state, so one press opens a never-touched Working shelf', () => {
+    useSettingsStore.setState({ sidebarShelfOpen: {} });
+    useSettingsStore.getState().toggleSidebarShelf('working');
+    expect(useSettingsStore.getState().sidebarShelfOpen).toEqual({ working: true });
+    useSettingsStore.getState().toggleSidebarShelf('working');
+    expect(useSettingsStore.getState().sidebarShelfOpen).toEqual({ working: false });
+  });
+
+  it('sets a tree explicitly when told which way', () => {
+    useSettingsStore.setState({ sidebarShelfOpen: {} });
+    useSettingsStore.getState().toggleSidebarShelf('session:c', true);
+    expect(useSettingsStore.getState().sidebarShelfOpen).toEqual({ 'session:c': true });
+  });
+
+  it('keeps only booleans from a persisted blob', () => {
+    expect(sanitizeShelfOpen({ working: true, a: 'yes', b: 1, c: false })).toEqual({ working: true, c: false });
+    expect(sanitizeShelfOpen(null)).toEqual({});
+    expect(sanitizeShelfOpen([true])).toEqual({});
   });
 });

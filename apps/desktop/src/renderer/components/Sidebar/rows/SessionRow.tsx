@@ -1,39 +1,27 @@
 import { useState, useRef, useEffect } from 'react';
 import { FolderGit2, Lock, X } from 'lucide-react';
-import { sessionLabel } from '../../../shared/sessionLabel';
-import { checkoutRef } from '../../../shared/sessionCheckout';
-import { checkoutPathForSession } from '../../../shared/workspace';
-import { useCheckout } from '../../stores/checkoutStore';
-import { useSettingsStore } from '../../stores/settingsStore';
-import { useSessionModel } from '../../hooks/useSessionModel';
-import { SessionHarnessIcon } from './SessionHarnessIcon';
-import { useWorkspaceStore, type Session } from '../../stores/workspaceStore';
-import { SessionActionsMenu } from './SessionActionsMenu';
-import { startSessionDrag } from './sessionDrag';
-import { deleteSessionCompletely } from '../../utils/sessionActions';
-import type { Attention } from '../../../shared/attention';
-import { useSessionAttention } from '../../stores/attentionStore';
-import { useNavigationStore } from '../../stores/navigationStore';
-import { useWindowFocusStore } from '../../stores/windowFocusStore';
-import { isSessionViewed } from '../../utils/viewing';
-import type { ScopeTrail } from '../../utils/scopeTrail';
-
-interface SessionNavItemProps {
-  session: Session;
-  workspaceId: string;
-  isActive: boolean;
-  onClick: () => void;
-  /**
-   * Rendered under the name *instead of* the session's own name — the scope a
-   * grouped session belongs to.
-   */
-  subtitle?: string;
-  /**
-   * The scope the session runs in, on a small line above the title. Set only
-   * while the list mixes scopes; a filtered list already says which one.
-   */
-  scopeLabel?: ScopeTrail;
-}
+import { sessionLabel } from '../../../../shared/sessionLabel';
+import { checkoutRef } from '../../../../shared/sessionCheckout';
+import { checkoutPathForSession } from '../../../../shared/workspace';
+import { useCheckout } from '../../../stores/checkoutStore';
+import { useSettingsStore } from '../../../stores/settingsStore';
+import { useSessionModel } from '../../../hooks/useSessionModel';
+import { SessionHarnessIcon } from '../SessionHarnessIcon';
+import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore';
+import { SessionActionsMenu } from '../SessionActionsMenu';
+import { startSessionDrag } from '../sessionDrag';
+import { deleteSessionCompletely } from '../../../utils/sessionActions';
+import type { Attention } from '../../../../shared/attention';
+import { useSessionAttention } from '../../../stores/attentionStore';
+import { useNavigationStore } from '../../../stores/navigationStore';
+import { useWindowFocusStore } from '../../../stores/windowFocusStore';
+import { isSessionViewed } from '../../../utils/viewing';
+import { scopeTrail } from '../../../utils/scopeTrail';
+import { basename } from '../../../utils/fileUtils';
+import { useCheckoutStore } from '../../../stores/checkoutStore';
+import { hasScopeChoice, filteredScope, useHomeStore } from '../../../stores/homeStore';
+import { idOfKey } from '../../../sidebar/entries';
+import type { RowProps } from '../../../sidebar/rowRegistry';
 
 /** Spoken form of each status, for the row's accessible name and tooltip. */
 const STATUS_LABELS: Record<Attention, string> = {
@@ -54,14 +42,26 @@ const STATUS_WORDS: Partial<Record<Attention, string>> = {
   exited: 'exited',
 };
 
-export function SessionNavItem({
+/**
+ * The row for a session entry: looks its record up by the entry's key, since an
+ * entry carries no payload. A session deleted between renders simply has no row.
+ */
+export function SessionRow(props: RowProps) {
+  const id = idOfKey(props.entry.key);
+  const session = useWorkspaceStore((state) =>
+    state.workspaces.find((candidate) => candidate.id === props.workspaceId)?.sessions.find((candidate) => candidate.id === id)
+  );
+  return session ? <SessionRowBody {...props} session={session} /> : null;
+}
+
+function SessionRowBody({
   session,
   workspaceId,
-  isActive,
-  onClick,
-  subtitle,
-  scopeLabel,
-}: SessionNavItemProps) {
+  active: isActive,
+  child,
+  onActivate: onClick,
+  trailing,
+}: RowProps & { session: Session }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
@@ -86,6 +86,25 @@ export function SessionNavItem({
   // simply find nothing.
   const allLabels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels);
   const labelNames = (allLabels ?? []).filter((label) => session.labelIds?.includes(label.id));
+
+  // While the list mixes scopes each row says which one it runs in; a list
+  // filtered to one scope already says it once, in the filter bar.
+  const workspace = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId));
+  const scopeFilterId = useHomeStore((state) => state.scopeFilters[workspaceId]);
+  const rowScope = workspace?.scopes.find((candidate) => candidate.id === session.scopeId);
+  const scopeLabel =
+    workspace && !filteredScope(workspace, scopeFilterId) && hasScopeChoice(workspace) && rowScope
+      ? scopeTrail(workspace.scopes, rowScope)
+      : undefined;
+  // A grouped session (a fan-out member) still names the repo it runs in when
+  // that folder is not its scope's root, unless the worktree line already names
+  // the checkout by branch. Where the agent works wins over where it launched.
+  const checkouts = useCheckoutStore((state) => state.byPath);
+  const worksIn = session.agentCwd ?? session.cwd;
+  const subtitle =
+    session.groupId && worksIn && worksIn !== rowScope?.path && !(showWorktree && checkouts[worksIn]?.kind === 'worktree')
+      ? basename(worksIn)
+      : undefined;
 
   const derivedStatus = useSessionAttention(session.id);
   // Exactly what `useViewingReport` reports as viewed, not bare `isActive`: an
@@ -183,13 +202,10 @@ export function SessionNavItem({
     }
   };
 
-  // Dragging the row onto a group header moves it there, and dragging a
-  // grouped row back onto its own scope row takes it out again — one gesture
-  // both ways. The ⋯ menu's "Move to group" and "Remove from group" are the
-  // keyboard twins of each, so nothing is reachable only by dragging.
+  // Dragging the row onto a label chip assigns that label; the ⋯ menu's label
+  // entries are its keyboard twin, so nothing is reachable only by dragging.
   // Renaming turns it off so the pointer can select text in the input, and a
-  // conductor is never draggable — its group is the fleet it orchestrates,
-  // not a folder it happens to sit in.
+  // conductor is never draggable — its tree is the fleet it orchestrates.
   const draggable = !isRenaming && session.kind !== 'conductor';
 
   return (
@@ -197,7 +213,7 @@ export function SessionNavItem({
       role="button"
       tabIndex={0}
       // The rename field replaces the scope line too, so the row is a plain one while it shows.
-      className={`session-nav-item ${scopeLabel && !isRenaming ? 'session-nav-item--scoped' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
+      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${scopeLabel && !isRenaming ? 'session-nav-item--scoped' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
       onContextMenu={(event) => {
@@ -287,6 +303,7 @@ export function SessionNavItem({
           {statusWord}
         </span>
       )}
+      {trailing}
       {!isRenaming && (
         <div className="nav-row-actions" data-open={actionsOpen || undefined}>
           <SessionActionsMenu

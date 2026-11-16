@@ -807,8 +807,7 @@
 
 .session-nav-item:hover .nav-row-actions,
 .session-nav-item:focus-within .nav-row-actions,
-.group-nav-header:hover .nav-row-actions,
-.group-nav-header:focus-within .nav-row-actions,
+
 .scope-row:hover .nav-row-actions,
 .scope-row:focus-within .nav-row-actions,
 .nav-row-actions[data-open='true'] {
@@ -1095,83 +1094,90 @@
   padding-left: calc(var(--space-2) + var(--space-3));
 }
 
-/* --- Groups ------------------------------------------------------------ */
+/* --- Attention shelves and conductor trees ------------------------------ */
 
-/* A group keeps its members in the same tight rhythm a scope keeps its own,
-   so the two sections of the sidebar read as one list. */
-.group-nav-item {
-  display: flex;
-  flex-direction: column;
-  row-gap: 2px;
-}
+.sidebar-sessions { display: flex; flex-direction: column; }
+.sidebar-bucket { padding: var(--space-1) var(--space-2); }
+.sidebar-bucket .sidebar-section-title { text-transform: none; letter-spacing: normal; }
 
-/* The same gap the scopes keep between theirs, for the same reason. */
-.group-nav-item + .group-nav-item {
-  margin-top: var(--space-2);
-}
-
-/* The header is its group's title, its collapse control and its actions menu
-   at once: a row of the same height and size as the sessions below it, told
-   apart by weight. The row is a plain element because the actions trigger is
-   a button, and a button may not contain another. */
-.group-nav-header {
+/* A collapsible shelf's header: the same row height as a session, told apart
+   by weight, with a live count so a collapsed shelf still says what is in it. */
+.shelf-header {
   display: flex;
   align-items: center;
   gap: var(--space-2);
   width: 100%;
   min-height: var(--sidebar-row-height);
   padding: var(--sidebar-row-padding-y) var(--space-2);
+  border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-primary);
-  font-size: var(--sidebar-font-size);
-  font-weight: var(--font-weight-medium);
-  text-align: left;
-  transition: background var(--transition-fast);
-}
-
-.group-nav-header:hover {
-  background: var(--color-bg-hover);
-}
-
-/* The collapse control fills the row so clicking anywhere but the trigger
-   toggles the group, exactly as the whole header used to. */
-.group-nav-toggle {
-  display: flex;
-  flex: 1;
-  min-width: 0;
-  align-items: center;
-  gap: var(--space-2);
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
+  color: var(--color-text-secondary);
   font: inherit;
+  font-size: var(--sidebar-font-size-label);
+  font-weight: var(--font-weight-medium);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
   text-align: left;
   cursor: pointer;
 }
+.shelf-header:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+.shelf-header:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.shelf-header-title { flex: 1; min-width: 0; }
+.shelf-header-count { flex: none; font-size: var(--sidebar-font-size-small); letter-spacing: normal; }
 
-.group-nav-name {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+.tree-row { display: flex; flex-direction: column; row-gap: 2px; }
+.tree-row-head { display: flex; align-items: center; }
+.tree-row-head > .session-nav-item { flex: 1; min-width: 0; }
+.tree-row-toggle {
+  display: flex; flex: none; align-items: center; justify-content: center;
+  width: 16px; height: 20px; padding: 0; border: none; border-radius: var(--radius-sm);
+  background: transparent; color: var(--color-text-tertiary); cursor: pointer;
 }
+.tree-row-toggle:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
+.tree-row-toggle:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.tree-row-children { display: flex; flex-direction: column; row-gap: 2px; }
 
-/* Derived on every render from the terminal statuses — never stored. */
-.group-nav-count {
+/* Children sit one step in from their conductor. Padding rather than margin, so
+   hover and active backgrounds still meet the accent bar at the edge. */
+.session-nav-item--child { padding-left: calc(var(--space-2) + var(--space-3)); }
+
+.tree-aggregate {
   flex: none;
-  font-size: var(--sidebar-font-size-small);
+  padding: 0 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  background: var(--color-bg-hover);
   color: var(--color-text-secondary);
 }
+.tree-aggregate--needs-attention { color: var(--color-warning, var(--color-accent)); }
 
-/* Members sit one step in from their header, the same step scope sessions
-   take. The indent is padding for the same reason: the row stays full-width,
-   so its hover and active backgrounds meet the accent bar at the edge. */
-.group-nav-item .session-nav-item {
-  padding-left: calc(var(--space-2) + var(--space-3));
+.tree-row-more {
+  align-self: flex-start;
+  margin: 0 0 0 calc(var(--space-2) + var(--space-3) + 16px);
+  padding: 0 6px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 12%, transparent);
+  color: var(--color-text-secondary);
+  font-size: 11px;
+  cursor: pointer;
 }
+.tree-row-more:hover { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+
+/* What a filter hides that needs the person, never silently. */
+.sidebar-hidden-chip {
+  align-self: flex-start;
+  margin: 0 var(--space-2) var(--space-2);
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-accent) 18%, transparent);
+  color: var(--color-text-primary);
+  font-size: 11px;
+  cursor: pointer;
+}
+.sidebar-hidden-chip:hover { background: color-mix(in srgb, var(--color-accent) 28%, transparent); }
 
 /* ═══════════════════════════════════════════════════════════
    SCOPE ROW - The filter between the Assistant and the session list
@@ -1368,14 +1374,10 @@
   opacity: 0.45;
 }
 
-/* A group header ready to receive the row, and a scope row ready to take it
-   back. The same treatment for both: one gesture in either direction, so a
-   different highlight for the way out would suggest a different kind of move.
-   Outlined rather than filled: both rows already use their background for
-   hover, and a drop target that looked like a hover would say nothing about
-   which of the two is happening. */
-.group-nav-header.drop-target,
-.scope-row.drop-target {
+/* A label chip ready to receive a session row. Outlined rather than filled: the
+   chip already uses its background for hover, and a drop target that looked
+   like a hover would say nothing about a drag being in progress. */
+.sidebar-filter-chip.drop-target {
   background: var(--color-bg-hover);
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
@@ -1478,13 +1480,10 @@
 .home-session-panel { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
 .home-session-panel .sidebar-section { flex: none; overflow: visible; }
 .home-session-panel .sidebar-section-title { text-transform: none; letter-spacing: normal; }
-.sidebar-ungrouped { margin-top: var(--space-3); }
 .sidebar-empty, .sidebar-error { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--sidebar-font-size-small); color: var(--color-text-tertiary); line-height: var(--line-height-normal); }
 .sidebar-error { color: var(--color-error); }
 .sidebar-empty-link { padding: 0; border: 0; background: transparent; color: var(--color-accent); font: inherit; cursor: pointer; text-align: left; }
 .sidebar-empty-link:hover { text-decoration: underline; }
 .sidebar-empty-link:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
-.sidebar-ungrouped .drop-target { background: var(--color-bg-hover); outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .app-navigation-item:focus-visible, .sidebar-scope-filter-trigger:focus-visible, .sidebar-scope-filter-clear:focus-visible, .sidebar-section-button:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 
-.sidebar-ungrouped .sidebar-section-title { margin-right: auto; }

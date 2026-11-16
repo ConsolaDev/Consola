@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test';
 import { launchElectron } from './helpers/electron';
 
 const chooseScope = async (target: Page, name: string) => {
-  await target.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+  await target.getByRole('button', { name: 'Filter sessions', exact: true }).click();
   await target.getByRole('menuitem', { name: new RegExp(name) }).click();
 };
 
@@ -69,7 +69,7 @@ test('session options create and reuse worktrees, with searchable refs and recov
     expect(sessions).toHaveLength(2);
     expect(sessions[1].cwd).toBe(existing);
 
-    // Group creation must persist the scope selected in Home, including when
+    // Session options must persist the scope selected in Home, including when
     // the last active conversation ran in a different scope and worktree.
     const destination = await page.evaluate(async ({ folder }) => {
       const ws = (await window.workspaceAPI.getSnapshot()).workspaces.find(ws => ws.name === 'console-1')!;
@@ -78,10 +78,11 @@ test('session options create and reuse worktrees, with searchable refs and recov
       return { scopeId: scope.id, groupId: group.id };
     }, { folder: existing });
     await chooseScope(page, 'inbox-checkout');
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'Group actions for Inbox work' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
     await expect(page.getByLabel('Scope', { exact: true })).toContainText('inbox-checkout');
+    // The Group field still offers the workspace's groups; it is a choice, not a place.
+    await page.getByLabel('Group', { exact: true }).click();
+    await page.getByRole('option', { name: 'Inbox work', exact: true }).click();
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Inbox work');
     await page.getByRole('button', { name: 'Create session' }).click();
     await expect(page.getByRole('dialog', { name: 'New session with options' })).toHaveCount(0);
@@ -89,12 +90,12 @@ test('session options create and reuse worktrees, with searchable refs and recov
     expect(grouped.scopeId).toBe(destination.scopeId);
     expect(grouped.groupId).toBe(destination.groupId);
     expect(grouped.cwd).toBe(existing);
-    await expect(page.locator('.group-nav-item .session-nav-item.active')).toBeVisible();
+    await expect(page.locator('.session-nav-item.active')).toBeVisible();
     await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
     await expect(page.getByLabel('Scope', { exact: true })).toContainText('inbox-checkout');
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
     await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await expect(page.locator('.group-nav-item .session-nav-item.active')).toBeVisible();
+    await expect(page.locator('.session-nav-item.active')).toBeVisible();
 
   } finally {
     await app.close();
@@ -168,17 +169,20 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
     expect(await sessions()).toHaveLength(2);
     expect(await activeIndex()).toBe(active);
 
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'New session in Feature', exact: true }).click();
+    // + starts a plain session in the filtered scope: no group is implied.
+    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
     await expect.poll(async () => (await sessions()).length).toBe(3);
-    expect((await sessions())[2]).toMatchObject({ scopeId: setup.scopeId, groupId: setup.groupId, harnessId: 'fixture' });
-    await page.getByRole('button', { name: 'New ungrouped session' }).click();
+    expect((await sessions())[2]).toMatchObject({ scopeId: setup.scopeId, harnessId: 'fixture' });
+    expect((await sessions())[2].groupId).toBeUndefined();
+    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
     await expect.poll(async () => (await sessions()).length).toBe(4);
     expect((await sessions())[3].groupId).toBeUndefined();
 
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'Group actions for Feature' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    // A group is still a choice in the options; it carries into the record.
+    await page.keyboard.press(`${mod}+Shift+KeyN`);
+    await expect(modal.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
+    await modal.getByLabel('Group', { exact: true }).click();
+    await page.getByRole('option', { name: 'Feature', exact: true }).click();
     await expect(modal.getByLabel('Group', { exact: true })).toContainText('Feature');
     await expect(modal.getByLabel('Model', { exact: true })).toContainText('Default model');
     await modal.getByLabel('Model', { exact: true }).click();
@@ -186,8 +190,7 @@ test('plus and new-session shortcuts launch defaults; options are cancellable an
     await modal.getByRole('button', { name: 'Create session' }).click();
     await expect(modal).toHaveCount(0);
     expect((await sessions())[4]).toMatchObject({ groupId: setup.groupId, scopeId: setup.scopeId, model: 'fixture-model-b' });
-    await page.getByRole('button', { name: 'Ungrouped actions' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await page.keyboard.press(`${mod}+Shift+KeyN`);
     await expect(modal.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
     await modal.getByRole('button', { name: 'Cancel', exact: true }).click();
     expect(await sessions()).toHaveLength(5);

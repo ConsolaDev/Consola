@@ -467,7 +467,7 @@ test('sections, views and filters render; actions, links and renames flow throug
 
     // Home owns the scoped quick-session controls; Inbox hides that sidebar.
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
-    await page.getByRole('button', { name: 'New ungrouped session' }).click();
+    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
     const plainRow = page.locator('.session-nav-item', { hasText: 'New Session' });
     await expect(plainRow).toBeVisible({ timeout: 10_000 });
     const plainCwd = sessionsIn(stateFile).find(session => !session.workItem)?.cwd;

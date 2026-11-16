@@ -198,12 +198,22 @@ test.describe('Home scopes and groups', () => {
     fs.rmSync(scopeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
-  const ungrouped = (target: Page) => target.locator('.sidebar-ungrouped');
+  /**
+   * Where the seeded sessions sit: all of them are ready and none has run, so
+   * every row is under Recent. Attention, not group or scope, decides sections.
+   */
+  const recent = (target: Page) => target.locator('.sidebar-bucket--recent');
+  /** The record a ⋯ move wrote, read back from main. */
+  const groupOf = (target: Page, sessionId: string) =>
+    target.evaluate(
+      async (id) => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find((candidate) => candidate.id === id)!.groupId,
+      sessionId
+    );
   /** A sidebar row, by the name it renders. */
   const rowFor = (target: Page, name: string) =>
     target.locator('.session-nav-item').filter({ hasText: name });
   const chooseScope = async (target: Page, name: string) => {
-    await target.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await target.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await target.getByRole('menuitem', { name: new RegExp(name) }).click();
   };
 
@@ -290,26 +300,40 @@ test.describe('Home scopes and groups', () => {
     expect(stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model).toBe('claude-opus-4-6');
   });
 
-  test('scope selection filters both groups and ungrouped sessions', async () => {
+  test('scope selection filters the list, and Clear filters brings every scope back', async () => {
     // All scopes by default: every session, each naming the scope it runs in.
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
-    await expect(page.locator('.group-nav-count')).toHaveText('1');
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(rowFor(page, 'Bump deps').locator('.session-nav-item-scope')).toContainText('shared-lib');
     await chooseScope(page, 'shared-lib');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(1);
-    await expect(ungrouped(page)).toContainText('Bump deps');
-    await expect(page.locator('.group-nav-count')).toHaveText('0');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(0);
-    // A filtered list says its scope once, in the scope row, never per row.
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(recent(page)).toContainText('Bump deps');
+    // A filtered list says its scope once, in the filter bar, never per row.
     await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
     await chooseScope(page, 'catalog-portal');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
-    await page.locator('.sidebar-scope-filter').getByRole('button', { name: 'Show all scopes', exact: true }).click();
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(3);
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
     await expect(page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Scopes', exact: true })).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('a label filter and a scope narrow together, and one Clear filters resets both', async () => {
+    // "Fan out" was a group before the v8 migration; its members now carry it as a label.
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await page.getByRole('menuitem', { name: /Fan out/ }).click();
+    await page.keyboard.press('Escape');
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(recent(page)).toContainText('Fan member');
+    await chooseScope(page, 'shared-lib');
+    await expect(page.locator('.session-nav-item')).toHaveCount(0);
+    await expect(page.getByText('No sessions match these filters.')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).first().click();
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await expect(page.locator('.sidebar-filter-chips')).toHaveCount(0);
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   const jumpWithPalette = async (target: Page, name: string) => {
@@ -332,11 +356,11 @@ test.describe('Home scopes and groups', () => {
     await jumpWithPalette(page, 'Bump deps');
     await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   test('the scope row sits under the Assistant on Home only, never in the title bar', async () => {
-    await expect(page.locator('.app-header').getByRole('button', { name: 'Filter sessions by scope' })).toHaveCount(0);
+    await expect(page.locator('.app-header').getByRole('button', { name: 'Filter sessions' })).toHaveCount(0);
     await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
     await expect(page.locator('.sidebar-scope-filter')).toHaveCount(1);
     await page.getByRole('button', { name: 'Inbox', exact: true }).click();
@@ -360,7 +384,7 @@ test.describe('Home scopes and groups', () => {
 
     await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await expect(page.getByRole('menuitem', { name: /catalog-portal/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Add scope', exact: true })).toBeVisible();
     // One scope has nothing to tell apart, so rows stay unlabelled.
@@ -368,20 +392,12 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
   });
 
-  test('group and ungrouped options share the selected scope without creating a session early', async () => {
+  test('session options share the selected scope without creating a session early', async () => {
     await chooseScope(page, 'shared-lib');
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
     await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
-    await expect(page.getByLabel('Group', { exact: true }).locator('.session-option-name')).toHaveText('Fan out');
-    const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
-    expect(await count()).toBe(4);
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: 'Ungrouped actions' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
-    await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
+    const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
     expect(await count()).toBe(4);
     await page.getByLabel('Scope', { exact: true }).click();
     await page.getByRole('option', { name: 'catalog-portal', exact: true }).click();
@@ -397,7 +413,7 @@ test.describe('Home scopes and groups', () => {
     await page.screenshot({ path: 'test-results/home-sidebar-dark.png', animations: 'disabled' });
 
     // The same sidebar under All, with a session open so the pane names its scope.
-    await page.locator('.sidebar-scope-filter').getByRole('button', { name: 'Show all scopes', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
     await rowFor(page, 'Bump deps').click();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await page.mouse.move(500, 300);
@@ -458,18 +474,100 @@ test.describe('Home scopes and groups', () => {
     await expect.poll(() => page.evaluate(() => (window as any).__renameOffset)).toBeLessThanOrEqual(2);
   });
 
-  test('a group folds and retains its scope-filtered count', async () => {
-    const toggle = page.locator('.group-nav-toggle');
+  const workingHeader = (target: Page) => target.getByRole('button', { name: /^Working/ });
+  const workingChord = process.platform === 'darwin' ? 'Meta+Shift+KeyB' : 'Control+Shift+KeyB';
 
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
+  test('the Working shelf starts collapsed with a live count, and one chord opens it', async () => {
+    const header = workingHeader(page);
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+    // Nothing has run, so nothing is working; the count is live, not a label.
+    await expect(header.locator('.shelf-header-count')).toHaveText('0');
 
-    await toggle.click();
+    await page.keyboard.press(workingChord);
+    await expect(header).toHaveAttribute('aria-expanded', 'true');
+    await page.keyboard.press(workingChord);
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+  });
 
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(0);
-    // The badge is the group's own and stays put whether folded or not.
-    await expect(page.locator('.group-nav-count')).toHaveText('1');
+  test('the palette shows or hides the Working shelf', async () => {
+    await page.keyboard.press(commandPaletteChord());
+    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
+    await palette.getByRole('combobox').fill('working sessions');
+    await palette.getByRole('option', { name: /Show or hide working sessions/ }).click();
+    await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('the Settled shelf is there and empty: nothing settles until slice 7', async () => {
+    const header = page.getByRole('button', { name: /^Settled/ });
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+    await expect(header.locator('.shelf-header-count')).toHaveText('0');
+  });
+
+  test('archiving a group never hides its sessions', async () => {
+    await page.evaluate(() => window.workspaceAPI.archiveGroup('ws-folding-e2e', 'group-fanout'));
+    // Groups are not a place any more: the member stays among the others.
+    await expect(rowFor(page, 'Fan member')).toHaveCount(1);
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+  });
+
+  test('the ⋯ menu can start a new group for a session', async () => {
+    const row = rowFor(page, 'Controller boot');
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Move to group' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menuitem', { name: 'New group…', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New group' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Name').fill('PR reviews');
+    await dialog.getByRole('button', { name: 'Create' }).click();
+
+    await expect(dialog).toBeHidden();
+    const created = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].groups.map((group) => ({ id: group.id, name: group.name })));
+    expect(created.map((group) => group.name)).toEqual(['Fan out', 'PR reviews']);
+    await expect.poll(() => groupOf(page, 's1')).toBe(created[1].id);
+  });
+
+  test('the ⋯ menu moves a session into a group and back out again', async () => {
+    expect(await groupOf(page, 's1')).toBeUndefined();
+
+    const row = rowFor(page, 'Controller boot');
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    // The submenu is opened from the keyboard, the way its trigger is meant to be.
+    await page.getByRole('menuitem', { name: 'Move to group' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => groupOf(page, 's1')).toBe('group-fanout');
+    // A group is a record, not a place: the row has not moved anywhere.
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+
+    // Leaving sits beside the submenu, not inside it: the way out must not be
+    // filed under the list of places to go.
+    const moved = rowFor(page, 'Controller boot');
+    await moved.hover();
+    await moved.getByRole('button', { name: 'Session actions' }).click();
+    await page.getByRole('menuitem', { name: 'Remove from group' }).click();
+    await expect.poll(() => groupOf(page, 's1')).toBeUndefined();
+  });
+
+  test('a move survives a relaunch — it is a record, not a view preference', async () => {
+    test.setTimeout(60_000);
+    const row = rowFor(page, 'Bump deps');
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    // The submenu is opened from the keyboard, the way its trigger is meant to be.
+    await page.getByRole('menuitem', { name: 'Move to group' }).focus();
+    await page.keyboard.press('ArrowRight');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => groupOf(page, 's3')).toBe('group-fanout');
+
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+
+    expect(await groupOf(page, 's3')).toBe('group-fanout');
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   test('the session × and menu share confirmation without activating the row', async () => {
@@ -509,95 +607,14 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item')).toHaveCount(3);
   });
 
-  test('the group menu archives the group and returns its sessions to Ungrouped', async () => {
-    const header = page.locator('.group-nav-header');
-    await header.hover();
-    await header.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Archive group', exact: true }).click();
-    await expect(page.locator('.group-nav-item')).toHaveCount(0);
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(4);
-    await expect(rowFor(page, 'Fan member')).toHaveCount(1);
-  });
-
-  test('the Your groups heading creates a group', async () => {
-    await expect(page.locator('.group-nav-item')).toHaveCount(1);
-
-    await page.getByRole('button', { name: 'Add group' }).click();
-    const dialog = page.getByRole('dialog', { name: 'New group' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel('Name').fill('PR reviews');
-    await dialog.getByRole('button', { name: 'Create' }).click();
-
-    await expect(dialog).toBeHidden();
-    await expect(page.locator('.group-nav-item')).toHaveCount(2);
-    await expect(page.locator('.group-nav-name').filter({ hasText: 'PR reviews' })).toHaveCount(1);
-  });
-
-  test('the ⋯ menu moves a session into a group and back out again', async () => {
-    const appScope = ungrouped(page);
-    const groupRows = page.locator('.group-nav-item .session-nav-item');
-
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(3);
-    await expect(groupRows).toHaveCount(1);
-
-    // Folded first: a move into a group nobody can see must unfold it, or the
-    // row would appear to have been deleted rather than moved.
-    const groupToggle = page.locator('.group-nav-toggle');
-    await groupToggle.click();
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
-
-    const row = rowFor(page, 'Controller boot');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to group' }).click();
-    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
-    // The group owns the row now, so the scope it still runs in stops
-    // drawing it — the partition keeps a session on exactly one row.
-    await expect(groupRows).toHaveCount(2);
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
-    await expect(groupRows.filter({ hasText: 'Controller boot' })).toHaveCount(1);
-
-    // Leaving sits beside the submenu, not inside it: the way out must not be
-    // filed under the list of places to go.
-    const moved = rowFor(page, 'Controller boot');
-    await moved.hover();
-    await moved.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Remove from group' }).click();
-
-    await expect(groupRows).toHaveCount(1);
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(3);
-  });
-
-  test('a move survives a relaunch — it is a record, not a view preference', async () => {
+  test('a shelf choice survives a relaunch', async () => {
     test.setTimeout(60_000);
-    await chooseScope(page, 'shared-lib');
-    const row = rowFor(page, 'Bump deps');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to group' }).click();
-    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
-
+    await workingHeader(page).click();
+    await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
-    await chooseScope(page, 'shared-lib');
-
-    await expect(
-      page.locator('.group-nav-item .session-nav-item').filter({ hasText: 'Bump deps' })
-    ).toHaveCount(1);
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(0);
-  });
-
-  test('a group fold survives a relaunch', async () => {
-    test.setTimeout(60_000);
-    await page.locator('.group-nav-toggle').click();
-    await app.close();
-    ({ app, page } = await launchElectron({ userDataDir }));
-    await holdWorkspace(page);
-    await expect(page.locator('.group-nav-toggle')).toHaveAttribute('aria-expanded', 'false');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 });

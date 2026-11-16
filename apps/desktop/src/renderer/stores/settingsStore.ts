@@ -19,6 +19,17 @@ export const TERMINAL_FONT_SIZE_MIN = 11;
 export const TERMINAL_FONT_SIZE_MAX = 20;
 export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 
+/**
+ * What a shelf does before the person has touched it. Working is the shelf
+ * that is out of the way until asked for; everything else is open.
+ */
+export const SHELF_DEFAULTS: Record<string, boolean> = { working: false, settled: false };
+
+/** Whether a shelf is open, with its default for a shelf never touched. */
+export function isShelfOpen(shelves: Record<string, boolean>, id: string): boolean {
+  return shelves[id] ?? SHELF_DEFAULTS[id] ?? true;
+}
+
 export function clampTerminalFontSize(size: number): number {
   if (!Number.isFinite(size)) return TERMINAL_FONT_SIZE_DEFAULT;
   return Math.min(TERMINAL_FONT_SIZE_MAX, Math.max(TERMINAL_FONT_SIZE_MIN, Math.round(size)));
@@ -53,6 +64,18 @@ interface SettingsState {
    * fold that could reattach to something else later.
    */
   collapsedSidebarSections: string[];
+  /**
+   * Whether each attention shelf (and each conductor tree) is open, by id.
+   *
+   * Not folded into `collapsedSidebarSections` because that list treats
+   * absence as expanded, which is the wrong default for the Working shelf:
+   * here absence means the section's own default (`SHELF_DEFAULTS`). A tree is
+   * keyed by its conductor's entry key and stored only when the person
+   * toggled it, so an explicit choice always wins over the derived view.
+   */
+  sidebarShelfOpen: Record<string, boolean>;
+  /** Open a closed shelf or close an open one, from its current effective state. */
+  toggleSidebarShelf: (id: string, open?: boolean) => void;
   setTheme: (theme: ThemeMode) => void;
   /** Step to the next theme: light -> dark -> system -> light. */
   cycleTheme: () => void;
@@ -109,6 +132,14 @@ export function sanitizeCollapsedSections(raw: unknown): string[] {
   return [...new Set(raw.filter((id): id is string => typeof id === 'string'))];
 }
 
+/** Same guard as `sanitizeCollapsedSections`, for the shelf map: only booleans survive. */
+export function sanitizeShelfOpen(raw: unknown): Record<string, boolean> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
+  return Object.fromEntries(
+    Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')
+  );
+}
+
 export const useSettingsStore = create<SettingsState>()(
   persist(
     (set, get) => ({
@@ -123,6 +154,11 @@ export const useSettingsStore = create<SettingsState>()(
       setShowSidebarWorktree: (showSidebarWorktree) => set({ showSidebarWorktree }),
       inboxFilters: {},
       collapsedSidebarSections: [],
+      sidebarShelfOpen: {},
+      toggleSidebarShelf: (id, open) =>
+        set((state) => ({
+          sidebarShelfOpen: { ...state.sidebarShelfOpen, [id]: open ?? !isShelfOpen(state.sidebarShelfOpen, id) },
+        })),
       setTheme: (theme) => set({ theme }),
       // Lives in the store so the keyboard shortcut and the command palette
       // can never disagree about what "next theme" means.
@@ -178,6 +214,7 @@ export const useSettingsStore = create<SettingsState>()(
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
         collapsedSidebarSections: state.collapsedSidebarSections,
+        sidebarShelfOpen: state.sidebarShelfOpen,
       }),
       // A persisted size from an older build (or a hand-edited value) still has
       // to land inside the bounds the terminal can actually lay out, and a
@@ -195,6 +232,7 @@ export const useSettingsStore = create<SettingsState>()(
           ),
           inboxFilters: sanitizeInboxFilters(saved?.inboxFilters),
           collapsedSidebarSections: sanitizeCollapsedSections(saved?.collapsedSidebarSections),
+          sidebarShelfOpen: sanitizeShelfOpen(saved?.sidebarShelfOpen),
         };
       },
     }

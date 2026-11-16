@@ -1,5 +1,6 @@
 import { filteredScope, newSessionScope, useHomeStore } from '../stores/homeStore';
 import { closePanelOnWorkspaceSwitch, useNavigationStore } from '../stores/navigationStore';
+import { useSessionFilterStore } from '../stores/sessionFilterStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
@@ -70,6 +71,18 @@ export function chooseScope(workspaceId: string, scopeId: string | null): void {
   if (navigation.activeWorkspaceId !== workspaceId || navigation.overlay !== null) return;
   const open = useWorkspaceStore.getState().getSession(workspaceId, navigation.activeSessionId ?? '');
   if (open && open.kind !== 'assistant' && open.scopeId !== scopeId) navigation.setActiveSession(null);
+}
+
+/**
+ * Drop every narrowing of the session list: the scope and the facets and
+ * labels. They live in two stores (`homeStore.scopeFilters` and
+ * `sessionFilterStore`) because much of the app reads the scope on its own, so
+ * a path that means "show me everything" has to clear both, and goes through
+ * here so none can clear only one.
+ */
+export function clearAllFilters(workspaceId: string): void {
+  useHomeStore.getState().setScopeFilter(workspaceId, null);
+  useSessionFilterStore.getState().clear(workspaceId);
 }
 
 /**

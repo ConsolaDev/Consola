@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
-import { ViewingReporter, isSessionViewed, viewedInstanceId } from './viewing';
+import { ViewingReporter, isSessionViewed, viewedInstanceId, viewedSessionId } from './viewing';
 
 function workspace(): Workspace {
   const record = createWorkspaceRecord('w1', '/code/w1', true);
@@ -80,5 +80,22 @@ describe('isSessionViewed', () => {
     expect(isSessionViewed(view, 'b', true)).toBe(false);
     expect(isSessionViewed({ ...view, overlay: 'inbox' }, 'a', true)).toBe(false);
     expect(isSessionViewed(view, 'a', false)).toBe(false);
+  });
+});
+
+describe('the two predicates agree', () => {
+  it('a session is viewed exactly when its terminal is the one reported', () => {
+    const ws = workspace();
+    const views = [
+      { activeSessionId: 'a', overlay: null },
+      { activeSessionId: 'a', overlay: 'inbox' },
+      { activeSessionId: 'gone', overlay: null },
+      { activeSessionId: null, overlay: null },
+    ];
+    for (const view of views) {
+      const reported = viewedInstanceId(view, ws) === 'inst-a';
+      expect(isSessionViewed(view, 'a', true)).toBe(reported);
+      expect(viewedSessionId(view) === 'a').toBe(reported);
+    }
   });
 });

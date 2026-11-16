@@ -717,7 +717,7 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
     }, root);
     // The empty list offers the way back as well as the scope row's menu.
-    await page.locator('.sidebar-ungrouped').getByRole('button', { name: 'Add a scope', exact: true }).click();
+    await page.locator('.sidebar-sessions').getByRole('button', { name: 'Add a scope', exact: true }).click();
     await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeEnabled();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await expect(page.getByRole('region', { name: 'Before your first session' })).toContainText(`Runs in the ${path.basename(root)} scope`);
@@ -806,10 +806,14 @@ test('group emojis can be searched, cancelled, saved, reloaded and removed', asy
   const savedGroup = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].groups[0];
   try {
     await holdWorkspace(page);
+    // Groups are managed in Workspace settings now: the sidebar no longer has a header to act on.
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const settings = page.getByRole('dialog').first();
+    await settings.getByRole('button', { name: 'Groups', exact: true }).click();
+    const groupEmoji = settings.locator('.ws-row-icon .group-emoji');
     const openEdit = async () => {
-      await page.locator('.group-nav-header').hover();
-      await page.getByRole('button', { name: 'Group actions for PR reviews' }).click();
-      await page.getByRole('menuitem', { name: 'Rename group…' }).click();
+      await settings.getByRole('button', { name: 'Rename group PR reviews' }).click();
     };
     await openEdit();
     const dialog = page.getByRole('dialog', { name: 'Rename group', exact: true });
@@ -829,17 +833,20 @@ test('group emojis can be searched, cancelled, saved, reloaded and removed', asy
     await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => savedGroup().emoji).toBe('🇸🇪');
-    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+    await expect(groupEmoji).toHaveText('🇸🇪');
     await page.reload();
     await holdWorkspace(page);
-    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    await settings.getByRole('button', { name: 'Groups', exact: true }).click();
+    await expect(groupEmoji).toHaveText('🇸🇪');
 
     await openEdit();
     await dialog.getByRole('button', { name: 'Change group emoji' }).click();
     await picker.getByRole('button', { name: 'Remove emoji' }).click();
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
     await expect.poll(() => savedGroup().emoji).toBeUndefined();
-    await expect(page.locator('.group-nav-toggle .group-emoji svg')).toBeVisible();
+    await expect(settings.locator('.ws-row-icon .group-emoji svg')).toBeVisible();
   } finally {
     await cleanup();
   }

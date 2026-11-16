@@ -29,7 +29,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
-import { isMac } from '../../utils/platform';
+import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import type {
   PaletteMode,
   ActionPaletteItem,
@@ -230,6 +230,16 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       run: () => useNavigationStore.getState().toggleWorkItemPanel(),
     });
   }
+
+  items.push({
+    kind: 'action',
+    section: 'actions',
+    id: 'action.view.toggle-working-shelf',
+    label: 'Show or hide working sessions',
+    icon: PanelRight,
+    shortcutHint: WORKING_SHELF_SHORTCUT_LABEL,
+    run: () => useSettingsStore.getState().toggleSidebarShelf('working'),
+  });
 
   items.push({
     kind: 'action',

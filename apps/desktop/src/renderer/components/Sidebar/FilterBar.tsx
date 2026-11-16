@@ -10,7 +10,8 @@ import { deriveFacets, effectiveFilters, hasActiveFilters, type FacetKey, type F
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
-import { chooseScope } from '../../utils/sessionActions';
+import { chooseScope, clearAllFilters } from '../../utils/sessionActions';
+import { droppedSessionId, isSessionDrag, leftDropTarget } from './sessionDrag';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
 
@@ -50,7 +51,9 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [editing, setEditing] = useState<Label | null>(null);
   const chosen = useSessionFilterStore(state => state.filters[workspace.id]);
-  const { toggle, clear } = useSessionFilterStore.getState();
+  const { toggle } = useSessionFilterStore.getState();
+  const assignLabel = useWorkspaceStore(state => state.assignLabel);
+  const [dropChip, setDropChip] = useState<string | null>(null);
   const createLabel = useWorkspaceStore(state => state.createLabel);
   const deleteLabel = useWorkspaceStore(state => state.deleteLabel);
 
@@ -196,12 +199,30 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
         </DropdownMenu.Portal>
       </DropdownMenu.Root>
       {narrowed && <button className="sidebar-scope-filter-clear" aria-label="Clear filters" title="Clear filters"
-        onClick={() => { chooseScope(workspace.id, null); clear(workspace.id); }}><X size={12} aria-hidden="true" /></button>}
+        onClick={() => clearAllFilters(workspace.id)}><X size={12} aria-hidden="true" /></button>}
     </div>
     {chips.length > 0 && <div className="sidebar-filter-chips" aria-label="Active filters">
-      {chips.map(chip => <button key={`${chip.key}:${chip.value}`} type="button" className="sidebar-filter-chip"
-        aria-label={`Remove filter ${chip.text}`} title="Remove filter" onClick={() => toggle(workspace.id, chip.key, chip.value)}>
-        {chip.text}<X size={10} aria-hidden="true" /></button>)}
+      {chips.map(chip => {
+        // A label chip is also where a session row can be dropped to give it
+        // that label: buckets are derived, so a label is the one thing a drop
+        // can assign.
+        const isLabel = chip.key === 'label';
+        const id = `${chip.key}:${chip.value}`;
+        return <button key={id} type="button" className={`sidebar-filter-chip ${dropChip === id ? 'drop-target' : ''}`}
+          aria-label={`Remove filter ${chip.text}`} title="Remove filter" onClick={() => toggle(workspace.id, chip.key, chip.value)}
+          onDragOver={isLabel ? event => {
+            if (!isSessionDrag(event)) return;
+            // Without preventDefault the browser refuses the drop outright.
+            event.preventDefault(); event.dataTransfer.dropEffect = 'move'; setDropChip(id);
+          } : undefined}
+          onDragLeave={isLabel ? event => { if (leftDropTarget(event)) setDropChip(null); } : undefined}
+          onDrop={isLabel ? event => {
+            event.preventDefault(); setDropChip(null);
+            const sessionId = droppedSessionId(event);
+            if (sessionId) void assignLabel(workspace.id, sessionId, chip.value).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)));
+          } : undefined}>
+          {chip.text}<X size={10} aria-hidden="true" /></button>;
+      })}
     </div>}
     {editing && <EditLabelDialog workspaceId={workspace.id} label={editing} onClose={() => setEditing(null)} />}
     {error && <p className="sidebar-error" role="alert" title={error}>{error}</p>}
