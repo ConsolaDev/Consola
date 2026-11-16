@@ -40,6 +40,7 @@ import type { WorkItemAction } from '../shared/workItemActions';
 import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
     Group,
+    DeletedLabel,
     Label,
     NewGroupFields,
     NewLabelFields,
@@ -297,8 +298,11 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     ): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE, workspaceId, labelId, updates),
 
-    deleteLabel: (workspaceId: string, labelId: string): Promise<void> =>
+    deleteLabel: (workspaceId: string, labelId: string): Promise<DeletedLabel | null> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_DELETE, workspaceId, labelId),
+
+    restoreLabel: (workspaceId: string, removed: DeletedLabel): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_RESTORE, workspaceId, removed),
 
     assignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN, workspaceId, sessionId, labelId),

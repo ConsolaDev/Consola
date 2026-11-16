@@ -56,6 +56,7 @@ export const IPC_CHANNELS = {
     WORKSPACE_LABEL_CREATE: 'workspace:label-create',
     WORKSPACE_LABEL_UPDATE: 'workspace:label-update',
     WORKSPACE_LABEL_DELETE: 'workspace:label-delete',
+    WORKSPACE_LABEL_RESTORE: 'workspace:label-restore',
     WORKSPACE_SESSION_LABEL_ASSIGN: 'workspace:session-label-assign',
     WORKSPACE_SESSION_LABEL_UNASSIGN: 'workspace:session-label-unassign',
 

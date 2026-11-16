@@ -5,6 +5,14 @@ import type { AttentionLedger } from './AttentionLedger';
 import { sessionTrees, settleable, settleTargets } from './settling';
 
 export const SWEEP_INTERVAL_MS = 5 * 60_000;
+/**
+ * How long the first sweep waits for a window to say what it is showing.
+ *
+ * Only a fallback: a window reports within a second of loading. It exists so
+ * that a launch where no window ever reports — one started hidden, a window
+ * that fails to load — still sweeps rather than waiting five minutes.
+ */
+export const FIRST_SWEEP_GRACE_MS = 30_000;
 const DAY_MS = 24 * 60 * 60_000;
 
 export interface AutoSettlerDeps {
@@ -22,6 +30,11 @@ export interface AutoSettlerDeps {
   };
   /** The ledger changed under the attention derivation: say it may now read differently. */
   changed(): void;
+  /**
+   * Hear the first time a window says what it is showing. The first sweep
+   * waits for it; returns an unsubscribe.
+   */
+  onWindowReport(listener: () => void): () => void;
   now?: () => number;
 }
 
@@ -37,22 +50,52 @@ export interface AutoSettlerDeps {
  */
 export class AutoSettler {
   private timer?: ReturnType<typeof setInterval>;
+  private firstSweep?: { cancel: () => void };
   private readonly now: () => number;
 
   constructor(private readonly deps: AutoSettlerDeps) {
     this.now = deps.now ?? Date.now;
   }
 
-  /** Sweep now and every five minutes after. */
+  /**
+   * Sweep every five minutes, the first time once a window has said what it
+   * is showing.
+   *
+   * Not at once: at startup no window has reported and no terminal exists, so
+   * every session derives as `exited` and nothing is being viewed — including
+   * the session a restoring window is about to open, which would be settled
+   * out from under the restore and then named, on a first run, as the example
+   * in the one-time explanation. Waiting for one report costs a second and is
+   * the same `isShown` rule the sweep itself applies.
+   */
   public start(): void {
-    this.sweep();
     this.timer = setInterval(() => this.sweep(), SWEEP_INTERVAL_MS);
     this.timer.unref?.();
+
+    let swept = false;
+    let unsubscribe = () => {};
+    let grace: ReturnType<typeof setTimeout> | undefined;
+    const cancel = () => {
+      swept = true;
+      unsubscribe();
+      if (grace) clearTimeout(grace);
+    };
+    const sweepOnce = () => {
+      if (swept) return;
+      cancel();
+      this.sweep();
+    };
+    unsubscribe = this.deps.onWindowReport(sweepOnce);
+    grace = setTimeout(sweepOnce, FIRST_SWEEP_GRACE_MS);
+    grace.unref?.();
+    this.firstSweep = { cancel };
   }
 
   public stop(): void {
     if (this.timer) clearInterval(this.timer);
     this.timer = undefined;
+    this.firstSweep?.cancel();
+    this.firstSweep = undefined;
   }
 
   /** Settle every tree whose members are all eligible. Returns the session ids moved. */

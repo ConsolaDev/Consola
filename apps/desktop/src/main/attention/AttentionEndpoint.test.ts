@@ -1,5 +1,6 @@
+import * as http from 'http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AttentionEndpoint } from './AttentionEndpoint';
+import { AttentionEndpoint, MAX_BODY_BYTES } from './AttentionEndpoint';
 import type { AttentionSignal } from './hookSignals';
 
 const SIGNAL: AttentionSignal = { kind: 'needs-input', origin: 'menu' };
@@ -68,10 +69,48 @@ describe('AttentionEndpoint', () => {
     warn.mockRestore();
   });
 
-  it('refuses an absurdly large body', async () => {
+  it('answers as soon as the token is valid, without waiting for the body', async () => {
     const { heard, url } = await setup();
-    const res = await fetch(url, { method: 'POST', body: 'x'.repeat(300 * 1024) }).catch(() => null);
-    expect(res === null || res.status === 413).toBe(true);
+    const target = new URL(url);
+    const req = http.request({
+      hostname: target.hostname, port: target.port, path: target.pathname, method: 'POST',
+      headers: { 'content-type': 'application/json' },
+    });
+    // The hook's body is still open here: a CLI that streams one slowly, or
+    // one that stalls, must not be waiting on this process.
+    req.write('{"hook_event_name":');
+    const status = await new Promise<number>((resolve, reject) => {
+      req.on('response', (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+      req.on('error', reject);
+    });
+    expect(status).toBe(200);
+
+    req.end('"Notification"}');
+    await vi.waitFor(() => expect(heard).toEqual([['inst-a', SIGNAL]]));
+  });
+
+  it('answers 200 for a body too large to be a hook event, and only drops the signal', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { heard, url } = await setup();
+
+    const res = await fetch(url, { method: 'POST', body: 'x'.repeat(MAX_BODY_BYTES + 1024) });
+
+    // Never a non-2xx: the CLI would report a failing hook Consola injected,
+    // in the person's own transcript, over a signal only Consola wanted.
+    expect(res.status).toBe(200);
     expect(heard).toEqual([]);
+    // And the endpoint keeps working afterwards.
+    expect((await post(url)).status).toBe(200);
+    expect(heard).toHaveLength(1);
+    warn.mockRestore();
+  });
+
+  it('takes a large-but-plausible payload, such as a tool_input over the old 256KB cap', async () => {
+    const { heard, url } = await setup();
+
+    const res = await post(url, { hook_event_name: 'PostToolUse', tool_input: { content: 'x'.repeat(400 * 1024) } });
+
+    expect(res.status).toBe(200);
+    await vi.waitFor(() => expect(heard).toHaveLength(1));
   });
 });

@@ -65,6 +65,20 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
     useLinkSessionDialogStore.getState().open({ kind: 'pick-item', workspaceId, session });
   };
 
+  // The one write permitted on `parentSessionId`, and the reason it is
+  // permitted: the v8 migration infers the link from a session merely sharing
+  // a group with a conductor, and a child settles only with its conductor and
+  // is drawn into Waiting by any sibling's question. Without this the only
+  // escape from a wrong guess would be deleting the session. Clearing is all
+  // it does: nothing anywhere can set the field, so a detached session cannot
+  // be re-parented by hand.
+  const handleDetach = () => {
+    void updateSession(workspaceId, session.id, { parentSessionId: undefined }).catch((error) => {
+      // The row visibly staying under its conductor is the signal.
+      console.error('Failed to detach session', error);
+    });
+  };
+
   const handleUnlink = () => {
     // Presence semantics: the key is sent, and undefined, which is what
     // main reads as "clear the link" — exactly as leaving a group works.
@@ -181,6 +195,12 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             </span>
             <span>Never auto-settle</span>
           </DropdownMenu.CheckboxItem>
+          {session.parentSessionId && (
+            <DropdownMenu.Item className="dropdown-item" onSelect={handleDetach}>
+              <Unlink size={14} />
+              <span>Detach from conductor</span>
+            </DropdownMenu.Item>
+          )}
           {canLink &&
             (session.workItem ? (
               <DropdownMenu.Item className="dropdown-item" onSelect={handleUnlink}>

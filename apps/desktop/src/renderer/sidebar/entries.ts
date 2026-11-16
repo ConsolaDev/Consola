@@ -3,7 +3,7 @@ import type { RunListEntry } from '../../shared/automations';
 import type { Label, Session } from '../../shared/workspace';
 import { attentionOf } from '../stores/attentionStore';
 import { FACET_KEYS, facetValuesOf, type SessionFilters } from '../utils/sessionFilters';
-import type { Entry, EntryKey } from './entry';
+import { RUN_FACET_DOMAIN, SESSION_FACET_DOMAIN, type Entry, type EntryKey } from './entry';
 import type { FilterSelection } from './filter';
 
 /** The key a session's entry has, and the id inside it. */
@@ -53,6 +53,7 @@ export function sessionEntries(
       ...(session.parentSessionId ? { parent: sessionKey(session.parentSessionId) } : {}),
       labels: (session.labelIds ?? []).filter((id) => liveLabels.has(id)),
       facets,
+      facetDomain: SESSION_FACET_DOMAIN,
     };
   });
 }
@@ -92,6 +93,10 @@ export function runEntries(
       activityAt: Date.parse(run.updatedAt),
       labels: [],
       facets: { automation: run.automationId },
+      // Not the session's scope where it has one: a run that has not started
+      // has no session, and an approval must not be the one kind of row a
+      // scope filter can silently take off the queue.
+      facetDomain: RUN_FACET_DOMAIN,
     });
   }
   return entries;

@@ -1,10 +1,13 @@
 import type { Attention } from '../../shared/attention';
-import type { Entry } from './entry';
+import { SESSION_FACET_DOMAIN, type Entry } from './entry';
 import { buildForest, type TreeNode } from './forest';
 
 /** An entry keyed `session:<id>`, with only what a test names. */
 export function entry(id: string, attention: Attention, rest: Partial<Entry> = {}): Entry {
-  return { key: `session:${id}`, kind: 'session', attention, since: 0, activityAt: 0, labels: [], facets: {}, ...rest };
+  return {
+    key: `session:${id}`, kind: 'session', attention, since: 0, activityAt: 0,
+    labels: [], facets: {}, facetDomain: SESSION_FACET_DOMAIN, ...rest,
+  };
 }
 
 export const keyOf = (id: string): Entry['key'] => `session:${id}`;

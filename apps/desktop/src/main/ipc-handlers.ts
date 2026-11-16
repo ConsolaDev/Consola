@@ -75,6 +75,7 @@ import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
     allowedGroupUpdates,
     allowedHarnessUpdates,
+    allowedLabelRecord,
     allowedLabelUpdates,
     allowedScopeUpdates,
     allowedSessionUpdates,
@@ -82,6 +83,7 @@ import {
     type SessionUpdates,
 } from './state/updateFilters';
 import type {
+    DeletedLabel,
     Group,
     Label,
     NewGroupFields,
@@ -516,6 +518,26 @@ export function setupIpcHandlers(): boolean {
         (_event, workspaceId: string, labelId: string) => workspaces.deleteLabel(workspaceId, labelId)
     );
 
+    // Undo of the above, from the toast it raises. It takes the memento the
+    // delete handed back rather than a label and a list of sessions composed
+    // in a renderer: only what was actually removed can be put back.
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_RESTORE,
+        (_event, workspaceId: string, removed: DeletedLabel) => {
+            const label = removed?.label;
+            if (!label || typeof label.id !== 'string' || typeof label.name !== 'string') {
+                throw new Error('Nothing to restore.');
+            }
+            workspaces.restoreLabel(workspaceId, {
+                label: allowedLabelRecord(label),
+                index: Number.isInteger(removed.index) && removed.index >= 0 ? removed.index : 0,
+                sessionIds: Array.isArray(removed.sessionIds)
+                    ? removed.sessionIds.filter((id): id is string => typeof id === 'string')
+                    : [],
+            });
+        }
+    );
+
     ipcMain.handle(
         IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN,
         (_event, workspaceId: string, sessionId: string, labelId: string) =>
@@ -819,6 +841,7 @@ export function setupIpcHandlers(): boolean {
         ledger: attentionLedger,
         preferences,
         changed: () => attentionSessions.refresh(),
+        onWindowReport: (listener) => viewing.onReport(listener),
     });
     autoSettler = settler;
     let sweptDays = preferences.get().autoSettleDays;
@@ -1685,8 +1708,10 @@ ${truncatedDiff}`;
         }
     );
 
-    // Last: the first sweep reads every session's terminal status, which is
-    // defined further up and must exist by now.
+    // Last: start() arms the sweep against state defined further up — every
+    // session's terminal status, and the windows' own reports. The first sweep
+    // itself waits for a window to say what it is showing, so a session a
+    // restoring window is about to open is not settled out from under it.
     autoSettler?.start();
 
     return true;
@@ -1773,6 +1798,7 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_CREATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_RESTORE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN);
 

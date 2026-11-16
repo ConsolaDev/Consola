@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { bucketize } from './bucketize';
 import { applyFilter } from './filter';
 import { buildForest } from './forest';
+import { RUN_FACET_DOMAIN, type Entry } from './entry';
 import { entry, ids, keyOf } from './entryFixtures';
 
 const keys = (list: { key: string }[]) => list.map((e) => e.key.replace('session:', ''));
@@ -37,8 +38,41 @@ describe('applyFilter', () => {
     expect(keys(applyFilter(entries, { facets: { harness: ['h1'], scope: ['s1'] } }).entries)).toEqual(['a']);
   });
 
-  it('hides an entry that lacks the facet altogether', () => {
+  it('hides an entry that lacks a facet its own kind answers for', () => {
+    // 'c' is a session with no scope recorded: a session has one, so the
+    // filter is entitled to hide it. Contrast a run, below.
     expect(keys(applyFilter(entries, { facets: { scope: ['s1'] } }).entries)).toEqual(['a', 'b']);
+  });
+
+  describe('a facet an entry\u2019s kind cannot have', () => {
+    const run = (id: string, rest: Partial<Entry> = {}): Entry => ({
+      key: `run:${id}`, kind: 'run', attention: 'needs-attention', since: 0, activityAt: 0,
+      labels: [], facets: { automation: 'nightly' }, facetDomain: RUN_FACET_DOMAIN, ...rest,
+    });
+
+    it('lets a run past a scope filter: a run has no scope and can never have one', () => {
+      const result = applyFilter([...entries, run('1')], { facets: { scope: ['s1'] } });
+      expect(result.entries.map((e) => e.key)).toEqual(['session:a', 'session:b', 'run:1']);
+      expect(result.hiddenNeedingYou).toBe(0);
+    });
+
+    it('still narrows runs by a facet they do have', () => {
+      const all = [run('1'), run('2', { facets: { automation: 'weekly' } })];
+      const result = applyFilter(all, { facets: { scope: ['s1'], automation: ['nightly'] } });
+      expect(result.entries.map((e) => e.key)).toEqual(['run:1']);
+      expect(result.hiddenNeedingYou).toBe(1);
+    });
+
+    it('does not let a session past a facet it answers for but has no value in', () => {
+      // The whole point of declaring a domain rather than reading the keys
+      // present: a session with no automation is still hidden by one.
+      expect(keys(applyFilter(entries, { facets: { automation: ['nightly'] } }).entries)).toEqual([]);
+    });
+
+    it('leaves a run that a scope filter would have hidden in its bucket', () => {
+      const result = applyFilter([entry('a', 'working', { facets: { scope: 's1' } }), run('1')], { facets: { scope: ['s1'] } });
+      expect(bucketize(buildForest(result.entries)).waiting.map((n) => n.entry.key)).toEqual(['run:1']);
+    });
   });
 
   it('does not mutate its input', () => {
@@ -67,7 +101,7 @@ describe('applyFilter', () => {
     });
 
     it('counts runs and gates the same way', () => {
-      const run = { ...entry('r', 'needs-attention'), key: 'run:1' as const, kind: 'run' };
+      const run = { ...entry('r', 'needs-attention'), key: 'run:1' as const, kind: 'run', facetDomain: RUN_FACET_DOMAIN };
       expect(applyFilter([run], { labels: ['x'] }).hiddenNeedingYou).toBe(1);
     });
   });

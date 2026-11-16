@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessUpdates } from '../../shared/harness';
+import type { Label } from '../../shared/workspace';
 import {
   allowedGroupUpdates,
   allowedHarnessUpdates,
+  allowedLabelRecord,
   allowedLabelUpdates,
   allowedScopeUpdates,
   allowedSessionUpdates,
@@ -163,6 +165,20 @@ describe('allowedGroupUpdates', () => {
   });
 });
 
+describe('allowedLabelRecord', () => {
+  it('rebuilds the label and keeps nothing else the memento carried', () => {
+    const payload = { id: 'l1', name: 'Flaky', emoji: '🐛', archivedAt: 1, conductorSessionId: 'c' } as unknown as Label;
+
+    expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky', emoji: '🐛' });
+  });
+
+  it('drops an emoji or colour that is not a string', () => {
+    const payload = { id: 'l1', name: 'Flaky', emoji: 5, color: {} } as unknown as Label;
+
+    expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky' });
+  });
+});
+
 describe('allowedSessionUpdates', () => {
   it('accepts labelIds and autoSettle', () => {
     const result = allowedSessionUpdates({ labelIds: ['a', 'b'], autoSettle: 'never' });
@@ -176,13 +192,20 @@ describe('allowedSessionUpdates', () => {
     expect(Object.keys(result).sort()).toEqual(['autoSettle', 'labelIds']);
   });
 
-  it('rejects parentSessionId, which is written at creation and by migration only', () => {
+  it('rejects a parentSessionId that names a session: re-parenting stays impossible', () => {
     const payload = { parentSessionId: 'attacker-chosen', name: 'Legit rename' } as unknown as SessionUpdates;
 
     const result = allowedSessionUpdates(payload);
 
     expect(result).not.toHaveProperty('parentSessionId');
     expect(result.name).toBe('Legit rename');
+  });
+
+  it('allows clearing parentSessionId, which is the one way out of a conductor', () => {
+    const result = allowedSessionUpdates({ parentSessionId: undefined });
+
+    expect(Object.keys(result)).toEqual(['parentSessionId']);
+    expect(result.parentSessionId).toBeUndefined();
   });
 
   it('refuses a malformed label list or auto-settle value', () => {

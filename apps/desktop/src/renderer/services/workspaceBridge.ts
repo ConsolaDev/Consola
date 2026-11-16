@@ -8,6 +8,7 @@ import type {
 import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import type {
+    DeletedLabel,
     Group,
     Label,
     NewGroupFields,
@@ -141,9 +142,18 @@ export const workspaceBridge = {
         return window.workspaceAPI.updateLabel(workspaceId, labelId, updates);
     },
 
-    /** Removes the label from every session that carries it. */
-    deleteLabel(workspaceId: string, labelId: string): Promise<void> {
+    /**
+     * Removes the label from every session that carries it, and hands back
+     * what it removed — the memento `restoreLabel` undoes it with. Null when
+     * there was no such label.
+     */
+    deleteLabel(workspaceId: string, labelId: string): Promise<DeletedLabel | null> {
         return window.workspaceAPI.deleteLabel(workspaceId, labelId);
+    },
+
+    /** Puts a deleted label back where it was, on the sessions that had it. */
+    restoreLabel(workspaceId: string, removed: DeletedLabel): Promise<void> {
+        return window.workspaceAPI.restoreLabel(workspaceId, removed);
     },
 
     assignLabel(workspaceId: string, sessionId: string, labelId: string): Promise<void> {

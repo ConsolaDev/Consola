@@ -43,11 +43,12 @@ function world(specs: Spec[]) {
     const found = (Object.keys(placed) as Bucket[]).find((bucket) => placed[bucket].some((root) => root.entry.key === sessionKey(id) || root.children.some((c) => c.entry.key === sessionKey(id))));
     return found!;
   };
-  /** The offer the row for `id` would carry, from the tree it sits in. */
-  const offerFor = (id: string) => {
+  /** The offer the row for `id` would carry, from the tree it sits in, with `viewing` open in the window. */
+  const offerFor = (id: string, viewing?: string) => {
+    const viewed = viewing ? sessionKey(viewing) : null;
     for (const root of forest()) {
-      if (root.entry.key === sessionKey(id)) return settleOffer(root, false);
-      if (root.children.some((c) => c.entry.key === sessionKey(id))) return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true);
+      if (root.entry.key === sessionKey(id)) return settleOffer(root, false, viewed);
+      if (root.children.some((c) => c.entry.key === sessionKey(id))) return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true, viewed);
     }
     throw new Error('no such row');
   };
@@ -98,6 +99,38 @@ describe('settling by hand, end to end', () => {
     settleSession(w.workspace, 'p', w.ledger, NOW);
     unsettleSession(w.workspace, 'p', w.ledger, NOW + 1);
     expect(w.bucketOf('p')).toBe('recent');
+  });
+
+  it('offers no Settle for the row the window is showing, and says why', () => {
+    const w = world([{ id: 'a', terminal: 'ready' }]);
+    expect(w.offerFor('a').kind).toBe('settle');
+
+    expect(w.offerFor('a', 'a')).toMatchObject({ kind: 'blocked', reason: expect.stringMatching(/open/i) });
+  });
+
+  it('is why: settling the open row is undone by the first thing its CLI paints', () => {
+    const w = world([{ id: 'a', terminal: 'ready' }]);
+    settleSession(w.workspace, 'a', w.ledger, NOW);
+    expect(w.bucketOf('a')).toBe('settled');
+
+    // Opening a session makes its CLI paint, which is activity, which un-settles
+    // it with no write at all — the row bounces straight back under a toast
+    // that said it had gone to the shelf.
+    w.ledger.touch('a', 'w1', NOW + 1000);
+    expect(w.bucketOf('a')).not.toBe('settled');
+  });
+
+  it('a conductor whose child the window is showing is not offered Settle either: a tree settles as one', () => {
+    const w = world([{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }]);
+    expect(w.offerFor('p').kind).toBe('settle');
+
+    expect(w.offerFor('p', 'k').kind).toBe('blocked');
+  });
+
+  it('still offers the way back for a settled row the window is showing: un-settling is what opening it means', () => {
+    const w = world([{ id: 'a', terminal: 'ready' }]);
+    settleSession(w.workspace, 'a', w.ledger, NOW);
+    expect(w.offerFor('a', 'a').kind).toBe('unsettle');
   });
 
   it('a settled child inside a tree that is not settled offers no way back of its own', () => {

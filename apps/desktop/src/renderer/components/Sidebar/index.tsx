@@ -29,6 +29,7 @@ import { buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
 import { applyHold, holdFor, type Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
+import { viewedSessionId } from '../../utils/viewing';
 import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ShelfHeader } from './rows/ShelfHeader';
@@ -98,6 +99,10 @@ export function Sidebar() {
 
   const activeKey = workspace && activeSessionId && allSessions.some(session => session.id === activeSessionId)
     ? sessionKey(activeSessionId) : null;
+  // The row this window is showing is never offered Settle: it would bounce
+  // back the moment its CLI paints. The same rule main is told, overlay and
+  // all, so one definition decides both.
+  const viewedKey = viewedSessionId({ activeSessionId, overlay }) !== null ? activeKey : null;
   if (held.current.activeKey !== activeKey) held.current = { activeKey, hold: holdFor(natural, activeKey) };
   const placed = applyHold(natural, held.current.hold);
 
@@ -131,9 +136,9 @@ export function Sidebar() {
     const highlightActive = overlay === null;
     if (node.children.length > 0) {
       return <TreeRow key={node.entry.key} node={node} bucket={bucket} workspaceId={workspace!.id}
-        activeKey={activeKey} highlightActive={highlightActive} />;
+        activeKey={activeKey} viewedKey={viewedKey} highlightActive={highlightActive} />;
     }
-    return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey, settle: settleOffer(node, false) });
+    return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey, settle: settleOffer(node, false, viewedKey) });
   };
   const list = (nodes: TreeNode[], bucket: Bucket) => nodes.map(node => renderNode(node, bucket));
   const needsYou = placed.waiting.length + placed.done.length;

@@ -7,6 +7,7 @@ import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import {
   type Group,
+  type DeletedLabel,
   type Label,
   type NewGroupFields,
   type NewLabelFields,
@@ -73,7 +74,7 @@ interface WorkspaceState {
     labelId: string,
     updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
   ) => Promise<void>;
-  deleteLabel: (workspaceId: string, labelId: string) => Promise<void>;
+  deleteLabel: (workspaceId: string, labelId: string) => Promise<DeletedLabel | null>;
   assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
   unassignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
 }

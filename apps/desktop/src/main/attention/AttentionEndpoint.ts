@@ -3,8 +3,14 @@ import * as http from 'http';
 import type { AddressInfo } from 'net';
 import type { AttentionSignal } from './hookSignals';
 
-/** Hook payloads are small; anything bigger is not one. */
-const MAX_BODY_BYTES = 256 * 1024;
+/**
+ * A ceiling on what one hook event may buffer in main's memory — not a size
+ * a hook has to stay under. A `PostToolUse` carrying a whole file's
+ * `tool_input` is an ordinary event, so the cap is far above anything a CLI
+ * plausibly sends; a body past it is dropped (with a warning) rather than
+ * refused, because the request has already been answered.
+ */
+export const MAX_BODY_BYTES = 8 * 1024 * 1024;
 
 /** A driver's reading of one hook payload: a signal, or null for an event that says nothing about attention. */
 export type ParseHookEvent = (body: unknown) => AttentionSignal | null;
@@ -88,22 +94,35 @@ export class AttentionEndpoint {
     if (!registration) return reply(401);
     if (req.method !== 'POST') return reply(405);
 
+    // Answered the moment the token checks out, before a byte of the body is
+    // read. Nothing in the reply depends on what the body says, and a CLI
+    // waiting on a hook Consola injected must never wait on this process —
+    // not for a parse, not for a listener, not for main's event loop. It also
+    // leaves one reply per request, which is the only way to be sure a second
+    // one can never be written to an ended response.
+    reply(200);
+
     const chunks: Buffer[] = [];
     let size = 0;
+    let oversized = false;
     req.on('data', (chunk: Buffer) => {
       size += chunk.length;
+      // Past the ceiling, stop buffering but keep draining: the answer is
+      // already sent, so there is nothing to refuse, only a signal to lose.
       if (size > MAX_BODY_BYTES) {
-        reply(413);
-        req.destroy();
+        oversized = true;
+        chunks.length = 0;
         return;
       }
       chunks.push(chunk);
     });
+    // A hook that gives up mid-body is the CLI's business, not an error here.
+    req.on('error', () => {});
     req.on('end', () => {
-      if (res.writableEnded) return;
-      // The hook is answered at once whatever it said: a CLI waiting on a
-      // reply must never be held up by this process.
-      reply(200);
+      if (oversized) {
+        console.warn(`Ignored a hook event of ${size} bytes: larger than this endpoint will read.`);
+        return;
+      }
       try {
         const signal = registration.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
         if (signal) this.onSignal(registration.instanceId, signal);

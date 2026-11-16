@@ -59,8 +59,11 @@ export interface Session {
   // an id naming a deleted label is ignored on read.
   labelIds?: string[];
   // The session that spawned or conducts this one (state v8). Written at
-  // creation and by the v7 -> v8 rung only, so it is absent from
-  // `allowedSessionUpdates`: re-parenting is not something a renderer may do.
+  // creation and by the v7 -> v8 rung only: `allowedSessionUpdates` takes it
+  // solely as a clear, so a session can leave a conductor but never be given
+  // one. The migration infers this link from a shared group and can be wrong,
+  // and a child settles and waits with its conductor — without the clear, a
+  // mis-parented session could only be escaped by deleting it.
   parentSessionId?: string;
   // Opts the session out of settling on its own. Only the value is defined
   // here; nothing reads or writes it yet.
@@ -300,6 +303,21 @@ export type NewSessionFields = Pick<
     >
   >;
 
+/**
+ * What deleting a label took away: enough to put it back exactly, including
+ * where it sat in the list and which sessions carried it. A label is
+ * user-authored organisation, and deleting one rewrites every session that
+ * had it in a single commit, so the undo has to be a memento rather than a
+ * second guess at what was there.
+ */
+export interface DeletedLabel {
+  label: Label;
+  /** Where in the workspace's list it sat, so Undo does not reorder the menu. */
+  index: number;
+  /** The sessions that carried it, in list order. */
+  sessionIds: string[];
+}
+
 export function createSessionRecord(fields: NewSessionFields): Session {
   const now = Date.now();
   return {
@@ -327,7 +345,13 @@ export function createSessionRecord(fields: NewSessionFields): Session {
  */
 export type SessionUpdates = Partial<
   Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem' | 'labelIds' | 'autoSettle'>
->;
+> & {
+  /**
+   * Only ever `undefined`, and only with the key present: detach from the
+   * conductor. `allowedSessionUpdates` drops any other value.
+   */
+  parentSessionId?: undefined;
+};
 
 /** How the Assistant's sessions on work items run; full tools unless the workspace says otherwise. */
 export function assistantItemMode(workspace: Workspace): AssistantItemMode {

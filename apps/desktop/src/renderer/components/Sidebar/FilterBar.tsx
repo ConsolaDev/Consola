@@ -4,14 +4,15 @@ import { Check, ChevronDown, Folder, GitBranch, ListFilter, Pencil, Plus, Settin
 import { listedSessions } from '../../../shared/workspace';
 import { EditLabelDialog } from '../Dialogs/EditLabelDialog';
 import type { Label } from '../../../shared/workspace';
-import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
 import { deriveFacets, effectiveFilters, hasActiveFilters, type FacetKey, type FacetValue } from '../../utils/sessionFilters';
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { chooseScope, clearAllFilters } from '../../utils/sessionActions';
-import { droppedSessionId, isSessionDrag, leftDropTarget } from './sessionDrag';
+import { isSessionDrag, leftDropTarget } from './sessionDrag';
+import { createAndSelectLabel, deleteLabelWithUndo, dropSessionOnLabel } from '../../utils/labelActions';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
 
@@ -52,10 +53,7 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
   const [editing, setEditing] = useState<Label | null>(null);
   const chosen = useSessionFilterStore(state => state.filters[workspace.id]);
   const { toggle } = useSessionFilterStore.getState();
-  const assignLabel = useWorkspaceStore(state => state.assignLabel);
   const [dropChip, setDropChip] = useState<string | null>(null);
-  const createLabel = useWorkspaceStore(state => state.createLabel);
-  const deleteLabel = useWorkspaceStore(state => state.deleteLabel);
 
   // The same sessions the list shows for each scope, so a count never
   // promises a row that isn't there.
@@ -81,21 +79,22 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
     ? workspace.scopes.filter(candidate => candidate.name.toLowerCase().includes(needle) || candidate.path.toLowerCase().includes(needle))
     : workspace.scopes;
 
+  const report = (reason: unknown) => setError(reason instanceof Error ? reason.message : String(reason));
+
   const addLabel = async () => {
-    const name = newLabel.trim();
-    if (!name) return;
     setError('');
     try {
-      const label = await createLabel(workspace.id, { name });
-      setNewLabel('');
-      toggle(workspace.id, 'label', label.id);
-    } catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+      if (await createAndSelectLabel(workspace.id, newLabel)) setNewLabel('');
+    } catch (reason) { report(reason); }
   };
 
-  const removeLabel = async (labelId: string) => {
+  // Deleting takes the label off every session carrying it, from a menu whose
+  // every other × only stops a filter — so it says what it did and offers the
+  // way back, rather than asking first.
+  const removeLabel = async (label: Label) => {
     setError('');
-    try { await deleteLabel(workspace.id, labelId); }
-    catch (reason) { setError(reason instanceof Error ? reason.message : String(reason)); }
+    try { await deleteLabelWithUndo(workspace.id, label); }
+    catch (reason) { report(reason); }
   };
 
   // Picking a value narrows the list; the menu stays open so several can be picked.
@@ -187,7 +186,7 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
               <button type="button" className="sidebar-scope-filter-clear" aria-label={`Edit label ${label.name}`} title="Rename or set emoji"
                 onClick={event => { event.stopPropagation(); setMenuOpen(false); setEditing(label); }}><Pencil size={12} aria-hidden="true" /></button>
               <button type="button" className="sidebar-scope-filter-clear" aria-label={`Delete label ${label.name}`} title="Delete label"
-                onClick={event => { event.stopPropagation(); void removeLabel(label.id); }}><X size={12} aria-hidden="true" /></button>
+                onClick={event => { event.stopPropagation(); void removeLabel(label); }}><X size={12} aria-hidden="true" /></button>
             </DropdownMenu.Item>)}
             <input className="sidebar-scope-menu-search" type="text" placeholder="New label" aria-label="New label"
               value={newLabel} onChange={event => setNewLabel(event.target.value)}
@@ -217,9 +216,8 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
           } : undefined}
           onDragLeave={isLabel ? event => { if (leftDropTarget(event)) setDropChip(null); } : undefined}
           onDrop={isLabel ? event => {
-            event.preventDefault(); setDropChip(null);
-            const sessionId = droppedSessionId(event);
-            if (sessionId) void assignLabel(workspace.id, sessionId, chip.value).catch(reason => setError(reason instanceof Error ? reason.message : String(reason)));
+            setDropChip(null);
+            void dropSessionOnLabel(workspace.id, event, chip.value).catch(report);
           } : undefined}>
           {chip.text}<X size={10} aria-hidden="true" /></button>;
       })}

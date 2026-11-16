@@ -50,6 +50,33 @@ describe('ViewingTracker', () => {
   });
 });
 
+describe('ViewingTracker.onReport', () => {
+  it('hears a report that names nothing, which onViewed never does', () => {
+    const onViewed = vi.fn();
+    const tracker = new ViewingTracker(onViewed);
+    const reported = vi.fn();
+    tracker.onReport(reported);
+
+    tracker.viewing(1, null);
+
+    expect(reported).toHaveBeenCalledTimes(1);
+    expect(onViewed).not.toHaveBeenCalled();
+  });
+
+  it('hears a focus report too, and stops after unsubscribing', () => {
+    const tracker = new ViewingTracker(() => {});
+    const reported = vi.fn();
+    const stop = tracker.onReport(reported);
+
+    tracker.focused(1, true);
+    expect(reported).toHaveBeenCalledTimes(1);
+
+    stop();
+    tracker.viewing(1, 'inst-a');
+    expect(reported).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('ViewingTracker.isShown', () => {
   it('is true for a shown terminal whether or not the window has focus', () => {
     const tracker = new ViewingTracker(() => {});

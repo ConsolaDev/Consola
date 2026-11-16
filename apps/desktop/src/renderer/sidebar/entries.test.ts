@@ -28,7 +28,7 @@ describe('sessionEntries', () => {
     );
 
     expect(entry).toMatchObject({ key: 'session:a', kind: 'session', attention: 'done', activityAt: 500, finishedAt: 400 });
-    expect(Object.keys(entry).sort()).toEqual(['activityAt', 'attention', 'facets', 'finishedAt', 'key', 'kind', 'labels', 'since']);
+    expect(Object.keys(entry).sort()).toEqual(['activityAt', 'attention', 'facetDomain', 'facets', 'finishedAt', 'key', 'kind', 'labels', 'since']);
   });
 
   it('reads a session main said nothing about as ready, active at its creation seed', () => {
@@ -54,6 +54,11 @@ describe('sessionEntries', () => {
     );
     expect(full.facets).toEqual({ scope: 'sc', harness: 'claude', model: 'opus', automation: 'Review', repo: 'acme/api', readOnly: 'read-only' });
     expect(bare.facets).toEqual({ scope: 'sc', harness: 'claude' });
+  });
+
+  it('answers for every session facet, so one it has no value for still hides it', () => {
+    const [bare] = sessionEntries([session('b')], none, []);
+    expect([...bare.facetDomain].sort()).toEqual(['automation', 'harness', 'model', 'readOnly', 'repo', 'scope']);
   });
 
   it('keeps only labels that still exist', () => {

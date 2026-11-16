@@ -16,7 +16,9 @@ function matches(entry: Entry, selection: FilterSelection): boolean {
   const { labels = [], facets = {} } = selection;
   if (labels.length > 0 && !labels.some((id) => entry.labels.includes(id))) return false;
   return Object.entries(facets).every(([name, chosen]) =>
-    chosen.length === 0 || (name in entry.facets && chosen.includes(entry.facets[name]))
+    // A facet this kind cannot answer for is not a filter it can fail.
+    chosen.length === 0 || !entry.facetDomain.includes(name) ||
+    (name in entry.facets && chosen.includes(entry.facets[name]))
   );
 }
 

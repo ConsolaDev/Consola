@@ -2,6 +2,7 @@ import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
     Group,
+    DeletedLabel,
     Label,
     NewGroupFields,
     NewLabelFields,
@@ -429,7 +430,8 @@ export interface WorkspaceAPI {
         labelId: string,
         updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
     ) => Promise<void>;
-    deleteLabel: (workspaceId: string, labelId: string) => Promise<void>;
+    deleteLabel: (workspaceId: string, labelId: string) => Promise<DeletedLabel | null>;
+    restoreLabel: (workspaceId: string, removed: DeletedLabel) => Promise<void>;
     assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
     unassignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
     fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;

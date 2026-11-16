@@ -9,7 +9,7 @@ import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { PreferencesService } from '../state/PreferencesService';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
-import { AutoSettler } from './AutoSettler';
+import { AutoSettler, FIRST_SWEEP_GRACE_MS, SWEEP_INTERVAL_MS } from './AutoSettler';
 import { SessionSource } from './SessionSource';
 import { settleSession, unsettleSession } from './settling';
 
@@ -23,6 +23,9 @@ let attention: Map<string, Attention>;
 let held: Set<string>;
 let shown: Set<string>;
 let changed: number;
+/** Windows that have said what they are showing; the sweeper waits for the first. */
+let reporters: (() => void)[];
+const reportFromAWindow = () => { for (const listener of [...reporters]) listener(); };
 
 const old = (id: string, extra = {}) =>
   makeSession({ id, name: id, instanceId: `inst-${id}`, kind: 'interactive', groupId: undefined, lastActiveAt: NOW - 30 * DAY, ...extra });
@@ -37,6 +40,10 @@ function settler(sessions: ReturnType<typeof old>[]) {
     ledger,
     preferences,
     changed: () => { changed++; },
+    onWindowReport: (listener) => {
+      reporters.push(listener);
+      return () => { reporters = reporters.filter((candidate) => candidate !== listener); };
+    },
     now: () => NOW,
   });
 }
@@ -50,6 +57,7 @@ beforeEach(() => {
   held = new Set();
   shown = new Set();
   changed = 0;
+  reporters = [];
 });
 
 afterEach(() => {
@@ -163,6 +171,82 @@ describe('AutoSettler trees', () => {
     settler(tree()).sweep();
     expect(write.mock.calls.filter(([value]) => (value as { records?: unknown }).records !== undefined)).toHaveLength(1);
     write.mockRestore();
+  });
+});
+
+describe('the first sweep', () => {
+  /** A session a restoring window is about to open: old, idle, and nobody has said so yet. */
+  const restoring = () => {
+    attention.set('a', 'ready');
+    return settler([old('a')]);
+  };
+
+  it('does not sweep before a window has said what it is showing', () => {
+    const settler = restoring();
+    settler.start();
+
+    // At start() nothing is being viewed and no terminal exists, so the
+    // session the window is about to open looks every bit as idle as one
+    // nobody has touched for a month.
+    expect(ledger.get('a')).toBeUndefined();
+    settler.stop();
+  });
+
+  it('sweeps once a window has reported, with what it reported taken into account', () => {
+    const settler = restoring();
+    settler.start();
+    shown.add('inst-a'); // the restoring window opened it
+
+    reportFromAWindow();
+
+    expect(ledger.get('a')).toBeUndefined();
+    settler.stop();
+  });
+
+  it('sweeps on the first report when the window is showing something else', () => {
+    const settler = restoring();
+    settler.start();
+
+    reportFromAWindow();
+
+    expect(ledger.get('a')?.settledAt).toBe(NOW);
+    settler.stop();
+  });
+
+  it('sweeps anyway if no window ever reports, so a headless launch still settles', () => {
+    const settler = restoring();
+    settler.start();
+
+    vi.advanceTimersByTime(FIRST_SWEEP_GRACE_MS);
+
+    expect(ledger.get('a')?.settledAt).toBe(NOW);
+    settler.stop();
+  });
+
+  it('sweeps once, however many windows report, and leaves the five-minute interval alone', () => {
+    const settler = restoring();
+    settler.start();
+
+    reportFromAWindow();
+    reportFromAWindow();
+    vi.advanceTimersByTime(FIRST_SWEEP_GRACE_MS);
+    expect(changed).toBe(1);
+
+    ledger.touch('a', 'w1', NOW - 30 * DAY); // eligible again
+    vi.advanceTimersByTime(SWEEP_INTERVAL_MS);
+    expect(changed).toBe(2);
+    settler.stop();
+  });
+
+  it('stops cleanly before any of that has happened', () => {
+    const settler = restoring();
+    settler.start();
+    settler.stop();
+
+    reportFromAWindow();
+    vi.advanceTimersByTime(FIRST_SWEEP_GRACE_MS + SWEEP_INTERVAL_MS);
+
+    expect(ledger.get('a')).toBeUndefined();
   });
 });
 

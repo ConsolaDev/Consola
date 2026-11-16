@@ -539,6 +539,33 @@ test.describe('Home scopes and groups', () => {
     expect(snapshot.groups).toBe(1);
   });
 
+  test('deleting a label from the filter bar says so and can be undone, labels and all', async () => {
+    // The seeded group arrived as a label; give it to a session so the delete
+    // has something to take away besides the label itself.
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete label Fan out', exact: true }).click();
+
+    // A × in a filtering menu that deletes user-authored organisation says
+    // what it did and offers the way back, rather than asking first.
+    const toast = page.getByRole('status').filter({ hasText: 'Deleted label Fan out' });
+    await expect(toast).toBeVisible();
+    // Gone from the session as well as from the list: deleting a label is one
+    // commit over every session carrying it.
+    await expect.poll(() => labelsOf(page, 's1')).toBeUndefined();
+
+    await toast.getByRole('button', { name: 'Undo', exact: true }).click();
+
+    await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
+    await expect(toast).toHaveCount(0);
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Delete label Fan out', exact: true })).toBeVisible();
+  });
+
   test('the ⋯ menu ticks and unticks a label on a session', async () => {
     expect(await labelsOf(page, 's1')).toBeUndefined();
 
@@ -571,6 +598,7 @@ test.describe('Home scopes and groups', () => {
   });
 
   test('the row settles from hover and back; deleting stays in the menu and confirms', async () => {
+    test.setTimeout(60_000);
     const settledHeader = page.getByRole('button', { name: /^Settled/ });
     const row = rowFor(page, 'Controller boot');
     const settle = row.getByRole('button', { name: 'Settle session Controller boot', exact: true });
@@ -594,11 +622,9 @@ test.describe('Home scopes and groups', () => {
     expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
     await expect(row).toHaveCount(1);
 
-    // Settling acts in place and must not activate the row it acts on. It is a
-    // row the window is NOT showing: `row` above is the open session, whose live
-    // terminal is still starting up here, and any turn edge after a settle
-    // rightly un-settles it (activity is what brings a session back). Settling
-    // the open row is covered by openRowHold's unit tests.
+    // Settling acts in place and must not activate the row it acts on. No row
+    // is open here, which is also the only state in which Settle is offered at
+    // all: the row the window is showing is covered at the end of this test.
     const quiet = rowFor(page, 'Fix flaky test');
     const settleQuiet = quiet.getByRole('button', { name: 'Settle session Fix flaky test', exact: true });
     const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
@@ -625,6 +651,17 @@ test.describe('Home scopes and groups', () => {
     await expect(row.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(settle).toBeFocused();
+
+    // The row the window is showing is not offered Settle at all: opening a
+    // session makes its CLI paint, and that activity un-settles it moments
+    // later — the row would bounce back under a toast that said it had reached
+    // the shelf. The ⋯ menu says why rather than leaving the person guessing.
+    await quiet.click();
+    await quiet.hover();
+    await expect(settleQuiet).toHaveCount(0);
+    await quiet.getByRole('button', { name: 'Session actions', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: /Settle · Not while you have it open/ })).toBeVisible();
+    await page.keyboard.press('Escape');
 
     await page.evaluate(() => { window.confirm = () => true; });
     await row.hover();
