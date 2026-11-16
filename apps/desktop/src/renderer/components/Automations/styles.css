@@ -3656,3 +3656,12 @@
 .automations-check-failed {
   color: var(--color-error);
 }
+
+/* A poll's check command, in full: it wraps at any character instead of being cut or widening the node. */
+.automations-node .automations-node-code-wrap {
+  max-width: 100%;
+  font-family: var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-all;
+}

@@ -28,7 +28,6 @@ import {
   triggerLabel,
   type LatestRun,
 } from './presentation';
-import { triggerNodeWords } from './checkWords';
 import { GetStarted } from './TemplatesTab';
 
 /**

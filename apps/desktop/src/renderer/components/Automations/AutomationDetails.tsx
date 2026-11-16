@@ -125,7 +125,7 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
           {/* One primary action: the run waiting for you, else the fix for a problem, else running it. */}
           <RunNowButton
             automation={automation}
-            primary={!waiting && !automation.problem}
+            primary={!waiting && !automation.problem && !automation.needsAllow}
             running={busy === 'run' || running}
             disabled={busy !== null}
             onRun={() => void act('run', () => automationsBridge.runNow(workspace.id, name))}

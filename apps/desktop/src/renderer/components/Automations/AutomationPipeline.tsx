@@ -80,15 +80,16 @@ export function PipelineGraph({
       icon={TriggerIcon}
       kicker={own?.kicker ?? (automation.onEvent ? 'Inbox event' : automation.schedule ? 'Schedule' : 'Trigger')}
       title={own?.title ?? automation.trigger}
-      code={automation.schedule}
+      code={automation.source === 'poll' ? automation.check?.command : automation.schedule}
+      wrapCode={automation.source === 'poll'}
     >
-      {automation.source === 'manual' ? (
+      {!draft && automation.problem && (automation.source === 'poll' || automation.source === 'manual') ? (
+        automation.source === 'poll' ? 'Not checking while it has a problem' : 'Not runnable while it has a problem'
+      ) : automation.source === 'manual' ? (
         'Starts when you or an agent run it'
       ) : automation.source === 'poll' ? (
         draft ? (
           'Checks once added and allowed'
-        ) : automation.problem ? (
-          'Not checking while it has a problem'
         ) : automation.needsAllow ? (
           'Not checking until you allow it'
         ) : automation.check?.nextAt ? (
@@ -219,6 +220,7 @@ function PipelineNode({
   kicker,
   title,
   code,
+  wrapCode = false,
   edgeLabel,
   children,
 }: {
@@ -227,6 +229,8 @@ function PipelineNode({
   kicker: string;
   title: ReactNode;
   code?: string;
+  /** The code is a command shown in full: it wraps rather than running past the node. */
+  wrapCode?: boolean;
   /** Drawn on the edge into this node, as text. */
   edgeLabel?: string;
   children: ReactNode;
@@ -244,7 +248,7 @@ function PipelineNode({
         {kicker}
       </div>
       <div className="automations-node-title">{title}</div>
-      {code && <code className="automations-node-code">{code}</code>}
+      {code && <code className={`automations-node-code ${wrapCode ? 'automations-node-code-wrap' : ''}`}>{code}</code>}
       <div className="automations-node-foot">{children}</div>
     </li>
   );
