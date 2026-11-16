@@ -147,6 +147,44 @@ test('demo interactions stay in the browser and use no persisted state', async (
   expect(await page.evaluate(() => Object.keys(localStorage).filter(key => key.startsWith('consola')))).toEqual([]);
 });
 
+// The site hands PostHog to window on init, the way PostHog's own snippet install
+// does. Wrapping capture() there measures what this site asks for, without standing
+// up a fake of PostHog's ingestion API. It has to be installed before any page
+// script runs, because the download event fires while the page is still loading.
+// PostHog's own $-prefixed events ($pageview, $pageleave) are left out: they are its
+// behaviour to change, not this site's to assert.
+const recordCaptures = (page) => page.addInitScript(() => {
+  window.__captures = [];
+  let instance;
+  Object.defineProperty(window, 'posthog', {
+    configurable: true,
+    get: () => instance,
+    set(value) {
+      instance = value;
+      const capture = value.capture.bind(value);
+      value.capture = (name, properties) => {
+        if (!name.startsWith('$')) window.__captures.push({ name, ...properties });
+        return capture(name, properties);
+      };
+    },
+  });
+});
+
+test('analytics reaches PostHog through this origin and persists nothing', async ({ page }) => {
+  const offOrigin = [];
+  page.on('request', request => {
+    const url = new URL(request.url());
+    if (url.hostname !== 'localhost' && url.hostname !== '127.0.0.1' && request.url() !== releaseApi) offOrigin.push(request.url());
+  });
+  const proxied = page.waitForRequest(request => new URL(request.url()).pathname.startsWith('/cnsl/'));
+  await page.goto('/');
+  // Proves PostHog really started, so the assertions below are not passing by absence.
+  await proxied;
+  expect(offOrigin).toEqual([]);
+  expect(await page.context().cookies()).toEqual([]);
+  expect(await page.evaluate(() => [...Object.keys(localStorage), ...Object.keys(sessionStorage)])).toEqual([]);
+});
+
 for (const width of [320, 390, 768, 1440]) {
   test(`the real desktop UI stays scrollable without overflowing the page at ${width}px`, async ({ page }) => {
     await page.setViewportSize({ width, height: 900 });
@@ -234,6 +272,7 @@ for (const arch of ['arm64', 'x64']) {
     await page.route(releaseApi, route => route.fulfill({ json: {
       tag_name: 'v1.0.0', assets: [installer('arm64'), installer('x64')],
     } }));
+    await recordCaptures(page);
     await page.route(installer(arch).browser_download_url, route => route.fulfill({
       contentType: 'application/octet-stream', headers: { 'Content-Disposition': `attachment; filename="Consola-${arch}.dmg"` }, body: 'test installer',
     }));
@@ -248,6 +287,9 @@ for (const arch of ['arm64', 'x64']) {
     const retry = page.waitForEvent('download');
     await page.locator('[data-download-retry]').click();
     await retry;
+    // The automatic start is counted once; the retry click just above adds nothing.
+    await expect.poll(() => page.evaluate(() => window.__captures ?? []))
+      .toEqual([{ name: 'download', arch, version: 'v1.0.0' }]);
   });
 }
 

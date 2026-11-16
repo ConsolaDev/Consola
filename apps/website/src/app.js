@@ -1,21 +1,57 @@
-// Vercel Web Analytics. This module is the shared entry for both real pages —
-// the landing page (index.html) and the download page (download/index.html) —
-// so a single call covers the whole funnel.
+// PostHog, reached through this site's own origin. The browser only ever talks to
+// /cnsl on consola.dev; vercel.json rewrites that path onto PostHog's EU ingestion
+// and asset hosts. So no visitor request goes to a third-party domain, and ad
+// blockers — which match PostHog's own hostnames — leave the numbers intact. The
+// path is deliberately not /analytics or /tracking, which blocklists do match.
 //
-// The demo iframe is deliberately not tracked. It loads demo/main.tsx instead
-// of this module, so it stays excluded by default, and that is the behaviour we
-// want: a lazy-loaded, noindex frame would fire a second pageview every time a
-// visitor scrolls the landing page, double-counting one visit as two.
+// Cookieless: no cookies, no localStorage, no consent banner. Visitors are counted
+// by a hash PostHog derives server-side, which is what rules out session replay,
+// surveys and GeoIP — none of which this site wants. 'never' person profiles make
+// identify() a no-op, so no persistent per-person identity can be created by
+// accident. This requires Settings → Project → Web analytics → "Enable cookieless
+// tracking" on the PostHog project; with it off, PostHog discards these events.
 //
-// The mode is pinned rather than left on 'auto' because it decides the script's
-// origin, not just its verbosity: 'development' loads the debug build from
-// va.vercel-scripts.com, while every other mode stays on this site's own
-// /_vercel/insights/script.js. Pinning it keeps the promise the site makes about
-// the demo — that nothing a visitor does here leaves this origin — true
-// everywhere, including local previews, where it costs only a 404.
-import { inject } from '@vercel/analytics';
-
-inject({ mode: 'production' });
+// Autocapture is off. Every click on a landing page is more than this site needs
+// and more than it promises to collect: pageviews plus one explicit 'download'
+// event are the whole dataset. 'defaults' is pinned to a dated version so that a
+// later posthog-js upgrade cannot quietly change what gets collected.
+//
+// The key is publishable and lands in the bundle either way, but reading it from
+// the environment keeps it out of git and rotatable without a commit. Without one
+// — local dev, previews, CI — PostHog is never even fetched and every call below
+// is a no-op, so the test suite makes no analytics requests at all.
+//
+// The demo iframe stays untracked, as it was before: it loads demo/main.tsx rather
+// than this module, so it is excluded by default. Counting it would add a second
+// pageview every time a visitor scrolls the landing page, reading one visit as two.
+//
+// posthog-js is ~125 kB gzipped against this module's own ~1.6 kB, and none of it
+// is needed to paint the page or resolve a download, so it is imported on demand
+// and Vite gives it a chunk of its own, not modulepreloaded. The landing page's
+// critical script ends up smaller than it was before any analytics existed. The
+// .catch is what makes this promise safe to await from inside loadDownload's try
+// block: a failed chunk must cost a measurement, never a download.
+const analyticsKey = import.meta.env.VITE_POSTHOG_KEY;
+const analytics = analyticsKey
+  ? import('posthog-js')
+      .then(({ default: posthog }) => {
+        posthog.init(analyticsKey, {
+          api_host: '/cnsl',
+          ui_host: 'https://eu.posthog.com',
+          defaults: '2026-08-30',
+          cookieless_mode: 'always',
+          person_profiles: 'never',
+          autocapture: false,
+        });
+        // What PostHog's own snippet install exposes, and what its browser toolbar
+        // and posthog.debug() both reach for. Importing from npm would otherwise
+        // keep the instance inside this module's closure, leaving a live page with
+        // nothing to inspect.
+        window.posthog = posthog;
+        return posthog;
+      })
+      .catch(() => null)
+  : null;
 
 // Resolve versioned DMGs from the latest published, stable GitHub release.
 // The HTML links remain usable if GitHub is unavailable or JavaScript is off.
@@ -57,8 +93,9 @@ async function loadDownload() {
       status.textContent = 'No macOS installer is attached to the latest release. Check GitHub for downloads.';
       return;
     }
+    const archSlug = primary === appleSilicon ? 'arm64' : 'x64';
     const architecture = primary === appleSilicon ? 'Apple silicon' : 'Intel';
-    const downloadPath = `/download/?arch=${primary === appleSilicon ? 'arm64' : 'x64'}`;
+    const downloadPath = `/download/?arch=${archSlug}`;
     document.querySelectorAll('[data-download-link]').forEach((item) => {
       item.href = downloadPath;
       item.setAttribute('aria-label', `Download for macOS (${architecture})`);
@@ -79,6 +116,15 @@ async function loadDownload() {
       retry.textContent = 'Click here';
       document.querySelector('[data-download-message]').textContent = ' if your download hasn’t started.';
       retry.click();
+      // Downloads are counted here, where the installer transfer actually starts,
+      // rather than on the landing page's buttons: those only navigate to this page,
+      // which its own pageview already counts, and a pageview cannot tell a started
+      // download from a visitor who arrived on a non-Mac or while GitHub was
+      // unreachable — both return before this line. Fired after the click so
+      // instrumentation can never stand between a visitor and the installer, and only
+      // for this automatic start, so someone who also clicks the retry link stays one
+      // download rather than two.
+      (await analytics)?.capture('download', { arch: archSlug, version: release.tag_name });
     }
   } catch {
     status.textContent = 'Check GitHub releases for the latest macOS download.';

@@ -48,32 +48,85 @@ vercel link --project consola --scope javier-tarazaga-gomezs-projects
 vercel deploy --prod
 ```
 
+Set `VITE_POSTHOG_KEY` as a Vercel Environment Variable before deploying, or the
+build ships without analytics; see [Analytics](#analytics).
+
 `pnpm --filter @consola/website build` emits the landing page, `download/index.html`, and `demo/index.html`, along with bundled JavaScript/CSS and the static assets. Vite's `preview` command serves that production build locally. When changing the domain, update the canonical and Open Graph URLs in `index.html`.
 
 ## Analytics
 
-The site uses [Vercel Web Analytics](https://vercel.com/docs/analytics). `src/app.js`
-calls `inject()` from `@vercel/analytics` once; because that module is the shared
-script for `index.html` and `download/index.html`, both pages are counted without
-per-page wiring. Nothing is collected until Web Analytics is enabled for the Vercel
-project, which is what serves `/_vercel/insights/*`.
+The site uses [PostHog](https://posthog.com) (EU Cloud) for pageviews and a single
+custom event. `src/app.js` is the shared script for `index.html` and
+`download/index.html`, so one initialisation covers the whole funnel.
 
-`mode` is pinned to `production` instead of `auto`. The mode picks the script's
-origin: `development` fetches a debug build from `va.vercel-scripts.com`, and every
-other mode uses this site's own `/_vercel/insights/script.js`. Pinning it means no
-request ever leaves this origin, in local previews too, which is what the
-"stay in the browser" test asserts. The cost is a 404 for that script when the site
-runs anywhere but Vercel.
+**The browser never contacts PostHog.** `api_host` is `/cnsl`, a path on this site's
+own origin, and the `rewrites` in the repository-root `vercel.json` forward it to
+`eu.i.posthog.com` (and `/cnsl/static/*`, `/cnsl/array/*` to `eu-assets.i.posthog.com`).
+Keep the specific rules above the catch-all — Vercel evaluates rewrites in order. The
+path is deliberately not `/analytics` or `/tracking`, which ad-blocker lists match;
+routing through the first-party origin is also what keeps blockers from deleting a
+slice of the numbers. Changing the region means changing both the rewrites and
+`ui_host` together.
+
+**The key is a build-time variable.** `VITE_POSTHOG_KEY` must be set as a Vercel
+Environment Variable for Production (and Preview, if you want preview traffic). It is
+a publishable project key and ends up in the bundle either way, but keeping it in the
+environment keeps it out of git and rotatable without a commit. Vercel will refuse to
+store it as a Secret — `VITE_` is a public framework prefix, and Vite inlines those
+into the browser bundle, so a write-only Secret would be a promise it cannot keep.
+Use the **Config** type. That is correct for this key: a PostHog *project* key only
+writes events and grants no read access, unlike a personal API key. With no key Vite
+tree-shakes the entire `import('posthog-js')` branch away, so an unconfigured build
+ships **zero** analytics code and silently collects nothing — convenient locally,
+easy to miss in production. If the dashboard is empty, check this first.
+
+**`Enable cookieless tracking` must be on in the PostHog project** (Settings →
+Project → Web analytics). With it off, PostHog discards every event this site sends
+and raises an ingestion warning.
+
+One custom event, `download`, counts installers that actually start. The thank-you
+page captures it immediately after it clicks the resolved `browser_download_url`,
+carrying `arch` (`arm64` or `x64`) and `version` (the release tag). The landing
+page's download buttons are deliberately not counted: they only navigate to
+`/download/`, which that page's own pageview already counts, and a pageview cannot
+separate a started transfer from a visitor who arrived on a non-Mac or while GitHub
+was unreachable — both return before an installer is ever resolved. A manual click on
+the retry link is not counted either, so the number stays one per visitor rather than
+one per attempt. Visitors on every other platform are sent to GitHub Releases and
+leave this origin, so their downloads cannot be counted here at all; GitHub's own
+per-asset `download_count` is the only source for those.
+
+`posthog-js` is imported on demand rather than at the top of the module. It is ~123 kB
+gzipped against this module's own ~1.6 kB, and none of it is needed to paint the page
+or resolve a download, so Vite gives it a chunk of its own that is not modulepreloaded.
+The landing page's critical script is smaller than it was before any analytics existed.
+
+`autocapture` is off: every click on a landing page is more than this site needs and
+more than it promises to collect. Pageviews, pageleaves and the `download` event are
+the whole dataset. `defaults` is pinned to a dated version so a later `posthog-js`
+upgrade cannot change collection behaviour underneath the site.
 
 The interactive demo is not tracked. `demo/index.html` loads `demo/main.tsx` and
 never loads `src/app.js`, so the iframe stays out of the numbers on purpose: it is
 lazy-loaded and `noindex`, and counting it would add a second pageview every time a
 visitor scrolls the landing page.
 
-Collection is cookieless and stores no personal data, so the site needs no consent
-banner. Pageviews and visitors are all the Hobby plan reports — `track()` custom
-events require Pro, so demo engagement is not measurable from here. The plan
-includes 50,000 events per month with one month of retention.
+`cookieless_mode: 'always'` means no cookies, no `localStorage`, no `sessionStorage`
+and no consent banner; visitors are counted by a hash PostHog derives server-side.
+`person_profiles: 'never'` makes `identify()` a no-op, so no persistent per-person
+identity can be created by accident. The price is real: cookieless events lose their
+IP before enrichment, so there is **no GeoIP and no country breakdown**, and session
+replay and surveys are unavailable. The "analytics reaches PostHog through this origin
+and persists nothing" test asserts the storage and origin halves of this.
+
+PostHog's free tier covers 1M events per month with no card on file; past it events are
+dropped rather than billed. A landing page will not come close.
+
+The test suite supplies a throwaway `VITE_POSTHOG_KEY` from `playwright.config.cjs`, so
+it exercises the real analytics path rather than the compiled-out one. Assertions go
+through `window.posthog`, which the site assigns on init the way PostHog's own snippet
+install does, rather than through a stand-in for PostHog's ingestion API — that wire
+format is PostHog's to change, not a contract to test against.
 
 ## GitHub release downloads
 
