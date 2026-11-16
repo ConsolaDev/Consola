@@ -38,6 +38,14 @@ describe('TurnActivity', () => {
     expect(touches).toHaveLength(2);
   });
 
+  it('treats the first working after a destroy as a start, even if it was destroyed mid-turn', () => {
+    const { activity, touches } = setup();
+    activity.statusChanged('inst-1', 'working');
+    activity.forget('inst-1');
+    activity.statusChanged('inst-1', 'working');
+    expect(touches).toHaveLength(2);
+  });
+
   it('ignores a terminal whose session is gone', () => {
     const { activity, touches } = setup();
     activity.statusChanged('inst-unknown', 'working');

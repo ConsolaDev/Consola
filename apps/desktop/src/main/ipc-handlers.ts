@@ -257,6 +257,7 @@ export function setupIpcHandlers(): boolean {
         destroyTerminal: (instanceId) => {
             terminalManager?.destroy(instanceId);
             notificationPolicy.forget(instanceId);
+            turnActivity.forget(instanceId);
         },
         destroyShell: (instanceId) => shellManager?.destroy(instanceId),
         // A session's endpoint would otherwise outlive its record as a
@@ -1222,6 +1223,7 @@ export function setupIpcHandlers(): boolean {
     ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
         manager.destroy(instanceId);
         notificationPolicy.forget(instanceId);
+        turnActivity.forget(instanceId);
     });
 
     // Seed a freshly opened window from main's live state. The status channels
