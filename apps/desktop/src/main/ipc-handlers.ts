@@ -108,6 +108,8 @@ import {
 } from './state/ViewMemoryService';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/AttentionLedger';
 import { TurnActivity } from './attention/TurnActivity';
+import { AttentionService } from './attention/AttentionService';
+import { SessionSource } from './attention/SessionSource';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
@@ -258,6 +260,7 @@ export function setupIpcHandlers(): boolean {
             terminalManager?.destroy(instanceId);
             notificationPolicy.forget(instanceId);
             turnActivity.forget(instanceId);
+            attentionSessions.forget(instanceId);
         },
         destroyShell: (instanceId) => shellManager?.destroy(instanceId),
         // A session's endpoint would otherwise outlive its record as a
@@ -321,7 +324,7 @@ export function setupIpcHandlers(): boolean {
 
         // Only once the delete has reached disk — a failed write throws above
         // and leaves the workspace, and its terminals, intact. destroy() clears
-        // the awaiting set and fires onAttentionChanged, so the PTY and the
+        // the session's attention goes with it, so the PTY and the
         // badge close together; the MCP endpoint goes with them.
         stranded.forEach((session) => sessionRemover.stop(session));
     });
@@ -704,12 +707,24 @@ export function setupIpcHandlers(): boolean {
 
     // With no windows open on macOS the app is still alive and sessions are
     // still running. The badge is the only thing that says so.
-    manager.onAttentionChanged = () => {
-        if (typeof app.setBadgeCount === 'function') {
-            const count = manager.getAttentionCount();
-            app.setBadgeCount(count > 0 ? count : 0);
+    // One derivation of what needs the person, asked by the badge, the MCP
+    // tools and (pushed, coalesced) every window. The badge counts
+    // `needs-attention` only: a badge that counted finished work would stop
+    // meaning "come here now".
+    const attention = new AttentionService();
+    const attentionSessions = new SessionSource({
+        getWorkspaces: () => workspaces.getAll(),
+        terminalStatus: (instanceId) => sessionStatus(instanceId),
+        ledger: attentionLedger,
+    });
+    attention.register(attentionSessions);
+    workspaces.onChange(() => attentionSessions.refresh());
+    attention.onChange((change) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ATTENTION_CHANGED, change);
         }
-    };
+        if (typeof app.setBadgeCount === 'function') app.setBadgeCount(attention.needsAttentionCount());
+    });
 
     const notificationPolicy = new NotificationPolicy();
 
@@ -720,6 +735,9 @@ export function setupIpcHandlers(): boolean {
         return located ? { sessionId: located.session.id, workspaceId: located.workspace.id } : undefined;
     });
     manager.addStatusListener((instanceId, status) => turnActivity.statusChanged(instanceId, status));
+    // Writes `finishedAt`; TurnActivity writes `lastActiveAt`. Two listeners,
+    // because they own different fields and nothing is written twice.
+    manager.addStatusListener((instanceId, status) => attentionSessions.statusChanged(instanceId, status));
 
     // The fourth attention altitude: session dot → group count → switcher dot
     // → OS notification. Rings only for a session hitting needs-attention
@@ -853,6 +871,7 @@ export function setupIpcHandlers(): boolean {
         cleanup: sessionCleanup,
         getWorkspaces: () => workspaces.getAll(),
         status: sessionStatus,
+        attention: (sessionId) => attention.get(sessionId),
         isManagedPath: (dir) => worktrees.isManagedPath(dir),
         automations: () => automations,
         // Fetched here, with the token only main holds: a read-only session
@@ -1224,6 +1243,7 @@ export function setupIpcHandlers(): boolean {
         manager.destroy(instanceId);
         notificationPolicy.forget(instanceId);
         turnActivity.forget(instanceId);
+        attentionSessions.forget(instanceId);
     });
 
     // Seed a freshly opened window from main's live state. The status channels

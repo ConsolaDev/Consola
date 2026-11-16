@@ -56,6 +56,7 @@ beforeEach(() => {
     cleanup: { previewStale: vi.fn(), cleanupStale: vi.fn(), previewDelete: vi.fn(), deleteSession: vi.fn() },
     getWorkspaces: () => workspaces,
     status: () => 'ready',
+    attention: () => 'ready',
     isManagedPath: () => false,
     automations: () => ({ list: () => [], trigger: vi.fn(), capabilities, saveEntry }),
     workItemContext: vi.fn(),

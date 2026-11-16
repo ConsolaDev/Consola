@@ -137,4 +137,29 @@ describe('JsonAttentionLedger', () => {
     expect(ledger.get('good')).toEqual({ sessionId: 'good', workspaceId: 'w1', lastActiveAt: 5, seenAt: 6 });
     expect(ledger.get('bad')).toBeUndefined();
   });
+
+  it('records a finish and a sighting without touching activity, and survives a reload', () => {
+    const ledger = build();
+    ledger.touch('s1', 'w1', 10);
+    ledger.markFinished('s1', 'w1', 20);
+    ledger.markSeen('s1', 30);
+    ledger.flush();
+
+    expect(ledger.get('s1')).toEqual({
+      sessionId: 's1',
+      workspaceId: 'w1',
+      lastActiveAt: 10,
+      finishedAt: 20,
+      seenAt: 30,
+    });
+    expect(build().get('s1')?.seenAt).toBe(30);
+  });
+
+  it('starts a record at the finish when the session had none, and ignores a sighting of a stranger', () => {
+    const ledger = build();
+    ledger.markFinished('s1', 'w1', 20);
+    ledger.markSeen('ghost', 30);
+    expect(ledger.get('s1')?.lastActiveAt).toBe(20);
+    expect(ledger.get('ghost')).toBeUndefined();
+  });
 });

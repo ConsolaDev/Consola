@@ -17,13 +17,8 @@ export class TerminalManager {
     private readonly terminals = new Map<string, TerminalService>();
     /** Where this instance's output goes. Reassigned on every reattach. */
     private readonly owners = new Map<string, WebContents>();
-    /** Instances showing a menu that wants a keypress. Drives the dock badge. */
-    private readonly awaiting = new Set<string>();
 
     constructor(private readonly getWindows: () => BrowserWindow[]) {}
-
-    /** Called whenever getAttentionCount() may have changed. */
-    public onAttentionChanged?: () => void;
 
     private readonly statusListeners = new Set<(instanceId: string, status: TerminalStatus) => void>();
     private readonly exitListeners = new Set<(instanceId: string, info: TerminalExitInfo) => void>();
@@ -54,11 +49,6 @@ export class TerminalManager {
      * session, and every window learns of it from the workspace broadcast.
      */
     public onWorkingDirectory?: (instanceId: string, cwd: string) => void;
-
-    /** How many sessions are waiting on a human, across every workspace. */
-    public getAttentionCount(): number {
-        return this.awaiting.size;
-    }
 
     /**
      * Get the terminal for a session, starting it if needed.
@@ -174,13 +164,9 @@ export class TerminalManager {
         terminal.destroy();
         this.terminals.delete(instanceId);
         this.owners.delete(instanceId);
-        // destroy() kills the terminal and removes its listeners in the same
-        // tick, so the 'exit' handler above never runs for it — the count has
-        // to be reconciled here instead, or a session deleted mid-prompt would
-        // leave a phantom badge behind.
-        if (this.awaiting.delete(instanceId)) {
-            this.onAttentionChanged?.();
-        }
+        // destroy() removes the terminal's listeners in the same tick, so no
+        // status edge follows. Whoever derives from terminals (the attention
+        // service) is told by the caller that destroyed it.
     }
 
     public destroyAll(): void {
@@ -233,20 +219,11 @@ export class TerminalManager {
         });
 
         terminal.on('awaiting-confirmation', (awaiting: boolean) => {
-            if (awaiting) {
-                this.awaiting.add(instanceId);
-            } else {
-                this.awaiting.delete(instanceId);
-            }
             this.broadcast(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, { instanceId, awaiting });
-            this.onAttentionChanged?.();
         });
 
         terminal.on('exit', (info: TerminalExitInfo) => {
-            // A dead process is not waiting for anything.
-            this.awaiting.delete(instanceId);
             this.broadcast(IPC_CHANNELS.TERMINAL_EXIT, { instanceId, ...info });
-            this.onAttentionChanged?.();
             this.notify(this.exitListeners, listener => listener(instanceId, info));
         });
 

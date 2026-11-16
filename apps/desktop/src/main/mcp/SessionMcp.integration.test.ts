@@ -129,6 +129,7 @@ beforeEach(() => {
     },
     getWorkspaces: workspaces,
     status: () => 'ready',
+    attention: () => 'done',
     isManagedPath: () => false,
     automations: () => ({ list: () => [], trigger: vi.fn(), capabilities: vi.fn(), saveEntry: vi.fn() }),
     workItemContext: vi.fn(async () => ({
@@ -303,7 +304,7 @@ describe('MCP surface (in-memory)', () => {
     const listed = JSON.parse(firstText(await client.callTool({ name: 'consola_list_sessions', arguments: {} })));
     // The Assistant is a real session in the workspace, so it is listed too.
     expect(listed.sessions.map((s: { sessionId: string }) => s.sessionId)).toEqual(['cond-1', 'w-1', 'a-1']);
-    expect(listed.sessions[1]).toMatchObject({ sessionId: 'w-1', you: true, status: 'ready' });
+    expect(listed.sessions[1]).toMatchObject({ sessionId: 'w-1', you: true, status: 'ready', attention: 'done' });
     await client.close();
   });
 

@@ -12,6 +12,10 @@ import { JsonStateFile } from '../state/JsonStateFile';
 export interface AttentionLedger {
   /** Record activity. Debounced internally; safe to call on every turn edge. */
   touch(sessionId: string, workspaceId: string, at: number): void;
+  /** A turn settled: the work is done, whether or not anyone has looked. */
+  markFinished(sessionId: string, workspaceId: string, at: number): void;
+  /** The person saw the session. Nothing to mark for a session the ledger has never heard of. */
+  markSeen(sessionId: string, at: number): void;
   get(sessionId: string): AttentionRecord | undefined;
   /** Query-shaped read for a known set. */
   activityFor(sessionIds: string[]): Map<string, number>;
@@ -91,7 +95,30 @@ export class JsonAttentionLedger implements AttentionLedger {
     const current = this.records.get(sessionId);
     // Activity never moves backwards: a late edge must not age a session.
     const lastActiveAt = Math.max(at, current?.lastActiveAt ?? at);
-    this.records.set(sessionId, { ...current, sessionId, workspaceId, lastActiveAt });
+    this.commit({ ...current, sessionId, workspaceId, lastActiveAt });
+  }
+
+  public markFinished(sessionId: string, workspaceId: string, at: number): void {
+    const current = this.records.get(sessionId);
+    this.commit({
+      ...current,
+      sessionId,
+      workspaceId,
+      lastActiveAt: current?.lastActiveAt ?? at,
+      finishedAt: Math.max(at, current?.finishedAt ?? at),
+    });
+  }
+
+  public markSeen(sessionId: string, at: number): void {
+    const current = this.records.get(sessionId);
+    if (!current) return;
+    this.commit({ ...current, seenAt: Math.max(at, current.seenAt ?? at) });
+  }
+
+  /** Store a changed record and schedule its write. */
+  private commit(record: AttentionRecord): void {
+    const { sessionId } = record;
+    this.records.set(sessionId, record);
     this.dirty.add(sessionId);
 
     if (this.timers.has(sessionId)) return;

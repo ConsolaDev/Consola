@@ -59,6 +59,7 @@ export const IPC_CHANNELS = {
 
     // The workspace Assistant (renderer -> main; main makes or replaces its record)
     ATTENTION_SNAPSHOT: 'attention:snapshot',  // Every session's recorded activity, once
+    ATTENTION_CHANGED: 'attention:changed',    // main -> renderer: derived attention that changed, coalesced
     ASSISTANT_OPEN: 'assistant:open',
     ASSISTANT_START_FRESH: 'assistant:start-fresh',
     ASSISTANT_GET_ACTIVITY: 'assistant:get-activity',
