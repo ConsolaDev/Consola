@@ -620,14 +620,16 @@ export class AutomationService {
      * A session's unattended turn ended: its run is done, one way or the
      * other, and its slot is free. The run is the session's `running` one —
      * a later exit of the same session, the person continuing it, is not.
+     * Says whether the run completed, which is a result waiting to be looked at.
      */
-    public turnEnded(sessionId: string, outcome: { exitCode: number; lastLine?: string; stopped?: string }): void {
+    public turnEnded(sessionId: string, outcome: { exitCode: number; lastLine?: string; stopped?: string }): { completed: boolean } {
         const run = this.deps.store
             .runs()
             .find((candidate) => candidate.sessionId === sessionId && candidate.status === 'running' && isAgentRun(candidate));
-        if (!run) return;
+        if (!run) return { completed: false };
         const name = this.sessionOf(run)?.name ?? 'its session';
         let notice: { title: string; body: string };
+        let completed = false;
         if (outcome.stopped) {
             // Stopped before it answered — by the person, the limit, or a
             // signal — whatever code the process exited with.
@@ -636,6 +638,7 @@ export class AutomationService {
             notice = { title: `${run.automationId} did not finish`, body: error };
         } else if (outcome.exitCode === 0) {
             this.finish(run.id, 'completed', { summary: `Ready in “${name}”.` });
+            completed = true;
             const item = (run.result as AgentRunPreview).item?.label;
             notice = { title: `${run.automationId}: ready`, body: `${item ?? name} — the findings are waiting. Click to open them.` };
         } else {
@@ -648,6 +651,7 @@ export class AutomationService {
         const { workspaceId } = run.attribution;
         if (workspaceId) this.deps.notify({ ...notice, runId: run.id, workspaceId, needsApproval: false, sessionId });
         void this.pump();
+        return { completed };
     }
 
     /**

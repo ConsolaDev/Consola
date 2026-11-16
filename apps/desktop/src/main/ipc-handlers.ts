@@ -764,6 +764,8 @@ export function setupIpcHandlers(): boolean {
         terminalStatus: (instanceId) => sessionStatus(instanceId),
         ledger: attentionLedger,
         isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
+        // An open automation run keeps the session it uses from being settled.
+        heldSessionIds: () => new Set(attention.holds().keys()),
     });
     // Looking at a finished session is what clears `done`. Main decides what
     // looking means: a window must be focused as well as showing it.
@@ -856,11 +858,13 @@ export function setupIpcHandlers(): boolean {
         if (!info.unattended) return;
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) return;
-        automationService?.turnEnded(located.session.id, {
+        const ended = automationService?.turnEnded(located.session.id, {
             exitCode: info.exitCode,
             lastLine: info.lastLine,
             stopped: info.stopped,
         });
+        // Work that completed is a result nobody has looked at: the session is done, not merely exited.
+        if (ended?.completed) attentionSessions.runCompleted(instanceId);
     });
 
     // An agent can move itself into another checkout (Claude's EnterWorktree)

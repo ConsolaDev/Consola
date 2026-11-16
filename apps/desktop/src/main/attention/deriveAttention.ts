@@ -7,7 +7,10 @@ export interface AttentionInputs {
   record: AttentionRecord | undefined;
   /** Whether a focused window shows it. Not consulted here: seeing it writes `seenAt`, which is. */
   isViewedInFocusedWindow: boolean;
-  /** Always false until slice 6. Not yet consulted by the decision order. */
+  /**
+   * An open automation run is still using this session. Held work is never
+   * settled: the run's own result is what the person has yet to see.
+   */
   heldByOpenRun: boolean;
   /**
    * What the agent CLI's hooks last said, when its driver has any. Another
@@ -23,24 +26,26 @@ export interface AttentionInputs {
  * renderer reads the result and never derives it, so two processes cannot
  * disagree about what a session is.
  */
-export function deriveAttention({ terminal: screen, record, hook }: AttentionInputs): Attention {
+export function deriveAttention({ terminal: screen, record, hook, heldByOpenRun }: AttentionInputs): Attention {
   // An exited process is asking nothing, whatever its last hook said.
   const terminal: TerminalStatus = hook?.needsInput && screen !== 'exited' ? 'needs-attention' : screen;
-  const settled = record?.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
+  const settled = !heldByOpenRun && record?.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
+  // A finish nobody has looked at. It always belongs to the current lifetime:
+  // the ledger clears `finishedAt` whenever a session launches.
+  const finished = record?.finishedAt;
+  const unseen = finished !== undefined && (record?.seenAt === undefined || record.seenAt < finished);
   if (settled && (terminal === 'ready' || terminal === 'exited')) return 'settled';
 
   switch (terminal) {
     case 'exited':
-      return 'exited';
+      // A process that ended after finishing something is still a result to look at.
+      return unseen ? 'done' : 'exited';
     case 'needs-attention':
       return 'needs-attention';
     case 'working':
       return 'working';
-    case 'ready': {
-      const finished = record?.finishedAt;
-      const unseen = finished !== undefined && (record?.seenAt === undefined || record.seenAt < finished);
+    case 'ready':
       return unseen ? 'done' : 'ready';
-    }
     default: {
       const unhandled: never = terminal;
       throw new Error(`Unhandled terminal status: ${String(unhandled)}`);

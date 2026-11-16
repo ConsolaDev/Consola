@@ -14,6 +14,8 @@ export interface AttentionLedger {
   touch(sessionId: string, workspaceId: string, at: number): void;
   /** A turn settled: the work is done, whether or not anyone has looked. */
   markFinished(sessionId: string, workspaceId: string, at: number): void;
+  /** The session launched: a finish belongs to the lifetime it happened in, so the last one is history. */
+  clearFinished(sessionId: string): void;
   /** The person saw the session. Nothing to mark for a session the ledger has never heard of. */
   markSeen(sessionId: string, at: number): void;
   get(sessionId: string): AttentionRecord | undefined;
@@ -107,6 +109,13 @@ export class JsonAttentionLedger implements AttentionLedger {
       lastActiveAt: current?.lastActiveAt ?? at,
       finishedAt: Math.max(at, current?.finishedAt ?? at),
     });
+  }
+
+  public clearFinished(sessionId: string): void {
+    const current = this.records.get(sessionId);
+    if (current?.finishedAt === undefined) return;
+    const { finishedAt: _gone, ...rest } = current;
+    this.commit(rest);
   }
 
   public markSeen(sessionId: string, at: number): void {

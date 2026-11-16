@@ -32,6 +32,19 @@ afterEach(() => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
+describe('JsonAttentionLedger.clearFinished', () => {
+  it('drops the finish and keeps everything else; a no-op without one', () => {
+    const ledger = build();
+    ledger.clearFinished('s1');
+    expect(ledger.get('s1')).toBeUndefined();
+    ledger.touch('s1', 'w1', 10);
+    ledger.markFinished('s1', 'w1', 20);
+    ledger.markSeen('s1', 30);
+    ledger.clearFinished('s1');
+    expect(ledger.get('s1')).toEqual({ sessionId: 's1', workspaceId: 'w1', lastActiveAt: 10, seenAt: 30 });
+  });
+});
+
 describe('JsonAttentionLedger', () => {
   it('round-trips touch through get, activityFor and snapshot', () => {
     const ledger = build();

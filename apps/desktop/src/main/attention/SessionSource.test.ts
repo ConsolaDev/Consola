@@ -127,6 +127,65 @@ describe('SessionSource', () => {
   });
 });
 
+describe('SessionSource with a run that finished its session', () => {
+  it('says done for an unattended run whose process exited complete, until the person looks', () => {
+    status('working');
+    status('exited');
+    expect(source.read().get('a')).toBe('exited');
+    clock = 5000;
+    source.runCompleted('inst-a');
+    expect(source.read().get('a')).toBe('done');
+    clock = 6000;
+    source.markSeen('a');
+    expect(source.read().get('a')).toBe('exited');
+  });
+
+  it('does not read the old finish as done when the session relaunches (a finish never outlives its lifetime)', () => {
+    status('working');
+    status('exited');
+    clock = 5000;
+    source.runCompleted('inst-a');
+    expect(source.read().get('a')).toBe('done');
+
+    // Relaunched in place and sitting idle at its prompt, never looked at.
+    status('ready');
+    expect(ledger.get('a')?.finishedAt).toBeUndefined();
+    expect(source.read().get('a')).toBe('ready');
+
+    // And exiting again without finishing anything is a plain exit, not the old done.
+    status('exited');
+    expect(source.read().get('a')).toBe('exited');
+  });
+
+  it('treats a destroyed terminal coming back as a new lifetime too', () => {
+    status('exited');
+    source.runCompleted('inst-a');
+    source.forget('inst-a');
+    status('ready');
+    expect(source.read().get('a')).toBe('ready');
+  });
+});
+
+describe('SessionSource with a session held by an open run', () => {
+  it('passes the hold to the derivation: a settled session an open run uses is not settled', () => {
+    const settledLedger = {
+      ...ledger,
+      get: () => ({ sessionId: 'a', workspaceId: 'w1', lastActiveAt: 100, settledAt: 200 }),
+    } as unknown as JsonAttentionLedger;
+    const workspace = makeWorkspace({ id: 'w1', sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })] });
+    let held = false;
+    const heldSource = new SessionSource({
+      getWorkspaces: () => [workspace],
+      terminalStatus: () => 'ready',
+      ledger: settledLedger,
+      heldSessionIds: () => (held ? new Set(['a']) : new Set()),
+    });
+    expect(heldSource.read().get('a')).toBe('settled');
+    held = true;
+    expect(heldSource.read().get('a')).toBe('ready');
+  });
+});
+
 describe('SessionSource with hooks', () => {
   it('says needs-attention from a hook while the screen shows nothing, and ready again once answered', () => {
     status('working');

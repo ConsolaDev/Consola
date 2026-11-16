@@ -420,6 +420,40 @@ test('a finished run shows its conversation without starting anything', async ()
   }
 });
 
+test('a run waiting for approval is a row in the sidebar queue, and Start and Dismiss act in place', async () => {
+  test.setTimeout(90_000);
+  const sprocket = await setUpSprocket();
+  const { page } = sprocket;
+  try {
+    await openAutomations(page);
+    await writeAutomations(sprocket, CATALOG_CHECK, 'catalog-check');
+    const run = await runNow(sprocket, 'catalog-check');
+    expect(run.status).toBe('needs-approval');
+
+    // The queue holds it, beside the sessions, with its decision on the row.
+    const row = page.locator('.run-nav-item', { hasText: 'catalog-check' });
+    await expect(row).toHaveCount(1);
+    await expect(row.getByRole('button', { name: 'Start', exact: true })).toBeVisible();
+    // Nothing started until someone decides.
+    expect(fs.existsSync(sprocket.launches)).toBe(false);
+
+    // Dismissing turns it down in place: the row leaves, nothing runs.
+    await row.getByRole('button', { name: 'Dismiss', exact: true }).click();
+    await expect(page.locator('.run-nav-item')).toHaveCount(0);
+    expect(fs.existsSync(sprocket.launches)).toBe(false);
+
+    // A second run: Start launches its session and the row leaves the queue.
+    const second = await runNow(sprocket, 'catalog-check');
+    expect(second.status).toBe('needs-approval');
+    await expect(page.locator('.run-nav-item')).toHaveCount(1);
+    await page.locator('.run-nav-item').getByRole('button', { name: 'Start', exact: true }).click();
+    await expect(page.locator('.run-nav-item')).toHaveCount(0);
+    await expect.poll(() => launchLines(sprocket).length, { timeout: 30_000 }).toBe(1);
+  } finally {
+    await sprocket.close();
+  }
+});
+
 test('Stop ends a running run', async () => {
   test.setTimeout(90_000);
   const sprocket = await setUpSprocket();

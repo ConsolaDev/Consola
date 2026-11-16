@@ -12,11 +12,13 @@ export interface SessionSourceDeps {
   getWorkspaces(): Workspace[];
   /** The terminal's live status; a terminal that is gone is `exited`. */
   terminalStatus(instanceId: string): TerminalStatus;
-  ledger: Pick<AttentionLedger, 'get' | 'markFinished' | 'markSeen'>;
+  ledger: Pick<AttentionLedger, 'get' | 'markFinished' | 'markSeen' | 'clearFinished'>;
   /** Whether a focused window is showing this terminal right now. */
   isViewedInFocusedWindow?(instanceId: string): boolean;
   /** What the agent CLI's hooks last said about this terminal, if its driver has any. */
   hookInputs?(instanceId: string): HookInputs | undefined;
+  /** Sessions an open automation run is using. Asked once per read. */
+  heldSessionIds?(): ReadonlySet<string>;
   now?: () => number;
 }
 
@@ -43,6 +45,8 @@ export class SessionSource implements AttentionSource {
   /** Turns that settled while the agent had background work running, until the hold ends. */
   private readonly deferred = new Map<string, NodeJS.Timeout>();
   private readonly now: () => number;
+  /** The last status each terminal reported, to tell a launch from a change within one. */
+  private readonly lastStatus = new Map<string, TerminalStatus>();
 
   constructor(private readonly deps: SessionSourceDeps) {
     this.now = deps.now ?? Date.now;
@@ -51,6 +55,7 @@ export class SessionSource implements AttentionSource {
 
   public read(): Map<string, Attention> {
     const entries = new Map<string, Attention>();
+    const held = this.deps.heldSessionIds?.();
     for (const workspace of this.deps.getWorkspaces()) {
       for (const session of workspace.sessions) {
         entries.set(
@@ -59,7 +64,7 @@ export class SessionSource implements AttentionSource {
             terminal: this.deps.terminalStatus(session.instanceId),
             record: this.deps.ledger.get(session.id),
             isViewedInFocusedWindow: this.deps.isViewedInFocusedWindow?.(session.instanceId) ?? false,
-            heldByOpenRun: false,
+            heldByOpenRun: held?.has(session.id) ?? false,
             hook: this.deps.hookInputs?.(session.instanceId),
           })
         );
@@ -79,6 +84,9 @@ export class SessionSource implements AttentionSource {
   public statusChanged(instanceId: string, status: TerminalStatus): void {
     // Any new activity or exit makes a waiting finish moot: the next turn reports for itself.
     if (status !== 'ready') this.cancelDeferred(instanceId);
+    const before = this.lastStatus.get(instanceId);
+    this.lastStatus.set(instanceId, status);
+    if (status !== 'exited' && (before === undefined || before === 'exited')) this.launched(instanceId);
     this.settle.observe(instanceId, status);
     this.refresh();
   }
@@ -91,6 +99,7 @@ export class SessionSource implements AttentionSource {
 
   /** A destroyed terminal's next life starts from nothing. */
   public forget(instanceId: string): void {
+    this.lastStatus.delete(instanceId);
     this.cancelDeferred(instanceId);
     this.settle.unwatch(instanceId);
     this.refresh();
@@ -99,6 +108,21 @@ export class SessionSource implements AttentionSource {
   /** Something `read()` depends on changed outside the terminal (the session list). */
   public refresh(): void {
     for (const cb of [...this.subscribers]) cb();
+  }
+
+  /**
+   * A new lifetime begins. Whatever the last one finished is history: left in
+   * the ledger it would read as a current `done` the moment the relaunched
+   * terminal is idle.
+   */
+  private launched(instanceId: string): void {
+    const located = findSessionByInstanceId(this.deps.getWorkspaces(), instanceId);
+    if (located) this.deps.ledger.clearFinished(located.session.id);
+  }
+
+  /** An unattended run's process exited with its work complete: a result nobody has looked at. */
+  public runCompleted(instanceId: string): void {
+    this.markFinished(instanceId);
   }
 
   private finished(instanceId: string, status: SettledStatus): void {

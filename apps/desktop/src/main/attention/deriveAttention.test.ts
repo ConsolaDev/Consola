@@ -21,7 +21,7 @@ function record(finishedAt?: number, seenAt?: number, settledAt?: number): Atten
 function expected(terminal: TerminalStatus, finishedAt?: number, seenAt?: number, settledAt?: number): Attention {
   const settled = settledAt !== undefined && settledAt >= LAST_ACTIVE;
   const unseenFinish = finishedAt !== undefined && (seenAt === undefined || seenAt < finishedAt);
-  if (terminal === 'exited') return settled ? 'settled' : 'exited';
+  if (terminal === 'exited') return settled ? 'settled' : unseenFinish ? 'done' : 'exited';
   if (terminal === 'needs-attention') return 'needs-attention';
   if (terminal === 'working') return 'working';
   if (settled) return 'settled';
@@ -88,5 +88,20 @@ describe('deriveAttention with hooks', () => {
 
   it('keeps the screen’s answer when hooks have not arrived: the heuristic is the fast path', () => {
     expect(deriveAttention(inputs('needs-attention'))).toBe('needs-attention');
+  });
+});
+
+describe('deriveAttention for held and finished sessions', () => {
+  const base = { isViewedInFocusedWindow: false };
+  it('does not settle a session an open run holds', () => {
+    const settled = record(undefined, undefined, 300);
+    expect(deriveAttention({ ...base, terminal: 'ready', record: settled, heldByOpenRun: false })).toBe('settled');
+    expect(deriveAttention({ ...base, terminal: 'ready', record: settled, heldByOpenRun: true })).toBe('ready');
+    expect(deriveAttention({ ...base, terminal: 'exited', record: settled, heldByOpenRun: true })).toBe('exited');
+  });
+
+  it('calls an exited process with an unseen finish done', () => {
+    expect(deriveAttention({ ...base, terminal: 'exited', record: record(FINISHED), heldByOpenRun: false })).toBe('done');
+    expect(deriveAttention({ ...base, terminal: 'exited', record: record(FINISHED, 250), heldByOpenRun: false })).toBe('exited');
   });
 });
