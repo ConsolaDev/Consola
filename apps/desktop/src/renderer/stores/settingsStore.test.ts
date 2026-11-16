@@ -4,7 +4,6 @@ import { DEFAULT_INBOX_FILTER } from '../components/Inbox/inboxFilters';
 import {
   isShelfOpen,
   sanitizeShelfOpen,
-  sanitizeCollapsedSections,
   sanitizeInboxFilters,
   useSettingsStore,
 } from './settingsStore';
@@ -82,74 +81,6 @@ describe('inbox filter actions', () => {
     useSettingsStore.getState().setInboxRepoFilter('ws-1', ['a/b']);
     expect(DEFAULT_INBOX_FILTER.repos).toEqual([]);
     expect(useSettingsStore.getState().inboxFilterFor('ws-2')).toBe(DEFAULT_INBOX_FILTER);
-  });
-});
-
-describe('sanitizeCollapsedSections', () => {
-  it('answers an empty list for anything that is not an array', () => {
-    expect(sanitizeCollapsedSections(undefined)).toEqual([]);
-    expect(sanitizeCollapsedSections(null)).toEqual([]);
-    expect(sanitizeCollapsedSections('scope-a')).toEqual([]);
-    expect(sanitizeCollapsedSections({ 'scope-a': true })).toEqual([]);
-  });
-
-  it('keeps a well-formed list as is', () => {
-    expect(sanitizeCollapsedSections(['scope-a', 'group-b'])).toEqual(['scope-a', 'group-b']);
-  });
-
-  it('drops entries that are not strings', () => {
-    expect(sanitizeCollapsedSections(['scope-a', 3, null, {}, 'group-b'])).toEqual([
-      'scope-a',
-      'group-b',
-    ]);
-  });
-
-  it('dedupes, so a doubled id still unfolds on one click', () => {
-    expect(sanitizeCollapsedSections(['scope-a', 'scope-a'])).toEqual(['scope-a']);
-  });
-});
-
-describe('sidebar section actions', () => {
-  beforeEach(() => {
-    useSettingsStore.setState({ collapsedSidebarSections: [] });
-  });
-
-  it('starts with everything expanded', () => {
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual([]);
-  });
-
-  it('folds an open section and unfolds a folded one', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual(['scope-a']);
-
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual([]);
-  });
-
-  it('holds scopes and groups in one set without confusing them', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    useSettingsStore.getState().toggleSidebarSection('group-b');
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual(['group-b']);
-  });
-
-  it('expands a folded section', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    useSettingsStore.getState().expandSidebarSection('scope-a');
-
-    expect(useSettingsStore.getState().collapsedSidebarSections).toEqual([]);
-  });
-
-  // The guard is what keeps activating a session from re-serialising the
-  // whole store to localStorage on every navigation.
-  it('does not touch the list when the section is already expanded', () => {
-    useSettingsStore.getState().toggleSidebarSection('scope-a');
-    const before = useSettingsStore.getState().collapsedSidebarSections;
-
-    useSettingsStore.getState().expandSidebarSection('group-b');
-
-    expect(useSettingsStore.getState().collapsedSidebarSections).toBe(before);
   });
 });
 

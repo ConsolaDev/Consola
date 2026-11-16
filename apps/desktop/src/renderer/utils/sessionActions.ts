@@ -1,7 +1,6 @@
 import { filteredScope, newSessionScope, useHomeStore } from '../stores/homeStore';
 import { closePanelOnWorkspaceSwitch, useNavigationStore } from '../stores/navigationStore';
 import { useSessionFilterStore } from '../stores/sessionFilterStore';
-import { useSettingsStore } from '../stores/settingsStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { providerBridge } from '../services/providerBridge';
@@ -291,13 +290,8 @@ export async function runActionInSession(
  * this must not be shortened to an object built by spreading a defined value
  * in, or removal would silently become a no-op.
  *
- * The destination is unfolded on success, for the same reason activating a
- * session reveals its section: a row that moved into a folded group would
- * vanish from the sidebar, and a move that looks like a delete is worse than
- * no move at all.
- *
- * Shared by the ⋯ menu and the sidebar's drag-and-drop so the two cannot
- * drift on what moving a session means.
+ * A group is a record, not a place in the sidebar (rows are bucketed by
+ * attention), so there is nothing to reveal after a move.
  */
 export async function moveSessionToGroup(
   workspaceId: string,
@@ -312,11 +306,6 @@ export async function moveSessionToGroup(
     console.error('Failed to move session to group', error);
     return;
   }
-  // Leaving a group needs no reveal: the scope the row falls back to is
-  // unfolded by the same gesture only if the user folded it themselves, and
-  // prising that open would undo a choice they made about a section this
-  // move never touched.
-  if (groupId) useSettingsStore.getState().expandSidebarSection(groupId);
 }
 
 /** Rename a session, ignoring a blank or unchanged name. */

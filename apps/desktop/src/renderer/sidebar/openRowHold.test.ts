@@ -51,4 +51,22 @@ describe('the open row holds its bucket', () => {
     const placed = placedOf(entry('a', 'done'));
     expect(applyHold(placed, holdFor(placed, keyOf('a')))).toBe(placed);
   });
+
+  it('releases the hold when the open row starts needing the person', () => {
+    const hold = holdFor(placedOf(entry('a', 'ready')), keyOf('a'));
+
+    const asked = placedOf(entry('a', 'needs-attention', { since: 7 }));
+    const held = applyHold(asked, hold);
+
+    expect(ids(held.waiting)).toEqual(['a']);
+    expect(ids(held.recent)).toEqual([]);
+  });
+
+  it('releases a tree when a child of the open conductor asks', () => {
+    const hold = holdFor(placedOf(entry('p', 'ready'), entry('c', 'ready', { parent: keyOf('p') })), keyOf('p'));
+
+    const held = applyHold(placedOf(entry('p', 'ready'), entry('c', 'needs-attention', { parent: keyOf('p') })), hold);
+
+    expect(ids(held.waiting)).toEqual(['p']);
+  });
 });
