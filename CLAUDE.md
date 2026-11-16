@@ -278,7 +278,9 @@ which is the trust gate's moment. What hooks add is what the screen cannot
 show — a question that is no known menu (`PermissionRequest` fires on
 AskUserQuestion within a model turn), a subagent waiting. Branch on
 `notification_type`, never on message text. A `Stop` listing `background_tasks`
-is a paused turn, not a finished one. Hooks use HTTP, not `mcp_tool`: a
+is a paused turn, not a finished one — counting only tasks still `running`, and
+only for `BACKGROUND_HOLD_MS`, since the payload cannot tell awaited work from a
+dev server. The OS notification follows the derived attention, not terminal status. Hooks use HTTP, not `mcp_tool`: a
 Notification hook does not wait for an MCP server still connecting.
 
 ### Ask the CLI What It Can Do

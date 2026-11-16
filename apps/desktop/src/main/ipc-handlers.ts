@@ -25,7 +25,7 @@ import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
-import { NotificationPolicy, findSessionByInstanceId } from './attention';
+import { NotificationPolicy, findSessionById, findSessionByInstanceId, sessionsToNotify } from './attention';
 import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
@@ -264,7 +264,6 @@ export function setupIpcHandlers(): boolean {
         deleteRecord: (workspaceId, sessionId) => workspaces.deleteSession(workspaceId, sessionId),
         destroyTerminal: (instanceId) => {
             terminalManager?.destroy(instanceId);
-            notificationPolicy.forget(instanceId);
             turnActivity.forget(instanceId);
             hookSignals.forget(instanceId);
             attentionSessions.forget(instanceId);
@@ -794,7 +793,7 @@ export function setupIpcHandlers(): boolean {
         viewing.focused(event.sender.id, focused === true);
     });
     attention.register(attentionSessions);
-    hookSignals.subscribe(() => attentionSessions.refresh());
+    hookSignals.subscribe((instanceId) => attentionSessions.hookChanged(instanceId));
     workspaces.onChange(() => attentionSessions.refresh());
     attention.onChange((change) => {
         for (const window of BrowserWindow.getAllWindows()) {
@@ -823,27 +822,31 @@ export function setupIpcHandlers(): boolean {
     // while no Consola window is focused; the Inbox never notifies — only
     // terminals emit status. Clicking lands on the right window and session.
     manager.addStatusListener((instanceId, status) => assistantActivity.statusChanged(instanceId, status));
-    manager.addStatusListener((instanceId, status) => {
-        const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
-        if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
-        if (!Notification.isSupported()) return;
+    // Driven by the attention edge, not the terminal's status: a hook can say a
+    // session needs the person when its screen shows nothing recognisable, and
+    // that is exactly when the person is likely to be elsewhere.
+    attention.onChange((change) => {
+        const ringing = sessionsToNotify(change, notificationPolicy, BrowserWindow.getFocusedWindow() !== null);
+        for (const sessionId of ringing) {
+            if (!Notification.isSupported()) continue;
 
-        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
-        if (!located) return;
+            const located = findSessionById(workspaces.getAll(), sessionId);
+            if (!located) continue;
 
-        // An automation's session waits for nothing but the person: say who
-        // started it. Consola never answers a menu itself.
-        const started = located.session.automation;
-        const notification = new Notification({
-            title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
-            body: started
-                ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
-                : 'Click to open it in Consola.',
-        });
-        notification.on('click', () => {
-            focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
-        });
-        notification.show();
+            // An automation's session waits for nothing but the person: say who
+            // started it. Consola never answers a menu itself.
+            const started = located.session.automation;
+            const notification = new Notification({
+                title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
+                body: started
+                    ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
+                    : 'Click to open it in Consola.',
+            });
+            notification.on('click', () => {
+                focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
+            });
+            notification.show();
+        }
     });
 
     // An automation session's unattended turn ending is its run finishing:
@@ -1320,7 +1323,6 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
         manager.destroy(instanceId);
-        notificationPolicy.forget(instanceId);
         turnActivity.forget(instanceId);
         hookSignals.forget(instanceId);
         attentionSessions.forget(instanceId);

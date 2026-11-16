@@ -35,6 +35,9 @@ export function claudeHookSettings(url: string): string {
         hooks: {
             PermissionRequest: [{ matcher: '', hooks: handler }],
             Notification: [{ matcher: NOTIFICATION_MATCHER, hooks: handler }],
+            // An answered prompt: the tool ran, or the person sent something.
+            PostToolUse: [{ matcher: '', hooks: handler }],
+            UserPromptSubmit: [{ matcher: '', hooks: handler }],
             Stop: [{ matcher: '', hooks: handler }],
         },
     });
@@ -46,7 +49,8 @@ function asRecord(value: unknown): Record<string, unknown> | null {
 
 /** What each `notification_type` means for attention. Unlisted types say nothing. */
 const NOTIFICATION_SIGNALS = new Map<string, AttentionSignal>(Object.entries({
-    permission_prompt: { kind: 'needs-input', origin: 'menu' },
+    // Fires only after the prompt has waited about six seconds.
+    permission_prompt: { kind: 'needs-input', origin: 'menu', lagging: true },
     elicitation_dialog: { kind: 'needs-input', origin: 'question' },
     agent_needs_input: { kind: 'needs-input', origin: 'subagent' },
     idle_prompt: { kind: 'idle' },
@@ -63,11 +67,19 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
             const type = event.notification_type;
             return (typeof type === 'string' && NOTIFICATION_SIGNALS.get(type)) || null;
         }
+        case 'PostToolUse':
+        case 'UserPromptSubmit':
+            return { kind: 'resumed' };
         case 'Stop': {
             // Absent when the CLI could not reach its task registry: no news of
             // background work is not news of some, so it does not hold the turn.
-            const tasks = event.background_tasks;
-            return { kind: 'turn-ended', backgroundWork: Array.isArray(tasks) ? tasks.length : 0 };
+            // Only tasks still running count; a finished one holds nothing. The
+            // payload cannot say which running task the agent is awaiting and
+            // which is incidental (a dev server), so the hold is bounded by
+            // whoever applies it rather than decided here.
+            const tasks = Array.isArray(event.background_tasks) ? event.background_tasks : [];
+            const running = tasks.filter((task) => asRecord(task)?.status === 'running');
+            return { kind: 'turn-ended', backgroundWork: running.length };
         }
         default:
             return null;

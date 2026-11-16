@@ -14,7 +14,9 @@ const notification = (notification_type: string, message = 'prose that must neve
 
 describe('parseClaudeHookEvent', () => {
   const table: Array<[string, unknown, AttentionSignal | null]> = [
-    ['permission_prompt', notification('permission_prompt'), { kind: 'needs-input', origin: 'menu' }],
+    ['permission_prompt (reported ~6s late)', notification('permission_prompt'), { kind: 'needs-input', origin: 'menu', lagging: true }],
+    ['PostToolUse means an answer was given', { hook_event_name: 'PostToolUse' }, { kind: 'resumed' }],
+    ['UserPromptSubmit means an answer was given', { hook_event_name: 'UserPromptSubmit' }, { kind: 'resumed' }],
     ['elicitation_dialog', notification('elicitation_dialog'), { kind: 'needs-input', origin: 'question' }],
     ['agent_needs_input', notification('agent_needs_input'), { kind: 'needs-input', origin: 'subagent' }],
     ['idle_prompt', notification('idle_prompt'), { kind: 'idle' }],
@@ -37,11 +39,20 @@ describe('parseClaudeHookEvent', () => {
     expect(parseClaudeHookEvent({ hook_event_name: 'Notification', message: 'Claude needs your permission' })).toBeNull();
   });
 
-  it('counts the background tasks a Stop reports', () => {
+  it('counts only the background tasks still running that a Stop reports', () => {
     const task = { id: 't1', type: 'shell', status: 'running' };
     expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [task, task] })).toEqual({
       kind: 'turn-ended',
       backgroundWork: 2,
+    });
+    const done = [{ id: 't2', status: 'completed' }, { id: 't3', status: 'failed' }, { id: 't4' }, 'junk', null];
+    expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [...done, task] })).toEqual({
+      kind: 'turn-ended',
+      backgroundWork: 1,
+    });
+    expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: done })).toEqual({
+      kind: 'turn-ended',
+      backgroundWork: 0,
     });
     expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [] })).toEqual({ kind: 'turn-ended', backgroundWork: 0 });
   });
@@ -54,7 +65,7 @@ describe('parseClaudeHookEvent', () => {
 describe('hook registration', () => {
   it('registers an http handler on loopback for the three events', () => {
     const settings = JSON.parse(claudeHookSettings(URL));
-    expect(Object.keys(settings.hooks).sort()).toEqual(['Notification', 'PermissionRequest', 'Stop']);
+    expect(Object.keys(settings.hooks).sort()).toEqual(['Notification', 'PermissionRequest', 'PostToolUse', 'Stop', 'UserPromptSubmit']);
     for (const groups of Object.values<any>(settings.hooks)) {
       expect(groups).toHaveLength(1);
       expect(groups[0].hooks).toEqual([expect.objectContaining({ type: 'http', url: URL })]);

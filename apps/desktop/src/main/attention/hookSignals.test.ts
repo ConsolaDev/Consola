@@ -90,4 +90,35 @@ describe('HookSignals', () => {
     hooks.apply('i', { kind: 'idle' });
     expect(cb).toHaveBeenCalledTimes(2);
   });
+
+  describe('a prompt that was already answered', () => {
+    const lagging: AttentionSignal = { kind: 'needs-input', origin: 'menu', lagging: true };
+
+    it('ignores a lagging notification that lands while output is flowing', () => {
+      const hooks = signals('needs-attention', 'working'); // the person answered
+      hooks.apply('i', lagging);
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
+    it('still takes a lagging notification when the screen is quiet: the only word on an unrecognised menu', () => {
+      const hooks = signals('working', 'ready');
+      hooks.apply('i', lagging);
+      expect(hooks.get('i')?.needsInput).toBe(true);
+    });
+
+    it('ends a menu on a tool having run or a prompt submitted, with no status edge to do it', () => {
+      const hooks = signals('working'); // a menu that never let the spinner stop
+      hooks.apply('i', menu);
+      expect(hooks.get('i')?.needsInput).toBe(true);
+      hooks.apply('i', { kind: 'resumed' });
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
+    it('leaves a subagent’s question to the subagent', () => {
+      const hooks = signals('working');
+      hooks.apply('i', subagent);
+      hooks.apply('i', { kind: 'resumed' });
+      expect(hooks.get('i')?.needsInput).toBe(true);
+    });
+  });
 });

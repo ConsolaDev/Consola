@@ -7,7 +7,7 @@ import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
 import { HookSignals } from './hookSignals';
-import { SessionSource } from './SessionSource';
+import { BACKGROUND_HOLD_MS, SessionSource } from './SessionSource';
 import { SETTLE_MS } from './turnSettle';
 
 let dir: string;
@@ -26,6 +26,7 @@ beforeEach(() => {
   clock = 1000;
   viewed = new Set();
   hooks = new HookSignals();
+  hooks.subscribe((instanceId) => source?.hookChanged(instanceId));
   const workspace = makeWorkspace({ id: 'w1', sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })] });
   source = new SessionSource({
     getWorkspaces: () => [workspace],
@@ -166,5 +167,42 @@ describe('SessionSource with hooks', () => {
     clock = 5000;
     vi.advanceTimersByTime(SETTLE_MS);
     expect(source.read().get('a')).toBe('done');
+  });
+
+  it('finishes the turn when a later stop reports nothing left running, with the screen still quiet', () => {
+    status('working');
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    status('ready');
+    clock = 5000;
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(source.read().get('a')).toBe('ready');
+
+    clock = 8000;
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 0 });
+    expect(source.read().get('a')).toBe('done');
+    expect(ledger.get('a')?.finishedAt).toBe(8000);
+  });
+
+  it('gives up waiting on background work that never ends, such as a dev server', () => {
+    status('working');
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    status('ready');
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(source.read().get('a')).toBe('ready');
+
+    clock = 9000;
+    vi.advanceTimersByTime(BACKGROUND_HOLD_MS);
+    expect(source.read().get('a')).toBe('done');
+  });
+
+  it('does not finish a waiting turn after new work began', () => {
+    status('working');
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    status('ready');
+    vi.advanceTimersByTime(SETTLE_MS);
+    status('working');
+    vi.advanceTimersByTime(BACKGROUND_HOLD_MS);
+    expect(ledger.get('a')?.finishedAt).toBeUndefined();
+    expect(source.read().get('a')).toBe('working');
   });
 });

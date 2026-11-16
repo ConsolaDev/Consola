@@ -21,6 +21,15 @@ export interface SessionSourceDeps {
 }
 
 /**
+ * How long a quiet screen waits on background work the agent reported running
+ * before the turn counts as finished anyway. Hooks cannot say whether that
+ * work is awaited (the agent will wake when it ends) or incidental (a dev
+ * server that never ends); the first must hold the turn open, and the second
+ * must not hold it open forever.
+ */
+export const BACKGROUND_HOLD_MS = 5 * 60_000;
+
+/**
  * Every session's attention, derived from its terminal and the ledger.
  *
  * An entry's key is the session id. This owns the `finishedAt` / `seenAt`
@@ -31,6 +40,8 @@ export class SessionSource implements AttentionSource {
   public readonly kind = 'session';
   private readonly subscribers = new Set<() => void>();
   private readonly settle: TurnSettle;
+  /** Turns that settled while the agent had background work running, until the hold ends. */
+  private readonly deferred = new Map<string, NodeJS.Timeout>();
   private readonly now: () => number;
 
   constructor(private readonly deps: SessionSourceDeps) {
@@ -66,6 +77,8 @@ export class SessionSource implements AttentionSource {
 
   /** A terminal's status changed: feed the settle detector, and say reads may differ. */
   public statusChanged(instanceId: string, status: TerminalStatus): void {
+    // Any new activity or exit makes a waiting finish moot: the next turn reports for itself.
+    if (status !== 'ready') this.cancelDeferred(instanceId);
     this.settle.observe(instanceId, status);
     this.refresh();
   }
@@ -78,6 +91,7 @@ export class SessionSource implements AttentionSource {
 
   /** A destroyed terminal's next life starts from nothing. */
   public forget(instanceId: string): void {
+    this.cancelDeferred(instanceId);
     this.settle.unwatch(instanceId);
     this.refresh();
   }
@@ -95,7 +109,39 @@ export class SessionSource implements AttentionSource {
     // The screen is quiet, but the agent said work it awaits is still running:
     // that is a turn paused, not finished. Marking it `done` would send the
     // person to review something that is not yet there.
-    if (this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) return;
+    if (this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) {
+      this.defer(instanceId);
+      return;
+    }
+    this.markFinished(instanceId);
+  }
+
+  /** What hooks say about a terminal changed: a turn waiting on background work may now be over. */
+  public hookChanged(instanceId: string): void {
+    if (this.deferred.has(instanceId) && !this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) {
+      this.cancelDeferred(instanceId);
+      if (this.deps.terminalStatus(instanceId) === 'ready') this.markFinished(instanceId);
+    }
+    this.refresh();
+  }
+
+  private defer(instanceId: string): void {
+    if (this.deferred.has(instanceId)) return;
+    const timer = setTimeout(() => {
+      this.deferred.delete(instanceId);
+      if (this.deps.terminalStatus(instanceId) === 'ready') this.markFinished(instanceId);
+    }, BACKGROUND_HOLD_MS);
+    timer.unref?.();
+    this.deferred.set(instanceId, timer);
+  }
+
+  private cancelDeferred(instanceId: string): void {
+    const timer = this.deferred.get(instanceId);
+    if (timer) clearTimeout(timer);
+    this.deferred.delete(instanceId);
+  }
+
+  private markFinished(instanceId: string): void {
     const located = findSessionByInstanceId(this.deps.getWorkspaces(), instanceId);
     if (!located) return;
     this.deps.ledger.markFinished(located.session.id, located.workspace.id, this.now());

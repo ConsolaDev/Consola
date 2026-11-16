@@ -8,7 +8,18 @@ import type { TerminalStatus } from '../../shared/terminalStatus';
  */
 export type AttentionSignal =
   /** The agent is parked on the person: a permission menu, a question, or a subagent's question. */
-  | { kind: 'needs-input'; origin: 'menu' | 'question' | 'subagent' }
+  | {
+      kind: 'needs-input';
+      origin: 'menu' | 'question' | 'subagent';
+      /**
+       * Reported only after the prompt had already waited a while (Claude's
+       * `permission_prompt` notification, ~6s). Output flowing when one lands
+       * means the prompt was answered in the meantime, so it is stale.
+       */
+      lagging?: true;
+    }
+  /** The agent got an answer and moved on: a tool ran, or the person submitted a prompt. */
+  | { kind: 'resumed' }
   /** The agent has been idle, waiting for the person to type. Whatever it was asking is over. */
   | { kind: 'idle' }
   /** A subagent finished. */
@@ -45,7 +56,7 @@ interface State {
  */
 export class HookSignals {
   private readonly states = new Map<string, State>();
-  private readonly subscribers = new Set<() => void>();
+  private readonly subscribers = new Set<(instanceId: string) => void>();
 
   public get(instanceId: string): HookInputs | undefined {
     const state = this.states.get(instanceId);
@@ -58,7 +69,15 @@ export class HookSignals {
     const before = this.get(instanceId);
     switch (signal.kind) {
       case 'needs-input':
+        // A lagging report landing while output flows describes a prompt that
+        // has since been answered; latching it would show "needs you" on a
+        // working session with no later edge to clear it.
+        if (signal.lagging && state.status === 'working') break;
         state.needsInput = signal;
+        break;
+      case 'resumed':
+        // A subagent's own question is ended by the subagent, not by other work.
+        if (state.needsInput && state.needsInput.origin !== 'subagent') state.needsInput = false;
         break;
       case 'idle':
         state.needsInput = false;
@@ -96,10 +115,11 @@ export class HookSignals {
 
   /** A destroyed terminal's next life starts from nothing. */
   public forget(instanceId: string): void {
-    if (this.states.delete(instanceId)) this.notify();
+    if (this.states.delete(instanceId)) this.notify(instanceId);
   }
 
-  public subscribe(cb: () => void): () => void {
+  /** Hear that what hooks say about a terminal changed. */
+  public subscribe(cb: (instanceId: string) => void): () => void {
     this.subscribers.add(cb);
     return () => {
       this.subscribers.delete(cb);
@@ -118,10 +138,10 @@ export class HookSignals {
   private notifyIfChanged(instanceId: string, before: HookInputs | undefined): void {
     const after = this.get(instanceId);
     if (before?.needsInput === after?.needsInput && before?.holdingBackgroundWork === after?.holdingBackgroundWork) return;
-    this.notify();
+    this.notify(instanceId);
   }
 
-  private notify(): void {
-    for (const cb of [...this.subscribers]) cb();
+  private notify(instanceId: string): void {
+    for (const cb of [...this.subscribers]) cb(instanceId);
   }
 }
