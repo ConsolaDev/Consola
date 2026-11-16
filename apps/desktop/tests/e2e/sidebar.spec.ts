@@ -459,27 +459,28 @@ test.describe('Home scopes and groups', () => {
     expect(await header.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('drag');
   });
 
-  test('a row that names its scope keeps its dot beside the rename field', async () => {
+  test('renaming a row that names its scope replaces the whole text column', async () => {
     const row = rowFor(page, 'Fix flaky test');
     await expect(row.locator('.session-nav-item-scope')).toContainText('catalog-portal');
-    // Measured the moment the field mounts: the open session's terminal can
-    // take focus right after, which commits the rename and closes the field.
-    await page.evaluate(() => {
-      const observer = new MutationObserver(() => {
-        const input = document.querySelector('.session-rename-input');
-        const dot = input?.closest('.session-nav-item')?.querySelector('.session-status-indicator');
-        if (!input || !dot) return;
-        const centre = (element: Element) => { const box = element.getBoundingClientRect(); return box.top + box.height / 2; };
-        (window as any).__renameOffset = Math.abs(centre(dot) - centre(input));
-        observer.disconnect();
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
+
     await row.hover();
     await row.getByRole('button', { name: 'Session actions' }).click();
     await page.getByRole('menuitem', { name: 'Rename' }).click();
-    // The scope line gives way to the field, so the dot must not stay below it.
-    await expect.poll(() => page.evaluate(() => (window as any).__renameOffset)).toBeLessThanOrEqual(2);
+
+    // Anchored on the field, not on the name: `rowFor` matches by text, and the
+    // name becomes an input VALUE the moment renaming starts, so the row
+    // locator stops matching its own row.
+    const renaming = page.locator('.session-nav-item').filter({ has: page.locator('.session-rename-input') });
+
+    // The field takes the column whole: the meta line it replaces must not
+    // survive beside it, or the row reads as two rows while it is being typed.
+    // This replaces an older assertion that measured the status dot against the
+    // field. That measurement guarded per-glyph margin arithmetic which no
+    // longer exists — the dot now sits in a fixed gutter — and it could not run
+    // at all on a calm row, which draws no dot by design.
+    await expect(renaming.locator('.session-rename-input')).toBeVisible();
+    await expect(renaming.locator('.session-nav-item-scope')).toHaveCount(0);
+    await expect(renaming.locator('.session-nav-item-name')).toHaveCount(0);
   });
 
   const workingHeader = (target: Page) => target.getByRole('button', { name: /^Working/ });
@@ -585,6 +586,9 @@ test.describe('Home scopes and groups', () => {
 
     // The row's one-click slot is the reversible move; destroying a session and
     // its history is behind the ⋯ menu, where a mis-aimed click cannot reach it.
+    // The actions are hidden until the row is hovered, so every reach for them
+    // hovers first — the same gesture a person makes.
+    await row.hover();
     await row.getByRole('button', { name: 'Session actions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
@@ -617,6 +621,7 @@ test.describe('Home scopes and groups', () => {
     await expect(settle).toBeFocused();
 
     await page.evaluate(() => { window.confirm = () => true; });
+    await row.hover();
     await row.getByRole('button', { name: 'Session actions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(row).toHaveCount(0);
