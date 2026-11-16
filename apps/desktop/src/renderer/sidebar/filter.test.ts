@@ -73,25 +73,43 @@ describe('applyFilter', () => {
   });
 
   describe('against bucketing', () => {
-    it('does not move a surviving row to a different bucket', () => {
-      const all = [
-        entry('p', 'working', { labels: ['x'] }),
-        entry('c', 'needs-attention', { parent: keyOf('p'), labels: ['x'] }),
-        entry('q', 'working', { labels: ['x'] }),
-      ];
-      const unfiltered = bucketize(buildForest(all));
-      const filtered = bucketize(buildForest(applyFilter(all, { labels: ['x'] }).entries));
-      expect(ids(filtered.waiting)).toEqual(ids(unfiltered.waiting));
-      expect(ids(filtered.working)).toEqual(ids(unfiltered.working));
+    const bucketsOf = (list: ReturnType<typeof entry>[], selection: Parameters<typeof applyFilter>[1]) => {
+      const result = applyFilter(list, selection);
+      return { result, buckets: bucketize(buildForest(result.entries)) };
+    };
+
+    it('leaves a row that is not part of a tree in its bucket', () => {
+      const all = [entry('w', 'working', { labels: ['x'] }), entry('asks', 'needs-attention', { labels: ['y'] })];
+      const { buckets } = bucketsOf(all, { labels: ['x'] });
+      expect(ids(buckets.working)).toEqual(['w']);
     });
 
-    it('lets a hidden waiting row go, but reports it', () => {
-      const all = [entry('asks', 'needs-attention', { labels: ['x'] }), entry('busy', 'working', { labels: ['y'] })];
-      const result = applyFilter(all, { labels: ['y'] });
-      const buckets = bucketize(buildForest(result.entries));
-      expect(buckets.waiting).toEqual([]);
-      expect(ids(buckets.working)).toEqual(['busy']);
-      expect(result.hiddenNeedingYou).toBe(1);
+    it('makes a child a root in its own bucket when its conductor is hidden', () => {
+      const all = [
+        entry('p', 'working', { labels: ['y'] }),
+        entry('c', 'needs-attention', { parent: keyOf('p'), labels: ['x'] }),
+      ];
+      const { result, buckets } = bucketsOf(all, { labels: ['x'] });
+      expect(ids(buckets.waiting)).toEqual(['c']);
+      expect(buckets.waiting[0].children).toEqual([]);
+      expect(buckets.working).toEqual([]);
+      expect(result.hiddenNeedingYou).toBe(0);
     });
+
+    it.each(['needs-attention', 'done'] as const)(
+      'rebuckets a working conductor out of its tree bucket when its %s child is hidden, and reports it',
+      (attention) => {
+        const all = [
+          entry('p', 'working', { labels: ['x'] }),
+          entry('c', attention, { parent: keyOf('p'), labels: ['y'] }),
+        ];
+        expect(ids(bucketize(buildForest(all))[attention === 'done' ? 'done' : 'waiting'])).toEqual(['p']);
+        const { result, buckets } = bucketsOf(all, { labels: ['x'] });
+        expect(ids(buckets.working)).toEqual(['p']);
+        expect(buckets.waiting).toEqual([]);
+        expect(buckets.done).toEqual([]);
+        expect(result.hiddenNeedingYou).toBe(1);
+      }
+    );
   });
 });

@@ -32,6 +32,14 @@ describe('visibleNodes', () => {
     expect(ids(visibleNodes(list, true, keyOf('kid')))).toEqual(['p']);
   });
 
+  it('pins a tree by its aggregate: a done or needs-attention child pins its working conductor', () => {
+    // Waiting and Done are never collapsed today, but the pin must not rely on that.
+    const done = node(entry('p', 'working'), entry('c', 'done'));
+    const asks = node(entry('q', 'working'), entry('d', 'needs-attention'));
+    const quiet = node(entry('r', 'working'), entry('e', 'ready'));
+    expect(ids(visibleNodes([done, asks, quiet], true, null))).toEqual(['p', 'q']);
+  });
+
   it('does not pin on an active key that is nowhere in the shelf', () => {
     expect(visibleNodes(nodes, true, keyOf('elsewhere'))).toEqual([]);
   });

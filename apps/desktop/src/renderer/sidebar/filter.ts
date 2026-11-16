@@ -21,9 +21,12 @@ function matches(entry: Entry, selection: FilterSelection): boolean {
 }
 
 /**
- * Narrows the entries, before they are bucketed. A filter hides rows and never
- * moves one: placement is bucketize's alone, so what a filter hides it
- * reports rather than silently losing.
+ * Narrows the entries, before they are bucketed. A filter decides only which
+ * entries survive; placement is bucketize's alone, over the survivors. That is
+ * not the same as "a row never changes shelf": hiding a member of a tree changes
+ * the tree's aggregate, so a surviving conductor can land in a different bucket
+ * (and a child whose conductor is hidden becomes a root). What a filter hides
+ * that needs the person is reported, never silently lost.
  */
 export function applyFilter(entries: Entry[], selection: FilterSelection): FilterResult {
   const shown: Entry[] = [];

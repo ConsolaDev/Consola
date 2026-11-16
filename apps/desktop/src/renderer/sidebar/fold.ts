@@ -1,5 +1,5 @@
 import type { EntryKey } from './entry';
-import { membersOf, type TreeNode } from './forest';
+import { aggregateAttention, membersOf, type TreeNode } from './forest';
 
 /**
  * What a shelf shows. Expanded shows everything; collapsed keeps only what must
@@ -14,7 +14,7 @@ export function visibleNodes(nodes: TreeNode[], collapsed: boolean, activeKey: E
 }
 
 function isPinned(node: TreeNode, activeKey: EntryKey | null): boolean {
-  const { attention } = node.entry;
+  const attention = aggregateAttention(node);
   if (attention === 'needs-attention' || attention === 'done') return true;
   return activeKey !== null && membersOf(node).some((entry) => entry.key === activeKey);
 }
