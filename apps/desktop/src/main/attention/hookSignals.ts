@@ -17,9 +17,16 @@ export type AttentionSignal =
        * means the prompt was answered in the meantime, so it is stale.
        */
       lagging?: true;
+      /** Which tool call the prompt is for, when the CLI says: what lets that call's completion end it, and no other's. */
+      tool?: string;
     }
-  /** The agent got an answer and moved on: a tool ran, or the person submitted a prompt. */
-  | { kind: 'resumed' }
+  /**
+   * The agent got an answer and moved on: the person submitted a prompt, or
+   * (with `tool`) one tool call completed. A completion ends only the prompt
+   * for that same call; parallel calls and subagents complete all the time
+   * while a menu is still up.
+   */
+  | { kind: 'resumed'; tool?: string }
   /** The agent has been idle, waiting for the person to type. Whatever it was asking is over. */
   | { kind: 'idle' }
   /** A subagent finished. */
@@ -75,10 +82,21 @@ export class HookSignals {
         if (signal.lagging && state.status === 'working') break;
         state.needsInput = signal;
         break;
-      case 'resumed':
-        // A subagent's own question is ended by the subagent, not by other work.
-        if (state.needsInput && state.needsInput.origin !== 'subagent') state.needsInput = false;
+      case 'resumed': {
+        const pending = state.needsInput;
+        if (!pending) break;
+        // A completed call ends a prompt only when it is shown to be that
+        // prompt's own call. Otherwise it is kept: a stale "needs you" costs
+        // a glance, a missed one is an unbounded wait, and the prompt still
+        // ends on a working edge, a Stop, idle, or the next submitted prompt.
+        if (signal.tool !== undefined) {
+          if (pending.tool === signal.tool) state.needsInput = false;
+        } else if (pending.origin !== 'subagent') {
+          // The person sent something. A subagent's question is ended by the subagent.
+          state.needsInput = false;
+        }
         break;
+      }
       case 'idle':
         state.needsInput = false;
         break;

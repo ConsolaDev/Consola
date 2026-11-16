@@ -114,6 +114,31 @@ describe('HookSignals', () => {
       expect(hooks.get('i')?.needsInput).toBe(false);
     });
 
+    it('keeps a pending menu when a different tool call completes: a parallel call or a subagent', () => {
+      const hooks = signals('working');
+      hooks.apply('i', { kind: 'needs-input', origin: 'menu', tool: 'Bash:{"command":"curl x"}' });
+      hooks.apply('i', { kind: 'resumed', tool: 'Read:{"file_path":"/etc/hosts"}' });
+      expect(hooks.get('i')?.needsInput).toBe(true);
+      hooks.apply('i', { kind: 'resumed', tool: 'Bash:{"command":"curl x"}' }); // its own call ran: answered
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
+    it('keeps a prompt that names no call (an unrecognised question) through any tool completing', () => {
+      const hooks = signals('working');
+      hooks.apply('i', { kind: 'needs-input', origin: 'question' });
+      hooks.apply('i', { kind: 'resumed', tool: 'Read:{}' });
+      expect(hooks.get('i')?.needsInput).toBe(true);
+      hooks.apply('i', { kind: 'resumed' }); // the person submitted a prompt
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
+    it('lets a subagent’s own call completing end its prompt', () => {
+      const hooks = signals('working');
+      hooks.apply('i', { kind: 'needs-input', origin: 'subagent', tool: 'Read:{}' });
+      hooks.apply('i', { kind: 'resumed', tool: 'Read:{}' });
+      expect(hooks.get('i')?.needsInput).toBe(false);
+    });
+
     it('leaves a subagent’s question to the subagent', () => {
       const hooks = signals('working');
       hooks.apply('i', subagent);

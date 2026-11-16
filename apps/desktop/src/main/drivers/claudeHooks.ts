@@ -47,6 +47,12 @@ function asRecord(value: unknown): Record<string, unknown> | null {
     return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
+/** Identifies one tool call by what it was asked to do, or undefined when the payload does not say. */
+function toolCallKey(event: Record<string, unknown>): string | undefined {
+    if (typeof event.tool_name !== 'string') return undefined;
+    return `${event.tool_name}:${JSON.stringify(event.tool_input ?? null)}`;
+}
+
 /** What each `notification_type` means for attention. Unlisted types say nothing. */
 const NOTIFICATION_SIGNALS = new Map<string, AttentionSignal>(Object.entries({
     // Fires only after the prompt has waited about six seconds.
@@ -62,12 +68,22 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
     if (!event) return null;
     switch (event.hook_event_name) {
         case 'PermissionRequest':
-            return { kind: 'needs-input', origin: 'menu' };
+            return {
+                kind: 'needs-input',
+                // The prompt is a subagent's when the payload names one.
+                origin: typeof event.agent_id === 'string' && event.agent_id ? 'subagent' : 'menu',
+                tool: toolCallKey(event),
+            };
         case 'Notification': {
             const type = event.notification_type;
             return (typeof type === 'string' && NOTIFICATION_SIGNALS.get(type)) || null;
         }
         case 'PostToolUse':
+            // Observed live (2.1.325): a PermissionRequest and the PostToolUse
+            // of the call it was for carry the same tool_name and tool_input,
+            // and the former has no tool_use_id to match on. Without a key the
+            // completion cannot be tied to any prompt and clears none.
+            return { kind: 'resumed', tool: toolCallKey(event) ?? 'unknown-call' };
         case 'UserPromptSubmit':
             return { kind: 'resumed' };
         case 'Stop': {

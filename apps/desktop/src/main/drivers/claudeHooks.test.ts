@@ -15,7 +15,7 @@ const notification = (notification_type: string, message = 'prose that must neve
 describe('parseClaudeHookEvent', () => {
   const table: Array<[string, unknown, AttentionSignal | null]> = [
     ['permission_prompt (reported ~6s late)', notification('permission_prompt'), { kind: 'needs-input', origin: 'menu', lagging: true }],
-    ['PostToolUse means an answer was given', { hook_event_name: 'PostToolUse' }, { kind: 'resumed' }],
+    
     ['UserPromptSubmit means an answer was given', { hook_event_name: 'UserPromptSubmit' }, { kind: 'resumed' }],
     ['elicitation_dialog', notification('elicitation_dialog'), { kind: 'needs-input', origin: 'question' }],
     ['agent_needs_input', notification('agent_needs_input'), { kind: 'needs-input', origin: 'subagent' }],
@@ -24,7 +24,10 @@ describe('parseClaudeHookEvent', () => {
     ['auth_success says nothing about attention', notification('auth_success'), null],
     ['an unknown type says nothing', notification('something_new'), null],
     ['a prototype key is not a type', notification('constructor'), null],
-    ['PermissionRequest is a menu being shown', { hook_event_name: 'PermissionRequest', tool_name: 'AskUserQuestion' }, { kind: 'needs-input', origin: 'menu' }],
+    ['PermissionRequest is a menu being shown, for that call', { hook_event_name: 'PermissionRequest', tool_name: 'Bash', tool_input: { command: 'ls' } }, { kind: 'needs-input', origin: 'menu', tool: 'Bash:{"command":"ls"}' }],
+    ['a PermissionRequest naming an agent is a subagent’s', { hook_event_name: 'PermissionRequest', tool_name: 'Read', tool_input: {}, agent_id: 'a1' }, { kind: 'needs-input', origin: 'subagent', tool: 'Read:{}' }],
+    ['PostToolUse names the call that completed', { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }, { kind: 'resumed', tool: 'Bash:{"command":"ls"}' }],
+    ['PostToolUse with no tool_name ties to no prompt', { hook_event_name: 'PostToolUse' }, { kind: 'resumed', tool: 'unknown-call' }],
     ['an unrelated event', { hook_event_name: 'PreToolUse' }, null],
     ['not an object', 'Notification', null],
     ['null', null, null],
