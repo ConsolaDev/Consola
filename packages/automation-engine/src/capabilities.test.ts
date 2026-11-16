@@ -150,7 +150,14 @@ describe('what an agent writing an entry is told', () => {
 
     it('the grammar says a poll waits for Allow and baselines', () => {
         const text = grammar().grammar;
-        expect(text).toContain('it is how to trigger on anything a CLI can answer, including what Consola\'s own events do not cover'.replace(/^it/, 'It'));
+        expect(text).toContain("It is how to trigger on anything a CLI can answer, including what Consola's own events do not cover");
+        expect(text).toContain(
+            'An item that leaves the result is forgotten, so it fires again when it comes back; while it stays, it fires again only when its changed: value moves.'
+        );
+        expect(text).toContain(
+            'Changing the command, the item or changed: path, the timeout or the steps asks again; changing only every: does not.'
+        );
+        expect(text).not.toContain('a changed command or schedule asks again');
         expect(text).toContain('The command does the filtering');
         expect(text).toContain('--jq');
         expect(text).toContain('A poll does not check until the person allows it');
