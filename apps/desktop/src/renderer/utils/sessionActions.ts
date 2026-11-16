@@ -282,32 +282,6 @@ export async function runActionInSession(
   }
 }
 
-/**
- * Move a session into a group, or out of every group with `undefined`.
- *
- * One write either way. `groupId` clears by presence — the key is sent and
- * explicitly undefined, which is what main reads as "leave the group" — so
- * this must not be shortened to an object built by spreading a defined value
- * in, or removal would silently become a no-op.
- *
- * A group is a record, not a place in the sidebar (rows are bucketed by
- * attention), so there is nothing to reveal after a move.
- */
-export async function moveSessionToGroup(
-  workspaceId: string,
-  sessionId: string,
-  groupId: string | undefined
-): Promise<void> {
-  try {
-    await useWorkspaceStore.getState().updateSession(workspaceId, sessionId, { groupId });
-  } catch (error) {
-    // The row visibly staying where it was is the signal, as it is for the
-    // menu's other writes.
-    console.error('Failed to move session to group', error);
-    return;
-  }
-}
-
 /** Rename a session, ignoring a blank or unchanged name. */
 export async function renameSession(
   workspaceId: string,

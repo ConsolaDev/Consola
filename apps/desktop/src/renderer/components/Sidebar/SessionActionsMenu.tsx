@@ -1,28 +1,25 @@
 import { useRef, useState } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
-  Boxes,
   Archive,
   ArchiveRestore,
   Check,
-  CornerUpLeft,
   Link2,
   MoreVertical,
   Pencil,
+  Plus,
   Tag,
   Trash2,
   Unlink,
 } from 'lucide-react';
-import type { Group, Label, Session } from '../../../shared/workspace';
+import type { Label, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
-import { moveSessionToGroup } from '../../utils/sessionActions';
+import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
 import type { SettleOffer } from '../../sidebar/settleRules';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
-const EMPTY_GROUPS: Group[] = [];
 const EMPTY_LABELS: Label[] = [];
 
 interface SessionActionsMenuProps {
@@ -45,35 +42,19 @@ interface SessionActionsMenuProps {
  * it there. Conductors are never offered the link (main would refuse), and
  * a workspace with no provider has no items to link to.
  *
- * "Move to group" is the accessible twin of dragging a row onto a group
- * header — same single write, reachable from the keyboard. Only live groups
- * are offered: an archived one hands its members back to their scopes, so
- * moving into one would look like the move had failed. A conductor is not
- * offered it either, since its group is what it orchestrates.
- *
- * "Remove from group" sits beside that submenu rather than inside it. Leaving
- * is not a destination, and filed under "Move to group" it read as one more
- * group to pick — you had to open the list of places to go to find the way
- * out. It is also the twin of dropping a row back on its own scope row, and
- * the only route left for a session whose scope record is gone: with no scope
- * row on screen, there is nothing to drag it to.
+ * Labels are the one way to file a session: tick the ones it carries, or make a
+ * new one and have it applied at once. There is no "move to group" — groups are
+ * not shown anywhere, so a move into one would change nothing on screen.
  */
 export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, settle }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
   );
-  // The stored array, filtered in render rather than in the selector: a
-  // selector that built a new array every call would hand React a fresh
-  // snapshot each time it asked for one.
-  const allGroups = useWorkspaceStore(
-    (state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.groups
-  );
-  const groups = (allGroups ?? EMPTY_GROUPS).filter((group) => !group.archivedAt);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
   const labels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels) ?? EMPTY_LABELS;
   const assignLabel = useWorkspaceStore((state) => state.assignLabel);
   const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
-  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [creatingLabel, setCreatingLabel] = useState(false);
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
@@ -93,18 +74,12 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
     });
   };
 
-  const handleMove = (groupId: string | undefined) => {
-    void moveSessionToGroup(workspaceId, session.id, groupId);
-  };
-
-  const handleNewGroup = () => {
+  const handleNewLabel = () => {
     openingDialog.current = true;
-    setCreatingGroup(true);
+    setCreatingLabel(true);
   };
 
   const canLink = bound && session.kind !== 'conductor';
-  // A conductor's group is the fleet it drives, not an inbox folder.
-  const canRegroup = session.kind !== 'conductor';
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
@@ -135,46 +110,7 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             <Pencil size={14} />
             <span>Rename</span>
           </DropdownMenu.Item>
-          {canRegroup && (
-            <DropdownMenu.Sub>
-              <DropdownMenu.SubTrigger className="dropdown-item">
-                <Boxes size={14} />
-                <span>Move to group</span>
-              </DropdownMenu.SubTrigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.SubContent className="dropdown-content" sideOffset={4}>
-                  {groups.map((group) => (
-                    <DropdownMenu.Item
-                      key={group.id}
-                      className="dropdown-item"
-                      // Selecting the group it is already in would be a
-                      // no-op write; disabling says so instead of pretending.
-                      disabled={group.id === session.groupId}
-                      onSelect={() => handleMove(group.id)}
-                    >
-                      {group.id === session.groupId ? <Check size={14} /> : <Boxes size={14} />}
-                      <span>{group.name}</span>
-                    </DropdownMenu.Item>
-                  ))}
-                  {groups.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
-                  <DropdownMenu.Item className="dropdown-item" onSelect={handleNewGroup}>
-                    <span>New group…</span>
-                  </DropdownMenu.Item>
-                </DropdownMenu.SubContent>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Sub>
-          )}
-          {canRegroup && session.groupId !== undefined && (
-            <DropdownMenu.Item
-              className="dropdown-item"
-              onSelect={() => handleMove(undefined)}
-            >
-              <CornerUpLeft size={14} />
-              <span>Remove from group</span>
-            </DropdownMenu.Item>
-          )}
-          {labels.length > 0 && (
-            <DropdownMenu.Sub>
+          <DropdownMenu.Sub>
               <DropdownMenu.SubTrigger className="dropdown-item">
                 <Tag size={14} />
                 <span>Labels</span>
@@ -200,10 +136,14 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
                       </DropdownMenu.Item>
                     );
                   })}
+                  {labels.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
+                  <DropdownMenu.Item className="dropdown-item" onSelect={handleNewLabel}>
+                    <Plus size={14} />
+                    <span>New label…</span>
+                  </DropdownMenu.Item>
                 </DropdownMenu.SubContent>
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
-          )}
           {settle?.kind === 'unsettle' && (
             <DropdownMenu.Item className="dropdown-item" onSelect={() => void unsettleWithUndo(workspaceId, session.id, session.name)}>
               <ArchiveRestore size={14} />
@@ -259,11 +199,11 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
-      {creatingGroup && (
-        <NewGroupDialog
+      {creatingLabel && (
+        <NewLabelDialog
           workspaceId={workspaceId}
-          onClose={() => setCreatingGroup(false)}
-          onCreated={(group) => moveSessionToGroup(workspaceId, session.id, group.id)}
+          onClose={() => setCreatingLabel(false)}
+          onCreated={(label) => assignLabel(workspaceId, session.id, label.id)}
         />
       )}
     </DropdownMenu.Root>

@@ -8,13 +8,13 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { hasScopeChoice, newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { scopeTrail } from '../../utils/scopeTrail';
-import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
+import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
 import { FanOutDialog } from '../Dialogs/FanOutDialog';
 import { OrchestrationDialog } from '../Dialogs/OrchestrationDialog';
 
 /**
  * The ＋ New menu: everything that creates work, in one place, in increasing
- * order of machinery — a session, a group, a fan-out, and an orchestration.
+ * order of machinery — a session, a label, a fan-out, and an orchestration.
  * This is the whole creation surface a casual user ever sees.
  *
  * ＋ starts a session straight into its terminal and names where: the picked
@@ -28,7 +28,7 @@ export function NewMenu() {
     state.workspaces.find((candidate) => candidate.id === activeWorkspaceId)
   );
   const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
-  const [openDialog, setOpenDialog] = useState<'group' | 'fan-out' | 'orchestration' | null>(null);
+  const [openDialog, setOpenDialog] = useState<'label' | 'fan-out' | 'orchestration' | null>(null);
 
   if (!activeWorkspaceId) return null;
   // The orchestration door generates a conductor directory inside a scope, so
@@ -89,8 +89,8 @@ export function NewMenu() {
                 <span>New session with options…</span>
                 <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>{isMac ? '⇧⌘N' : 'Ctrl+Shift+N'}</span>
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('group')}>
-                <span>New group</span>
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('label')}>
+                <span>New label</span>
               </DropdownMenu.Item>
               <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('fan-out')}>
                 <span>Fan-out…</span>
@@ -128,8 +128,8 @@ export function NewMenu() {
         </DropdownMenu.Root>
       </div>
 
-      {openDialog === 'group' && (
-        <NewGroupDialog workspaceId={activeWorkspaceId} onClose={() => setOpenDialog(null)} />
+      {openDialog === 'label' && (
+        <NewLabelDialog workspaceId={activeWorkspaceId} onClose={() => setOpenDialog(null)} />
       )}
       {openDialog === 'fan-out' && (
         <FanOutDialog workspaceId={activeWorkspaceId} onClose={() => setOpenDialog(null)} />
