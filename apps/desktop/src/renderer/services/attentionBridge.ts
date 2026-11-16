@@ -1,5 +1,5 @@
 import type { AttentionChange, AttentionState } from '../../shared/attention';
-import type { SettleMemento } from '../../shared/preferences';
+import type { SettleMemento, SettleResult } from '../../shared/preferences';
 
 /**
  * Attention Bridge - Isolates all window.attentionAPI access to this single file.
@@ -37,9 +37,9 @@ export const attentionBridge = {
     getAPI()?.setFocused(focused);
   },
 
-  /** Settle a session and everything beneath it. The memento is what `restore` undoes it with. */
-  settle: async (workspaceId: string, sessionId: string): Promise<SettleMemento> =>
-    (await getAPI()?.settle(workspaceId, sessionId)) ?? {},
+  /** Settle a session and everything beneath it. Says whether it reached the shelf; the memento is what `restore` undoes it with. */
+  settle: async (workspaceId: string, sessionId: string): Promise<SettleResult> =>
+    (await getAPI()?.settle(workspaceId, sessionId)) ?? { settled: false, memento: {} },
 
   /** Bring a session back to the list; auto-settle leaves it alone until it has new activity. */
   unsettle: async (workspaceId: string, sessionId: string): Promise<SettleMemento> =>

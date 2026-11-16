@@ -26,13 +26,14 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-interface Spec { id: string; parent?: string; terminal: TerminalStatus }
+interface Spec { id: string; parent?: string; terminal: TerminalStatus; /** An unseen finish: reads as done. */ finished?: boolean }
 
 function world(specs: Spec[]) {
   const ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
   const sessions = specs.map((spec) =>
     makeSession({ id: spec.id, name: spec.id, instanceId: `inst-${spec.id}`, kind: 'interactive', groupId: undefined, parentSessionId: spec.parent, lastActiveAt: 10 }));
   const workspace = makeWorkspace({ id: 'w1', sessions });
+  for (const spec of specs) if (spec.finished) ledger.markFinished(spec.id, 'w1', 20);
   const terminals = new Map<string, TerminalStatus>(specs.map((spec) => [`inst-${spec.id}`, spec.terminal]));
   const source = new SessionSource({ getWorkspaces: () => [workspace], terminalStatus: (i) => terminals.get(i) ?? 'exited', ledger, now: () => NOW });
   const forest = (): TreeNode[] =>
@@ -55,6 +56,7 @@ function world(specs: Spec[]) {
 
 const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }[] = [
   { name: 'an idle root', specs: [{ id: 'a', terminal: 'ready' }], target: 'a', lands: true },
+  { name: 'a finished root the person has not opened (done)', specs: [{ id: 'a', terminal: 'ready', finished: true }], target: 'a', lands: true },
   { name: 'an exited root', specs: [{ id: 'a', terminal: 'exited' }], target: 'a', lands: true },
   { name: 'a conductor whose children are all idle', specs: [{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }], target: 'p', lands: true },
   { name: 'a child of an idle parent', specs: [{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }], target: 'k', lands: false },
@@ -70,6 +72,13 @@ describe('settling by hand, end to end', () => {
     settleSession(w.workspace, target, w.ledger, NOW);
     expect(w.bucketOf(target) === 'settled').toBe(lands);
     expect(offer === 'settle').toBe(lands);
+  });
+
+  it('a done root is where settling is most wanted: it reads done first, then lands on the shelf', () => {
+    const w = world([{ id: 'a', terminal: 'ready', finished: true }]);
+    expect(w.bucketOf('a')).toBe('done');
+    settleSession(w.workspace, 'a', w.ledger, NOW);
+    expect(w.bucketOf('a')).toBe('settled');
   });
 
   it('a blocked row says why', () => {

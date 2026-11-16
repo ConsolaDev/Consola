@@ -29,5 +29,15 @@ export const DEFAULT_PREFERENCES: Preferences = {
   pendingAutoSettle: [],
 };
 
+/**
+ * What a manual settle did. `settled` is main's answer from the derivation, not
+ * a hope: a session an open run holds never reads settled, whatever was written.
+ * When it did not move the row nothing was kept, so there is nothing to undo.
+ */
+export interface SettleResult {
+  settled: boolean;
+  memento: SettleMemento;
+}
+
 /** What undoing a settle (or un-settle) restores: each session's ledger entry as it was, null for none. */
 export type SettleMemento = Record<string /* sessionId */, AttentionRecord | null>;

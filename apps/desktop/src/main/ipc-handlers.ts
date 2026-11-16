@@ -118,9 +118,9 @@ import { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { HookSignals } from './attention/hookSignals';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
-import { settleSession, unsettleSession } from './attention/settling';
+import { settleAndVerify, unsettleSession } from './attention/settling';
 import { PreferencesService } from './state/PreferencesService';
-import type { SettleMemento } from '../shared/preferences';
+import type { SettleMemento, SettleResult } from '../shared/preferences';
 import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
@@ -838,16 +838,19 @@ export function setupIpcHandlers(): boolean {
     });
     ipcMain.handle(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE, () => preferences.acknowledgeAutoSettle());
 
-    const settleHandler = (write: typeof settleSession) => (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionId: unknown): SettleMemento => {
-        if (typeof workspaceId !== 'string' || typeof sessionId !== 'string') return {};
-        const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
-        if (!workspace) return {};
-        const memento = write(workspace, sessionId, attentionLedger, Date.now());
-        attentionSessions.refresh();
-        return memento;
-    };
-    ipcMain.handle(IPC_CHANNELS.ATTENTION_SETTLE, settleHandler(settleSession));
-    ipcMain.handle(IPC_CHANNELS.ATTENTION_UNSETTLE, settleHandler(unsettleSession));
+    const withWorkspace = <T>(empty: T, run: (workspace: Workspace, sessionId: string) => T) =>
+        (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionId: unknown): T => {
+            if (typeof workspaceId !== 'string' || typeof sessionId !== 'string') return empty;
+            const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+            if (!workspace) return empty;
+            const result = run(workspace, sessionId);
+            attentionSessions.refresh();
+            return result;
+        };
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_SETTLE, withWorkspace<SettleResult>({ settled: false, memento: {} },
+        (workspace, sessionId) => settleAndVerify(workspace, sessionId, attentionLedger, () => attentionSessions.read(), Date.now())));
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_UNSETTLE, withWorkspace<SettleMemento>({},
+        (workspace, sessionId) => unsettleSession(workspace, sessionId, attentionLedger, Date.now())));
     ipcMain.handle(IPC_CHANNELS.ATTENTION_RESTORE, (_event, memento: unknown) => {
         if (typeof memento !== 'object' || memento === null) return;
         attentionLedger.restore(memento as SettleMemento);

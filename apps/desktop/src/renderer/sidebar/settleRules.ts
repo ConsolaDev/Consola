@@ -7,7 +7,8 @@ export type SettleOffer =
   /** Not available, and why: a menu can show the reason, a hover slot just stays out of the way. */
   | { kind: 'blocked'; reason: string };
 
-const IDLE = new Set(['ready', 'exited', 'settled']);
+/** `done` is idle too: settling it marks it seen, and putting a looked-at result away is the gesture the Done bucket is for. */
+const IDLE = new Set(['ready', 'exited', 'settled', 'done']);
 
 /**
  * Whether settling this row puts it on the shelf, which is the only honest
@@ -17,7 +18,9 @@ const IDLE = new Set(['ready', 'exited', 'settled']);
  * idle, so settling a working row writes something the next turn discards.
  * Restricting the offer to those cases is the safety property too: a session
  * that is working or needs the person cannot be hidden, and a child cannot
- * leave a tree its parent still holds.
+ * leave a tree its parent still holds. What only main can see (an open run
+ * holding a session) is not decided here: main verifies the settle and the
+ * toast reports what happened.
  *
  * `node` is the row's own tree node, a conductor with its children or a lone
  * session; `isChild` says it is drawn under a conductor.
@@ -27,7 +30,7 @@ export function settleOffer(node: TreeNode, isChild: boolean): SettleOffer {
   if (aggregateAttention(node) === 'settled') return { kind: 'unsettle' };
   const members = membersOf(node);
   if (members.some((member) => !IDLE.has(member.attention))) {
-    return { kind: 'blocked', reason: 'Not while it is working, needs you, or has a result you have not seen' };
+    return { kind: 'blocked', reason: 'Not while it is working or needs you' };
   }
   // Only a root that is itself ready or exited: one already settled has nothing to settle.
   return node.entry.attention === 'settled' ? { kind: 'blocked', reason: 'Settles with its children' } : { kind: 'settle' };

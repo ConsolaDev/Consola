@@ -1,6 +1,7 @@
 import type { Session, Workspace } from '../../shared/workspace';
 import { activityOf } from '../../shared/attention';
-import type { SettleMemento } from '../../shared/preferences';
+import type { Attention } from '../../shared/attention';
+import type { SettleMemento, SettleResult } from '../../shared/preferences';
 import type { AttentionLedger, SettleTarget } from './AttentionLedger';
 
 /** The sessions a person sees in the list: no Assistant, and nothing still unnamed. */
@@ -87,4 +88,25 @@ export function unsettleSession(
 ): SettleMemento {
   const members = withDescendants(settleable(workspace), sessionId);
   return ledger.unsettle(members.map((session) => session.id), now);
+}
+
+/**
+ * Settle by hand, then ask the derivation whether it took. The row cannot see
+ * everything that keeps a session off the shelf (an open run holding it is
+ * one), so main checks after writing: if any member does not read `settled`,
+ * the write is taken back, so a stale `settledAt` cannot shelve the session
+ * the moment the hold lifts, and the caller is told the truth.
+ */
+export function settleAndVerify(
+  workspace: Workspace,
+  sessionId: string,
+  ledger: AttentionLedger,
+  derive: () => ReadonlyMap<string, Attention>,
+  now: number
+): SettleResult {
+  const memento = settleSession(workspace, sessionId, ledger, now);
+  const attention = derive();
+  if (Object.keys(memento).every((id) => attention.get(id) === 'settled')) return { settled: true, memento };
+  ledger.restore(memento);
+  return { settled: false, memento: {} };
 }

@@ -1,7 +1,7 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../shared/attention';
-import type { Preferences, SettleMemento } from '../shared/preferences';
+import type { Preferences, SettleMemento, SettleResult } from '../shared/preferences';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -433,7 +433,7 @@ contextBridge.exposeInMainWorld('attentionAPI', {
     setFocused: (focused: boolean): void => {
         ipcRenderer.send(IPC_CHANNELS.ATTENTION_FOCUSED, focused);
     },
-    settle: (workspaceId: string, sessionId: string): Promise<SettleMemento> => {
+    settle: (workspaceId: string, sessionId: string): Promise<SettleResult> => {
         return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE, workspaceId, sessionId);
     },
     unsettle: (workspaceId: string, sessionId: string): Promise<SettleMemento> => {

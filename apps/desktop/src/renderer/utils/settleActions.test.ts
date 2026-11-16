@@ -12,7 +12,7 @@ const memento = { a: { sessionId: 'a', workspaceId: 'w', lastActiveAt: 5 } };
 beforeEach(() => {
   vi.useFakeTimers();
   for (const toast of useToastStore.getState().toasts) dismissToast(toast.id);
-  vi.mocked(attentionBridge.settle).mockResolvedValue(memento);
+  vi.mocked(attentionBridge.settle).mockResolvedValue({ settled: true, memento });
   vi.mocked(attentionBridge.unsettle).mockResolvedValue(memento);
   vi.mocked(attentionBridge.restore).mockReset();
 });
@@ -25,6 +25,15 @@ describe('settling with undo', () => {
     toast.action!.run();
     expect(attentionBridge.restore).toHaveBeenCalledWith(memento);
     expect(useToastStore.getState().toasts).toHaveLength(0);
+  });
+
+  it('a settle that did not move the row says so, claims no destination, and offers no Undo', async () => {
+    vi.mocked(attentionBridge.settle).mockResolvedValue({ settled: false, memento: {} });
+    await settleWithUndo('w', 'a', 'Fix login');
+    const [toast] = useToastStore.getState().toasts;
+    expect(toast.message).not.toContain('Settled shelf');
+    expect(toast.message).toMatch(/could not settle/i);
+    expect(toast.action).toBeUndefined();
   });
 
   it('un-settling can be undone too', async () => {
