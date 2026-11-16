@@ -76,6 +76,7 @@ function SessionRowBody({
   child,
   onActivate: onClick,
   trailing,
+  settle,
 }: RowProps & { session: Session }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -135,9 +136,9 @@ function SessionRowBody({
   // otherwise flash `done` once. Main's value is untouched.
   const displayStatus: Attention = isViewed && derivedStatus === 'done' ? 'ready' : derivedStatus;
   const statusWord = STATUS_WORDS[displayStatus];
-  // The hover action is a toggle: a shelved row offers the way back, so the
-  // slot never shows an action that would do nothing.
-  const isSettled = displayStatus === 'settled';
+  // The hover action is a toggle, and only where it works: the tree decides
+  // (`settleOffer`), because a child or a busy session cannot reach the shelf.
+  const isSettled = settle?.kind === 'unsettle';
   // Computed at render rather than on a timer: the row already re-renders on
   // every attention broadcast, and a per-row interval for a string that changes
   // once a minute would cost more than it tells anyone.
@@ -348,12 +349,13 @@ function SessionRowBody({
             workspaceId={workspaceId}
             onRename={handleStartRename}
             onDelete={handleDelete}
+            settle={settle}
           />
           {/* Settle, not delete. The row's one-click slot belongs to the move a
               person makes constantly and can undo from the toast; destroying a
               session and its history is rare and permanent, so it stays behind
               the ⋯ menu where a mis-aimed click cannot reach it. */}
-          <button
+          {(settle?.kind === 'settle' || settle?.kind === 'unsettle') && <button
             type="button"
             className="nav-row-action"
             aria-label={isSettled ? `Move ${label} back to the list` : `Settle session ${label}`}
@@ -364,7 +366,7 @@ function SessionRowBody({
             }}
           >
             {isSettled ? <ArchiveRestore size={12} aria-hidden="true" /> : <Archive size={12} aria-hidden="true" />}
-          </button>
+          </button>}
         </div>
       )}
     </div>

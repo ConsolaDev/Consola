@@ -28,6 +28,7 @@ import { applyFilter } from '../../sidebar/filter';
 import { buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
 import { applyHold, holdFor, type Hold } from '../../sidebar/openRowHold';
+import { settleOffer } from '../../sidebar/settleRules';
 import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ShelfHeader } from './rows/ShelfHeader';
@@ -132,7 +133,7 @@ export function Sidebar() {
       return <TreeRow key={node.entry.key} node={node} bucket={bucket} workspaceId={workspace!.id}
         activeKey={activeKey} highlightActive={highlightActive} />;
     }
-    return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey });
+    return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey, settle: settleOffer(node, false) });
   };
   const list = (nodes: TreeNode[], bucket: Bucket) => nodes.map(node => renderNode(node, bucket));
   const needsYou = placed.waiting.length + placed.done.length;

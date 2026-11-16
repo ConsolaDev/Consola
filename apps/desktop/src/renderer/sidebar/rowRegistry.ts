@@ -4,6 +4,7 @@ import { RunRow, activateRun } from '../components/Sidebar/rows/RunRow';
 import { SessionRow } from '../components/Sidebar/rows/SessionRow';
 import { activateSession } from '../utils/sessionActions';
 import { idOfKey } from './entries';
+import type { SettleOffer } from './settleRules';
 
 /** What every row gets. Rows look their own record up by `entry.key`; the entry carries none. */
 export interface RowProps {
@@ -17,6 +18,8 @@ export interface RowProps {
   onActivate: () => void;
   /** Drawn at the row's trailing edge: a tree's aggregate badge. */
   trailing?: ReactNode;
+  /** What the row may do about the Settled shelf. Decided from the tree, which a row cannot see. */
+  settle?: SettleOffer;
 }
 
 export interface RowKind {
@@ -41,7 +44,7 @@ export const ROW_KINDS: Record<string, RowKind> = {
 /** The row for an entry, or nothing for a kind nobody registered. */
 export function entryRow(
   entry: Entry,
-  props: { workspaceId: string; active: boolean; child?: boolean; trailing?: ReactNode }
+  props: { workspaceId: string; active: boolean; child?: boolean; trailing?: ReactNode; settle?: SettleOffer }
 ): ReactElement | null {
   const kind = ROW_KINDS[entry.kind];
   if (!kind) return null;

@@ -4,6 +4,7 @@ import type { Bucket } from '../../../sidebar/bucketize';
 import type { EntryKey } from '../../../sidebar/entry';
 import type { TreeNode } from '../../../sidebar/forest';
 import { entryRow } from '../../../sidebar/rowRegistry';
+import { settleOffer } from '../../../sidebar/settleRules';
 import { treeView } from '../../../sidebar/treeView';
 import { useSettingsStore } from '../../../stores/settingsStore';
 
@@ -53,6 +54,7 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, highlightActive 
       workspaceId,
       active: highlightActive && child.entry.key === activeKey,
       child: isChild,
+      settle: settleOffer(child, isChild),
       trailing:
         isChild || !badgeWord ? undefined : (
           <span className={`tree-aggregate tree-aggregate--${worst}`} title={`${worstCount} ${badgeWord}`}>

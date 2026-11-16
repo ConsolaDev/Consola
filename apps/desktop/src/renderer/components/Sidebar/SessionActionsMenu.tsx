@@ -19,7 +19,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
 import { moveSessionToGroup } from '../../utils/sessionActions';
 import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
-import { useSessionAttention } from '../../stores/attentionStore';
+import type { SettleOffer } from '../../sidebar/settleRules';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
 const EMPTY_GROUPS: Group[] = [];
@@ -32,6 +32,8 @@ interface SessionActionsMenuProps {
   workspaceId: string;
   onRename: () => void;
   onDelete: () => void;
+  /** What this row may do about the Settled shelf; absent offers nothing. */
+  settle?: SettleOffer;
 }
 
 /**
@@ -56,7 +58,7 @@ interface SessionActionsMenuProps {
  * the only route left for a session whose scope record is gone: with no scope
  * row on screen, there is nothing to drag it to.
  */
-export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange }: SessionActionsMenuProps) {
+export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, settle }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
   );
@@ -72,7 +74,6 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
   const assignLabel = useWorkspaceStore((state) => state.assignLabel);
   const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
   const [creatingGroup, setCreatingGroup] = useState(false);
-  const isSettled = useSessionAttention(session.id) === 'settled';
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
@@ -203,15 +204,23 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
           )}
-          {isSettled ? (
+          {settle?.kind === 'unsettle' && (
             <DropdownMenu.Item className="dropdown-item" onSelect={() => void unsettleWithUndo(workspaceId, session.id, session.name)}>
               <ArchiveRestore size={14} />
               <span>Move back to list</span>
             </DropdownMenu.Item>
-          ) : (
+          )}
+          {settle?.kind === 'settle' && (
             <DropdownMenu.Item className="dropdown-item" onSelect={() => void settleWithUndo(workspaceId, session.id, session.name)}>
               <Archive size={14} />
               <span>Settle</span>
+            </DropdownMenu.Item>
+          )}
+          {/* Where it cannot work, say why rather than leave the person guessing. */}
+          {settle?.kind === 'blocked' && (
+            <DropdownMenu.Item className="dropdown-item" disabled title={settle.reason}>
+              <Archive size={14} />
+              <span>Settle · {settle.reason}</span>
             </DropdownMenu.Item>
           )}
           <DropdownMenu.CheckboxItem
