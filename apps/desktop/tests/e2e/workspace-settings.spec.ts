@@ -403,6 +403,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await expect(global.locator('.settings-modal-nav-item')).toHaveText([
       'Updates',
       'Appearance',
+      'Sessions',
       'Harnesses',
       'Keyboard Shortcuts',
     ]);
