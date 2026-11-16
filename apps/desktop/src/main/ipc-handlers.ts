@@ -1199,6 +1199,8 @@ export function setupIpcHandlers(): boolean {
                 getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
                 scaffold,
                 createGroup: (workspaceId, fields) => workspaces.createGroup(workspaceId, fields),
+                createLabel: (workspaceId, fields) => workspaces.createLabel(workspaceId, fields),
+                deleteLabel: (workspaceId, labelId) => workspaces.deleteLabel(workspaceId, labelId),
                 updateGroup: (workspaceId, groupId, updates) =>
                     workspaces.updateGroup(workspaceId, groupId, updates),
                 launchSession: (workspaceId, fields) =>

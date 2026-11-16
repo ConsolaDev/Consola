@@ -26,10 +26,50 @@ function buildDeps(launchSession: FanOutDeps['launcher']['launchSession']) {
         workspaces: {
             getAll: vi.fn(() => [workspace]),
             createGroup: vi.fn(() => group),
+            createLabel: vi.fn(() => ({ id: 'group-1', name: 'bump lodash' })),
         },
         launcher: { launchSession },
     };
 }
+
+describe('fanOut labels', () => {
+    it('labels every sibling with one shared label and parents none', async () => {
+        const launchSession = vi.fn((_w: string, fields: { name: string; labelIds?: string[] }) =>
+            Promise.resolve({ id: `s-${fields.name}` } as Session)
+        );
+        const deps = buildDeps(launchSession);
+
+        await fanOut(deps, intent);
+
+        expect(deps.workspaces.createLabel).toHaveBeenCalledWith('ws-1', {
+            id: 'group-1', // the group's id, as the migration would have made it
+            name: 'bump lodash',
+        });
+        expect(launchSession).toHaveBeenCalledTimes(3);
+        for (const [, fields] of launchSession.mock.calls) {
+            expect(fields.labelIds).toEqual(['group-1']);
+            expect(fields).not.toHaveProperty('parentSessionId');
+        }
+    });
+
+    it('a target that fails to launch leaves the earlier sessions labelled', async () => {
+        const launchSession = vi
+            .fn()
+            .mockImplementationOnce((_w: string, f: { name: string }) =>
+                Promise.resolve({ id: `s-${f.name}`, labelIds: ['group-1'] } as Session)
+            )
+            .mockRejectedValueOnce(new Error('no such folder'))
+            .mockImplementationOnce((_w: string, f: { name: string }) =>
+                Promise.resolve({ id: `s-${f.name}`, labelIds: ['group-1'] } as Session)
+            );
+
+        const result = await fanOut(buildDeps(launchSession), intent);
+
+        expect(result.failed).toHaveLength(1);
+        expect(result.created.map((s) => s.labelIds)).toEqual([['group-1'], ['group-1']]);
+        expect(launchSession.mock.calls[0][1].labelIds).toEqual(['group-1']);
+    });
+});
 
 describe('fanOut', () => {
     it('creates the group first, then one session per target inside it', async () => {

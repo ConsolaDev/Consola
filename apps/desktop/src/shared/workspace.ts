@@ -226,13 +226,15 @@ export function createScopeRecord(fields: NewScopeFields): Scope {
 }
 
 export interface NewLabelFields {
+  /** Only a label born with a group passes one: it shares the group's id, as the v7 -> v8 migration gives it. */
+  id?: string;
   name: string;
   emoji?: string;
   color?: string;
 }
 
 export function createLabelRecord(fields: NewLabelFields): Label {
-  const label: Label = { id: generateId(), name: fields.name };
+  const label: Label = { id: fields.id ?? generateId(), name: fields.name };
   if (fields.emoji !== undefined) label.emoji = fields.emoji;
   if (fields.color !== undefined) label.color = fields.color;
   return label;
@@ -294,7 +296,7 @@ export type NewSessionFields = Pick<
   Partial<
     Pick<
       Session,
-      'cwd' | 'groupId' | 'kind' | 'workItem' | 'workItemAction' | 'toolPolicy' | 'automation' | 'nameIsUserSet'
+      'cwd' | 'groupId' | 'labelIds' | 'parentSessionId' | 'kind' | 'workItem' | 'workItemAction' | 'toolPolicy' | 'automation' | 'nameIsUserSet'
     >
   >;
 

@@ -790,6 +790,26 @@ describe('migrateWorkspaceState v7 -> v8', () => {
     expect(migrated.sessions[1].groupId).toBe('g1');
   });
 
+  it('is idempotent over the records the runtime writers create', () => {
+    // What createConductor and ConductorTools now write: the label shares the
+    // group's id, the conductor and its worker carry it, the worker is parented.
+    const created = workspaceOf(
+      [group('g1', { conductorSessionId: 'cond' })],
+      [session('cond', { kind: 'conductor', groupId: 'g1', labelIds: ['g1'] }),
+       session('w-a', { groupId: 'g1', labelIds: ['g1'], parentSessionId: 'cond' })]
+    );
+    (created as any).labels = [{ id: 'g1', name: 'g1' }];
+
+    const once = run(created);
+    const twice = run(once);
+
+    expect(once.labels).toEqual([{ id: 'g1', name: 'g1' }]);
+    expect(twice).toEqual(once);
+    expect(once.sessions[0].labelIds).toEqual(['g1']);
+    expect(once.sessions[1].labelIds).toEqual(['g1']);
+    expect(once.sessions[1].parentSessionId).toBe('cond');
+  });
+
   it('does not mutate its input', () => {
     const input = workspaceOf([group('g1')], [session('s1', { groupId: 'g1' })]);
     const snapshot = JSON.parse(JSON.stringify(input));

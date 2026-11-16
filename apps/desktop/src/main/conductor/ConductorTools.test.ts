@@ -150,6 +150,39 @@ describe('tool handlers enforce the group boundary', () => {
       ).rejects.toThrow(/cwd must be inside/);
     });
 
+    it("parents the worker to the conductor and gives it the conductor's labels", async () => {
+      deps.getWorkspaces = vi.fn(() => [
+        makeWorkspace({ sessions: [makeSession({ labelIds: ['grp-1', 'extra'] })] }),
+      ]);
+      deps.launchSession = vi.fn(async () => makeSession({ id: 'new-4', instanceId: 'i4' }));
+      control = new ConductorTools(deps);
+
+      await control.handleSpawnSession('cond-1', { name: 'w', prompt: 'go' });
+
+      const fields = (deps.launchSession as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(fields.parentSessionId).toBe('cond-1');
+      expect(fields.labelIds).toEqual(['grp-1', 'extra']);
+    });
+
+    it('cannot be told a parent or labels by its arguments', async () => {
+      deps.getWorkspaces = vi.fn(() => [
+        makeWorkspace({ sessions: [makeSession({ labelIds: ['grp-1'] })] }),
+      ]);
+      deps.launchSession = vi.fn(async () => makeSession({ id: 'new-5', instanceId: 'i5' }));
+      control = new ConductorTools(deps);
+
+      await control.handleSpawnSession('cond-1', {
+        name: 'w',
+        prompt: 'go',
+        parentSessionId: 'someone-else',
+        labelIds: ['foreign'],
+      } as never);
+
+      const fields = (deps.launchSession as ReturnType<typeof vi.fn>).mock.calls[0][1];
+      expect(fields.parentSessionId).toBe('cond-1');
+      expect(fields.labelIds).toEqual(['grp-1']);
+    });
+
     it('rejects a caller that is not a conductor — a worker id cannot drive the tools', async () => {
       await expect(
         control.handleSpawnSession('w-1', { name: 'x', prompt: 'go' })

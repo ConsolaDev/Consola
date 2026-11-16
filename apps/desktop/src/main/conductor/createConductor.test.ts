@@ -26,6 +26,13 @@ beforeEach(() => {
             calls.push('createGroup');
             return group();
         }),
+        createLabel: vi.fn(() => {
+            calls.push('createLabel');
+            return { id: 'grp-new', name: 'symbalance-api' };
+        }),
+        deleteLabel: vi.fn(() => {
+            calls.push('deleteLabel');
+        }),
         updateGroup: vi.fn(() => {
             calls.push('updateGroup');
         }),
@@ -37,10 +44,29 @@ beforeEach(() => {
 });
 
 describe('createConductor', () => {
+    it('gives the label the group\'s id, so the v7 -> v8 migration stays idempotent', async () => {
+        await createConductor(deps, request);
+
+        expect(deps.createLabel).toHaveBeenCalledWith('ws-1', {
+            id: 'grp-new',
+            name: 'symbalance-api',
+        });
+    });
+
+    it('a failed launch removes the label along with archiving the group', async () => {
+        deps.launchSession = vi.fn(async () => {
+            throw new Error('boom');
+        });
+
+        await expect(createConductor(deps, request)).rejects.toThrow(/Conductor launch failed/);
+
+        expect(deps.deleteLabel).toHaveBeenCalledWith('ws-1', 'grp-new');
+    });
+
     it('runs scaffold -> group -> launch -> bind, in that order', async () => {
         const result = await createConductor(deps, request);
 
-        expect(calls).toEqual(['scaffold', 'createGroup', 'launchSession', 'updateGroup']);
+        expect(calls).toEqual(['scaffold', 'createGroup', 'createLabel', 'launchSession', 'updateGroup']);
         expect(deps.scaffold).toHaveBeenCalledWith(
             '/repos/app',            // the host scope's path
             'symbalance-api',
@@ -55,6 +81,7 @@ describe('createConductor', () => {
                 cwd: '/repos/app/conductor/symbalance-api',
                 kind: 'conductor',
                 groupId: 'grp-new',
+                labelIds: ['grp-new'],
                 initialPrompt: 'Deliver the API.',
             })
         );
