@@ -186,8 +186,14 @@ export function Sidebar() {
               {list(visibleNodes(placed.working, !workingOpen, activeKey), 'working')}
             </nav>
           </section>}
+          {/* No heading: this is simply the list. "Needs you", the Working shelf
+              and the Settled shelf are departures from the ordinary, and each
+              earns its label by saying something the rows do not. "Recent" only
+              restated that these were the sessions — and with an age now on
+              every row, it restated that too. The landmark stays for screen
+              readers, which need the region named even when sighted users read
+              it from position. */}
           {placed.recent.length > 0 && <section className="sidebar-bucket sidebar-bucket--recent" aria-label="Recent">
-            <div className="sidebar-section-header"><span className="sidebar-section-title">Recent</span></div>
             <nav className="session-list" aria-label="Recent sessions">{list(placed.recent, 'recent')}</nav>
           </section>}
           {/* Where settled sessions land: by hand, or after sitting idle (see AutoSettler). Never deleted. */}

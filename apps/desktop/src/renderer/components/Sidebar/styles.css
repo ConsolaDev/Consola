@@ -1097,6 +1097,10 @@
 
 .sidebar-sessions { display: flex; flex-direction: column; }
 .sidebar-bucket { padding: var(--space-1) var(--space-2); }
+
+/* The unlabelled list. Without a heading it needs its own breathing room above,
+   or it reads as a continuation of the Working shelf rather than as the list. */
+.sidebar-bucket--recent { padding-top: var(--space-2); }
 .sidebar-bucket .sidebar-section-title { text-transform: none; letter-spacing: normal; }
 
 /* A collapsible shelf's header: the same row height as a session, told apart
