@@ -70,6 +70,8 @@ interface EventDefinition {
     inView(item: InboxItemView): boolean;
     /** Why an item left the view, mid-sentence: "it no longer asks for your review". */
     goneClause: string;
+    /** Set when the same item fires again, saying on what; absent when firing again would add nothing. */
+    refires?: string;
 }
 
 /** Each field's description is what `connectionCatalog` tells an agent writing a filter. */
@@ -101,6 +103,7 @@ const GITHUB_EVENTS: Record<string, EventDefinition> = {
         inView: (item) =>
             item.workItem.type === 'pr' && item.state === 'open' && item.roles.includes('review-requested-direct'),
         goneClause: 'it no longer asks for your review',
+        refires: 'fires again each time the review is re-requested',
     },
     // Assigned to review it, in teams that assign rather than request. Your
     // own PR assigned to yourself is bookkeeping, not a request.
@@ -160,7 +163,14 @@ const CONNECTIONS: Record<
 /** One connection as an agent writing an `on:` and a `filter:` needs to know it. */
 export interface ConnectionCatalogEntry {
     id: string;
-    events: Array<{ name: string; when: string; itemType: 'pr' | 'issue' }>;
+    events: Array<{
+        name: string;
+        when: string;
+        itemType: 'pr' | 'issue';
+        /** Whether the same item can fire again; when it can, `refiresWhen` says on what. */
+        refires: boolean;
+        refiresWhen?: string;
+    }>;
     filter: Array<{ field: string; means: string }>;
 }
 
@@ -172,6 +182,8 @@ export function connectionCatalog(): ConnectionCatalogEntry[] {
             name,
             when: `a ${ITEM_NOUN[definition.itemType]} ${definition.phrase}`,
             itemType: definition.itemType,
+            refires: definition.refires !== undefined,
+            ...(definition.refires ? { refiresWhen: definition.refires } : {}),
         })),
         filter: Object.entries(connection.filter.shape).map(([field, schema]) => ({
             field,

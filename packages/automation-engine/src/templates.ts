@@ -1,6 +1,6 @@
 import { describeRun, describeSteps, describeTriggerAsWritten } from './describeEntry';
 import { describeSchedule } from './describeSchedule';
-import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, yamlName } from './factoryTemplates';
+import { ASSIGNED_REVIEWS_NAME, assignedReviewsEntry, RE_REVIEW_NAME, reReviewEntry, yamlName } from './factoryTemplates';
 import { firstScope } from './support';
 import type { TemplateNeedSection, TemplatePreview, TemplateService, TemplateView, WorkspaceView } from './views';
 import { isStepsEntry, nextCronOccurrence, parseAutomationEntry, type Automation } from '@consola/factory-spec';
@@ -133,6 +133,22 @@ export const AUTOMATION_TEMPLATES: readonly AutomationTemplate[] = [
         // A review by steps or by an action — the one-step entry files already hold counts too.
         // A prompt on the same events is a brief, another template.
         matches: (automation) => coversAssignedReviews(automation) && (isStepsEntry(automation) || automation.run.kind === 'action'),
+    }),
+    template({
+        id: RE_REVIEW_NAME,
+        title: 'Re-review pull requests with new commits',
+        description:
+            'Every 30 minutes, finds the pull requests you reviewed that have new commits, and reviews each push again, ' +
+            'reading your last review. Posts as you, never an approval. Starts checking only once you allow it.',
+        category: 'Code review',
+        services: ['github', 'git'],
+        // Its prompt is inline, so it needs no action: only the account it checks and posts as.
+        needs: [GITHUB],
+        entry: () => reReviewEntry(),
+        // Its own name, or any poll on GitHub's items whose search is for what the person reviewed.
+        matches: ({ name, trigger }) =>
+            name === RE_REVIEW_NAME ||
+            (trigger.kind === 'poll' && trigger.item?.connection === 'github' && trigger.run.includes('reviewed-by:')),
     }),
     template({
         id: 'clean-up-stale-sessions',

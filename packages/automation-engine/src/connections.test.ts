@@ -146,8 +146,14 @@ describe('connectionCatalog', () => {
             {
                 id: 'github',
                 events: [
-                    { name: 'pull_request.review_requested', when: 'a pull request asks for your review', itemType: 'pr' },
-                    { name: 'pull_request.assigned', when: 'a pull request is assigned to you', itemType: 'pr' },
+                    {
+                        name: 'pull_request.review_requested',
+                        when: 'a pull request asks for your review',
+                        itemType: 'pr',
+                        refires: true,
+                        refiresWhen: 'fires again each time the review is re-requested',
+                    },
+                    { name: 'pull_request.assigned', when: 'a pull request is assigned to you', itemType: 'pr', refires: false },
                 ],
                 filter: [
                     { field: 'repos', means: expect.stringMatching(/owner\/name/) },

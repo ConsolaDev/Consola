@@ -1,5 +1,6 @@
 import * as path from 'path';
-import type { RunRecord } from '@consola/factory-spec';
+import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
+import { reReviewEntry, RE_REVIEW_NAME } from '../factoryTemplates';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
 import { stepsHarness, WORKSPACE_ID, type FakeCommand, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
@@ -16,15 +17,17 @@ import type { ItemRef, ItemTarget } from '../views';
 
 export { WORKSPACE_ID };
 
-export const RE_REVIEW_NAME = 're-review-on-new-commits';
+export { RE_REVIEW_NAME };
 
-/** The command the spec's template checks with, exactly as its `run: |` block reads. */
-export const RE_REVIEW_COMMAND = `gh api graphql -f query='
-  query { search(type: ISSUE, first: 50,
-      query: "is:pr is:open reviewed-by:@me -author:@me -review-requested:@me archived:false") {
-    nodes { ... on PullRequest { url title headRefOid viewerLatestReview { commit { oid } } } } } }' \\
-  --jq '[.data.search.nodes[] | select(.viewerLatestReview.commit.oid != .headRefOid) | {url, title, head: .headRefOid}]'
-`;
+/** The shipped template: the tests run the entry Add writes, not a copy of it. */
+export const RE_REVIEW_ENTRY = `${reReviewEntry()}\n`;
+
+/** The check command the template runs, as its `run: |` block reads. */
+export const RE_REVIEW_COMMAND = (() => {
+    const parsed = parseAutomationEntry(RE_REVIEW_ENTRY);
+    if (!parsed.ok || parsed.automation.trigger.kind !== 'poll') throw new Error('The re-review template is not a poll.');
+    return parsed.automation.trigger.run;
+})();
 
 const indented = (text: string, by: string) =>
     text
@@ -32,55 +35,6 @@ const indented = (text: string, by: string) =>
         .split('\n')
         .map((line) => `${by}${line}`)
         .join('\n');
-
-/** The spec's template (*Acceptance › PR B*): one `- name:` list item, at column 0. */
-export const RE_REVIEW_ENTRY = `- name: ${RE_REVIEW_NAME}
-  on:
-    poll:
-      every: 30m
-      run: |
-${indented(RE_REVIEW_COMMAND, '        ')}
-      item: { github: .url }
-      changed: .head
-  mode: auto
-  steps:
-    - id: fresh
-      run: |
-        reviewed=$(gh api graphql -f url="$PR" -f query='
-          query($url: URI!) { resource(url: $url) { ... on PullRequest {
-            viewerLatestReview { commit { oid } } } } }' \\
-          --jq '.data.resource.viewerLatestReview.commit.oid // ""')
-        if [ "$reviewed" = "$CONSOLA_CHECKOUT_HEAD" ]; then needed=false; else needed=true; fi
-        echo "needed=$needed" >> "$CONSOLA_OUTPUT"
-      env: { PR: "{{item.url}}" }
-      outputs: { needed: boolean }
-      dry_run: run
-    - id: review
-      if: steps.fresh.needed
-      prompt: >-
-        This pull request has new commits since you last reviewed it. If there is an earlier review
-        (previous.review.handover), read it first and check whether each of its points was addressed.
-        Read the pull request with Consola's work_item_context tool, and the changed files in this folder
-        where it helps. Write your review as your handover, in Markdown, addressed to the author and under
-        60,000 characters: what was addressed, what was not, and anything new, each with its file and line.
-        Then set verdict: approve if you would merge it as it is, request-changes if something must change
-        first, comment otherwise.
-      reads: [previous.review.handover]
-      outputs:
-        verdict: { enum: [approve, comment, request-changes] }
-    - id: publish
-      if: steps.fresh.needed
-      run: |
-        event=COMMENT
-        if [ "$VERDICT" = "request-changes" ]; then event=REQUEST_CHANGES; fi
-        gh api "repos/$REPO/pulls/$NUMBER/reviews" \\
-          -f commit_id="$CONSOLA_CHECKOUT_HEAD" -f event="$event" -F body=@"$BODY_FILE"
-      env:
-        REPO: "{{item.repo}}"
-        NUMBER: "{{item.number}}"
-        VERDICT: "{{steps.review.verdict}}"
-        BODY_FILE: "{{steps.review.handover.file}}"
-`;
 
 /** ws-1's factory.yml holding these `- name:` list items, each written at column 0. */
 export function factoryWith(...entries: string[]): string {

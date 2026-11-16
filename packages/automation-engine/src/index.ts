@@ -82,7 +82,7 @@ export {
     StartedByHandError,
     SessionOpenedError,
 } from './support';
-export { ASSIGNED_REVIEWS_NAME, yamlName, assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
+export { ASSIGNED_REVIEWS_NAME, RE_REVIEW_NAME, yamlName, assignedReviewsEntry, reReviewEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 export {
     AutomationService,
     INTERRUPTED_PROMPT,

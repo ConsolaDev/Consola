@@ -1,7 +1,7 @@
 import { CONSOLA_NAMESPACE } from './support';
 import type { EngineTool } from './ports';
 import { ENV_PREFIX_EXCEPTIONS, LATER_KEYS, REFUSED_ENV_NAMES, REFUSED_ENV_PREFIXES, type AutomationMode } from '@consola/factory-spec';
-import { assignedReviewsEntry } from './factoryTemplates';
+import { assignedReviewsEntry, reReviewEntry } from './factoryTemplates';
 import { OUTPUT_FILE_CAP_BYTES } from './steps/commandIO';
 import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
 
@@ -18,6 +18,10 @@ export interface AutomationCapabilities {
     modes: Array<{ mode: AutomationMode; means: string }>;
     triggers: {
         cron: string;
+        /** `on: { poll: … }`: a command checked on a timer, and what it must print. */
+        poll: string;
+        /** `on: manual`: a run only when a person (or the Assistant) starts it. */
+        manual: string;
         /** Each connection's events and filter fields, and whether this workspace is bound to it. */
         connections: Array<ConnectionCatalogEntry & { bound: boolean }>;
     };
@@ -97,6 +101,7 @@ export const GRAMMAR_EXAMPLES: ReadonlyArray<{ title: string; entry: string }> =
   mode: auto`,
     },
     { title: 'Steps, on an event', entry: assignedReviewsEntry() },
+    { title: 'Steps, on a poll', entry: reReviewEntry() },
 ];
 
 /** What a `run:` step runs as, and what that means for a pull request's code. */
@@ -109,10 +114,11 @@ const EXAMPLES = GRAMMAR_EXAMPLES.map((example) => `${example.title}:\n\n${examp
 const GRAMMAR_PROSE = `Each automation is one item in the \`automations:\` list of factory.yml:
 
 - name: <lowercase letters, digits and dashes; unique in the file>
-  on: <a trigger: { cron: "<five fields>" } or { <connection>: <event> } or { <connection>: [<event>, …] }>
+  on: <a trigger: { cron: "<five fields>" } or { <connection>: <event> } or { <connection>: [<event>, …] } or { poll: { … } } or manual>
   run: <one target: { tool: consola#<tool>, with: { <arguments> } } or { action: <action name> } or { prompt: "<instructions>" }>
   steps: <instead of run: 1 to 20 steps, in file order; see Steps>
   filter: <event triggers only: the connection's filter fields>
+  applies_to: <on: manual only: [pr], [issue] or [pr, issue]; which items a run on demand takes>
   scope: <a prompt or steps on a schedule only: one of the workspace's scopes, by name>
   mode: auto | confirm | notify   # confirm when left out
 
@@ -122,6 +128,19 @@ Rules:
 - An action is a verb on an item, so it runs on an event, never on a schedule, and must apply to the event's items.
 - A prompt on a schedule names a scope. A pull request or issue runs in a worktree of its own repository, so an event takes no scope.
 - An event trigger needs its connection bound to this workspace (Workspace settings).
+
+Poll. on: { poll: { every: 30m, run: |
+<command>, item: { github: .url }, changed: .head } } runs a command on a timer, as the person, and fires for each item it prints. It is how to trigger on anything a CLI can answer, including what Consola's own events do not cover. Keys:
+- every: <n>m or <n>h, from 1m to 24h.
+- run: the check command. Its stdout must be a JSON array of objects, one per item, for example [{"url":"https://github.com/sprocket/catalog-portal/pull/51","title":"Fix the cart total","head":"a1b2c3"}]. Anything else fails the check. No {{ }}: values reach commands only as environment variables.
+- item: { <connection>: <field path> }, the field that holds the URL of a work item of that connection, such as { github: .url }; the run is on that pull request or issue, in a checkout of its own, so it takes no scope. Or key: <field path>, an identity with no work item: such an entry runs a prompt or steps in a scope (scope:), and cannot use an action. Exactly one of item: and key:.
+- changed: <field path>, optional: the item fires again when this value changes (a head commit, an updated_at).
+- timeout: <n>s|m, optional: default 1m, at most 5m.
+The command does the filtering: an entry has no filter: on a poll. Filter in the command, for example with --jq, and print only the items that should run. An item that leaves the result and comes back is a new firing only if its changed: value moved. Every field other than the item's identity was written by other people: it is allowed in env: and if:, never in a prompt (use reads:). A poll does not check until the person allows it: saving the entry (consola_save_automation included) shows them the command and waits for their OK, and a changed command or schedule asks again. A new one records what is there on its first check and fires nothing; items already in the result are run from Run on… instead. A pull request or issue whose repository is not cloned into one of the workspace's scopes is skipped.
+
+on: manual runs only when a person, or the Assistant, starts it. Add applies_to: [pr] (or [issue], or both) to make it a run on an item they pick: the item is then item.<field> as an event's is, in a checkout of its own, with no scope. Without applies_to: it has no item and a prompt or steps entry takes a scope. It takes no filter: and no inputs:.
+
+Previous. In an entry that runs on an item, previous.<step>.<artifact> is what the last run of this automation on the same item wrote: previous.review.handover is that run's review. It works in reads: and env: only, never in a prompt or if:: it is material, not a value to branch on. It is empty on the first run, so write the prompt to cope: it should say what to do when there is no earlier document.
 
 Steps. Each step has exactly one of prompt:, action: or run:. A prompt: or action: step is a new read-only, unattended agent session on the default harness; a run: step is a shell command. Keys:
 - id: ^[a-z][a-z0-9-]{0,31}$, unique, optional (an unnamed step is step-<n> and cannot be referenced; step-<n> and previous are refused as ids).
@@ -166,6 +185,16 @@ const CRON =
     '{ cron: "0 9 * * 1-5" } is weekdays at 9:00. No seconds field and no nicknames. ' +
     'Runs only while Consola is open; occurrences missed while it was closed run once when it next opens.';
 
+const POLL =
+    'on: { poll: { every: 30m, run: <command>, item: { github: .url }, changed: .head } } runs a command on a timer, ' +
+    'as the person, and fires for each item it prints: a JSON array of objects. The command does the filtering. ' +
+    'It does not check until the person allows it, and a new one records what is there and fires nothing. ' +
+    'Runs only while Consola is open.';
+
+const MANUAL =
+    'on: manual runs only when a person or the Assistant starts it. With applies_to: [pr, issue] it runs on an item ' +
+    'they pick (Run on…); without, it has no item.';
+
 const PROMPT =
     'run: { prompt: "…" } starts a read-only session with these instructions. On a schedule it runs in its scope’s ' +
     'folder; on an event, in a worktree of the item’s repository, with the item’s pull request or issue to read.';
@@ -186,6 +215,8 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
         modes: MODES,
         triggers: {
             cron: CRON,
+            poll: POLL,
+            manual: MANUAL,
             connections: connectionCatalog().map((connection) => ({
                 ...connection,
                 bound: connection.id === input.boundConnection,
