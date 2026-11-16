@@ -1132,6 +1132,16 @@ describe('runAgainTarget', () => {
         expect(runAgainTarget(poll as RunRecord)).toEqual({ key: 'ticket-7' });
     });
 
+    it('is the key of a manual run on a key item', () => {
+        const manual = run({ trigger: { kind: 'manual', at: '', by: 'person', item: { key: 'ticket-7', url: '', title: 'T' } } });
+        expect(runAgainTarget(manual as RunRecord)).toEqual({ key: 'ticket-7' });
+    });
+
+    it('is the URL of an event run whose item kept no identity', () => {
+        const event = run({ trigger: { kind: 'event', at: '', connection: 'github', item: base } });
+        expect(runAgainTarget(event as RunRecord)).toEqual({ url: 'u' });
+    });
+
     it('is nothing for a schedule run, or an event run from before its item had a type', () => {
         expect(runAgainTarget(run() as RunRecord)).toBeNull();
         const old = run({ trigger: { kind: 'event', at: '', item: { ...base, repo: 'sprocket/catalog-portal', number: 51 } } });

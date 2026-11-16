@@ -985,8 +985,9 @@ export function lastRunWords(lastRun: ItemTargetRow['lastRun'], now: Date): stri
 
 /**
  * The item a run was about, as Run again sends it back: the work item when its
- * record kept repo, number and type; the key of a poll's item otherwise. A
- * record from before runs kept those, and a run with no item, has none.
+ * record kept repo, number and type; the key of a key item (no page, no connection); the URL of a
+ * work item recorded without its identity. A record from before runs kept
+ * those, and a run with no item, has none.
  */
 export function runAgainTarget(run: RunRecord): ItemTarget | null {
     const item = run.trigger.item;
@@ -994,5 +995,9 @@ export function runAgainTarget(run: RunRecord): ItemTarget | null {
     if (item.repo && item.number !== undefined && item.type) {
         return { workItem: { repo: item.repo, number: item.number, type: item.type } };
     }
-    return run.trigger.kind === 'poll' ? { key: item.key } : null;
+    // A work item's record names its connection; a key item's has none and no page.
+    if (!run.trigger.connection && !item.url) return { key: item.key };
+    // A work item recorded without its identity: the connection parses its URL.
+    if (run.trigger.connection && item.url) return { url: item.url };
+    return null;
 }

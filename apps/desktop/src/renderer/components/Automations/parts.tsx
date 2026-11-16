@@ -561,7 +561,7 @@ export function RunAgainButton({
   if (!automation || MOVING.has(run.status)) return null;
   // A run on an item runs again on that item; the engine refuses a key its last check no longer holds, and `act` shows why.
   const target = automation.takesItem ? runAgainTarget(run) : null;
-  if (automation.onEvent && !target) return null;
+  if (automation.takesItem && !target) return null;
   const itemKey = run.trigger.item?.key;
   const itemBusy =
     target !== null &&

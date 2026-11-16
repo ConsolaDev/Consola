@@ -135,7 +135,7 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
             <RunOnPicker
               workspaceId={workspace.id}
               name={name}
-              disabled={busy !== null || Boolean(automation.problem) || Boolean(automation.needsAllow)}
+              disabled={busy !== null || Boolean(automation.problem)}
             />
           )}
           <button
