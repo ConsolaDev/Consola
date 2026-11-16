@@ -50,6 +50,31 @@ vercel deploy --prod
 
 `pnpm --filter @consola/website build` emits the landing page, `download/index.html`, and `demo/index.html`, along with bundled JavaScript/CSS and the static assets. Vite's `preview` command serves that production build locally. When changing the domain, update the canonical and Open Graph URLs in `index.html`.
 
+## Analytics
+
+The site uses [Vercel Web Analytics](https://vercel.com/docs/analytics). `src/app.js`
+calls `inject()` from `@vercel/analytics` once; because that module is the shared
+script for `index.html` and `download/index.html`, both pages are counted without
+per-page wiring. Nothing is collected until Web Analytics is enabled for the Vercel
+project, which is what serves `/_vercel/insights/*`.
+
+`mode` is pinned to `production` instead of `auto`. The mode picks the script's
+origin: `development` fetches a debug build from `va.vercel-scripts.com`, and every
+other mode uses this site's own `/_vercel/insights/script.js`. Pinning it means no
+request ever leaves this origin, in local previews too, which is what the
+"stay in the browser" test asserts. The cost is a 404 for that script when the site
+runs anywhere but Vercel.
+
+The interactive demo is not tracked. `demo/index.html` loads `demo/main.tsx` and
+never loads `src/app.js`, so the iframe stays out of the numbers on purpose: it is
+lazy-loaded and `noindex`, and counting it would add a second pageview every time a
+visitor scrolls the landing page.
+
+Collection is cookieless and stores no personal data, so the site needs no consent
+banner. Pageviews and visitors are all the Hobby plan reports — `track()` custom
+events require Pro, so demo engagement is not measurable from here. The plan
+includes 50,000 events per month with one month of retention.
+
 ## GitHub release downloads
 
 On macOS, the site queries the public `ConsolaDev/Consola` repository's latest stable

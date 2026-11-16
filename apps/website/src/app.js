@@ -1,3 +1,22 @@
+// Vercel Web Analytics. This module is the shared entry for both real pages —
+// the landing page (index.html) and the download page (download/index.html) —
+// so a single call covers the whole funnel.
+//
+// The demo iframe is deliberately not tracked. It loads demo/main.tsx instead
+// of this module, so it stays excluded by default, and that is the behaviour we
+// want: a lazy-loaded, noindex frame would fire a second pageview every time a
+// visitor scrolls the landing page, double-counting one visit as two.
+//
+// The mode is pinned rather than left on 'auto' because it decides the script's
+// origin, not just its verbosity: 'development' loads the debug build from
+// va.vercel-scripts.com, while every other mode stays on this site's own
+// /_vercel/insights/script.js. Pinning it keeps the promise the site makes about
+// the demo — that nothing a visitor does here leaves this origin — true
+// everywhere, including local previews, where it costs only a 404.
+import { inject } from '@vercel/analytics';
+
+inject({ mode: 'production' });
+
 // Resolve versioned DMGs from the latest published, stable GitHub release.
 // The HTML links remain usable if GitHub is unavailable or JavaScript is off.
 async function loadDownload() {
