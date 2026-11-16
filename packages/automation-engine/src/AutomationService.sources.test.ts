@@ -1917,3 +1917,155 @@ describe('on a chosen item', () => {
         });
     });
 });
+
+describe('previous', () => {
+    const KEY = `${WORKSPACE_ID} ${RE_REVIEW_NAME}`;
+    const DAY = 24 * 60 * 60_000;
+    const at = (head: string) => ({ ...PR_51_ROW, head });
+    /** The spec's template, its publish step also handing the earlier review to its command. */
+    const WITH_LAST_REVIEW = RE_REVIEW_ENTRY.replace(
+        '        BODY_FILE: "{{steps.review.handover.file}}"',
+        '        BODY_FILE: "{{steps.review.handover.file}}"\n        LAST: "{{previous.review.handover}}"'
+    );
+    const runsOn51 = (h: SourcesHarness) => h.store.runs().filter((run) => run.automationId === RE_REVIEW_NAME && run.trigger.item?.key === PR_51_KEY);
+    const stepCommand = (h: SourcesHarness, run: RunRecord, step: string) =>
+        h.world.commands.find((command) => command.spec.env.CONSOLA_RUN_ID === run.id && command.spec.env.CONSOLA_STEP === step)!;
+    const sessionOf = (h: SourcesHarness, run: RunRecord, step: string) => h.store.get(run.id)!.steps!.find((candidate) => candidate.id === step)!.sessionId!;
+    const readAs = (h: SourcesHarness, sessionId: string, ref: string) => h.service.stepIO().readArtifact(sessionId, ref);
+
+    /** ws-1 holding `entry`, allowed, its first check over and empty. */
+    async function watching(entry = WITH_LAST_REVIEW): Promise<SourcesHarness> {
+        const h = await sourcesHarness({ yaml: factoryWith(entry) });
+        allowAsShown(h);
+        h.pollOutput([]);
+        await h.check();
+        return h;
+    }
+
+    /** A check that finds #51 at `head` makes a run; it needs a review, which writes `handover`, and is published. */
+    async function reviewed(h: SourcesHarness, head: string, handover: string): Promise<RunRecord> {
+        const known = new Set(runsOn51(h).map((run) => run.id));
+        await h.checkSees([at(head)]);
+        const run = runsOn51(h).find((candidate) => !known.has(candidate.id))!;
+        await stepCommand(h, run, 'fresh').end({ outputs: 'needed=true\n' });
+        const session = sessionOf(h, run, 'review');
+        h.world.setOutputs(session, { verdict: 'comment' });
+        h.world.writeArtifact(session, 'handover', handover);
+        await h.world.endTurn(session);
+        await stepCommand(h, run, 'publish').end();
+        return h.store.get(run.id)!;
+    }
+
+    it('the first run is told there is no earlier run', async () => {
+        const h = await watching();
+        await h.checkSees([at('a')]);
+        const [first] = runsOn51(h);
+        expect(first).not.toHaveProperty('previous');
+        await stepCommand(h, first, 'fresh').end({ outputs: 'needed=true\n' });
+        const [launch] = h.world.launches;
+        expect(launch.prompt).toContain('There is no earlier run of this automation on this item.');
+        const read = readAs(h, sessionOf(h, first, 'review'), 'previous.review.handover');
+        expect(read).toMatchObject({ isError: true });
+        expect(JSON.stringify(read)).toContain('There is no earlier run of this automation on this item.');
+    });
+
+    it('the second run on #51 records the first as previous, and its review reads the first handover', async () => {
+        const h = await watching();
+        const first = await reviewed(h, 'a', 'Two retries are unbounded.');
+        expect(first.status).toBe('completed');
+        await h.checkSees([at('b')]);
+        const second = runsOn51(h).find((run) => run.id !== first.id)!;
+        expect(second.previous).toEqual({ runId: first.id });
+        await stepCommand(h, second, 'fresh').end({ outputs: 'needed=true\n' });
+        const launch = h.world.launches[h.world.launches.length - 1];
+        expect(launch.prompt).toContain('previous.review.handover');
+        expect(launch.prompt).not.toContain('There is no earlier run');
+        const read = readAs(h, sessionOf(h, second, 'review'), 'previous.review.handover');
+        expect(read).toMatchObject({ isError: false });
+        expect(JSON.stringify(read)).toContain('Two retries are unbounded.');
+    });
+
+    it("publish's env renders an absent previous as ''", async () => {
+        const h = await watching();
+        const first = await reviewed(h, 'a', 'Two retries are unbounded.');
+        expect(stepCommand(h, first, 'publish').spec.env.LAST).toBe('');
+        const second = await reviewed(h, 'b', 'Both were fixed.');
+        expect(stepCommand(h, second, 'publish').spec.env.LAST).toBe('Two retries are unbounded.');
+    });
+
+    it("a failed second run is not the third's previous", async () => {
+        const h = await watching();
+        const first = await reviewed(h, 'a', 'Two retries are unbounded.');
+        await h.checkSees([at('b')]);
+        const second = runsOn51(h).find((run) => run.id !== first.id)!;
+        await stepCommand(h, second, 'fresh').end({ result: { exitCode: 1, lastStderrLine: 'boom' } });
+        expect(h.store.get(second.id)!.status).toBe('failed');
+        await h.checkSees([at('c')]);
+        const third = runsOn51(h).find((run) => run.id !== first.id && run.id !== second.id)!;
+        expect(third.previous).toEqual({ runId: first.id });
+    });
+
+    it('a retried run keeps its previous', async () => {
+        const h = await watching();
+        const first = await reviewed(h, 'a', 'Two retries are unbounded.');
+        await h.checkSees([at('b')]);
+        const second = runsOn51(h).find((run) => run.id !== first.id)!;
+        await stepCommand(h, second, 'fresh').end({ outputs: 'needed=true\n' });
+        await h.world.endTurn(sessionOf(h, second, 'review'), { exitCode: 1 });
+        expect(h.store.get(second.id)!.status).toBe('failed');
+        // A run that completed after this one started is not what it reads on its retry.
+        await h.service.retry(second.id);
+        expect(h.store.get(second.id)).toMatchObject({ status: 'running', previous: { runId: first.id } });
+    });
+
+    it("a schedule's run reads last week's", async () => {
+        const nightly = `- name: nightly
+  on: { cron: "0 9 * * 1-5" }
+  scope: api
+  mode: auto
+  steps:
+    - id: report
+      prompt: Write the week's report.
+      reads: [previous.report.handover]
+`;
+        const h = await sourcesHarness({ yaml: factoryWith(nightly) });
+        const runOf = (id: string) => h.store.get(id)!;
+        const finish = async (run: RunRecord, handover: string) => {
+            const session = sessionOf(h, run, 'report');
+            h.world.writeArtifact(session, 'handover', handover);
+            await h.world.endTurn(session);
+            expect(runOf(run.id).status).toBe('completed');
+        };
+        const start = async () => {
+            const run = (await h.service.trigger(WORKSPACE_ID, 'nightly'))!;
+            // The first asks once; approving it accepts the version for the next.
+            if (run.status === 'needs-approval') await h.service.approve(run.id);
+            await h.flush();
+            return run;
+        };
+        const first = await start();
+        expect(first).not.toHaveProperty('previous');
+        await finish(first, 'A quiet week.');
+        h.advance(7 * DAY);
+        const second = h.store.get((await start()).id)!;
+        expect(second.previous).toEqual({ runId: first.id });
+        expect(JSON.stringify(readAs(h, sessionOf(h, second, 'report'), 'previous.report.handover'))).toContain('A quiet week.');
+    });
+
+    it('the sweep keeps a folder an unfinished run names after history dropped its record', async () => {
+        let h = await watching();
+        const first = await reviewed(h, 'a', 'Two retries are unbounded.');
+        await h.checkSees([at('b')]);
+        const second = runsOn51(h).find((run) => run.id !== first.id)!;
+        expect(second).toMatchObject({ status: 'running', previous: { runId: first.id } });
+        // Its review is working: an agent step a restart resumes, where a command's would fail it.
+        await stepCommand(h, second, 'fresh').end({ outputs: 'needed=true\n' });
+        // The first finished more than the retention window ago; the second is still running.
+        h.advance(31 * DAY);
+        h = await h.relaunch();
+        expect(h.store.get(first.id)).toBeUndefined();
+        expect(h.store.get(second.id)).toMatchObject({ status: 'running', previous: { runId: first.id } });
+        expect(h.folder.readArtifact(WORKSPACE_ID, first.id, 'review', 1, 'handover')).toBe('Two retries are unbounded.');
+        expect(fs.existsSync(h.folder.runDir(WORKSPACE_ID, first.id))).toBe(true);
+    });
+});

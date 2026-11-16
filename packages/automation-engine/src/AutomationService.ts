@@ -67,6 +67,7 @@ import { actionTypeRefusal, agentStepLaunch, endedWithout, itemRefOf } from './s
 import { MAX_CHECK_STDOUT_BYTES, readCheckResult, type PolledItem } from './sources/checkResult';
 import { runItemSource, type ItemSource, type SourceItem } from './sources/itemSource';
 import { polledSourceItem, pollSource } from './sources/pollSource';
+import { resolvePrevious } from './sources/previous';
 import {
     afterFailure,
     afterSuccess,
@@ -507,7 +508,12 @@ export class AutomationService {
         const named = new Map<string, Set<string>>();
         for (const run of this.deps.store.runs()) {
             const { workspaceId } = run.attribution;
-            if (workspaceId) named.set(workspaceId, (named.get(workspaceId) ?? new Set()).add(run.id));
+            if (!workspaceId) continue;
+            const names = named.get(workspaceId) ?? new Set<string>();
+            names.add(run.id);
+            // An unfinished run reads its previous run's folder, even once history dropped that record.
+            if (run.previous && !TERMINAL_RUN_STATUSES.includes(run.status)) names.add(run.previous.runId);
+            named.set(workspaceId, names);
         }
         for (const workspaceId of this.deps.store.workspacesWithStepsRuns()) {
             try {
@@ -2395,8 +2401,12 @@ export class AutomationService {
         }
         const now = this.iso();
         const preview = run.result as StepsRunPreview;
+        // Resolved once, as this run starts its first step; a retry never comes back here, so it keeps the run it read.
+        const earlier = resolvePrevious(this.deps.store.runs(), run);
+        const previous = earlier ? { runId: earlier.id } : undefined;
         this.deps.store.update(run.id, {
             status: 'running',
+            ...(previous ? { previous } : {}),
             startedAt: now,
             updatedAt: now,
             ...(run.summary === WAITING_FOR_CHECKOUT
