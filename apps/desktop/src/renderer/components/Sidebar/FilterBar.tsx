@@ -1,7 +1,9 @@
 import { useState, type KeyboardEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, Folder, GitBranch, ListFilter, Plus, Settings, X } from 'lucide-react';
+import { Check, ChevronDown, Folder, GitBranch, ListFilter, Pencil, Plus, Settings, X } from 'lucide-react';
 import { listedSessions } from '../../../shared/workspace';
+import { EditLabelDialog } from '../Dialogs/EditLabelDialog';
+import type { Label } from '../../../shared/workspace';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
 import { deriveFacets, effectiveFilters, hasActiveFilters, type FacetKey, type FacetValue } from '../../utils/sessionFilters';
@@ -45,6 +47,8 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [newLabel, setNewLabel] = useState('');
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [editing, setEditing] = useState<Label | null>(null);
   const chosen = useSessionFilterStore(state => state.filters[workspace.id]);
   const { toggle, clear } = useSessionFilterStore.getState();
   const createLabel = useWorkspaceStore(state => state.createLabel);
@@ -120,7 +124,7 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
 
   return <>
     <div className={`sidebar-scope-filter ${narrowed ? 'is-filtered' : ''}`}>
-      <DropdownMenu.Root onOpenChange={open => { if (!open) setQuery(''); }}>
+      <DropdownMenu.Root open={menuOpen} onOpenChange={open => { setMenuOpen(open); if (!open) setQuery(''); }}>
         <DropdownMenu.Trigger asChild>
           <button className="sidebar-scope-filter-trigger" aria-label="Filter sessions" title={scope ? tildePath(scope.path) : undefined}>
             <ListFilter size={14} aria-hidden="true" />
@@ -135,7 +139,8 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
           </button>
         </DropdownMenu.Trigger>
         <DropdownMenu.Portal>
-          <DropdownMenu.Content className="dropdown-content sidebar-scope-menu" align="start" sideOffset={4}>
+          <DropdownMenu.Content className="dropdown-content sidebar-scope-menu" align="start" sideOffset={4}
+            onCloseAutoFocus={event => { if (editing) event.preventDefault(); }}>
             {searchable && <input
               className="sidebar-scope-menu-search" type="search" placeholder="Find a scope" aria-label="Find a scope"
               value={query} autoFocus onChange={event => setQuery(event.target.value)} onKeyDown={onSearchKeyDown}
@@ -176,6 +181,8 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
               <span className="sidebar-scope-menu-name">{label.emoji ? `${label.emoji} ` : ''}{label.name}</span>
               <span className="sidebar-scope-menu-count">{labelCounts.get(label.id) ?? 0}</span>
               <span className="sidebar-scope-menu-check">{isActive('label', label.id) && <Check size={14} aria-hidden="true" />}</span>
+              <button type="button" className="sidebar-scope-filter-clear" aria-label={`Edit label ${label.name}`} title="Rename or set emoji"
+                onClick={event => { event.stopPropagation(); setMenuOpen(false); setEditing(label); }}><Pencil size={12} aria-hidden="true" /></button>
               <button type="button" className="sidebar-scope-filter-clear" aria-label={`Delete label ${label.name}`} title="Delete label"
                 onClick={event => { event.stopPropagation(); void removeLabel(label.id); }}><X size={12} aria-hidden="true" /></button>
             </DropdownMenu.Item>)}
@@ -196,6 +203,7 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
         aria-label={`Remove filter ${chip.text}`} title="Remove filter" onClick={() => toggle(workspace.id, chip.key, chip.value)}>
         {chip.text}<X size={10} aria-hidden="true" /></button>)}
     </div>}
+    {editing && <EditLabelDialog workspaceId={workspace.id} label={editing} onClose={() => setEditing(null)} />}
     {error && <p className="sidebar-error" role="alert" title={error}>{error}</p>}
   </>;
 }

@@ -5,7 +5,9 @@ import './styles.css';
 
 const EmojiGrid = lazy(() => import('./EmojiGrid'));
 
-export function GroupEmojiPicker({ value, onChange, disabled }: {
+export function GroupEmojiPicker({ value, onChange, disabled, subject = 'group' }: {
+  /** What the emoji belongs to, for the accessible names: a group, or a label. */
+  subject?: string;
   value?: string;
   onChange: (emoji: string | undefined) => void;
   disabled?: boolean;
@@ -19,13 +21,13 @@ export function GroupEmojiPicker({ value, onChange, disabled }: {
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
         <button type="button" className="group-emoji-trigger" disabled={disabled}
-          aria-label={value ? 'Change group emoji' : 'Choose group emoji'} title="Choose group emoji">
+          aria-label={value ? `Change ${subject} emoji` : `Choose ${subject} emoji`} title={`Choose ${subject} emoji`}>
           <span aria-hidden="true">{value || <Boxes size={18} />}</span>
         </button>
       </Popover.Trigger>
       <Popover.Portal>
         <Popover.Content className="group-emoji-popover" sideOffset={6} align="start"
-          collisionPadding={12} aria-label="Group emoji" onOpenAutoFocus={event => event.preventDefault()}>
+          collisionPadding={12} aria-label={`${subject[0].toUpperCase()}${subject.slice(1)} emoji`} onOpenAutoFocus={event => event.preventDefault()}>
           <Suspense fallback={<p className="group-emoji-loading" role="status">Loading emojis…</p>}>
             <EmojiGrid onSelect={select} />
           </Suspense>
