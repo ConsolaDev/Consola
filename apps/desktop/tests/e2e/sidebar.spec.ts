@@ -203,12 +203,20 @@ test.describe('Home scopes and groups', () => {
    * every row is under Recent. Attention, not group or scope, decides sections.
    */
   const recent = (target: Page) => target.locator('.sidebar-bucket--recent');
-  /** The record a ⋯ move wrote, read back from main. */
-  const groupOf = (target: Page, sessionId: string) =>
+  /** The labels a ⋯ menu write left on a session, read back from main. */
+  const labelsOf = (target: Page, sessionId: string) =>
     target.evaluate(
-      async (id) => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find((candidate) => candidate.id === id)!.groupId,
+      async (id) => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find((candidate) => candidate.id === id)!.labelIds,
       sessionId
     );
+  /** Open a row's ⋯ menu and its Labels submenu, from the keyboard the way the trigger is meant to be used. */
+  const openLabelsMenu = async (target: Page, name: string) => {
+    const row = rowFor(target, name);
+    await row.hover();
+    await row.getByRole('button', { name: 'Session actions' }).click();
+    await target.getByRole('menuitem', { name: 'Labels', exact: true }).focus();
+    await target.keyboard.press('ArrowRight');
+  };
   /** A sidebar row, by the name it renders. */
   const rowFor = (target: Page, name: string) =>
     target.locator('.session-nav-item').filter({ hasText: name });
@@ -510,63 +518,54 @@ test.describe('Home scopes and groups', () => {
     await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
-  test('the ⋯ menu can start a new group for a session', async () => {
-    const row = rowFor(page, 'Controller boot');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to group' }).focus();
-    await page.keyboard.press('ArrowRight');
-    await page.getByRole('menuitem', { name: 'New group…', exact: true }).click();
-    const dialog = page.getByRole('dialog', { name: 'New group' });
+  test('the ⋯ menu\'s New label… creates a label and gives it to the session in one step', async () => {
+    expect(await labelsOf(page, 's1')).toBeUndefined();
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'New label…', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New label' });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Name').fill('PR reviews');
     await dialog.getByRole('button', { name: 'Create' }).click();
 
     await expect(dialog).toBeHidden();
-    const created = await page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].groups.map((group) => ({ id: group.id, name: group.name })));
-    expect(created.map((group) => group.name)).toEqual(['Fan out', 'PR reviews']);
-    await expect.poll(() => groupOf(page, 's1')).toBe(created[1].id);
+    const snapshot = await page.evaluate(async () => {
+      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces[0];
+      return { labels: workspace.labels.map((label) => ({ id: label.id, name: label.name })), groups: workspace.groups.length };
+    });
+    expect(snapshot.labels.map((label) => label.name)).toEqual(['Fan out', 'PR reviews']);
+    await expect.poll(() => labelsOf(page, 's1')).toEqual([snapshot.labels[1].id]);
+    // A label, not a group: nothing is written that no screen could show.
+    expect(snapshot.groups).toBe(1);
   });
 
-  test('the ⋯ menu moves a session into a group and back out again', async () => {
-    expect(await groupOf(page, 's1')).toBeUndefined();
+  test('the ⋯ menu ticks and unticks a label on a session', async () => {
+    expect(await labelsOf(page, 's1')).toBeUndefined();
 
-    const row = rowFor(page, 'Controller boot');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    // The submenu is opened from the keyboard, the way its trigger is meant to be.
-    await page.getByRole('menuitem', { name: 'Move to group' }).focus();
-    await page.keyboard.press('ArrowRight');
+    await openLabelsMenu(page, 'Controller boot');
     await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-    await expect.poll(() => groupOf(page, 's1')).toBe('group-fanout');
-    // A group is a record, not a place: the row has not moved anywhere.
+    await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
+    // A label is a tag, not a place: the row has not moved anywhere.
     await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
 
-    // Leaving sits beside the submenu, not inside it: the way out must not be
-    // filed under the list of places to go.
-    const moved = rowFor(page, 'Controller boot');
-    await moved.hover();
-    await moved.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Remove from group' }).click();
-    await expect.poll(() => groupOf(page, 's1')).toBeUndefined();
+    // The same item unticks it. The menu stays open after a pick, but the
+    // submenu does not survive the row re-rendering, so reopen from scratch.
+    await page.keyboard.press('Escape');
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => labelsOf(page, 's1')).toEqual([]);
   });
 
-  test('a move survives a relaunch — it is a record, not a view preference', async () => {
+  test('a label assignment survives a relaunch — it is a record, not a view preference', async () => {
     test.setTimeout(60_000);
-    const row = rowFor(page, 'Bump deps');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    // The submenu is opened from the keyboard, the way its trigger is meant to be.
-    await page.getByRole('menuitem', { name: 'Move to group' }).focus();
-    await page.keyboard.press('ArrowRight');
+    await openLabelsMenu(page, 'Bump deps');
     await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-    await expect.poll(() => groupOf(page, 's3')).toBe('group-fanout');
+    await expect.poll(() => labelsOf(page, 's3')).toEqual(['group-fanout']);
 
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
 
-    expect(await groupOf(page, 's3')).toBe('group-fanout');
+    expect(await labelsOf(page, 's3')).toEqual(['group-fanout']);
     await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
