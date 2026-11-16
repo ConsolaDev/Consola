@@ -36,7 +36,19 @@ export function statusWord(status: RunFacts['status']): string {
 }
 
 /** What an automation does when it fires, in words. */
-export function modeInWords(mode: AutomationMode, asksFirst = false): string {
+export function modeInWords(
+    mode: AutomationMode,
+    asksFirst = false,
+    source: AutomationView['source'] = 'cron',
+    needsAllow = false,
+): string {
+    // A poll entry is accepted by Allow, never by approving a run.
+    if (source === 'poll' && needsAllow) {
+        if (mode === 'confirm') return 'Asks you before each run, once you allow it';
+        if (mode === 'notify') return 'Runs dry runs once you allow it';
+        return 'Runs on its own once you allow it';
+    }
+    if (source === 'poll') asksFirst = false;
     if (mode === 'confirm') return 'Asks you before each run';
     if (mode === 'notify') return 'Tells you what it would do, and starts nothing';
     return asksFirst ? 'Runs on its own once you approve its next run' : 'Runs on its own';
@@ -601,7 +613,8 @@ export const ASSIGNED_REVIEWS_OFFER =
     'approval. It skips a commit it already reviewed, and asks you once first, with every command shown.';
 
 /** How a template's entry will treat the person once added: a card's line, where `approvalStep` is a pipeline's node. */
-export function templateModeWords(mode: AutomationMode): string {
+export function templateModeWords(mode: AutomationMode, source: AutomationView['source'] = 'cron'): string {
+    if (source === 'poll' && mode === 'auto') return 'Starts once you allow it, then runs on its own';
     if (mode === 'confirm') return 'You approve each run';
     if (mode === 'notify') return 'Only tells you what it would do';
     return 'Asks once, then runs on its own';
@@ -625,11 +638,13 @@ export function runAgainTitle(automation: Pick<AutomationView, 'mode' | 'asksFir
 }
 
 export function approvalStep(
-    automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps'>,
+    automation: Pick<AutomationView, 'mode' | 'asksFirst' | 'kind' | 'steps'> & Partial<Pick<AutomationView, 'source' | 'needsAllow'>>,
     /** Not in the file yet (a template): an `auto` entry's first run is the one it asks about. */
     draft = false,
 ): ApprovalStep | null {
     const { steps } = automation;
+    // A poll entry is accepted by Allow alone: approving a run never accepts it, and its check runs even when its steps only report.
+    const poll = automation.source === 'poll';
     if (automation.mode === 'notify') {
         // A steps entry's dry run starts its agent steps (read-only) and the commands marked `dry_run: run`.
         const runs = steps?.filter((step) => step.kind === 'agent' || step.dryRun) ?? [];
@@ -644,9 +659,12 @@ export function approvalStep(
             ].join(' and ');
             return {
                 kind: 'notify',
-                title: 'Asks once, then runs',
+                title: poll ? 'Runs dry runs once you allow it' : 'Asks once, then runs',
                 detail: `Runs ${groups}${reports.length > 0 ? `; ${reports.join(', ')} only ${reports.length > 1 ? 'report' : 'reports'}` : ''}.`,
             };
+        }
+        if (poll) {
+            return { kind: 'notify', title: 'Checks once you allow it', detail: 'Its check command runs as you; its steps only report.' };
         }
         return { kind: 'notify', title: 'Tells you what it would do', detail: 'Starts nothing' };
     }
@@ -660,6 +678,10 @@ export function approvalStep(
                     ? 'Its session starts when you press Start'
                     : 'It previews first; nothing changes until you approve',
         };
+    }
+    if (poll && automation.mode === 'auto') {
+        if (!draft && !automation.needsAllow && !automation.asksFirst) return null;
+        return { kind: 'approve', title: 'You allow it first', detail: 'Then it checks, and runs on its own' };
     }
     if (draft && automation.mode === 'auto') {
         return { kind: 'approve', title: 'You approve its first run', detail: 'Then it runs on its own' };

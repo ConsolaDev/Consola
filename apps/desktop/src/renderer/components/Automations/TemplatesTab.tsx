@@ -11,6 +11,8 @@ import {
   Github,
   Hand,
   Inbox,
+  MousePointerClick,
+  ScanSearch,
   SquareTerminal,
   Wrench,
   Zap,
@@ -31,6 +33,7 @@ import { useAutomationsStore } from '../../stores/automationsStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { HarnessIcon } from '../HarnessIcon';
 import { useIntent } from './parts';
+import { triggerNodeWords } from './checkWords';
 import { templateModeWords } from './presentation';
 
 /**
@@ -256,7 +259,9 @@ export function ServiceTiles({
  * it, how it treats you, what runs. The same icons as the pipeline's nodes.
  */
 export function TemplateFacts({ preview }: { preview: TemplatePreview }) {
-  const TriggerIcon = preview.onEvent ? Inbox : Clock;
+  const TriggerIcon =
+    preview.source === 'poll' ? ScanSearch : preview.source === 'manual' ? MousePointerClick : preview.onEvent ? Inbox : Clock;
+  const trigger = triggerNodeWords(preview)?.title ?? preview.trigger;
   const ModeIcon = preview.mode === 'notify' ? Bell : Hand;
   const isAgent = preview.kind === 'agent';
   return (
@@ -264,15 +269,15 @@ export function TemplateFacts({ preview }: { preview: TemplatePreview }) {
       <li>
         <TriggerIcon size={13} aria-hidden="true" />
         <span className="sr-only">When: </span>
-        <span className="automations-template-fact-text" title={preview.trigger}>
-          {preview.trigger}
+        <span className="automations-template-fact-text" title={trigger}>
+          {trigger}
         </span>
         {preview.schedule && <code className="automations-cron">{preview.schedule}</code>}
       </li>
       <li>
         <ModeIcon size={13} aria-hidden="true" />
         <span className="sr-only">Asks: </span>
-        <span className="automations-template-fact-text">{templateModeWords(preview.mode)}</span>
+        <span className="automations-template-fact-text">{templateModeWords(preview.mode, preview.source)}</span>
       </li>
       <li>
         {isAgent ? <Bot size={13} aria-hidden="true" /> : <Wrench size={13} aria-hidden="true" />}

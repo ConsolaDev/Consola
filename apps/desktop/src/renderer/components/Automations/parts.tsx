@@ -350,10 +350,14 @@ export function RunNowButton({
     <button
       type="button"
       className={`${primary ? 'dialog-button-primary' : 'dialog-button-secondary'} automations-small-button`}
-      disabled={disabled || running || Boolean(automation.problem)}
+      disabled={disabled || running || Boolean(automation.problem) || Boolean(automation.needsAllow)}
       onClick={onRun}
       title={
-        checks
+        automation.source === 'poll'
+          ? automation.needsAllow
+            ? 'Not checking yet: allow it first'
+            : 'Run the check command now; only what is new or changed fires'
+          : checks
           ? 'Refresh the Inbox now; only what is new since the last check fires'
           : automation.mode === 'auto' && !automation.asksFirst
             ? 'Runs now'

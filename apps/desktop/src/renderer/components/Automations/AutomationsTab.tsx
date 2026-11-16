@@ -1,7 +1,7 @@
 import { useId, type MouseEvent } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { AlertTriangle, Bot, Clock, Ellipsis, Hand, History, Inbox, Wrench } from 'lucide-react';
+import { AlertTriangle, Bot, Clock, Ellipsis, Hand, History, Inbox, MousePointerClick, ScanSearch, Wrench } from 'lucide-react';
 import type { AutomationsSnapshot, AutomationView, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
@@ -28,6 +28,7 @@ import {
   triggerLabel,
   type LatestRun,
 } from './presentation';
+import { triggerNodeWords } from './checkWords';
 import { GetStarted } from './TemplatesTab';
 
 /**
@@ -231,7 +232,8 @@ function AutomationRow({
   onChange: () => void;
 }) {
   const isAgent = automation.kind === 'agent';
-  const TriggerIcon = automation.onEvent ? Inbox : Clock;
+  const TriggerIcon =
+    automation.source === 'poll' ? ScanSearch : automation.source === 'manual' ? MousePointerClick : automation.onEvent ? Inbox : Clock;
   const TargetIcon = isAgent ? Bot : Wrench;
   return (
     <li className="automations-row-item">
@@ -244,10 +246,15 @@ function AutomationRow({
             </button>
             <span
               className={`automations-mode automations-mode-${automation.mode}`}
-              title={modeInWords(automation.mode, automation.asksFirst)}
+              title={modeInWords(automation.mode, automation.asksFirst, automation.source, Boolean(automation.needsAllow))}
             >
               {automation.mode}
             </span>
+            {automation.needsAllow && (
+              <span className="automations-allow-pill" title="It does not check until you allow it">
+                Needs your OK
+              </span>
+            )}
             {automation.addedBy?.isNew && (
               <span className="automations-new-pill" title={`Added by ${automation.addedBy.sessionName}`}>
                 New
@@ -446,6 +453,36 @@ function NextRunCell({ automation, now }: { automation: AutomationView; now: Dat
       <div className="automations-row-line automations-row-quiet">
         <span className="sr-only">Next run: none</span>
         <span aria-hidden="true">—</span>
+      </div>
+    );
+  }
+  if (automation.source === 'poll') {
+    if (automation.needsAllow || !automation.check?.nextAt) {
+      return (
+        <div className="automations-row-line automations-row-quiet">
+          <span className="sr-only">Next check: </span>
+          {automation.needsAllow ? 'Not checking yet' : 'Not checked yet'}
+        </div>
+      );
+    }
+    const countdown = formatCountdown(automation.check.nextAt, now);
+    return (
+      <>
+        <div
+          className={`automations-row-line automations-countdown ${countdown === 'due now' ? 'automations-due' : ''}`}
+          title={formatTime(automation.check.nextAt)}
+        >
+          Next check {countdown}
+        </div>
+        <div className="automations-row-sub automations-row-number">{formatDueAt(automation.check.nextAt, now)}</div>
+      </>
+    );
+  }
+  if (automation.source === 'manual') {
+    return (
+      <div className="automations-row-line automations-row-quiet">
+        <span className="sr-only">Next run: </span>
+        On demand
       </div>
     );
   }

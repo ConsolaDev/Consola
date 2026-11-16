@@ -510,6 +510,25 @@ describe('modeInWords', () => {
         expect(modeInWords('auto')).toBe('Runs on its own');
         expect(modeInWords('auto', true)).toBe('Runs on its own once you approve its next run');
     });
+
+    it("keeps today's words for cron, event and manual entries", () => {
+        for (const source of ['cron', 'event', 'manual'] as const) {
+            expect(modeInWords('auto', true, source, true)).toBe('Runs on its own once you approve its next run');
+            expect(modeInWords('confirm', false, source)).toBe('Asks you before each run');
+            expect(modeInWords('notify', false, source)).toBe('Tells you what it would do, and starts nothing');
+        }
+    });
+
+    it('says a poll waits for Allow, not for approving a run', () => {
+        expect(modeInWords('auto', false, 'poll', true)).toBe('Runs on its own once you allow it');
+        expect(modeInWords('confirm', false, 'poll', true)).toBe('Asks you before each run, once you allow it');
+        expect(modeInWords('notify', false, 'poll', true)).toBe('Runs dry runs once you allow it');
+    });
+
+    it("says today's words for a poll once it is allowed", () => {
+        expect(modeInWords('auto', false, 'poll', false)).toBe('Runs on its own');
+        expect(modeInWords('confirm', false, 'poll', false)).toBe('Asks you before each run');
+    });
 });
 
 const preview: AgentRunPreview = { kind: 'agent-run', runs: 'Review action', prompt: 'Review #4' };
@@ -795,6 +814,42 @@ describe('runAgainTitle', () => {
     });
 });
 
+describe('approvalStep for a poll', () => {
+    const run = { id: 'tell', kind: 'run' as const, summary: 'gh pr comment' };
+    const agent = { id: 'review', kind: 'agent' as const, summary: 'Prompt' };
+
+    it('has the person allow an auto poll first, never approve its first run', () => {
+        const node = { kind: 'approve', title: 'You allow it first', detail: 'Then it checks, and runs on its own' };
+        expect(approvalStep({ mode: 'auto', kind: 'agent', source: 'poll', needsAllow: true })).toMatchObject(node);
+        expect(approvalStep({ mode: 'auto', kind: 'agent', source: 'poll' }, true)).toMatchObject(node);
+        expect(approvalStep({ mode: 'auto', kind: 'agent', source: 'poll' })).toBeNull();
+    });
+
+    it('says a notify poll runs dry runs once allowed, instead of asking once', () => {
+        expect(approvalStep({ mode: 'notify', kind: 'agent', source: 'poll', steps: [agent, run] })).toMatchObject({
+            kind: 'notify',
+            title: 'Runs dry runs once you allow it',
+            detail: 'Runs review read-only; tell only reports.',
+        });
+    });
+
+    it('says a notify poll whose steps only report still checks', () => {
+        expect(approvalStep({ mode: 'notify', kind: 'tool', source: 'poll', steps: [run] })).toMatchObject({
+            kind: 'notify',
+            title: 'Checks once you allow it',
+            detail: 'Its check command runs as you; its steps only report.',
+        });
+    });
+
+    it("keeps today's words for cron, event and manual entries", () => {
+        for (const source of ['cron', 'event', 'manual'] as const) {
+            expect(approvalStep({ mode: 'notify', kind: 'agent', source, steps: [agent, run] })?.title).toBe('Asks once, then runs');
+            expect(approvalStep({ mode: 'notify', kind: 'tool', source, steps: [run] })?.title).toBe('Tells you what it would do');
+            expect(approvalStep({ mode: 'auto', kind: 'agent', source }, true)?.title).toBe('You approve its first run');
+        }
+    });
+});
+
 describe('approvalStep', () => {
     it('is a person approving each run in confirm mode, worded by what runs', () => {
         expect(approvalStep({ mode: 'confirm', kind: 'tool' })).toMatchObject({
@@ -925,6 +980,16 @@ describe('templateModeWords', () => {
         expect(templateModeWords('confirm')).toBe('You approve each run');
         expect(templateModeWords('auto')).toBe('Asks once, then runs on its own');
         expect(templateModeWords('notify')).toBe('Only tells you what it would do');
+    });
+
+    it("keeps today's words for cron, event and manual entries", () => {
+        for (const source of ['cron', 'event', 'manual'] as const) {
+            expect(templateModeWords('auto', source)).toBe('Asks once, then runs on its own');
+        }
+    });
+
+    it('says a poll starts once allowed', () => {
+        expect(templateModeWords('auto', 'poll')).toBe('Starts once you allow it, then runs on its own');
     });
 });
 
