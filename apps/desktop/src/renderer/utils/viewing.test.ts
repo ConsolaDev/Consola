@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
-import { ViewingReporter, viewedInstanceId } from './viewing';
+import { ViewingReporter, isSessionViewed, viewedInstanceId } from './viewing';
 
 function workspace(): Workspace {
   const record = createWorkspaceRecord('w1', '/code/w1', true);
@@ -69,5 +69,16 @@ describe('ViewingReporter', () => {
     reporter.focus(false);
 
     expect(sink.setFocused).toHaveBeenCalledWith(false);
+  });
+});
+
+describe('isSessionViewed', () => {
+  const view = { activeSessionId: 'a', overlay: null };
+
+  it('is true only for the active session, uncovered, in a focused window', () => {
+    expect(isSessionViewed(view, 'a', true)).toBe(true);
+    expect(isSessionViewed(view, 'b', true)).toBe(false);
+    expect(isSessionViewed({ ...view, overlay: 'inbox' }, 'a', true)).toBe(false);
+    expect(isSessionViewed(view, 'a', false)).toBe(false);
   });
 });

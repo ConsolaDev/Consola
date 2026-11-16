@@ -132,8 +132,7 @@ export function worstStatusForItem(
   linked: Session[],
   attention: AttentionMap
 ): Attention {
-  if (linked.length === 0) return 'ready';
-  return worstStatus(linked.map((session) => attention[session.id] ?? 'ready'));
+  return worstStatus(linked.map((session) => attention[session.id] ?? 'ready')) ?? 'ready';
 }
 
 /** The platform's modifier, as its keycap reads. */

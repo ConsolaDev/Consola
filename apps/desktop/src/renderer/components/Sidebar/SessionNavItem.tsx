@@ -13,6 +13,9 @@ import { startSessionDrag } from './sessionDrag';
 import { deleteSessionCompletely } from '../../utils/sessionActions';
 import type { Attention } from '../../../shared/attention';
 import { useSessionAttention } from '../../stores/attentionStore';
+import { useNavigationStore } from '../../stores/navigationStore';
+import { useWindowFocusStore } from '../../stores/windowFocusStore';
+import { isSessionViewed } from '../../utils/viewing';
 import type { ScopeTrail } from '../../utils/scopeTrail';
 
 interface SessionNavItemProps {
@@ -79,11 +82,19 @@ export function SessionNavItem({
     showWorktree && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
   const shownModel = showModel ? model : undefined;
 
-  const displayStatus = useSessionAttention(session.id);
+  const derivedStatus = useSessionAttention(session.id);
+  // Exactly what `useViewingReport` reports as viewed, not bare `isActive`: an
+  // overlay or an unfocused window is not looking, and its `done` is real.
+  const windowFocused = useWindowFocusStore((state) => state.focused);
+  const isViewed = useNavigationStore((state) => isSessionViewed(state, session.id, windowFocused));
   const updateSession = useWorkspaceStore((state) => state.updateSession);
 
-  // No acknowledgement here: whether `done` has been seen is main's call, from
-  // what this window reports it is showing and whether it has focus.
+  // Whether `done` has been seen is main's call, from what this window reports
+  // it is showing and whether it has focus. This does not derive or clear
+  // anything: it only hides the dot for the round trip (report, mark seen, the
+  // ~100ms broadcast coalesce) on a row the person just opened, which would
+  // otherwise flash `done` once. Main's value is untouched.
+  const displayStatus: Attention = isViewed && derivedStatus === 'done' ? 'ready' : derivedStatus;
   const statusWord = STATUS_WORDS[displayStatus];
   // The row reads the derived label — "PR #4118 · Review", "⑂ name". A
   // launched work-item session's `name` is not shown under it: until the CLI

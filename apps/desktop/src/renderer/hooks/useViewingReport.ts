@@ -1,5 +1,6 @@
 import { useEffect, useMemo } from 'react';
 import { attentionBridge } from '../services/attentionBridge';
+import { useWindowFocusStore } from '../stores/windowFocusStore';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useWorkspaceStore } from '../stores/workspaceStore';
 import { ViewingReporter, viewedInstanceId } from '../utils/viewing';
@@ -28,9 +29,13 @@ export function useViewingReport(): void {
   useEffect(() => () => reporter.view(null), [reporter]);
 
   useEffect(() => {
-    const focus = () => reporter.focus(true);
-    const blur = () => reporter.focus(false);
-    reporter.focus(document.hasFocus());
+    const focus = () => setFocus(true);
+    const blur = () => setFocus(false);
+    const setFocus = (focused: boolean) => {
+      useWindowFocusStore.setState({ focused });
+      reporter.focus(focused);
+    };
+    setFocus(document.hasFocus());
     window.addEventListener('focus', focus);
     window.addEventListener('blur', blur);
     return () => {

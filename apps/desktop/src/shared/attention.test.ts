@@ -31,7 +31,11 @@ describe('worstStatus', () => {
     expect(RANK.exited).toBeLessThan(RANK.ready);
   });
 
-  it('is settled for an empty set', () => {
-    expect(worstStatus([])).toBe('settled');
+  it('has no answer for an empty set, so each caller must choose its own default', () => {
+    expect(worstStatus([])).toBeUndefined();
+  });
+
+  it('can answer settled when that is the most urgent of what it was given', () => {
+    expect(worstStatus(['settled'])).toBe('settled');
   });
 });

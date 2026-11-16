@@ -45,9 +45,10 @@ export const RANK: Record<Attention, number> = {
 };
 
 /** The most urgent of a set. A fold over already-derived values — which is why it
- *  belongs in shared and `deriveAttention` does not. An empty set is `settled`: nothing asks for anything. */
-export function worstStatus(values: Attention[]): Attention {
-  return values.reduce<Attention>((worst, value) => (RANK[value] > RANK[worst] ? value : worst), 'settled');
+ *  belongs in shared and `deriveAttention` does not. An empty set has no answer (`undefined`): what empty means differs by caller, so each chooses. */
+export function worstStatus(values: Attention[]): Attention | undefined {
+  if (values.length === 0) return undefined;
+  return values.reduce<Attention>((worst, value) => (RANK[value] > RANK[worst] ? value : worst), values[0]);
 }
 
 /** What changed since the last `attention:changed`: new or updated entries, and entries that went away. */

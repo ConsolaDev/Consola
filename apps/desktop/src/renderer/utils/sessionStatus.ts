@@ -14,7 +14,7 @@ export function workspaceStatusFor(workspace: Workspace, attention: AttentionMap
   const live = workspace.sessions
     .map((session) => attention[session.id] ?? 'ready')
     .filter((status) => status !== 'settled');
-  return live.length === 0 ? 'ready' : worstStatus(live);
+  return worstStatus(live) ?? 'ready';
 }
 
 /**

@@ -40,3 +40,16 @@ export class ViewingReporter {
     this.sink.setFocused(focused);
   }
 }
+
+/**
+ * Whether this window is reporting `sessionId` as viewed: it is the active
+ * session, no overlay covers it, and the window has focus. The same condition
+ * `useViewingReport` reports, so a row can bridge the round trip to main with it.
+ */
+export function isSessionViewed(
+  view: { activeSessionId: string | null; overlay: string | null },
+  sessionId: string,
+  focused: boolean
+): boolean {
+  return focused && view.overlay === null && view.activeSessionId === sessionId;
+}
