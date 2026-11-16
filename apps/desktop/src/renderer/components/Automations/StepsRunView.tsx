@@ -3,6 +3,7 @@ import { RotateCcw, Square } from 'lucide-react';
 import type { AutomationView, RunListEntry, RunRecord, StepRun } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { RunAgainButton, useIntent } from './parts';
 import { RunGraph } from './RunGraph';
 import { StepDetail } from './StepDetailView';
@@ -42,6 +43,7 @@ export function StepsRunView({
   const [confirming, setConfirming] = useState(false);
   const [stopping, setStopping] = useState(false);
   const { busy, error, act } = useIntent();
+  const openPanel = useAutomationsStore((state) => state.openPanel);
 
   const retryTarget = runRetryTarget(run);
   const selected = steps.find((step) => step.id === picked) ?? defaultStep(steps);
@@ -59,6 +61,15 @@ export function StepsRunView({
     <div className="automations-detail automations-run">
       <div className="automations-lead">
         {lead}
+        {run.previous && (
+          <button
+            type="button"
+            className="automations-link-button automations-earlier-run"
+            onClick={() => openPanel({ kind: 'run', runId: run.previous!.runId })}
+          >
+            Earlier run on this item
+          </button>
+        )}
         <div className="automations-lead-actions">
           {run.status === 'running' && (
             <button

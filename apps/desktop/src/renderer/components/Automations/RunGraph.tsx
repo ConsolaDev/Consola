@@ -19,7 +19,7 @@ import {
 } from 'lucide-react';
 import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
 import { formatElapsed } from './presentation';
-import { foundNothingToDo, type RunStage, type RunStageKey, type RunStageState } from './runPage';
+import { foundNothingToDo, triggerStageWords, type RunStage, type RunStageKey, type RunStageState } from './runPage';
 
 const STATE_ICONS: Record<RunStageState, LucideIcon> = {
   passed: CircleCheck,
@@ -159,24 +159,9 @@ function stageView(
 
   switch (stage.key) {
     case 'trigger': {
-      const { trigger } = run;
-      const time = new Date(trigger.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
-      const late = Date.parse(run.createdAt) - Date.parse(trigger.at);
-      if (trigger.kind === 'cron') {
-        return {
-          icon: Clock,
-          kicker: trigger.catchUp ? 'Schedule, caught up' : 'Schedule',
-          title: schedule ?? 'On schedule',
-          outcome: trigger.catchUp && late >= 1000 ? `Due ${time} · ran ${formatElapsed(late)} late` : `Fired ${time}`,
-        };
-      }
-      if (trigger.kind === 'event') {
-        return { icon: Inbox, kicker: 'Inbox event', title: agent?.item?.label ?? 'An item arrived', outcome: `Seen ${time}` };
-      }
-      if (trigger.by === 'agent') {
-        return { icon: Bot, kicker: 'Agent request', title: askerName ? `Asked by ${askerName}` : 'Asked by an agent', outcome: `Asked ${time}` };
-      }
-      return { icon: Play, kicker: 'Run now', title: 'Run by you', outcome: `Started ${time}` };
+      const words = triggerStageWords(run, askerName, schedule);
+      const icon = { cron: Clock, event: Inbox, poll: ScanSearch, manual: run.trigger.by === 'agent' ? Bot : Play }[run.trigger.kind];
+      return { icon: icon ?? Play, ...words };
     }
     case 'preview':
       return {

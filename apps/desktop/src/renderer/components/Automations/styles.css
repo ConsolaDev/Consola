@@ -3665,3 +3665,103 @@
   overflow-wrap: anywhere;
   word-break: break-all;
 }
+
+/* Run on…: a popover of the items an automation can run on. */
+.automations-run-on {
+  z-index: calc(var(--z-modal) + 1);
+  width: 380px;
+  max-width: calc(100vw - 32px);
+  max-height: 60vh;
+  overflow: auto;
+  padding: var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-secondary);
+  color: var(--color-text-primary);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.25);
+}
+
+.automations-run-on-title {
+  margin: var(--space-1) var(--space-2);
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+}
+
+.automations-run-on-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.automations-run-on-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  width: 100%;
+  padding: var(--space-1) var(--space-2);
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.automations-run-on-row:hover:not(:disabled) {
+  background: var(--color-bg-tertiary);
+}
+
+.automations-run-on-row:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.automations-run-on-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automations-run-on-when {
+  flex: none;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+
+.automations-run-on-url {
+  display: flex;
+  gap: var(--space-2);
+  padding: var(--space-2);
+}
+
+.automations-run-on-url input {
+  flex: 1;
+  min-width: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+}
+
+.automations-run-on-url input:focus {
+  border-color: var(--color-accent);
+  outline: none;
+}
+
+.automations-run-on .automations-error,
+.automations-run-on .automations-hint {
+  margin: var(--space-1) var(--space-2);
+}
+
+.automations-earlier-run {
+  align-self: flex-start;
+  font-size: var(--font-size-sm, 12px);
+}

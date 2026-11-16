@@ -42,6 +42,8 @@ import {
     snapshotRunCounts,
     templateModeWords,
     triggerInWords,
+    lastRunWords,
+    runAgainTarget,
     runInsights,
     runsByDay,
     statusCountsInWords,
@@ -1070,5 +1072,69 @@ describe('the assigned reviews banner', () => {
         expect(ASSIGNED_REVIEWS_OFFER).toMatch(/asks you once first, with every command shown/);
         // No action to name: the entry needs none.
         expect(ASSIGNED_REVIEWS_OFFER).not.toMatch(/action/);
+    });
+});
+
+describe('lastRunWords', () => {
+    const lastRun = (status: RunRecord['status'], at: string) => ({ id: 'r', status, at });
+
+    it.each([
+        [undefined, 'never run'],
+        [lastRun('completed', ago(2 * DAY)), 'ran 2 days ago'],
+        [lastRun('failed', ago(DAY)), 'failed yesterday'],
+        [lastRun('running', ago(HOUR)), 'running now'],
+        [lastRun('needs-approval', ago(HOUR)), 'waiting for you'],
+        [lastRun('completed', ago(3 * HOUR)), 'ran 3 hours ago'],
+        [lastRun('completed', ago(10 * 60_000)), 'ran 10 minutes ago'],
+    ])('says %j as %s', (input, words) => {
+        expect(lastRunWords(input, NOW)).toBe(words);
+    });
+
+    it('says when a dismissed run was dismissed', () => {
+        expect(lastRunWords({ id: 'r', status: 'rejected', at: ago(2 * DAY) }, NOW)).toBe('dismissed 2 days ago');
+    });
+});
+
+describe('a run found by a poll or run on an item', () => {
+    const item = { key: 'k', url: '', title: 'Fix the cart' };
+
+    it('says its check found it, and shows its item\'s title', () => {
+        const found = run({ trigger: { kind: 'poll', at: '', item } });
+        expect(triggerLabel(found)).toBe('check');
+        expect(triggerInWords(found)).toBe('Found by its check');
+        expect(runAbout(found)).toBe('Fix the cart');
+        expect(runRowWords(found).about).toBe('Fix the cart');
+    });
+
+    it('is run by you, and shows its item\'s title, when a person ran it on an item', () => {
+        const manual = run({ trigger: { kind: 'manual', at: '', by: 'person', item } });
+        expect(triggerLabel(manual)).toBe('run now');
+        expect(triggerInWords(manual)).toBe('Run by you');
+        expect(runAbout(manual)).toBe('Fix the cart');
+        expect(runRowWords(manual).about).toBe('Fix the cart');
+    });
+});
+
+describe('runAgainTarget', () => {
+    const base = { key: 'github:sprocket/catalog-portal:pr:51', url: 'u', title: 'Fix the cart' };
+
+    it('is the work item of an event run', () => {
+        const event = run({
+            trigger: { kind: 'event', at: '', item: { ...base, repo: 'sprocket/catalog-portal', number: 51, type: 'pr' } },
+        });
+        expect(runAgainTarget(event as RunRecord)).toEqual({
+            workItem: { repo: 'sprocket/catalog-portal', number: 51, type: 'pr' },
+        });
+    });
+
+    it('is the key of a poll run on a key-only item', () => {
+        const poll = run({ trigger: { kind: 'poll', at: '', item: { key: 'ticket-7', url: '', title: 'T' } } });
+        expect(runAgainTarget(poll as RunRecord)).toEqual({ key: 'ticket-7' });
+    });
+
+    it('is nothing for a schedule run, or an event run from before its item had a type', () => {
+        expect(runAgainTarget(run() as RunRecord)).toBeNull();
+        const old = run({ trigger: { kind: 'event', at: '', item: { ...base, repo: 'sprocket/catalog-portal', number: 51 } } });
+        expect(runAgainTarget(old as RunRecord)).toBeNull();
     });
 });

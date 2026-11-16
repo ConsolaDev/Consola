@@ -3,6 +3,8 @@ import {
     type AutomationMode,
     type AutomationView,
     type AutomationsSnapshot,
+    type ItemTarget,
+    type ItemTargetRow,
     type RunListEntry,
     type RunRecord,
 } from '../../../shared/automations';
@@ -84,6 +86,7 @@ export function runStage(run: RunRecord): RunStage {
 export function triggerLabel(run: RunFacts): string {
     if (run.trigger.kind === 'cron') return run.trigger.catchUp ? 'catch-up' : 'scheduled';
     if (run.trigger.kind === 'event') return 'event';
+    if (run.trigger.kind === 'poll') return 'check';
     return run.trigger.by === 'agent' ? 'asked by an agent' : 'run now';
 }
 
@@ -95,6 +98,7 @@ export function triggerLabel(run: RunFacts): string {
 export function triggerInWords(run: RunFacts): string {
     if (run.trigger.kind === 'cron') return run.trigger.catchUp ? 'Scheduled, run late' : 'Scheduled';
     if (run.trigger.kind === 'event') return 'Inbox event';
+    if (run.trigger.kind === 'poll') return 'Found by its check';
     return run.trigger.by === 'agent' ? 'Asked for by an agent' : 'Run by you';
 }
 
@@ -131,11 +135,12 @@ export function formatElapsed(ms: number): string {
 }
 
 /**
- * What a run was about: the item an event run looked at; for a failure, the
+ * What a run was about: the item it ran on (an event's, a check's, or one a
+ * person picked); for a failure, the
  * first line of why it failed; else its summary, else where it stands.
  */
 export function runAbout(run: RunFacts): string {
-    if (run.trigger.kind === 'event' && run.trigger.item?.title) return run.trigger.item.title;
+    if (run.trigger.item?.title) return run.trigger.item.title;
     if (run.status === 'failed') {
         const why = run.error?.split('\n').find((line) => line.trim())?.trim();
         if (why) return why;
@@ -320,12 +325,12 @@ export function foldDroppedRuns(
 }
 
 /**
- * A row's words: its title, and where a steps run is beside it. An event
- * run's title stays its item's; any other steps run says its step as its title.
+ * A row's words: its title, and where a steps run is beside it. A run on an
+ * item keeps its item's title; any other steps run says its step as its title.
  */
 export function runRowWords(run: RunListEntry): { about: string; step: string | null } {
     const step = stepWords(run);
-    if (step && !(run.trigger.kind === 'event' && run.trigger.item?.title)) return { about: step, step: null };
+    if (step && !run.trigger.item?.title) return { about: step, step: null };
     return { about: runAbout(run), step };
 }
 
@@ -944,4 +949,50 @@ export function finalAnswer(entries: ConversationEntry[]): { steps: Conversation
 /** What a command node of a `steps:` entry does: under `notify` it only reports, unless marked `dry_run: run`. */
 export function commandFoot(step: { dryRun?: true }, mode: AutomationMode): string {
     return mode === 'notify' && !step.dryRun ? 'Reports what it would run' : 'Runs as you';
+}
+
+const plural = (count: number, unit: string) => `${count} ${unit}${count === 1 ? '' : 's'} ago`;
+
+/** How long ago, in words a sentence takes: "10 minutes ago", "yesterday", "2 days ago". */
+function whenWords(iso: string, now: Date): string {
+    const minutes = Math.floor((now.getTime() - Date.parse(iso)) / 60_000);
+    if (Number.isNaN(minutes) || minutes < 1) return 'just now';
+    if (minutes < 60) return plural(minutes, 'minute');
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return plural(hours, 'hour');
+    const days = Math.floor(hours / 24);
+    if (days === 1) return 'yesterday';
+    return days < 7 ? plural(days, 'day') : formatAgo(iso, now);
+}
+
+/** What Run on… says of an item's newest run of this automation: "ran 2 days ago", "waiting for you". */
+export function lastRunWords(lastRun: ItemTargetRow['lastRun'], now: Date): string {
+    if (!lastRun) return 'never run';
+    switch (lastRun.status) {
+        case 'running':
+        case 'queued':
+            return 'running now';
+        case 'needs-approval':
+            return 'waiting for you';
+        case 'failed':
+            return `failed ${whenWords(lastRun.at, now)}`;
+        case 'rejected':
+            return `dismissed ${whenWords(lastRun.at, now)}`;
+        default:
+            return `ran ${whenWords(lastRun.at, now)}`;
+    }
+}
+
+/**
+ * The item a run was about, as Run again sends it back: the work item when its
+ * record kept repo, number and type; the key of a poll's item otherwise. A
+ * record from before runs kept those, and a run with no item, has none.
+ */
+export function runAgainTarget(run: RunRecord): ItemTarget | null {
+    const item = run.trigger.item;
+    if (!item) return null;
+    if (item.repo && item.number !== undefined && item.type) {
+        return { workItem: { repo: item.repo, number: item.number, type: item.type } };
+    }
+    return run.trigger.kind === 'poll' ? { key: item.key } : null;
 }

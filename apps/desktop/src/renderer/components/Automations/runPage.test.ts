@@ -15,6 +15,7 @@ import {
     stepBar,
     stepState,
     stepTimeline,
+    triggerStageWords,
     toolCounts,
     workedMs,
     type RunStageState,
@@ -549,5 +550,20 @@ describe('legacy runs keep their stages', () => {
         const stages = runStages(record(), NOW);
         expect(stages.map((stage) => stage.key)).toEqual(['trigger', 'run']);
         expect(stages.every((stage) => stage.step === undefined)).toBe(true);
+    });
+});
+
+describe('triggerStageWords', () => {
+    it('names a poll run\'s trigger a check, never Run now', () => {
+        const poll = record({ trigger: { kind: 'poll', at: ago(MINUTE), item: { key: 'k', url: '', title: 'T' } } });
+        const words = triggerStageWords(poll, undefined, undefined);
+        expect(words.kicker).toBe('Check');
+        expect(words.title).toBe('Found by its check');
+        expect(words.outcome).toMatch(/^Checked /);
+    });
+
+    it('keeps Run now for a run by a person', () => {
+        const manual = record({ trigger: { kind: 'manual', at: ago(MINUTE), by: 'person' } });
+        expect(triggerStageWords(manual, undefined, undefined).kicker).toBe('Run now');
     });
 });

@@ -35,6 +35,7 @@ import {
   formatDuration,
   formatTime,
   runAgainTitle,
+  runAgainTarget,
   runRowWords,
   runTitle,
   statusLabel,
@@ -382,10 +383,14 @@ export function AgentRunDetails({ preview }: { preview: AgentRunPreview }) {
     <div className="automations-details">
       {preview.item && (
         <div>
-          <a href={preview.item.url} target="_blank" rel="noreferrer">
-            {preview.item.title}
-          </a>{' '}
-          by @{preview.item.author}
+          {preview.item.url ? (
+            <a href={preview.item.url} target="_blank" rel="noreferrer">
+              {preview.item.title}
+            </a>
+          ) : (
+            preview.item.title
+          )}
+          {preview.item.author ? ` by @${preview.item.author}` : ''}
         </div>
       )}
       <div>
@@ -404,6 +409,8 @@ export function AgentRunDetails({ preview }: { preview: AgentRunPreview }) {
 export function RunItemLink({ run, fallback }: { run: RunRecord; fallback?: string }) {
   const item = run.trigger.item;
   if (!item) return <>{fallback ?? null}</>;
+  // An item of a poll with `key:` has no page: its title is text.
+  if (!item.url) return <>{item.title}</>;
   return (
     <a href={item.url} target="_blank" rel="noreferrer">
       {item.title}
@@ -551,7 +558,17 @@ export function RunAgainButton({
   act: (key: string, intent: () => Promise<unknown>) => Promise<void>;
 }) {
   const openPanel = useAutomationsStore((state) => state.openPanel);
-  if (!automation || automation.onEvent || MOVING.has(run.status)) return null;
+  if (!automation || MOVING.has(run.status)) return null;
+  // A run on an item runs again on that item; the engine refuses a key its last check no longer holds, and `act` shows why.
+  const target = automation.takesItem ? runAgainTarget(run) : null;
+  if (automation.onEvent && !target) return null;
+  const itemKey = run.trigger.item?.key;
+  const itemBusy =
+    target !== null &&
+    history.some(
+      (candidate) =>
+        candidate.automationId === run.automationId && candidate.trigger.item?.key === itemKey && MOVING.has(candidate.status),
+    );
   return (
     <button
       type="button"
@@ -559,12 +576,14 @@ export function RunAgainButton({
       disabled={
         busy !== null ||
         Boolean(automation.problem) ||
-        history.some((candidate) => candidate.status === 'running' || candidate.status === 'queued')
+        (target
+          ? itemBusy
+          : history.some((candidate) => candidate.status === 'running' || candidate.status === 'queued'))
       }
-      title={runAgainTitle(automation)}
+      title={target && itemBusy ? 'A run on this item is still open' : runAgainTitle(automation)}
       onClick={() =>
         void act('rerun', async () => {
-          const next = await automationsBridge.runNow(workspaceId, run.automationId);
+          const next = await automationsBridge.runNow(workspaceId, run.automationId, target ?? undefined);
           if (next) openPanel({ kind: 'run', runId: next.id });
         })
       }

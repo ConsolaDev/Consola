@@ -8,6 +8,7 @@ import { AllowCard } from './AllowCard';
 import { AutomationInsights } from './AutomationInsights';
 import { EntrySource, PipelineGraph } from './AutomationPipeline';
 import { allowBannerWords, checkStatusLine, skippedWords } from './checkWords';
+import { RunOnPicker } from './RunOnPicker';
 import { RunItem, RunNowButton, StatusIcon, useArrivals, useIntent, useNow } from './parts';
 import {
   filterRuns,
@@ -130,6 +131,13 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
             disabled={busy !== null}
             onRun={() => void act('run', () => automationsBridge.runNow(workspace.id, name))}
           />
+          {automation.takesItem && (
+            <RunOnPicker
+              workspaceId={workspace.id}
+              name={name}
+              disabled={busy !== null || Boolean(automation.problem) || Boolean(automation.needsAllow)}
+            />
+          )}
           <button
             type="button"
             className={`${automation.problem && !waiting ? 'dialog-button-primary' : 'dialog-button-secondary'} automations-small-button`}
