@@ -24,6 +24,13 @@ export interface StepsRunPreview {
     item?: { url: string; title: string; author: string; label: string };
     /** A scheduled run's scope. */
     scope?: string;
+    /**
+     * The seen record its item fired under (its `definition`), for a run its
+     * source fired: when Consola turns the run away because its automation
+     * changed, the item is given back to that record only, never to one that
+     * re-baselined since (Call 12).
+     */
+    firedUnder?: string;
 }
 
 /** The most one artifact (and a step's `output`) may hold. */

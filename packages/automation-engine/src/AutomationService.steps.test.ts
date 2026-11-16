@@ -334,6 +334,8 @@ describe('firing a steps run', () => {
                 { id: 'publish', kind: 'run' },
             ],
             item: { url: PR51.url, title: 'Add retries', author: 'alice', label: PR51_LABEL },
+            // The seen record its item fired under: the one an item is given back to.
+            firedUnder: event.store.seen(KEY)!.definition,
         });
         expect(JSON.stringify(reviewing)).not.toContain('say what should change');
     });

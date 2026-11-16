@@ -1074,6 +1074,27 @@ describe('firing', () => {
             expect(h.store.seen(KEY)).toMatchObject({ fired: [PR_51_KEY], revs: { [PR_51_KEY]: 'a' } });
         });
 
+        it('a re-baseline that lands before the rejection keeps the item fired', async () => {
+            // Checks have a lane of their own: the new version's first check can end while the run still waits for a slot.
+            const h = await watching(RE_REVIEW_ENTRY, { maxConcurrentCommands: 0 });
+            await h.checkSees([at('a')]);
+            const [run] = runsOn51(h);
+            await h.setPoll(EDITED_CHECK);
+            allowAsShown(h);
+            await h.check();
+            expect(checkOf(h)).toMatchObject({ items: 1, fired: 0, baseline: true });
+            const baselined = structuredClone(h.store.seen(KEY));
+            expect(baselined).toMatchObject({ fired: [PR_51_KEY], revs: { [PR_51_KEY]: 'a' } });
+            expect(h.store.get(run.id)!.status).toBe('queued');
+            h.world.maxConcurrentCommands = undefined;
+            await h.tick();
+            expect(h.store.get(run.id)).toMatchObject({ status: 'rejected', summary: 'Its automation changed since it was queued.' });
+            // The run fired under the record before: the one in force is another, and keeps what it recorded.
+            expect(h.store.seen(KEY)).toEqual(baselined);
+            await h.checkSees([at('a')]);
+            expect(runsOn51(h)).toHaveLength(1);
+        });
+
         it('editing the check command re-baselines: the item does not fire again', async () => {
             const h = await watching(RE_REVIEW_ENTRY, { maxConcurrentCommands: 0 });
             await h.checkSees([at('a')]);
@@ -1333,6 +1354,34 @@ describe('firing', () => {
             await h.poll([PR51]);
             expect(h.store.runs()).toHaveLength(1);
             expect(h.store.seen(EVENT_KEY)).toMatchObject({ items: [PR_51_KEY], fired: [PR_51_KEY] });
+        });
+
+        it('an edit that keeps the list gives a queued review back; one the next fetch re-baselines does not', async () => {
+            // No agent slot: the review waits in line, and is looked at only once one frees.
+            for (const edit of ['action', 'filter'] as const) {
+                const h = await reviewing('auto');
+                h.world.maxConcurrentAgents = 0;
+                await h.poll([PR51]);
+                const [run] = h.store.runs();
+                expect(run.status, edit).toBe('queued');
+                if (edit === 'action') {
+                    // The Review action edited in settings: a new version, watching the same list.
+                    h.world.workspace.actions = h.world.workspace.actions.map((action) =>
+                        action.name === 'Review' ? { ...action, prompt: 'Review it again, more briefly.' } : action
+                    );
+                    await h.service.syncWorkspaces();
+                } else {
+                    // A filter edited: a new list, which the next fetch baselines before the run is looked at.
+                    await h.setYaml(factoryWith(onReview('auto').replace('  mode: auto\n', '  mode: auto\n  filter: { authors_not: [bob] }\n')));
+                    await h.poll([PR51]);
+                    expect(h.store.seen(EVENT_KEY), edit).toMatchObject({ items: [PR_51_KEY], fired: [PR_51_KEY] });
+                }
+                h.world.maxConcurrentAgents = undefined;
+                await h.tick();
+                expect(h.store.get(run.id), edit).toMatchObject({ status: 'rejected', summary: 'Its automation changed since it was queued.' });
+                await h.poll([PR51]);
+                expect(h.store.runs(), edit).toHaveLength(edit === 'action' ? 2 : 1);
+            }
         });
 
         it('a record from before revisions fires nothing it already fired', async () => {

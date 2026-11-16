@@ -958,7 +958,7 @@ export class AutomationService {
         this.deps.store.setSeen(key, record);
         const byKey = new Map(current.map((item) => [item.key, item]));
         // Only a record of the same list fires anything, so `previous` is there.
-        for (const itemKey of fire) this.fireItem(entry, byKey.get(itemKey)!, previous!.at, at);
+        for (const itemKey of fire) this.fireItem(entry, byKey.get(itemKey)!, { since: previous!.at, at, firedUnder: definition });
         return { fired: fire.length, baseline: previous?.definition !== definition };
     }
 
@@ -1882,15 +1882,20 @@ export class AutomationService {
      * A queued run the check turned away: it ends without starting. When
      * Consola itself turned it away because its automation changed, the item
      * it fired for is given back: nothing had started, so it fires again under
-     * the new version once that is allowed (Call 12).
+     * the new version once that is allowed (Call 12). Given back only to the
+     * record it fired under: an edit to what the entry watches re-baselines,
+     * and the record a check or a fetch wrote since then (its own checks may
+     * land while this run waits for a slot) counts the item as handled. A run
+     * that does not say which record it fired under gets nothing back.
      */
     private endUnstarted(run: RunRecord, verdict: Extract<QueueVerdict, { status: string }>): void {
         this.finish(run.id, verdict.status, verdict.status === 'failed' ? { error: verdict.message } : { summary: verdict.message });
         const itemKey = run.trigger.item?.key;
-        if (!verdict.giveBack || itemKey === undefined || !firedBySource(run)) return;
-        const key = automationKey({ workspaceId: run.attribution.workspaceId ?? '', automation: { name: run.automationId } });
+        const key = automationKeyOf(run);
+        if (!verdict.giveBack || itemKey === undefined || key === undefined || !firedBySource(run)) return;
         const record = this.deps.store.seen(key);
-        if (record) this.deps.store.setSeen(key, forgetFired(record, itemKey));
+        const { firedUnder } = (run.result ?? {}) as { firedUnder?: unknown };
+        if (record && firedUnder !== undefined && record.definition === firedUnder) this.deps.store.setSeen(key, forgetFired(record, itemKey));
     }
 
     /** Whether a run is still where the line saw it: queued, or, for a started run, with the same step queued. */
@@ -3340,14 +3345,15 @@ export class AutomationService {
      * edited later. A poll's item is written beside it (`item.json`), the
      * object as its check printed it.
      */
-    private fireSteps(entry: Resolved, trigger: RunTrigger, item?: SourceItem): RunRecord {
+    private fireSteps(entry: Resolved, trigger: RunTrigger, item?: SourceItem, firedUnder?: string): RunRecord {
         if (!item) {
             const lined = this.inLine(entry);
             if (lined) return lined;
         }
         const { definition, scope } = entry.steps!;
         const { mode, asks } = this.effectiveMode(entry, trigger);
-        const run = this.newStepsRun(entry, trigger, mode, item);
+        const base = this.newStepsRun(entry, trigger, mode, item);
+        const run: RunRecord = firedUnder === undefined ? base : { ...base, result: { ...(base.result as StepsRunPreview), firedUnder } };
         let writing = 'definition';
         try {
             this.deps.runFolder.writeDefinition(entry.workspaceId, run.id, definition);
@@ -3376,9 +3382,12 @@ export class AutomationService {
      * One item its source fired, made one run: recorded as rejected when the
      * person already started its action by hand since the last look, or as
      * failed when it is a work item of a type the entry's one-step action
-     * does not apply to. A step's action is checked when its turn comes.
+     * does not apply to. A step's action is checked when its turn comes. The
+     * look that fired it: when the one before it was (`since`), when it was
+     * (`at`), and the seen record it fired under (`firedUnder`).
      */
-    private fireItem(entry: Resolved, item: SourceItem, since: string, at: string): void {
+    private fireItem(entry: Resolved, item: SourceItem, look: { since: string; at: string; firedUnder: string }): void {
+        const { since, at, firedUnder } = look;
         const source = entry.source!;
         const trigger = this.firedTrigger(entry, item, at);
         const described = source.label(item);
@@ -3394,7 +3403,7 @@ export class AutomationService {
             return;
         }
         if (entry.steps) {
-            this.fireSteps(entry, trigger, item);
+            this.fireSteps(entry, trigger, item, firedUnder);
             return;
         }
         const agent = entry.agent!;
@@ -3403,6 +3412,7 @@ export class AutomationService {
             runs: agent.runs,
             prompt: source.renderPrompt(agent.body, item, entry.automation.name),
             item: { url: item.url, title: item.title, author: item.author ?? '', label: described },
+            firedUnder,
         };
         // Only a one-step action keeps the types it applies to (`typesItMayMiss`), and its label is the action's name.
         const refused = item.workItem && agent.appliesTo ? actionTypeRefusal({ name: agent.label!, appliesTo: agent.appliesTo }, item.workItem.type) : null;
@@ -3826,6 +3836,12 @@ function stepItemOf(
     const item = run.trigger.item;
     if (!source || !item) return {};
     return { itemValue: (field) => source.itemValue(item, field, polled), ...(source.itemFields ? {} : { untypedItem: true }) };
+}
+
+/** The key of the automation a run belongs to (`automationKey`); undefined for a run of no workspace. */
+function automationKeyOf(run: RunRecord): string | undefined {
+    const { workspaceId } = run.attribution;
+    return workspaceId === undefined ? undefined : automationKey({ workspaceId, automation: { name: run.automationId } });
 }
 
 /** Whether a source fired the run (the Inbox, or a poll's check), rather than a person or an agent asking. */
