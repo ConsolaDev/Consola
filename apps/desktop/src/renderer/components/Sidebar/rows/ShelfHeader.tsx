@@ -19,6 +19,10 @@ export function ShelfHeader({ title, count, open, onToggle, shortcutHint }: Shel
     <button
       type="button"
       className="shelf-header"
+      // An empty shelf recedes rather than disappearing: hiding it would make
+      // the chord that opens it point at nothing, and the count is the answer
+      // to "did anything settle?" even when the answer is no.
+      data-empty={count === 0 || undefined}
       aria-expanded={open}
       title={shortcutHint ? `${title} (${shortcutHint})` : undefined}
       onClick={onToggle}

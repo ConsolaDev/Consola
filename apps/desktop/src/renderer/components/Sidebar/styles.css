@@ -278,8 +278,10 @@
   flex-wrap: wrap;
   align-items: center;
   column-gap: 8px;
+  row-gap: 3px;
   max-width: 100%;
   min-width: 0;
+  margin-top: 3px;
 }
 
 .session-nav-item-meta .session-nav-item-model {
@@ -598,14 +600,18 @@
 .automations-nav-pill--failed { background: color-mix(in srgb, var(--color-error) 16%, transparent); color: var(--color-error); }
 
 /* Session nav item */
+/* Two zones: a fixed gutter the status dot lives in, and a column that takes
+   every remaining pixel. Nothing else is allowed into the horizontal flow,
+   because the title is what the list is for and chrome beside it is what
+   turned "PR #4194 · Review the bidding path" into "PR #4194 · Revi…". */
 .session-nav-item {
   position: relative;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: var(--space-2);
   width: 100%;
   min-height: var(--sidebar-row-height);
-  padding: var(--sidebar-row-padding-y) var(--space-2);
+  padding: 7px var(--space-2);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -616,6 +622,42 @@
   /* The row is a div acting as a button; keep its label a target, not text. */
   user-select: none;
   transition: background var(--transition-fast);
+}
+
+/* Holds its width whether or not a dot is in it, so every title in the list
+   starts on one vertical line. 7px dot, centred on the meta line's cap height. */
+.session-row-gutter {
+  display: flex;
+  flex: none;
+  justify-content: center;
+  width: 7px;
+  padding-top: 4px;
+}
+
+/* Everything that is not the title: glyphs, where it runs, its state, its age.
+   One small line above the name, so none of it competes for the name's width. */
+.session-row-meta {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  min-width: 0;
+  margin-bottom: 1px;
+  font-size: 11px;
+  line-height: 14px;
+  color: var(--color-text-tertiary);
+}
+
+/* Pushes the age to the right edge, so it reads as a column rather than as a
+   word trailing whatever happened to precede it. */
+.session-row-meta-spacer {
+  flex: 1 1 auto;
+  min-width: var(--space-2);
+}
+
+.session-row-age {
+  flex: none;
+  font-variant-numeric: tabular-nums;
 }
 
 .session-nav-item:hover {
@@ -651,27 +693,35 @@
   align-items: flex-start;
 }
 
+/* Two lines, then ellipsis. A session's subject is the one thing worth the
+   vertical space: one cramped line turns every PR row into the same prefix. */
 .session-nav-item-name {
-  max-width: 100%;
-  min-width: 0;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 
-/* The name's line, led by any mark that has to survive a narrow sidebar. */
 .session-nav-item-title {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  max-width: 100%;
+  width: 100%;
   min-width: 0;
+  font-size: 13px;
+  line-height: 17px;
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+/* A row whose work is over reads a step back rather than wearing a warning.
+   Red was telling eleven calm rows they had failed. */
+.session-nav-item--past .session-nav-item-title {
+  font-weight: 400;
+  color: var(--color-text-secondary);
 }
 
 /* A read-only session wears the lock its terminal toolbar does, so the row
-   and the pane it opens match. It leads the name rather than trailing it:
-   the name ellipsizes, and the end of the line is the first thing a narrow
-   sidebar cuts. Quiet at rest, it firms up with the row it belongs to. */
+   and the pane it opens match. On the meta line with the other marks, where
+   it costs the name nothing. */
 .session-nav-item-read-only {
   display: inline-flex;
   flex: none;
@@ -684,73 +734,22 @@
   color: var(--color-text-secondary);
 }
 
-/* The scope a grouped session runs in. Its row sits under a group rather
-   than under a scope row, so the subtitle is what places it. */
+/* Where a fan-out member actually runs. On the meta line, so it shortens
+   before the name does. */
 .session-nav-item-subtitle {
-  max-width: 100%;
-  font-size: var(--sidebar-font-size-small);
-  color: var(--color-text-tertiary);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.session-nav-item.active .session-nav-item-name {
-  font-weight: 500;
-}
-
-/* A row that names its scope is one block: the scope on a small line, then
-   the title, then any meta line. The leading glyphs line up with the title,
-   not with the block's middle, so the column of dots stays on the names. */
-.session-nav-item--scoped {
-  --session-scope-line: 14px;
-  --session-scope-gap: 1px;
-  --session-title-line: 20px;
-  align-items: flex-start;
-  /* The list scrolls; it must never squeeze a row to fit. */
-  flex-shrink: 0;
-  padding-top: 5px;
-  padding-bottom: 5px;
-}
-
-.session-nav-item--scoped .session-nav-item-title {
-  line-height: var(--session-title-line);
-}
-
-/* Each glyph drops past the scope line, then centres on the title line. */
-.session-nav-item--scoped .session-status-indicator {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 7px) / 2);
-}
-
-.session-nav-item--scoped .session-nav-item-harness {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 12px) / 2);
-}
-
-.session-nav-item--scoped .session-conductor-glyph {
-  line-height: 14px;
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 14px) / 2);
-}
-
-/* The status word and the ⋯ slot (22px: an 18px button, its padding and
-   border) trail the title line too. */
-.session-nav-item--scoped .session-status-word {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap));
-  line-height: var(--session-title-line);
-}
-
-.session-nav-item--scoped .nav-row-actions {
-  margin-top: calc(var(--session-scope-line) + var(--session-scope-gap) + (var(--session-title-line) - 22px) / 2);
-}
-
+/* The scope a row runs in, while the list mixes several. Allowed to shrink
+   first: which repo is context, the subject is the point. */
 .session-nav-item-scope {
-  max-width: 100%;
-  margin-bottom: var(--session-scope-gap);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-size: 11px;
-  line-height: var(--session-scope-line);
-  color: var(--color-text-tertiary);
 }
 
 /* "sprocket / apps/api": the scope's own name reads a step firmer than its parent. */
@@ -758,23 +757,10 @@
   color: var(--color-text-secondary);
 }
 
-/* Trailing status word — only urgent states render one, so calm rows stay
-   quiet. It keeps its place on hover; the ⋯ menu has its own reserved slot,
-   so nothing in the row moves. */
+/* The one status word left. Lower case, tertiary, on the meta line: it says
+   the process is gone, which is a fact, not a failure. */
 .session-status-word {
-  flex-shrink: 0;
-  font-size: 10px;
-  font-weight: 500;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.session-status-word--needs-attention {
-  color: var(--color-warning);
-}
-
-.session-status-word--exited {
-  color: var(--color-error);
+  flex: none;
 }
 
 .session-rename-input {
@@ -805,13 +791,31 @@
   background: var(--color-bg-sidebar);
 }
 
+/* Inside a session row the actions leave the flow entirely. Held in layout
+   they reserved their width on every row at rest — roughly 44px of title,
+   permanently, to show nothing. Floated over the row's top-right they cost
+   the name nothing and appear exactly where the pointer already is. */
+.session-nav-item .nav-row-actions {
+  position: absolute;
+  top: 4px;
+  right: var(--space-2);
+  z-index: 1;
+}
+
 .session-nav-item:hover .nav-row-actions,
 .session-nav-item:focus-within .nav-row-actions,
-
 .scope-row:hover .nav-row-actions,
 .scope-row:focus-within .nav-row-actions,
 .nav-row-actions[data-open='true'] {
   visibility: visible;
+}
+
+/* With the actions overhead, the age would sit under them. It steps aside
+   rather than being covered. */
+.session-nav-item:hover .session-row-age,
+.session-nav-item:focus-within .session-row-age,
+.session-nav-item:has(.nav-row-actions[data-open='true']) .session-row-age {
+  opacity: 0;
 }
 
 .nav-row-action {
@@ -847,10 +851,10 @@
 
 /* Session status indicator.
 
-   Leading, fixed-size, and always rendered — `ready` draws a dim hairline
-   ring instead of collapsing to nothing, which is what keeps the column
-   scannable. Shape carries meaning alongside colour (filled / ring / hollow),
-   so no state depends on hue alone. */
+   Drawn only for the three states that are about to want something. A calm
+   row shows nothing: a dot on every row is a dot that means nothing, which
+   PRODUCT.md names as an anti-reference. Shape carries meaning alongside
+   colour (filled / ring), so no state depends on hue alone. */
 .session-status-indicator {
   box-sizing: border-box;
   width: 7px;
@@ -864,10 +868,6 @@
   animation: session-pulse 1.5s ease-in-out infinite;
 }
 
-.session-status-indicator--ready {
-  border: 1px solid color-mix(in srgb, var(--color-text-secondary) 70%, transparent);
-}
-
 .session-status-indicator--needs-attention {
   border: 2px solid var(--color-warning);
 }
@@ -876,22 +876,21 @@
   background: var(--color-success);
 }
 
-.session-status-indicator--exited {
-  border: 1px solid var(--color-error);
-}
-
+/* Both ride the meta line now, sized to it rather than to the name. */
 .harness-driver-icon.session-nav-item-harness {
-  width: 12px;
-  height: 12px;
+  width: 11px;
+  height: 11px;
+  flex: none;
 }
 
 .harness-driver-icon.session-nav-item-harness > svg {
-  width: 10px;
-  height: 10px;
+  width: 9px;
+  height: 9px;
 }
 
 .session-conductor-glyph {
-  font-size: 12px;
+  font-size: 11px;
+  line-height: 14px;
   flex: none;
 }
 
@@ -1112,19 +1111,22 @@
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--color-text-tertiary);
   font: inherit;
   font-size: var(--sidebar-font-size-label);
   font-weight: var(--font-weight-medium);
-  text-transform: uppercase;
-  letter-spacing: 0.05em;
   text-align: left;
   cursor: pointer;
 }
 .shelf-header:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .shelf-header:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 .shelf-header-title { flex: 1; min-width: 0; }
-.shelf-header-count { flex: none; font-size: var(--sidebar-font-size-small); letter-spacing: normal; }
+.shelf-header-count { flex: none; font-size: var(--sidebar-font-size-small); font-variant-numeric: tabular-nums; }
+
+/* An empty shelf is scaffolding, not content. It stays reachable but stops
+   competing with the rows that have something in them. */
+.shelf-header[data-empty='true'] { color: color-mix(in srgb, var(--color-text-tertiary) 65%, transparent); }
+.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary); }
 
 .tree-row { display: flex; flex-direction: column; row-gap: 2px; }
 .tree-row-head { display: flex; align-items: center; }
@@ -1301,8 +1303,6 @@
 }
 
 .sidebar-filter-chip:hover { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
-
-.session-nav-item-labels { display: flex; flex-wrap: wrap; gap: 3px; }
 
 .session-nav-item-label {
   padding: 0 5px;

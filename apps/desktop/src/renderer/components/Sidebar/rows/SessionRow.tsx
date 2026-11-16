@@ -18,6 +18,7 @@ import { useWindowFocusStore } from '../../../stores/windowFocusStore';
 import { isSessionViewed } from '../../../utils/viewing';
 import { scopeTrail } from '../../../utils/scopeTrail';
 import { basename } from '../../../utils/fileUtils';
+import { relativeSince } from '../../../utils/relativeSince';
 import { useCheckoutStore } from '../../../stores/checkoutStore';
 import { hasScopeChoice, filteredScope, useHomeStore } from '../../../stores/homeStore';
 import { idOfKey } from '../../../sidebar/entries';
@@ -34,13 +35,25 @@ const STATUS_LABELS: Record<Attention, string> = {
 };
 
 /**
- * The trailing status word. Only the states that want a human get one —
- * calm rows are carried by the dot alone, so the list stays quiet.
+ * Which states draw a dot. Only the three that are *about to want something*
+ * do — a dot on a calm row is the "persistent status circle when nothing needs
+ * attention" PRODUCT.md names as an anti-reference, and at eleven rows it was
+ * eleven circles saying nothing.
+ */
+const MARKED: ReadonlySet<Attention> = new Set<Attention>(['working', 'done', 'needs-attention']);
+
+/**
+ * The one state worth a word, and it rides the meta line rather than the title
+ * line. `exited` is real information (the process is gone; opening it relaunches)
+ * but it is not an alarm, so it reads as quiet prose, not a red badge. Every
+ * other state is already said by the bucket the row is sitting in.
  */
 const STATUS_WORDS: Partial<Record<Attention, string>> = {
-  'needs-attention': 'attention',
   exited: 'exited',
 };
+
+/** States whose title has stopped being live, and reads a step back. */
+const PAST: ReadonlySet<Attention> = new Set<Attention>(['exited', 'settled']);
 
 /**
  * The row for a session entry: looks its record up by the entry's key, since an
@@ -57,6 +70,7 @@ export function SessionRow(props: RowProps) {
 function SessionRowBody({
   session,
   workspaceId,
+  entry,
   active: isActive,
   child,
   onActivate: onClick,
@@ -120,6 +134,10 @@ function SessionRowBody({
   // otherwise flash `done` once. Main's value is untouched.
   const displayStatus: Attention = isViewed && derivedStatus === 'done' ? 'ready' : derivedStatus;
   const statusWord = STATUS_WORDS[displayStatus];
+  // Computed at render rather than on a timer: the row already re-renders on
+  // every attention broadcast, and a per-row interval for a string that changes
+  // once a minute would cost more than it tells anyone.
+  const age = entry.activityAt ? relativeSince(entry.activityAt) : undefined;
   // The row reads the derived label — "PR #4118 · Review", "⑂ name". A
   // launched work-item session's `name` is not shown under it: until the CLI
   // summary lands it is the seed prompt Consola sent, which only repeats what
@@ -137,6 +155,7 @@ function SessionRowBody({
     scopeLabel && `in ${scopeLabel.parent ? `${scopeLabel.parent} / ` : ''}${scopeLabel.label}`,
     readOnly && 'read-only',
     STATUS_LABELS[displayStatus],
+    age && `last active ${age}`,
     worktreeRef && `worktree ${worktreeRef}`,
     shownModel,
   ]
@@ -208,12 +227,16 @@ function SessionRowBody({
   // conductor is never draggable — its tree is the fleet it orchestrates.
   const draggable = !isRenaming && session.kind !== 'conductor';
 
+  // The meta line carries everything that used to sit on the title's line and
+  // eat its width: the glyphs, where the row runs, its state, its age. Rendered
+  // whenever it has anything to say, which with an age is always.
+  const meta = showHarness || session.kind === 'conductor' || readOnly || scopeLabel || subtitle || statusWord || age;
+
   return (
     <div
       role="button"
       tabIndex={0}
-      // The rename field replaces the scope line too, so the row is a plain one while it shows.
-      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${scopeLabel && !isRenaming ? 'session-nav-item--scoped' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''}`}
+      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
       onContextMenu={(event) => {
@@ -231,19 +254,16 @@ function SessionRowBody({
       title={accessibleName}
       aria-label={accessibleName}
     >
-      {/* Decorative: the button's aria-label already carries the status, and
-          an ancestor's aria-label short-circuits the accessible-name
-          computation before it descends into subtree content. */}
-      <span
-        className={`session-status-indicator session-status-indicator--${displayStatus}`}
-        aria-hidden="true"
-      />
-      {session.kind === 'conductor' && (
-        <span className="session-conductor-glyph" aria-hidden>
-          🧠
-        </span>
-      )}
-      {showHarness && <SessionHarnessIcon harnessId={session.harnessId} />}
+      {/* A fixed gutter rather than a flow item: the dot comes and goes with the
+          state, and the titles must stay in one column whether or not it is there.
+          Decorative — the row's aria-label already carries the status, and an
+          ancestor's aria-label short-circuits the accessible-name computation
+          before it descends into subtree content. */}
+      <span className="session-row-gutter" aria-hidden="true">
+        {MARKED.has(displayStatus) && (
+          <span className={`session-status-indicator session-status-indicator--${displayStatus}`} />
+        )}
+      </span>
       {isRenaming ? (
         <input
           ref={inputRef}
@@ -257,33 +277,45 @@ function SessionRowBody({
         />
       ) : (
         <span className="session-nav-item-text">
-          {scopeLabel && (
-            <span className="session-nav-item-scope">
-              {scopeLabel.parent && <span className="session-nav-item-scope-parent">{scopeLabel.parent} / </span>}
-              <span className="session-nav-item-scope-name">{scopeLabel.label}</span>
+          {meta && (
+            <span className="session-row-meta">
+              {session.kind === 'conductor' && (
+                <span className="session-conductor-glyph" aria-hidden>
+                  🧠
+                </span>
+              )}
+              {showHarness && <SessionHarnessIcon harnessId={session.harnessId} />}
+              {readOnly && (
+                <span
+                  className="session-nav-item-read-only"
+                  title={`${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`}
+                >
+                  <Lock size={10} aria-hidden="true" />
+                </span>
+              )}
+              {scopeLabel && (
+                <span className="session-nav-item-scope">
+                  {scopeLabel.parent && <span className="session-nav-item-scope-parent">{scopeLabel.parent} / </span>}
+                  <span className="session-nav-item-scope-name">{scopeLabel.label}</span>
+                </span>
+              )}
+              {subtitle && <span className="session-nav-item-subtitle">{subtitle}</span>}
+              {statusWord && (
+                <span className={`session-status-word session-status-word--${displayStatus}`}>{statusWord}</span>
+              )}
+              {/* Pushed right by the spacer, so the age keeps one column down
+                  the list however much or little precedes it. */}
+              <span className="session-row-meta-spacer" />
+              {age && <span className="session-row-age">{age}</span>}
             </span>
           )}
+          {/* The hero. It owns the full width of the column and may take a
+              second line, because what the conversation is about is the one
+              thing the list exists to tell you. */}
           <span className="session-nav-item-title">
-            {readOnly && (
-              <span
-                className="session-nav-item-read-only"
-                title={`${readOnlyNote}. Open it and choose “Continue with full tools” to make changes.`}
-              >
-                <Lock size={11} aria-hidden="true" />
-              </span>
-            )}
             <span className="session-nav-item-name">{label}</span>
           </span>
-          {subtitle &&<span className="session-nav-item-subtitle">{subtitle}</span>}
-          {labelNames.length > 0 && (
-            <span className="session-nav-item-labels">
-              {labelNames.map((label) => (
-                <span key={label.id} className="session-nav-item-label">{label.emoji ? `${label.emoji} ` : ''}{label.name}</span>
-              ))}
-            </span>
-          )}
-          {/* Worktree and model share a line when both fit, and wrap when not. */}
-          {(worktreeRef || shownModel) && (
+          {(worktreeRef || shownModel || labelNames.length > 0) && (
             <span className="session-nav-item-meta">
               {worktreeRef && (
                 <span className="session-nav-item-worktree" title={`Worktree · ${worktreeRef}`}>
@@ -291,16 +323,15 @@ function SessionRowBody({
                   <span className="session-nav-item-worktree-ref">{worktreeRef}</span>
                 </span>
               )}
-              {shownModel && (
-                <span className="session-nav-item-model" title={shownModel}>{shownModel}</span>
-              )}
+              {shownModel && <span className="session-nav-item-model" title={shownModel}>{shownModel}</span>}
+              {labelNames.map((item) => (
+                <span key={item.id} className="session-nav-item-label">
+                  {item.emoji ? `${item.emoji} ` : ''}
+                  {item.name}
+                </span>
+              ))}
             </span>
           )}
-        </span>
-      )}
-      {!isRenaming && statusWord && (
-        <span className={`session-status-word session-status-word--${displayStatus}`} aria-hidden="true">
-          {statusWord}
         </span>
       )}
       {trailing}
