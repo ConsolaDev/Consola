@@ -58,6 +58,7 @@ export const IPC_CHANNELS = {
     CONDUCTOR_CREATE: 'conductor:create',
 
     // The workspace Assistant (renderer -> main; main makes or replaces its record)
+    ATTENTION_SNAPSHOT: 'attention:snapshot',  // Every session's recorded activity, once
     ASSISTANT_OPEN: 'assistant:open',
     ASSISTANT_START_FRESH: 'assistant:start-fresh',
     ASSISTANT_GET_ACTIVITY: 'assistant:get-activity',

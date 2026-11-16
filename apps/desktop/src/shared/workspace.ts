@@ -76,6 +76,7 @@ export interface Session {
   // where the session came from, not what it is doing now.
   automation?: SessionProvenance;
   createdAt: number;
+  /** Creation-time seed only. Real activity lives in the attention ledger; read it through `activityOf`. */
   lastActiveAt: number;
 }
 

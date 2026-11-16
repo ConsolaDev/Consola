@@ -13,6 +13,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { activityOf } from '../../../shared/attention';
 import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import { sessionLabel } from '../../../shared/sessionLabel';
@@ -22,6 +23,7 @@ import { sameWorkItem } from '../../../shared/workItems';
 import type { WorkItemDetails } from '../../../shared/workItemDetails';
 import type { Session, Workspace } from '../../../shared/workspace';
 import { itemKey, launchKey, useInboxStore } from '../../stores/inboxStore';
+import { useAttentionStore } from '../../stores/attentionStore';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
@@ -101,6 +103,7 @@ function automationPhase(status: SessionStatus): string | null {
  */
 export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixInSession, onOpenWorkItem }: InboxItemPaneProps) {
   const terminals = useTerminalStore((state) => state.terminals);
+  const attention = useAttentionStore((state) => state.records);
   const launch = useInboxStore((state) => state.launch);
   const openClonePrompt = useInboxStore((state) => state.openClonePrompt);
   const launching = useInboxStore((state) => state.launching);
@@ -308,7 +311,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                     <span className="inbox-pane-session-sub">
                       <span className="inbox-pane-session-status">{phase ?? STATUS_WORDS[status]}</span>
                       {' · '}
-                      {formatAge(session.lastActiveAt)}
+                      {formatAge(activityOf(session, attention[session.id]))}
                       {session.cwd ? ` · ${basename(session.cwd)}` : ''}
                     </span>
                   </div>

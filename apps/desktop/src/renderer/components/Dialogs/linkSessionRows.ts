@@ -1,3 +1,4 @@
+import { activityOf, type AttentionSnapshot } from '../../../shared/attention';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../../shared/workItems';
@@ -28,17 +29,19 @@ export function sessionRowsFor(
   workspace: Workspace,
   item: InboxItem,
   terminals: Record<string, TerminalState>,
+  attention: AttentionSnapshot,
   now: number = Date.now()
 ): LinkRow[] {
+  const activity = (session: Session) => activityOf(session, attention[session.id]);
   return listedSessions(workspace)
     .filter((session) => session.kind !== 'conductor')
-    .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+    .sort((a, b) => activity(b) - activity(a))
     .map((session) => {
       const runsIn = checkoutPathForSession(workspace, session) ?? '';
       const row: LinkRow = {
         id: session.id,
         label: sessionLabel(session),
-        context: `${basename(runsIn)} · ${formatAge(session.lastActiveAt, now)}`,
+        context: `${basename(runsIn)} · ${formatAge(activity(session), now)}`,
         status: sessionStatusFor(terminals[session.instanceId]),
         sessionId: session.id,
         workItem: item.workItem,

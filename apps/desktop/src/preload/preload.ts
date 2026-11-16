@@ -1,5 +1,6 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
+import type { AttentionSnapshot } from '../shared/attention';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -393,6 +394,13 @@ interface GitDiffResult {
     isNew: boolean;
     isDeleted: boolean;
 }
+
+// Expose Attention API to renderer
+contextBridge.exposeInMainWorld('attentionAPI', {
+    getSnapshot: (): Promise<AttentionSnapshot> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+    },
+});
 
 // Expose Git API to renderer
 contextBridge.exposeInMainWorld('gitAPI', {

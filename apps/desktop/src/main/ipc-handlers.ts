@@ -106,6 +106,8 @@ import {
     resolveRememberedView,
     type ViewMemoryStateFile,
 } from './state/ViewMemoryService';
+import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/AttentionLedger';
+import { TurnActivity } from './attention/TurnActivity';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
@@ -114,6 +116,7 @@ let shellManager: ShellManager | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
+let attentionLedgerService: JsonAttentionLedger | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
@@ -180,6 +183,20 @@ export function setupIpcHandlers(): boolean {
     if (viewMemory.isEmpty()) viewMemory.seed(viewsFromStoredLayout());
     viewMemoryService = viewMemory;
 
+    // Like view memory, never fatal: a lost ledger sends every session back to
+    // its creation time, which is what a session with no record shows anyway.
+    const attentionLedger = new JsonAttentionLedger(
+        new JsonStateFile<AttentionLedgerStateFile>(
+            path.join(app.getPath('userData'), 'attention-ledger.json')
+        )
+    );
+    attentionLedger.load();
+    attentionLedger.prune(
+        new Set(workspaces.getAll().flatMap((workspace) => workspace.sessions.map((session) => session.id)))
+    );
+    attentionLedgerService = attentionLedger;
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_SNAPSHOT, () => attentionLedger.snapshot());
+
     // Every window renders the same records, so a change goes to all of them
     // rather than to whoever asked for it. A deleted workspace also has to be
     // dropped from any window still holding it, or that window would keep
@@ -190,6 +207,7 @@ export function setupIpcHandlers(): boolean {
         // already refuses to surface it, so this is housekeeping rather than
         // correctness — it stops the file growing forever.
         viewMemory.prune(liveIds);
+        attentionLedger.prune(new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))));
 
         for (const window of BrowserWindow.getAllWindows()) {
             if (window.isDestroyed()) continue;
@@ -694,6 +712,14 @@ export function setupIpcHandlers(): boolean {
 
     const notificationPolicy = new NotificationPolicy();
 
+    // Turns starting and finishing are the activity worth remembering. The
+    // terminal knows its per-launch instance; the ledger only knows sessions.
+    const turnActivity = new TurnActivity(attentionLedger, (instanceId) => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        return located ? { sessionId: located.session.id, workspaceId: located.workspace.id } : undefined;
+    });
+    manager.addStatusListener((instanceId, status) => turnActivity.statusChanged(instanceId, status));
+
     // The fourth attention altitude: session dot → group count → switcher dot
     // → OS notification. Rings only for a session hitting needs-attention
     // while no Consola window is focused; the Inbox never notifies — only
@@ -751,7 +777,7 @@ export function setupIpcHandlers(): boolean {
     };
 
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
-    const launcher = new SessionLauncher(workspaces, harnesses, manager);
+    const launcher = new SessionLauncher(workspaces, harnesses, manager, attentionLedger);
 
     // An action run in a work-item session that already exists — a follow-up
     // pass on the same job, in the same tab. Coalesced per session and
@@ -1528,6 +1554,10 @@ export function cleanupIpcHandlers(): void {
     // Every view reached disk as it was set, so there is nothing to flush —
     // only the reference to drop, alongside the other services.
     viewMemoryService = null;
+    // The one thing debounced: a quit inside the window must not lose it.
+    attentionLedgerService?.flush();
+    attentionLedgerService = null;
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNAPSHOT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_IMPORT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);

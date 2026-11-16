@@ -3,6 +3,8 @@ import { GitPullRequest, Home, Inbox, MoreVertical, Plus } from 'lucide-react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { useAttentionStore } from '../../stores/attentionStore';
+import { activityOf } from '../../../shared/attention';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { filteredScope, hasScopeChoice, useHomeStore } from '../../stores/homeStore';
@@ -32,6 +34,7 @@ export function Sidebar() {
   const overlay = useNavigationStore(state => state.overlay);
   const isInbox = overlay === 'inbox';
   const workspaces = useWorkspaceStore(state => state.workspaces);
+  const attention = useAttentionStore(state => state.records);
   const workspace = workspaces.find(candidate => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore(state => state.scopeFilters[activeWorkspaceId ?? '']);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
@@ -67,7 +70,9 @@ export function Sidebar() {
   const groups = workspace?.groups.filter(group => !group.archivedAt) ?? [];
   const liveGroupIds = new Set(groups.map(group => group.id));
   const allSessions = workspace ? listedSessions(workspace).filter(session => session.name.length > 0) : [];
-  const sessions = scope ? allSessions.filter(session => session.scopeId === scope.id) : allSessions;
+  // Throwaway: the group/ungrouped split goes away with the attention-first sidebar.
+  const sessions = (scope ? allSessions.filter(session => session.scopeId === scope.id) : allSessions)
+    .sort((a, b) => activityOf(b, attention[b.id]) - activityOf(a, attention[a.id]));
   const ungrouped = sessions.filter(session => !session.groupId || !liveGroupIds.has(session.groupId));
   // No scopeId: where a session starts is one rule (the filter, else the open
   // session's scope, else the primary one), applied by sessionDestination.

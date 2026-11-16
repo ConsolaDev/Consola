@@ -1,4 +1,5 @@
 import type { AppUpdateAPI } from '../../shared/appUpdates';
+import type { AttentionSnapshot } from '../../shared/attention';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
 export interface FolderInfo {
   path: string;
@@ -49,6 +50,10 @@ export interface GitDiffResult {
   isDeleted: boolean;
 }
 
+export interface AttentionAPI {
+  getSnapshot: () => Promise<AttentionSnapshot>;
+}
+
 export interface GitAPI {
   getStatus: (rootPath: string) => Promise<GitStatusResult>;
   getCheckout: (dir: string) => Promise<CheckoutInfo>;
@@ -65,6 +70,7 @@ declare global {
     appUpdateAPI?: AppUpdateAPI;
     dialogAPI: DialogAPI;
     fileAPI: FileAPI;
+    attentionAPI: AttentionAPI;
     gitAPI: GitAPI;
   }
 }

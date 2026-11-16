@@ -194,7 +194,7 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
-  it('drops every field that names the session or its terminal', () => {
+  it('drops every field that names the session or its terminal, and the retired lastActiveAt', () => {
     const payload = {
       id: 'attacker-controlled',
       workspaceId: 'somewhere-else',
@@ -206,7 +206,7 @@ describe('allowedSessionUpdates', () => {
 
     const result = allowedSessionUpdates(payload);
 
-    expect(result).toEqual({ lastActiveAt: 42 });
+    expect(result).toEqual({});
   });
 
   it('drops an explicit name: undefined rather than clobbering a real name', () => {

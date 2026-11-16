@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { sessionLabel } from '../../../shared/sessionLabel';
+import { useAttentionStore } from '../../stores/attentionStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import {
   useLinkSessionDialogStore,
@@ -50,6 +51,7 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
   );
   const updateSession = useWorkspaceStore((state) => state.updateSession);
   const terminals = useTerminalStore((state) => state.terminals);
+  const attention = useAttentionStore((state) => state.records);
   const items = useInboxStore((state) => state.snapshots[mode.workspaceId]?.items);
 
   const [query, setQuery] = useState('');
@@ -60,9 +62,9 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
   const rows = useMemo<LinkRow[]>(() => {
     if (!workspace) return [];
     return mode.kind === 'pick-session'
-      ? sessionRowsFor(workspace, mode.item, terminals)
+      ? sessionRowsFor(workspace, mode.item, terminals, attention)
       : itemRowsFor(items ?? [], mode.session);
-  }, [workspace, mode, terminals, items]);
+  }, [workspace, mode, terminals, attention, items]);
 
   const active = rows.find((row) => row.id === activeId && !row.disabled) ?? null;
 

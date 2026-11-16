@@ -112,7 +112,7 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
  */
 export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     const allowed: SessionUpdates = {};
-    // These three are required on the record and none is clearable, so
+    // These two are required on the record and none is clearable, so
     // `undefined` can only ever be a bug: absence and explicit-undefined are
     // treated alike. Contrast groupId and workItem below, where `undefined`
     // is a value.
@@ -120,7 +120,6 @@ export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     // Optional on the record but set-only in practice: `undefined` never
     // means "clear the flag", so it is treated like the required fields.
     if (updates.nameIsUserSet !== undefined) allowed.nameIsUserSet = updates.nameIsUserSet;
-    if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
     if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
     // `undefined` IS the value here — "leave the group", "unlink from the
     // item". Structured clone preserves an explicitly-undefined key, so
