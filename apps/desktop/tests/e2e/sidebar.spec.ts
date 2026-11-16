@@ -570,9 +570,10 @@ test.describe('Home scopes and groups', () => {
     await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
-  test('the session × and menu share confirmation without activating the row', async () => {
+  test('the row settles from hover and back; deleting stays in the menu and confirms', async () => {
+    const settledHeader = page.getByRole('button', { name: /^Settled/ });
     const row = rowFor(page, 'Controller boot');
-    const close = row.getByRole('button', { name: 'Delete session Controller boot', exact: true });
+    const settle = row.getByRole('button', { name: 'Settle session Controller boot', exact: true });
     const confirmation = 'Delete session "Controller boot"? This will remove the session and its chat history.';
     // Stub the native dialog so both cancellation and acceptance are exercised
     // without relying on platform-specific Electron dialog automation.
@@ -582,27 +583,43 @@ test.describe('Home scopes and groups', () => {
         return false;
       };
     });
-    const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
-    await row.hover();
-    await expect(close).toBeVisible();
-    await close.click();
-    expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
-    await expect(row).toHaveCount(1);
-    expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
 
-    await page.evaluate(() => { (window as any).__deleteConfirmation = undefined; });
+    // The row's one-click slot is the reversible move; destroying a session and
+    // its history is behind the ⋯ menu, where a mis-aimed click cannot reach it.
     await row.getByRole('button', { name: 'Session actions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
     await expect(row).toHaveCount(1);
 
-    await page.evaluate(() => { window.confirm = () => true; });
+    // Settling acts in place and must not activate the row it acts on.
+    const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
+    await expect(settledHeader).toHaveText(/0/);
+    await row.hover();
+    await expect(settle).toBeVisible();
+    await settle.click();
+    await expect(settledHeader).toHaveText(/1/);
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(3);
+    expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
+
+    // The same slot offers the way back, so nothing is settled irreversibly by
+    // a stray click — the shelf has to be open for its rows to be reachable.
+    await settledHeader.click();
+    const shelved = page.getByRole('navigation', { name: 'Settled sessions' }).locator('.session-nav-item').first();
+    await shelved.hover();
+    await shelved.getByRole('button', { name: 'Move Controller boot back to the list', exact: true }).click();
+    await expect(settledHeader).toHaveText(/0/);
+    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+
+    // Tab order: the row, its ⋯ trigger, then its one action.
     await row.focus();
     await page.keyboard.press('Tab');
     await expect(row.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect(close).toBeFocused();
-    await page.keyboard.press('Enter');
+    await expect(settle).toBeFocused();
+
+    await page.evaluate(() => { window.confirm = () => true; });
+    await row.getByRole('button', { name: 'Session actions', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(row).toHaveCount(0);
     await expect(page.locator('.session-nav-item')).toHaveCount(3);
   });

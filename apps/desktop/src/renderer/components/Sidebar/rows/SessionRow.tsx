@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { FolderGit2, Lock, X } from 'lucide-react';
+import { Archive, ArchiveRestore, FolderGit2, Lock } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../../shared/workspace';
@@ -11,6 +11,7 @@ import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore'
 import { SessionActionsMenu } from '../SessionActionsMenu';
 import { startSessionDrag } from '../sessionDrag';
 import { deleteSessionCompletely } from '../../../utils/sessionActions';
+import { settleWithUndo, unsettleWithUndo } from '../../../utils/settleActions';
 import type { Attention } from '../../../../shared/attention';
 import { useSessionAttention } from '../../../stores/attentionStore';
 import { useNavigationStore } from '../../../stores/navigationStore';
@@ -134,6 +135,9 @@ function SessionRowBody({
   // otherwise flash `done` once. Main's value is untouched.
   const displayStatus: Attention = isViewed && derivedStatus === 'done' ? 'ready' : derivedStatus;
   const statusWord = STATUS_WORDS[displayStatus];
+  // The hover action is a toggle: a shelved row offers the way back, so the
+  // slot never shows an action that would do nothing.
+  const isSettled = displayStatus === 'settled';
   // Computed at render rather than on a timer: the row already re-renders on
   // every attention broadcast, and a per-row interval for a string that changes
   // once a minute would cost more than it tells anyone.
@@ -345,17 +349,21 @@ function SessionRowBody({
             onRename={handleStartRename}
             onDelete={handleDelete}
           />
+          {/* Settle, not delete. The row's one-click slot belongs to the move a
+              person makes constantly and can undo from the toast; destroying a
+              session and its history is rare and permanent, so it stays behind
+              the ⋯ menu where a mis-aimed click cannot reach it. */}
           <button
             type="button"
             className="nav-row-action"
-            aria-label={`Delete session ${label}`}
-            title="Delete session"
+            aria-label={isSettled ? `Move ${label} back to the list` : `Settle session ${label}`}
+            title={isSettled ? 'Move back to the list' : 'Settle — move it to the Settled shelf'}
             onClick={(event) => {
               event.stopPropagation();
-              handleDelete();
+              void (isSettled ? unsettleWithUndo : settleWithUndo)(workspaceId, session.id, label);
             }}
           >
-            <X size={12} aria-hidden="true" />
+            {isSettled ? <ArchiveRestore size={12} aria-hidden="true" /> : <Archive size={12} aria-hidden="true" />}
           </button>
         </div>
       )}
