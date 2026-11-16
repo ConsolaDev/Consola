@@ -9,7 +9,9 @@ import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import type {
     Group,
+    Label,
     NewGroupFields,
+    NewLabelFields,
     NewScopeFields,
     NewSessionFields,
     Scope,
@@ -125,6 +127,31 @@ export const workspaceBridge = {
 
     restoreGroup(workspaceId: string, groupId: string): Promise<void> {
         return window.workspaceAPI.restoreGroup(workspaceId, groupId);
+    },
+
+    createLabel(workspaceId: string, fields: NewLabelFields): Promise<Label> {
+        return window.workspaceAPI.createLabel(workspaceId, fields);
+    },
+
+    updateLabel(
+        workspaceId: string,
+        labelId: string,
+        updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+    ): Promise<void> {
+        return window.workspaceAPI.updateLabel(workspaceId, labelId, updates);
+    },
+
+    /** Removes the label from every session that carries it. */
+    deleteLabel(workspaceId: string, labelId: string): Promise<void> {
+        return window.workspaceAPI.deleteLabel(workspaceId, labelId);
+    },
+
+    assignLabel(workspaceId: string, sessionId: string, labelId: string): Promise<void> {
+        return window.workspaceAPI.assignLabel(workspaceId, sessionId, labelId);
+    },
+
+    unassignLabel(workspaceId: string, sessionId: string, labelId: string): Promise<void> {
+        return window.workspaceAPI.unassignLabel(workspaceId, sessionId, labelId);
     },
 
     /** Fan one prompt out across target repos: N sessions in a fresh group. */

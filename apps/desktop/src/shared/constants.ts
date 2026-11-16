@@ -53,6 +53,11 @@ export const IPC_CHANNELS = {
     WORKSPACE_GROUP_UPDATE: 'workspace:group-update',
     WORKSPACE_GROUP_ARCHIVE: 'workspace:group-archive',
     WORKSPACE_GROUP_RESTORE: 'workspace:group-restore',
+    WORKSPACE_LABEL_CREATE: 'workspace:label-create',
+    WORKSPACE_LABEL_UPDATE: 'workspace:label-update',
+    WORKSPACE_LABEL_DELETE: 'workspace:label-delete',
+    WORKSPACE_SESSION_LABEL_ASSIGN: 'workspace:session-label-assign',
+    WORKSPACE_SESSION_LABEL_UNASSIGN: 'workspace:session-label-unassign',
 
     // Conductor orchestration (renderer -> main; main scaffolds, groups, launches)
     CONDUCTOR_CREATE: 'conductor:create',

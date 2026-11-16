@@ -39,7 +39,9 @@ import type { WorkItemAction } from '../shared/workItemActions';
 import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
     Group,
+    Label,
     NewGroupFields,
+    NewLabelFields,
     NewScopeFields,
     NewSessionFields,
     Scope,
@@ -283,6 +285,25 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
     restoreGroup: (workspaceId: string, groupId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE, workspaceId, groupId),
+
+    createLabel: (workspaceId: string, fields: NewLabelFields): Promise<Label> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_CREATE, workspaceId, fields),
+
+    updateLabel: (
+        workspaceId: string,
+        labelId: string,
+        updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+    ): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE, workspaceId, labelId, updates),
+
+    deleteLabel: (workspaceId: string, labelId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_DELETE, workspaceId, labelId),
+
+    assignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN, workspaceId, sessionId, labelId),
+
+    unassignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN, workspaceId, sessionId, labelId),
 
     fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),

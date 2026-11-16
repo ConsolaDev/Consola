@@ -14,7 +14,9 @@ import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import { AssistantNavItem } from './AssistantNavItem';
 import { AutomationsNavItem } from './AutomationsNavItem';
-import { ScopeFilter } from './ScopeFilter';
+import { FilterBar } from './FilterBar';
+import { useSessionFilterStore } from '../../stores/sessionFilterStore';
+import { effectiveFilters, hasActiveFilters, matchesFilters } from '../../utils/sessionFilters';
 import { SidebarSearch } from './SidebarSearch';
 import { SessionNavItem } from './SessionNavItem';
 import { NavigationSettings } from './NavigationSettings';
@@ -37,6 +39,7 @@ export function Sidebar() {
   const attention = useAttentionStore(state => state.records);
   const workspace = workspaces.find(candidate => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore(state => state.scopeFilters[activeWorkspaceId ?? '']);
+  const facetSelection = useSessionFilterStore(state => state.filters[activeWorkspaceId ?? '']);
   const [isCreatingGroup, setIsCreatingGroup] = useState(false);
   const [isDropTarget, setIsDropTarget] = useState(false);
   const [scopeError, setScopeError] = useState('');
@@ -56,6 +59,11 @@ export function Sidebar() {
     // The Assistant belongs to no scope the filter could show.
     if (!current || !session || session.kind === 'assistant') return;
     revealSessionScope(current.id, session.id);
+    // Facet filters follow an activated session the same way: one that would
+    // hide it is cleared rather than leaving the open session out of its list.
+    const listed = listedSessions(current).filter(candidate => candidate.name.length > 0);
+    const facets = effectiveFilters(current, listed, useSessionFilterStore.getState().filters[current.id]);
+    if (hasActiveFilters(facets) && !matchesFilters(session, facets)) useSessionFilterStore.getState().clear(current.id);
     if (session.groupId) useSettingsStore.getState().expandSidebarSection(session.groupId);
   }, [activeWorkspaceId, activeSessionId]);
 
@@ -71,7 +79,9 @@ export function Sidebar() {
   const liveGroupIds = new Set(groups.map(group => group.id));
   const allSessions = workspace ? listedSessions(workspace).filter(session => session.name.length > 0) : [];
   // Throwaway: the group/ungrouped split goes away with the attention-first sidebar.
+  const facets = workspace ? effectiveFilters(workspace, allSessions, facetSelection) : {};
   const sessions = (scope ? allSessions.filter(session => session.scopeId === scope.id) : allSessions)
+    .filter(session => matchesFilters(session, facets))
     .sort((a, b) => activityOf(b, attention[b.id]) - activityOf(a, attention[a.id]));
   const ungrouped = sessions.filter(session => !session.groupId || !liveGroupIds.has(session.groupId));
   // No scopeId: where a session starts is one rule (the filter, else the open
@@ -93,6 +103,10 @@ export function Sidebar() {
         {' '}to start a session.</>;
     }
     if (!allSessions.length) return scope ? `Sessions you start in ${scope.name} appear here.` : 'Sessions you start appear here.';
+    if (hasActiveFilters(facets) && !sessions.length) {
+      return <>No sessions match these filters.{' '}
+        <button type="button" className="sidebar-empty-link" onClick={() => { chooseScope(workspace.id, null); useSessionFilterStore.getState().clear(workspace.id); }}>Clear filters</button></>;
+    }
     if (scope && !sessions.length) {
       return <>Nothing in {scope.name} yet.{' '}
         <button type="button" className="sidebar-empty-link" onClick={() => chooseScope(workspace.id, null)}>Show all scopes</button></>;
@@ -137,7 +151,7 @@ export function Sidebar() {
           <AutomationsNavItem workspace={workspace} />
           {/* Always there, even with one scope: it is also where scopes are added. */}
           <hr className="sidebar-scope-divider" />
-          <ScopeFilter workspace={workspace} />
+          <FilterBar workspace={workspace} />
           <div ref={sessionPanelRef} className="home-session-panel">
             <div className="sidebar-section">
               <div className="sidebar-section-header"><span className="sidebar-section-title">Your groups</span><button className="sidebar-section-button" aria-label="Add group" onClick={() => setIsCreatingGroup(true)}><Plus size={14} /></button></div>

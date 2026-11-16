@@ -81,6 +81,11 @@ export function SessionNavItem({
   const worktreeRef =
     showWorktree && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
   const shownModel = showModel ? model : undefined;
+  // The stored list, resolved in render: a selector building an array would
+  // hand React a fresh snapshot on every read. Ids naming a deleted label
+  // simply find nothing.
+  const allLabels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels);
+  const labelNames = (allLabels ?? []).filter((label) => session.labelIds?.includes(label.id));
 
   const derivedStatus = useSessionAttention(session.id);
   // Exactly what `useViewingReport` reports as viewed, not bare `isActive`: an
@@ -254,6 +259,13 @@ export function SessionNavItem({
             <span className="session-nav-item-name">{label}</span>
           </span>
           {subtitle &&<span className="session-nav-item-subtitle">{subtitle}</span>}
+          {labelNames.length > 0 && (
+            <span className="session-nav-item-labels">
+              {labelNames.map((label) => (
+                <span key={label.id} className="session-nav-item-label">{label.emoji ? `${label.emoji} ` : ''}{label.name}</span>
+              ))}
+            </span>
+          )}
           {/* Worktree and model share a line when both fit, and wrap when not. */}
           {(worktreeRef || shownModel) && (
             <span className="session-nav-item-meta">

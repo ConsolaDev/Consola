@@ -26,6 +26,7 @@ function workspace(): Workspace {
             { id: 'scope-api', name: 'api', path: '/code/api', isGitRepo: true, createdAt: 0 },
         ],
         groups: [{ id: 'g-reviews', name: 'Reviews', createdAt: 0, archivedAt: 5 }],
+        labels: [],
         actions: [],
         sectionDefaults: {},
         sessions: [],

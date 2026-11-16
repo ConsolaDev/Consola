@@ -75,6 +75,7 @@ import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
     allowedGroupUpdates,
     allowedHarnessUpdates,
+    allowedLabelUpdates,
     allowedScopeUpdates,
     allowedSessionUpdates,
     allowedWorkspaceUpdates,
@@ -82,7 +83,9 @@ import {
 } from './state/updateFilters';
 import type {
     Group,
+    Label,
     NewGroupFields,
+    NewLabelFields,
     NewScopeFields,
     NewSessionFields,
     Scope,
@@ -475,6 +478,39 @@ export function setupIpcHandlers(): boolean {
             // has its own archive/restore verbs.
             workspaces.updateGroup(workspaceId, groupId, allowedGroupUpdates(updates));
         }
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_CREATE,
+        (_event, workspaceId: string, fields: NewLabelFields) =>
+            workspaces.createLabel(workspaceId, {
+                name: fields.name,
+                ...(fields.emoji !== undefined ? { emoji: fields.emoji } : {}),
+                ...(fields.color !== undefined ? { color: fields.color } : {}),
+            })
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_UPDATE,
+        (_event, workspaceId: string, labelId: string, updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>) =>
+            workspaces.updateLabel(workspaceId, labelId, allowedLabelUpdates(updates))
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_DELETE,
+        (_event, workspaceId: string, labelId: string) => workspaces.deleteLabel(workspaceId, labelId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN,
+        (_event, workspaceId: string, sessionId: string, labelId: string) =>
+            workspaces.assignLabel(workspaceId, sessionId, labelId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN,
+        (_event, workspaceId: string, sessionId: string, labelId: string) =>
+            workspaces.unassignLabel(workspaceId, sessionId, labelId)
     );
 
     ipcMain.handle(
@@ -1632,6 +1668,11 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN);
 
     harnessService = null;
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);

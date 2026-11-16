@@ -7,10 +7,11 @@ import {
   Link2,
   MoreVertical,
   Pencil,
+  Tag,
   Trash2,
   Unlink,
 } from 'lucide-react';
-import type { Group, Session } from '../../../shared/workspace';
+import type { Group, Label, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
@@ -18,6 +19,7 @@ import { moveSessionToGroup } from '../../utils/sessionActions';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
 const EMPTY_GROUPS: Group[] = [];
+const EMPTY_LABELS: Label[] = [];
 
 interface SessionActionsMenuProps {
   open: boolean;
@@ -62,6 +64,9 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
   );
   const groups = (allGroups ?? EMPTY_GROUPS).filter((group) => !group.archivedAt);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
+  const labels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels) ?? EMPTY_LABELS;
+  const assignLabel = useWorkspaceStore((state) => state.assignLabel);
+  const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
   const [creatingGroup, setCreatingGroup] = useState(false);
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
@@ -161,6 +166,37 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
               <CornerUpLeft size={14} />
               <span>Remove from group</span>
             </DropdownMenu.Item>
+          )}
+          {labels.length > 0 && (
+            <DropdownMenu.Sub>
+              <DropdownMenu.SubTrigger className="dropdown-item">
+                <Tag size={14} />
+                <span>Labels</span>
+              </DropdownMenu.SubTrigger>
+              <DropdownMenu.Portal>
+                <DropdownMenu.SubContent className="dropdown-content" sideOffset={4}>
+                  {labels.map((label) => {
+                    const on = session.labelIds?.includes(label.id) ?? false;
+                    return (
+                      <DropdownMenu.Item
+                        key={label.id}
+                        className="dropdown-item"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          const write = on ? unassignLabel : assignLabel;
+                          void write(workspaceId, session.id, label.id).catch((error) => {
+                            console.error('Failed to change session label', error);
+                          });
+                        }}
+                      >
+                        {on ? <Check size={14} /> : <Tag size={14} />}
+                        <span>{label.emoji ? `${label.emoji} ` : ''}{label.name}</span>
+                      </DropdownMenu.Item>
+                    );
+                  })}
+                </DropdownMenu.SubContent>
+              </DropdownMenu.Portal>
+            </DropdownMenu.Sub>
           )}
           {canLink &&
             (session.workItem ? (

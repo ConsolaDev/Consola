@@ -2,7 +2,9 @@ import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
     Group,
+    Label,
     NewGroupFields,
+    NewLabelFields,
     NewScopeFields,
     NewSessionFields,
     Scope,
@@ -421,6 +423,15 @@ export interface WorkspaceAPI {
     ) => Promise<void>;
     archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
     restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
+    createLabel: (workspaceId: string, fields: NewLabelFields) => Promise<Label>;
+    updateLabel: (
+        workspaceId: string,
+        labelId: string,
+        updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+    ) => Promise<void>;
+    deleteLabel: (workspaceId: string, labelId: string) => Promise<void>;
+    assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
+    unassignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
     fanOut: (intent: SessionFanOutIntent) => Promise<SessionFanOutResult>;
     listScopeRepos: (workspaceId: string, scopeId: string) => Promise<ScopeRepo[]>;
     onChanged: (callback: (workspaces: Workspace[]) => void) => () => void;

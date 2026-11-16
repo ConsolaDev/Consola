@@ -1049,3 +1049,93 @@ describe('the Assistant record', () => {
     expect(assistantSession(service.getAll()[0])).toBeUndefined();
   });
 });
+
+describe('labels', () => {
+  function seed() {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const make = (name: string) => service.createSession(workspace.id, {
+      name, workspaceId: workspace.id, instanceId: `i-${name}`, harnessId: 'default-agent', model: undefined, scopeId: scope.id,
+    })!;
+    return { workspace, a: make('A'), b: make('B') };
+  }
+
+  it('creates, renames and sets and clears an emoji, persisting each', () => {
+    const { workspace } = seed();
+    const label = service.createLabel(workspace.id, { name: 'Bug' });
+    service.updateLabel(workspace.id, label.id, { name: 'Bugs', emoji: '🐛' });
+    expect(build().getAll()[0].labels).toEqual([{ id: label.id, name: 'Bugs', emoji: '🐛' }]);
+
+    service.updateLabel(workspace.id, label.id, { emoji: undefined });
+    expect(build().getAll()[0].labels).toEqual([{ id: label.id, name: 'Bugs' }]);
+  });
+
+  it('assigns and unassigns a label on a session, without duplicating', () => {
+    const { workspace, a } = seed();
+    const one = service.createLabel(workspace.id, { name: 'One' });
+    const two = service.createLabel(workspace.id, { name: 'Two' });
+
+    service.assignLabel(workspace.id, a.id, one.id);
+    service.assignLabel(workspace.id, a.id, one.id);
+    service.assignLabel(workspace.id, a.id, two.id);
+    expect(service.getAll()[0].sessions.find(s => s.id === a.id)?.labelIds).toEqual([one.id, two.id]);
+
+    service.unassignLabel(workspace.id, a.id, one.id);
+    expect(build().getAll()[0].sessions.find(s => s.id === a.id)?.labelIds).toEqual([two.id]);
+  });
+
+  it('refuses to assign a label that does not exist', () => {
+    const { workspace, a } = seed();
+    expect(() => service.assignLabel(workspace.id, a.id, 'nope')).toThrow(/No label/);
+  });
+
+  it('deleting a label removes its id from every session and leaves the others alone', () => {
+    const { workspace, a, b } = seed();
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    const kept = service.createLabel(workspace.id, { name: 'Kept' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, a.id, kept.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+
+    service.deleteLabel(workspace.id, gone.id);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels.map(l => l.id)).toEqual([kept.id]);
+    expect(reloaded.sessions.find(s => s.id === a.id)?.labelIds).toEqual([kept.id]);
+    // Emptied entirely: the key goes, rather than leaving an empty list behind.
+    expect(reloaded.sessions.find(s => s.id === b.id)).not.toHaveProperty('labelIds');
+  });
+
+  it('label writes leave the group model alone', () => {
+    const { workspace, a } = seed();
+    const group = service.createGroup(workspace.id, { name: 'G' });
+    service.updateSession(workspace.id, a.id, { groupId: group.id });
+    const label = service.createLabel(workspace.id, { name: 'L' });
+    service.assignLabel(workspace.id, a.id, label.id);
+    service.deleteLabel(workspace.id, label.id);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.groups.map(g => g.id)).toEqual([group.id]);
+    expect(reloaded.sessions.find(s => s.id === a.id)?.groupId).toBe(group.id);
+  });
+
+  it('load migrates a v7 file in place, so a persisted group becomes a label', () => {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const group = service.createGroup(workspace.id, { name: 'Feature' });
+    const s = service.createSession(workspace.id, {
+      name: 'S', workspaceId: workspace.id, instanceId: 'i-S', harnessId: 'default-agent', model: undefined,
+      scopeId: scope.id, groupId: group.id,
+    })!;
+    const file = path.join(dir, 'workspaces.json');
+    const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete persisted.workspaces[0].labels;
+    for (const sess of persisted.workspaces[0].sessions) delete sess.labelIds;
+    persisted.version = 7;
+    fs.writeFileSync(file, JSON.stringify(persisted));
+
+    const loaded = build().getAll()[0];
+    expect(loaded.labels).toEqual([{ id: group.id, name: 'Feature' }]);
+    expect(loaded.sessions.find(x => x.id === s.id)?.labelIds).toEqual([group.id]);
+  });
+});

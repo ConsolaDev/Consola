@@ -51,6 +51,7 @@ const workspace = {
   defaultHarnessId: 'default',
   scopes: [{ id: 'scope-1', name: 'sprocket', path: '/repos', isGitRepo: false, createdAt: now }],
   groups: [],
+  labels: [],
   actions: [],
   sectionDefaults: {},
   sessions: [scratch, investigation, fixCi, other, conductor],

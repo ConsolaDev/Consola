@@ -1,6 +1,7 @@
 import {
     ASSISTANT_ITEM_MODES,
     type Group,
+    type Label,
     type Scope,
     type SessionUpdates,
     type WorkspaceUpdates,
@@ -80,6 +81,21 @@ export function allowedGroupUpdates(
     return allowed;
 }
 
+/** A label's name, emoji and colour; its id is fixed. Emoji and colour clear by presence. */
+export function allowedLabelUpdates(
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+): Partial<Pick<Label, 'name' | 'emoji' | 'color'>> {
+    const allowed: Partial<Pick<Label, 'name' | 'emoji' | 'color'>> = {};
+    if (updates.name !== undefined) allowed.name = updates.name;
+    if ('emoji' in updates && (updates.emoji === undefined || typeof updates.emoji === 'string')) {
+        allowed.emoji = updates.emoji;
+    }
+    if ('color' in updates && (updates.color === undefined || typeof updates.color === 'string')) {
+        allowed.color = updates.color;
+    }
+    return allowed;
+}
+
 export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
     const allowed: HarnessUpdates = {};
     if (updates.name !== undefined) allowed.name = updates.name;
@@ -106,7 +122,10 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
  * are the session's identity in the same way: where it belongs, where it
  * runs, what drives it. `groupId` and, since v7, `workItem` are mutable —
  * regrouping and linking are acts of organisation and triage, not identity
- * changes — and both clear by presence. `id`, `workspaceId`, `instanceId`
+ * changes — and both clear by presence. `labelIds` (v8) is mutable the same
+ * way, and `autoSettle` is a preference. `parentSessionId` is deliberately
+ * absent: it is written at creation and by the v8 migration, so a renderer
+ * cannot re-parent a session. `id`, `workspaceId`, `instanceId`
  * and `claudeSessionId` name the session and its terminal; `createdAt` is
  * history.
  */
@@ -126,5 +145,19 @@ export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     // presence is what separates "clear this" from "leave it alone".
     if ('groupId' in updates) allowed.groupId = updates.groupId;
     if ('workItem' in updates) allowed.workItem = updates.workItem;
+    // Both clear by presence: an empty selection and "default" are values.
+    if ('labelIds' in updates) {
+        const ids = updates.labelIds;
+        if (ids !== undefined && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string'))) {
+            throw new Error('Labels must be a list of label ids.');
+        }
+        allowed.labelIds = ids === undefined ? undefined : [...new Set(ids)];
+    }
+    if ('autoSettle' in updates) {
+        if (updates.autoSettle !== undefined && updates.autoSettle !== 'never') {
+            throw new Error('Choose a valid auto-settle value.');
+        }
+        allowed.autoSettle = updates.autoSettle;
+    }
     return allowed;
 }

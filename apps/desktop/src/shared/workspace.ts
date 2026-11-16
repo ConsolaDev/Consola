@@ -55,6 +55,16 @@ export interface Session {
   // Why it exists alongside others. Mutable: dragging a session between
   // groups is an organizational act, not an identity change.
   groupId?: string;
+  // Filters this session carries (state v8). Any number, and never a place:
+  // an id naming a deleted label is ignored on read.
+  labelIds?: string[];
+  // The session that spawned or conducts this one (state v8). Written at
+  // creation and by the v7 -> v8 rung only, so it is absent from
+  // `allowedSessionUpdates`: re-parenting is not something a renderer may do.
+  parentSessionId?: string;
+  // Opts the session out of settling on its own. Only the value is defined
+  // here; nothing reads or writes it yet.
+  autoSettle?: 'never';
   // What drives this session: a person, a conductor orchestrating others, or
   // the workspace's one Assistant (created only by WorkspaceService).
   kind: 'interactive' | 'conductor' | 'assistant';
@@ -116,6 +126,19 @@ export interface Group {
   archivedAt?: number;             // Done groups collapse out of the sidebar
 }
 
+/**
+ * A filter a person puts on sessions. Unlike a Group it never decides where a
+ * row is drawn: a session has any number of labels, and a label only hides
+ * rows. A session's `labelIds` may name a label that no longer exists; readers
+ * ignore it rather than anyone cleaning it up.
+ */
+export interface Label {
+  id: string;
+  name: string;
+  emoji?: string;
+  color?: string;
+}
+
 /** Which provider a workspace acts on, and as whom. */
 export interface WorkspaceProvider {
   id: GitProviderId;
@@ -140,6 +163,7 @@ export interface Workspace {
   defaultHarnessId: string;        // Preselected when starting a conversation here
   scopes: Scope[];                 // Replaces path + isGitRepo (state v6)
   groups: Group[];
+  labels: Label[];                 // Filters over sessions (state v8)
   // Absent = pure local workspace, exactly today's behavior. Present = every
   // session PTY in this workspace gets the provider's token for this account.
   provider?: WorkspaceProvider;
@@ -154,7 +178,7 @@ export interface Workspace {
 }
 
 /** Shape version of the persisted workspace list. */
-export const CURRENT_WORKSPACE_STATE_VERSION = 7;
+export const CURRENT_WORKSPACE_STATE_VERSION = 8;
 
 /**
  * Terminal instance id for a new session in a workspace.
@@ -201,6 +225,25 @@ export function createScopeRecord(fields: NewScopeFields): Scope {
   };
 }
 
+export interface NewLabelFields {
+  name: string;
+  emoji?: string;
+  color?: string;
+}
+
+export function createLabelRecord(fields: NewLabelFields): Label {
+  const label: Label = { id: generateId(), name: fields.name };
+  if (fields.emoji !== undefined) label.emoji = fields.emoji;
+  if (fields.color !== undefined) label.color = fields.color;
+  return label;
+}
+
+/** The labels a session carries that still exist: a dangling id is ignored, never cleaned up. */
+export function labelsForSession(workspace: Workspace, session: Session): Label[] {
+  const ids = new Set(session.labelIds ?? []);
+  return workspace.labels.filter((label) => ids.has(label.id));
+}
+
 export interface NewGroupFields {
   emoji?: string;
   name: string;
@@ -235,6 +278,7 @@ export function createWorkspaceRecord(
     defaultHarnessId,
     scopes: [createScopeRecord({ name, path, isGitRepo })],
     groups: [],
+    labels: [],
     actions: [],
     sectionDefaults: {},
     sessions: [],
@@ -280,7 +324,7 @@ export function createSessionRecord(fields: NewSessionFields): Session {
  * knows where its agent went.
  */
 export type SessionUpdates = Partial<
-  Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem'>
+  Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem' | 'labelIds' | 'autoSettle'>
 >;
 
 /** How the Assistant's sessions on work items run; full tools unless the workspace says otherwise. */
@@ -361,7 +405,10 @@ function scopeNameFromPath(target: unknown): string | undefined {
  * v4 -> v5 binds every workspace and session to a harness;
  * v5 -> v6 folds the workspace folder into a single scope and binds sessions to it;
  * v6 -> v7 turns the github binding into a provider binding, seeds actions, and
- *          labels every work-item session with the action it amounted to.
+ *          labels every work-item session with the action it amounted to;
+ * v7 -> v8 turns every group into a label (same id) and records each
+ *          conductor's group members as its children. Groups, `groupId` and
+ *          `conductorSessionId` stay, unread by anything new, until a later rung.
  *
  * Exported so the migration can be exercised on its own — it is the one piece
  * of this state whose failure would cost people conversations.
@@ -505,5 +552,76 @@ export function migrateWorkspaceState(persistedState: unknown, version: number):
     });
   }
 
+  if (state.workspaces && version < 8) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    state.workspaces = state.workspaces.map((ws: any) => groupsToLabels(ws));
+  }
+
   return state;
+}
+
+/**
+ * v7 -> v8 for one workspace. Idempotent: labels reuse the group's id and are
+ * merged by id, label ids are unioned, and a parent already set is kept, so a
+ * second run changes nothing. Nothing is removed — only added.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function groupsToLabels(ws: any): any {
+  const groups: Group[] = ws.groups ?? [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sessions: any[] = ws.sessions ?? [];
+  const byId = new Map(groups.map((group) => [group.id, group]));
+
+  /** The group and its ancestors, nearest first. A dangling parent or a cycle ends the walk. */
+  const lineage = (group: Group): Group[] => {
+    const chain: Group[] = [];
+    const seen = new Set<string>();
+    let current: Group | undefined = group;
+    while (current && !seen.has(current.id)) {
+      seen.add(current.id);
+      chain.push(current);
+      current = current.parentGroupId ? byId.get(current.parentGroupId) : undefined;
+    }
+    return chain;
+  };
+
+  // A group an archived-but-populated session still reaches (directly or as
+  // an ancestor) must stay a label, or its session would name nothing.
+  const reached = new Set<string>();
+  for (const session of sessions) {
+    const group = session.groupId ? byId.get(session.groupId) : undefined;
+    if (group) for (const member of lineage(group)) reached.add(member.id);
+  }
+
+  const labels: Label[] = [...(ws.labels ?? [])];
+  const knownLabelIds = new Set(labels.map((label) => label.id));
+  for (const group of groups) {
+    if ((group.archivedAt && !reached.has(group.id)) || knownLabelIds.has(group.id)) continue;
+    const path = lineage(group).reverse().map((member) => member.name).join(' / ');
+    labels.push({ id: group.id, name: path, ...(group.emoji ? { emoji: group.emoji } : {}) });
+  }
+
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const migratedSessions = sessions.map((session: any) => {
+    const group = session.groupId ? byId.get(session.groupId) : undefined;
+    if (!group) return session;
+    const labelIds: string[] = [...(session.labelIds ?? [])];
+    for (const member of lineage(group)) {
+      if (!labelIds.includes(member.id)) labelIds.push(member.id);
+    }
+    const next = { ...session, labelIds };
+    // A conductor that no longer exists leaves its members parentless rather
+    // than pointing at nothing.
+    const conductorId = group.conductorSessionId;
+    if (
+      conductorId && sessionIds.has(conductorId) && session.id !== conductorId &&
+      session.kind !== 'assistant' && next.parentSessionId === undefined
+    ) {
+      next.parentSessionId = conductorId;
+    }
+    return next;
+  });
+
+  return { ...ws, labels, sessions: migratedSessions };
 }
