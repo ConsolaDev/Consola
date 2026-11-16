@@ -1,0 +1,77 @@
+import type { AttentionSignal } from '../attention/hookSignals';
+import type { AttentionHooks } from './HarnessDriver';
+
+/**
+ * Claude Code's hooks as an attention source (observed live against 2.1.325).
+ *
+ * Three hooks, all POSTing the event's JSON to a loopback URL:
+ *
+ * - `PermissionRequest` fires the moment a permission menu or an
+ *   AskUserQuestion is shown. The `permission_prompt` notification reports the
+ *   same menu only after it has waited about six seconds, so this is the fast
+ *   one; the notification stays as a second witness.
+ * - `Notification` carries `notification_type`, the field to branch on — the
+ *   message text is prose and changes.
+ * - `Stop` ends a turn and lists `background_tasks` still running.
+ *
+ * Passed through `--settings`, hooks add to the user's own and managed
+ * settings outrank them: nothing is written to any settings file, other
+ * hooks keep running beside these, and an `allowManagedHooksOnly` policy
+ * simply leaves the session on the screen heuristic. Nothing fires until the
+ * folder is trusted in an interactive session, which is why the screen's
+ * trust-gate markers must stay.
+ */
+
+/** Every notification type that says something about attention. */
+const NOTIFICATION_MATCHER = 'permission_prompt|elicitation_dialog|agent_needs_input|agent_completed|idle_prompt';
+
+/** A hook that must never hold the CLI up if Consola is not answering. */
+const HOOK_TIMEOUT_SECONDS = 5;
+
+/** The `--settings` JSON that registers the hooks, posting to `url`. */
+export function claudeHookSettings(url: string): string {
+    const handler = [{ type: 'http', url, timeout: HOOK_TIMEOUT_SECONDS }];
+    return JSON.stringify({
+        hooks: {
+            PermissionRequest: [{ matcher: '', hooks: handler }],
+            Notification: [{ matcher: NOTIFICATION_MATCHER, hooks: handler }],
+            Stop: [{ matcher: '', hooks: handler }],
+        },
+    });
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+    return typeof value === 'object' && value !== null && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
+/** What each `notification_type` means for attention. Unlisted types say nothing. */
+const NOTIFICATION_SIGNALS = new Map<string, AttentionSignal>(Object.entries({
+    permission_prompt: { kind: 'needs-input', origin: 'menu' },
+    elicitation_dialog: { kind: 'needs-input', origin: 'question' },
+    agent_needs_input: { kind: 'needs-input', origin: 'subagent' },
+    idle_prompt: { kind: 'idle' },
+    agent_completed: { kind: 'subagent-finished' },
+} satisfies Record<string, AttentionSignal>));
+
+export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
+    const event = asRecord(body);
+    if (!event) return null;
+    switch (event.hook_event_name) {
+        case 'PermissionRequest':
+            return { kind: 'needs-input', origin: 'menu' };
+        case 'Notification': {
+            const type = event.notification_type;
+            return (typeof type === 'string' && NOTIFICATION_SIGNALS.get(type)) || null;
+        }
+        case 'Stop': {
+            // Absent when the CLI could not reach its task registry: no news of
+            // background work is not news of some, so it does not hold the turn.
+            const tasks = event.background_tasks;
+            return { kind: 'turn-ended', backgroundWork: Array.isArray(tasks) ? tasks.length : 0 };
+        }
+        default:
+            return null;
+    }
+}
+
+export const claudeAttentionHooks: AttentionHooks = { parse: parseClaudeHookEvent };

@@ -3,6 +3,8 @@ import { TerminalService, TerminalExitInfo, TerminalServiceOptions, RelaunchFiel
 import { IPC_CHANNELS } from '../shared/constants';
 import type { TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
+import type { AttentionEndpoint } from './attention/AttentionEndpoint';
+import { getDriver } from './drivers';
 
 /**
  * Owns one TerminalService per session tab and forwards its events.
@@ -48,6 +50,20 @@ export class TerminalManager {
      * agent that entered a worktree on its own. Main records it on the
      * session, and every window learns of it from the workspace broadcast.
      */
+    /**
+     * Where a driver's hooks post, when main runs an endpoint. Unset, every
+     * session runs on the screen heuristic alone.
+     */
+    public attentionEndpoint?: AttentionEndpoint;
+
+    /** Options with the hook URL a driver with `attentionHooks` wants, asked for at launch. */
+    private withAttention(instanceId: string, options: TerminalServiceOptions): TerminalServiceOptions {
+        const hooks = getDriver(options.driverId).attentionHooks;
+        const endpoint = this.attentionEndpoint;
+        if (!hooks || !endpoint) return options;
+        return { ...options, attentionUrl: () => endpoint.urlFor(instanceId, (body) => hooks.parse(body)) };
+    }
+
     public onWorkingDirectory?: (instanceId: string, cwd: string) => void;
 
     /**
@@ -67,7 +83,7 @@ export class TerminalManager {
         let terminal = this.terminals.get(instanceId);
 
         if (!terminal) {
-            terminal = new TerminalService(options);
+            terminal = new TerminalService(this.withAttention(instanceId, options));
             this.terminals.set(instanceId, terminal);
             this.wireEvents(instanceId, terminal);
             terminal.start();
@@ -111,7 +127,7 @@ export class TerminalManager {
             if (options.initialPrompt) existing.queuePrompt(options.initialPrompt);
             return;
         }
-        const terminal = new TerminalService(options);
+        const terminal = new TerminalService(this.withAttention(instanceId, options));
         this.terminals.set(instanceId, terminal);
         this.wireEvents(instanceId, terminal);
         terminal.start();
@@ -162,6 +178,7 @@ export class TerminalManager {
         const terminal = this.terminals.get(instanceId);
         if (!terminal) return;
         terminal.destroy();
+        this.attentionEndpoint?.unregister(instanceId);
         this.terminals.delete(instanceId);
         this.owners.delete(instanceId);
         // destroy() removes the terminal's listeners in the same tick, so no

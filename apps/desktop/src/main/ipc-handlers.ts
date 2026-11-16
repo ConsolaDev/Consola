@@ -113,6 +113,8 @@ import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/
 import { TurnActivity } from './attention/TurnActivity';
 import { AttentionService } from './attention/AttentionService';
 import { SessionSource } from './attention/SessionSource';
+import { AttentionEndpoint } from './attention/AttentionEndpoint';
+import { HookSignals } from './attention/hookSignals';
 import { ViewingTracker } from './attention/ViewingTracker';
 import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
@@ -264,6 +266,7 @@ export function setupIpcHandlers(): boolean {
             terminalManager?.destroy(instanceId);
             notificationPolicy.forget(instanceId);
             turnActivity.forget(instanceId);
+            hookSignals.forget(instanceId);
             attentionSessions.forget(instanceId);
         },
         destroyShell: (instanceId) => shellManager?.destroy(instanceId),
@@ -749,7 +752,14 @@ export function setupIpcHandlers(): boolean {
     // `needs-attention` only: a badge that counted finished work would stop
     // meaning "come here now".
     const attention = new AttentionService();
+    // What an agent CLI's own hooks say, as one more input to that derivation:
+    // they never write a status. The screen heuristic runs regardless.
+    const hookSignals = new HookSignals();
+    const attentionEndpoint = new AttentionEndpoint((instanceId, signal) => hookSignals.apply(instanceId, signal));
+    manager.attentionEndpoint = attentionEndpoint;
+    app.on('will-quit', () => attentionEndpoint.close());
     const attentionSessions = new SessionSource({
+        hookInputs: (instanceId) => hookSignals.get(instanceId),
         getWorkspaces: () => workspaces.getAll(),
         terminalStatus: (instanceId) => sessionStatus(instanceId),
         ledger: attentionLedger,
@@ -784,6 +794,7 @@ export function setupIpcHandlers(): boolean {
         viewing.focused(event.sender.id, focused === true);
     });
     attention.register(attentionSessions);
+    hookSignals.subscribe(() => attentionSessions.refresh());
     workspaces.onChange(() => attentionSessions.refresh());
     attention.onChange((change) => {
         for (const window of BrowserWindow.getAllWindows()) {
@@ -804,6 +815,8 @@ export function setupIpcHandlers(): boolean {
     // Writes `finishedAt`; TurnActivity writes `lastActiveAt`. Two listeners,
     // because they own different fields and nothing is written twice.
     manager.addStatusListener((instanceId, status) => attentionSessions.statusChanged(instanceId, status));
+    // The person acting on a prompt is output starting again; that ends what a hook said.
+    manager.addStatusListener((instanceId, status) => hookSignals.statusChanged(instanceId, status));
 
     // The fourth attention altitude: session dot → group count → switcher dot
     // → OS notification. Rings only for a session hitting needs-attention
@@ -1309,6 +1322,7 @@ export function setupIpcHandlers(): boolean {
         manager.destroy(instanceId);
         notificationPolicy.forget(instanceId);
         turnActivity.forget(instanceId);
+        hookSignals.forget(instanceId);
         attentionSessions.forget(instanceId);
     });
 

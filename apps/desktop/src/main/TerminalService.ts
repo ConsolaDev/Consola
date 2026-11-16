@@ -118,6 +118,13 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
      * launch like the model; the driver enforces it or refuses to launch.
      */
     toolPolicy?: SessionToolPolicy;
+    /**
+     * Where this session's CLI should post its hooks, asked at each launch
+     * (the endpoint may still be binding). Set by `TerminalManager` for a
+     * driver that has `attentionHooks`; resolves undefined when there is
+     * nothing to post to, and the session runs on the screen heuristic alone.
+     */
+    attentionUrl?: () => Promise<string | undefined>;
 }
 
 export interface TerminalExitInfo {
@@ -436,6 +443,8 @@ export class TerminalService extends EventEmitter {
             // pinned model survives a resume, a restart, and the retry-as-fresh
             // path below without any of them having to remember it.
             const unattended = this.unattendedPending;
+            const attentionUrl = await this.options.attentionUrl?.();
+            if (this.isDestroyed || this.claudePty) return;
             const launchArgs = this.driver.buildSessionArgs(this.harness, {
                 sessionId: this.options.claudeSessionId,
                 cwd: this.options.cwd,
@@ -446,6 +455,7 @@ export class TerminalService extends EventEmitter {
                 toolPolicy: this.options.toolPolicy,
                 unattended,
                 forkFrom: resume ? undefined : this.forkPending,
+                attentionUrl,
             });
             const args = Array.isArray(launchArgs) ? launchArgs : await launchArgs;
             if (this.isDestroyed || this.claudePty) return;

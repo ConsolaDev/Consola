@@ -3,6 +3,7 @@ import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { Workspace } from '../../shared/workspace';
 import { findSessionByInstanceId } from '../attention';
 import type { AttentionLedger } from './AttentionLedger';
+import type { HookInputs } from './hookSignals';
 import type { AttentionSource } from './AttentionSource';
 import { deriveAttention } from './deriveAttention';
 import { TurnSettle, type SettledStatus } from './turnSettle';
@@ -14,6 +15,8 @@ export interface SessionSourceDeps {
   ledger: Pick<AttentionLedger, 'get' | 'markFinished' | 'markSeen'>;
   /** Whether a focused window is showing this terminal right now. */
   isViewedInFocusedWindow?(instanceId: string): boolean;
+  /** What the agent CLI's hooks last said about this terminal, if its driver has any. */
+  hookInputs?(instanceId: string): HookInputs | undefined;
   now?: () => number;
 }
 
@@ -46,6 +49,7 @@ export class SessionSource implements AttentionSource {
             record: this.deps.ledger.get(session.id),
             isViewedInFocusedWindow: this.deps.isViewedInFocusedWindow?.(session.instanceId) ?? false,
             heldByOpenRun: false,
+            hook: this.deps.hookInputs?.(session.instanceId),
           })
         );
       }
@@ -88,6 +92,10 @@ export class SessionSource implements AttentionSource {
     // that stopped at a prompt is `needs-attention`, and an exit is `exited`;
     // marking either would resurface as `done` when the session comes back.
     if (status !== 'ready') return;
+    // The screen is quiet, but the agent said work it awaits is still running:
+    // that is a turn paused, not finished. Marking it `done` would send the
+    // person to review something that is not yet there.
+    if (this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) return;
     const located = findSessionByInstanceId(this.deps.getWorkspaces(), instanceId);
     if (!located) return;
     this.deps.ledger.markFinished(located.session.id, located.workspace.id, this.now());

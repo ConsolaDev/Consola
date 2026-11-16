@@ -59,3 +59,34 @@ describe('deriveAttention', () => {
     expect(deriveAttention({ ...inputs, terminal: 'needs-attention' })).toBe('needs-attention');
   });
 });
+
+describe('deriveAttention with hooks', () => {
+  const inputs = (terminal: TerminalStatus, hook?: { needsInput: boolean; holdingBackgroundWork: boolean }) => ({
+    terminal,
+    record: record(),
+    isViewedInFocusedWindow: false,
+    heldByOpenRun: false,
+    hook,
+  });
+  const says = { needsInput: true, holdingBackgroundWork: false };
+  const quiet = { needsInput: false, holdingBackgroundWork: false };
+
+  it('lets a hook that says the agent is waiting win over a screen showing nothing recognisable', () => {
+    expect(deriveAttention(inputs('ready', says))).toBe('needs-attention');
+    expect(deriveAttention(inputs('working', says))).toBe('needs-attention'); // a subagent asking, main thread busy
+  });
+
+  it('never calls an exited process needs-attention', () => {
+    expect(deriveAttention(inputs('exited', says))).toBe('exited');
+  });
+
+  it('answers exactly as without hooks when they say nothing, or there are none', () => {
+    for (const terminal of TERMINALS) {
+      expect(deriveAttention(inputs(terminal, quiet))).toBe(deriveAttention(inputs(terminal)));
+    }
+  });
+
+  it('keeps the screen’s answer when hooks have not arrived: the heuristic is the fast path', () => {
+    expect(deriveAttention(inputs('needs-attention'))).toBe('needs-attention');
+  });
+});

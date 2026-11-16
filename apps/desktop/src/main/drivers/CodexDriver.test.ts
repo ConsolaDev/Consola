@@ -283,3 +283,14 @@ describe('Codex model discovery', () => {
     })).rejects.toThrow('Invalid model response');
   });
 });
+
+describe('Codex harness without attention hooks', () => {
+  it('offers no hook capability and launches the same with or without a hook URL', async () => {
+    const codex = new CodexDriver();
+    expect(getDriver('codex').attentionHooks).toBeUndefined();
+    const plain = await codex.buildSessionArgs(config(), launch());
+    const offered = await codex.buildSessionArgs(config(), { ...launch(), attentionUrl: 'http://127.0.0.1:1/attention/x' });
+    expect(offered).toEqual(plain);
+    expect(offered.join(' ')).not.toContain('--settings');
+  });
+});

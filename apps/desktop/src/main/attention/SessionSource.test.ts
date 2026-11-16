@@ -6,6 +6,7 @@ import type { TerminalStatus } from '../../shared/terminalStatus';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
+import { HookSignals } from './hookSignals';
 import { SessionSource } from './SessionSource';
 import { SETTLE_MS } from './turnSettle';
 
@@ -15,6 +16,7 @@ let terminals: Map<string, TerminalStatus>;
 let clock: number;
 let source: SessionSource;
 let viewed: Set<string>;
+let hooks: HookSignals;
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -23,12 +25,14 @@ beforeEach(() => {
   terminals = new Map([['inst-a', 'ready']]);
   clock = 1000;
   viewed = new Set();
+  hooks = new HookSignals();
   const workspace = makeWorkspace({ id: 'w1', sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })] });
   source = new SessionSource({
     getWorkspaces: () => [workspace],
     terminalStatus: (instanceId) => terminals.get(instanceId) ?? 'exited',
     ledger,
     isViewedInFocusedWindow: (instanceId) => viewed.has(instanceId),
+    hookInputs: (instanceId) => hooks.get(instanceId),
     now: () => clock,
   });
 });
@@ -40,6 +44,7 @@ afterEach(() => {
 
 function status(next: TerminalStatus) {
   terminals.set('inst-a', next);
+  hooks.statusChanged('inst-a', next);
   source.statusChanged('inst-a', next);
 }
 
@@ -118,5 +123,48 @@ describe('SessionSource', () => {
     status('ready');
     vi.advanceTimersByTime(SETTLE_MS);
     expect(ledger.get('a')?.lastActiveAt).toBe(9999);
+  });
+});
+
+describe('SessionSource with hooks', () => {
+  it('says needs-attention from a hook while the screen shows nothing, and ready again once answered', () => {
+    status('working');
+    status('ready'); // a question the screen has no marker for
+    expect(source.read().get('a')).toBe('ready');
+
+    hooks.apply('inst-a', { kind: 'needs-input', origin: 'menu' });
+    expect(source.read().get('a')).toBe('needs-attention');
+
+    status('working'); // the person answered
+    expect(source.read().get('a')).toBe('working');
+  });
+
+  it('does not mark a turn finished when it ended with background work still running', () => {
+    status('working');
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    status('ready');
+    clock = 5000;
+    vi.advanceTimersByTime(SETTLE_MS);
+
+    expect(ledger.get('a')?.finishedAt).toBeUndefined();
+    expect(source.read().get('a')).toBe('ready');
+  });
+
+  it('marks the turn finished once a stop reports nothing left running', () => {
+    status('working');
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 0 });
+    status('ready');
+    clock = 5000;
+    vi.advanceTimersByTime(SETTLE_MS);
+
+    expect(source.read().get('a')).toBe('done');
+  });
+
+  it('rewrites nothing when hooks never speak: the screen alone decides', () => {
+    status('working');
+    status('ready');
+    clock = 5000;
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(source.read().get('a')).toBe('done');
   });
 });
