@@ -1,5 +1,6 @@
 import { createElement, type ComponentType, type ReactElement, type ReactNode } from 'react';
 import type { Entry } from './entry';
+import { RunRow, activateRun } from '../components/Sidebar/rows/RunRow';
 import { SessionRow } from '../components/Sidebar/rows/SessionRow';
 import { activateSession } from '../utils/sessionActions';
 import { idOfKey } from './entries';
@@ -34,6 +35,7 @@ export const ROW_KINDS: Record<string, RowKind> = {
     Row: SessionRow,
     activate: (workspaceId, entry) => activateSession(workspaceId, idOfKey(entry.key)),
   },
+  run: { Row: RunRow, activate: activateRun },
 };
 
 /** The row for an entry, or nothing for a kind nobody registered. */

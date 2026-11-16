@@ -113,6 +113,7 @@ import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/
 import { TurnActivity } from './attention/TurnActivity';
 import { AttentionService } from './attention/AttentionService';
 import { SessionSource } from './attention/SessionSource';
+import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { HookSignals } from './attention/hookSignals';
 import { ViewingTracker } from './attention/ViewingTracker';
@@ -748,8 +749,8 @@ export function setupIpcHandlers(): boolean {
     // still running. The badge is the only thing that says so.
     // One derivation of what needs the person, asked by the badge, the MCP
     // tools and (pushed, coalesced) every window. The badge counts
-    // `needs-attention` only: a badge that counted finished work would stop
-    // meaning "come here now".
+    // `needs-attention` only, a run waiting for approval included: a badge that
+    // counted finished work would stop meaning "come here now".
     const attention = new AttentionService();
     // What an agent CLI's own hooks say, as one more input to that derivation:
     // they never write a status. The screen heuristic runs regardless.
@@ -1049,12 +1050,18 @@ export function setupIpcHandlers(): boolean {
         watch: (assistantSessionId, targetSessionId) => assistantActivity.watch(assistantSessionId, targetSessionId),
     });
 
+    const runStore = new RunStore(
+        new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
+        new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
+    );
+    // Runs waiting for a person are rows beside the sessions, and an open run
+    // holds the session it uses. Every run change is a broadcast, so that is
+    // when the source's answer may differ.
+    const attentionRuns = new RunSource(() => runStore.runs());
+    attention.register(attentionRuns);
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
-        store: new RunStore(
-            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
-            new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
-        ),
+        store: runStore,
         registry: tools,
         getWorkspaces: () => workspaces.getAll(),
         now: () => new Date(),
@@ -1074,6 +1081,7 @@ export function setupIpcHandlers(): boolean {
             notification.show();
         },
         broadcast: (workspaceId, snapshot) => {
+            attentionRuns.refresh();
             assistantRequests.observe(workspaceId, snapshot.runs);
             const change: AutomationsChange = { workspaceId, snapshot };
             for (const window of BrowserWindow.getAllWindows()) {

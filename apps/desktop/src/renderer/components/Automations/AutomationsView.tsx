@@ -1,6 +1,8 @@
 import { useEffect, useId, useRef } from 'react';
 import { ExternalLink, Plus, Zap } from 'lucide-react';
 import { automationsBridge } from '../../services/automationsBridge';
+import { useAttentionStore } from '../../stores/attentionStore';
+import { waitingRuns } from '../../sidebar/entries';
 import { useAutomationsStore, WINDOW_LOADED_AT, type AutomationsTab } from '../../stores/automationsStore';
 import type { AutomationsSnapshot } from '../../../shared/automations';
 import type { Workspace } from '../../stores/workspaceStore';
@@ -168,9 +170,10 @@ function TabBadge({
   snapshot: AutomationsSnapshot | undefined;
   lastSeen: string;
 }) {
+  const attention = useAttentionStore((state) => state.attention);
   if (!snapshot) return null;
   if (tab === 'automations') {
-    const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval').length;
+    const waiting = waitingRuns(snapshot.runs, { attention }).length;
     if (waiting > 0) {
       return (
         <span className="automations-tab-badge automations-tab-badge-waiting" title={`${waiting} waiting for you`}>

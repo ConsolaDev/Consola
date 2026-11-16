@@ -5,6 +5,8 @@ import { AlertTriangle, Bot, Clock, Ellipsis, Hand, History, Inbox, Wrench } fro
 import type { AutomationsSnapshot, AutomationView, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
+import { useAttentionStore } from '../../stores/attentionStore';
+import { waitingRuns } from '../../sidebar/entries';
 import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsStore';
 import { RunNowButton, StatusDot, useArrivals, useArrivedOnMount, useIntent, useMarkRunsSeen, useNow } from './parts';
 import {
@@ -57,7 +59,9 @@ export function AutomationsTab({ workspace, snapshot }: { workspace: Workspace; 
   const now = useNow(snapshot.runs.some((run) => run.status === 'running') ? 1000 : 30_000);
   // The table counts as looking at runs only while each failure "N failed" counts is a row's last run.
   useMarkRunsSeen(workspace.id, snapshot, tableShowsUnseenFailures(snapshot, lastSeen, now));
-  const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval');
+  const attention = useAttentionStore((state) => state.attention);
+  // The sidebar's own answer, so the two cannot list different runs as pending.
+  const waiting = waitingRuns(snapshot.runs, { attention });
 
   return (
     <div className="automations-activity">

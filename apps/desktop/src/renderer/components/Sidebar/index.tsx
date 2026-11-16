@@ -22,16 +22,19 @@ import { useSettleOnChange } from '../../hooks/useSettleOnChange';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import { bucketize, type Bucket } from '../../sidebar/bucketize';
-import { sessionEntries, sessionKey, filterSelection } from '../../sidebar/entries';
+import { runEntries, sessionEntries, sessionKey, filterSelection } from '../../sidebar/entries';
 import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
 import { buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
 import { applyHold, holdFor, type Hold } from '../../sidebar/openRowHold';
 import { entryRow } from '../../sidebar/rowRegistry';
+import { useAutomationsStore } from '../../stores/automationsStore';
 import { ShelfHeader } from './rows/ShelfHeader';
 import { TreeRow } from './rows/TreeRow';
 import './styles.css';
+
+const NO_RUNS: never[] = [];
 
 export function Sidebar() {
   const isSidebarHidden = useNavigationStore(state => state.isSidebarHidden);
@@ -42,6 +45,7 @@ export function Sidebar() {
   const workspaces = useWorkspaceStore(state => state.workspaces);
   const records = useAttentionStore(state => state.records);
   const derived = useAttentionStore(state => state.attention);
+  const runs = useAutomationsStore(state => state.snapshots[activeWorkspaceId ?? '']?.runs) ?? NO_RUNS;
   const shelves = useSettingsStore(state => state.sidebarShelfOpen);
   const toggleShelf = useSettingsStore(state => state.toggleSidebarShelf);
   const workspace = workspaces.find(candidate => candidate.id === activeWorkspaceId);
@@ -85,7 +89,9 @@ export function Sidebar() {
   const facets = workspace ? effectiveFilters(workspace, allSessions, facetSelection) : {};
   // Filter -> entries -> narrow -> trees -> buckets. A filter only decides which
   // entries survive; placement is bucketize's alone.
-  const entries = workspace ? sessionEntries(allSessions, { records, attention: derived }, workspace.labels) : [];
+  const entries = workspace
+    ? [...sessionEntries(allSessions, { records, attention: derived }, workspace.labels), ...runEntries(runs, { attention: derived })]
+    : [];
   const { entries: shown, hiddenNeedingYou } = applyFilter(entries, filterSelection(scope?.id, facets));
   const natural = bucketize(buildForest(shown));
 

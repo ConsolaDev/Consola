@@ -23,6 +23,7 @@ import type {
     SavedAutomation,
     TemplateView,
 } from '../../shared/automations';
+import type { Attention } from '../../shared/attention';
 import type { InboxItem, InboxSnapshot } from '../../shared/workItems';
 import { defaultActionFor } from '../../shared/workItemActions';
 import { sameWorkItem } from '../../shared/workItems';
@@ -185,7 +186,17 @@ const MAX_RESULT_CHARS = 20_000;
 export const MAX_WAITING_PER_SESSION = 10;
 
 /** A run that has not finished: one more of these for the same thing would be a duplicate. */
-const OPEN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'needs-approval'];
+export const OPEN_STATUSES: readonly RunStatus[] = ['queued', 'running', 'needs-approval'];
+
+/**
+ * What a run asks of the person, as the attention queue sees it; null means
+ * it has no row of its own. A running run is represented by its session, so
+ * only a run waiting for approval wants the person. Run statuses only ever
+ * grow, so one this build does not know is null rather than an error.
+ */
+export function runAttention(run: Pick<RunRecord, 'status'>): Attention | null {
+    return run.status === 'needs-approval' ? 'needs-attention' : null;
+}
 
 interface Resolved {
     workspaceId: string;

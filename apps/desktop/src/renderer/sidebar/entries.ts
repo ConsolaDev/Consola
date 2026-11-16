@@ -1,4 +1,5 @@
 import { activityOf, type AttentionState } from '../../shared/attention';
+import type { RunListEntry } from '../../shared/automations';
 import type { Label, Session } from '../../shared/workspace';
 import { attentionOf } from '../stores/attentionStore';
 import { FACET_KEYS, facetValuesOf, type SessionFilters } from '../utils/sessionFilters';
@@ -7,6 +8,9 @@ import type { FilterSelection } from './filter';
 
 /** The key a session's entry has, and the id inside it. */
 export const sessionKey = (sessionId: string): EntryKey => `session:${sessionId}`;
+
+/** The key a run's entry has, and the id inside it. */
+export const runKey = (runId: string): EntryKey => `run:${runId}`;
 
 /** The id inside an entry's key, whatever its kind. A row uses it to look up its own record. */
 export const idOfKey = (key: EntryKey): string => key.slice(key.indexOf(':') + 1);
@@ -63,4 +67,40 @@ export function filterSelection(scopeId: string | undefined, facets: SessionFilt
   for (const [key, values] of Object.entries(rest)) if (values?.length) chosen[key] = values;
   if (scopeId) chosen.scope = [scopeId];
   return { labels: label ?? [], facets: chosen };
+}
+
+/**
+ * The run provider: one entry per run that main says wants the person.
+ *
+ * Main's `RunSource` decides which runs have attention at all (a running run is
+ * its session's row), so a run it said nothing about has no entry here. The
+ * entry carries no payload — `RunRow` looks the run up by id.
+ */
+export function runEntries(
+  runs: readonly RunListEntry[],
+  snapshot: Pick<AttentionState, 'attention'>
+): Entry[] {
+  const entries: Entry[] = [];
+  for (const run of runs) {
+    const attention = snapshot.attention[runKey(run.id)];
+    if (attention === undefined) continue;
+    entries.push({
+      key: runKey(run.id),
+      kind: 'run',
+      attention,
+      since: Date.parse(run.createdAt),
+      activityAt: Date.parse(run.updatedAt),
+      labels: [],
+      facets: { automation: run.automationId },
+    });
+  }
+  return entries;
+}
+
+/** The runs main says are waiting for the person: what the Automations surfaces list, so they agree with the sidebar. */
+export function waitingRuns<T extends { id: string }>(
+  runs: readonly T[],
+  snapshot: Pick<AttentionState, 'attention'>
+): T[] {
+  return runs.filter((run) => snapshot.attention[runKey(run.id)] === 'needs-attention');
 }

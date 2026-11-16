@@ -5,7 +5,8 @@ vi.mock('../services/attentionBridge', () => ({ attentionBridge: { getSnapshot: 
 
 import { createSessionRecord, type Session } from '../../shared/workspace';
 import { applyFilter } from './filter';
-import { filterSelection, idOfKey, sessionEntries, sessionKey } from './entries';
+import { filterSelection, idOfKey, runEntries, sessionEntries, sessionKey, waitingRuns } from './entries';
+import type { RunListEntry } from '../../shared/automations';
 
 function session(id: string, overrides: Partial<Session> = {}): Session {
   return {
@@ -82,5 +83,30 @@ describe('filterSelection', () => {
 describe('keys', () => {
   it('round-trips a session id', () => {
     expect(idOfKey(sessionKey('abc'))).toBe('abc');
+  });
+});
+
+const runOf = (id: string, rest: Partial<RunListEntry> = {}): RunListEntry =>
+  ({ id, automationId: 'review', createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:01:00.000Z', status: 'needs-approval', ...rest }) as RunListEntry;
+
+describe('runEntries', () => {
+  it('emits an entry only for a run main reported attention for, with no session needed', () => {
+    const entries = runEntries([runOf('1'), runOf('2'), runOf('3', { sessionId: 's' })], { attention: { 'run:1': 'needs-attention' } });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      key: 'run:1',
+      kind: 'run',
+      attention: 'needs-attention',
+      since: Date.parse('2026-01-01T00:00:00.000Z'),
+      activityAt: Date.parse('2026-01-01T00:01:00.000Z'),
+      facets: { automation: 'review' },
+    });
+    expect(idOfKey(entries[0].key)).toBe('1');
+  });
+
+  it('shares one answer with the surfaces that list waiting runs', () => {
+    const runs = [runOf('1'), runOf('2')];
+    const snapshot = { attention: { 'run:2': 'needs-attention' as const } };
+    expect(waitingRuns(runs, snapshot).map((run) => run.id)).toEqual(runEntries(runs, snapshot).map((e) => idOfKey(e.key)));
   });
 });

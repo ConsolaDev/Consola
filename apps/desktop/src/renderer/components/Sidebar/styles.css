@@ -1487,3 +1487,19 @@
 .sidebar-empty-link:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
 .app-navigation-item:focus-visible, .sidebar-scope-filter-trigger:focus-visible, .sidebar-scope-filter-clear:focus-visible, .sidebar-section-button:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 
+
+/* A run waiting for approval: a row with its decision beside it. */
+.run-nav-item { flex-wrap: wrap; }
+.run-nav-item-main {
+  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
+  background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+}
+.run-nav-item-icon { color: var(--color-accent); flex-shrink: 0; }
+.run-nav-item-actions { display: flex; gap: 4px; margin-left: auto; }
+.run-nav-item-action {
+  background: none; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px;
+  color: inherit; font: inherit; font-size: 11px; cursor: pointer;
+}
+.run-nav-item-action:hover:not(:disabled) { background: var(--color-bg-hover); }
+.run-nav-item-action:disabled { opacity: 0.5; cursor: default; }
+.run-nav-item-error { flex-basis: 100%; font-size: 11px; color: var(--color-error, #d33); }

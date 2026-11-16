@@ -2,6 +2,8 @@ import { useEffect } from 'react';
 import { Zap } from 'lucide-react';
 import type { Workspace } from '../../../shared/workspace';
 import { sidebarRowState } from '../Automations/presentation';
+import { useAttentionStore } from '../../stores/attentionStore';
+import { waitingRuns } from '../../sidebar/entries';
 import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 
@@ -18,7 +20,8 @@ export function AutomationsNavItem({ workspace }: { workspace: Workspace }) {
 
   useEffect(() => { void useAutomationsStore.getState().load(workspace.id); }, [workspace.id]);
 
-  const state = sidebarRowState(snapshot, lastSeen);
+  const attention = useAttentionStore(state => state.attention);
+  const state = sidebarRowState(snapshot, lastSeen, waitingRuns(snapshot?.runs ?? [], { attention }).length);
 
   return <button type="button" className={`automations-nav-item ${isActive ? 'active' : ''}`}
     aria-current={isActive ? 'page' : undefined}
