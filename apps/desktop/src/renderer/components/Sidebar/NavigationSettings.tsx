@@ -13,13 +13,19 @@ export function NavigationSettings() {
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button className="sidebar-navigation-settings" aria-label="Navigation settings" title="Navigation settings">
+        <button
+          className="sidebar-navigation-settings"
+          aria-label="Navigation settings"
+          title="Navigation settings"
+        >
           <SlidersHorizontal size={14} />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
         <DropdownMenu.Content className="dropdown-content" side="bottom" align="end" sideOffset={8}>
-          <DropdownMenu.Label className="navigation-settings-label">Show in navigation</DropdownMenu.Label>
+          <DropdownMenu.Label className="navigation-settings-label">
+            Show in navigation
+          </DropdownMenu.Label>
           <DropdownMenu.CheckboxItem
             className="dropdown-item"
             checked={showHarness}
@@ -27,7 +33,9 @@ export function NavigationSettings() {
             onSelect={(event) => event.preventDefault()}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             Harness icon
           </DropdownMenu.CheckboxItem>
@@ -38,7 +46,9 @@ export function NavigationSettings() {
             onSelect={(event) => event.preventDefault()}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             Model
           </DropdownMenu.CheckboxItem>
@@ -49,7 +59,9 @@ export function NavigationSettings() {
             onSelect={(event) => event.preventDefault()}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             Worktree
           </DropdownMenu.CheckboxItem>

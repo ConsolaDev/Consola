@@ -1,22 +1,35 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
 import { SessionSource } from './SessionSource';
 import { settleAndVerify } from './settling';
 
 let dir: string;
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-settling-')); });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-settling-'));
+});
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 function world(held: string[] = []) {
-  const ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
+  const ledger = new JsonAttentionLedger(
+    new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')),
+  );
   const sessions = ['p', 'k'].map((id) =>
-    makeSession({ id, name: id, instanceId: `inst-${id}`, kind: 'interactive', groupId: undefined, parentSessionId: id === 'k' ? 'p' : undefined, lastActiveAt: 10 }));
+    makeSession({
+      id,
+      name: id,
+      instanceId: `inst-${id}`,
+      kind: 'interactive',
+      groupId: undefined,
+      parentSessionId: id === 'k' ? 'p' : undefined,
+      lastActiveAt: 10,
+    }),
+  );
   const workspace = makeWorkspace({ id: 'w1', sessions });
   const source = new SessionSource({
     getWorkspaces: () => [workspace],

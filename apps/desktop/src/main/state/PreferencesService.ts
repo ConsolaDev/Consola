@@ -1,5 +1,5 @@
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
-import { JsonStateFile } from './JsonStateFile';
+import type { JsonStateFile } from './JsonStateFile';
 
 /** Read stored preferences, falling back per field so one bad value costs only itself. */
 export function normalizePreferences(value: unknown): Preferences {
@@ -8,9 +8,13 @@ export function normalizePreferences(value: unknown): Preferences {
   const pending = row.pendingAutoSettle;
   return {
     autoSettleDays:
-      typeof days === 'number' && Number.isFinite(days) && days >= 0 ? days : DEFAULT_PREFERENCES.autoSettleDays,
+      typeof days === 'number' && Number.isFinite(days) && days >= 0
+        ? days
+        : DEFAULT_PREFERENCES.autoSettleDays,
     hasExplainedAutoSettle: row.hasExplainedAutoSettle === true,
-    pendingAutoSettle: Array.isArray(pending) ? pending.filter((id): id is string => typeof id === 'string') : [],
+    pendingAutoSettle: Array.isArray(pending)
+      ? pending.filter((id): id is string => typeof id === 'string')
+      : [],
   };
 }
 

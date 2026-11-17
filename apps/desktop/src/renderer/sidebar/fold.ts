@@ -8,7 +8,11 @@ import { aggregateAttention, membersOf, type TreeNode } from './forest';
  * the list and the expanded shelf. One function serves every shelf and a
  * conductor's children, so the mitigations are written once.
  */
-export function visibleNodes(nodes: TreeNode[], collapsed: boolean, activeKey: EntryKey | null): TreeNode[] {
+export function visibleNodes(
+  nodes: TreeNode[],
+  collapsed: boolean,
+  activeKey: EntryKey | null,
+): TreeNode[] {
   if (!collapsed) return nodes;
   return nodes.filter((node) => isPinned(node, activeKey));
 }

@@ -17,8 +17,13 @@ export function SidebarSearch({ children }: { children?: ReactNode }) {
   const { openPalette } = useCommandPalette();
   return (
     <div className="sidebar-search">
-      <button type="button" className="sidebar-search-field" onClick={() => openPalette()}
-        aria-label="Search sessions, workspaces, files and actions" title={`Search (${COMMAND_PALETTE_SHORTCUT_LABEL})`}>
+      <button
+        type="button"
+        className="sidebar-search-field"
+        onClick={() => openPalette()}
+        aria-label="Search sessions, workspaces, files and actions"
+        title={`Search (${COMMAND_PALETTE_SHORTCUT_LABEL})`}
+      >
         <Search size={14} aria-hidden="true" />
         <span className="sidebar-search-placeholder">Search</span>
         <kbd className="sidebar-search-shortcut">{COMMAND_PALETTE_SHORTCUT_LABEL}</kbd>

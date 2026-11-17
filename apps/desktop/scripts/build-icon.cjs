@@ -16,9 +16,14 @@ async function main() {
   try {
     const iconset = path.join(temporary, 'Consola.iconset');
     await fs.mkdir(iconset);
-    browser = await chromium.launch({ headless: true, channel: process.env.PLAYWRIGHT_CHANNEL || undefined });
+    browser = await chromium.launch({
+      headless: true,
+      channel: process.env.PLAYWRIGHT_CHANNEL || undefined,
+    });
     const page = await browser.newPage({ deviceScaleFactor: 1 });
-    await page.setContent(`<style>html,body{margin:0;background:transparent}svg{display:block;width:100vw;height:100vh}</style>${svg}`);
+    await page.setContent(
+      `<style>html,body{margin:0;background:transparent}svg{display:block;width:100vw;height:100vh}</style>${svg}`,
+    );
     for (const size of [16, 32, 128, 256, 512]) {
       for (const scale of [1, 2]) {
         await page.setViewportSize({ width: size * scale, height: size * scale });

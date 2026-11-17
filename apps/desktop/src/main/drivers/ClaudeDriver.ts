@@ -1,22 +1,33 @@
-import { execFile } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { getLoginEnv } from '../LoginEnvironment';
 import { readSessionModel } from './sessionModel';
-import { findSessionFile, getDisplayName, readConversation, readRecentReplies } from '../ClaudeSessionIndex';
+import {
+  findSessionFile,
+  getDisplayName,
+  readConversation,
+  readRecentReplies,
+} from '../ClaudeSessionIndex';
 import { probeClaudeCapabilities } from './claudeCapabilities';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type {
-    HarnessAccount,
-    HarnessCapabilities,
-    HarnessProbeResult,
-    SessionNameResult,
+  HarnessAccount,
+  HarnessCapabilities,
+  HarnessProbeResult,
+  SessionNameResult,
 } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
-import { looseningProblem, namedFlags, type HarnessConfig, type HarnessDriver, type SessionLaunch } from './HarnessDriver';
+import {
+  looseningProblem,
+  namedFlags,
+  type HarnessConfig,
+  type HarnessDriver,
+  type SessionLaunch,
+} from './HarnessDriver';
 
 /**
  * Driver for Anthropic's `claude` CLI.
@@ -31,16 +42,16 @@ const HEADLESS_TIMEOUT_MS = 60000;
 
 // Locations `claude` commonly installs to, checked when the PATH search fails.
 const FALLBACK_BINARY_PATHS = [
-    path.join(os.homedir(), '.local/bin/claude'),
-    '/opt/homebrew/bin/claude',
-    '/usr/local/bin/claude',
+  path.join(os.homedir(), '.local/bin/claude'),
+  '/opt/homebrew/bin/claude',
+  '/usr/local/bin/claude',
 ];
 
 const BINARY_NAME = 'claude';
 
 /** How Claude names a tool of an MCP server in permission rules. */
 function claudeToolName(tool: string): string {
-    return `mcp__${CONSOLA_MCP_SERVER}__${mcpToolName(tool)}`;
+  return `mcp__${CONSOLA_MCP_SERVER}__${mcpToolName(tool)}`;
 }
 
 /**
@@ -63,16 +74,16 @@ function claudeToolName(tool: string): string {
  *   unattended review can never stall on a prompt nobody is there to answer.
  */
 const READ_ONLY_ARGS = [
-    '--strict-mcp-config',
-    '--permission-mode',
-    'dontAsk',
-    '--tools',
-    'Read,Grep,Glob',
-    '--allowedTools',
-    ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
-    // Last, and taking no value: it closes the variadic tool list above, so
-    // nothing after it — the harness's extra args — can join that list.
-    '--restricted',
+  '--strict-mcp-config',
+  '--permission-mode',
+  'dontAsk',
+  '--tools',
+  'Read,Grep,Glob',
+  '--allowedTools',
+  ...READ_ONLY_CONSOLA_TOOLS.map(claudeToolName),
+  // Last, and taking no value: it closes the variadic tool list above, so
+  // nothing after it — the harness's extra args — can join that list.
+  '--restricted',
 ];
 
 /**
@@ -82,26 +93,26 @@ const READ_ONLY_ARGS = [
  * out.
  */
 const UNATTENDED_NEEDS_READ_ONLY =
-    'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a read-only session.';
+  'A turn nobody is watching skips Claude’s folder-trust prompt, so Consola runs one only in a read-only session.';
 
 /** Extra args that could widen what a read-only session may do, or what it can reach. */
 const LOOSENING_FLAGS = [
-    '--dangerously-skip-permissions',
-    '--allow-dangerously-skip-permissions',
-    '--permission-mode',
-    '--permission-prompt-tool',
-    '--allowedTools',
-    '--allowed-tools',
-    '--tools',
-    '--settings',
-    '--setting-sources',
-    // File tools reach every working directory, --add-dir included.
-    '--add-dir',
-    // Plugins carry hooks and commands; agents carry tools of their own.
-    '--plugin-dir',
-    '--plugin-url',
-    '--agent',
-    '--agents',
+  '--dangerously-skip-permissions',
+  '--allow-dangerously-skip-permissions',
+  '--permission-mode',
+  '--permission-prompt-tool',
+  '--allowedTools',
+  '--allowed-tools',
+  '--tools',
+  '--settings',
+  '--setting-sources',
+  // File tools reach every working directory, --add-dir included.
+  '--add-dir',
+  // Plugins carry hooks and commands; agents carry tools of their own.
+  '--plugin-dir',
+  '--plugin-url',
+  '--agent',
+  '--agents',
 ];
 
 // The binary found on PATH, cached for the app's lifetime. Only auto-detection
@@ -110,12 +121,12 @@ const LOOSENING_FLAGS = [
 let autoDetectedBinary: string | null = null;
 
 function isExecutable(candidate: string): boolean {
-    try {
-        fs.accessSync(candidate, fs.constants.X_OK);
-        return true;
-    } catch {
-        return false;
-    }
+  try {
+    fs.accessSync(candidate, fs.constants.X_OK);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -126,7 +137,7 @@ function isExecutable(candidate: string): boolean {
  * users who set the variable in their own shell profile.
  */
 function resolveConfigDir(config: HarnessConfig): string | undefined {
-    return config.configDir || getLoginEnv().CLAUDE_CONFIG_DIR || undefined;
+  return config.configDir || getLoginEnv().CLAUDE_CONFIG_DIR || undefined;
 }
 
 /**
@@ -136,10 +147,8 @@ function resolveConfigDir(config: HarnessConfig): string | undefined {
  * at `~/.claude.json`, beside `~/.claude` rather than within it.
  */
 function resolveAccountFile(config: HarnessConfig): string {
-    const configDir = resolveConfigDir(config);
-    return configDir
-        ? path.join(configDir, '.claude.json')
-        : path.join(os.homedir(), '.claude.json');
+  const configDir = resolveConfigDir(config);
+  return configDir ? path.join(configDir, '.claude.json') : path.join(os.homedir(), '.claude.json');
 }
 
 /**
@@ -149,32 +158,32 @@ function resolveAccountFile(config: HarnessConfig): string {
  * new conversation. Not a documented contract, so it is read strictly.
  */
 function processRecordFile(config: HarnessConfig, pid: number): string {
-    const configDir = resolveConfigDir(config) ?? path.join(os.homedir(), '.claude');
-    return path.join(configDir, 'sessions', `${pid}.json`);
+  const configDir = resolveConfigDir(config) ?? path.join(os.homedir(), '.claude');
+  return path.join(configDir, 'sessions', `${pid}.json`);
 }
 
 function readAccount(config: HarnessConfig): HarnessAccount | undefined {
-    try {
-        const raw = fs.readFileSync(resolveAccountFile(config), 'utf8');
-        const parsed = JSON.parse(raw) as { oauthAccount?: Record<string, unknown> };
-        const account = parsed.oauthAccount;
-        if (!account) return undefined;
+  try {
+    const raw = fs.readFileSync(resolveAccountFile(config), 'utf8');
+    const parsed = JSON.parse(raw) as { oauthAccount?: Record<string, unknown> };
+    const account = parsed.oauthAccount;
+    if (!account) return undefined;
 
-        const pick = (key: string): string | undefined => {
-            const value = account[key];
-            return typeof value === 'string' && value ? value : undefined;
-        };
+    const pick = (key: string): string | undefined => {
+      const value = account[key];
+      return typeof value === 'string' && value ? value : undefined;
+    };
 
-        return {
-            emailAddress: pick('emailAddress'),
-            displayName: pick('displayName'),
-            organizationName: pick('organizationName'),
-            organizationType: pick('organizationType'),
-        };
-    } catch {
-        // No account file, unreadable, or mid-write: treat as signed out.
-        return undefined;
-    }
+    return {
+      emailAddress: pick('emailAddress'),
+      displayName: pick('displayName'),
+      organizationName: pick('organizationName'),
+      organizationType: pick('organizationType'),
+    };
+  } catch {
+    // No account file, unreadable, or mid-write: treat as signed out.
+    return undefined;
+  }
 }
 
 /**
@@ -185,244 +194,251 @@ function readAccount(config: HarnessConfig): HarnessAccount | undefined {
  * specific than anything that could be written here.
  */
 function describeSpawnFailure(resolvedBinary: string, error: Error): string {
-    return resolvedBinary === BINARY_NAME
-        ? `Not found — \`${BINARY_NAME}\` is not installed or not on PATH.`
-        : error.message;
+  return resolvedBinary === BINARY_NAME
+    ? `Not found — \`${BINARY_NAME}\` is not installed or not on PATH.`
+    : error.message;
 }
 
 /** Trim `2.1.232 (Claude Code)` down to the version itself. */
 function parseVersion(stdout: string): string | undefined {
-    const trimmed = stdout.trim();
-    if (!trimmed) return undefined;
-    return trimmed.split(/\s+/)[0];
+  const trimmed = stdout.trim();
+  if (!trimmed) return undefined;
+  return trimmed.split(/\s+/)[0];
 }
 
 export class ClaudeDriver implements HarnessDriver {
-    public readonly id = 'claude' as const;
-    public readonly configDirEnvVar = 'CLAUDE_CONFIG_DIR';
-    public readonly attentionHooks = claudeAttentionHooks;
+  public readonly id = 'claude' as const;
+  public readonly configDirEnvVar = 'CLAUDE_CONFIG_DIR';
+  public readonly attentionHooks = claudeAttentionHooks;
 
-    /**
-     * Absolute path to the `claude` binary.
-     *
-     * A pinned binary is returned exactly as given, even when it is missing or
-     * not executable. Quietly falling back to whatever is on PATH would run a
-     * different installation — and so a different account — than the harness
-     * was configured for; failing at spawn, and reporting it from the health
-     * probe, is the honest outcome.
-     */
-    public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
-        if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
-        const file = findSessionFile(sessionId, config.configDir);
-        return file ? readSessionModel(file, 'claude') : null;
+  /**
+   * Absolute path to the `claude` binary.
+   *
+   * A pinned binary is returned exactly as given, even when it is missing or
+   * not executable. Quietly falling back to whatever is on PATH would run a
+   * different installation — and so a different account — than the harness
+   * was configured for; failing at spawn, and reporting it from the health
+   * probe, is the honest outcome.
+   */
+  public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
+    const file = findSessionFile(sessionId, config.configDir);
+    return file ? readSessionModel(file, 'claude') : null;
+  }
+
+  public async getRecentReplies(
+    config: HarnessConfig,
+    sessionId: string,
+    count: number,
+  ): Promise<string[] | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
+    return readRecentReplies(sessionId, resolveConfigDir(config), count);
+  }
+
+  public async readConversation(
+    config: HarnessConfig,
+    conversationId: string,
+    window?: ConversationWindow,
+  ): Promise<ConversationRecord | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
+    return readConversation(conversationId, resolveConfigDir(config), window);
+  }
+
+  public resolveBinary(config: HarnessConfig): string {
+    if (config.binaryPath) return config.binaryPath;
+
+    if (autoDetectedBinary) return autoDetectedBinary;
+
+    const searchPath = getLoginEnv().PATH ?? '';
+    for (const dir of searchPath.split(path.delimiter)) {
+      if (!dir) continue;
+      const candidate = path.join(dir, BINARY_NAME);
+      if (isExecutable(candidate)) {
+        autoDetectedBinary = candidate;
+        return candidate;
+      }
     }
 
-    public async getRecentReplies(
-        config: HarnessConfig,
-        sessionId: string,
-        count: number
-    ): Promise<string[] | null> {
-        if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
-        return readRecentReplies(sessionId, resolveConfigDir(config), count);
+    for (const candidate of FALLBACK_BINARY_PATHS) {
+      if (isExecutable(candidate)) {
+        autoDetectedBinary = candidate;
+        return candidate;
+      }
     }
 
-    public async readConversation(
-        config: HarnessConfig,
-        conversationId: string,
-        window?: ConversationWindow
-    ): Promise<ConversationRecord | null> {
-        if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
-        return readConversation(conversationId, resolveConfigDir(config), window);
+    // Let the spawn fail with a real error rather than guessing further.
+    // Deliberately uncached, so installing the CLI takes effect without a
+    // restart.
+    return BINARY_NAME;
+  }
+
+  /**
+   * Build the argv for an interactive session.
+   *
+   * A session ID is assigned by Consola up front so the tab can be
+   * reconnected to the same conversation later. `--session-id` only works
+   * once per ID — Claude rejects reuse — so every launch after the first
+   * resumes instead.
+   */
+  public buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] {
+    const problem = this.toolPolicyProblem(config, launch.toolPolicy);
+    if (problem) throw new Error(problem);
+    if (launch.unattended && launch.toolPolicy !== 'read-only')
+      throw new Error(UNATTENDED_NEEDS_READ_ONLY);
+    if (launch.unattended && !launch.initialPrompt)
+      throw new Error('An unattended turn needs the prompt it runs.');
+    const base = launch.resume
+      ? ['--resume', launch.sessionId]
+      : launch.forkFrom
+        ? ['--resume', launch.forkFrom, '--fork-session', '--session-id', launch.sessionId]
+        : ['--session-id', launch.sessionId];
+    const model = launch.model ? ['--model', launch.model] : [];
+    const mcp = launch.mcpConfigPath ? ['--mcp-config', launch.mcpConfigPath] : [];
+    // The harness's own extra args come after Consola's so a hand-written
+    // `--model` there still wins: Claude takes the last occurrence of a
+    // flag. A tool policy comes before them, so an extra arg left wanting
+    // a value (`--append-system-prompt` with none) cannot take one of its
+    // flags as that value; every extra arg that could override the policy
+    // is refused above.
+    const policy = launch.toolPolicy === 'read-only' ? READ_ONLY_ARGS : [];
+    // Hooks ride in `--settings`, which adds to the user's own and writes
+    // nothing to disk. Under `--restricted` it is one of the only two
+    // sources still loaded, so a read-only turn reports too.
+    const hooks = launch.attentionUrl
+      ? ['--settings', claudeHookSettings(launch.attentionUrl)]
+      : [];
+    const args = [...base, ...model, ...mcp, ...hooks, ...policy, ...config.extraArgs];
+    // Print mode: one turn, its answer, and exit. The prompt goes after
+    // `--`, because `--allowedTools` takes every value up to the next
+    // flag and would otherwise swallow it.
+    return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+  }
+
+  public toolPolicyProblem(
+    config: HarnessConfig,
+    policy: SessionToolPolicy | undefined,
+  ): string | null {
+    if (!policy) return null;
+    return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
+  }
+
+  /**
+   * The ambient environment with this harness's profile directory applied.
+   *
+   * Always returns a copy: the base environment is shared across every
+   * harness, and mutating it would leak one harness's profile into all the
+   * others.
+   */
+  public composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+    if (!config.configDir) return { ...baseEnv };
+    return { ...baseEnv, [this.configDirEnvVar]: config.configDir };
+  }
+
+  public async probeHealth(config: HarnessConfig): Promise<HarnessProbeResult> {
+    const resolvedBinary = this.resolveBinary(config);
+    const account = readAccount(config);
+
+    // Checked here rather than inferred from resolution, which now returns
+    // a pinned path unchanged so a bad one fails loudly instead of quietly
+    // running a different install.
+    if (config.binaryPath && !isExecutable(config.binaryPath)) {
+      return {
+        available: false,
+        resolvedBinary,
+        account,
+        error: `Not executable: ${config.binaryPath}`,
+      };
     }
 
-    public resolveBinary(config: HarnessConfig): string {
-        if (config.binaryPath) return config.binaryPath;
+    return new Promise((resolve) => {
+      execFile(
+        resolvedBinary,
+        ['--version'],
+        {
+          env: this.composeEnv(config, getLoginEnv()),
+          timeout: VERSION_TIMEOUT_MS,
+        },
+        (error, stdout) => {
+          if (error) {
+            resolve({
+              available: false,
+              resolvedBinary,
+              account,
+              error: describeSpawnFailure(resolvedBinary, error),
+            });
+            return;
+          }
+          resolve({
+            available: true,
+            resolvedBinary,
+            version: parseVersion(stdout),
+            account,
+          });
+        },
+      );
+    });
+  }
 
-        if (autoDetectedBinary) return autoDetectedBinary;
+  public getSessionDisplayName(config: HarnessConfig, sessionId: string): SessionNameResult | null {
+    return getDisplayName(sessionId, resolveConfigDir(config));
+  }
 
-        const searchPath = getLoginEnv().PATH ?? '';
-        for (const dir of searchPath.split(path.delimiter)) {
-            if (!dir) continue;
-            const candidate = path.join(dir, BINARY_NAME);
-            if (isExecutable(candidate)) {
-                autoDetectedBinary = candidate;
-                return candidate;
-            }
-        }
-
-        for (const candidate of FALLBACK_BINARY_PATHS) {
-            if (isExecutable(candidate)) {
-                autoDetectedBinary = candidate;
-                return candidate;
-            }
-        }
-
-        // Let the spawn fail with a real error rather than guessing further.
-        // Deliberately uncached, so installing the CLI takes effect without a
-        // restart.
-        return BINARY_NAME;
+  public readWorkingDirectory(config: HarnessConfig, pid: number): string | null {
+    let raw: string;
+    try {
+      raw = fs.readFileSync(processRecordFile(config, pid), 'utf8');
+    } catch {
+      // Not written yet, or the process is gone: nothing to say.
+      return null;
     }
-
-    /**
-     * Build the argv for an interactive session.
-     *
-     * A session ID is assigned by Consola up front so the tab can be
-     * reconnected to the same conversation later. `--session-id` only works
-     * once per ID — Claude rejects reuse — so every launch after the first
-     * resumes instead.
-     */
-    public buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] {
-        const problem = this.toolPolicyProblem(config, launch.toolPolicy);
-        if (problem) throw new Error(problem);
-        if (launch.unattended && launch.toolPolicy !== 'read-only') throw new Error(UNATTENDED_NEEDS_READ_ONLY);
-        if (launch.unattended && !launch.initialPrompt) throw new Error('An unattended turn needs the prompt it runs.');
-        const base = launch.resume
-            ? ['--resume', launch.sessionId]
-            : launch.forkFrom
-              ? ['--resume', launch.forkFrom, '--fork-session', '--session-id', launch.sessionId]
-              : ['--session-id', launch.sessionId];
-        const model = launch.model ? ['--model', launch.model] : [];
-        const mcp = launch.mcpConfigPath ? ['--mcp-config', launch.mcpConfigPath] : [];
-        // The harness's own extra args come after Consola's so a hand-written
-        // `--model` there still wins: Claude takes the last occurrence of a
-        // flag. A tool policy comes before them, so an extra arg left wanting
-        // a value (`--append-system-prompt` with none) cannot take one of its
-        // flags as that value; every extra arg that could override the policy
-        // is refused above.
-        const policy = launch.toolPolicy === 'read-only' ? READ_ONLY_ARGS : [];
-        // Hooks ride in `--settings`, which adds to the user's own and writes
-        // nothing to disk. Under `--restricted` it is one of the only two
-        // sources still loaded, so a read-only turn reports too.
-        const hooks = launch.attentionUrl ? ['--settings', claudeHookSettings(launch.attentionUrl)] : [];
-        const args = [...base, ...model, ...mcp, ...hooks, ...policy, ...config.extraArgs];
-        // Print mode: one turn, its answer, and exit. The prompt goes after
-        // `--`, because `--allowedTools` takes every value up to the next
-        // flag and would otherwise swallow it.
-        return launch.unattended ? ['-p', ...args, '--', launch.initialPrompt!] : args;
+    let record: unknown;
+    try {
+      record = JSON.parse(raw);
+    } catch {
+      // Caught mid-write. The next read sees the whole record.
+      return null;
     }
-
-    public toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null {
-        if (!policy) return null;
-        return looseningProblem(namedFlags(config.extraArgs, LOOSENING_FLAGS));
+    const { pid: recordedPid, cwd } = (record ?? {}) as { pid?: unknown; cwd?: unknown };
+    if (recordedPid !== pid || typeof cwd !== 'string' || !path.isAbsolute(cwd)) {
+      throw new Error(`Unrecognised session record for process ${pid}.`);
     }
+    return cwd;
+  }
 
-    /**
-     * The ambient environment with this harness's profile directory applied.
-     *
-     * Always returns a copy: the base environment is shared across every
-     * harness, and mutating it would leak one harness's profile into all the
-     * others.
-     */
-    public composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-        if (!config.configDir) return { ...baseEnv };
-        return { ...baseEnv, [this.configDirEnvVar]: config.configDir };
+  /**
+   * Ask this harness's CLI what it can offer a composer.
+   *
+   * Run from the home directory rather than any workspace. What comes back
+   * is scoped to the config directory, not the working directory — a repo's
+   * own `.claude/commands` never appears here — so a per-workspace probe
+   * would buy nothing and would run that repo's SessionStart hooks for the
+   * privilege.
+   */
+  public async probeCapabilities(config: HarnessConfig): Promise<HarnessCapabilities> {
+    if (config.binaryPath && !isExecutable(config.binaryPath)) {
+      throw new Error(`Not executable: ${config.binaryPath}`);
     }
-
-    public async probeHealth(config: HarnessConfig): Promise<HarnessProbeResult> {
-        const resolvedBinary = this.resolveBinary(config);
-        const account = readAccount(config);
-
-        // Checked here rather than inferred from resolution, which now returns
-        // a pinned path unchanged so a bad one fails loudly instead of quietly
-        // running a different install.
-        if (config.binaryPath && !isExecutable(config.binaryPath)) {
-            return {
-                available: false,
-                resolvedBinary,
-                account,
-                error: `Not executable: ${config.binaryPath}`,
-            };
-        }
-
-        return new Promise((resolve) => {
-            execFile(
-                resolvedBinary,
-                ['--version'],
-                {
-                    env: this.composeEnv(config, getLoginEnv()),
-                    timeout: VERSION_TIMEOUT_MS,
-                },
-                (error, stdout) => {
-                    if (error) {
-                        resolve({
-                            available: false,
-                            resolvedBinary,
-                            account,
-                            error: describeSpawnFailure(resolvedBinary, error),
-                        });
-                        return;
-                    }
-                    resolve({
-                        available: true,
-                        resolvedBinary,
-                        version: parseVersion(stdout),
-                        account,
-                    });
-                }
-            );
-        });
+    const resolvedBinary = this.resolveBinary(config);
+    try {
+      return await probeClaudeCapabilities(
+        resolvedBinary,
+        os.homedir(),
+        this.composeEnv(config, getLoginEnv()),
+      );
+    } catch (error) {
+      throw new Error(
+        describeSpawnFailure(
+          resolvedBinary,
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
     }
-
-    public getSessionDisplayName(config: HarnessConfig, sessionId: string): SessionNameResult | null {
-        return getDisplayName(sessionId, resolveConfigDir(config));
-    }
-
-    public readWorkingDirectory(config: HarnessConfig, pid: number): string | null {
-        let raw: string;
-        try {
-            raw = fs.readFileSync(processRecordFile(config, pid), 'utf8');
-        } catch {
-            // Not written yet, or the process is gone: nothing to say.
-            return null;
-        }
-        let record: unknown;
-        try {
-            record = JSON.parse(raw);
-        } catch {
-            // Caught mid-write. The next read sees the whole record.
-            return null;
-        }
-        const { pid: recordedPid, cwd } = (record ?? {}) as { pid?: unknown; cwd?: unknown };
-        if (recordedPid !== pid || typeof cwd !== 'string' || !path.isAbsolute(cwd)) {
-            throw new Error(`Unrecognised session record for process ${pid}.`);
-        }
-        return cwd;
-    }
-
-    /**
-     * Ask this harness's CLI what it can offer a composer.
-     *
-     * Run from the home directory rather than any workspace. What comes back
-     * is scoped to the config directory, not the working directory — a repo's
-     * own `.claude/commands` never appears here — so a per-workspace probe
-     * would buy nothing and would run that repo's SessionStart hooks for the
-     * privilege.
-     */
-    public async probeCapabilities(config: HarnessConfig): Promise<HarnessCapabilities> {
-        if (config.binaryPath && !isExecutable(config.binaryPath)) {
-            throw new Error(`Not executable: ${config.binaryPath}`);
-        }
-        const resolvedBinary = this.resolveBinary(config);
-        try {
-            return await probeClaudeCapabilities(
-                resolvedBinary,
-                os.homedir(),
-                this.composeEnv(config, getLoginEnv())
-            );
-        } catch (error) {
-            throw new Error(
-                describeSpawnFailure(
-                    resolvedBinary,
-                    error instanceof Error ? error : new Error(String(error))
-                )
-            );
-        }
-    }
+  }
 }
 
 export interface HeadlessResult {
-    text: string;
-    isError: boolean;
+  text: string;
+  isError: boolean;
 }
 
 /**
@@ -435,40 +451,40 @@ export interface HeadlessResult {
  * it runs against the ambient environment rather than any one harness.
  */
 export async function runHeadless(
-    prompt: string,
-    options: { cwd: string; timeoutMs?: number } = { cwd: process.cwd() }
+  prompt: string,
+  options: { cwd: string; timeoutMs?: number } = { cwd: process.cwd() },
 ): Promise<HeadlessResult> {
-    const driver = new ClaudeDriver();
-    const config: HarnessConfig = { extraArgs: [] };
-    const binary = driver.resolveBinary(config);
-    const args = ['-p', prompt, '--output-format', 'json', '--allowed-tools', ''];
+  const driver = new ClaudeDriver();
+  const config: HarnessConfig = { extraArgs: [] };
+  const binary = driver.resolveBinary(config);
+  const args = ['-p', prompt, '--output-format', 'json', '--allowed-tools', ''];
 
-    return new Promise((resolve) => {
-        execFile(
-            binary,
-            args,
-            {
-                cwd: options.cwd,
-                env: driver.composeEnv(config, getLoginEnv()),
-                timeout: options.timeoutMs ?? HEADLESS_TIMEOUT_MS,
-                maxBuffer: 10 * 1024 * 1024,
-            },
-            (error, stdout) => {
-                if (error) {
-                    resolve({ text: '', isError: true });
-                    return;
-                }
-                try {
-                    const parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
-                    resolve({
-                        text: (parsed.result ?? '').trim(),
-                        isError: parsed.is_error === true,
-                    });
-                } catch {
-                    // Non-JSON output means something went wrong upstream.
-                    resolve({ text: '', isError: true });
-                }
-            }
-        );
-    });
+  return new Promise((resolve) => {
+    execFile(
+      binary,
+      args,
+      {
+        cwd: options.cwd,
+        env: driver.composeEnv(config, getLoginEnv()),
+        timeout: options.timeoutMs ?? HEADLESS_TIMEOUT_MS,
+        maxBuffer: 10 * 1024 * 1024,
+      },
+      (error, stdout) => {
+        if (error) {
+          resolve({ text: '', isError: true });
+          return;
+        }
+        try {
+          const parsed = JSON.parse(stdout) as { result?: string; is_error?: boolean };
+          resolve({
+            text: (parsed.result ?? '').trim(),
+            isError: parsed.is_error === true,
+          });
+        } catch {
+          // Non-JSON output means something went wrong upstream.
+          resolve({ text: '', isError: true });
+        }
+      },
+    );
+  });
 }

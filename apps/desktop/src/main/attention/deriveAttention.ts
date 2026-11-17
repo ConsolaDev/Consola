@@ -26,19 +26,28 @@ export interface AttentionInputs {
  * renderer reads the result and never derives it, so two processes cannot
  * disagree about what a session is.
  */
-export function deriveAttention({ terminal: screen, record, hook, heldByOpenRun }: AttentionInputs): Attention {
+export function deriveAttention({
+  terminal: screen,
+  record,
+  hook,
+  heldByOpenRun,
+}: AttentionInputs): Attention {
   // An exited process is asking nothing, whatever its last hook said. One
   // awaiting its own subagents is still working: its spinner stops while it
   // waits, and only their panel repaints.
   const terminal: TerminalStatus =
-    hook?.needsInput && screen !== 'exited' ? 'needs-attention'
-    : hook?.awaitingAgents && screen === 'ready' ? 'working'
-    : screen;
-  const settled = !heldByOpenRun && record?.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
+    hook?.needsInput && screen !== 'exited'
+      ? 'needs-attention'
+      : hook?.awaitingAgents && screen === 'ready'
+        ? 'working'
+        : screen;
+  const settled =
+    !heldByOpenRun && record?.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
   // A finish nobody has looked at. It always belongs to the current lifetime:
   // the ledger clears `finishedAt` whenever a session launches.
   const finished = record?.finishedAt;
-  const unseen = finished !== undefined && (record?.seenAt === undefined || record.seenAt < finished);
+  const unseen =
+    finished !== undefined && (record?.seenAt === undefined || record.seenAt < finished);
   if (settled && (terminal === 'ready' || terminal === 'exited')) return 'settled';
 
   switch (terminal) {

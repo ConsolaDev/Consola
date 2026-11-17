@@ -20,7 +20,12 @@ const inFlight = new Map<string, Promise<void>>();
 function sameCheckout(a: CheckoutInfo | undefined, b: CheckoutInfo): boolean {
   if (!a || a.kind !== b.kind) return false;
   if (a.kind === 'none' || b.kind === 'none') return true;
-  return a.root === b.root && a.mainCheckout === b.mainCheckout && a.branch === b.branch && a.head === b.head;
+  return (
+    a.root === b.root &&
+    a.mainCheckout === b.mainCheckout &&
+    a.branch === b.branch &&
+    a.head === b.head
+  );
 }
 
 /**
@@ -85,7 +90,7 @@ function installFocusRefresh(): void {
  */
 export function useCheckout(
   path: string | null | undefined,
-  { fresh = false }: { fresh?: boolean } = {}
+  { fresh = false }: { fresh?: boolean } = {},
 ): CheckoutInfo | undefined {
   const info = useCheckoutStore((state) => (path ? state.byPath[path] : undefined));
   useEffect(() => {

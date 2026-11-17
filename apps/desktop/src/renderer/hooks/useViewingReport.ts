@@ -17,7 +17,7 @@ export function useViewingReport(): void {
   const overlay = useNavigationStore((state) => state.overlay);
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId),
   );
   const instanceId = viewedInstanceId({ activeSessionId, overlay }, workspace);
 

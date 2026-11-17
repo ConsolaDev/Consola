@@ -35,20 +35,27 @@ export function activityOf(session: Session, record: AttentionRecord | undefined
  * What a session (or, from slice 6, an open run) is asking of the person.
  * Derived once, in main, and only ever read elsewhere.
  */
-export type Attention =
-  | 'needs-attention' | 'done' | 'working' | 'ready' | 'exited' | 'settled';
+export type Attention = 'needs-attention' | 'done' | 'working' | 'ready' | 'exited' | 'settled';
 
 /** Higher wins. NOTE this inverts today's order: `exited` was the HIGHEST rank in
  *  renderer/utils/sessionStatus.ts and is now second lowest. */
 export const RANK: Record<Attention, number> = {
-  'needs-attention': 5, done: 4, working: 3, ready: 2, exited: 1, settled: 0,
+  'needs-attention': 5,
+  done: 4,
+  working: 3,
+  ready: 2,
+  exited: 1,
+  settled: 0,
 };
 
 /** The most urgent of a set. A fold over already-derived values — which is why it
  *  belongs in shared and `deriveAttention` does not. An empty set has no answer (`undefined`): what empty means differs by caller, so each chooses. */
 export function worstStatus(values: Attention[]): Attention | undefined {
   if (values.length === 0) return undefined;
-  return values.reduce<Attention>((worst, value) => (RANK[value] > RANK[worst] ? value : worst), values[0]);
+  return values.reduce<Attention>(
+    (worst, value) => (RANK[value] > RANK[worst] ? value : worst),
+    values[0],
+  );
 }
 
 /** What changed since the last `attention:changed`: new or updated entries, and entries that went away. */

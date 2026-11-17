@@ -27,7 +27,10 @@ export function useSettleOnChange(
     const element = ref.current;
     if (reduced || !element || typeof element.animate !== 'function') return;
     const animation = element.animate(
-      [{ opacity: 0, transform: `translateY(${rise}px)` }, { opacity: 1, transform: 'none' }],
+      [
+        { opacity: 0, transform: `translateY(${rise}px)` },
+        { opacity: 1, transform: 'none' },
+      ],
       { duration: 180, delay, easing: EASE_OUT, fill: 'backwards' },
     );
     return () => animation.cancel();

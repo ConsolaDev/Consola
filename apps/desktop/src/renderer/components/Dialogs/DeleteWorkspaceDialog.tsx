@@ -16,7 +16,11 @@ interface DeleteWorkspaceDialogProps {
  * Main drops any window holding the workspace when the record disappears, so
  * neither caller has anything to clear afterwards.
  */
-export function DeleteWorkspaceDialog({ workspace, open, onOpenChange }: DeleteWorkspaceDialogProps) {
+export function DeleteWorkspaceDialog({
+  workspace,
+  open,
+  onOpenChange,
+}: DeleteWorkspaceDialogProps) {
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
   const sessionCount = listedSessions(workspace).length;
 

@@ -23,40 +23,40 @@ const PLUGIN_PREFIX = /^\(([^)]+)\)\s*/;
 const USER_SUFFIX = /\s*\(user\)$/;
 
 interface SplitDescription {
-    source?: string;
-    description: string;
+  source?: string;
+  description: string;
 }
 
 export function splitCommandDescription(raw: string): SplitDescription {
-    const withoutUser = raw.replace(USER_SUFFIX, '');
-    const plugin = withoutUser.match(PLUGIN_PREFIX);
-    if (plugin) {
-        return { source: plugin[1], description: withoutUser.replace(PLUGIN_PREFIX, '') };
-    }
-    return {
-        source: raw === withoutUser ? undefined : 'user',
-        description: withoutUser,
-    };
+  const withoutUser = raw.replace(USER_SUFFIX, '');
+  const plugin = withoutUser.match(PLUGIN_PREFIX);
+  if (plugin) {
+    return { source: plugin[1], description: withoutUser.replace(PLUGIN_PREFIX, '') };
+  }
+  return {
+    source: raw === withoutUser ? undefined : 'user',
+    description: withoutUser,
+  };
 }
 
 export function commandItems(commands: HarnessCommand[]): TypeaheadItem[] {
-    return commands.map((command) => {
-        const { description } = splitCommandDescription(command.description);
-        return {
-            id: `command:${command.name}`,
-            label: `/${command.name}`,
-            description,
-            hint: command.argumentHint || undefined,
-        };
-    });
+  return commands.map((command) => {
+    const { description } = splitCommandDescription(command.description);
+    return {
+      id: `command:${command.name}`,
+      label: `/${command.name}`,
+      description,
+      hint: command.argumentHint || undefined,
+    };
+  });
 }
 
 export function agentItems(agents: HarnessAgent[]): TypeaheadItem[] {
-    return agents.map((agent) => ({
-        id: `agent:${agent.name}`,
-        label: `@${agent.name}`,
-        description: agent.description,
-    }));
+  return agents.map((agent) => ({
+    id: `agent:${agent.name}`,
+    label: `@${agent.name}`,
+    description: agent.description,
+  }));
 }
 
 /**
@@ -66,14 +66,15 @@ export function agentItems(agents: HarnessAgent[]): TypeaheadItem[] {
  * user's own commands before the long tail of plugin ones.
  */
 export function rankTypeaheadItems(items: TypeaheadItem[], query: string): TypeaheadItem[] {
-    if (!query) return items.slice(0, MAX_RESULTS);
+  if (!query) return items.slice(0, MAX_RESULTS);
 
-    return items
-        .map((item) => ({ item, match: rankItem(query, item.label, item.description) }))
-        .filter((scored): scored is { item: TypeaheadItem; match: { score: number; indices: number[] } } =>
-            scored.match !== null
-        )
-        .sort((a, b) => b.match.score - a.match.score)
-        .slice(0, MAX_RESULTS)
-        .map((scored) => scored.item);
+  return items
+    .map((item) => ({ item, match: rankItem(query, item.label, item.description) }))
+    .filter(
+      (scored): scored is { item: TypeaheadItem; match: { score: number; indices: number[] } } =>
+        scored.match !== null,
+    )
+    .sort((a, b) => b.match.score - a.match.score)
+    .slice(0, MAX_RESULTS)
+    .map((scored) => scored.item);
 }

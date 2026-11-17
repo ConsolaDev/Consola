@@ -1,11 +1,11 @@
-import { spawn } from 'child_process';
-import type { ChildProcessWithoutNullStreams } from 'child_process';
+import { spawn } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import type {
-    HarnessAgent,
-    HarnessCapabilities,
-    HarnessCapabilityAccount,
-    HarnessCommand,
-    HarnessModel,
+  HarnessAgent,
+  HarnessCapabilities,
+  HarnessCapabilityAccount,
+  HarnessCommand,
+  HarnessModel,
 } from '../../shared/types';
 
 /**
@@ -24,14 +24,14 @@ import type {
  */
 
 const HANDSHAKE_ARGS = [
-    '--input-format',
-    'stream-json',
-    '--output-format',
-    'stream-json',
-    '--verbose',
-    '-p',
-    // Nothing here is a conversation, so nothing should be resumable later.
-    '--no-session-persistence',
+  '--input-format',
+  'stream-json',
+  '--output-format',
+  'stream-json',
+  '--verbose',
+  '-p',
+  // Nothing here is a conversation, so nothing should be resumable later.
+  '--no-session-persistence',
 ];
 
 /**
@@ -49,20 +49,20 @@ const CONTROL_REQUEST_ID = 'consola-initialize';
 const MAX_STDERR_CHARS = 4096;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
-    return typeof value === 'object' && value !== null;
+  return typeof value === 'object' && value !== null;
 }
 
 function asString(value: unknown): string | undefined {
-    return typeof value === 'string' && value ? value : undefined;
+  return typeof value === 'string' && value ? value : undefined;
 }
 
 function asBoolean(value: unknown): boolean | undefined {
-    return typeof value === 'boolean' ? value : undefined;
+  return typeof value === 'boolean' ? value : undefined;
 }
 
 function asStringArray(value: unknown): string[] | undefined {
-    if (!Array.isArray(value)) return undefined;
-    return value.filter((entry): entry is string => typeof entry === 'string');
+  if (!Array.isArray(value)) return undefined;
+  return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
 /**
@@ -73,153 +73,150 @@ function asStringArray(value: unknown): string[] | undefined {
  * left running because a later line never arrived.
  */
 export function requestInitializeHandshake(
-    binary: string,
-    cwd: string,
-    env: NodeJS.ProcessEnv,
-    timeoutMs: number = HANDSHAKE_TIMEOUT_MS
+  binary: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
+  timeoutMs: number = HANDSHAKE_TIMEOUT_MS,
 ): Promise<unknown> {
-    return new Promise((resolve, reject) => {
-        let child: ChildProcessWithoutNullStreams;
-        let settled = false;
-        let timer: NodeJS.Timeout | undefined;
+  return new Promise((resolve, reject) => {
+    let child: ChildProcessWithoutNullStreams;
+    let settled = false;
+    let timer: NodeJS.Timeout | undefined;
 
-        const finish = (error: Error | null, payload?: unknown) => {
-            if (settled) return;
-            settled = true;
-            if (timer) clearTimeout(timer);
-            // SIGKILL rather than SIGTERM: this child has no cleanup worth
-            // waiting for, and a wedged one is exactly the case being escaped.
-            if (child && !child.killed) child.kill('SIGKILL');
-            if (error) reject(error);
-            else resolve(payload);
-        };
+    const finish = (error: Error | null, payload?: unknown) => {
+      if (settled) return;
+      settled = true;
+      if (timer) clearTimeout(timer);
+      // SIGKILL rather than SIGTERM: this child has no cleanup worth
+      // waiting for, and a wedged one is exactly the case being escaped.
+      if (child && !child.killed) child.kill('SIGKILL');
+      if (error) reject(error);
+      else resolve(payload);
+    };
 
-        try {
-            child = spawn(binary, HANDSHAKE_ARGS, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
-        } catch (error) {
-            reject(error instanceof Error ? error : new Error(String(error)));
-            return;
-        }
+    try {
+      child = spawn(binary, HANDSHAKE_ARGS, { cwd, env, stdio: ['pipe', 'pipe', 'pipe'] });
+    } catch (error) {
+      reject(error instanceof Error ? error : new Error(String(error)));
+      return;
+    }
 
-        timer = setTimeout(
-            () => finish(new Error(`No answer from \`${binary}\` within ${timeoutMs}ms.`)),
-            timeoutMs
-        );
+    timer = setTimeout(
+      () => finish(new Error(`No answer from \`${binary}\` within ${timeoutMs}ms.`)),
+      timeoutMs,
+    );
 
-        // A missing binary reports asynchronously here rather than throwing
-        // above. The stream handlers matter just as much: writing to a child
-        // that already died raises EPIPE on the stream, and an unhandled
-        // stream error takes the whole main process down with it.
-        child.on('error', (error) => finish(error));
-        child.stdin.on('error', () => {});
-        child.stdout.on('error', () => {});
-        child.stderr.on('error', () => {});
+    // A missing binary reports asynchronously here rather than throwing
+    // above. The stream handlers matter just as much: writing to a child
+    // that already died raises EPIPE on the stream, and an unhandled
+    // stream error takes the whole main process down with it.
+    child.on('error', (error) => finish(error));
+    child.stdin.on('error', () => {});
+    child.stdout.on('error', () => {});
+    child.stderr.on('error', () => {});
 
-        let stderrTail = '';
-        child.stderr.setEncoding('utf8');
-        child.stderr.on('data', (chunk: string) => {
-            stderrTail = (stderrTail + chunk).slice(-MAX_STDERR_CHARS);
-        });
-
-        let pending = '';
-        child.stdout.setEncoding('utf8');
-        child.stdout.on('data', (chunk: string) => {
-            pending += chunk;
-            // Pull whole lines off an accumulating buffer rather than
-            // splitting each chunk: a JSON line routinely straddles two reads,
-            // and splitting per chunk would corrupt exactly the long responses
-            // this is here to collect.
-            let newline = pending.indexOf('\n');
-            while (newline !== -1) {
-                const line = pending.slice(0, newline).trim();
-                pending = pending.slice(newline + 1);
-                newline = pending.indexOf('\n');
-                if (!line) continue;
-
-                let parsed: unknown;
-                try {
-                    parsed = JSON.parse(line);
-                } catch {
-                    // The stream carries hook output and status lines too. One
-                    // unparseable line is not a reason to abandon the answer.
-                    continue;
-                }
-                if (!isRecord(parsed) || parsed.type !== 'control_response') continue;
-
-                const response = parsed.response;
-                if (!isRecord(response) || response.request_id !== CONTROL_REQUEST_ID) continue;
-                if (response.subtype === 'error') {
-                    finish(new Error(asString(response.error) ?? 'The CLI rejected the request.'));
-                    return;
-                }
-                finish(null, response.response);
-                return;
-            }
-        });
-
-        // Exiting before answering means this CLI never understood the request
-        // — an older build, or one that does not speak the protocol. Reporting
-        // it now beats waiting out the whole timeout for a child that is gone.
-        child.on('exit', (code) => {
-            finish(
-                new Error(
-                    stderrTail.trim() ||
-                        `\`${binary}\` exited with code ${code} before answering.`
-                )
-            );
-        });
-
-        try {
-            child.stdin.write(
-                `${JSON.stringify({
-                    type: 'control_request',
-                    request_id: CONTROL_REQUEST_ID,
-                    request: { subtype: 'initialize' },
-                })}\n`
-            );
-            // Nothing further is coming. Leaving stdin open would have the CLI
-            // wait for a conversation that never starts.
-            child.stdin.end();
-        } catch (error) {
-            finish(error instanceof Error ? error : new Error(String(error)));
-        }
+    let stderrTail = '';
+    child.stderr.setEncoding('utf8');
+    child.stderr.on('data', (chunk: string) => {
+      stderrTail = (stderrTail + chunk).slice(-MAX_STDERR_CHARS);
     });
+
+    let pending = '';
+    child.stdout.setEncoding('utf8');
+    child.stdout.on('data', (chunk: string) => {
+      pending += chunk;
+      // Pull whole lines off an accumulating buffer rather than
+      // splitting each chunk: a JSON line routinely straddles two reads,
+      // and splitting per chunk would corrupt exactly the long responses
+      // this is here to collect.
+      let newline = pending.indexOf('\n');
+      while (newline !== -1) {
+        const line = pending.slice(0, newline).trim();
+        pending = pending.slice(newline + 1);
+        newline = pending.indexOf('\n');
+        if (!line) continue;
+
+        let parsed: unknown;
+        try {
+          parsed = JSON.parse(line);
+        } catch {
+          // The stream carries hook output and status lines too. One
+          // unparseable line is not a reason to abandon the answer.
+          continue;
+        }
+        if (!isRecord(parsed) || parsed.type !== 'control_response') continue;
+
+        const response = parsed.response;
+        if (!isRecord(response) || response.request_id !== CONTROL_REQUEST_ID) continue;
+        if (response.subtype === 'error') {
+          finish(new Error(asString(response.error) ?? 'The CLI rejected the request.'));
+          return;
+        }
+        finish(null, response.response);
+        return;
+      }
+    });
+
+    // Exiting before answering means this CLI never understood the request
+    // — an older build, or one that does not speak the protocol. Reporting
+    // it now beats waiting out the whole timeout for a child that is gone.
+    child.on('exit', (code) => {
+      finish(
+        new Error(stderrTail.trim() || `\`${binary}\` exited with code ${code} before answering.`),
+      );
+    });
+
+    try {
+      child.stdin.write(
+        `${JSON.stringify({
+          type: 'control_request',
+          request_id: CONTROL_REQUEST_ID,
+          request: { subtype: 'initialize' },
+        })}\n`,
+      );
+      // Nothing further is coming. Leaving stdin open would have the CLI
+      // wait for a conversation that never starts.
+      child.stdin.end();
+    } catch (error) {
+      finish(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
 }
 
 function toCommand(raw: unknown): HarnessCommand | null {
-    if (!isRecord(raw)) return null;
-    const name = asString(raw.name);
-    if (!name) return null;
-    return {
-        name,
-        description: asString(raw.description) ?? '',
-        argumentHint: asString(raw.argumentHint),
-        aliases: asStringArray(raw.aliases),
-    };
+  if (!isRecord(raw)) return null;
+  const name = asString(raw.name);
+  if (!name) return null;
+  return {
+    name,
+    description: asString(raw.description) ?? '',
+    argumentHint: asString(raw.argumentHint),
+    aliases: asStringArray(raw.aliases),
+  };
 }
 
 function toAgent(raw: unknown): HarnessAgent | null {
-    if (!isRecord(raw)) return null;
-    const name = asString(raw.name);
-    if (!name) return null;
-    return { name, description: asString(raw.description) ?? '' };
+  if (!isRecord(raw)) return null;
+  const name = asString(raw.name);
+  if (!name) return null;
+  return { name, description: asString(raw.description) ?? '' };
 }
 
 function toModel(raw: unknown): HarnessModel | null {
-    if (!isRecord(raw)) return null;
-    const value = asString(raw.value);
-    if (!value) return null;
-    return {
-        value,
-        resolvedModel: asString(raw.resolvedModel) ?? value,
-        displayName: asString(raw.displayName) ?? value,
-        description: asString(raw.description) ?? '',
-        supportsEffort: asBoolean(raw.supportsEffort),
-        supportedEffortLevels: asStringArray(raw.supportedEffortLevels),
-        supportsFastMode: asBoolean(raw.supportsFastMode),
-        supportsAdaptiveThinking: asBoolean(raw.supportsAdaptiveThinking),
-        supportsAutoMode: asBoolean(raw.supportsAutoMode),
-    };
+  if (!isRecord(raw)) return null;
+  const value = asString(raw.value);
+  if (!value) return null;
+  return {
+    value,
+    resolvedModel: asString(raw.resolvedModel) ?? value,
+    displayName: asString(raw.displayName) ?? value,
+    description: asString(raw.description) ?? '',
+    supportsEffort: asBoolean(raw.supportsEffort),
+    supportedEffortLevels: asStringArray(raw.supportedEffortLevels),
+    supportsFastMode: asBoolean(raw.supportsFastMode),
+    supportsAdaptiveThinking: asBoolean(raw.supportsAdaptiveThinking),
+    supportsAutoMode: asBoolean(raw.supportsAutoMode),
+  };
 }
 
 /**
@@ -230,16 +227,16 @@ function toModel(raw: unknown): HarnessModel | null {
  * card can distinguish "not signed in" from "never asked".
  */
 function toAccount(raw: unknown): HarnessCapabilityAccount | undefined {
-    if (!isRecord(raw)) return undefined;
-    const emailAddress = asString(raw.email);
-    const subscriptionType = asString(raw.subscriptionType);
-    return {
-        signedIn: Boolean(emailAddress || subscriptionType),
-        emailAddress,
-        organization: asString(raw.organization),
-        subscriptionType,
-        apiProvider: asString(raw.apiProvider),
-    };
+  if (!isRecord(raw)) return undefined;
+  const emailAddress = asString(raw.email);
+  const subscriptionType = asString(raw.subscriptionType);
+  return {
+    signedIn: Boolean(emailAddress || subscriptionType),
+    emailAddress,
+    organization: asString(raw.organization),
+    subscriptionType,
+    apiProvider: asString(raw.apiProvider),
+  };
 }
 
 /**
@@ -251,31 +248,31 @@ function toAccount(raw: unknown): HarnessCapabilityAccount | undefined {
  * command list, is treated as unrecognised rather than as an empty harness.
  */
 export function mapInitializeResponse(raw: unknown): HarnessCapabilities {
-    if (!isRecord(raw)) {
-        throw new Error('The CLI answered with something other than an object.');
-    }
-    if (!Array.isArray(raw.commands)) {
-        throw new Error('The CLI answered without a command list.');
-    }
-    return {
-        commands: raw.commands
-            .map(toCommand)
-            .filter((command): command is HarnessCommand => command !== null),
-        agents: Array.isArray(raw.agents)
-            ? raw.agents.map(toAgent).filter((agent): agent is HarnessAgent => agent !== null)
-            : [],
-        models: Array.isArray(raw.models)
-            ? raw.models.map(toModel).filter((model): model is HarnessModel => model !== null)
-            : [],
-        outputStyles: asStringArray(raw.available_output_styles) ?? [],
-        account: toAccount(raw.account),
-    };
+  if (!isRecord(raw)) {
+    throw new Error('The CLI answered with something other than an object.');
+  }
+  if (!Array.isArray(raw.commands)) {
+    throw new Error('The CLI answered without a command list.');
+  }
+  return {
+    commands: raw.commands
+      .map(toCommand)
+      .filter((command): command is HarnessCommand => command !== null),
+    agents: Array.isArray(raw.agents)
+      ? raw.agents.map(toAgent).filter((agent): agent is HarnessAgent => agent !== null)
+      : [],
+    models: Array.isArray(raw.models)
+      ? raw.models.map(toModel).filter((model): model is HarnessModel => model !== null)
+      : [],
+    outputStyles: asStringArray(raw.available_output_styles) ?? [],
+    account: toAccount(raw.account),
+  };
 }
 
 export async function probeClaudeCapabilities(
-    binary: string,
-    cwd: string,
-    env: NodeJS.ProcessEnv
+  binary: string,
+  cwd: string,
+  env: NodeJS.ProcessEnv,
 ): Promise<HarnessCapabilities> {
-    return mapInitializeResponse(await requestInitializeHandshake(binary, cwd, env));
+  return mapInitializeResponse(await requestInitializeHandshake(binary, cwd, env));
 }

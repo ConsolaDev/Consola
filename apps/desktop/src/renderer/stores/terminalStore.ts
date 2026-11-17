@@ -11,106 +11,106 @@ import { deriveTerminalStatus, type TerminalStatus } from '../../shared/terminal
  */
 
 export interface TerminalState {
-    /** Output is flowing — Claude is working. */
-    isBusy: boolean;
-    /** A menu is on screen waiting for a keypress (trust gate, permissions). */
-    isAwaitingConfirmation: boolean;
-    /** The claude process exited; the pane offers a restart. */
-    hasExited: boolean;
-    /** Main's derived status — what group counts and badges consume. */
-    status: TerminalStatus;
+  /** Output is flowing — Claude is working. */
+  isBusy: boolean;
+  /** A menu is on screen waiting for a keypress (trust gate, permissions). */
+  isAwaitingConfirmation: boolean;
+  /** The claude process exited; the pane offers a restart. */
+  hasExited: boolean;
+  /** Main's derived status — what group counts and badges consume. */
+  status: TerminalStatus;
 }
 
 const INITIAL_STATE: TerminalState = {
-    isBusy: false,
-    isAwaitingConfirmation: false,
-    hasExited: false,
-    status: 'ready',
+  isBusy: false,
+  isAwaitingConfirmation: false,
+  hasExited: false,
+  status: 'ready',
 };
 
 interface TerminalStoreState {
-    terminals: Record<string, TerminalState>;
-    /** Prompts typed before a terminal existed, delivered once it is ready. */
-    pendingPrompts: Record<string, string>;
-    getState: (instanceId: string) => TerminalState;
-    setState: (instanceId: string, updates: Partial<TerminalState>) => void;
-    /** Record a busy-flag edge. */
-    noteActivity: (instanceId: string, busy: boolean) => void;
-    setPendingPrompt: (instanceId: string, prompt: string) => void;
-    consumePendingPrompt: (instanceId: string) => string | undefined;
-    removeInstance: (instanceId: string) => void;
-    /** Subscribe to main-process terminal events. Call once at app start. */
-    subscribeToEvents: () => () => void;
+  terminals: Record<string, TerminalState>;
+  /** Prompts typed before a terminal existed, delivered once it is ready. */
+  pendingPrompts: Record<string, string>;
+  getState: (instanceId: string) => TerminalState;
+  setState: (instanceId: string, updates: Partial<TerminalState>) => void;
+  /** Record a busy-flag edge. */
+  noteActivity: (instanceId: string, busy: boolean) => void;
+  setPendingPrompt: (instanceId: string, prompt: string) => void;
+  consumePendingPrompt: (instanceId: string) => string | undefined;
+  removeInstance: (instanceId: string) => void;
+  /** Subscribe to main-process terminal events. Call once at app start. */
+  subscribeToEvents: () => () => void;
 }
 
 export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
-    terminals: {},
-    pendingPrompts: {},
+  terminals: {},
+  pendingPrompts: {},
 
-    getState: (instanceId) => get().terminals[instanceId] ?? INITIAL_STATE,
+  getState: (instanceId) => get().terminals[instanceId] ?? INITIAL_STATE,
 
-    setState: (instanceId, updates) => {
-        set((state) => ({
-            terminals: {
-                ...state.terminals,
-                [instanceId]: {
-                    ...(state.terminals[instanceId] ?? INITIAL_STATE),
-                    ...updates,
-                },
-            },
-        }));
-    },
+  setState: (instanceId, updates) => {
+    set((state) => ({
+      terminals: {
+        ...state.terminals,
+        [instanceId]: {
+          ...(state.terminals[instanceId] ?? INITIAL_STATE),
+          ...updates,
+        },
+      },
+    }));
+  },
 
-    noteActivity: (instanceId, busy) => {
-        get().setState(instanceId, { isBusy: busy });
-    },
+  noteActivity: (instanceId, busy) => {
+    get().setState(instanceId, { isBusy: busy });
+  },
 
-    setPendingPrompt: (instanceId, prompt) => {
-        set((state) => ({
-            pendingPrompts: { ...state.pendingPrompts, [instanceId]: prompt },
-        }));
-    },
+  setPendingPrompt: (instanceId, prompt) => {
+    set((state) => ({
+      pendingPrompts: { ...state.pendingPrompts, [instanceId]: prompt },
+    }));
+  },
 
-    consumePendingPrompt: (instanceId) => {
-        const prompt = get().pendingPrompts[instanceId];
-        if (prompt === undefined) return undefined;
-        set((state) => {
-            const { [instanceId]: _taken, ...rest } = state.pendingPrompts;
-            return { pendingPrompts: rest };
-        });
-        return prompt;
-    },
+  consumePendingPrompt: (instanceId) => {
+    const prompt = get().pendingPrompts[instanceId];
+    if (prompt === undefined) return undefined;
+    set((state) => {
+      const { [instanceId]: _taken, ...rest } = state.pendingPrompts;
+      return { pendingPrompts: rest };
+    });
+    return prompt;
+  },
 
-    removeInstance: (instanceId) => {
-        set((state) => {
-            const { [instanceId]: _removed, ...restTerminals } = state.terminals;
-            const { [instanceId]: _removedPrompt, ...restPrompts } = state.pendingPrompts;
-            return { terminals: restTerminals, pendingPrompts: restPrompts };
-        });
-    },
+  removeInstance: (instanceId) => {
+    set((state) => {
+      const { [instanceId]: _removed, ...restTerminals } = state.terminals;
+      const { [instanceId]: _removedPrompt, ...restPrompts } = state.pendingPrompts;
+      return { terminals: restTerminals, pendingPrompts: restPrompts };
+    });
+  },
 
-    subscribeToEvents: () => {
-        const { setState, noteActivity } = get();
+  subscribeToEvents: () => {
+    const { setState, noteActivity } = get();
 
-        const unsubscribers = [
-            terminalBridge.onActivity(({ instanceId, busy }) => {
-                noteActivity(instanceId, busy);
-            }),
-            terminalBridge.onAwaitingConfirmation(({ instanceId, awaiting }) => {
-                setState(instanceId, { isAwaitingConfirmation: awaiting });
-            }),
-            terminalBridge.onExit(({ instanceId }) => {
-                setState(instanceId, { hasExited: true, isBusy: false });
-            }),
-            terminalBridge.onStatus(({ instanceId, status }) => {
-                // Only an exit event marks a pane exited; any other status means
-                // main brought the terminal back (a relaunch), so the overlay goes.
-                setState(instanceId, status === 'exited' ? { status } : { status, hasExited: false });
-            }),
-        ];
+    const unsubscribers = [
+      terminalBridge.onActivity(({ instanceId, busy }) => {
+        noteActivity(instanceId, busy);
+      }),
+      terminalBridge.onAwaitingConfirmation(({ instanceId, awaiting }) => {
+        setState(instanceId, { isAwaitingConfirmation: awaiting });
+      }),
+      terminalBridge.onExit(({ instanceId }) => {
+        setState(instanceId, { hasExited: true, isBusy: false });
+      }),
+      terminalBridge.onStatus(({ instanceId, status }) => {
+        // Only an exit event marks a pane exited; any other status means
+        // main brought the terminal back (a relaunch), so the overlay goes.
+        setState(instanceId, status === 'exited' ? { status } : { status, hasExited: false });
+      }),
+    ];
 
-        return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
-    },
+    return () => unsubscribers.forEach((unsubscribe) => unsubscribe());
+  },
 }));
 
 /**
@@ -123,30 +123,30 @@ export const useTerminalStore = create<TerminalStoreState>((set, get) => ({
  * human answers it. Reading main's state once at startup closes that gap.
  */
 export async function hydrateTerminalStatus(): Promise<void> {
-    const snapshot = await terminalBridge.getStatusSnapshot();
+  const snapshot = await terminalBridge.getStatusSnapshot();
 
-    useTerminalStore.setState((state) => {
-        const terminals = { ...state.terminals };
-        for (const [instanceId, flags] of Object.entries(snapshot)) {
-            // The snapshot merges UNDERNEATH what is already here, not over it.
-            // It is a value read at one instant; anything already in the store
-            // arrived from an edge that fired later, so the store is fresher.
-            // The distinction is dormant today because nothing writes terminals
-            // before the first render — but it becomes load-bearing the moment
-            // subscribeToEvents() moves earlier, which is the obvious way to
-            // close the remaining gap between this fetch and the subscription.
-            const derivedStatus = deriveTerminalStatus({
-                busy: flags.isBusy,
-                awaitingConfirmation: flags.isAwaitingConfirmation,
-                exited: flags.hasExited,
-            });
-            terminals[instanceId] = {
-                ...INITIAL_STATE,
-                ...flags,
-                ...{ status: derivedStatus },
-                ...terminals[instanceId],
-            };
-        }
-        return { terminals };
-    });
+  useTerminalStore.setState((state) => {
+    const terminals = { ...state.terminals };
+    for (const [instanceId, flags] of Object.entries(snapshot)) {
+      // The snapshot merges UNDERNEATH what is already here, not over it.
+      // It is a value read at one instant; anything already in the store
+      // arrived from an edge that fired later, so the store is fresher.
+      // The distinction is dormant today because nothing writes terminals
+      // before the first render — but it becomes load-bearing the moment
+      // subscribeToEvents() moves earlier, which is the obvious way to
+      // close the remaining gap between this fetch and the subscription.
+      const derivedStatus = deriveTerminalStatus({
+        busy: flags.isBusy,
+        awaitingConfirmation: flags.isAwaitingConfirmation,
+        exited: flags.hasExited,
+      });
+      terminals[instanceId] = {
+        ...INITIAL_STATE,
+        ...flags,
+        ...{ status: derivedStatus },
+        ...terminals[instanceId],
+      };
+    }
+    return { terminals };
+  });
 }

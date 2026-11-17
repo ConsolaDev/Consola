@@ -1,6 +1,6 @@
-import { execFile } from 'child_process';
-import * as path from 'path';
-import { promisify } from 'util';
+import { execFile } from 'node:child_process';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import type { CheckoutInfo } from '../shared/sessionCheckout';
 
 const execFileAsync = promisify(execFile);
@@ -11,7 +11,9 @@ const GIT_TIMEOUT_MS = 10_000;
 /** stdout, or null when git fails — which here only ever means "not this". */
 async function git(cwd: string, args: string[]): Promise<string | null> {
   try {
-    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], { timeout: GIT_TIMEOUT_MS });
+    const { stdout } = await execFileAsync('git', ['-C', cwd, ...args], {
+      timeout: GIT_TIMEOUT_MS,
+    });
     return stdout.trim();
   } catch {
     return null;

@@ -39,7 +39,9 @@ describe('AttentionService', () => {
 
   it('counts needs-attention only: done never earns a badge', () => {
     const service = new AttentionService();
-    service.register(fakeSource({ a: 'needs-attention', b: 'done', c: 'working', d: 'needs-attention' }).source);
+    service.register(
+      fakeSource({ a: 'needs-attention', b: 'done', c: 'working', d: 'needs-attention' }).source,
+    );
     expect(service.needsAttentionCount()).toBe(2);
   });
 

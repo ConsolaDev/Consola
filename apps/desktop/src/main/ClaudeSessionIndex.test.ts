@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import {
   getDisplayName,
   MAX_CONVERSATION_ENTRIES,
@@ -35,7 +35,7 @@ afterEach(() => {
 
 function writeTranscript(userMessages: string[]): void {
   const lines = userMessages.map((content) =>
-    JSON.stringify({ type: 'user', message: { role: 'user', content } })
+    JSON.stringify({ type: 'user', message: { role: 'user', content } }),
   );
   fs.writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), lines.join('\n') + '\n');
 }
@@ -115,7 +115,7 @@ describe('getDisplayName from the index', () => {
       JSON.stringify({
         version: 1,
         entries: [{ sessionId: SESSION_ID, summary: 'Login redirect fix' }],
-      })
+      }),
     );
 
     expect(getDisplayName(SESSION_ID, configDir)).toEqual({
@@ -130,8 +130,10 @@ describe('getDisplayName from the index', () => {
       path.join(projectDir, 'sessions-index.json'),
       JSON.stringify({
         version: 1,
-        entries: [{ sessionId: SESSION_ID, summary: '', firstPrompt: 'Fix the login redirect loop' }],
-      })
+        entries: [
+          { sessionId: SESSION_ID, summary: '', firstPrompt: 'Fix the login redirect loop' },
+        ],
+      }),
     );
 
     expect(getDisplayName(SESSION_ID, configDir)).toEqual({
@@ -231,7 +233,7 @@ describe('readConversation', () => {
   function writeRecords(records: unknown[], raw = ''): void {
     fs.writeFileSync(
       path.join(projectDir, `${SESSION_ID}.jsonl`),
-      records.map((r) => JSON.stringify(r)).join('\n') + '\n' + raw
+      records.map((r) => JSON.stringify(r)).join('\n') + '\n' + raw,
     );
   }
   const assistant = (content: unknown[], timestamp?: string, extra = {}) => ({
@@ -244,22 +246,28 @@ describe('readConversation', () => {
 
   it('reads the prompt, each tool call with its main argument, and the text, in order', async () => {
     writeRecords([
-      { type: 'user', timestamp: '2026-11-12T10:00:00Z', message: { role: 'user', content: 'Review PR 12' } },
+      {
+        type: 'user',
+        timestamp: '2026-11-12T10:00:00Z',
+        message: { role: 'user', content: 'Review PR 12' },
+      },
       { type: 'user', isMeta: true, message: { role: 'user', content: 'injected context' } },
       assistant([{ type: 'thinking', thinking: 'hmm' }], '2026-11-12T10:00:01Z'),
       assistant(
         [{ type: 'text', text: 'Looking.' }, toolUse('Read', { file_path: '/repo/a.ts' })],
-        '2026-11-12T10:00:02Z'
+        '2026-11-12T10:00:02Z',
       ),
       {
         type: 'user',
         timestamp: '2026-11-12T10:00:03Z',
         message: { role: 'user', content: [{ type: 'tool_result', content: 'file body' }] },
       },
-      assistant([toolUse('Bash', { command: 'ls' })], '2026-11-12T10:00:03Z', { isSidechain: true }),
+      assistant([toolUse('Bash', { command: 'ls' })], '2026-11-12T10:00:03Z', {
+        isSidechain: true,
+      }),
       assistant(
         [toolUse('mcp__consola__consola_work_item_context', {}), { type: 'text', text: 'Done.' }],
-        '2026-11-12T10:00:04Z'
+        '2026-11-12T10:00:04Z',
       ),
     ]);
 
@@ -283,7 +291,14 @@ describe('readConversation', () => {
       timestamp,
       message: {
         role: 'user',
-        content: [{ type: 'tool_result', tool_use_id: id, content: 'out', ...(isError ? { is_error: true } : {}) }],
+        content: [
+          {
+            type: 'tool_result',
+            tool_use_id: id,
+            content: 'out',
+            ...(isError ? { is_error: true } : {}),
+          },
+        ],
       },
     });
     writeRecords([
@@ -292,7 +307,7 @@ describe('readConversation', () => {
           { ...toolUse('Read', { file_path: '/a' }), id: 'call-1' },
           { ...toolUse('Bash', { command: 'pnpm test' }), id: 'call-2' },
         ],
-        '2026-11-12T10:00:01Z'
+        '2026-11-12T10:00:01Z',
       ),
       result('call-1', '2026-11-12T10:00:02Z'),
       result('call-2', '2026-11-12T10:00:40Z', true),
@@ -305,7 +320,13 @@ describe('readConversation', () => {
     const conversation = await readConversation(SESSION_ID, configDir);
 
     expect(conversation!.entries).toEqual([
-      { kind: 'step', tool: 'Read', detail: '/a', at: '2026-11-12T10:00:01Z', endedAt: '2026-11-12T10:00:02Z' },
+      {
+        kind: 'step',
+        tool: 'Read',
+        detail: '/a',
+        at: '2026-11-12T10:00:01Z',
+        endedAt: '2026-11-12T10:00:02Z',
+      },
       {
         kind: 'step',
         tool: 'Bash',
@@ -319,7 +340,16 @@ describe('readConversation', () => {
   });
 
   it("picks a step's detail from file_path, path, pattern, command, url, skill, description, query, in that order", async () => {
-    const keys = ['file_path', 'path', 'pattern', 'command', 'url', 'skill', 'description', 'query'];
+    const keys = [
+      'file_path',
+      'path',
+      'pattern',
+      'command',
+      'url',
+      'skill',
+      'description',
+      'query',
+    ];
     const calls = keys.map((_, i) => {
       // Everything from key i onwards is present: the earliest must win.
       const input: Record<string, string> = {};
@@ -360,7 +390,10 @@ describe('readConversation', () => {
   });
 
   it('skips an unparsable line, such as one mid-write', async () => {
-    writeRecords([assistant([{ type: 'text', text: 'complete' }])], '{"type":"assistant","message":{"con');
+    writeRecords(
+      [assistant([{ type: 'text', text: 'complete' }])],
+      '{"type":"assistant","message":{"con',
+    );
 
     const result = await readConversation(SESSION_ID, configDir);
 

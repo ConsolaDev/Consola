@@ -17,7 +17,7 @@ export interface RunActionInSessionDeps {
     workspaceId: string,
     sessionId: string,
     prompt: string,
-    conversation: ActionConversation
+    conversation: ActionConversation,
   ): Promise<void>;
 }
 
@@ -40,11 +40,12 @@ export async function runActionInSession(
   deps: RunActionInSessionDeps,
   workspaceId: string,
   sessionId: string,
-  actionId: string
+  actionId: string,
 ): Promise<RunActionInSessionResult> {
   const workspace = deps.getWorkspace(workspaceId);
   if (!workspace) return { ok: false, message: `Unknown workspace: ${workspaceId}` };
-  if (!workspace.provider) return { ok: false, message: 'This workspace has no provider account bound.' };
+  if (!workspace.provider)
+    return { ok: false, message: 'This workspace has no provider account bound.' };
   const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
   if (!session) return { ok: false, message: 'That session no longer exists.' };
   const ref = session.workItem;
@@ -86,14 +87,16 @@ export async function runActionInSession(
  * back to back, in the order they were asked for.
  */
 export function createRunInSessionCoalescer(
-  deps: RunActionInSessionDeps
+  deps: RunActionInSessionDeps,
 ): (workspaceId: string, sessionId: string, actionId: string) => Promise<RunActionInSessionResult> {
   const inFlight = new Map<string, Promise<RunActionInSessionResult>>();
   return (workspaceId, sessionId, actionId) => {
     const key = `${workspaceId}:${sessionId}:${actionId}`;
     const running = inFlight.get(key);
     if (running) return running;
-    const job = runActionInSession(deps, workspaceId, sessionId, actionId).finally(() => inFlight.delete(key));
+    const job = runActionInSession(deps, workspaceId, sessionId, actionId).finally(() =>
+      inFlight.delete(key),
+    );
     inFlight.set(key, job);
     return job;
   };

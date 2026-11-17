@@ -6,7 +6,10 @@
  */
 export function AssistantMarker() {
   return (
-    <span className="checkout-chip assistant-marker" title="Started or last prompted by the Assistant">
+    <span
+      className="checkout-chip assistant-marker"
+      title="Started or last prompted by the Assistant"
+    >
       <span className="assistant-marker-label">✦ Assistant</span>
     </span>
   );

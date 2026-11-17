@@ -17,13 +17,7 @@ interface DiffViewProps {
 /**
  * Renders a single line with syntax highlighting
  */
-function HighlightedLine({
-  content,
-  language
-}: {
-  content: string;
-  language: string;
-}) {
+function HighlightedLine({ content, language }: { content: string; language: string }) {
   return (
     <SyntaxHighlighter
       style={codeTheme}
@@ -39,7 +33,7 @@ function HighlightedLine({
       codeTagProps={{
         style: {
           fontFamily: 'inherit',
-        }
+        },
       }}
       PreTag="span"
     >
@@ -60,7 +54,8 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
     setIsLoading(true);
     setError(null);
 
-    gitBridge.getDiff(rootPath, relativePath, staged)
+    gitBridge
+      .getDiff(rootPath, relativePath, staged)
       .then((data) => {
         if (data) {
           setDiffData(data);
@@ -170,26 +165,32 @@ export function DiffView({ rootPath, relativePath, staged }: DiffViewProps) {
       </div>
       <div className="diff-unified-content">
         {unifiedLines.map((line, idx) => {
-          const lineClass = line.type === 'add'
-            ? 'diff-unified-line-add'
-            : line.type === 'remove'
-              ? 'diff-unified-line-remove'
-              : '';
+          const lineClass =
+            line.type === 'add'
+              ? 'diff-unified-line-add'
+              : line.type === 'remove'
+                ? 'diff-unified-line-remove'
+                : '';
 
           const gutter = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ';
-          const gutterClass = line.type === 'add'
-            ? 'diff-unified-gutter-add'
-            : line.type === 'remove'
-              ? 'diff-unified-gutter-remove'
-              : '';
+          const gutterClass =
+            line.type === 'add'
+              ? 'diff-unified-gutter-add'
+              : line.type === 'remove'
+                ? 'diff-unified-gutter-remove'
+                : '';
 
           return (
             <div key={idx} className={`diff-unified-line ${lineClass}`}>
               <span className={`diff-unified-gutter ${gutterClass}`}>{gutter}</span>
-              <span className={`diff-unified-line-number ${line.oldLineNumber === undefined ? 'diff-unified-line-number-empty' : ''}`}>
+              <span
+                className={`diff-unified-line-number ${line.oldLineNumber === undefined ? 'diff-unified-line-number-empty' : ''}`}
+              >
                 {line.oldLineNumber ?? ''}
               </span>
-              <span className={`diff-unified-line-number ${line.newLineNumber === undefined ? 'diff-unified-line-number-empty' : ''}`}>
+              <span
+                className={`diff-unified-line-number ${line.newLineNumber === undefined ? 'diff-unified-line-number-empty' : ''}`}
+              >
                 {line.newLineNumber ?? ''}
               </span>
               <span className="diff-unified-line-content">

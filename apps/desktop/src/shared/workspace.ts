@@ -21,14 +21,14 @@ import type { WorkItemRef } from './workItems';
 
 export interface Session {
   id: string;
-  name: string;                    // From Claude's session summary, or user-provided
+  name: string; // From Claude's session summary, or user-provided
   // A human typed this name, so it wins permanently: the CLI-summary poll
   // never runs for a session whose name is user-set. Set, never cleared.
   nameIsUserSet?: boolean;
-  workspaceId: string;             // Parent workspace
-  instanceId: string;              // Terminal instance ID
-  claudeSessionId: string;         // UUID passed to `claude --session-id`
-  hasStarted: boolean;             // Launched before, so resume instead of create
+  workspaceId: string; // Parent workspace
+  instanceId: string; // Terminal instance ID
+  claudeSessionId: string; // UUID passed to `claude --session-id`
+  hasStarted: boolean; // Launched before, so resume instead of create
   // Harness this conversation runs on. Fixed for the session's lifetime: the
   // transcript lives in that harness's config directory, so resuming under a
   // different one would lose the conversation.
@@ -111,9 +111,9 @@ export interface SessionProvenance {
 /** A durable *place* sessions run in. Few per workspace; nesting is allowed. */
 export interface Scope {
   id: string;
-  name: string;                    // Defaults to the folder basename
-  path: string;                    // Absolute; overlap between scopes is fine
-  isGitRepo: boolean;              // Cached when the folder is selected
+  name: string; // Defaults to the folder basename
+  path: string; // Absolute; overlap between scopes is fine
+  isGitRepo: boolean; // Cached when the folder is selected
   createdAt: number;
 }
 
@@ -123,10 +123,10 @@ export interface Group {
   emoji?: string;
   id: string;
   name: string;
-  parentGroupId?: string;          // Nesting
-  conductorSessionId?: string;     // Set only by the orchestration door
+  parentGroupId?: string; // Nesting
+  conductorSessionId?: string; // Set only by the orchestration door
   createdAt: number;
-  archivedAt?: number;             // Done groups collapse out of the sidebar
+  archivedAt?: number; // Done groups collapse out of the sidebar
 }
 
 /**
@@ -145,13 +145,17 @@ export interface Label {
 /** Which provider a workspace acts on, and as whom. */
 export interface WorkspaceProvider {
   id: GitProviderId;
-  accountLogin: string;            // Which keyring account of the provider CLI
-  org?: string;                    // Scopes the Inbox query; absent = all repos
+  accountLogin: string; // Which keyring account of the provider CLI
+  org?: string; // Scopes the Inbox query; absent = all repos
 }
 
 /** What the Assistant may do in the sessions it starts on pull requests and issues. */
 export type AssistantItemMode = 'full-tools' | 'read-only' | 'assistant-picks';
-export const ASSISTANT_ITEM_MODES: readonly AssistantItemMode[] = ['full-tools', 'read-only', 'assistant-picks'];
+export const ASSISTANT_ITEM_MODES: readonly AssistantItemMode[] = [
+  'full-tools',
+  'read-only',
+  'assistant-picks',
+];
 
 /** The Assistant's fixed row label; its record is user-named so nothing renames it. */
 export const ASSISTANT_SESSION_NAME = 'Assistant';
@@ -162,11 +166,11 @@ export interface Workspace {
   /** Absent uses the neutral workspace icon, including on older records. */
   icon?: WorkspaceIconValue;
   id: string;
-  name: string;                    // From folder name
-  defaultHarnessId: string;        // Preselected when starting a conversation here
-  scopes: Scope[];                 // Replaces path + isGitRepo (state v6)
+  name: string; // From folder name
+  defaultHarnessId: string; // Preselected when starting a conversation here
+  scopes: Scope[]; // Replaces path + isGitRepo (state v6)
   groups: Group[];
-  labels: Label[];                 // Filters over sessions (state v8)
+  labels: Label[]; // Filters over sessions (state v8)
   // Absent = pure local workspace, exactly today's behavior. Present = every
   // session PTY in this workspace gets the provider's token for this account.
   provider?: WorkspaceProvider;
@@ -274,7 +278,7 @@ export function createWorkspaceRecord(
   name: string,
   path: string,
   isGitRepo: boolean,
-  defaultHarnessId: string = BUILT_IN_HARNESS_ID
+  defaultHarnessId: string = BUILT_IN_HARNESS_ID,
 ): Workspace {
   const now = Date.now();
   return {
@@ -299,7 +303,16 @@ export type NewSessionFields = Pick<
   Partial<
     Pick<
       Session,
-      'cwd' | 'groupId' | 'labelIds' | 'parentSessionId' | 'kind' | 'workItem' | 'workItemAction' | 'toolPolicy' | 'automation' | 'nameIsUserSet'
+      | 'cwd'
+      | 'groupId'
+      | 'labelIds'
+      | 'parentSessionId'
+      | 'kind'
+      | 'workItem'
+      | 'workItemAction'
+      | 'toolPolicy'
+      | 'automation'
+      | 'nameIsUserSet'
     >
   >;
 
@@ -344,7 +357,17 @@ export function createSessionRecord(fields: NewSessionFields): Session {
  * knows where its agent went.
  */
 export type SessionUpdates = Partial<
-  Pick<Session, 'name' | 'nameIsUserSet' | 'lastActiveAt' | 'hasStarted' | 'groupId' | 'workItem' | 'labelIds' | 'autoSettle'>
+  Pick<
+    Session,
+    | 'name'
+    | 'nameIsUserSet'
+    | 'lastActiveAt'
+    | 'hasStarted'
+    | 'groupId'
+    | 'workItem'
+    | 'labelIds'
+    | 'autoSettle'
+  >
 > & {
   /**
    * Only ever `undefined`, and only with the key present: detach from the
@@ -388,12 +411,10 @@ export function primaryScope(workspace: Workspace): Scope | undefined {
  */
 export function scopeForSession(
   workspace: Workspace,
-  session: Pick<Session, 'scopeId'> | undefined
+  session: Pick<Session, 'scopeId'> | undefined,
 ): Scope | undefined {
   if (!session) return primaryScope(workspace);
-  return (
-    workspace.scopes.find((scope) => scope.id === session.scopeId) ?? primaryScope(workspace)
-  );
+  return workspace.scopes.find((scope) => scope.id === session.scopeId) ?? primaryScope(workspace);
 }
 
 /**
@@ -406,7 +427,7 @@ export function scopeForSession(
  */
 export function checkoutPathForSession(
   workspace: Workspace,
-  session: Pick<Session, 'scopeId' | 'cwd' | 'agentCwd'> | undefined
+  session: Pick<Session, 'scopeId' | 'cwd' | 'agentCwd'> | undefined,
 ): string | undefined {
   return session?.agentCwd ?? session?.cwd ?? scopeForSession(workspace, session)?.path;
 }
@@ -572,7 +593,7 @@ export function migrateWorkspaceState(persistedState: unknown, version: number):
       migrated.sessions = (ws.sessions ?? []).map((s: any) =>
         s.workItem && s.workItemAction === undefined
           ? { ...s, workItemAction: defaultActionNameForType(s.workItem.type) }
-          : s
+          : s,
       );
       return migrated;
     });
@@ -623,7 +644,10 @@ function groupsToLabels(ws: any): any {
   const knownLabelIds = new Set(labels.map((label) => label.id));
   for (const group of groups) {
     if ((group.archivedAt && !reached.has(group.id)) || knownLabelIds.has(group.id)) continue;
-    const path = lineage(group).reverse().map((member) => member.name).join(' / ');
+    const path = lineage(group)
+      .reverse()
+      .map((member) => member.name)
+      .join(' / ');
     labels.push({ id: group.id, name: path, ...(group.emoji ? { emoji: group.emoji } : {}) });
   }
 
@@ -641,8 +665,11 @@ function groupsToLabels(ws: any): any {
     // than pointing at nothing.
     const conductorId = group.conductorSessionId;
     if (
-      conductorId && sessionIds.has(conductorId) && session.id !== conductorId &&
-      session.kind !== 'assistant' && next.parentSessionId === undefined
+      conductorId &&
+      sessionIds.has(conductorId) &&
+      session.id !== conductorId &&
+      session.kind !== 'assistant' &&
+      next.parentSessionId === undefined
     ) {
       next.parentSessionId = conductorId;
     }

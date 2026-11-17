@@ -57,7 +57,9 @@ const PAST: ReadonlySet<Attention> = new Set<Attention>(['exited', 'settled']);
 export function SessionRow(props: RowProps) {
   const id = idOfKey(props.entry.key);
   const session = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === props.workspaceId)?.sessions.find((candidate) => candidate.id === id)
+    state.workspaces
+      .find((candidate) => candidate.id === props.workspaceId)
+      ?.sessions.find((candidate) => candidate.id === id),
   );
   return session ? <SessionRowBody {...props} session={session} /> : null;
 }
@@ -106,12 +108,16 @@ function SessionRowBody({
   // The stored list, resolved in render: a selector building an array would
   // hand React a fresh snapshot on every read. Ids naming a deleted label
   // simply find nothing.
-  const allLabels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels);
+  const allLabels = useWorkspaceStore(
+    (state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels,
+  );
   const labelNames = (allLabels ?? []).filter((label) => session.labelIds?.includes(label.id));
 
   // While the list mixes scopes each row says which one it runs in; a list
   // filtered to one scope already says it once, in the filter bar.
-  const workspace = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId));
+  const workspace = useWorkspaceStore((state) =>
+    state.workspaces.find((candidate) => candidate.id === workspaceId),
+  );
   const scopeFilterId = useHomeStore((state) => state.scopeFilters[workspaceId]);
   const rowScope = workspace?.scopes.find((candidate) => candidate.id === session.scopeId);
   const scopeLabel =
@@ -124,7 +130,10 @@ function SessionRowBody({
   const checkouts = useCheckoutStore((state) => state.byPath);
   const worksIn = session.agentCwd ?? session.cwd;
   const subtitle =
-    session.groupId && worksIn && worksIn !== rowScope?.path && !(showWorktree && checkouts[worksIn]?.kind === 'worktree')
+    session.groupId &&
+    worksIn &&
+    worksIn !== rowScope?.path &&
+    !(showWorktree && checkouts[worksIn]?.kind === 'worktree')
       ? basename(worksIn)
       : undefined;
 
@@ -210,7 +219,11 @@ function SessionRowBody({
   };
 
   const handleDelete = () => {
-    if (window.confirm(`Delete session "${label}"? This will remove the session and its chat history.`)) {
+    if (
+      window.confirm(
+        `Delete session "${label}"? This will remove the session and its chat history.`,
+      )
+    ) {
       void deleteSessionCompletely(workspaceId, session);
     }
   };
@@ -256,7 +269,16 @@ function SessionRowBody({
   // The meta line carries everything that used to sit on the title's line and
   // eat its width: the glyphs, where the row runs, its state, its age. Rendered
   // whenever it has anything to say, which with an age is always.
-  const meta = showHarness || shownModel || session.kind === 'conductor' || readOnly || scopeLabel || subtitle || statusWord || live || age;
+  const meta =
+    showHarness ||
+    shownModel ||
+    session.kind === 'conductor' ||
+    readOnly ||
+    scopeLabel ||
+    subtitle ||
+    statusWord ||
+    live ||
+    age;
 
   return (
     <div
@@ -270,7 +292,8 @@ function SessionRowBody({
       // row: whatever the person was in (usually the terminal) keeps it, so
       // the menu can hand it back. Ctrl-click is the same request on macOS.
       onMouseDown={(event) => {
-        if (!isRenaming && (event.button === 2 || (event.button === 0 && event.ctrlKey))) event.preventDefault();
+        if (!isRenaming && (event.button === 2 || (event.button === 0 && event.ctrlKey)))
+          event.preventDefault();
       }}
       onContextMenu={(event) => {
         if (isRenaming) return;
@@ -347,7 +370,9 @@ function SessionRowBody({
               )}
               {scopeLabel && (
                 <span className="session-nav-item-scope">
-                  {scopeLabel.parent && <span className="session-nav-item-scope-parent">{scopeLabel.parent} / </span>}
+                  {scopeLabel.parent && (
+                    <span className="session-nav-item-scope-parent">{scopeLabel.parent} / </span>
+                  )}
                   <span className="session-nav-item-scope-name">{scopeLabel.label}</span>
                 </span>
               )}
@@ -360,11 +385,15 @@ function SessionRowBody({
                   "exited" rides in the same column, before the age, where it
                   reads as "exited 47m" rather than running into the model. */}
               <span className="session-row-meta-spacer" />
-              {live && <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />}
+              {live && (
+                <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />
+              )}
               {(statusWord || showAge) && (
                 <span className="session-row-age">
                   {statusWord && (
-                    <span className={`session-status-word session-status-word--${displayStatus}`}>{statusWord} </span>
+                    <span className={`session-status-word session-status-word--${displayStatus}`}>
+                      {statusWord}{' '}
+                    </span>
                   )}
                   {showAge && age}
                 </span>
@@ -402,19 +431,29 @@ function SessionRowBody({
               person makes constantly and can undo from the toast; destroying a
               session and its history is rare and permanent, so it stays in the
               row's right-click menu where a mis-aimed click cannot reach it. */}
-          {(settle?.kind === 'settle' || settle?.kind === 'unsettle') && <button
-            type="button"
-            className="session-settle-action"
-            aria-label={isSettled ? `Move ${label} back to the list` : `Settle session ${label}`}
-            title={isSettled ? 'Move back to the list' : 'Settle — move it to the Settled shelf'}
-            onClick={(event) => {
-              event.stopPropagation();
-              void (isSettled ? unsettleWithUndo : settleWithUndo)(workspaceId, session.id, label);
-            }}
-          >
-            {isSettled ? <Undo2 size={12} aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
-            <span>{isSettled ? 'Restore' : 'Settle'}</span>
-          </button>}
+          {(settle?.kind === 'settle' || settle?.kind === 'unsettle') && (
+            <button
+              type="button"
+              className="session-settle-action"
+              aria-label={isSettled ? `Move ${label} back to the list` : `Settle session ${label}`}
+              title={isSettled ? 'Move back to the list' : 'Settle — move it to the Settled shelf'}
+              onClick={(event) => {
+                event.stopPropagation();
+                void (isSettled ? unsettleWithUndo : settleWithUndo)(
+                  workspaceId,
+                  session.id,
+                  label,
+                );
+              }}
+            >
+              {isSettled ? (
+                <Undo2 size={12} aria-hidden="true" />
+              ) : (
+                <Check size={12} aria-hidden="true" />
+              )}
+              <span>{isSettled ? 'Restore' : 'Settle'}</span>
+            </button>
+          )}
         </div>
       )}
       {!isRenaming && (

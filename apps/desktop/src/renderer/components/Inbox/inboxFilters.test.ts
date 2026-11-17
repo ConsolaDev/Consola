@@ -38,7 +38,15 @@ const twentyNineDays = makeItem(4, 'sprocket/media-upload-api', 29);
 const thirtyOneDays = makeItem(5, 'sprocket/forum-admin', 31);
 const eightyNineDays = makeItem(6, 'sprocket/catalog-portal', 89);
 const ninetyOneDays = makeItem(7, 'sprocket/old-repo', 91);
-const all = [fresh, sixDays, eightDays, twentyNineDays, thirtyOneDays, eightyNineDays, ninetyOneDays];
+const all = [
+  fresh,
+  sixDays,
+  eightDays,
+  twentyNineDays,
+  thirtyOneDays,
+  eightyNineDays,
+  ninetyOneDays,
+];
 
 describe('the Updated vocabulary', () => {
   it("lists the four ranges in menu order with GitHub's labels, month the default", () => {
@@ -72,7 +80,9 @@ describe('filterByUpdated', () => {
   it('keeps everything for any, including an item with no usable stamp', () => {
     const undated = makeItem(8, 'sprocket/forum-admin', 0);
     undated.updatedAt = '';
-    expect(numbers(filterByUpdated([...all, undated], 'any', now))).toEqual([1, 2, 3, 4, 5, 6, 7, 8]);
+    expect(numbers(filterByUpdated([...all, undated], 'any', now))).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8,
+    ]);
   });
 
   it('drops an item whose stamp cannot be parsed from a bounded range', () => {

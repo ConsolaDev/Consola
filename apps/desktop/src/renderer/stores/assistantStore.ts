@@ -24,15 +24,20 @@ export const useAssistantStore = create<AssistantState>((set) => ({
   },
   subscribe: () =>
     assistantBridge.onActivityChanged(({ workspaceId, activity }) =>
-      set((state) => ({ activity: { ...state.activity, [workspaceId]: activity } }))
+      set((state) => ({ activity: { ...state.activity, [workspaceId]: activity } })),
     ),
   reconcileTray: (workspaceId, waitingIds) =>
     set((state) => {
       const next = nextTrayState(state.tray[workspaceId], waitingIds);
-      return sameTrayState(state.tray[workspaceId], next) ? state : { tray: { ...state.tray, [workspaceId]: next } };
+      return sameTrayState(state.tray[workspaceId], next)
+        ? state
+        : { tray: { ...state.tray, [workspaceId]: next } };
     }),
   setTrayHidden: (workspaceId, hidden) =>
     set((state) => ({
-      tray: { ...state.tray, [workspaceId]: { known: state.tray[workspaceId]?.known ?? [], hidden } },
+      tray: {
+        ...state.tray,
+        [workspaceId]: { known: state.tray[workspaceId]?.known ?? [], hidden },
+      },
     })),
 }));

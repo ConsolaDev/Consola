@@ -8,6 +8,10 @@ import type { Session, Workspace } from '../../shared/workspace';
  * a window notices, so it can forget what it kept about them.
  */
 export function vanishedSessions(before: Workspace[], after: Workspace[]): Session[] {
-    const live = new Set(after.flatMap((workspace) => workspace.sessions.map((session) => session.id)));
-    return before.flatMap((workspace) => workspace.sessions.filter((session) => !live.has(session.id)));
+  const live = new Set(
+    after.flatMap((workspace) => workspace.sessions.map((session) => session.id)),
+  );
+  return before.flatMap((workspace) =>
+    workspace.sessions.filter((session) => !live.has(session.id)),
+  );
 }

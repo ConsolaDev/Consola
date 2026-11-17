@@ -16,7 +16,7 @@ describe('MCP SDK interop', () => {
     server.registerTool(
       'echo',
       { description: 'echo back', inputSchema: { text: z.string() } },
-      async ({ text }) => ({ content: [{ type: 'text' as const, text }] })
+      async ({ text }) => ({ content: [{ type: 'text' as const, text }] }),
     );
 
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();

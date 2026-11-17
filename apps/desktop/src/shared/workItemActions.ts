@@ -47,7 +47,9 @@ export type ActionConversation = 'continue' | 'fresh';
 export const ACTION_CONVERSATIONS: readonly ActionConversation[] = ['continue', 'fresh'];
 
 /** How an action treats an existing session's conversation, defaulted. */
-export function actionConversation(action: Pick<WorkItemAction, 'conversation'>): ActionConversation {
+export function actionConversation(
+  action: Pick<WorkItemAction, 'conversation'>,
+): ActionConversation {
   return action.conversation ?? 'continue';
 }
 
@@ -107,7 +109,7 @@ export function createDefaultActions(): WorkItemAction[] {
  * dangling id.
  */
 export function createDefaultSectionDefaults(
-  actions: WorkItemAction[]
+  actions: WorkItemAction[],
 ): Partial<Record<InboxSection, string>> {
   const defaults: Partial<Record<InboxSection, string>> = {};
   for (const [section, name] of Object.entries(DEFAULT_SECTION_ACTION_NAMES) as Array<
@@ -153,7 +155,7 @@ function isKnownSection(value: string): value is InboxSection {
 export function defaultActionFor(
   actions: WorkItemAction[],
   itemType: 'pr' | 'issue',
-  preferredId?: string
+  preferredId?: string,
 ): WorkItemAction | undefined {
   const applicable = actions.filter((action) => action.appliesTo.includes(itemType));
   const preferred = preferredId
@@ -177,7 +179,7 @@ export function defaultActionFor(
  */
 export function validateActionsWrite(
   write: ActionsWrite,
-  knownGroupIds: ReadonlySet<string>
+  knownGroupIds: ReadonlySet<string>,
 ): ActionsValidationResult {
   if (!Array.isArray(write.actions)) return { ok: false, message: 'Actions must be a list.' };
   if (typeof write.sectionDefaults !== 'object' || write.sectionDefaults === null) {
@@ -195,7 +197,10 @@ export function validateActionsWrite(
       return { ok: false, message: 'Every action needs a name.' };
     }
     if (!Array.isArray(action.appliesTo) || action.appliesTo.length === 0) {
-      return { ok: false, message: `"${action.name}" must apply to pull requests, issues, or both.` };
+      return {
+        ok: false,
+        message: `"${action.name}" must apply to pull requests, issues, or both.`,
+      };
     }
     if (action.appliesTo.some((type) => type !== 'pr' && type !== 'issue')) {
       return { ok: false, message: `"${action.name}" applies to an unknown item type.` };
@@ -215,7 +220,8 @@ export function validateActionsWrite(
 
   for (const [section, actionId] of Object.entries(write.sectionDefaults)) {
     if (actionId === undefined) continue;
-    if (!isKnownSection(section)) return { ok: false, message: `Unknown inbox section: ${section}` };
+    if (!isKnownSection(section))
+      return { ok: false, message: `Unknown inbox section: ${section}` };
     const action = write.actions.find((candidate) => candidate.id === actionId);
     if (!action) {
       return {

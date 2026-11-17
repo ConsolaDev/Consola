@@ -10,46 +10,46 @@ import type { ITheme } from '@xterm/xterm';
  */
 
 const DARK_ANSI = {
-    black: '#2f2f2f',
-    red: '#eb5757',
-    green: '#4dab75',
-    yellow: '#dfab4d',
-    blue: '#4398e8',
-    magenta: '#b57edc',
-    cyan: '#56b6c2',
-    white: '#d8d8d8',
-    brightBlack: '#5c5c5c',
-    brightRed: '#ff7b7b',
-    brightGreen: '#6fce97',
-    brightYellow: '#f5c76e',
-    brightBlue: '#6fb3f2',
-    brightMagenta: '#cd9ef0',
-    brightCyan: '#7bd4df',
-    brightWhite: '#ffffff',
+  black: '#2f2f2f',
+  red: '#eb5757',
+  green: '#4dab75',
+  yellow: '#dfab4d',
+  blue: '#4398e8',
+  magenta: '#b57edc',
+  cyan: '#56b6c2',
+  white: '#d8d8d8',
+  brightBlack: '#5c5c5c',
+  brightRed: '#ff7b7b',
+  brightGreen: '#6fce97',
+  brightYellow: '#f5c76e',
+  brightBlue: '#6fb3f2',
+  brightMagenta: '#cd9ef0',
+  brightCyan: '#7bd4df',
+  brightWhite: '#ffffff',
 };
 
 const LIGHT_ANSI = {
-    black: '#37352f',
-    red: '#c0392b',
-    green: '#2f7d4f',
-    yellow: '#9c6f19',
-    blue: '#1f6feb',
-    magenta: '#8b4bb5',
-    cyan: '#2b7a86',
-    white: '#6b6b6b',
-    brightBlack: '#8a8a8a',
-    brightRed: '#e05243',
-    brightGreen: '#3f9c68',
-    brightYellow: '#b8892b',
-    brightBlue: '#3d8bf5',
-    brightMagenta: '#a463cc',
-    brightCyan: '#3d97a3',
-    brightWhite: '#1a1a1a',
+  black: '#37352f',
+  red: '#c0392b',
+  green: '#2f7d4f',
+  yellow: '#9c6f19',
+  blue: '#1f6feb',
+  magenta: '#8b4bb5',
+  cyan: '#2b7a86',
+  white: '#6b6b6b',
+  brightBlack: '#8a8a8a',
+  brightRed: '#e05243',
+  brightGreen: '#3f9c68',
+  brightYellow: '#b8892b',
+  brightBlue: '#3d8bf5',
+  brightMagenta: '#a463cc',
+  brightCyan: '#3d97a3',
+  brightWhite: '#1a1a1a',
 };
 
 function readToken(name: string, fallback: string): string {
-    const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
-    return value || fallback;
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  return value || fallback;
 }
 
 /**
@@ -58,32 +58,32 @@ function readToken(name: string, fallback: string): string {
  * Call this after `data-theme` changes so the terminal follows the app.
  */
 export function buildXtermTheme(isDark: boolean): ITheme {
-    const ansi = isDark ? DARK_ANSI : LIGHT_ANSI;
+  const ansi = isDark ? DARK_ANSI : LIGHT_ANSI;
 
-    return {
-        ...ansi,
-        background: readToken('--color-bg-primary', isDark ? '#050505' : '#ffffff'),
-        foreground: readToken(
-            '--color-text-primary',
-            isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 17, 17, 0.9)'
-        ),
-        cursor: readToken('--color-accent', isDark ? '#19aad8' : '#00c2ff'),
-        cursorAccent: readToken('--color-bg-primary', isDark ? '#050505' : '#ffffff'),
-        selectionBackground: readToken(
-            '--color-bg-selected',
-            isDark ? 'rgba(25, 170, 216, 0.25)' : 'rgba(0, 194, 255, 0.25)'
-        ),
-    };
+  return {
+    ...ansi,
+    background: readToken('--color-bg-primary', isDark ? '#050505' : '#ffffff'),
+    foreground: readToken(
+      '--color-text-primary',
+      isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 17, 17, 0.9)',
+    ),
+    cursor: readToken('--color-accent', isDark ? '#19aad8' : '#00c2ff'),
+    cursorAccent: readToken('--color-bg-primary', isDark ? '#050505' : '#ffffff'),
+    selectionBackground: readToken(
+      '--color-bg-selected',
+      isDark ? 'rgba(25, 170, 216, 0.25)' : 'rgba(0, 194, 255, 0.25)',
+    ),
+  };
 }
 
 /** The bundled family, as named by its @font-face rule. */
 export const TERMINAL_FONT_FAMILY = 'JetBrains Mono Variable';
 
 export interface TerminalFont {
-    fontFamily: string;
-    fontSize: number;
-    fontWeight: 400 | 500;
-    fontWeightBold: 700;
+  fontFamily: string;
+  fontSize: number;
+  fontWeight: 400 | 500;
+  fontWeightBold: 700;
 }
 
 /**
@@ -96,10 +96,10 @@ export interface TerminalFont {
  * puts the stems back without making the type look bold.
  */
 export function readTerminalFont(fontSize: number): TerminalFont {
-    return {
-        fontFamily: readToken('--font-mono', `'${TERMINAL_FONT_FAMILY}', Menlo, monospace`),
-        fontSize,
-        fontWeight: 500,
-        fontWeightBold: 700,
-    };
+  return {
+    fontFamily: readToken('--font-mono', `'${TERMINAL_FONT_FAMILY}', Menlo, monospace`),
+    fontSize,
+    fontWeight: 500,
+    fontWeightBold: 700,
+  };
 }

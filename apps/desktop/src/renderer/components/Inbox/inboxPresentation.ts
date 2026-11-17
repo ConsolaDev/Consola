@@ -71,7 +71,7 @@ export function hasAccentBar(item: InboxItem): boolean {
  */
 export function isRepoCloned(
   resolved: Record<string, string | null> | undefined,
-  repo: string
+  repo: string,
 ): boolean {
   if (!resolved) return true;
   return resolved[repo] !== null;
@@ -119,15 +119,13 @@ export function groupSessionsByWorkItem(sessions: Session[]): Map<string, Sessio
 }
 
 /** The one dot a row shows for its sessions: the most urgent of them. */
-export function worstStatusForItem(
-  linked: Session[],
-  attention: AttentionMap
-): Attention {
+export function worstStatusForItem(linked: Session[], attention: AttentionMap): Attention {
   return worstStatus(linked.map((session) => attention[session.id] ?? 'ready')) ?? 'ready';
 }
 
 /** The platform's modifier, as its keycap reads. */
-export const MOD_KEY = typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
+export const MOD_KEY =
+  typeof navigator !== 'undefined' && /Mac/.test(navigator.userAgent) ? '⌘' : 'Ctrl';
 
 /** ⌘↵ (Ctrl+Enter elsewhere): what submits every multi-line field in the Inbox. */
 export const isSubmitChord = (event: { key: string; metaKey: boolean; ctrlKey: boolean }) =>

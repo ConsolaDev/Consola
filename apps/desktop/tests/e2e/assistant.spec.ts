@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Page } from '@playwright/test';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /**
@@ -46,14 +46,20 @@ async function seedWorkspace(name: string, scopes: string[]): Promise<string> {
   const [first, ...rest] = scopes;
   const id = await page.evaluate(
     ([workspaceName, firstPath]) =>
-      window.workspaceAPI.createWorkspace(workspaceName!, firstPath!, false).then((workspace) => workspace.id),
-    [name, folder(first!)] as const
+      window.workspaceAPI
+        .createWorkspace(workspaceName!, firstPath!, false)
+        .then((workspace) => workspace.id),
+    [name, folder(first!)] as const,
   );
   for (const scope of rest) {
     await page.evaluate(
       ([workspaceId, scopePath, scopeName]) =>
-        window.workspaceAPI.addScope(workspaceId!, { name: scopeName!, path: scopePath!, isGitRepo: false }),
-      [id, folder(scope), scope] as const
+        window.workspaceAPI.addScope(workspaceId!, {
+          name: scopeName!,
+          path: scopePath!,
+          isGitRepo: false,
+        }),
+      [id, folder(scope), scope] as const,
     );
   }
   return id;
@@ -73,19 +79,23 @@ async function seedSession(workspaceId: string, name: string): Promise<string> {
       });
       return session!.id;
     },
-    [workspaceId, name] as const
+    [workspaceId, name] as const,
   );
 }
 
 async function assistantSessionId(workspaceId: string): Promise<string | undefined> {
   return page.evaluate(async (id) => {
     const { workspaces } = await window.workspaceAPI.getSnapshot();
-    return workspaces.find((workspace) => workspace.id === id)?.sessions.find((s) => s.kind === 'assistant')?.id;
+    return workspaces
+      .find((workspace) => workspace.id === id)
+      ?.sessions.find((s) => s.kind === 'assistant')?.id;
   }, workspaceId);
 }
 
 function railButton(name: string) {
-  return page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name, exact: true });
+  return page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name, exact: true });
 }
 
 async function openWorkspace(name: string) {
@@ -138,7 +148,10 @@ test('the row is disabled without a scope', async () => {
     const { workspaces } = await window.workspaceAPI.getSnapshot();
     return workspaces.find((workspace) => workspace.id === id)!.scopes[0]!.id;
   }, workspaceId);
-  await page.evaluate(([id, scope]) => window.workspaceAPI.removeScope(id!, scope!), [workspaceId, scopeId] as const);
+  await page.evaluate(([id, scope]) => window.workspaceAPI.removeScope(id!, scope!), [
+    workspaceId,
+    scopeId,
+  ] as const);
 
   const row = page.getByRole('button', { name: /Assistant/ });
   await expect(row).toHaveAttribute('title', 'Add a scope to use the Assistant.');

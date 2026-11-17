@@ -55,7 +55,9 @@ export class SessionSource implements AttentionSource {
 
   constructor(private readonly deps: SessionSourceDeps) {
     this.now = deps.now ?? Date.now;
-    this.settle = new TurnSettle((instanceId, status) => this.finished(instanceId, status), { persistent: true });
+    this.settle = new TurnSettle((instanceId, status) => this.finished(instanceId, status), {
+      persistent: true,
+    });
   }
 
   public read(): Map<string, Attention> {
@@ -68,10 +70,11 @@ export class SessionSource implements AttentionSource {
           deriveAttention({
             terminal: this.deps.terminalStatus(session.instanceId),
             record: this.deps.ledger.get(session.id),
-            isViewedInFocusedWindow: this.deps.isViewedInFocusedWindow?.(session.instanceId) ?? false,
+            isViewedInFocusedWindow:
+              this.deps.isViewedInFocusedWindow?.(session.instanceId) ?? false,
             heldByOpenRun: held?.has(session.id) ?? false,
             hook: this.deps.hookInputs?.(session.instanceId),
-          })
+          }),
         );
       }
     }
@@ -91,7 +94,8 @@ export class SessionSource implements AttentionSource {
     if (status !== 'ready') this.cancelDeferred(instanceId);
     const before = this.lastStatus.get(instanceId);
     this.lastStatus.set(instanceId, status);
-    if (status !== 'exited' && (before === undefined || before === 'exited')) this.launched(instanceId);
+    if (status !== 'exited' && (before === undefined || before === 'exited'))
+      this.launched(instanceId);
     this.settle.observe(instanceId, status);
     this.refresh();
   }
@@ -189,7 +193,8 @@ export class SessionSource implements AttentionSource {
     if (!located) return;
     this.deps.ledger.markFinished(located.session.id, located.workspace.id, this.now());
     // Finishing under the person's eyes is not news: nothing was missed.
-    if (this.deps.isViewedInFocusedWindow?.(instanceId)) this.deps.ledger.markSeen(located.session.id, this.now());
+    if (this.deps.isViewedInFocusedWindow?.(instanceId))
+      this.deps.ledger.markSeen(located.session.id, this.now());
     this.refresh();
   }
 }

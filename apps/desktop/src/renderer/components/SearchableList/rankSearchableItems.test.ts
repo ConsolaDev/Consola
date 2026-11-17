@@ -1,8 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import { rankSearchableItems, type SearchableListItem } from './rankSearchableItems';
 
-const memory: SearchableListItem = { id: 's1', label: 'memory axis investigation', context: 'forum-admin' };
-const scratch: SearchableListItem = { id: 's2', label: 'scratch: grafana panels', context: 'memory-tools' };
+const memory: SearchableListItem = {
+  id: 's1',
+  label: 'memory axis investigation',
+  context: 'forum-admin',
+};
+const scratch: SearchableListItem = {
+  id: 's2',
+  label: 'scratch: grafana panels',
+  context: 'memory-tools',
+};
 const renovate: SearchableListItem = { id: 's3', label: 'renovate triage', context: 'sprocket' };
 const linked: SearchableListItem = {
   id: 's4',

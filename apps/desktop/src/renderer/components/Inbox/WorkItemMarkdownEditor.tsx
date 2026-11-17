@@ -14,7 +14,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { MOD_KEY, isSubmitChord } from './inboxPresentation';
-import { applyFormat, insertSuggestion, insertText, type MarkdownFormat, type TextEdit } from './markdownEditing';
+import {
+  applyFormat,
+  insertSuggestion,
+  insertText,
+  type MarkdownFormat,
+  type TextEdit,
+} from './markdownEditing';
 import { WorkItemMarkdown } from './WorkItemDetailParts';
 
 export interface MarkdownEditorHandle {
@@ -23,17 +29,18 @@ export interface MarkdownEditorHandle {
   insert: (text: string) => void;
 }
 
-const TOOLS: Array<{ format: MarkdownFormat; label: string; icon: LucideIcon; compact?: boolean }> = [
-  { format: 'heading', label: 'Heading', icon: Heading },
-  { format: 'bold', label: 'Bold', icon: Bold, compact: true },
-  { format: 'italic', label: 'Italic', icon: Italic, compact: true },
-  { format: 'quote', label: 'Quote', icon: TextQuote },
-  { format: 'code', label: 'Code', icon: Code, compact: true },
-  { format: 'link', label: 'Link', icon: Link, compact: true },
-  { format: 'numbered', label: 'Numbered list', icon: ListOrdered },
-  { format: 'bulleted', label: 'Bulleted list', icon: List },
-  { format: 'task', label: 'Task list', icon: ListTodo },
-];
+const TOOLS: Array<{ format: MarkdownFormat; label: string; icon: LucideIcon; compact?: boolean }> =
+  [
+    { format: 'heading', label: 'Heading', icon: Heading },
+    { format: 'bold', label: 'Bold', icon: Bold, compact: true },
+    { format: 'italic', label: 'Italic', icon: Italic, compact: true },
+    { format: 'quote', label: 'Quote', icon: TextQuote },
+    { format: 'code', label: 'Code', icon: Code, compact: true },
+    { format: 'link', label: 'Link', icon: Link, compact: true },
+    { format: 'numbered', label: 'Numbered list', icon: ListOrdered },
+    { format: 'bulleted', label: 'Bulleted list', icon: List },
+    { format: 'task', label: 'Task list', icon: ListTodo },
+  ];
 
 interface Props {
   value: string;
@@ -123,7 +130,11 @@ export function MarkdownEditor({
   return (
     <div className="inbox-detail-md" data-mode={mode}>
       <div className="inbox-detail-md-head">
-        <div className="inbox-detail-md-tabs" role="tablist" aria-label={`${label}: write or preview`}>
+        <div
+          className="inbox-detail-md-tabs"
+          role="tablist"
+          aria-label={`${label}: write or preview`}
+        >
           {(['write', 'preview'] as const).map((name) => (
             <button
               key={name}
@@ -151,7 +162,12 @@ export function MarkdownEditor({
             >
               <Type size={14} aria-hidden="true" />
             </button>
-            <div className="inbox-detail-md-tools" role="toolbar" aria-label="Formatting" data-open={toolsOpen || undefined}>
+            <div
+              className="inbox-detail-md-tools"
+              role="toolbar"
+              aria-label="Formatting"
+              data-open={toolsOpen || undefined}
+            >
               {tools.map(({ format: kind, label: name, icon: Icon }) => (
                 <button
                   key={kind}
@@ -191,7 +207,9 @@ export function MarkdownEditor({
           <textarea
             ref={field}
             aria-label={label}
-            aria-keyshortcuts={onSubmit ? (MOD_KEY === '⌘' ? 'Meta+Enter' : 'Control+Enter') : undefined}
+            aria-keyshortcuts={
+              onSubmit ? (MOD_KEY === '⌘' ? 'Meta+Enter' : 'Control+Enter') : undefined
+            }
             placeholder={placeholder}
             value={value}
             maxLength={65536}
@@ -203,7 +221,11 @@ export function MarkdownEditor({
           />
         ) : (
           <div className="inbox-detail-md-preview">
-            {value.trim() ? <WorkItemMarkdown content={value} /> : <p className="inbox-detail-empty">Nothing to preview.</p>}
+            {value.trim() ? (
+              <WorkItemMarkdown content={value} />
+            ) : (
+              <p className="inbox-detail-empty">Nothing to preview.</p>
+            )}
           </div>
         )}
       </div>

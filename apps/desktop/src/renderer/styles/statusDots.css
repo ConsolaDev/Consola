@@ -50,14 +50,23 @@
 }
 
 @keyframes status-spin {
-  to { transform: rotate(1turn); }
+  to {
+    transform: rotate(1turn);
+  }
 }
 
 /* The ring stays drawn and only its weight breathes, so something waiting for
    the person never disappears from a glance taken at the wrong moment. */
 @keyframes status-breathe {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.55; transform: scale(0.88); }
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.55;
+    transform: scale(0.88);
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {

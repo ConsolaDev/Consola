@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 /**
@@ -45,14 +45,14 @@ describe('the renderer does not derive attention', () => {
     const offenders = sourceFiles(RENDERER).flatMap((file) =>
       importsOf(file)
         .filter((specifier) => reachesForbidden(file, specifier))
-        .map((specifier) => `${path.relative(SRC, file)} imports '${specifier}'`)
+        .map((specifier) => `${path.relative(SRC, file)} imports '${specifier}'`),
     );
     expect(
       offenders,
       'Attention is derived once, in main (src/main/attention). The renderer must read it ' +
         '(attention:changed, src/shared/attention.ts), never derive it, or main and the sidebar ' +
         'can disagree about a session. Offending imports:\n' +
-        offenders.join('\n')
+        offenders.join('\n'),
     ).toEqual([]);
   });
 
@@ -60,7 +60,9 @@ describe('the renderer does not derive attention', () => {
     // restoreScreen.test.ts is exempt only because it is a test; its import must still be seen.
     const known = path.join(RENDERER, 'components/Terminal/restoreScreen.test.ts');
     expect(importsOf(known).some((s) => /main\/ScreenModel$/.test(s))).toBe(true);
-    expect(reachesForbidden(path.join(RENDERER, 'x.ts'), '../main/attention/deriveAttention')).toBe(true);
+    expect(reachesForbidden(path.join(RENDERER, 'x.ts'), '../main/attention/deriveAttention')).toBe(
+      true,
+    );
     expect(reachesForbidden(path.join(RENDERER, 'a/b.ts'), '../../shared/attention')).toBe(false);
   });
 });

@@ -63,7 +63,8 @@ describe('allowedHarnessUpdates', () => {
 });
 
 describe('allowedWorkspaceUpdates', () => {
-  const png = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
+  const png =
+    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 
   it('accepts embedded images and strips extra uploaded fields', () => {
     const icon = { type: 'image' as const, dataUrl: png, sourcePath: '/private/logo.png' };
@@ -71,8 +72,10 @@ describe('allowedWorkspaceUpdates', () => {
   });
 
   it.each([
-    'file:///private/logo.png', 'https://example.com/logo.png',
-    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=', 'data:image/png;base64,invalid',
+    'file:///private/logo.png',
+    'https://example.com/logo.png',
+    'data:image/svg+xml;base64,PHN2Zz48L3N2Zz4=',
+    'data:image/png;base64,invalid',
     `data:image/png;base64,iVBORw0KGgo${'A'.repeat(100_000)}`,
   ])('rejects non-PNG or oversized embedded images', (dataUrl) => {
     expect(() => allowedWorkspaceUpdates({ icon: { type: 'image', dataUrl } })).toThrow();
@@ -85,10 +88,13 @@ describe('allowedWorkspaceUpdates', () => {
     expect(allowedWorkspaceUpdates({ name: 'Renamed' })).not.toHaveProperty('icon');
   });
 
-  it.each(['unknown', '', null, 42, { id: 'rocket' }])('rejects invalid icon payload %j', (icon) => {
-    const payload = { icon } as unknown as Parameters<typeof allowedWorkspaceUpdates>[0];
-    expect(() => allowedWorkspaceUpdates(payload)).toThrow('Choose a valid workspace icon.');
-  });
+  it.each(['unknown', '', null, 42, { id: 'rocket' }])(
+    'rejects invalid icon payload %j',
+    (icon) => {
+      const payload = { icon } as unknown as Parameters<typeof allowedWorkspaceUpdates>[0];
+      expect(() => allowedWorkspaceUpdates(payload)).toThrow('Choose a valid workspace icon.');
+    },
+  );
 
   it('drops forbidden fields', () => {
     const payload = {
@@ -167,7 +173,13 @@ describe('allowedGroupUpdates', () => {
 
 describe('allowedLabelRecord', () => {
   it('rebuilds the label and keeps nothing else the memento carried', () => {
-    const payload = { id: 'l1', name: 'Flaky', emoji: '🐛', archivedAt: 1, conductorSessionId: 'c' } as unknown as Label;
+    const payload = {
+      id: 'l1',
+      name: 'Flaky',
+      emoji: '🐛',
+      archivedAt: 1,
+      conductorSessionId: 'c',
+    } as unknown as Label;
 
     expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky', emoji: '🐛' });
   });
@@ -193,7 +205,10 @@ describe('allowedSessionUpdates', () => {
   });
 
   it('rejects a parentSessionId that names a session: re-parenting stays impossible', () => {
-    const payload = { parentSessionId: 'attacker-chosen', name: 'Legit rename' } as unknown as SessionUpdates;
+    const payload = {
+      parentSessionId: 'attacker-chosen',
+      name: 'Legit rename',
+    } as unknown as SessionUpdates;
 
     const result = allowedSessionUpdates(payload);
 
@@ -211,7 +226,9 @@ describe('allowedSessionUpdates', () => {
   it('refuses a malformed label list or auto-settle value', () => {
     expect(() => allowedSessionUpdates({ labelIds: 'x' } as unknown as SessionUpdates)).toThrow();
     expect(() => allowedSessionUpdates({ labelIds: [1] } as unknown as SessionUpdates)).toThrow();
-    expect(() => allowedSessionUpdates({ autoSettle: 'always' } as unknown as SessionUpdates)).toThrow();
+    expect(() =>
+      allowedSessionUpdates({ autoSettle: 'always' } as unknown as SessionUpdates),
+    ).toThrow();
   });
 
   it('passes through a normal update', () => {
@@ -346,16 +363,20 @@ describe('group emoji updates', () => {
 
 describe('allowedWorkspaceUpdates: the Assistant mode', () => {
   it('passes a known Assistant mode and refuses anything else', () => {
-    expect(allowedWorkspaceUpdates({ assistantItemMode: 'read-only' })).toEqual({ assistantItemMode: 'read-only' });
+    expect(allowedWorkspaceUpdates({ assistantItemMode: 'read-only' })).toEqual({
+      assistantItemMode: 'read-only',
+    });
     expect(() => allowedWorkspaceUpdates({ assistantItemMode: 'yolo' as never })).toThrow(
-      'Choose a valid Assistant mode.'
+      'Choose a valid Assistant mode.',
     );
   });
 });
 
 describe('allowedLabelUpdates', () => {
   it('passes name, emoji and colour and drops everything else, the id included', () => {
-    const payload = { id: 'x', name: 'Bug', emoji: '🐛', color: '#f00' } as unknown as Parameters<typeof allowedLabelUpdates>[0];
+    const payload = { id: 'x', name: 'Bug', emoji: '🐛', color: '#f00' } as unknown as Parameters<
+      typeof allowedLabelUpdates
+    >[0];
 
     expect(allowedLabelUpdates(payload)).toEqual({ name: 'Bug', emoji: '🐛', color: '#f00' });
   });

@@ -16,7 +16,7 @@ vi.mock('../services/terminalBridge', () => ({
 }));
 
 import { terminalBridge } from '../services/terminalBridge';
-import { hydrateTerminalStatus, useTerminalStore } from './terminalStore';
+import { useTerminalStore } from './terminalStore';
 
 const store = () => useTerminalStore.getState();
 
@@ -33,7 +33,7 @@ describe('noteActivity', () => {
     expect(store().getState('t1').isBusy).toBe(false);
   });
 
-  it('keeps no derived done bookkeeping: that is main\'s attention now', () => {
+  it("keeps no derived done bookkeeping: that is main's attention now", () => {
     store().noteActivity('t1', true);
     store().noteActivity('t1', false);
 

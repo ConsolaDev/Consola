@@ -14,11 +14,13 @@ interface HomeState {
 export const useHomeStore = create<HomeState>((set) => ({
   scopeFilters: {},
   draftGroupIds: {},
-  setScopeFilter: (id, scopeId) => set(state => {
-    const { [id]: _previous, ...rest } = state.scopeFilters;
-    return { scopeFilters: scopeId === null ? rest : { ...rest, [id]: scopeId } };
-  }),
-  setDraftGroup: (id, groupId) => set(state => ({ draftGroupIds: { ...state.draftGroupIds, [id]: groupId } })),
+  setScopeFilter: (id, scopeId) =>
+    set((state) => {
+      const { [id]: _previous, ...rest } = state.scopeFilters;
+      return { scopeFilters: scopeId === null ? rest : { ...rest, [id]: scopeId } };
+    }),
+  setDraftGroup: (id, groupId) =>
+    set((state) => ({ draftGroupIds: { ...state.draftGroupIds, [id]: groupId } })),
 }));
 
 /**
@@ -26,7 +28,7 @@ export const useHomeStore = create<HomeState>((set) => ({
  * A filter whose scope was removed reads as All, so nothing has to clean it up.
  */
 export function filteredScope(workspace: Workspace, filterId?: string): Scope | undefined {
-  return workspace.scopes.find(scope => scope.id === filterId);
+  return workspace.scopes.find((scope) => scope.id === filterId);
 }
 
 /**
@@ -34,11 +36,19 @@ export function filteredScope(workspace: Workspace, filterId?: string): Scope | 
  * the filter), else the open session's scope, else the primary scope. The
  * Assistant runs no scope, so it never lends its record's scopeId.
  */
-export function newSessionScope(workspace: Workspace, preferredScopeId?: string, activeSessionId?: string | null): Scope | undefined {
-  const open = workspace.sessions.find(session => session.id === activeSessionId);
-  return workspace.scopes.find(scope => scope.id === preferredScopeId)
-    ?? (open && open.kind !== 'assistant' ? workspace.scopes.find(scope => scope.id === open.scopeId) : undefined)
-    ?? primaryScope(workspace);
+export function newSessionScope(
+  workspace: Workspace,
+  preferredScopeId?: string,
+  activeSessionId?: string | null,
+): Scope | undefined {
+  const open = workspace.sessions.find((session) => session.id === activeSessionId);
+  return (
+    workspace.scopes.find((scope) => scope.id === preferredScopeId) ??
+    (open && open.kind !== 'assistant'
+      ? workspace.scopes.find((scope) => scope.id === open.scopeId)
+      : undefined) ??
+    primaryScope(workspace)
+  );
 }
 
 /** With one scope there is nothing to tell apart: no scope names on rows, no scope list in ▾. */

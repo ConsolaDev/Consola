@@ -12,27 +12,27 @@ import type { Session, Workspace } from '../shared/workspace';
  * a session parked on one prompt can never ring twice.
  */
 export class NotificationPolicy {
-    private readonly notified = new Set<string>();
+  private readonly notified = new Set<string>();
 
-    public shouldNotify(
-        instanceId: string,
-        status: TerminalStatus,
-        anyWindowFocused: boolean
-    ): boolean {
-        if (status !== 'needs-attention') {
-            this.notified.delete(instanceId);
-            return false;
-        }
-        if (anyWindowFocused) return false;
-        if (this.notified.has(instanceId)) return false;
-        this.notified.add(instanceId);
-        return true;
+  public shouldNotify(
+    instanceId: string,
+    status: TerminalStatus,
+    anyWindowFocused: boolean,
+  ): boolean {
+    if (status !== 'needs-attention') {
+      this.notified.delete(instanceId);
+      return false;
     }
+    if (anyWindowFocused) return false;
+    if (this.notified.has(instanceId)) return false;
+    this.notified.add(instanceId);
+    return true;
+  }
 
-    /** A destroyed terminal must not suppress a future session's episode. */
-    public forget(instanceId: string): void {
-        this.notified.delete(instanceId);
-    }
+  /** A destroyed terminal must not suppress a future session's episode. */
+  public forget(instanceId: string): void {
+    this.notified.delete(instanceId);
+  }
 }
 
 /**
@@ -44,39 +44,42 @@ export class NotificationPolicy {
  * and badge give.
  */
 export function sessionsToNotify(
-    change: AttentionChange,
-    policy: NotificationPolicy,
-    anyWindowFocused: boolean
+  change: AttentionChange,
+  policy: NotificationPolicy,
+  anyWindowFocused: boolean,
 ): string[] {
-    for (const key of change.removed) policy.forget(key);
-    return Object.entries(change.changed)
-        .filter(([sessionId, attention]) =>
-            policy.shouldNotify(sessionId, attention === 'needs-attention' ? 'needs-attention' : 'ready', anyWindowFocused))
-        .map(([sessionId]) => sessionId);
+  for (const key of change.removed) policy.forget(key);
+  return Object.entries(change.changed)
+    .filter(([sessionId, attention]) =>
+      policy.shouldNotify(
+        sessionId,
+        attention === 'needs-attention' ? 'needs-attention' : 'ready',
+        anyWindowFocused,
+      ),
+    )
+    .map(([sessionId]) => sessionId);
 }
 
 /** The workspace and session with this id, if any. */
 export function findSessionById(
-    workspaces: Workspace[],
-    sessionId: string
+  workspaces: Workspace[],
+  sessionId: string,
 ): { workspace: Workspace; session: Session } | null {
-    for (const workspace of workspaces) {
-        const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
-        if (session) return { workspace, session };
-    }
-    return null;
+  for (const workspace of workspaces) {
+    const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
+    if (session) return { workspace, session };
+  }
+  return null;
 }
 
 /** The workspace and session a terminal instance belongs to, if any. */
 export function findSessionByInstanceId(
-    workspaces: Workspace[],
-    instanceId: string
+  workspaces: Workspace[],
+  instanceId: string,
 ): { workspace: Workspace; session: Session } | null {
-    for (const workspace of workspaces) {
-        const session = workspace.sessions.find(
-            (candidate) => candidate.instanceId === instanceId
-        );
-        if (session) return { workspace, session };
-    }
-    return null;
+  for (const workspace of workspaces) {
+    const session = workspace.sessions.find((candidate) => candidate.instanceId === instanceId);
+    if (session) return { workspace, session };
+  }
+  return null;
 }

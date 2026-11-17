@@ -18,7 +18,8 @@ import { aggregateAttention, membersOf, type TreeNode } from './forest';
  */
 export type Bucket = 'waiting' | 'working' | 'settled';
 
-const byKey = (a: TreeNode, b: TreeNode) => (a.entry.key < b.entry.key ? -1 : a.entry.key > b.entry.key ? 1 : 0);
+const byKey = (a: TreeNode, b: TreeNode) =>
+  a.entry.key < b.entry.key ? -1 : a.entry.key > b.entry.key ? 1 : 0;
 
 const maxOf = (node: TreeNode, pick: (entry: Entry) => number): number =>
   Math.max(...membersOf(node).map(pick));
@@ -32,7 +33,11 @@ const lastActivity = (node: TreeNode) => maxOf(node, (entry) => entry.activityAt
 const lastFinished = (node: TreeNode) => maxOf(node, (entry) => entry.finishedAt ?? 0);
 /** A tree has waited since its longest-waiting member that needs the person. */
 const waitingSince = (node: TreeNode) =>
-  Math.min(...membersOf(node).filter((entry) => entry.attention === 'needs-attention').map((entry) => entry.since));
+  Math.min(
+    ...membersOf(node)
+      .filter((entry) => entry.attention === 'needs-attention')
+      .map((entry) => entry.since),
+  );
 
 /**
  * The top of the list in three tiers: questions, then results nobody has read,
@@ -65,10 +70,15 @@ export function bucketize(roots: TreeNode[]): Record<Bucket, TreeNode[]> {
   const placed: Record<Bucket, TreeNode[]> = { waiting: [], working: [], settled: [] };
   for (const root of roots) {
     switch (aggregateAttention(root)) {
-      case 'working': placed.working.push(root); break;
-      case 'settled': placed.settled.push(root); break;
+      case 'working':
+        placed.working.push(root);
+        break;
+      case 'settled':
+        placed.settled.push(root);
+        break;
       // `needs-attention`, `done`, `ready` and `exited`: in play, not running.
-      default: placed.waiting.push(root);
+      default:
+        placed.waiting.push(root);
     }
   }
   return {

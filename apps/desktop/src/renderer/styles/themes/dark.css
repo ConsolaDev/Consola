@@ -14,7 +14,7 @@
  * (#111111) and saves surface_2 (#1e1e1e) for popovers and dialogs that
  * float above them. Sample the pixels before moving a surface.
  */
-[data-theme='dark'] {
+[data-theme="dark"] {
   /* Background colors -- background(), then surface_1/2/3 */
   --color-bg-primary: #050505;
   --color-bg-secondary: #1e1e1e;
@@ -74,10 +74,10 @@
   --color-merged: rgb(171, 125, 248);
 
   /* Git status colors */
-  --color-git-staged: rgb(77, 171, 117);     /* Green for staged */
-  --color-git-modified: rgb(223, 171, 77);   /* Yellow for unstaged modified */
-  --color-git-untracked: rgb(86, 182, 194);  /* Teal/cyan for untracked */
-  --color-git-deleted: rgb(235, 87, 87);     /* Red for deleted */
+  --color-git-staged: rgb(77, 171, 117); /* Green for staged */
+  --color-git-modified: rgb(223, 171, 77); /* Yellow for unstaged modified */
+  --color-git-untracked: rgb(86, 182, 194); /* Teal/cyan for untracked */
+  --color-git-deleted: rgb(235, 87, 87); /* Red for deleted */
 
   /* Scrollbar */
   --color-scrollbar-track: transparent;

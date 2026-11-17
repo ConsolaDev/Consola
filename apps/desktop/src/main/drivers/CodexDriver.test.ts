@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { getDriver } from './index';
 import type { HarnessDriverId } from '../../shared/types';
 import { getDriverDescriptor } from '../../shared/constants';
@@ -14,8 +14,12 @@ vi.mock('../LoginEnvironment', () => ({ getLoginEnv: () => ({ PATH: process.env.
 const binaryPath = path.resolve('tests/fixtures/codex.cjs');
 const sessionId = '11111111-1111-4111-8111-111111111111';
 let configDir: string;
-beforeEach(() => { configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-codex-test-')); });
-afterEach(() => { fs.rmSync(configDir, { recursive: true, force: true }); });
+beforeEach(() => {
+  configDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-codex-test-'));
+});
+afterEach(() => {
+  fs.rmSync(configDir, { recursive: true, force: true });
+});
 const driver = () => getDriver('codex' as HarnessDriverId);
 const config = () => ({ binaryPath, configDir, extraArgs: [] as string[] });
 const launch = (resume = false) => ({ sessionId, resume, cwd: configDir });
@@ -29,27 +33,65 @@ describe('Codex harness', () => {
     fs.mkdirSync(directory, { recursive: true });
     const rollout = path.join(directory, `rollout-date-${threadId}.jsonl`);
     const index = path.join(configDir, 'session_index.jsonl');
-    fs.writeFileSync(index, JSON.stringify({ id: threadId, thread_name: `Consola ${sessionId}` }) + '\n');
-    fs.writeFileSync(rollout, [
-      { type: 'response_item', payload: { type: 'message', role: 'user', content: [
-        { type: 'input_text', text: '# AGENTS.md instructions for project' },
-        { type: 'input_text', text: '<environment_context>context</environment_context>' },
-      ] } },
-      { type: 'response_item', payload: { type: 'message', role: 'assistant', content: [
-        { type: 'input_text', text: 'Not the prompt' },
-      ] } },
-      { type: 'response_item', payload: { type: 'message', role: 'user', content: [
-        { type: 'input_image', image_url: 'unused' },
-        { type: 'input_text', text: 'Fix the\n session names' },
-      ] } },
-    ].map(record => JSON.stringify(record)).join('\n') + '\n{"partial":');
-    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({ name: 'Fix the session names', source: 'prompt' });
-    fs.appendFileSync(index, [
-      { id: threadId, thread_name: 'Earlier title' },
-      { id: threadId, thread_name: 'Session naming fix' },
-      { id: 'another-thread', thread_name: 'Wrong conversation' },
-    ].map(record => JSON.stringify(record)).join('\n') + '\n{"partial":');
-    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({ name: 'Session naming fix', source: 'summary' });
+    fs.writeFileSync(
+      index,
+      JSON.stringify({ id: threadId, thread_name: `Consola ${sessionId}` }) + '\n',
+    );
+    fs.writeFileSync(
+      rollout,
+      [
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_text', text: '# AGENTS.md instructions for project' },
+              { type: 'input_text', text: '<environment_context>context</environment_context>' },
+            ],
+          },
+        },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'input_text', text: 'Not the prompt' }],
+          },
+        },
+        {
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [
+              { type: 'input_image', image_url: 'unused' },
+              { type: 'input_text', text: 'Fix the\n session names' },
+            ],
+          },
+        },
+      ]
+        .map((record) => JSON.stringify(record))
+        .join('\n') + '\n{"partial":',
+    );
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({
+      name: 'Fix the session names',
+      source: 'prompt',
+    });
+    fs.appendFileSync(
+      index,
+      [
+        { id: threadId, thread_name: 'Earlier title' },
+        { id: threadId, thread_name: 'Session naming fix' },
+        { id: 'another-thread', thread_name: 'Wrong conversation' },
+      ]
+        .map((record) => JSON.stringify(record))
+        .join('\n') + '\n{"partial":',
+    );
+    expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({
+      name: 'Session naming fix',
+      source: 'summary',
+    });
   });
 
   it('retries missing transcripts and follows conversation switches into archived rollouts', async () => {
@@ -61,19 +103,31 @@ describe('Codex harness', () => {
     expect(await codex.getSessionDisplayName(config(), sessionId)).toBeNull();
     const directory = path.join(configDir, 'archived_sessions');
     fs.mkdirSync(directory);
-    fs.writeFileSync(path.join(directory, `rollout-date-${next}.jsonl`), JSON.stringify({
-      type: 'event_msg', payload: { type: 'user_message', message: 'Investigate ' + 'a'.repeat(100) },
-    }) + '\n');
+    fs.writeFileSync(
+      path.join(directory, `rollout-date-${next}.jsonl`),
+      JSON.stringify({
+        type: 'event_msg',
+        payload: { type: 'user_message', message: 'Investigate ' + 'a'.repeat(100) },
+      }) + '\n',
+    );
     expect(await codex.getSessionDisplayName(config(), sessionId)).toEqual({
-      name: 'Investigate ' + 'a'.repeat(47) + '…', source: 'prompt',
+      name: 'Investigate ' + 'a'.repeat(47) + '…',
+      source: 'prompt',
     });
     expect(await codex.getSessionDisplayName(config(), '../invalid')).toBeNull();
-    expect(await codex.getSessionDisplayName({ ...config(), configDir: path.join(configDir, 'other-profile') }, sessionId)).toBeNull();
+    expect(
+      await codex.getSessionDisplayName(
+        { ...config(), configDir: path.join(configDir, 'other-profile') },
+        sessionId,
+      ),
+    ).toBeNull();
   });
 
   it('is available in settings and routes to its own driver', () => {
     expect(getDriverDescriptor('codex' as HarnessDriverId)).toMatchObject({
-      id: 'codex', available: true, configDirEnvVar: 'CODEX_HOME',
+      id: 'codex',
+      available: true,
+      configDirEnvVar: 'CODEX_HOME',
     });
     expect(driver().id).toBe('codex');
   });
@@ -87,7 +141,9 @@ describe('Codex harness', () => {
 
   it('checks the configured binary and login without starting a turn', async () => {
     expect(await driver().probeHealth(config())).toMatchObject({
-      available: true, version: '0.114.0', resolvedBinary: binaryPath,
+      available: true,
+      version: '0.114.0',
+      resolvedBinary: binaryPath,
       account: { displayName: 'ChatGPT' },
     });
   });
@@ -95,7 +151,9 @@ describe('Codex harness', () => {
   it('reports a missing pinned binary without falling back to another installation', async () => {
     const missing = path.join(configDir, 'missing');
     expect(await driver().probeHealth({ ...config(), binaryPath: missing })).toMatchObject({
-      available: false, resolvedBinary: missing, error: expect.stringContaining('Not executable'),
+      available: false,
+      resolvedBinary: missing,
+      error: expect.stringContaining('Not executable'),
     });
   });
 
@@ -112,7 +170,10 @@ describe('Codex harness', () => {
   it('keeps concurrent tabs in the same profile on distinct conversations', async () => {
     const [a, b] = await Promise.all([
       driver().buildSessionArgs(config(), launch()),
-      driver().buildSessionArgs(config(), { ...launch(), sessionId: '22222222-2222-4222-8222-222222222222' }),
+      driver().buildSessionArgs(config(), {
+        ...launch(),
+        sessionId: '22222222-2222-4222-8222-222222222222',
+      }),
     ]);
     expect(a[1]).not.toBe(b[1]);
     expect(fs.existsSync(path.join(configDir, a[1] + '.json'))).toBe(true);
@@ -125,12 +186,15 @@ describe('Codex harness', () => {
       driver().buildSessionArgs(config(), launch()),
     ]);
     expect(a).toEqual(b);
-    expect(fs.readdirSync(configDir).filter(file => file.endsWith('.json'))).toHaveLength(1);
+    expect(fs.readdirSync(configDir).filter((file) => file.endsWith('.json'))).toHaveLength(1);
   });
 
   it('reports signed-out profiles without inventing an account', async () => {
     fs.writeFileSync(path.join(configDir, 'logged-out'), '');
-    expect(await driver().probeHealth(config())).toMatchObject({ available: true, account: undefined });
+    expect(await driver().probeHealth(config())).toMatchObject({
+      available: true,
+      account: undefined,
+    });
   });
 
   it('does not expose API key fragments from login status', async () => {
@@ -144,17 +208,30 @@ describe('Codex harness', () => {
     await driver().buildSessionArgs(config(), launch());
     const mapping = path.join(configDir, 'consola', 'sessions', sessionId + '.json');
     fs.writeFileSync(mapping, 'broken JSON');
-    await expect(driver().buildSessionArgs(config(), launch(true))).rejects.toThrow('Could not read');
+    await expect(driver().buildSessionArgs(config(), launch(true))).rejects.toThrow(
+      'Could not read',
+    );
   });
 
   it('passes model, extra arguments and a literal initial prompt to the interactive CLI', async () => {
-    const args = await driver().buildSessionArgs({ ...config(), extraArgs: ['--sandbox', 'read-only'] }, {
-      ...launch(), model: 'chosen-model', initialPrompt: '-Explain this\nwith examples',
-    });
+    const args = await driver().buildSessionArgs(
+      { ...config(), extraArgs: ['--sandbox', 'read-only'] },
+      {
+        ...launch(),
+        model: 'chosen-model',
+        initialPrompt: '-Explain this\nwith examples',
+      },
+    );
     expect(args.slice(2)).toEqual([
-      '--model', 'chosen-model', '--sandbox', 'read-only',
+      '--model',
+      'chosen-model',
+      '--sandbox',
+      'read-only',
       '--no-alt-screen',
-      '-c', 'tui.terminal_title=["thread-id"]', '--', '-Explain this\nwith examples',
+      '-c',
+      'tui.terminal_title=["thread-id"]',
+      '--',
+      '-Explain this\nwith examples',
     ]);
   });
 
@@ -162,7 +239,7 @@ describe('Codex harness', () => {
     for (const resume of [false, true]) {
       for (const extraArgs of [[], ['--no-alt-screen']]) {
         const args = await driver().buildSessionArgs({ ...config(), extraArgs }, launch(resume));
-        expect(args.filter(arg => arg === '--no-alt-screen')).toHaveLength(1);
+        expect(args.filter((arg) => arg === '--no-alt-screen')).toHaveLength(1);
       }
     }
   });
@@ -175,14 +252,23 @@ describe('Codex harness', () => {
     observe(`\x1b]0;${first[1]}\x07`);
     for (const byte of `\x1b]0;${next}\x07`) observe(byte);
     expect((await new CodexDriver().buildSessionArgs(config(), launch(true)))[1]).toBe(next);
-    expect(JSON.parse(fs.readFileSync(path.join(configDir, 'consola', 'sessions', sessionId + '.json.bak'), 'utf8')).threadId).toBe(first[1]);
+    expect(
+      JSON.parse(
+        fs.readFileSync(
+          path.join(configDir, 'consola', 'sessions', sessionId + '.json.bak'),
+          'utf8',
+        ),
+      ).threadId,
+    ).toBe(first[1]);
   });
 
   it('ignores transcript IDs, other OSCs, empty titles and malformed titles', async () => {
     const first = await driver().buildSessionArgs(config(), launch());
     const observe = driver().createOutputObserver!(config(), sessionId);
     const other = '33333333-3333-4333-8333-333333333333';
-    observe(`To continue, run codex resume ${other}\r\n\x1b]0;\x07\x1b]0;Project ${other}\x07\x1b]7;${other}\x07`);
+    observe(
+      `To continue, run codex resume ${other}\r\n\x1b]0;\x07\x1b]0;Project ${other}\x07\x1b]7;${other}\x07`,
+    );
     observe('\x1b]0;' + 'x'.repeat(2048));
     expect((await new CodexDriver().buildSessionArgs(config(), launch(true)))[1]).toBe(first[1]);
     observe(`\x1b]2;${other}\x1b`);
@@ -196,14 +282,20 @@ describe('Codex harness', () => {
     const second = await driver().buildSessionArgs(config(), { ...launch(), sessionId: secondId });
     const observe = driver().createOutputObserver!(config(), sessionId);
     observe('\x1b]0;33333333-3333-4333-8333-333333333333\x07');
-    expect((await new CodexDriver().buildSessionArgs(config(), { ...launch(true), sessionId: secondId }))[1]).toBe(second[1]);
+    expect(
+      (
+        await new CodexDriver().buildSessionArgs(config(), { ...launch(true), sessionId: secondId })
+      )[1],
+    ).toBe(second[1]);
   });
 
   it('persists shortened titles before the lazy rollout exists and resolves them on restart', async () => {
     await driver().buildSessionArgs(config(), launch());
     const next = '33333333-3333-4333-8333-333333333333';
     driver().createOutputObserver!(config(), sessionId)(`\x1b]0;${next.slice(0, 29)}...\x07`);
-    await expect(new CodexDriver().buildSessionArgs(config(), launch(true))).rejects.toThrow('uniquely locate');
+    await expect(new CodexDriver().buildSessionArgs(config(), launch(true))).rejects.toThrow(
+      'uniquely locate',
+    );
     const directory = path.join(configDir, 'sessions', '2026', '09', '10');
     fs.mkdirSync(directory, { recursive: true });
     fs.writeFileSync(path.join(directory, `rollout-date-${next}.jsonl`), '');
@@ -214,19 +306,36 @@ describe('Codex harness', () => {
     await driver().buildSessionArgs(config(), launch());
     const directory = path.join(configDir, 'sessions');
     fs.mkdirSync(directory);
-    for (const id of ['33333333-3333-4333-8333-333333333333', '33333333-3333-4333-8333-333334444444']) {
+    for (const id of [
+      '33333333-3333-4333-8333-333333333333',
+      '33333333-3333-4333-8333-333334444444',
+    ]) {
       fs.writeFileSync(path.join(directory, `rollout-date-${id}.jsonl`), '');
     }
-    driver().createOutputObserver!(config(), sessionId)('\x1b]0;33333333-3333-4333-8333-33333...\x07');
-    await expect(new CodexDriver().buildSessionArgs(config(), launch(true))).rejects.toThrow('uniquely locate');
+    driver().createOutputObserver!(
+      config(),
+      sessionId,
+    )('\x1b]0;33333333-3333-4333-8333-33333...\x07');
+    await expect(new CodexDriver().buildSessionArgs(config(), launch(true))).rejects.toThrow(
+      'uniquely locate',
+    );
   });
 
   it('translates conductor stdio MCP configuration into Codex TOML overrides', async () => {
     const mcpConfigPath = path.join(configDir, 'mcp.json');
-    fs.writeFileSync(mcpConfigPath, JSON.stringify({ mcpServers: { consola: {
-      type: 'stdio', command: '/path with spaces/electron', args: ['/shim.cjs'],
-      env: { ELECTRON_RUN_AS_NODE: '1', CONSOLA_CONDUCTOR_TOKEN: 'test-token' },
-    } } }));
+    fs.writeFileSync(
+      mcpConfigPath,
+      JSON.stringify({
+        mcpServers: {
+          consola: {
+            type: 'stdio',
+            command: '/path with spaces/electron',
+            args: ['/shim.cjs'],
+            env: { ELECTRON_RUN_AS_NODE: '1', CONSOLA_CONDUCTOR_TOKEN: 'test-token' },
+          },
+        },
+      }),
+    );
     const args = await driver().buildSessionArgs(config(), { ...launch(), mcpConfigPath });
     expect(args).toContain('-c');
     expect(args.join(' ')).toContain('mcp_servers.consola=');
@@ -242,26 +351,51 @@ describe('Codex preparation failures', () => {
     ['exit', 'exited before'],
     ['hang', 'timeout'],
   ])('rejects %s responses without leaving the caller waiting', async (mode, message) => {
-    await expect(createCodexThread(binaryPath, configDir, {
-      PATH: process.env.PATH, CODEX_HOME: configDir, CONSOLA_CODEX_FIXTURE_MODE: mode,
-    }, 'Test', 1000)).rejects.toThrow(message);
+    await expect(
+      createCodexThread(
+        binaryPath,
+        configDir,
+        {
+          PATH: process.env.PATH,
+          CODEX_HOME: configDir,
+          CONSOLA_CODEX_FIXTURE_MODE: mode,
+        },
+        'Test',
+        1000,
+      ),
+    ).rejects.toThrow(message);
   });
 });
-
 
 describe('Codex model discovery', () => {
   it('enables discovery, reads every page, excludes hidden models, and creates no conversation', async () => {
     expect(getDriverDescriptor('codex').supportsCapabilities).toBe(true);
     const capabilities = await driver().probeCapabilities!(config());
-    expect(capabilities.models.map(model => model.value)).toEqual(['fixture-model-a', 'fixture-model-b']);
-    expect(capabilities.models[0]).toMatchObject({ supportsEffort: true, supportedEffortLevels: ['high'] });
+    expect(capabilities.models.map((model) => model.value)).toEqual([
+      'fixture-model-a',
+      'fixture-model-b',
+    ]);
+    expect(capabilities.models[0]).toMatchObject({
+      supportsEffort: true,
+      supportedEffortLevels: ['high'],
+    });
     expect(fs.readdirSync(configDir)).toEqual([]);
   });
 
   it('forwards provider config flags without forwarding interactive-only flags', () => {
-    expect(codexModelConfigArgs(['--sandbox', 'read-only', '-c', 'model_provider="custom"', '--config=model="example"', '--enable', 'feature', '--model', 'other'])).toEqual([
-      '-c', 'model_provider="custom"', '--config=model="example"', '--enable', 'feature',
-    ]);
+    expect(
+      codexModelConfigArgs([
+        '--sandbox',
+        'read-only',
+        '-c',
+        'model_provider="custom"',
+        '--config=model="example"',
+        '--enable',
+        'feature',
+        '--model',
+        'other',
+      ]),
+    ).toEqual(['-c', 'model_provider="custom"', '--config=model="example"', '--enable', 'feature']);
   });
 
   it.each([
@@ -270,18 +404,33 @@ describe('Codex model discovery', () => {
     ['exit', 'exited before'],
     ['hang', 'timed out'],
   ])('handles %s discovery failures without exposing raw diagnostics', async (mode, message) => {
-    const result = listCodexModels(binaryPath, configDir, {
-      PATH: process.env.PATH, CODEX_HOME: configDir, CONSOLA_CODEX_FIXTURE_MODE: mode,
-    }, [], 1000);
+    const result = listCodexModels(
+      binaryPath,
+      configDir,
+      {
+        PATH: process.env.PATH,
+        CODEX_HOME: configDir,
+        CONSOLA_CODEX_FIXTURE_MODE: mode,
+      },
+      [],
+      1000,
+    );
     await expect(result).rejects.toThrow(message);
     await expect(result).rejects.not.toThrow('fixture-private-key-fragment');
   });
 
-  it.each(['malformed', 'cycle'])('rejects %s model pages instead of showing a misleading list', async mode => {
-    await expect(listCodexModels(binaryPath, configDir, {
-      PATH: process.env.PATH, CODEX_HOME: configDir, CONSOLA_CODEX_MODELS_FIXTURE: mode,
-    })).rejects.toThrow('Invalid model response');
-  });
+  it.each(['malformed', 'cycle'])(
+    'rejects %s model pages instead of showing a misleading list',
+    async (mode) => {
+      await expect(
+        listCodexModels(binaryPath, configDir, {
+          PATH: process.env.PATH,
+          CODEX_HOME: configDir,
+          CONSOLA_CODEX_MODELS_FIXTURE: mode,
+        }),
+      ).rejects.toThrow('Invalid model response');
+    },
+  );
 });
 
 describe('Codex harness without attention hooks', () => {
@@ -289,7 +438,10 @@ describe('Codex harness without attention hooks', () => {
     const codex = new CodexDriver();
     expect(getDriver('codex').attentionHooks).toBeUndefined();
     const plain = await codex.buildSessionArgs(config(), launch());
-    const offered = await codex.buildSessionArgs(config(), { ...launch(), attentionUrl: 'http://127.0.0.1:1/attention/x' });
+    const offered = await codex.buildSessionArgs(config(), {
+      ...launch(),
+      attentionUrl: 'http://127.0.0.1:1/attention/x',
+    });
     expect(offered).toEqual(plain);
     expect(offered.join(' ')).not.toContain('--settings');
   });

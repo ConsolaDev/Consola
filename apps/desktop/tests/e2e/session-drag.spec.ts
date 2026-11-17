@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { Page } from '@playwright/test';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 import { SESSION_DRAG_TYPE } from '../../src/renderer/components/Sidebar/sessionDrag';
 
@@ -34,7 +34,7 @@ import { SESSION_DRAG_TYPE } from '../../src/renderer/components/Sidebar/session
 async function dropEffectWrites(
   page: Page,
   selector: string,
-  entries: [string, string][]
+  entries: [string, string][],
 ): Promise<string[]> {
   return page.evaluate(
     ([target, types]) => {
@@ -62,11 +62,11 @@ async function dropEffectWrites(
       });
 
       from.dispatchEvent(
-        new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer })
+        new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }),
       );
       return recorded;
     },
-    [selector, entries] as const
+    [selector, entries] as const,
   );
 }
 
@@ -98,14 +98,17 @@ async function seedLabelledWorkspace(page: Page, fixture: ReturnType<typeof make
         accentColor: '#4f5bd5',
         binaryPath,
       }),
-    [fixture.stubPath] as const
+    [fixture.stubPath] as const,
   );
   await page.evaluate(
     ([name, folder]) => window.workspaceAPI.createWorkspace(name, folder, false, 'stub'),
-    ['fleet', fixture.containerDir] as const
+    ['fleet', fixture.containerDir] as const,
   );
 
-  await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
+  await page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: /fleet/ })
+    .click();
 
   // Two sessions, built the way the app builds a fan-out.
   await page.getByRole('button', { name: 'New', exact: true }).click();
@@ -124,10 +127,10 @@ async function seedLabelledWorkspace(page: Page, fixture: ReturnType<typeof make
         .then((snapshot) =>
           window.workspaceAPI.addScope(
             snapshot.workspaces.find((candidate) => candidate.name === 'fleet')!.id,
-            { name: 'elsewhere', path: folder as string, isGitRepo: false }
-          )
+            { name: 'elsewhere', path: folder as string, isGitRepo: false },
+          ),
         ),
-    [fixture.elsewhereDir] as const
+    [fixture.elsewhereDir] as const,
   );
 
   const scopes = await page.evaluate(async () => {
@@ -183,7 +186,9 @@ test('a label chip takes only a session row, and the scope control takes no drop
     expect(await dropEffectWrites(page, LABEL_CHIP, [['text/plain', 'x']])).toEqual(['none']);
 
     // The scope is a filter, not a place: it takes nothing, a session row included.
-    expect(await dropEffectWrites(page, '.sidebar-scope-filter', [[SESSION_DRAG_TYPE, 'a-session']])).toEqual(['none']);
+    expect(
+      await dropEffectWrites(page, '.sidebar-scope-filter', [[SESSION_DRAG_TYPE, 'a-session']]),
+    ).toEqual(['none']);
   } finally {
     await app.close();
   }
@@ -196,20 +201,34 @@ test('dropping a session on a label chip gives it that label', async () => {
 
   try {
     await seedLabelledWorkspace(page, fixture);
-    const read = () => page.evaluate(async () => {
-      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces.find((candidate) => candidate.name === 'fleet')!;
-      const label = workspace.labels.find((candidate) => candidate.name === 'urgent')!;
-      return { label: label.id, session: workspace.sessions[0].id, tagged: workspace.sessions.filter((s) => s.labelIds?.includes(label.id)).length };
-    });
+    const read = () =>
+      page.evaluate(async () => {
+        const workspace = (await window.workspaceAPI.getSnapshot()).workspaces.find(
+          (candidate) => candidate.name === 'fleet',
+        )!;
+        const label = workspace.labels.find((candidate) => candidate.name === 'urgent')!;
+        return {
+          label: label.id,
+          session: workspace.sessions[0].id,
+          tagged: workspace.sessions.filter((s) => s.labelIds?.includes(label.id)).length,
+        };
+      });
     const before = await read();
     expect(before.tagged).toBe(0);
 
     // A synthetic drop proves the assignment; the dragover tests above prove the gesture is not vetoed.
-    await page.evaluate(([selector, type, id]) => {
-      const transfer = new DataTransfer();
-      transfer.setData(type, id);
-      document.querySelector(selector)!.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
-    }, [LABEL_CHIP, SESSION_DRAG_TYPE, before.session] as const);
+    await page.evaluate(
+      ([selector, type, id]) => {
+        const transfer = new DataTransfer();
+        transfer.setData(type, id);
+        document
+          .querySelector(selector)!
+          .dispatchEvent(
+            new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }),
+          );
+      },
+      [LABEL_CHIP, SESSION_DRAG_TYPE, before.session] as const,
+    );
 
     await expect.poll(async () => (await read()).tagged).toBe(1);
   } finally {
@@ -221,15 +240,36 @@ test('dropping a session on a label chip gives it that label', async () => {
 async function seedTwoScopes(page: Page, fixture: ReturnType<typeof makeFixture>) {
   await page.evaluate(
     ([binaryPath]) =>
-      window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#4f5bd5', binaryPath }),
-    [fixture.stubPath] as const
+      window.harnessStateAPI.addHarness({
+        id: 'stub',
+        driverId: 'claude',
+        name: 'Stub',
+        accentColor: '#4f5bd5',
+        binaryPath,
+      }),
+    [fixture.stubPath] as const,
   );
-  const ids = await page.evaluate(async ([folder, elsewhere]) => {
-    const workspace = await window.workspaceAPI.createWorkspace('fleet', folder as string, false, 'stub');
-    const other = await window.workspaceAPI.addScope(workspace.id, { name: 'elsewhere', path: elsewhere as string, isGitRepo: false });
-    return { homeId: workspace.scopes[0].id, otherId: other.id };
-  }, [fixture.containerDir, fixture.elsewhereDir] as const);
-  await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
+  const ids = await page.evaluate(
+    async ([folder, elsewhere]) => {
+      const workspace = await window.workspaceAPI.createWorkspace(
+        'fleet',
+        folder as string,
+        false,
+        'stub',
+      );
+      const other = await window.workspaceAPI.addScope(workspace.id, {
+        name: 'elsewhere',
+        path: elsewhere as string,
+        isGitRepo: false,
+      });
+      return { homeId: workspace.scopes[0].id, otherId: other.id };
+    },
+    [fixture.containerDir, fixture.elsewhereDir] as const,
+  );
+  await page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: /fleet/ })
+    .click();
   await expect(page.locator('.sidebar-scope-filter')).toBeVisible();
   return ids;
 }
@@ -246,7 +286,7 @@ async function openFanOut(page: Page) {
   await page.getByRole('menuitem', { name: 'Fan-out…' }).click();
 }
 
-test('a fan-out starts in the open session\'s scope under All', async () => {
+test("a fan-out starts in the open session's scope under All", async () => {
   test.setTimeout(90_000);
   const fixture = makeFixture();
   const { app, page } = await launchElectron();

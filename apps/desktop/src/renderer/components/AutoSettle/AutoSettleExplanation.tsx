@@ -35,7 +35,12 @@ export function AutoSettleExplanation() {
   };
 
   return (
-    <Dialog.Root open={open} onOpenChange={(next) => { if (!next) acknowledge(); }}>
+    <Dialog.Root
+      open={open}
+      onOpenChange={(next) => {
+        if (!next) acknowledge();
+      }}
+    >
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay" />
         <Dialog.Content className="dialog-content" aria-describedby="auto-settle-explanation">
@@ -44,26 +49,39 @@ export function AutoSettleExplanation() {
           </Dialog.Title>
           <div id="auto-settle-explanation" className="dialog-description">
             <p>
-              Sessions that sit idle for {days === 1 ? 'a day' : `${days} days`} move to the <strong>Settled</strong>{' '}
-              shelf at the bottom of the sidebar, so the list stays about what is happening now.
-              {' '}<strong>Nothing was deleted.</strong> Open one, or send it a message, and it comes straight back.
+              Sessions that sit idle for {days === 1 ? 'a day' : `${days} days`} move to the{' '}
+              <strong>Settled</strong> shelf at the bottom of the sidebar, so the list stays about
+              what is happening now. <strong>Nothing was deleted.</strong> Open one, or send it a
+              message, and it comes straight back.
             </p>
             <p>Just moved:</p>
             <ul className="auto-settle-list">
               {moved.slice(0, LISTED).map((session) => (
-                <li key={session.id}>{session.name} <span className="auto-settle-workspace">{session.workspaceName}</span></li>
+                <li key={session.id}>
+                  {session.name}{' '}
+                  <span className="auto-settle-workspace">{session.workspaceName}</span>
+                </li>
               ))}
               {moved.length > LISTED && <li>and {moved.length - LISTED} more</li>}
             </ul>
             <div className="dialog-field">
-              <label className="dialog-label" htmlFor="auto-settle-days">Settle idle sessions</label>
+              <label className="dialog-label" htmlFor="auto-settle-days">
+                Settle idle sessions
+              </label>
               <AutoSettleControl id="auto-settle-days" />
-              <span className="auto-settle-hint">You can change this any time in Settings, or keep one session out of Settled from its menu.</span>
+              <span className="auto-settle-hint">
+                You can change this any time in Settings, or keep one session out of Settled from
+                its menu.
+              </span>
             </div>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={showShelf}>Show Settled</button>
-            <button className="dialog-button-primary" onClick={acknowledge}>Got it</button>
+            <button className="dialog-button-secondary" onClick={showShelf}>
+              Show Settled
+            </button>
+            <button className="dialog-button-primary" onClick={acknowledge}>
+              Got it
+            </button>
           </div>
         </Dialog.Content>
       </Dialog.Portal>

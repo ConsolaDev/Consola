@@ -22,8 +22,8 @@ export function HarnessPanel({ workspace }: HarnessPanelProps) {
         <h3 className="ws-panel-title">Default harness</h3>
       </div>
       <p className="ws-panel-hint">
-        Preselected when starting a conversation in this workspace. Existing
-        sessions keep the harness they started on.
+        Preselected when starting a conversation in this workspace. Existing sessions keep the
+        harness they started on.
       </p>
       <div className="ws-choice-list" role="radiogroup" aria-label="Default harness">
         {selectable.map((harness) => {
@@ -35,9 +35,7 @@ export function HarnessPanel({ workspace }: HarnessPanelProps) {
               role="radio"
               aria-checked={isDefault}
               className={`ws-choice-row ${isDefault ? 'selected' : ''}`}
-              onClick={() =>
-                void updateWorkspace(workspace.id, { defaultHarnessId: harness.id })
-              }
+              onClick={() => void updateWorkspace(workspace.id, { defaultHarnessId: harness.id })}
             >
               <span
                 className="workspace-harness-dot"

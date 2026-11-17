@@ -31,7 +31,10 @@ export async function deleteLabelWithUndo(workspaceId: string, label: Label): Pr
 }
 
 /** Make a label from the bar's field and narrow the list to it at once. Null for an empty name. */
-export async function createAndSelectLabel(workspaceId: string, name: string): Promise<Label | null> {
+export async function createAndSelectLabel(
+  workspaceId: string,
+  name: string,
+): Promise<Label | null> {
   const trimmed = name.trim();
   if (!trimmed) return null;
   const label = await workspaceBridge.createLabel(workspaceId, { name: trimmed });
@@ -43,7 +46,11 @@ export async function createAndSelectLabel(workspaceId: string, name: string): P
  * A session row dropped on a label chip: give it that label. Buckets are
  * derived from attention, so a label is the one thing a drop can assign.
  */
-export async function dropSessionOnLabel(workspaceId: string, event: DragEvent, labelId: string): Promise<void> {
+export async function dropSessionOnLabel(
+  workspaceId: string,
+  event: DragEvent,
+  labelId: string,
+): Promise<void> {
   // Without it the browser refuses the drop outright.
   event.preventDefault();
   const sessionId = droppedSessionId(event);

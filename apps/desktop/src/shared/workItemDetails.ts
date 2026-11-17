@@ -21,7 +21,16 @@ export interface WorkItemLabel {
   color: string;
 }
 
-export const WORK_ITEM_REACTIONS = ['THUMBS_UP', 'THUMBS_DOWN', 'LAUGH', 'HOORAY', 'CONFUSED', 'HEART', 'ROCKET', 'EYES'] as const;
+export const WORK_ITEM_REACTIONS = [
+  'THUMBS_UP',
+  'THUMBS_DOWN',
+  'LAUGH',
+  'HOORAY',
+  'CONFUSED',
+  'HEART',
+  'ROCKET',
+  'EYES',
+] as const;
 export type WorkItemReactionContent = (typeof WORK_ITEM_REACTIONS)[number];
 
 export interface WorkItemReaction {
@@ -119,14 +128,20 @@ export type WorkItemEvent =
   | (EventBase & { kind: 'review-requested' | 'review-request-removed'; reviewer: string })
   | (EventBase & { kind: 'assigned' | 'unassigned'; assignee: string })
   | (EventBase & { kind: 'cross-referenced'; source: WorkItemReference; willClose: boolean })
-  | (EventBase & { kind: 'ready-for-review' | 'converted-to-draft' | 'reopened' | 'head-ref-restored' })
+  | (EventBase & {
+      kind: 'ready-for-review' | 'converted-to-draft' | 'reopened' | 'head-ref-restored';
+    })
   | (EventBase & { kind: 'closed'; stateReason?: WorkItemStateReason })
   | (EventBase & { kind: 'merged'; commit?: string; base: string })
   | (EventBase & { kind: 'base-ref-changed'; from: string; to: string })
   | (EventBase & { kind: 'head-ref-deleted'; ref: string });
 
 /** In the order the provider lists them, oldest first. */
-export type WorkItemTimelineItem = WorkItemCommentItem | WorkItemReviewItem | WorkItemCommitItem | WorkItemEvent;
+export type WorkItemTimelineItem =
+  | WorkItemCommentItem
+  | WorkItemReviewItem
+  | WorkItemCommitItem
+  | WorkItemEvent;
 
 export interface WorkItemReviewer {
   /** A team has its name as `login` and no avatar. */
@@ -176,7 +191,11 @@ export interface WorkItemDetails {
 const body = z.string().trim().min(1).max(65536);
 const optionalBody = z.string().trim().max(65536).optional();
 /** A provider's opaque id for a comment, thread or review. */
-const nodeId = z.string().min(1).max(200).regex(/^[\w=-]+$/);
+const nodeId = z
+  .string()
+  .min(1)
+  .max(200)
+  .regex(/^[\w=-]+$/);
 const lineNumber = z.number().int().positive().max(10_000_000);
 const side = z.enum(['LEFT', 'RIGHT']);
 const commitOid = z.string().regex(/^[a-f0-9]{40,64}$/i);
@@ -191,17 +210,40 @@ export const workItemMutationSchema = z.discriminatedUnion('kind', [
     pendingReviewId: nodeId.optional(),
   }),
   /** `comment` is posted as the item closes; `reason` is for issues. */
-  z.object({ kind: z.literal('close'), reason: z.enum(['completed', 'not-planned']).optional(), comment: optionalBody }),
+  z.object({
+    kind: z.literal('close'),
+    reason: z.enum(['completed', 'not-planned']).optional(),
+    comment: optionalBody,
+  }),
   z.object({ kind: z.literal('reopen'), comment: optionalBody }),
   z.object({ kind: z.literal('ready'), draft: z.boolean() }),
-  z.object({ kind: z.literal('merge'), method: z.enum(['squash', 'merge', 'rebase']), headOid: commitOid, auto: z.boolean() }),
-  z.object({ kind: z.literal('edit'), title: z.string().trim().min(1).max(256), body: z.string().max(65536) }),
+  z.object({
+    kind: z.literal('merge'),
+    method: z.enum(['squash', 'merge', 'rebase']),
+    headOid: commitOid,
+    auto: z.boolean(),
+  }),
+  z.object({
+    kind: z.literal('edit'),
+    title: z.string().trim().min(1).max(256),
+    body: z.string().max(65536),
+  }),
   /** Merges the base branch into the head branch. */
   z.object({ kind: z.literal('update-branch') }),
-  z.object({ kind: z.literal('edit-comment'), target: z.enum(['comment', 'review', 'review-comment']), id: nodeId, body }),
+  z.object({
+    kind: z.literal('edit-comment'),
+    target: z.enum(['comment', 'review', 'review-comment']),
+    id: nodeId,
+    body,
+  }),
   /** Only a comment in the viewer's pending review can be deleted here. */
   z.object({ kind: z.literal('delete-comment'), id: nodeId }),
-  z.object({ kind: z.literal('reply'), threadId: nodeId, body, pendingReviewId: nodeId.optional() }),
+  z.object({
+    kind: z.literal('reply'),
+    threadId: nodeId,
+    body,
+    pendingReviewId: nodeId.optional(),
+  }),
   z.object({ kind: z.literal('resolve-thread'), threadId: nodeId, resolved: z.boolean() }),
   /**
    * A comment on lines of the diff as it was at `headOid`. `single` posts it
@@ -213,7 +255,11 @@ export const workItemMutationSchema = z.discriminatedUnion('kind', [
     mode: z.enum(['single', 'review']),
     pendingReviewId: nodeId.optional(),
     headOid: commitOid,
-    path: z.string().min(1).max(4096).regex(/^[^\0]+$/),
+    path: z
+      .string()
+      .min(1)
+      .max(4096)
+      .regex(/^[^\0]+$/),
     line: lineNumber,
     side,
     startLine: lineNumber.optional(),

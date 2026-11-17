@@ -62,7 +62,9 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   flex-shrink: 0;
-  transition: color var(--transition-fast), background var(--transition-fast);
+  transition:
+    color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .command-palette-back:hover {

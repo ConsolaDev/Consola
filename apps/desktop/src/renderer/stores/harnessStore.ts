@@ -1,57 +1,57 @@
 import { create } from 'zustand';
 import type { HarnessLaunchFields } from '../../shared/types';
 import type {
-    Harness,
-    HarnessStatus,
-    HarnessUpdates,
-    NewHarnessFields,
+  Harness,
+  HarnessStatus,
+  HarnessUpdates,
+  NewHarnessFields,
 } from '../../shared/harness';
 import { harnessBridge } from '../services/harnessBridge';
 import { harnessBridgeState } from '../services/harnessBridgeState';
 
 export type { Harness, HarnessHealthState, HarnessStatus } from '../../shared/harness';
 export {
-    HARNESS_ACCENT_COLORS,
-    DEFAULT_ACCENT_COLOR,
-    HARNESS_ID_PATTERN,
+  HARNESS_ACCENT_COLORS,
+  DEFAULT_ACCENT_COLOR,
+  HARNESS_ID_PATTERN,
 } from '../../shared/harness';
 
 interface HarnessState {
-    harnesses: Harness[];
-    /** Probe results, deliberately not persisted: health is a live fact. */
-    statuses: Record<string, HarnessStatus>;
+  harnesses: Harness[];
+  /** Probe results, deliberately not persisted: health is a live fact. */
+  statuses: Record<string, HarnessStatus>;
 
-    addHarness: (input: NewHarnessFields) => Promise<Harness>;
-    updateHarness: (id: string, updates: HarnessUpdates) => Promise<void>;
-    archiveHarness: (id: string) => Promise<void>;
-    restoreHarness: (id: string) => Promise<void>;
+  addHarness: (input: NewHarnessFields) => Promise<Harness>;
+  updateHarness: (id: string, updates: HarnessUpdates) => Promise<void>;
+  archiveHarness: (id: string) => Promise<void>;
+  restoreHarness: (id: string) => Promise<void>;
 
-    getHarness: (id: string) => Harness | undefined;
-    /** Launch fields for a session's harness, falling back to the built-in. */
-    getLaunchFields: (harnessId: string | undefined) => HarnessLaunchFields;
+  getHarness: (id: string) => Harness | undefined;
+  /** Launch fields for a session's harness, falling back to the built-in. */
+  getLaunchFields: (harnessId: string | undefined) => HarnessLaunchFields;
 
-    probeHarness: (target: string | Harness) => Promise<void>;
-    probeAll: () => Promise<void>;
+  probeHarness: (target: string | Harness) => Promise<void>;
+  probeAll: () => Promise<void>;
 }
 
 function now(): number {
-    return Date.now();
+  return Date.now();
 }
 
 /** Split a launch-arguments string into argv, respecting quoted spans. */
 export function parseLaunchArgs(input: string): string[] {
-    const matches = input.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
-    return matches.map((token) => {
-        const isQuoted =
-            (token.startsWith('"') && token.endsWith('"')) ||
-            (token.startsWith("'") && token.endsWith("'"));
-        return isQuoted ? token.slice(1, -1) : token;
-    });
+  const matches = input.match(/"[^"]*"|'[^']*'|\S+/g) ?? [];
+  return matches.map((token) => {
+    const isQuoted =
+      (token.startsWith('"') && token.endsWith('"')) ||
+      (token.startsWith("'") && token.endsWith("'"));
+    return isQuoted ? token.slice(1, -1) : token;
+  });
 }
 
 /** Render argv back into an editable string, re-quoting tokens with spaces. */
 export function formatLaunchArgs(args: string[]): string {
-    return args.map((arg) => (arg.includes(' ') ? `"${arg}"` : arg)).join(' ');
+  return args.map((arg) => (arg.includes(' ') ? `"${arg}"` : arg)).join(' ');
 }
 
 /**
@@ -62,17 +62,17 @@ export function formatLaunchArgs(args: string[]): string {
  * Components subscribe to `harnesses` and filter with this.
  */
 export function isSelectableHarness(harness: Harness): boolean {
-    return harness.enabled && !harness.archived;
+  return harness.enabled && !harness.archived;
 }
 
 /** The launch fields a harness contributes to a session's spawn. */
 export function toLaunchFields(harness: Harness): HarnessLaunchFields {
-    return {
-        driverId: harness.driverId,
-        binaryOverride: harness.binaryPath,
-        configDirOverride: harness.configDir,
-        extraArgs: harness.extraArgs,
-    };
+  return {
+    driverId: harness.driverId,
+    binaryOverride: harness.binaryPath,
+    configDirOverride: harness.configDir,
+    extraArgs: harness.extraArgs,
+  };
 }
 
 /**
@@ -87,72 +87,72 @@ export function toLaunchFields(harness: Harness): HarnessLaunchFields {
  * has no business travelling with the records.
  */
 export const useHarnessStore = create<HarnessState>()((set, get) => ({
-    harnesses: [],
-    statuses: {},
+  harnesses: [],
+  statuses: {},
 
-    addHarness: (input) => harnessBridgeState.addHarness(input),
-    updateHarness: (id, updates) => harnessBridgeState.updateHarness(id, updates),
-    archiveHarness: (id) => harnessBridgeState.archiveHarness(id),
-    restoreHarness: (id) => harnessBridgeState.restoreHarness(id),
+  addHarness: (input) => harnessBridgeState.addHarness(input),
+  updateHarness: (id, updates) => harnessBridgeState.updateHarness(id, updates),
+  archiveHarness: (id) => harnessBridgeState.archiveHarness(id),
+  restoreHarness: (id) => harnessBridgeState.restoreHarness(id),
 
-    getHarness: (id) => get().harnesses.find((harness) => harness.id === id),
+  getHarness: (id) => get().harnesses.find((harness) => harness.id === id),
 
-    getLaunchFields: (harnessId) => {
-        const { harnesses } = get();
-        const harness =
-            harnesses.find((candidate) => candidate.id === harnessId) ??
-            harnesses.find((candidate) => candidate.isBuiltIn);
-        // An unknown id means the harness was removed by hand; the
-        // built-in reproduces pre-harness behavior rather than failing.
-        return harness ? toLaunchFields(harness) : {};
-    },
+  getLaunchFields: (harnessId) => {
+    const { harnesses } = get();
+    const harness =
+      harnesses.find((candidate) => candidate.id === harnessId) ??
+      harnesses.find((candidate) => candidate.isBuiltIn);
+    // An unknown id means the harness was removed by hand; the
+    // built-in reproduces pre-harness behavior rather than failing.
+    return harness ? toLaunchFields(harness) : {};
+  },
 
-    probeHarness: async (target) => {
-        // A just-saved record may arrive before main's state broadcast.
-        const harness = typeof target === 'string' ? get().getHarness(target) : target;
-        if (!harness) return;
-        const { id } = harness;
+  probeHarness: async (target) => {
+    // A just-saved record may arrive before main's state broadcast.
+    const harness = typeof target === 'string' ? get().getHarness(target) : target;
+    if (!harness) return;
+    const { id } = harness;
 
-        set((state) => ({
-            statuses: {
-                ...state.statuses,
-                [id]: { ...state.statuses[id], state: 'probing' },
-            },
-        }));
+    set((state) => ({
+      statuses: {
+        ...state.statuses,
+        [id]: { ...state.statuses[id], state: 'probing' },
+      },
+    }));
 
-        try {
-            const result = await harnessBridge.probe(toLaunchFields(harness));
-            set((state) => ({
-                statuses: {
-                    ...state.statuses,
-                    [id]: {
-                        state: result.available ? 'ok' : 'error',
-                        version: result.version,
-                        account: result.account,
-                        resolvedBinary: result.resolvedBinary,
-                        error: result.error,
-                        checkedAt: now(),
-                    },
-                },
-            }));
-        } catch (error) {
-            set((state) => ({
-                statuses: {
-                    ...state.statuses,
-                    [id]: {
-                        state: 'error',
-                        error: error instanceof Error ? error.message : String(error),
-                        checkedAt: now(),
-                    },
-                },
-            }));
-        }
-    },
+    try {
+      const result = await harnessBridge.probe(toLaunchFields(harness));
+      set((state) => ({
+        statuses: {
+          ...state.statuses,
+          [id]: {
+            state: result.available ? 'ok' : 'error',
+            version: result.version,
+            account: result.account,
+            resolvedBinary: result.resolvedBinary,
+            error: result.error,
+            checkedAt: now(),
+          },
+        },
+      }));
+    } catch (error) {
+      set((state) => ({
+        statuses: {
+          ...state.statuses,
+          [id]: {
+            state: 'error',
+            error: error instanceof Error ? error.message : String(error),
+            checkedAt: now(),
+          },
+        },
+      }));
+    }
+  },
 
-    probeAll: async () => {
-        const targets = get().harnesses.filter((harness) => !harness.archived);
-        await Promise.all(targets.map((harness) => get().probeHarness(harness.id)));
-    },
+  probeAll: async () => {
+    const targets = get().harnesses.filter((harness) => !harness.archived);
+    await Promise.all(targets.map((harness) => get().probeHarness(harness.id)));
+  },
 }));
 
 const LEGACY_HARNESS_KEY = 'consola-harnesses';
@@ -164,16 +164,16 @@ const LEGACY_HARNESS_KEY = 'consola-harnesses';
  * this is an archaeology function, and it runs once.
  */
 function readLegacyHarnesses(): Harness[] | null {
-    const raw = localStorage.getItem(LEGACY_HARNESS_KEY);
-    if (!raw) return null;
-    try {
-        const envelope = JSON.parse(raw) as { state?: { harnesses?: Harness[] } };
-        return Array.isArray(envelope.state?.harnesses) ? envelope.state.harnesses : null;
-    } catch {
-        // A localStorage blob we cannot parse is not worth failing launch over:
-        // main starts empty, and the raw value stays on disk to look at.
-        return null;
-    }
+  const raw = localStorage.getItem(LEGACY_HARNESS_KEY);
+  if (!raw) return null;
+  try {
+    const envelope = JSON.parse(raw) as { state?: { harnesses?: Harness[] } };
+    return Array.isArray(envelope.state?.harnesses) ? envelope.state.harnesses : null;
+  } catch {
+    // A localStorage blob we cannot parse is not worth failing launch over:
+    // main starts empty, and the raw value stays on disk to look at.
+    return null;
+  }
 }
 
 /**
@@ -184,19 +184,19 @@ function readLegacyHarnesses(): Harness[] | null {
  * left in place after a successful import — it is the fallback for one release.
  */
 export async function hydrateHarnessStore(): Promise<void> {
-    let snapshot = await harnessBridgeState.getSnapshot();
+  let snapshot = await harnessBridgeState.getSnapshot();
 
-    if (snapshot.needsImport) {
-        const legacy = readLegacyHarnesses();
-        if (legacy) {
-            await harnessBridgeState.importState(legacy);
-            snapshot = await harnessBridgeState.getSnapshot();
-        }
+  if (snapshot.needsImport) {
+    const legacy = readLegacyHarnesses();
+    if (legacy) {
+      await harnessBridgeState.importState(legacy);
+      snapshot = await harnessBridgeState.getSnapshot();
     }
+  }
 
-    useHarnessStore.setState({ harnesses: snapshot.harnesses });
+  useHarnessStore.setState({ harnesses: snapshot.harnesses });
 
-    harnessBridgeState.onChanged((harnesses) => {
-        useHarnessStore.setState({ harnesses });
-    });
+  harnessBridgeState.onChanged((harnesses) => {
+    useHarnessStore.setState({ harnesses });
+  });
 }

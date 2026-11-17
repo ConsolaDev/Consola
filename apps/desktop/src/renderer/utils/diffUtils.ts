@@ -14,7 +14,7 @@ export interface DiffLine {
 export function buildUnifiedDiff(
   oldContent: string,
   newContent: string,
-  hunks: GitDiffHunk[]
+  hunks: GitDiffHunk[],
 ): DiffLine[] {
   if (hunks.length === 0) {
     // No hunks means no changes - just show the new content as context
@@ -56,12 +56,12 @@ export function buildUnifiedDiff(
       });
 
       if (line.type === 'remove') {
-        oldLineIdx = Math.max(oldLineIdx, (line.oldLineNumber ?? 0));
+        oldLineIdx = Math.max(oldLineIdx, line.oldLineNumber ?? 0);
       } else if (line.type === 'add') {
-        newLineIdx = Math.max(newLineIdx, (line.newLineNumber ?? 0));
+        newLineIdx = Math.max(newLineIdx, line.newLineNumber ?? 0);
       } else {
-        oldLineIdx = Math.max(oldLineIdx, (line.oldLineNumber ?? 0));
-        newLineIdx = Math.max(newLineIdx, (line.newLineNumber ?? 0));
+        oldLineIdx = Math.max(oldLineIdx, line.oldLineNumber ?? 0);
+        newLineIdx = Math.max(newLineIdx, line.newLineNumber ?? 0);
       }
     }
   }

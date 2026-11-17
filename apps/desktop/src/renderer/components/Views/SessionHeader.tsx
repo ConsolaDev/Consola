@@ -1,4 +1,9 @@
-import { checkoutPathForSession, scopeForSession, type Session, type Workspace } from '../../../shared/workspace';
+import {
+  checkoutPathForSession,
+  scopeForSession,
+  type Session,
+  type Workspace,
+} from '../../../shared/workspace';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useShellStore } from '../../stores/shellStore';
 import { useAssistantStore } from '../../stores/assistantStore';
@@ -28,10 +33,10 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const isTerminalVisible = useShellStore((state) => state.open[session.instanceId] ?? false);
   const toggleTerminal = useShellStore((state) => state.toggle);
   const touchedByAssistant = useAssistantStore((state) =>
-    Boolean(state.activity[workspace.id]?.touchedSessionIds.includes(session.id))
+    Boolean(state.activity[workspace.id]?.touchedSessionIds.includes(session.id)),
   );
   const isAssistant = session.kind === 'assistant';
-  const cwd = isAssistant ? '' : checkoutPathForSession(workspace, session) ?? '';
+  const cwd = isAssistant ? '' : (checkoutPathForSession(workspace, session) ?? '');
   const checkout = useCheckout(cwd || null, { fresh: true });
   const scope = isAssistant ? undefined : scopeForSession(workspace, session);
 
@@ -47,7 +52,9 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
     <div className="workspace-view-header">
       {scope && (
         <h1 className="workspace-view-title">
-          <span className="workspace-view-scope" title={tildePath(scope.path)}>{scopeTrail(workspace.scopes, scope).label}</span>
+          <span className="workspace-view-scope" title={tildePath(scope.path)}>
+            {scopeTrail(workspace.scopes, scope).label}
+          </span>
           {session.name && (
             <>
               <span className="workspace-view-separator">/</span>

@@ -27,6 +27,7 @@ export function assistantRowState(input: {
   if (input.status === 'needs-attention') return { kind: 'needs-you' };
   if (input.waitingApprovals > 0) return { kind: 'waiting', count: input.waitingApprovals };
   if (input.status === 'working') return { kind: 'working' };
-  if (input.unseenFinished > 0 && !input.isActive) return { kind: 'done', count: input.unseenFinished };
+  if (input.unseenFinished > 0 && !input.isActive)
+    return { kind: 'done', count: input.unseenFinished };
   return { kind: 'idle' };
 }

@@ -72,9 +72,7 @@ export function PathDisplay({
         <Tooltip.Provider delayDuration={300}>
           <Tooltip.Root>
             <Tooltip.Trigger asChild>
-              <span className={`path-display-text ${className || ''}`}>
-                {truncatePath(path)}
-              </span>
+              <span className={`path-display-text ${className || ''}`}>{truncatePath(path)}</span>
             </Tooltip.Trigger>
             <Tooltip.Portal>
               <Tooltip.Content className="tooltip-content" sideOffset={5}>
@@ -94,7 +92,9 @@ export function PathDisplay({
           <div className="git-stats-badge">
             {stats.modifiedCount > 0 && (
               <>
-                <span className="git-stats-count">{stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}</span>
+                <span className="git-stats-count">
+                  {stats.modifiedCount} file{stats.modifiedCount !== 1 ? 's' : ''}
+                </span>
                 <span className="git-stats-separator">·</span>
                 <span className="git-stats-added">+{stats.addedLines}</span>
                 <span className="git-stats-removed">-{stats.removedLines}</span>
@@ -162,7 +162,8 @@ export function PathDisplay({
               </Tooltip.Trigger>
               <Tooltip.Portal>
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} ({explorerShortcut})
+                  {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} (
+                  {explorerShortcut})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>

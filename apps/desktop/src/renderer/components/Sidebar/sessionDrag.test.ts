@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { DragEvent } from 'react';
-import { droppedSessionId, isSessionDrag, startSessionDrag, SESSION_DRAG_TYPE } from './sessionDrag';
+import {
+  droppedSessionId,
+  isSessionDrag,
+  startSessionDrag,
+  SESSION_DRAG_TYPE,
+} from './sessionDrag';
 
 /** A dataTransfer that records what a dragstart put on it. */
 function fakeDragStart() {
@@ -19,7 +24,9 @@ function fakeDragStart() {
 
 /** A dragover, where only the type names are readable. */
 function fakeDragOver(types: string[]): DragEvent {
-  return { dataTransfer: { types: types.map((type) => type.toLowerCase()) } } as unknown as DragEvent;
+  return {
+    dataTransfer: { types: types.map((type) => type.toLowerCase()) },
+  } as unknown as DragEvent;
 }
 
 describe('startSessionDrag', () => {
@@ -50,7 +57,9 @@ describe('isSessionDrag', () => {
 
 describe('droppedSessionId', () => {
   it('reads the payload the drop carried', () => {
-    const event = { dataTransfer: { getData: (type: string) => (type === SESSION_DRAG_TYPE ? 's1' : '') } } as unknown as DragEvent;
+    const event = {
+      dataTransfer: { getData: (type: string) => (type === SESSION_DRAG_TYPE ? 's1' : '') },
+    } as unknown as DragEvent;
     expect(droppedSessionId(event)).toBe('s1');
   });
 

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type Workspace } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { DeleteWorkspaceDialog } from '../Dialogs/DeleteWorkspaceDialog';
 
 interface DangerZonePanelProps {
@@ -17,19 +17,15 @@ export function DangerZonePanel({ workspace }: DangerZonePanelProps) {
       </div>
       <div className="ws-danger-row">
         <p className="ws-panel-hint">
-          Removes this workspace and its session records from Consola. Folders on
-          disk and conversation transcripts stay where they are.
+          Removes this workspace and its session records from Consola. Folders on disk and
+          conversation transcripts stay where they are.
         </p>
         <button type="button" className="ws-danger-button" onClick={() => setConfirming(true)}>
           Delete workspace…
         </button>
       </div>
 
-      <DeleteWorkspaceDialog
-        workspace={workspace}
-        open={confirming}
-        onOpenChange={setConfirming}
-      />
+      <DeleteWorkspaceDialog workspace={workspace} open={confirming} onOpenChange={setConfirming} />
     </section>
   );
 }

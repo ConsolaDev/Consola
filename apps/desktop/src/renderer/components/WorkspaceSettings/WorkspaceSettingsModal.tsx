@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Folder, Info, Plug, Sparkle, Sparkles, Tag, Trash2, X, type LucideIcon } from 'lucide-react';
+import {
+  Folder,
+  Info,
+  Plug,
+  Sparkle,
+  Sparkles,
+  Tag,
+  Trash2,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
@@ -65,11 +75,15 @@ interface WorkspaceSettingsModalProps {
  * so it is visibly not the global Settings modal. A left nav shows one panel
  * at a time: the six the old Workspace tab stacked.
  */
-export function WorkspaceSettingsModal({ workspaceId, onOpenChange, initialSection = 'general' }: WorkspaceSettingsModalProps) {
+export function WorkspaceSettingsModal({
+  workspaceId,
+  onOpenChange,
+  initialSection = 'general',
+}: WorkspaceSettingsModalProps) {
   const workspace = useWorkspaceStore((state) =>
     workspaceId
       ? (state.workspaces.find((candidate) => candidate.id === workspaceId) ?? null)
-      : null
+      : null,
   );
   // The workspace can vanish out from under an open dialog — deleted from its
   // own danger zone, or from another window entirely. `open` follows the

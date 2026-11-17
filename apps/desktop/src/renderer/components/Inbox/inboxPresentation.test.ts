@@ -50,8 +50,18 @@ function makeSession(instanceId: string, workItem?: Session['workItem']): Sessio
   };
 }
 
-const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
-const issue12 = { provider: 'github', repo: 'sprocket/media-upload-api', type: 'issue', number: 12 } as const;
+const pr51 = {
+  provider: 'github',
+  repo: 'sprocket/catalog-portal',
+  type: 'pr',
+  number: 51,
+} as const;
+const issue12 = {
+  provider: 'github',
+  repo: 'sprocket/media-upload-api',
+  type: 'issue',
+  number: 12,
+} as const;
 
 describe('formatAge', () => {
   const now = Date.parse('2026-08-20T09:00:00Z');
@@ -98,10 +108,10 @@ describe('reviewStateLabel', () => {
   it('names the three decisions and stays quiet for none', () => {
     expect(reviewStateLabel(makeItem({ reviewDecision: 'approved' }))).toBe('Approved');
     expect(reviewStateLabel(makeItem({ reviewDecision: 'changes-requested' }))).toBe(
-      'Changes requested'
+      'Changes requested',
     );
     expect(reviewStateLabel(makeItem({ reviewDecision: 'review-required' }))).toBe(
-      'Awaiting approval'
+      'Awaiting approval',
     );
     expect(reviewStateLabel(makeItem({ reviewDecision: 'none' }))).toBeNull();
   });
@@ -148,9 +158,14 @@ describe('isRepoCloned', () => {
   });
 
   it('reads a null answer as not cloned and a path as cloned', () => {
-    expect(isRepoCloned({ 'sprocket/catalog-portal': null }, 'sprocket/catalog-portal')).toBe(false);
+    expect(isRepoCloned({ 'sprocket/catalog-portal': null }, 'sprocket/catalog-portal')).toBe(
+      false,
+    );
     expect(
-      isRepoCloned({ 'sprocket/catalog-portal': '/repos/catalog-portal' }, 'sprocket/catalog-portal')
+      isRepoCloned(
+        { 'sprocket/catalog-portal': '/repos/catalog-portal' },
+        'sprocket/catalog-portal',
+      ),
     ).toBe(true);
   });
 });
@@ -158,18 +173,20 @@ describe('isRepoCloned', () => {
 describe('roleLabelFor and metaLineFor', () => {
   it('names the strongest role', () => {
     expect(roleLabelFor(makeItem())).toBe('review requested');
-    expect(roleLabelFor(makeItem({ roles: ['review-requested-team'] }))).toBe('team review requested');
+    expect(roleLabelFor(makeItem({ roles: ['review-requested-team'] }))).toBe(
+      'team review requested',
+    );
     expect(roleLabelFor(makeItem({ roles: ['author'] }))).toBe('your PR');
-    expect(
-      roleLabelFor(makeItem({ roles: ['author'], workItem: { ...issue12 } }))
-    ).toBe('your issue');
+    expect(roleLabelFor(makeItem({ roles: ['author'], workItem: { ...issue12 } }))).toBe(
+      'your issue',
+    );
     expect(roleLabelFor(makeItem({ roles: ['assignee'] }))).toBe('assigned to you');
     expect(roleLabelFor(makeItem({ roles: ['involved'] }))).toBe('involves you');
   });
 
   it('joins repo, role, CI, review state, and diff stats', () => {
     expect(metaLineFor(makeItem())).toBe(
-      'catalog-portal · review requested · CI failing · awaiting approval · +210 −88'
+      'catalog-portal · review requested · CI failing · awaiting approval · +210 −88',
     );
   });
 
@@ -184,8 +201,8 @@ describe('roleLabelFor and metaLineFor', () => {
           checks: undefined,
           additions: undefined,
           deletions: undefined,
-        })
-      )
+        }),
+      ),
     ).toBe('media-upload-api · assigned to you');
   });
 });

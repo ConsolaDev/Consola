@@ -24,7 +24,14 @@ interface ShelfHeaderProps {
  * scanned down. Trailing, every title and every row name starts on one line,
  * and the chevron reads as what it is: the control, beside the count.
  */
-export function ShelfHeader({ title, count, open, onToggle, shortcutHint, live }: ShelfHeaderProps) {
+export function ShelfHeader({
+  title,
+  count,
+  open,
+  onToggle,
+  shortcutHint,
+  live,
+}: ShelfHeaderProps) {
   return (
     <button
       type="button"
@@ -43,8 +50,15 @@ export function ShelfHeader({ title, count, open, onToggle, shortcutHint, live }
       {live && <span className="shelf-header-live" aria-hidden="true" />}
       {/* Keyed on the value: a changed count remounts and replays its tick-over,
           so a row arriving in a folded shelf is still visible as an arrival. */}
-      <span key={count} className="shelf-header-count">{count}</span>
-      <ChevronDown className="shelf-header-chevron" size={12} aria-hidden="true" data-open={open || undefined} />
+      <span key={count} className="shelf-header-count">
+        {count}
+      </span>
+      <ChevronDown
+        className="shelf-header-chevron"
+        size={12}
+        aria-hidden="true"
+        data-open={open || undefined}
+      />
     </button>
   );
 }

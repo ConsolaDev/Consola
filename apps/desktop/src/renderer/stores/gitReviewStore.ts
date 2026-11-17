@@ -179,15 +179,16 @@ export const useGitReviewStore = create<GitReviewState>((set, get) => ({
 
   setScrollToFile: (filePath) => set({ scrollToFile: filePath }),
 
-  reset: () => set({
-    isOpen: false,
-    isSidebarCollapsed: false,
-    expandedFiles: new Set(),
-    viewMode: new Map(),
-    commitMessage: '',
-    isGeneratingMessage: false,
-    isCommitting: false,
-    error: null,
-    scrollToFile: null,
-  }),
+  reset: () =>
+    set({
+      isOpen: false,
+      isSidebarCollapsed: false,
+      expandedFiles: new Set(),
+      viewMode: new Map(),
+      commitMessage: '',
+      isGeneratingMessage: false,
+      isCommitting: false,
+      error: null,
+      scrollToFile: null,
+    }),
 }));

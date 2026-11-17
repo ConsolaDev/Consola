@@ -23,7 +23,14 @@ import { activateSession } from '../../utils/sessionActions';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
 import { brokenStep, RunAnswer, RunSteps, stepRowId, useRunConversation } from './ConversationView';
 import { RunGraph } from './RunGraph';
-import { AgentRunDetails, CleanupDetails, RunItemLink, StatusIcon, useIntent, useNow } from './parts';
+import {
+  AgentRunDetails,
+  CleanupDetails,
+  RunItemLink,
+  StatusIcon,
+  useIntent,
+  useNow,
+} from './parts';
 import {
   filterRuns,
   finalAnswer,
@@ -61,7 +68,7 @@ const NO_RUNS: RunListEntry[] = [];
  */
 export function RunDetails({ workspace, runId }: { workspace: Workspace; runId: string }) {
   const updatedAt = useAutomationsStore(
-    (state) => state.snapshots[workspace.id]?.runs.find((run) => run.id === runId)?.updatedAt
+    (state) => state.snapshots[workspace.id]?.runs.find((run) => run.id === runId)?.updatedAt,
   );
   const [loaded, setLoaded] = useState<{ run: RunRecord | null } | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -76,14 +83,19 @@ export function RunDetails({ workspace, runId }: { workspace: Workspace; runId: 
       },
       (failure: unknown) => {
         if (live) setLoadError(ipcErrorMessage(failure));
-      }
+      },
     );
     return () => {
       live = false;
     };
   }, [runId, updatedAt]);
 
-  if (loadError && !loaded) return <div className="automations-error" role="alert">{loadError}</div>;
+  if (loadError && !loaded)
+    return (
+      <div className="automations-error" role="alert">
+        {loadError}
+      </div>
+    );
   if (!loaded) return <p className="automations-hint">Loading…</p>;
   // A notification or a stale panel can name a run that history has since dropped.
   if (!loaded.run) return <p className="automations-hint">This run is no longer in history.</p>;
@@ -108,15 +120,28 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
   const preview = isAgentRunPreview(run.result) ? run.result : null;
   // A session ran it, so there is a transcript to read — even once the session is removed.
   const hasSession = Boolean(run.conversation || run.sessionId);
-  const session = run.sessionId ? workspace.sessions.find((candidate) => candidate.id === run.sessionId) : undefined;
+  const session = run.sessionId
+    ? workspace.sessions.find((candidate) => candidate.id === run.sessionId)
+    : undefined;
   const showsSteps = hasSession && (stage === 'agent-running' || stage === 'agent-finished');
-  const { conversation, error: conversationError } = useRunConversation(run.id, showsSteps, stage === 'agent-running');
+  const { conversation, error: conversationError } = useRunConversation(
+    run.id,
+    showsSteps,
+    stage === 'agent-running',
+  );
   const transcript = conversation?.readable ? conversation.conversation : null;
   const entries = transcript?.entries ?? [];
 
   const place = snapshot?.queue[run.id];
-  const history = filterRuns(snapshot?.runs ?? NO_RUNS, { ...NO_RUN_FILTER, automation: run.automationId }, now);
-  const automation = run.source === 'manual' ? undefined : snapshot?.automations.find((entry) => entry.name === run.automationId);
+  const history = filterRuns(
+    snapshot?.runs ?? NO_RUNS,
+    { ...NO_RUN_FILTER, automation: run.automationId },
+    now,
+  );
+  const automation =
+    run.source === 'manual'
+      ? undefined
+      : snapshot?.automations.find((entry) => entry.name === run.automationId);
   const stages = runStages(run, now);
   const stopped = stages.find((candidate) => candidate.state === 'failed');
   const broken = brokenStep(entries, run);
@@ -137,7 +162,8 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
     setPendingReveal(stepRowId(ids, index));
   };
 
-  const hasOutput = stage === 'tool' && run.status !== 'needs-approval' && hasCleanupData(run.result);
+  const hasOutput =
+    stage === 'tool' && run.status !== 'needs-approval' && hasCleanupData(run.result);
   const targets: Partial<Record<RunStageKey, string>> = {
     ...(stopped ? { [stopped.key]: sectionId('problem') } : {}),
     ...(run.status === 'needs-approval' ? { approval: sectionId('approval') } : {}),
@@ -197,7 +223,9 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
               disabled={
                 busy !== null ||
                 Boolean(automation.problem) ||
-                history.some((candidate) => candidate.status === 'running' || candidate.status === 'queued')
+                history.some(
+                  (candidate) => candidate.status === 'running' || candidate.status === 'queued',
+                )
               }
               title={
                 automation.problem
@@ -217,7 +245,11 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
               {busy === 'rerun' ? 'Starting…' : 'Run again'}
             </button>
           )}
-          <RunNav runId={run.id} history={history} onOpen={(runId) => openPanel({ kind: 'run', runId })} />
+          <RunNav
+            runId={run.id}
+            history={history}
+            onOpen={(runId) => openPanel({ kind: 'run', runId })}
+          />
         </div>
       </div>
 
@@ -227,7 +259,14 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
         </div>
       )}
 
-      <RunStats run={run} now={now} history={history} stages={stages} askerName={asker} sessionGone={hasSession && !session} />
+      <RunStats
+        run={run}
+        now={now}
+        history={history}
+        stages={stages}
+        askerName={asker}
+        sessionGone={hasSession && !session}
+      />
 
       <section className="automations-detail-section" aria-label="Stages">
         <RunGraph
@@ -246,10 +285,18 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
           <CircleX size={16} aria-hidden="true" />
           <div className="automations-annotation-body">
             <strong>{failureTitle(stopped, Boolean(preview))}</strong>
-            <p className="automations-annotation-message">{run.error ?? 'It failed without saying why.'}</p>
+            <p className="automations-annotation-message">
+              {run.error ?? 'It failed without saying why.'}
+            </p>
             {broken && (
-              <button type="button" className="automations-annotation-step" onClick={() => revealStep(broken.index)}>
-                <span className="automations-annotation-step-label">{broken.cut ? 'Stopped during' : 'Last failed step'}</span>
+              <button
+                type="button"
+                className="automations-annotation-step"
+                onClick={() => revealStep(broken.index)}
+              >
+                <span className="automations-annotation-step-label">
+                  {broken.cut ? 'Stopped during' : 'Last failed step'}
+                </span>
                 <code>
                   {broken.step.tool}
                   {broken.step.detail ? ` ${broken.step.detail}` : ''}
@@ -265,7 +312,9 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
         <Section id={sectionId('approval')} title="Waiting for your approval">
           {preview ? (
             <>
-              {run.trigger.item && run.summary && <p className="automations-summary">{run.summary}</p>}
+              {run.trigger.item && run.summary && (
+                <p className="automations-summary">{run.summary}</p>
+              )}
               <AgentRunDetails preview={preview} />
             </>
           ) : (
@@ -278,7 +327,13 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
               disabled={busy !== null}
               onClick={() => void act('approve', () => automationsBridge.approve(run.id))}
             >
-              {preview ? (busy === 'approve' ? 'Starting…' : 'Start') : busy === 'approve' ? 'Running…' : 'Approve'}
+              {preview
+                ? busy === 'approve'
+                  ? 'Starting…'
+                  : 'Start'
+                : busy === 'approve'
+                  ? 'Running…'
+                  : 'Approve'}
             </button>
             <button
               type="button"
@@ -298,10 +353,13 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
       )}
 
       {stage === 'agent-queued' && preview && (
-        <Section id={sectionId('queue')} title={place !== undefined ? `${place} in line` : 'Waiting to start'}>
+        <Section
+          id={sectionId('queue')}
+          title={place !== undefined ? `${place} in line` : 'Waiting to start'}
+        >
           <p className="automations-hint">
-            A few automation sessions work at once, across every workspace; the rest start in order as those finish or
-            stop to wait for you.
+            A few automation sessions work at once, across every workspace; the rest start in order
+            as those finish or stop to wait for you.
           </p>
           <details className="automations-details">
             <summary>The prompt it will send</summary>
@@ -310,7 +368,9 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
         </Section>
       )}
 
-      {stage === 'agent-running' && !hasSession && <p className="automations-hint">Starting its session…</p>}
+      {stage === 'agent-running' && !hasSession && (
+        <p className="automations-hint">Starting its session…</p>
+      )}
 
       {showsSteps && (
         <Section id={sectionId('steps')} title="Steps">
@@ -321,10 +381,14 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
           ) : !conversation ? (
             <p className="automations-hint">Reading its transcript…</p>
           ) : !conversation.readable ? (
-            <p className="automations-hint">This harness’s transcripts can’t be read here. Open the session to see what it did.</p>
+            <p className="automations-hint">
+              This harness’s transcripts can’t be read here. Open the session to see what it did.
+            </p>
           ) : !transcript ? (
             <p className="automations-hint">
-              {stage === 'agent-running' ? 'Nothing in its transcript yet.' : 'Its transcript is no longer on disk.'}
+              {stage === 'agent-running'
+                ? 'Nothing in its transcript yet.'
+                : 'Its transcript is no longer on disk.'}
             </p>
           ) : (
             <RunSteps
@@ -341,7 +405,11 @@ function RunView({ workspace, run }: { workspace: Workspace; run: RunRecord }) {
       )}
 
       {showsSteps && transcript && (
-        <AnswerSection entries={transcript.entries} following={stage === 'agent-running'} id={sectionId('answer')} />
+        <AnswerSection
+          entries={transcript.entries}
+          following={stage === 'agent-running'}
+          id={sectionId('answer')}
+        />
       )}
 
       {stage === 'agent-unstarted' && preview && (
@@ -388,13 +456,19 @@ function RunLead({
           : formatAgo(run.createdAt, now)
         : run.status === 'needs-approval'
           ? `asked ${formatAgo(run.createdAt, now)}`
-          : [duration ? `${run.status === 'failed' ? 'after' : 'in'} ${duration}` : null, formatAgo(ended, now)]
+          : [
+              duration ? `${run.status === 'failed' ? 'after' : 'in'} ${duration}` : null,
+              formatAgo(ended, now),
+            ]
               .filter(Boolean)
               .join(' · ');
   const notes = runNotes(run, history);
   const preview = isAgentRunPreview(run.result) ? run.result : null;
   // An agent run's own summary repeats what the page shows ("Running in …", "Ready in …").
-  const summary = !preview || runStage(run) === 'agent-unstarted' || LIVE.has(run.status) ? run.summary : undefined;
+  const summary =
+    !preview || runStage(run) === 'agent-unstarted' || LIVE.has(run.status)
+      ? run.summary
+      : undefined;
 
   return (
     <div className="automations-lead-state">
@@ -403,7 +477,9 @@ function RunLead({
       </span>
       <div className="automations-lead-text">
         <p className="automations-lead-headline">
-          <span className={`automations-run-status automations-tone-${run.status}`}>{statusLabel(run.status)}</span>
+          <span className={`automations-run-status automations-tone-${run.status}`}>
+            {statusLabel(run.status)}
+          </span>
           <span className="automations-lead-when" title={formatTime(ended)}>
             {detail}
           </span>
@@ -411,7 +487,9 @@ function RunLead({
         {run.trigger.item ? (
           <p className="automations-run-about">
             <RunItemLink run={run} />
-            {preview?.item?.author ? <span className="automations-run-about-quiet"> by @{preview.item.author}</span> : null}
+            {preview?.item?.author ? (
+              <span className="automations-run-about-quiet"> by @{preview.item.author}</span>
+            ) : null}
           </p>
         ) : (
           summary && <p className="automations-run-about">{summary}</p>
@@ -451,7 +529,7 @@ function RunStats({
   sessionGone: boolean;
 }) {
   const harnessName = useHarnessStore(
-    (state) => state.harnesses.find((harness) => harness.id === run.conversation?.harnessId)?.name
+    (state) => state.harnesses.find((harness) => harness.id === run.conversation?.harnessId)?.name,
   );
   const [copied, copy] = useCopied();
   const duration = run.startedAt ? formatDuration(run, now) : null;
@@ -479,11 +557,23 @@ function RunStats({
       </Stat>
       <Stat
         label="Started"
-        value={started ? started.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) : '—'}
+        value={
+          started
+            ? started.toLocaleTimeString(undefined, {
+                hour: '2-digit',
+                minute: '2-digit',
+                second: '2-digit',
+              })
+            : '—'
+        }
       >
         {started ? dayWords(started, now) : notStartedWords(run)}
       </Stat>
-      <Stat label="Duration" value={duration ?? '—'} tone={usual?.tone === 'slow' ? 'slow' : undefined}>
+      <Stat
+        label="Duration"
+        value={duration ?? '—'}
+        tone={usual?.tone === 'slow' ? 'slow' : undefined}
+      >
         {usual ? usual.text : run.status === 'running' ? 'and counting' : null}
       </Stat>
       {waited && (
@@ -493,17 +583,28 @@ function RunStats({
       )}
       {run.conversation && (
         <Stat label="Session" value={`${harnessName ?? run.conversation.harnessId} · read-only`}>
-          {sessionGone ? 'Session removed' : run.conversation.cwd && <span className="automations-run-stat-path">{run.conversation.cwd}</span>}
+          {sessionGone
+            ? 'Session removed'
+            : run.conversation.cwd && (
+                <span className="automations-run-stat-path">{run.conversation.cwd}</span>
+              )}
         </Stat>
       )}
-      <Stat label="Run" value={<span className="automations-run-stat-id">{run.id.slice(0, 8)}</span>}>
+      <Stat
+        label="Run"
+        value={<span className="automations-run-stat-id">{run.id.slice(0, 8)}</span>}
+      >
         <button
           type="button"
           className="automations-link-button automations-run-copy"
           onClick={() => copy(run.id)}
           aria-label={copied ? 'Copied the run ID' : 'Copy the run ID'}
         >
-          {copied ? <Check size={11} className="automations-copied" aria-hidden="true" /> : <Copy size={11} aria-hidden="true" />}
+          {copied ? (
+            <Check size={11} className="automations-copied" aria-hidden="true" />
+          ) : (
+            <Copy size={11} aria-hidden="true" />
+          )}
           {copied ? 'Copied' : 'Copy ID'}
         </button>
       </Stat>
@@ -536,7 +637,12 @@ function Stat({
 /** A section of the run page, headed, and a place a stage can link to. */
 function Section({ id, title, children }: { id: string; title: string; children: ReactNode }) {
   return (
-    <section id={id} tabIndex={-1} className="automations-detail-section automations-run-section" aria-labelledby={`${id}-title`}>
+    <section
+      id={id}
+      tabIndex={-1}
+      className="automations-detail-section automations-run-section"
+      aria-labelledby={`${id}-title`}
+    >
       <div className="automations-detail-section-head">
         <h3 id={`${id}-title`} className="automations-section-title">
           {title}
@@ -552,7 +658,15 @@ function Section({ id, title, children }: { id: string; title: string; children:
  * works, that is only its latest message, so it says so, or that it is
  * still working.
  */
-function AnswerSection({ entries, following, id }: { entries: ConversationEntry[]; following: boolean; id: string }) {
+function AnswerSection({
+  entries,
+  following,
+  id,
+}: {
+  entries: ConversationEntry[];
+  following: boolean;
+  id: string;
+}) {
   if (finalAnswer(entries).answer === null) {
     return following ? <p className="automations-hint automations-following">Working…</p> : null;
   }
@@ -564,7 +678,15 @@ function AnswerSection({ entries, following, id }: { entries: ConversationEntry[
 }
 
 /** Older and newer runs of the same automation, as a CI run page steps between runs. */
-function RunNav({ runId, history, onOpen }: { runId: string; history: RunListEntry[]; onOpen: (runId: string) => void }) {
+function RunNav({
+  runId,
+  history,
+  onOpen,
+}: {
+  runId: string;
+  history: RunListEntry[];
+  onOpen: (runId: string) => void;
+}) {
   const { newer, older } = adjacentRuns(runId, history);
   if (!newer && !older) return null;
   return (
@@ -616,7 +738,11 @@ function StopButton({ runId }: { runId: string }) {
         <Square size={11} aria-hidden="true" />
         {stopping || busy === 'stop' ? 'Stopping…' : 'Stop'}
       </button>
-      {error && <div className="automations-error" role="alert">{error}</div>}
+      {error && (
+        <div className="automations-error" role="alert">
+          {error}
+        </div>
+      )}
     </>
   );
 }
@@ -648,7 +774,8 @@ function notStartedWords(run: RunRecord): string {
 
 /** "Today", "Yesterday", or the date, for a time already shown. */
 function dayWords(at: Date, now: Date): string {
-  const midnight = (date: Date) => new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
+  const midnight = (date: Date) =>
+    new Date(date.getFullYear(), date.getMonth(), date.getDate()).getTime();
   const days = Math.round((midnight(now) - midnight(at)) / 86_400_000);
   if (days === 0) return 'Today';
   if (days === 1) return 'Yesterday';
@@ -661,7 +788,11 @@ function dayWords(at: Date, now: Date): string {
 }
 
 function hasCleanupData(result: unknown): boolean {
-  return typeof result === 'object' && result !== null && Array.isArray((result as { skipped?: unknown }).skipped);
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    Array.isArray((result as { skipped?: unknown }).skipped)
+  );
 }
 
 /**
@@ -691,7 +822,7 @@ function useCopied(): [boolean, (text: string) => void] {
     () => () => {
       if (timer.current) clearTimeout(timer.current);
     },
-    []
+    [],
   );
   const copy = (text: string) => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -718,5 +849,7 @@ function revealElement(id: string): void {
   // Restart the animation when the same place is shown twice in a row.
   void element.offsetWidth;
   element.classList.add('automations-flash');
-  element.addEventListener('animationend', () => element.classList.remove('automations-flash'), { once: true });
+  element.addEventListener('animationend', () => element.classList.remove('automations-flash'), {
+    once: true,
+  });
 }

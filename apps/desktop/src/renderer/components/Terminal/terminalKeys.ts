@@ -24,7 +24,7 @@ const NEWLINE_SEQUENCE = '\x1b\r';
  * carriage return through there instead.
  */
 export function terminalKeyOverride(event: KeyboardEvent): string | null {
-    if (event.key !== 'Enter') return null;
-    if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null;
-    return NEWLINE_SEQUENCE;
+  if (event.key !== 'Enter') return null;
+  if (!event.shiftKey || event.altKey || event.ctrlKey || event.metaKey) return null;
+  return NEWLINE_SEQUENCE;
 }

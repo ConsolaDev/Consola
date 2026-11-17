@@ -12,7 +12,7 @@
  * ```
  */
 
-import { ReactNode, memo } from 'react';
+import { type ReactNode, memo } from 'react';
 import { createPortal } from 'react-dom';
 import { SelectionPopup } from './SelectionPopup';
 import { useCodeSelection, type UseCodeSelectionOptions } from './useCodeSelection';
@@ -50,13 +50,11 @@ export const SelectableCode = memo(function SelectableCode({
   return (
     <div ref={containerRef} className={`selectable-code ${className}`.trim()}>
       {children}
-      {selection && createPortal(
-        <SelectionPopup
-          position={selection.position}
-          onAddToChat={addToChat}
-        />,
-        document.body
-      )}
+      {selection &&
+        createPortal(
+          <SelectionPopup position={selection.position} onAddToChat={addToChat} />,
+          document.body,
+        )}
     </div>
   );
 });

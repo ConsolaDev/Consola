@@ -74,8 +74,7 @@ export function AddHarnessWizard({
 
   const idError = (() => {
     if (!draft.id) return 'An instance ID is required.';
-    if (!HARNESS_ID_PATTERN.test(draft.id))
-      return "Use only letters, digits, '-', or '_'.";
+    if (!HARNESS_ID_PATTERN.test(draft.id)) return "Use only letters, digits, '-', or '_'.";
     if (harnesses.some((harness) => harness.id === draft.id))
       return 'That instance ID is already in use.';
     return undefined;
@@ -105,8 +104,8 @@ export function AddHarnessWizard({
         <Dialog.Content className="dialog-content harness-wizard">
           <Dialog.Title className="dialog-title">Add harness</Dialog.Title>
           <Dialog.Description className="harness-wizard-description">
-            Point Consola at another agent CLI installation — a second login, a
-            different binary, or its own configuration.
+            Point Consola at another agent CLI installation — a second login, a different binary, or
+            its own configuration.
           </Dialog.Description>
 
           <ol className="harness-wizard-steps">

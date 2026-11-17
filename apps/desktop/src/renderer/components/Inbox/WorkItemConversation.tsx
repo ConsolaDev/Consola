@@ -19,7 +19,12 @@ import {
   Wrench,
   type LucideIcon,
 } from 'lucide-react';
-import type { WorkItemCommitItem, WorkItemPost, WorkItemReference, WorkItemReviewer } from '../../../shared/workItemDetails';
+import type {
+  WorkItemCommitItem,
+  WorkItemPost,
+  WorkItemReference,
+  WorkItemReviewer,
+} from '../../../shared/workItemDetails';
 import { MOD_KEY, isSubmitChord } from './inboxPresentation';
 import {
   buildStream,
@@ -69,7 +74,10 @@ const EVENT_ICONS: Record<EventIcon, LucideIcon> = {
   commit: GitCommitHorizontal,
 };
 
-const REVIEWER_MARKS: Record<WorkItemReviewer['state'], { icon: LucideIcon; tone: 'success' | 'error' | 'warning' | 'neutral'; words: string }> = {
+const REVIEWER_MARKS: Record<
+  WorkItemReviewer['state'],
+  { icon: LucideIcon; tone: 'success' | 'error' | 'warning' | 'neutral'; words: string }
+> = {
   approved: { icon: CircleCheck, tone: 'success', words: 'approved' },
   'changes-requested': { icon: FileDiff, tone: 'error', words: 'requested changes' },
   requested: { icon: CircleDot, tone: 'warning', words: 'review requested' },
@@ -82,29 +90,51 @@ function ChipRow() {
   const { details } = useWorkItemDetail();
   const groups: Array<[string, ReactNode]> = [];
   if (details.reviewers.length) {
-    groups.push(['Reviewers', details.reviewers.map((reviewer) => {
-      const mark = REVIEWER_MARKS[reviewer.state];
-      const Icon = mark.icon;
-      return (
-        <li key={`${reviewer.isTeam ? 'team' : 'user'}:${reviewer.who.login}`} className="inbox-detail-person" title={`${reviewer.who.login}: ${mark.words}`}>
-          <Avatar person={reviewer.who} size={16} />
-          <span>{reviewer.who.login}</span>
-          <Icon size={13} className="inbox-detail-tone-icon" data-tone={mark.tone} aria-hidden="true" />
-          <span className="sr-only">, {mark.words}</span>
-        </li>
-      );
-    })]);
+    groups.push([
+      'Reviewers',
+      details.reviewers.map((reviewer) => {
+        const mark = REVIEWER_MARKS[reviewer.state];
+        const Icon = mark.icon;
+        return (
+          <li
+            key={`${reviewer.isTeam ? 'team' : 'user'}:${reviewer.who.login}`}
+            className="inbox-detail-person"
+            title={`${reviewer.who.login}: ${mark.words}`}
+          >
+            <Avatar person={reviewer.who} size={16} />
+            <span>{reviewer.who.login}</span>
+            <Icon
+              size={13}
+              className="inbox-detail-tone-icon"
+              data-tone={mark.tone}
+              aria-hidden="true"
+            />
+            <span className="sr-only">, {mark.words}</span>
+          </li>
+        );
+      }),
+    ]);
   }
   if (details.assignees.length) {
-    groups.push(['Assignees', details.assignees.map((person) => (
-      <li key={person.login} className="inbox-detail-person">
-        <Avatar person={person} size={16} />
-        <span>{person.login}</span>
-      </li>
-    ))]);
+    groups.push([
+      'Assignees',
+      details.assignees.map((person) => (
+        <li key={person.login} className="inbox-detail-person">
+          <Avatar person={person} size={16} />
+          <span>{person.login}</span>
+        </li>
+      )),
+    ]);
   }
   if (details.labels.length) {
-    groups.push(['Labels', details.labels.map((label) => <li key={label.name}><ItemLabel label={label} /></li>)]);
+    groups.push([
+      'Labels',
+      details.labels.map((label) => (
+        <li key={label.name}>
+          <ItemLabel label={label} />
+        </li>
+      )),
+    ]);
   }
   if (groups.length === 0) return null;
   return (
@@ -178,7 +208,12 @@ function PostCard({
           {editing && edit ? edit(() => setEditing(false)) : <PostBody post={post} empty={empty} />}
           <Reactions reactions={post.reactions} />
           {fix && (
-            <button type="button" className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--tinted inbox-detail-fix" data-tone="accent" onClick={fix}>
+            <button
+              type="button"
+              className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--tinted inbox-detail-fix"
+              data-tone="accent"
+              onClick={fix}
+            >
               <Wrench size={13} aria-hidden="true" />
               Fix in {fixTarget}
             </button>
@@ -197,7 +232,12 @@ function DescriptionEditor({ onClose }: { onClose: () => void }) {
   const [title, setTitle] = useState(details.title);
   const [body, setBody] = useState(details.body);
   const save = async () => {
-    if (!busy && title.trim() && (await perform({ kind: 'edit', title, body }, 'Changes saved.', 'description'))) onClose();
+    if (
+      !busy &&
+      title.trim() &&
+      (await perform({ kind: 'edit', title, body }, 'Changes saved.', 'description'))
+    )
+      onClose();
   };
   return (
     <form
@@ -219,16 +259,43 @@ function DescriptionEditor({ onClose }: { onClose: () => void }) {
     >
       <label className="inbox-detail-field">
         <span>Title</span>
-        <input className="inbox-detail-title-input" value={title} maxLength={256} disabled={busy} autoFocus onChange={(event) => setTitle(event.target.value)} />
+        <input
+          className="inbox-detail-title-input"
+          value={title}
+          maxLength={256}
+          disabled={busy}
+          autoFocus
+          onChange={(event) => setTitle(event.target.value)}
+        />
       </label>
       <div className="inbox-detail-field">
         <span>Description</span>
-        <MarkdownEditor value={body} onChange={setBody} label="Description" placeholder="Markdown supported" rows={10} disabled={busy} />
+        <MarkdownEditor
+          value={body}
+          onChange={setBody}
+          label="Description"
+          placeholder="Markdown supported"
+          rows={10}
+          disabled={busy}
+        />
       </div>
       <div className="inbox-detail-form-foot">
-        <span className="inbox-detail-kbd-hint" aria-hidden="true"><kbd>{MOD_KEY}</kbd><kbd>↵</kbd> save · <kbd>Esc</kbd> cancel</span>
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={onClose}>Cancel edit</button>
-        <button className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" disabled={busy || !title.trim()}>
+        <span className="inbox-detail-kbd-hint" aria-hidden="true">
+          <kbd>{MOD_KEY}</kbd>
+          <kbd>↵</kbd> save · <kbd>Esc</kbd> cancel
+        </span>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--quiet"
+          disabled={busy}
+          onClick={onClose}
+        >
+          Cancel edit
+        </button>
+        <button
+          className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
+          disabled={busy || !title.trim()}
+        >
           {busy ? 'Saving…' : 'Save changes'}
         </button>
       </div>
@@ -247,10 +314,21 @@ function ReferenceLink({ source }: { source: WorkItemReference }) {
       rel="noreferrer"
       onClick={(event) => {
         // In the Inbox when it is there; otherwise the link opens it on GitHub.
-        if (openWorkItem?.({ provider: ref.provider, repo: source.repo, type: source.type, number: source.number })) event.preventDefault();
+        if (
+          openWorkItem?.({
+            provider: ref.provider,
+            repo: source.repo,
+            type: source.type,
+            number: source.number,
+          })
+        )
+          event.preventDefault();
       }}
     >
-      <strong>{source.title}</strong> <span className="inbox-detail-ref-number">{elsewhere ? source.repo : ''}#{source.number}</span>
+      <strong>{source.title}</strong>{' '}
+      <span className="inbox-detail-ref-number">
+        {elsewhere ? source.repo : ''}#{source.number}
+      </span>
     </a>
   );
 }
@@ -260,18 +338,59 @@ function Sentence({ segments }: { segments: Segment[] }) {
     <>
       {segments.map((segment, index) => {
         const space = index > 0 ? ' ' : '';
-        if ('text' in segment) return <span key={index}>{space}{segment.text}</span>;
-        if ('strong' in segment) return <span key={index}>{space}<strong>{segment.strong}</strong></span>;
-        if ('code' in segment) return <span key={index}>{space}<code className="inbox-detail-code">{segment.code}</code></span>;
-        if ('del' in segment) return <span key={index}>{space}<del>{segment.del}</del></span>;
-        if ('label' in segment) return <span key={index}>{space}<ItemLabel label={segment.label} /></span>;
-        return <span key={index}>{space}<ReferenceLink source={segment.ref} /></span>;
+        if ('text' in segment)
+          return (
+            <span key={index}>
+              {space}
+              {segment.text}
+            </span>
+          );
+        if ('strong' in segment)
+          return (
+            <span key={index}>
+              {space}
+              <strong>{segment.strong}</strong>
+            </span>
+          );
+        if ('code' in segment)
+          return (
+            <span key={index}>
+              {space}
+              <code className="inbox-detail-code">{segment.code}</code>
+            </span>
+          );
+        if ('del' in segment)
+          return (
+            <span key={index}>
+              {space}
+              <del>{segment.del}</del>
+            </span>
+          );
+        if ('label' in segment)
+          return (
+            <span key={index}>
+              {space}
+              <ItemLabel label={segment.label} />
+            </span>
+          );
+        return (
+          <span key={index}>
+            {space}
+            <ReferenceLink source={segment.ref} />
+          </span>
+        );
       })}
     </>
   );
 }
 
-function EventLine({ icon, tone, actor, createdAt, children }: Pick<StreamEvent, 'icon' | 'tone' | 'actor' | 'createdAt'> & { children: ReactNode }) {
+function EventLine({
+  icon,
+  tone,
+  actor,
+  createdAt,
+  children,
+}: Pick<StreamEvent, 'icon' | 'tone' | 'actor' | 'createdAt'> & { children: ReactNode }) {
   const Icon = EVENT_ICONS[icon];
   return (
     <div className="inbox-detail-event-line">
@@ -280,7 +399,8 @@ function EventLine({ icon, tone, actor, createdAt, children }: Pick<StreamEvent,
       </span>
       <p className="inbox-detail-event-text">
         <Avatar person={actor} size={16} />
-        <strong className="inbox-detail-event-actor">{actor.login}</strong> {children} <RelativeTime iso={createdAt} />
+        <strong className="inbox-detail-event-actor">{actor.login}</strong> {children}{' '}
+        <RelativeTime iso={createdAt} />
       </p>
     </div>
   );
@@ -290,21 +410,38 @@ function CommitRun({ commits }: { commits: WorkItemCommitItem[] }) {
   const { actor, text } = commitRunSentence(commits);
   return (
     <>
-      <EventLine icon="commit" actor={actor} createdAt={commits[0].createdAt}>{text}</EventLine>
+      <EventLine icon="commit" actor={actor} createdAt={commits[0].createdAt}>
+        {text}
+      </EventLine>
       <ol className="inbox-detail-commits" aria-label="Commits">
         {commits.map((commit) => {
           const outcome = commit.checkState ? checkOutcome(commit.checkState) : null;
           return (
             <li key={commit.id} className="inbox-detail-commit">
               <Avatar person={commit.author} size={16} />
-              <a className="inbox-detail-commit-title" href={commit.url} target="_blank" rel="noreferrer" title={commit.headline}>{commit.headline}</a>
+              <a
+                className="inbox-detail-commit-title"
+                href={commit.url}
+                target="_blank"
+                rel="noreferrer"
+                title={commit.headline}
+              >
+                {commit.headline}
+              </a>
               {outcome && (
-                <span className="inbox-detail-commit-checks" title={`Checks: ${checkLabel(commit.checkState!).toLowerCase()}`}>
+                <span
+                  className="inbox-detail-commit-checks"
+                  title={`Checks: ${checkLabel(commit.checkState!).toLowerCase()}`}
+                >
                   <CheckIcon outcome={outcome} size={13} />
-                  <span className="sr-only">Checks {checkLabel(commit.checkState!).toLowerCase()}</span>
+                  <span className="sr-only">
+                    Checks {checkLabel(commit.checkState!).toLowerCase()}
+                  </span>
                 </span>
               )}
-              <a className="inbox-detail-sha" href={commit.url} target="_blank" rel="noreferrer">{commit.oid.slice(0, 7)}</a>
+              <a className="inbox-detail-sha" href={commit.url} target="_blank" rel="noreferrer">
+                {commit.oid.slice(0, 7)}
+              </a>
             </li>
           );
         })}
@@ -319,7 +456,9 @@ const StreamItem = memo(function StreamItem({ entry }: { entry: StreamEntry }) {
     case 'event':
       return (
         <li className="inbox-detail-stream-event">
-          <EventLine {...entry}><Sentence segments={entry.sentence} /></EventLine>
+          <EventLine {...entry}>
+            <Sentence segments={entry.sentence} />
+          </EventLine>
         </li>
       );
     case 'commits':
@@ -336,14 +475,24 @@ const StreamItem = memo(function StreamItem({ entry }: { entry: StreamEntry }) {
             post={entry.item}
             verb="commented"
             at={at}
-            edit={entry.item.viewerCanEdit ? (close) => (
-              <BodyEditor
-                initial={entry.item.body}
-                label="Edit comment"
-                onSave={(body) => perform({ kind: 'edit-comment', target: 'comment', id: entry.item.id, body }, 'Comment updated.', at)}
-                onClose={close}
-              />
-            ) : undefined}
+            edit={
+              entry.item.viewerCanEdit
+                ? (close) => (
+                    <BodyEditor
+                      initial={entry.item.body}
+                      label="Edit comment"
+                      onSave={(body) =>
+                        perform(
+                          { kind: 'edit-comment', target: 'comment', id: entry.item.id, body },
+                          'Comment updated.',
+                          at,
+                        )
+                      }
+                      onClose={close}
+                    />
+                  )
+                : undefined
+            }
           />
         </li>
       );
@@ -353,9 +502,14 @@ const StreamItem = memo(function StreamItem({ entry }: { entry: StreamEntry }) {
       const { verb, tone } = reviewVerb(entry.item.state);
       const synthetic = entry.item.id.startsWith('thread:');
       // Today's rule: a request for changes is something a session can fix.
-      const fix = isPr && open && entry.item.state === 'CHANGES_REQUESTED' && entry.item.body.trim()
-        ? () => handOff(`Address this review feedback on ${item.url}:\n${entry.item.url}\n\n${entry.item.body}\n\nInspect the current code, implement the fix, and validate it.`, at)
-        : undefined;
+      const fix =
+        isPr && open && entry.item.state === 'CHANGES_REQUESTED' && entry.item.body.trim()
+          ? () =>
+              handOff(
+                `Address this review feedback on ${item.url}:\n${entry.item.url}\n\n${entry.item.body}\n\nInspect the current code, implement the fix, and validate it.`,
+                at,
+              )
+          : undefined;
       return (
         <li className="inbox-detail-stream-card">
           <PostCard
@@ -364,16 +518,29 @@ const StreamItem = memo(function StreamItem({ entry }: { entry: StreamEntry }) {
             verdict={tone === 'success' || tone === 'error' ? { tone } : undefined}
             at={at}
             fix={fix}
-            edit={entry.item.viewerCanEdit && !synthetic ? (close) => (
-              <BodyEditor
-                initial={entry.item.body}
-                label="Edit review"
-                onSave={(body) => perform({ kind: 'edit-comment', target: 'review', id: entry.item.id, body }, 'Review updated.', at)}
-                onClose={close}
-              />
-            ) : undefined}
+            edit={
+              entry.item.viewerCanEdit && !synthetic
+                ? (close) => (
+                    <BodyEditor
+                      initial={entry.item.body}
+                      label="Edit review"
+                      onSave={(body) =>
+                        perform(
+                          { kind: 'edit-comment', target: 'review', id: entry.item.id, body },
+                          'Review updated.',
+                          at,
+                        )
+                      }
+                      onClose={close}
+                    />
+                  )
+                : undefined
+            }
           >
-            {entry.threads.length > 0 && entry.threads.map((thread) => <ReviewThread key={thread.id} thread={thread} placement="stream" />)}
+            {entry.threads.length > 0 &&
+              entry.threads.map((thread) => (
+                <ReviewThread key={thread.id} thread={thread} placement="stream" />
+              ))}
           </PostCard>
         </li>
       );
@@ -387,9 +554,18 @@ const StreamItem = memo(function StreamItem({ entry }: { entry: StreamEntry }) {
  * reviews with their threads, commits, events), then — while it is open —
  * what stands between it and a merge, and a box to say something.
  */
-export function ConversationStream({ composerRef, onAddReview }: { composerRef: Ref<MarkdownEditorHandle>; onAddReview: () => void }) {
+export function ConversationStream({
+  composerRef,
+  onAddReview,
+}: {
+  composerRef: Ref<MarkdownEditorHandle>;
+  onAddReview: () => void;
+}) {
   const { details, isPr, open, ref } = useWorkItemDetail();
-  const entries = useMemo(() => buildStream(details.timeline, details.threads, ref.type), [details.timeline, details.threads, ref.type]);
+  const entries = useMemo(
+    () => buildStream(details.timeline, details.threads, ref.type),
+    [details.timeline, details.threads, ref.type],
+  );
   return (
     <>
       <ChipRow />
@@ -400,11 +576,18 @@ export function ConversationStream({ composerRef, onAddReview }: { composerRef: 
             verb="opened this"
             at="description"
             empty={<p className="inbox-detail-empty">No description provided.</p>}
-            edit={details.description.viewerCanEdit ? (close) => <DescriptionEditor onClose={close} /> : undefined}
+            edit={
+              details.description.viewerCanEdit
+                ? (close) => <DescriptionEditor onClose={close} />
+                : undefined
+            }
           />
         </li>
         {entries.map((entry) => (
-          <StreamItem key={entry.kind === 'commits' || entry.kind === 'event' ? entry.id : entry.item.id} entry={entry} />
+          <StreamItem
+            key={entry.kind === 'commits' || entry.kind === 'event' ? entry.id : entry.item.id}
+            entry={entry}
+          />
         ))}
       </ol>
       {isPr && open && <MergeCard onAddReview={onAddReview} />}

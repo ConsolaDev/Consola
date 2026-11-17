@@ -1,6 +1,15 @@
 import { useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
-import { Check, ChevronDown, ChevronRight, GitMerge, GitPullRequestDraft, TriangleAlert, UserRound, Wrench } from 'lucide-react';
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  GitMerge,
+  GitPullRequestDraft,
+  TriangleAlert,
+  UserRound,
+  Wrench,
+} from 'lucide-react';
 import {
   MERGE_METHODS,
   OUTCOME_TONE,
@@ -36,7 +45,17 @@ function remember(workspaceId: string, method: MergeMethod) {
   }
 }
 
-function RowView({ row, id, action, children }: { row: MergeRow; id: string; action?: ReactNode; children?: ReactNode }) {
+function RowView({
+  row,
+  id,
+  action,
+  children,
+}: {
+  row: MergeRow;
+  id: string;
+  action?: ReactNode;
+  children?: ReactNode;
+}) {
   const Icon = row.key === 'draft' ? GitPullRequestDraft : TONE_ICONS[row.tone];
   return (
     <div className="inbox-detail-merge-row" data-key={row.key}>
@@ -58,7 +77,19 @@ function RowView({ row, id, action, children }: { row: MergeRow; id: string; act
  * can be pressed, so it never promises a merge GitHub would refuse.
  */
 export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
-  const { workspaceId, ref, details, accountLogin, ownItem, open, busy, perform, handOff, item, fixTarget } = useWorkItemDetail();
+  const {
+    workspaceId,
+    ref,
+    details,
+    accountLogin,
+    ownItem,
+    open,
+    busy,
+    perform,
+    handOff,
+    item,
+    fixTarget,
+  } = useWorkItemDetail();
   const uid = useId();
   const rows = mergeRows(details);
   const gate = mergeGate(details.mergeState);
@@ -88,23 +119,44 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
     remember(workspaceId, next);
   };
 
-  const refusal = details.isDraft ? '' : mergeRefusal(rows, gate, details.mergeState, details.baseBranch);
+  const refusal = details.isDraft
+    ? ''
+    : mergeRefusal(rows, gate, details.mergeState, details.baseBranch);
   // A disabled button shows no tooltip of its own: the rows in its way describe it.
-  const describedBy = [
-    ...rows.filter((row) => row.blocking && row.tone !== 'success').map((row) => `${uid}-${row.key}`),
-    ...(refusal ? [`${uid}-refusal`] : []),
-  ].join(' ') || undefined;
-  const warning = rows.filter((row) => row.blocking && row.tone !== 'success').map((row) => row.title).join(' · ');
+  const describedBy =
+    [
+      ...rows
+        .filter((row) => row.blocking && row.tone !== 'success')
+        .map((row) => `${uid}-${row.key}`),
+      ...(refusal ? [`${uid}-refusal`] : []),
+    ].join(' ') || undefined;
+  const warning = rows
+    .filter((row) => row.blocking && row.tone !== 'success')
+    .map((row) => row.title)
+    .join(' · ');
   // Re-checked at confirm time: a refresh may have changed the answer since.
-  const allowed = confirm === 'merge' ? gate.button !== 'disabled' : confirm === 'auto-merge' ? gate.canQueue : false;
+  const allowed =
+    confirm === 'merge'
+      ? gate.button !== 'disabled'
+      : confirm === 'auto-merge'
+        ? gate.canQueue
+        : false;
   const go = confirm === 'auto-merge' || (confirm === 'merge' && gate.button === 'go');
 
   const reviewAction = pending ? (
-    <button type="button" className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--solid inbox-detail-btn--accent" onClick={onAddReview}>
+    <button
+      type="button"
+      className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--solid inbox-detail-btn--accent"
+      onClick={onAddReview}
+    >
       Finish your review
     </button>
   ) : !ownItem ? (
-    <button type="button" className="inbox-detail-btn inbox-detail-btn--small" onClick={onAddReview}>
+    <button
+      type="button"
+      className="inbox-detail-btn inbox-detail-btn--small"
+      onClick={onAddReview}
+    >
       Add your review
     </button>
   ) : null;
@@ -118,7 +170,8 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
             <RowView key={row.key} row={row} id={id} action={reviewAction}>
               {pending && (
                 <span className="inbox-detail-toned" data-tone="warning">
-                  Your review is pending · {pending.commentCount} comment{pending.commentCount === 1 ? '' : 's'}
+                  Your review is pending · {pending.commentCount} comment
+                  {pending.commentCount === 1 ? '' : 's'}
                 </span>
               )}
             </RowView>
@@ -130,7 +183,7 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
               <RowView
                 row={row}
                 id={id}
-                action={(
+                action={
                   <button
                     type="button"
                     className="inbox-detail-icon-btn"
@@ -140,9 +193,14 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
                     title={checksOpen ? 'Hide checks' : 'Show checks'}
                     onClick={() => setChecksOpen(!checksOpen)}
                   >
-                    <ChevronRight size={15} className="inbox-detail-chevron" data-open={checksOpen || undefined} aria-hidden="true" />
+                    <ChevronRight
+                      size={15}
+                      className="inbox-detail-chevron"
+                      data-open={checksOpen || undefined}
+                      aria-hidden="true"
+                    />
                   </button>
-                )}
+                }
               />
               {checksOpen && (
                 <div id={`${uid}-checks`} className="inbox-detail-merge-checks">
@@ -154,12 +212,24 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
                           <CheckIcon outcome={outcome} />
                           <span className="inbox-detail-check-name">
                             {check.url ? (
-                              <a className="inbox-detail-text-link" href={check.url} target="_blank" rel="noreferrer">{check.name}</a>
+                              <a
+                                className="inbox-detail-text-link"
+                                href={check.url}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                {check.name}
+                              </a>
                             ) : (
                               check.name
                             )}
                           </span>
-                          <span className="inbox-detail-check-state inbox-detail-toned" data-tone={OUTCOME_TONE[outcome]}>{checkLabel(check.state)}</span>
+                          <span
+                            className="inbox-detail-check-state inbox-detail-toned"
+                            data-tone={OUTCOME_TONE[outcome]}
+                          >
+                            {checkLabel(check.state)}
+                          </span>
                         </li>
                       );
                     })}
@@ -169,10 +239,12 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
                       type="button"
                       className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--tinted"
                       data-tone="accent"
-                      onClick={() => handOff(
-                        `Investigate and fix the failing CI checks for ${item.url}. Read the check logs, implement fixes, and run the relevant validation before pushing.`,
-                        'merge'
-                      )}
+                      onClick={() =>
+                        handOff(
+                          `Investigate and fix the failing CI checks for ${item.url}. Read the check logs, implement fixes, and run the relevant validation before pushing.`,
+                          'merge',
+                        )
+                      }
                     >
                       <Wrench size={13} aria-hidden="true" />
                       Fix failing checks in {fixTarget}
@@ -190,16 +262,20 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
               key={row.key}
               row={row}
               id={id}
-              action={update ? (
-                <button
-                  type="button"
-                  className="inbox-detail-btn inbox-detail-btn--small"
-                  disabled={busy}
-                  onClick={() => void perform({ kind: 'update-branch' }, 'Branch updated.', 'merge')}
-                >
-                  Update branch
-                </button>
-              ) : undefined}
+              action={
+                update ? (
+                  <button
+                    type="button"
+                    className="inbox-detail-btn inbox-detail-btn--small"
+                    disabled={busy}
+                    onClick={() =>
+                      void perform({ kind: 'update-branch' }, 'Branch updated.', 'merge')
+                    }
+                  >
+                    Update branch
+                  </button>
+                ) : undefined
+              }
             />
           );
         }
@@ -208,16 +284,18 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
             key={row.key}
             row={row}
             id={id}
-            action={(
+            action={
               <button
                 type="button"
                 className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--solid inbox-detail-btn--accent"
                 disabled={busy}
-                onClick={() => void perform({ kind: 'ready', draft: false }, 'Ready for review.', 'merge')}
+                onClick={() =>
+                  void perform({ kind: 'ready', draft: false }, 'Ready for review.', 'merge')
+                }
               >
                 Ready for review
               </button>
-            )}
+            }
           />
         );
       })}
@@ -226,7 +304,12 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
         <div className="inbox-detail-merge-foot">
           {refusal && (
             <p id={`${uid}-refusal`} className="inbox-detail-merge-note">
-              <TriangleAlert size={13} className="inbox-detail-tone-icon" data-tone="warning" aria-hidden="true" />
+              <TriangleAlert
+                size={13}
+                className="inbox-detail-tone-icon"
+                data-tone="warning"
+                aria-hidden="true"
+              />
               {refusal}
             </p>
           )}
@@ -255,11 +338,16 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
                 </DropdownMenu.Trigger>
                 <DropdownMenu.Portal>
                   <DropdownMenu.Content className="dropdown-content" sideOffset={4} align="start">
-                    <DropdownMenu.RadioGroup value={method} onValueChange={(value) => choose(value as MergeMethod)}>
+                    <DropdownMenu.RadioGroup
+                      value={method}
+                      onValueChange={(value) => choose(value as MergeMethod)}
+                    >
                       {(Object.keys(MERGE_METHODS) as MergeMethod[]).map((key) => (
                         <DropdownMenu.RadioItem key={key} value={key} className="dropdown-item">
                           <span className="inbox-detail-menu-check">
-                            <DropdownMenu.ItemIndicator><Check size={14} aria-hidden="true" /></DropdownMenu.ItemIndicator>
+                            <DropdownMenu.ItemIndicator>
+                              <Check size={14} aria-hidden="true" />
+                            </DropdownMenu.ItemIndicator>
                           </span>
                           <span>{MERGE_METHODS[key]}</span>
                         </DropdownMenu.RadioItem>
@@ -280,7 +368,10 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
                 Enable auto-merge…
               </button>
             )}
-            <span className="inbox-detail-account" title="Actions here run as this workspace’s GitHub account">
+            <span
+              className="inbox-detail-account"
+              title="Actions here run as this workspace’s GitHub account"
+            >
               <UserRound size={12} aria-hidden="true" />
               as {accountLogin}
             </span>
@@ -321,7 +412,14 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
               : 'GitHub enforces repository rules and supported merge methods.'}
           </p>
           <div className="inbox-detail-form-foot">
-            <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={dismiss}>Cancel</button>
+            <button
+              type="button"
+              className="inbox-detail-btn inbox-detail-btn--quiet"
+              disabled={busy}
+              onClick={dismiss}
+            >
+              Cancel
+            </button>
             <button
               ref={confirmButton}
               type="button"
@@ -332,7 +430,7 @@ export function MergeCard({ onAddReview }: { onAddReview: () => void }) {
                 void perform(
                   { kind: 'merge', method, auto, headOid: details.headOid! },
                   auto ? 'Auto-merge requested.' : 'Merge requested.',
-                  'merge'
+                  'merge',
                 ).then((ok) => ok && setConfirm(null));
               }}
             >

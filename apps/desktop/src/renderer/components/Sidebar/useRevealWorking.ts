@@ -12,7 +12,8 @@ export function revealWorking(): void {
   const navigation = useNavigationStore.getState();
   if (navigation.isSidebarHidden) navigation.setSidebarHidden(false);
   const settings = useSettingsStore.getState();
-  if (!isShelfOpen(settings.sidebarShelfOpen, 'working')) settings.toggleSidebarShelf('working', true);
+  if (!isShelfOpen(settings.sidebarShelfOpen, 'working'))
+    settings.toggleSidebarShelf('working', true);
 }
 
 /**
@@ -33,7 +34,7 @@ export function revealWorking(): void {
 export function useRevealWorking(
   attention: AttentionMap,
   shown: readonly Entry[],
-  entriesAt: (attention: AttentionMap) => Entry[]
+  entriesAt: (attention: AttentionMap) => Entry[],
 ): void {
   const previous = useRef(attention);
   useLayoutEffect(() => {

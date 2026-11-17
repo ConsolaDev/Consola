@@ -1,4 +1,12 @@
-import { createContext, useCallback, useContext, useRef, useState, type CSSProperties, type ReactNode } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
   ArrowLeft,
@@ -17,7 +25,13 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
-import type { WorkItemDetails, WorkItemLabel, WorkItemMutation, WorkItemPerson, WorkItemReaction } from '../../../shared/workItemDetails';
+import type {
+  WorkItemDetails,
+  WorkItemLabel,
+  WorkItemMutation,
+  WorkItemPerson,
+  WorkItemReaction,
+} from '../../../shared/workItemDetails';
 import { workItemAssetUrl } from '../../../shared/workItemAssets';
 import { MarkdownRenderer } from '../Markdown';
 import {
@@ -95,7 +109,12 @@ export function Messages({ at }: { at: MessageAt }) {
         <div className="inbox-detail-message" data-tone="error" role="alert">
           <CircleAlert size={15} aria-hidden="true" />
           <p>{error}</p>
-          <button type="button" className="inbox-detail-icon-btn" aria-label="Dismiss error" onClick={dismissError}>
+          <button
+            type="button"
+            className="inbox-detail-icon-btn"
+            aria-label="Dismiss error"
+            onClick={dismissError}
+          >
             <X size={13} aria-hidden="true" />
           </button>
         </div>
@@ -163,7 +182,11 @@ function BranchChip({ name }: { name: string }) {
         <code ref={ref}>{name}</code>
       </Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content className="tooltip-content inbox-detail-branch-tooltip" sideOffset={6} align="start">
+        <Tooltip.Content
+          className="tooltip-content inbox-detail-branch-tooltip"
+          sideOffset={6}
+          align="start"
+        >
           {name}
           <Tooltip.Arrow className="tooltip-arrow" />
         </Tooltip.Content>
@@ -176,7 +199,11 @@ function BranchChip({ name }: { name: string }) {
 export function BranchPair({ head, base }: { head: string; base: string | undefined }) {
   return (
     <Tooltip.Provider delayDuration={300}>
-      <span className="inbox-detail-branches" role="group" aria-label={base ? `Merges ${head} into ${base}` : head}>
+      <span
+        className="inbox-detail-branches"
+        role="group"
+        aria-label={base ? `Merges ${head} into ${base}` : head}
+      >
         <BranchChip name={base ?? ''} />
         <ArrowLeft size={12} aria-hidden="true" />
         <BranchChip name={head} />
@@ -195,7 +222,14 @@ export function rollupOutcome(summary: CheckSummary): CheckOutcome | null {
 
 export function CheckIcon({ outcome, size = 14 }: { outcome: CheckOutcome; size?: number }) {
   const Icon = OUTCOME_ICONS[outcome];
-  return <Icon size={size} className="inbox-detail-tone-icon" data-tone={OUTCOME_TONE[outcome]} aria-hidden="true" />;
+  return (
+    <Icon
+      size={size}
+      className="inbox-detail-tone-icon"
+      data-tone={OUTCOME_TONE[outcome]}
+      aria-hidden="true"
+    />
+  );
 }
 
 export function DiffCounts({ additions, deletions }: { additions: number; deletions: number }) {
@@ -215,19 +249,43 @@ export function DiffCounts({ additions, deletions }: { additions: number; deleti
  */
 export function WorkItemMarkdown({ content }: { content: string }) {
   const { workspaceId } = useWorkItemDetail();
-  const resolveImageSrc = useCallback((src: string | undefined) => workItemAssetUrl(workspaceId, src), [workspaceId]);
+  const resolveImageSrc = useCallback(
+    (src: string | undefined) => workItemAssetUrl(workspaceId, src),
+    [workspaceId],
+  );
   return (
-    <MarkdownRenderer content={content} enableCommandHighlighting={false} allowHtml resolveImageSrc={resolveImageSrc} zoomableImages />
+    <MarkdownRenderer
+      content={content}
+      enableCommandHighlighting={false}
+      allowHtml
+      resolveImageSrc={resolveImageSrc}
+      zoomableImages
+    />
   );
 }
 
 /** Avatars already drawn once this run: shown at once on a remount, without a flash of the initial. */
 const loadedAvatars = new Set<string>();
 
-function AvatarImage({ person, src, size }: { person: WorkItemPerson; src: string | undefined; size: number }) {
-  const [state, setState] = useState<'loading' | 'loaded' | 'failed'>(src && loadedAvatars.has(src) ? 'loaded' : 'loading');
+function AvatarImage({
+  person,
+  src,
+  size,
+}: {
+  person: WorkItemPerson;
+  src: string | undefined;
+  size: number;
+}) {
+  const [state, setState] = useState<'loading' | 'loaded' | 'failed'>(
+    src && loadedAvatars.has(src) ? 'loaded' : 'loading',
+  );
   return (
-    <span className="inbox-detail-avatar" data-size={size} data-bot={person.isBot || undefined} aria-hidden="true">
+    <span
+      className="inbox-detail-avatar"
+      data-size={size}
+      data-bot={person.isBot || undefined}
+      aria-hidden="true"
+    >
       {state !== 'loaded' && initial(person.login)}
       {src && state !== 'failed' && (
         <img

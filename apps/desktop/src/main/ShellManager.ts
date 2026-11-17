@@ -24,36 +24,58 @@ export class ShellManager {
     let shell = this.shells.get(instanceId);
     if (!shell) {
       const env: NodeJS.ProcessEnv = { ...getLoginEnv(), TERM: 'xterm-256color' };
-      const binary = process.platform === 'win32'
-        ? env.COMSPEC || 'powershell.exe'
-        : env.SHELL || '/bin/bash';
+      const binary =
+        process.platform === 'win32' ? env.COMSPEC || 'powershell.exe' : env.SHELL || '/bin/bash';
       const child = pty.spawn(binary, process.platform === 'win32' ? [] : ['-il'], {
-        name: 'xterm-256color', cwd, cols, rows, env,
+        name: 'xterm-256color',
+        cwd,
+        cols,
+        rows,
+        env,
       });
-      shell = { process: child, screen: new ScreenModel(cols, rows), cwd, sequence: 0, owner, subscriptions: [] };
+      shell = {
+        process: child,
+        screen: new ScreenModel(cols, rows),
+        cwd,
+        sequence: 0,
+        owner,
+        subscriptions: [],
+      };
       this.shells.set(instanceId, shell);
       const current = shell;
-      current.subscriptions.push(child.onData(data => {
-        // Send only after the mirror consumed these bytes. Snapshot and stream
-        // sequence numbers then describe precisely the same output boundary.
-        current.screen.write(data, () => {
-          if (this.shells.get(instanceId) !== current) return;
-          current.sequence++;
-          this.send(current, IPC_CHANNELS.SHELL_DATA, { instanceId, data, sequence: current.sequence });
-        });
-      }));
-      current.subscriptions.push(child.onExit(({ exitCode }) => {
-        current.process = null;
-        this.send(current, IPC_CHANNELS.SHELL_EXIT, { instanceId, exitCode });
-      }));
+      current.subscriptions.push(
+        child.onData((data) => {
+          // Send only after the mirror consumed these bytes. Snapshot and stream
+          // sequence numbers then describe precisely the same output boundary.
+          current.screen.write(data, () => {
+            if (this.shells.get(instanceId) !== current) return;
+            current.sequence++;
+            this.send(current, IPC_CHANNELS.SHELL_DATA, {
+              instanceId,
+              data,
+              sequence: current.sequence,
+            });
+          });
+        }),
+      );
+      current.subscriptions.push(
+        child.onExit(({ exitCode }) => {
+          current.process = null;
+          this.send(current, IPC_CHANNELS.SHELL_EXIT, { instanceId, exitCode });
+        }),
+      );
     }
     shell.owner = owner;
     const current = shell;
-    return new Promise(resolve => {
-      current.screen.write('', () => resolve({
-        ...current.screen.snapshot(), sequence: current.sequence,
-        exited: current.process === null, cwd: current.cwd,
-      }));
+    return new Promise((resolve) => {
+      current.screen.write('', () =>
+        resolve({
+          ...current.screen.snapshot(),
+          sequence: current.sequence,
+          exited: current.process === null,
+          cwd: current.cwd,
+        }),
+      );
     });
   }
 
@@ -81,7 +103,7 @@ export class ShellManager {
     const shell = this.shells.get(instanceId);
     if (!shell) return;
     this.shells.delete(instanceId);
-    shell.subscriptions.forEach(subscription => subscription.dispose());
+    shell.subscriptions.forEach((subscription) => subscription.dispose());
     shell.process?.kill();
     shell.screen.dispose();
   }
@@ -95,7 +117,14 @@ export class ShellManager {
   }
 
   private validSize(cols: number, rows: number): boolean {
-    return Number.isInteger(cols) && Number.isInteger(rows) && cols > 0 && rows > 0 && cols <= 1000 && rows <= 1000;
+    return (
+      Number.isInteger(cols) &&
+      Number.isInteger(rows) &&
+      cols > 0 &&
+      rows > 0 &&
+      cols <= 1000 &&
+      rows <= 1000
+    );
   }
 
   private validateSize(cols: number, rows: number): void {

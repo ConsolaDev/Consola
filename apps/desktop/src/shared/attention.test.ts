@@ -10,7 +10,9 @@ describe('activityOf', () => {
   });
 
   it('prefers the ledger record', () => {
-    expect(activityOf(session, { sessionId: 's1', workspaceId: 'w1', lastActiveAt: 500 })).toBe(500);
+    expect(activityOf(session, { sessionId: 's1', workspaceId: 'w1', lastActiveAt: 500 })).toBe(
+      500,
+    );
   });
 
   it('trusts a record even when it is older than the seed', () => {

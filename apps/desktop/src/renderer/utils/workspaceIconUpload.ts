@@ -1,5 +1,7 @@
 import {
-  WORKSPACE_ICON_IMAGE_SIZE, isWorkspaceImageIcon, type WorkspaceImageIcon,
+  WORKSPACE_ICON_IMAGE_SIZE,
+  isWorkspaceImageIcon,
+  type WorkspaceImageIcon,
 } from '../../shared/workspaceIcons';
 
 const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
@@ -24,9 +26,16 @@ export async function prepareWorkspaceIcon(file: File): Promise<WorkspaceImageIc
     const scale = Math.min(canvas.width / bitmap.width, canvas.height / bitmap.height);
     const width = bitmap.width * scale;
     const height = bitmap.height * scale;
-    context.drawImage(bitmap, (canvas.width - width) / 2, (canvas.height - height) / 2, width, height);
+    context.drawImage(
+      bitmap,
+      (canvas.width - width) / 2,
+      (canvas.height - height) / 2,
+      width,
+      height,
+    );
     const icon: WorkspaceImageIcon = { type: 'image', dataUrl: canvas.toDataURL('image/png') };
-    if (!isWorkspaceImageIcon(icon)) throw new Error('Could not prepare the image. Try another file.');
+    if (!isWorkspaceImageIcon(icon))
+      throw new Error('Could not prepare the image. Try another file.');
     return icon;
   } finally {
     bitmap.close();

@@ -1,6 +1,6 @@
 import type { AttentionRecord, AttentionSnapshot } from '../../shared/attention';
 import type { SettleMemento } from '../../shared/preferences';
-import { JsonStateFile } from '../state/JsonStateFile';
+import type { JsonStateFile } from '../state/JsonStateFile';
 
 /**
  * Where each session was last active.
@@ -175,7 +175,11 @@ export class JsonAttentionLedger implements AttentionLedger {
     return false;
   }
 
-  public settle(targets: SettleTarget[], at: number, { markSeen }: { markSeen: boolean }): SettleMemento {
+  public settle(
+    targets: SettleTarget[],
+    at: number,
+    { markSeen }: { markSeen: boolean },
+  ): SettleMemento {
     const memento: SettleMemento = {};
     const next: AttentionRecord[] = [];
     for (const { sessionId, workspaceId, activityAt } of targets) {

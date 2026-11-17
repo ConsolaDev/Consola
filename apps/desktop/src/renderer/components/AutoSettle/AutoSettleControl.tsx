@@ -2,7 +2,8 @@ import { AUTO_SETTLE_CHOICES } from '../../../shared/preferences';
 import { preferencesBridge } from '../../services/preferencesBridge';
 import { usePreferencesStore } from '../../stores/preferencesStore';
 
-const label = (days: number) => (days === 0 ? 'Off' : days === 1 ? 'After 1 day' : `After ${days} days`);
+const label = (days: number) =>
+  days === 0 ? 'Off' : days === 1 ? 'After 1 day' : `After ${days} days`;
 
 /**
  * The one control for how long a session sits idle before it settles. Shared
@@ -23,7 +24,9 @@ export function AutoSettleControl({ id }: { id?: string }) {
       onChange={(event) => void preferencesBridge.setAutoSettleDays(Number(event.target.value))}
     >
       {choices.map((choice) => (
-        <option key={choice} value={choice}>{label(choice)}</option>
+        <option key={choice} value={choice}>
+          {label(choice)}
+        </option>
       ))}
     </select>
   );

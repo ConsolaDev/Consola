@@ -5,19 +5,19 @@ import { forgetSessionLocally } from '../utils/forgetSession';
 import { vanishedSessions } from '../utils/vanishedSessions';
 import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
-import {
-  type Group,
-  type DeletedLabel,
-  type Label,
-  type NewGroupFields,
-  type NewLabelFields,
-  type NewSessionFields,
-  type Scope,
-  type Session,
-  type SessionUpdates,
-  type Workspace,
-  type WorkspaceProvider,
-  type WorkspaceUpdates,
+import type {
+  Group,
+  DeletedLabel,
+  Label,
+  NewGroupFields,
+  NewLabelFields,
+  NewSessionFields,
+  Scope,
+  Session,
+  SessionUpdates,
+  Workspace,
+  WorkspaceProvider,
+  WorkspaceUpdates,
 } from '../../shared/workspace';
 
 export type { Group, Label, Scope, Session, Workspace } from '../../shared/workspace';
@@ -29,28 +29,29 @@ interface WorkspaceState {
     name: string,
     path: string,
     isGitRepo: boolean,
-    defaultHarnessId?: string
+    defaultHarnessId?: string,
   ) => Promise<Workspace>;
   deleteWorkspace: (id: string) => Promise<void>;
   moveWorkspace: (id: string, beforeId: string | null) => Promise<void>;
-  updateWorkspace: (
-    id: string,
-    updates: WorkspaceUpdates
-  ) => Promise<void>;
+  updateWorkspace: (id: string, updates: WorkspaceUpdates) => Promise<void>;
   getWorkspace: (id: string) => Workspace | undefined;
-  createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout) => Promise<Session | undefined>;
+  createSession: (
+    workspaceId: string,
+    fields: NewSessionFields,
+    checkout?: SessionCheckout,
+  ) => Promise<Session | undefined>;
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
   deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;
   getWorkspaceSessions: (workspaceId: string) => Session[];
   addScope: (
     workspaceId: string,
-    fields: { name: string; path: string; isGitRepo: boolean }
+    fields: { name: string; path: string; isGitRepo: boolean },
   ) => Promise<Scope>;
   updateScope: (
     workspaceId: string,
     scopeId: string,
-    updates: Partial<Pick<Scope, 'name' | 'path'>>
+    updates: Partial<Pick<Scope, 'name' | 'path'>>,
   ) => Promise<void>;
   removeScope: (workspaceId: string, scopeId: string) => Promise<void>;
   setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null) => Promise<void>;
@@ -58,13 +59,13 @@ interface WorkspaceState {
   setActions: (
     workspaceId: string,
     actions: WorkItemAction[],
-    sectionDefaults: Partial<Record<InboxSection, string>>
+    sectionDefaults: Partial<Record<InboxSection, string>>,
   ) => Promise<void>;
   createGroup: (workspaceId: string, fields: NewGroupFields) => Promise<Group>;
   updateGroup: (
     workspaceId: string,
     groupId: string,
-    updates: Partial<Pick<Group, 'name' | 'emoji'>>
+    updates: Partial<Pick<Group, 'name' | 'emoji'>>,
   ) => Promise<void>;
   archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
   restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
@@ -72,7 +73,7 @@ interface WorkspaceState {
   updateLabel: (
     workspaceId: string,
     labelId: string,
-    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
   ) => Promise<void>;
   deleteLabel: (workspaceId: string, labelId: string) => Promise<DeletedLabel | null>;
   assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
@@ -87,7 +88,7 @@ interface WorkspaceState {
  * applies them and broadcasts, and this store replaces its snapshot wholesale.
  * No renderer ever sends a snapshot back, which is what makes two windows safe.
  */
-export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
+export const useWorkspaceStore = create<WorkspaceState>()((_set, get) => ({
   workspaces: [],
 
   createWorkspace: (name, path, isGitRepo, defaultHarnessId) =>
@@ -100,13 +101,13 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
 
   getWorkspace: (id) => get().workspaces.find((workspace) => workspace.id === id),
 
-  createSession: (workspaceId, fields, checkout) => workspaceBridge.createSession(workspaceId, fields, checkout),
+  createSession: (workspaceId, fields, checkout) =>
+    workspaceBridge.createSession(workspaceId, fields, checkout),
 
   updateSession: (workspaceId, sessionId, updates) =>
     workspaceBridge.updateSession(workspaceId, sessionId, updates),
 
-  deleteSession: (workspaceId, sessionId) =>
-    workspaceBridge.deleteSession(workspaceId, sessionId),
+  deleteSession: (workspaceId, sessionId) => workspaceBridge.deleteSession(workspaceId, sessionId),
 
   getSession: (workspaceId, sessionId) =>
     get()

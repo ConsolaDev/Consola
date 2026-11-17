@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { JsonStateFile } from './JsonStateFile';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { JsonStateFile } from './JsonStateFile';
 import type { InboxSection } from '../../shared/inboxSections';
 import {
   createDefaultActions,
@@ -95,7 +95,7 @@ export class WorkspaceService {
     name: string,
     path: string,
     isGitRepo: boolean,
-    defaultHarnessId?: string
+    defaultHarnessId?: string,
   ): Workspace {
     const workspace = createWorkspaceRecord(name, path, isGitRepo, defaultHarnessId);
     this.commit([...this.workspaces, workspace]);
@@ -111,12 +111,17 @@ export class WorkspaceService {
     if (typeof id !== 'string' || (beforeId !== null && typeof beforeId !== 'string')) {
       throw new Error('Invalid workspace move.');
     }
-    const workspace = this.workspaces.find(candidate => candidate.id === id);
+    const workspace = this.workspaces.find((candidate) => candidate.id === id);
     // Another window may have removed either record during the drag.
-    if (!workspace || id === beforeId ||
-        (beforeId !== null && !this.workspaces.some(candidate => candidate.id === beforeId))) return;
-    const next = this.workspaces.filter(candidate => candidate.id !== id);
-    const index = beforeId === null ? next.length : next.findIndex(candidate => candidate.id === beforeId);
+    if (
+      !workspace ||
+      id === beforeId ||
+      (beforeId !== null && !this.workspaces.some((candidate) => candidate.id === beforeId))
+    )
+      return;
+    const next = this.workspaces.filter((candidate) => candidate.id !== id);
+    const index =
+      beforeId === null ? next.length : next.findIndex((candidate) => candidate.id === beforeId);
     next.splice(index, 0, workspace);
     if (next.every((candidate, position) => candidate === this.workspaces[position])) return;
     this.commit(next);
@@ -125,15 +130,15 @@ export class WorkspaceService {
   public updateWorkspace(id: string, updates: WorkspaceUpdates): void {
     this.commit(
       this.workspaces.map((workspace) =>
-        workspace.id === id ? { ...workspace, ...updates, updatedAt: Date.now() } : workspace
-      )
+        workspace.id === id ? { ...workspace, ...updates, updatedAt: Date.now() } : workspace,
+      ),
     );
   }
 
   public updateScope(
     workspaceId: string,
     scopeId: string,
-    updates: Partial<Pick<Scope, 'name' | 'path'>>
+    updates: Partial<Pick<Scope, 'name' | 'path'>>,
   ): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const scope = workspace?.scopes.find((candidate) => candidate.id === scopeId);
@@ -169,13 +174,13 @@ export class WorkspaceService {
           ? {
               ...candidate,
               scopes: candidate.scopes.map((existing) =>
-                existing.id === scopeId ? { ...existing, ...applied } : existing
+                existing.id === scopeId ? { ...existing, ...applied } : existing,
               ),
               sessions,
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -188,8 +193,8 @@ export class WorkspaceService {
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
           ? { ...candidate, scopes: [...candidate.scopes, scope], updatedAt: Date.now() }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return scope;
   }
@@ -210,7 +215,7 @@ export class WorkspaceService {
     const assistant = assistantSession(workspace);
     const assistantStays = assistant?.scopeId === scopeId && nextHome !== undefined;
     const removed = workspace.sessions.filter(
-      (session) => session.scopeId === scopeId && !(assistantStays && session.id === assistant?.id)
+      (session) => session.scopeId === scopeId && !(assistantStays && session.id === assistant?.id),
     );
     const removedSessionIds = new Set(removed.map((session) => session.id));
     this.commit(
@@ -222,17 +227,20 @@ export class WorkspaceService {
               sessions: candidate.sessions
                 .filter((session) => !removedSessionIds.has(session.id))
                 .map((session) =>
-                  assistantStays && session.id === assistant?.id ? { ...session, scopeId: nextHome.id } : session
+                  assistantStays && session.id === assistant?.id
+                    ? { ...session, scopeId: nextHome.id }
+                    : session,
                 ),
               groups: candidate.groups.map((group) => {
-                if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId)) return group;
+                if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId))
+                  return group;
                 const { conductorSessionId: _removed, ...rest } = group;
                 return rest;
               }),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return removed;
   }
@@ -265,7 +273,7 @@ export class WorkspaceService {
           sectionDefaults: seed ? createDefaultSectionDefaults(actions) : candidate.sectionDefaults,
           updatedAt: Date.now(),
         };
-      })
+      }),
     );
   }
 
@@ -283,24 +291,26 @@ export class WorkspaceService {
   public setActions(
     workspaceId: string,
     actions: WorkItemAction[],
-    sectionDefaults: Partial<Record<InboxSection, string>>
+    sectionDefaults: Partial<Record<InboxSection, string>>,
   ): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) throw new Error(`No workspace ${workspaceId}`);
     const knownGroupIds = new Set(workspace.groups.map((group) => group.id));
     const verdict = validateActionsWrite({ actions, sectionDefaults }, knownGroupIds);
     if (!verdict.ok) throw new Error(verdict.message);
-    const records: WorkItemAction[] = actions.map(({ id, name, appliesTo, prompt, groupId, conversation }) => ({
-      id,
-      name,
-      appliesTo: [...appliesTo],
-      prompt,
-      // Presence-preserving: an unrouted action must persist without the
-      // key at all, so it round-trips byte-for-byte as it did before. The
-      // same for the conversation setting, absent meaning 'continue'.
-      ...(groupId !== undefined ? { groupId } : {}),
-      ...(conversation !== undefined ? { conversation } : {}),
-    }));
+    const records: WorkItemAction[] = actions.map(
+      ({ id, name, appliesTo, prompt, groupId, conversation }) => ({
+        id,
+        name,
+        appliesTo: [...appliesTo],
+        prompt,
+        // Presence-preserving: an unrouted action must persist without the
+        // key at all, so it round-trips byte-for-byte as it did before. The
+        // same for the conversation setting, absent meaning 'continue'.
+        ...(groupId !== undefined ? { groupId } : {}),
+        ...(conversation !== undefined ? { conversation } : {}),
+      }),
+    );
     const defaults: Partial<Record<InboxSection, string>> = {};
     for (const [section, actionId] of Object.entries(sectionDefaults)) {
       if (actionId !== undefined) defaults[section as InboxSection] = actionId;
@@ -309,8 +319,8 @@ export class WorkspaceService {
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
           ? { ...candidate, actions: records, sectionDefaults: defaults, updatedAt: Date.now() }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -323,22 +333,25 @@ export class WorkspaceService {
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
           ? { ...candidate, groups: [...candidate.groups, group], updatedAt: Date.now() }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return group;
   }
 
   public createLabel(workspaceId: string, fields: NewLabelFields): Label {
     const label = createLabelRecord(fields);
-    this.editWorkspace(workspaceId, (workspace) => ({ ...workspace, labels: [...workspace.labels, label] }));
+    this.editWorkspace(workspaceId, (workspace) => ({
+      ...workspace,
+      labels: [...workspace.labels, label],
+    }));
     return label;
   }
 
   public updateLabel(
     workspaceId: string,
     labelId: string,
-    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>,
   ): void {
     this.editWorkspace(workspaceId, (workspace) => ({
       ...workspace,
@@ -368,7 +381,9 @@ export class WorkspaceService {
     const removed: DeletedLabel = {
       label: workspace.labels[index],
       index,
-      sessionIds: workspace.sessions.filter((session) => session.labelIds?.includes(labelId)).map((session) => session.id),
+      sessionIds: workspace.sessions
+        .filter((session) => session.labelIds?.includes(labelId))
+        .map((session) => session.id),
     };
     this.editWorkspace(workspaceId, (current) => ({
       ...current,
@@ -401,7 +416,8 @@ export class WorkspaceService {
         ...workspace,
         labels,
         sessions: workspace.sessions.map((session) => {
-          if (!carried.has(session.id) || session.labelIds?.includes(removed.label.id)) return session;
+          if (!carried.has(session.id) || session.labelIds?.includes(removed.label.id))
+            return session;
           return { ...session, labelIds: [...(session.labelIds ?? []), removed.label.id] };
         }),
       };
@@ -410,17 +426,22 @@ export class WorkspaceService {
 
   public assignLabel(workspaceId: string, sessionId: string, labelId: string): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
-    if (!workspace?.labels.some((label) => label.id === labelId)) throw new Error(`No label ${labelId}`);
+    if (!workspace?.labels.some((label) => label.id === labelId))
+      throw new Error(`No label ${labelId}`);
     const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
     if (!session || session.labelIds?.includes(labelId)) return;
-    this.updateSession(workspaceId, sessionId, { labelIds: [...(session.labelIds ?? []), labelId] });
+    this.updateSession(workspaceId, sessionId, {
+      labelIds: [...(session.labelIds ?? []), labelId],
+    });
   }
 
   public unassignLabel(workspaceId: string, sessionId: string, labelId: string): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!session?.labelIds?.includes(labelId)) return;
-    this.updateSession(workspaceId, sessionId, { labelIds: session.labelIds.filter((id) => id !== labelId) });
+    this.updateSession(workspaceId, sessionId, {
+      labelIds: session.labelIds.filter((id) => id !== labelId),
+    });
   }
 
   /** One workspace rewritten in one commit; throws for a workspace that does not exist. */
@@ -430,15 +451,15 @@ export class WorkspaceService {
     }
     this.commit(
       this.workspaces.map((candidate) =>
-        candidate.id === workspaceId ? { ...edit(candidate), updatedAt: Date.now() } : candidate
-      )
+        candidate.id === workspaceId ? { ...edit(candidate), updatedAt: Date.now() } : candidate,
+      ),
     );
   }
 
   public updateGroup(
     workspaceId: string,
     groupId: string,
-    updates: Partial<Pick<Group, 'name' | 'emoji' | 'conductorSessionId' | 'archivedAt'>>
+    updates: Partial<Pick<Group, 'name' | 'emoji' | 'conductorSessionId' | 'archivedAt'>>,
   ): void {
     this.commit(
       this.workspaces.map((workspace) =>
@@ -446,12 +467,12 @@ export class WorkspaceService {
           ? {
               ...workspace,
               groups: workspace.groups.map((group) =>
-                group.id === groupId ? { ...group, ...updates } : group
+                group.id === groupId ? { ...group, ...updates } : group,
               ),
               updatedAt: Date.now(),
             }
-          : workspace
-      )
+          : workspace,
+      ),
     );
   }
 
@@ -476,12 +497,12 @@ export class WorkspaceService {
           ? {
               ...candidate,
               groups: candidate.groups.map((group) =>
-                group.id === groupId ? { ...group, archivedAt: Date.now() } : group
+                group.id === groupId ? { ...group, archivedAt: Date.now() } : group,
               ),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -504,8 +525,8 @@ export class WorkspaceService {
               sessions: [...workspace.sessions, session],
               updatedAt: session.createdAt,
             }
-          : workspace
-      )
+          : workspace,
+      ),
     );
     return session;
   }
@@ -521,9 +542,13 @@ export class WorkspaceService {
     this.commit(
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
-          ? { ...candidate, sessions: [...candidate.sessions, assistant], updatedAt: assistant.createdAt }
-          : candidate
-      )
+          ? {
+              ...candidate,
+              sessions: [...candidate.sessions, assistant],
+              updatedAt: assistant.createdAt,
+            }
+          : candidate,
+      ),
     );
     return assistant;
   }
@@ -535,7 +560,7 @@ export class WorkspaceService {
    */
   public replaceAssistant(
     workspaceId: string,
-    fields: { harnessId: string; cwd: string }
+    fields: { harnessId: string; cwd: string },
   ): { previous?: Session; next: Session } {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) throw new Error('Workspace not found.');
@@ -546,16 +571,22 @@ export class WorkspaceService {
         candidate.id === workspaceId
           ? {
               ...candidate,
-              sessions: [...candidate.sessions.filter((session) => session.kind !== 'assistant'), next],
+              sessions: [
+                ...candidate.sessions.filter((session) => session.kind !== 'assistant'),
+                next,
+              ],
               updatedAt: next.createdAt,
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return { previous, next };
   }
 
-  private newAssistantRecord(workspace: Workspace, fields: { harnessId: string; cwd: string }): Session {
+  private newAssistantRecord(
+    workspace: Workspace,
+    fields: { harnessId: string; cwd: string },
+  ): Session {
     const scope = workspace.scopes[0];
     if (!scope) throw new Error('Add a scope to use the Assistant.');
     return createSessionRecord({
@@ -608,7 +639,9 @@ export class WorkspaceService {
           delete applied.workItem;
         } else {
           const { repo, type, number } = session.workItem;
-          throw new Error(`This session is already linked to ${repo} ${type} #${number}. Unlink it first.`);
+          throw new Error(
+            `This session is already linked to ${repo} ${type} #${number}. Unlink it first.`,
+          );
         }
       }
     }
@@ -635,8 +668,8 @@ export class WorkspaceService {
               }),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 
@@ -657,7 +690,7 @@ export class WorkspaceService {
   public replaceConversation(
     workspaceId: string,
     sessionId: string,
-    claudeSessionId: string = generateUuid()
+    claudeSessionId: string = generateUuid(),
   ): Session {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
@@ -669,11 +702,13 @@ export class WorkspaceService {
         candidate.id === workspaceId
           ? {
               ...candidate,
-              sessions: candidate.sessions.map((existing) => (existing.id === sessionId ? replaced : existing)),
+              sessions: candidate.sessions.map((existing) =>
+                existing.id === sessionId ? replaced : existing,
+              ),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
     return replaced;
   }
@@ -687,8 +722,8 @@ export class WorkspaceService {
               sessions: workspace.sessions.filter((session) => session.id !== sessionId),
               updatedAt: Date.now(),
             }
-          : workspace
-      )
+          : workspace,
+      ),
     );
   }
 
@@ -709,7 +744,8 @@ export class WorkspaceService {
     if (!workspace || !session || !path.isAbsolute(reported)) return;
 
     const launchedIn = session.cwd ?? scopeForSession(workspace, session)?.path;
-    const agentCwd = launchedIn && samePath(reported, launchedIn) ? undefined : path.resolve(reported);
+    const agentCwd =
+      launchedIn && samePath(reported, launchedIn) ? undefined : path.resolve(reported);
     if (agentCwd === session.agentCwd) return;
 
     this.commit(
@@ -724,8 +760,8 @@ export class WorkspaceService {
               }),
               updatedAt: Date.now(),
             }
-          : candidate
-      )
+          : candidate,
+      ),
     );
   }
 

@@ -8,19 +8,28 @@ const PRIVATE = 'https://github.com/user-attachments/assets/0b6f1e7a-5d2c-4c1e-9
 const SIGNED = 'https://objects.example/0b6f1e7a.png?X-Amz-Signature=abc';
 const BADGE = 'https://badges.example/age/npm/react/19.0.0?slim=true';
 
-const image = (type = 'image/png') => new Response('png-bytes', { status: 200, headers: { 'content-type': type } });
+const image = (type = 'image/png') =>
+  new Response('png-bytes', { status: 200, headers: { 'content-type': type } });
 const redirect = (location: string) => new Response(null, { status: 302, headers: { location } });
 
 /** Every name is public unless a test says where it points. */
-function setup(fetchImpl: (url: URL, init?: RequestInit) => Promise<Response>, dns: Record<string, string[]> = {}) {
-  const workspace = { provider: { id: 'github', accountLogin: 'workspace-account', org: 'sprocket' } } as Workspace;
+function setup(
+  fetchImpl: (url: URL, init?: RequestInit) => Promise<Response>,
+  dns: Record<string, string[]> = {},
+) {
+  const workspace = {
+    provider: { id: 'github', accountLogin: 'workspace-account', org: 'sprocket' },
+  } as Workspace;
   const driver = createStubDriver({
     token: vi.fn(async () => 'gho_workspace'),
     isPrivateAsset: (url: URL) => url.href === PRIVATE,
   });
   const fetch = vi.fn(fetchImpl);
   const lookup = vi.fn(async (hostname: string) =>
-    (dns[hostname] ?? ['140.82.112.3']).map((address) => ({ address, family: address.includes(':') ? 6 : 4 })),
+    (dns[hostname] ?? ['140.82.112.3']).map((address) => ({
+      address,
+      family: address.includes(':') ? 6 : 4,
+    })),
   );
   const deps = {
     getWorkspace: (id: string) => (id === 'ws' ? workspace : undefined),
@@ -28,7 +37,8 @@ function setup(fetchImpl: (url: URL, init?: RequestInit) => Promise<Response>, d
     fetch: fetch as unknown as typeof globalThis.fetch,
     lookup,
   };
-  const load = (src: string, workspaceId = 'ws') => fetchWorkItemAsset(deps, workItemAssetUrl(workspaceId, src)!);
+  const load = (src: string, workspaceId = 'ws') =>
+    fetchWorkItemAsset(deps, workItemAssetUrl(workspaceId, src)!);
   return { driver, fetch, load };
 }
 
@@ -36,7 +46,9 @@ const authorization = (init?: RequestInit) => new Headers(init?.headers).get('au
 
 describe('fetchWorkItemAsset', () => {
   it('fetches a private upload as the workspace account and follows the signed redirect without the token', async () => {
-    const { driver, fetch, load } = setup(async (url) => (url.href === PRIVATE ? redirect(SIGNED) : image()));
+    const { driver, fetch, load } = setup(async (url) =>
+      url.href === PRIVATE ? redirect(SIGNED) : image(),
+    );
     const response = await load(PRIVATE);
 
     expect(response.status).toBe(200);
@@ -63,7 +75,9 @@ describe('fetchWorkItemAsset', () => {
   });
 
   it('serves only images', async () => {
-    const { load } = setup(async () => new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } }));
+    const { load } = setup(
+      async () => new Response('<html>', { status: 200, headers: { 'content-type': 'text/html' } }),
+    );
     expect((await load(BADGE)).status).toBe(415);
   });
 
@@ -113,7 +127,9 @@ describe('fetchWorkItemAsset', () => {
 
   it('turns a token gh will not lend into a broken image rather than a crash', async () => {
     const { driver, fetch, load } = setup(async () => image());
-    vi.mocked(driver.token).mockRejectedValueOnce(new Error('gh could not authenticate workspace-account.'));
+    vi.mocked(driver.token).mockRejectedValueOnce(
+      new Error('gh could not authenticate workspace-account.'),
+    );
     expect((await load(PRIVATE)).status).toBe(502);
     expect(fetch).not.toHaveBeenCalled();
   });
@@ -121,23 +137,45 @@ describe('fetchWorkItemAsset', () => {
   it('serves nothing for a workspace it does not know, or a URL it did not produce', async () => {
     const { fetch, load } = setup(async () => image());
     expect((await load(BADGE, 'unknown')).status).toBe(404);
-    const deps = { getWorkspace: () => undefined, resolveDriver: () => createStubDriver(), fetch: fetch as unknown as typeof globalThis.fetch };
-    expect((await fetchWorkItemAsset(deps, 'consola-asset://image/?workspace=ws&url=file%3A%2F%2F%2Fetc%2Fpasswd')).status).toBe(400);
+    const deps = {
+      getWorkspace: () => undefined,
+      resolveDriver: () => createStubDriver(),
+      fetch: fetch as unknown as typeof globalThis.fetch,
+    };
+    expect(
+      (
+        await fetchWorkItemAsset(
+          deps,
+          'consola-asset://image/?workspace=ws&url=file%3A%2F%2F%2Fetc%2Fpasswd',
+        )
+      ).status,
+    ).toBe(400);
     expect(fetch).not.toHaveBeenCalled();
   });
 });
 
 describe('createWorkItemAssetCache', () => {
-  function cached(fetchImpl: (url: URL) => Promise<Response>, limits?: { maxEntries?: number; maxBytes?: number }) {
-    const workspace = { provider: { id: 'github', accountLogin: 'workspace-account', org: 'sprocket' } } as Workspace;
+  function cached(
+    fetchImpl: (url: URL) => Promise<Response>,
+    limits?: { maxEntries?: number; maxBytes?: number },
+  ) {
+    const workspace = {
+      provider: { id: 'github', accountLogin: 'workspace-account', org: 'sprocket' },
+    } as Workspace;
     const fetch = vi.fn(fetchImpl);
-    const fetchCached = createWorkItemAssetCache({
-      getWorkspace: (id: string) => (id === 'ws' ? workspace : undefined),
-      resolveDriver: () => createStubDriver({}),
-      fetch: fetch as unknown as typeof globalThis.fetch,
-      lookup: async () => [{ address: '140.82.112.3', family: 4 }],
-    }, limits);
-    return { fetch, load: (src: string, workspaceId = 'ws') => fetchCached(workItemAssetUrl(workspaceId, src)!) };
+    const fetchCached = createWorkItemAssetCache(
+      {
+        getWorkspace: (id: string) => (id === 'ws' ? workspace : undefined),
+        resolveDriver: () => createStubDriver({}),
+        fetch: fetch as unknown as typeof globalThis.fetch,
+        lookup: async () => [{ address: '140.82.112.3', family: 4 }],
+      },
+      limits,
+    );
+    return {
+      fetch,
+      load: (src: string, workspaceId = 'ws') => fetchCached(workItemAssetUrl(workspaceId, src)!),
+    };
   }
   const AVATAR = 'https://avatars.example/u/1?s=40';
 
@@ -161,7 +199,10 @@ describe('createWorkItemAssetCache', () => {
 
   it('asks again for an image that failed, and does not keep a large one', async () => {
     let fail = true;
-    const { fetch, load } = cached(async () => (fail ? new Response(null, { status: 500 }) : image()), { maxBytes: 4 });
+    const { fetch, load } = cached(
+      async () => (fail ? new Response(null, { status: 500 }) : image()),
+      { maxBytes: 4 },
+    );
     expect((await load(AVATAR)).status).toBe(500);
     fail = false;
     expect(await (await load(AVATAR)).text()).toBe('png-bytes');
@@ -171,14 +212,21 @@ describe('createWorkItemAssetCache', () => {
 
   it('stops holding a large image once it passes the limit, and streams the rest through whole', async () => {
     let pulled = 0;
-    const body = () => new ReadableStream<Uint8Array>({
-      pull(controller) {
-        pulled++;
-        if (pulled > 100) controller.close();
-        else controller.enqueue(new TextEncoder().encode('0123456789'));
-      },
-    }, { highWaterMark: 0 });
-    const { fetch, load } = cached(async () => new Response(body(), { headers: { 'content-type': 'image/png' } }), { maxBytes: 25 });
+    const body = () =>
+      new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            pulled++;
+            if (pulled > 100) controller.close();
+            else controller.enqueue(new TextEncoder().encode('0123456789'));
+          },
+        },
+        { highWaterMark: 0 },
+      );
+    const { fetch, load } = cached(
+      async () => new Response(body(), { headers: { 'content-type': 'image/png' } }),
+      { maxBytes: 25 },
+    );
     const response = await load(AVATAR);
     // Answered after three chunks (30 bytes > 25), not after reading all 1000 bytes.
     expect(pulled).toBeLessThanOrEqual(4);
@@ -191,11 +239,20 @@ describe('createWorkItemAssetCache', () => {
 
   it('answers a body that breaks off with an error, and asks again next time instead of waiting forever', async () => {
     let broken = true;
-    const { fetch, load } = cached(async () => (broken
-      ? new Response(new ReadableStream({ pull(controller) { controller.error(new Error('connection reset')); } }), {
-        headers: { 'content-type': 'image/png' },
-      })
-      : image()));
+    const { fetch, load } = cached(async () =>
+      broken
+        ? new Response(
+            new ReadableStream({
+              pull(controller) {
+                controller.error(new Error('connection reset'));
+              },
+            }),
+            {
+              headers: { 'content-type': 'image/png' },
+            },
+          )
+        : image(),
+    );
     expect((await load(AVATAR)).status).toBe(502);
     broken = false;
     expect(await (await load(AVATAR)).text()).toBe('png-bytes');
