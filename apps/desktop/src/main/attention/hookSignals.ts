@@ -31,8 +31,12 @@ export type AttentionSignal =
   | { kind: 'idle' }
   /** A subagent finished. */
   | { kind: 'subagent-finished' }
-  /** The turn ended. `backgroundWork` counts tasks the agent still has running. */
-  | { kind: 'turn-ended'; backgroundWork: number };
+  /**
+   * The turn ended. `backgroundWork` counts tasks the agent still has running;
+   * `backgroundAgents` counts those that are its own subagents, which it waits
+   * for and takes a turn on when they finish.
+   */
+  | { kind: 'turn-ended'; backgroundWork: number; backgroundAgents: number };
 
 /** What the hooks currently say about one terminal. Only ever an input to `deriveAttention`. */
 export interface HookInputs {
@@ -40,11 +44,18 @@ export interface HookInputs {
   needsInput: boolean;
   /** The last turn ended with background work still running: not a finished turn. */
   holdingBackgroundWork: boolean;
+  /**
+   * Some of that work is the agent's own subagents. It waits on them and
+   * resumes when they finish, so the session is still working, whatever its
+   * screen shows in the meantime.
+   */
+  awaitingAgents: boolean;
 }
 
 interface State {
   needsInput: false | AttentionSignal & { kind: 'needs-input' };
   holdingBackgroundWork: boolean;
+  awaitingAgents: boolean;
   status?: TerminalStatus;
 }
 
@@ -68,7 +79,11 @@ export class HookSignals {
   public get(instanceId: string): HookInputs | undefined {
     const state = this.states.get(instanceId);
     if (!state) return undefined;
-    return { needsInput: state.needsInput !== false, holdingBackgroundWork: state.holdingBackgroundWork };
+    return {
+      needsInput: state.needsInput !== false,
+      holdingBackgroundWork: state.holdingBackgroundWork,
+      awaitingAgents: state.awaitingAgents,
+    };
   }
 
   public apply(instanceId: string, signal: AttentionSignal): void {
@@ -106,7 +121,10 @@ export class HookSignals {
         break;
       case 'turn-ended':
         state.needsInput = false;
+        // Every turn ends with its own report, so each stop replaces the last
+        // one's hold outright; nothing else ends it but the process exiting.
         state.holdingBackgroundWork = signal.backgroundWork > 0;
+        state.awaitingAgents = signal.backgroundAgents > 0;
         break;
     }
     this.notifyIfChanged(instanceId, before);
@@ -122,11 +140,14 @@ export class HookSignals {
     state.status = status;
     if (status === 'working' && wasQuiet) {
       state.needsInput = false;
-      // A new turn is under way and will end with its own report.
-      state.holdingBackgroundWork = false;
+      // The background-work hold stays. Output after a turn is no new turn:
+      // a waiting agent's panel of subagents repaints (observed live,
+      // 2.1.326), and reads as `working` and quiet again for as long as they
+      // run. A real turn replaces the hold when it stops.
     } else if (status === 'exited') {
       state.needsInput = false;
       state.holdingBackgroundWork = false;
+      state.awaitingAgents = false;
     }
     this.notifyIfChanged(instanceId, before);
   }
@@ -147,7 +168,7 @@ export class HookSignals {
   private state(instanceId: string): State {
     let state = this.states.get(instanceId);
     if (!state) {
-      state = { needsInput: false, holdingBackgroundWork: false };
+      state = { needsInput: false, holdingBackgroundWork: false, awaitingAgents: false };
       this.states.set(instanceId, state);
     }
     return state;
@@ -155,7 +176,11 @@ export class HookSignals {
 
   private notifyIfChanged(instanceId: string, before: HookInputs | undefined): void {
     const after = this.get(instanceId);
-    if (before?.needsInput === after?.needsInput && before?.holdingBackgroundWork === after?.holdingBackgroundWork) return;
+    if (
+      before?.needsInput === after?.needsInput &&
+      before?.holdingBackgroundWork === after?.holdingBackgroundWork &&
+      before?.awaitingAgents === after?.awaitingAgents
+    ) return;
     this.notify(instanceId);
   }
 

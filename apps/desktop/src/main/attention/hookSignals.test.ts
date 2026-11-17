@@ -40,7 +40,7 @@ describe('HookSignals', () => {
 
   it.each([
     ['idle', { kind: 'idle' } as AttentionSignal],
-    ['a turn ending', { kind: 'turn-ended', backgroundWork: 0 } as AttentionSignal],
+    ['a turn ending', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 } as AttentionSignal],
   ])('ends on %s', (_name, signal) => {
     const hooks = signals('ready');
     hooks.apply('i', menu);
@@ -58,24 +58,40 @@ describe('HookSignals', () => {
     expect(hooks.get('i')?.needsInput).toBe(true);
   });
 
-  it('holds a turn that ended with background work, until the next turn or a clean stop', () => {
+  it('holds a turn that ended with background work until a stop reports none left', () => {
     const hooks = signals('working');
-    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 1 });
-    expect(hooks.get('i')?.holdingBackgroundWork).toBe(true);
-    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 0 });
-    expect(hooks.get('i')?.holdingBackgroundWork).toBe(false);
+    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 });
+    expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: false });
+    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
+    expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: false, awaitingAgents: false });
+  });
 
-    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2 });
-    hooks.statusChanged('i', 'ready');
-    hooks.statusChanged('i', 'working'); // a stop never fires for an interrupted turn
-    expect(hooks.get('i')?.holdingBackgroundWork).toBe(false);
+  it('says the agent awaits its own subagents while a stop reports any still running', () => {
+    const hooks = signals('working');
+    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 3, backgroundAgents: 2 });
+    expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: true });
+    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 }); // only a dev server left
+    expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: false });
+  });
+
+  it('keeps the hold through output after the turn: a waiting agent repaints its panel of subagents', () => {
+    // Observed live (2.1.326): while Claude waits on background agents its
+    // spinner stops, but the panel beneath the composer repaints elapsed time
+    // and token counts about once a second. That reads as `working` and quiet
+    // again, over and over, and is no new turn: the next one reports at its stop.
+    const hooks = signals('working');
+    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
+    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const) hooks.statusChanged('i', status);
+    expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: true });
   });
 
   it('forgets everything when the process exits or the terminal is destroyed', () => {
     const hooks = signals('ready');
     hooks.apply('i', menu);
+    hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
+    hooks.apply('i', menu);
     hooks.statusChanged('i', 'exited');
-    expect(hooks.get('i')).toEqual({ needsInput: false, holdingBackgroundWork: false });
+    expect(hooks.get('i')).toEqual({ needsInput: false, holdingBackgroundWork: false, awaitingAgents: false });
     hooks.forget('i');
     expect(hooks.get('i')).toBeUndefined();
   });

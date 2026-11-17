@@ -201,7 +201,7 @@ describe('SessionSource with hooks', () => {
 
   it('does not mark a turn finished when it ended with background work still running', () => {
     status('working');
-    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 });
     status('ready');
     clock = 5000;
     vi.advanceTimersByTime(SETTLE_MS);
@@ -212,7 +212,7 @@ describe('SessionSource with hooks', () => {
 
   it('marks the turn finished once a stop reports nothing left running', () => {
     status('working');
-    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 0 });
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
     status('ready');
     clock = 5000;
     vi.advanceTimersByTime(SETTLE_MS);
@@ -230,21 +230,21 @@ describe('SessionSource with hooks', () => {
 
   it('finishes the turn when a later stop reports nothing left running, with the screen still quiet', () => {
     status('working');
-    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 });
     status('ready');
     clock = 5000;
     vi.advanceTimersByTime(SETTLE_MS);
     expect(source.read().get('a')).toBe('ready');
 
     clock = 8000;
-    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 0 });
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
     expect(source.read().get('a')).toBe('done');
     expect(ledger.get('a')?.finishedAt).toBe(8000);
   });
 
   it('gives up waiting on background work that never ends, such as a dev server', () => {
     status('working');
-    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 });
     status('ready');
     vi.advanceTimersByTime(SETTLE_MS);
     expect(source.read().get('a')).toBe('ready');
@@ -256,12 +256,72 @@ describe('SessionSource with hooks', () => {
 
   it('does not finish a waiting turn after new work began', () => {
     status('working');
-    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1 });
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 });
     status('ready');
     vi.advanceTimersByTime(SETTLE_MS);
     status('working');
     vi.advanceTimersByTime(BACKGROUND_HOLD_MS);
     expect(ledger.get('a')?.finishedAt).toBeUndefined();
     expect(source.read().get('a')).toBe('working');
+  });
+});
+
+describe('SessionSource while the agent awaits its own subagents', () => {
+  const awaitingTwo = { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 } as const;
+  const nothingLeft = { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 } as const;
+
+  it('stays working through the panel’s repaints, however long they run, and is done once they report back', () => {
+    status('working');
+    hooks.apply('inst-a', awaitingTwo);
+    status('ready');
+    // Observed live (2.1.326): the waiting agent's spinner stops, but its panel
+    // of subagents repaints about once a second, so the screen reads as
+    // working and quiet again, for longer than a turn takes to settle.
+    for (let flicker = 0; flicker < 3; flicker++) {
+      vi.advanceTimersByTime(SETTLE_MS);
+      expect(source.read().get('a')).toBe('working');
+      status('working');
+      expect(source.read().get('a')).toBe('working');
+      status('ready');
+    }
+    vi.advanceTimersByTime(BACKGROUND_HOLD_MS * 2); // a subagent's work is not bounded by a dev server's
+    expect(ledger.get('a')?.finishedAt).toBeUndefined();
+    expect(source.read().get('a')).toBe('working');
+
+    // They finish: the agent takes a turn on what they found, and its stop reports nothing left.
+    status('working');
+    hooks.apply('inst-a', nothingLeft);
+    status('ready');
+    clock = 9000;
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(source.read().get('a')).toBe('done');
+    expect(ledger.get('a')?.finishedAt).toBe(9000);
+  });
+
+  it('is done when they report back in a turn too short to read as working', () => {
+    status('working');
+    hooks.apply('inst-a', awaitingTwo);
+    status('ready');
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(source.read().get('a')).toBe('working');
+
+    clock = 8000;
+    hooks.apply('inst-a', nothingLeft);
+    expect(source.read().get('a')).toBe('done');
+    expect(ledger.get('a')?.finishedAt).toBe(8000);
+  });
+
+  it('bounds the wait again once only other background work is left', () => {
+    status('working');
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 1 });
+    status('ready');
+    vi.advanceTimersByTime(SETTLE_MS);
+    expect(source.read().get('a')).toBe('working');
+
+    hooks.apply('inst-a', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 }); // a dev server is left
+    expect(source.read().get('a')).toBe('ready');
+    clock = 9000;
+    vi.advanceTimersByTime(BACKGROUND_HOLD_MS);
+    expect(source.read().get('a')).toBe('done');
   });
 });

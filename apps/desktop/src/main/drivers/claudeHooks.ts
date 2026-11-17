@@ -12,7 +12,8 @@ import type { AttentionHooks } from './HarnessDriver';
  *   one; the notification stays as a second witness.
  * - `Notification` carries `notification_type`, the field to branch on — the
  *   message text is prose and changes.
- * - `Stop` ends a turn and lists `background_tasks` still running.
+ * - `Stop` ends a turn and lists `background_tasks` still running, each with
+ *   a `type` (`subagent` for the agent's own background agents).
  *
  * Passed through `--settings`, hooks add to the user's own and managed
  * settings outrank them: nothing is written to any settings file, other
@@ -92,10 +93,14 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
             // Only tasks still running count; a finished one holds nothing. The
             // payload cannot say which running task the agent is awaiting and
             // which is incidental (a dev server), so the hold is bounded by
-            // whoever applies it rather than decided here.
+            // whoever applies it rather than decided here. A `subagent` is the
+            // exception (observed live, 2.1.326): Claude shows "Waiting for N
+            // background agents to finish" and takes a turn on each result,
+            // so it is awaited by construction.
             const tasks = Array.isArray(event.background_tasks) ? event.background_tasks : [];
-            const running = tasks.filter((task) => asRecord(task)?.status === 'running');
-            return { kind: 'turn-ended', backgroundWork: running.length };
+            const running = tasks.map(asRecord).filter((task) => task?.status === 'running');
+            const agents = running.filter((task) => task?.type === 'subagent');
+            return { kind: 'turn-ended', backgroundWork: running.length, backgroundAgents: agents.length };
         }
         default:
             return null;

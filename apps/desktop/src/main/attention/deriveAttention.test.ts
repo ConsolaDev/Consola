@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Attention, AttentionRecord } from '../../shared/attention';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { deriveAttention } from './deriveAttention';
+import type { HookInputs } from './hookSignals';
 
 const TERMINALS: TerminalStatus[] = ['working', 'ready', 'needs-attention', 'exited'];
 const LAST_ACTIVE = 100;
@@ -61,15 +62,35 @@ describe('deriveAttention', () => {
 });
 
 describe('deriveAttention with hooks', () => {
-  const inputs = (terminal: TerminalStatus, hook?: { needsInput: boolean; holdingBackgroundWork: boolean }) => ({
+  const inputs = (terminal: TerminalStatus, hook?: HookInputs, base = record()) => ({
     terminal,
-    record: record(),
+    record: base,
     isViewedInFocusedWindow: false,
     heldByOpenRun: false,
     hook,
   });
-  const says = { needsInput: true, holdingBackgroundWork: false };
-  const quiet = { needsInput: false, holdingBackgroundWork: false };
+  const says: HookInputs = { needsInput: true, holdingBackgroundWork: false, awaitingAgents: false };
+  const quiet: HookInputs = { needsInput: false, holdingBackgroundWork: false, awaitingAgents: false };
+  const awaiting: HookInputs = { needsInput: false, holdingBackgroundWork: true, awaitingAgents: true };
+
+  it('calls a session working while its agent awaits its own subagents, whatever its quiet screen says', () => {
+    expect(deriveAttention(inputs('ready', awaiting))).toBe('working');
+    expect(deriveAttention(inputs('working', awaiting))).toBe('working');
+    // Not done yet, and not put away: the result is still coming.
+    expect(deriveAttention(inputs('ready', awaiting, record(FINISHED)))).toBe('working');
+    expect(deriveAttention(inputs('ready', awaiting, record(undefined, undefined, 300)))).toBe('working');
+  });
+
+  it('lets a subagent’s question, or the process ending, win over awaiting subagents', () => {
+    expect(deriveAttention(inputs('ready', { ...awaiting, needsInput: true }))).toBe('needs-attention');
+    expect(deriveAttention(inputs('needs-attention', awaiting))).toBe('needs-attention');
+    expect(deriveAttention(inputs('exited', awaiting))).toBe('exited');
+  });
+
+  it('leaves other background work to the screen: a dev server running is not the agent working', () => {
+    const background: HookInputs = { needsInput: false, holdingBackgroundWork: true, awaitingAgents: false };
+    expect(deriveAttention(inputs('ready', background))).toBe('ready');
+  });
 
   it('lets a hook that says the agent is waiting win over a screen showing nothing recognisable', () => {
     expect(deriveAttention(inputs('ready', says))).toBe('needs-attention');

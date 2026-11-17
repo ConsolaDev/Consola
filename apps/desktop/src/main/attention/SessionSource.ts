@@ -27,7 +27,8 @@ export interface SessionSourceDeps {
  * before the turn counts as finished anyway. Hooks cannot say whether that
  * work is awaited (the agent will wake when it ends) or incidental (a dev
  * server that never ends); the first must hold the turn open, and the second
- * must not hold it open forever.
+ * must not hold it open forever. The agent's own subagents are the exception:
+ * they are always awaited, so a turn waiting on them is held without a bound.
  */
 export const BACKGROUND_HOLD_MS = 5 * 60_000;
 
@@ -42,8 +43,12 @@ export class SessionSource implements AttentionSource {
   public readonly kind = 'session';
   private readonly subscribers = new Set<() => void>();
   private readonly settle: TurnSettle;
-  /** Turns that settled while the agent had background work running, until the hold ends. */
-  private readonly deferred = new Map<string, NodeJS.Timeout>();
+  /**
+   * Turns that settled while the agent had background work running, until the
+   * hold ends: with the timer that bounds it, or none while the agent awaits
+   * its own subagents.
+   */
+  private readonly deferred = new Map<string, NodeJS.Timeout | undefined>();
   private readonly now: () => number;
   /** The last status each terminal reported, to tell a launch from a change within one. */
   private readonly lastStatus = new Map<string, TerminalStatus>();
@@ -142,15 +147,29 @@ export class SessionSource implements AttentionSource {
 
   /** What hooks say about a terminal changed: a turn waiting on background work may now be over. */
   public hookChanged(instanceId: string): void {
-    if (this.deferred.has(instanceId) && !this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) {
-      this.cancelDeferred(instanceId);
-      if (this.deps.terminalStatus(instanceId) === 'ready') this.markFinished(instanceId);
+    if (this.deferred.has(instanceId)) {
+      if (!this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) {
+        this.cancelDeferred(instanceId);
+        if (this.deps.terminalStatus(instanceId) === 'ready') this.markFinished(instanceId);
+      } else {
+        // Still held, but maybe on different work: subagents left, a dev server stays.
+        this.defer(instanceId);
+      }
     }
     this.refresh();
   }
 
+  /** Hold a settled turn's finish: while the agent awaits its own subagents, else for BACKGROUND_HOLD_MS. */
   private defer(instanceId: string): void {
-    if (this.deferred.has(instanceId)) return;
+    const awaitingAgents = this.deps.hookInputs?.(instanceId)?.awaitingAgents ?? false;
+    const bound = this.deferred.get(instanceId);
+    // Already held the right way. A bound is never restarted, or the work it bounds could renew it forever.
+    if (this.deferred.has(instanceId) && awaitingAgents === (bound === undefined)) return;
+    if (bound) clearTimeout(bound);
+    if (awaitingAgents) {
+      this.deferred.set(instanceId, undefined);
+      return;
+    }
     const timer = setTimeout(() => {
       this.deferred.delete(instanceId);
       if (this.deps.terminalStatus(instanceId) === 'ready') this.markFinished(instanceId);

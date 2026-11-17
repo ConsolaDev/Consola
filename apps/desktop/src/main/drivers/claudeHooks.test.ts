@@ -47,21 +47,45 @@ describe('parseClaudeHookEvent', () => {
     expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [task, task] })).toEqual({
       kind: 'turn-ended',
       backgroundWork: 2,
+      backgroundAgents: 0,
     });
     const done = [{ id: 't2', status: 'completed' }, { id: 't3', status: 'failed' }, { id: 't4' }, 'junk', null];
     expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [...done, task] })).toEqual({
       kind: 'turn-ended',
       backgroundWork: 1,
+      backgroundAgents: 0,
     });
     expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: done })).toEqual({
       kind: 'turn-ended',
       backgroundWork: 0,
+      backgroundAgents: 0,
     });
-    expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [] })).toEqual({ kind: 'turn-ended', backgroundWork: 0 });
+    expect(parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [] })).toEqual({
+      kind: 'turn-ended',
+      backgroundWork: 0,
+      backgroundAgents: 0,
+    });
+  });
+
+  it('says which running background tasks are the agent’s own subagents (observed live, 2.1.326)', () => {
+    const agent = (id: string, status: string) => ({
+      id,
+      type: 'subagent',
+      status,
+      description: 'Trace over-commitment data flow',
+      agent_type: 'feature-dev:code-explorer',
+    });
+    const shell = { id: 'b1', type: 'local_bash', status: 'running' };
+    expect(
+      parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [agent('a1', 'running'), agent('a2', 'running'), shell] })
+    ).toEqual({ kind: 'turn-ended', backgroundWork: 3, backgroundAgents: 2 });
+    expect(
+      parseClaudeHookEvent({ hook_event_name: 'Stop', background_tasks: [agent('a1', 'completed'), shell] })
+    ).toEqual({ kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 0 });
   });
 
   it('does not hold a turn on a registry it could not read', () => {
-    expect(parseClaudeHookEvent({ hook_event_name: 'Stop' })).toEqual({ kind: 'turn-ended', backgroundWork: 0 });
+    expect(parseClaudeHookEvent({ hook_event_name: 'Stop' })).toEqual({ kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
   });
 });
 
