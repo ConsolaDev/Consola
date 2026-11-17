@@ -614,14 +614,18 @@
    list is for and chrome next to it is what turned "PR #4194 · Review the
    bidding path" into "PR #4194 · Revi…". The status dot used to hold a gutter
    here; it now rides the meta line's trailing edge, where it costs the title
-   nothing and says a word instead of a colour. */
+   nothing and says a word instead of a colour.
+
+   The block padding is what separates one session from the next, so it runs
+   well above the 2px between a row's own two lines: each row reads as one
+   unit, not as the next line of a single long column of text. */
 .session-nav-item {
   position: relative;
   display: flex;
   align-items: flex-start;
   width: 100%;
   min-height: var(--sidebar-row-height);
-  padding: 7px var(--sidebar-row-padding-x);
+  padding: 10px var(--sidebar-row-padding-x);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -642,7 +646,7 @@
   gap: 5px;
   width: 100%;
   min-width: 0;
-  margin-bottom: 1px;
+  margin-bottom: 2px;
   font-size: 11px;
   line-height: 14px;
   color: var(--color-text-tertiary);
@@ -745,25 +749,12 @@
   outline-offset: -1px;
 }
 
+/* The open row is told by its background alone. No accent bar at its edge:
+   the fill already marks it, and a coloured stripe beside it competed with
+   the status colours the rows use for working and waiting. */
 .session-nav-item.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
-}
-
-/* Accent bar on the active row. Anchored at the row's own left edge; the
-   indent on a nested row is padding, so the bar sits on the list's edge at
-   every depth. It grows from the middle out rather than appearing whole —
-   a transform, so nothing around it reflows. */
-.session-nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 20%;
-  bottom: 20%;
-  width: 2px;
-  border-radius: 1px;
-  background: var(--color-accent);
-  animation: session-accent-in 220ms var(--ease-out-quart);
 }
 
 /* The row's text column. It carries the flexing the name used to, so a
@@ -847,6 +838,12 @@
 .session-nav-item--compact:has(.session-settle-action):hover .session-nav-item-read-only,
 .session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-nav-item-read-only {
   opacity: 0;
+}
+
+/* Restore centres on the one 20px line, which sits at the compact padding. */
+.session-nav-item.session-nav-item--compact .nav-row-actions,
+.session-nav-item--compact .session-actions-anchor {
+  top: var(--sidebar-row-padding-y);
 }
 
 .session-nav-item--compact .session-row-age {
@@ -955,7 +952,9 @@
    the name nothing and appear exactly where the pointer already is. */
 .session-nav-item .nav-row-actions {
   position: absolute;
-  top: 4px;
+  /* Centred on the meta line: the row's 10px padding, less half of what the
+     20px pill stands taller than the 14px line. */
+  top: 7px;
   right: var(--sidebar-row-padding-x);
   z-index: 1;
   /* No frame of its own: Settle is a filled pill, and a row with nothing to
@@ -972,7 +971,7 @@
    the pointer (left/top set inline). */
 .session-actions-anchor {
   position: absolute;
-  top: 4px;
+  top: 7px;
   right: var(--sidebar-row-padding-x);
   width: 0;
   height: 20px;
@@ -1180,21 +1179,19 @@
   to { opacity: 1; transform: scale(1); }
 }
 
-@keyframes session-accent-in {
-  from { transform: scaleY(0); }
-  to { transform: scaleY(1); }
-}
-
 /* A count that changed. One tick over, from the direction a list grows. */
 @keyframes shelf-count-in {
   from { opacity: 0; transform: translateY(-4px); }
   to { opacity: 1; transform: none; }
 }
 
-/* Flat list of the sessions in the workspace this window holds. */
+/* Flat list of the sessions in the workspace this window holds. The 2px
+   between rows is the same a conductor's children keep, so a hovered row and
+   the open one beside it read as two shapes rather than one block. */
 .session-list {
   display: flex;
   flex-direction: column;
+  gap: 2px;
 }
 
 /* A row arriving. Rows are keyed by entry, so this plays exactly when one is
@@ -1393,8 +1390,8 @@
 
 /* Sessions sit one step in from their scope's label. The indent is padding,
    not margin: the row itself stays full-width, so its hover and active
-   backgrounds run edge to edge and meet the accent bar instead of floating
-   as a detached box inside the group. Full width also means nothing can
+   backgrounds run edge to edge instead of floating as a detached box
+   inside the group. Full width also means nothing can
    overflow the sidebar and summon a horizontal scrollbar. */
 .scope-group .session-nav-item {
   padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3));
@@ -1447,7 +1444,7 @@
    to about five, then scrolls under its own header, which leaves Settled at
    least its header however many are running. */
 .sidebar-dock > .sidebar-bucket--working { flex-shrink: 0; }
-.sidebar-bucket--working .session-list { max-height: calc(var(--sidebar-row-height) * 8); }
+.sidebar-bucket--working .session-list { max-height: calc(var(--sidebar-row-height) * 10); }
 
 /* A section's header. The same height as a session row and on the same left
    edge, told apart by weight and colour, with a live count so a folded shelf
@@ -1525,7 +1522,7 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
 .tree-row-children { display: flex; flex-direction: column; row-gap: 2px; }
 
 /* Children sit one step in from their conductor. Padding rather than margin, so
-   hover and active backgrounds still meet the accent bar at the edge. */
+   hover and active backgrounds still run to the list's edge. */
 .session-nav-item--child { padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3)); }
 
 .tree-aggregate {
@@ -1786,7 +1783,6 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   .shelf-header-live,
   .sidebar-all-clear,
   .shelf-header-count,
-  .session-nav-item.active::before,
   .session-list > *,
   .tree-row-children > * {
     animation: none;
