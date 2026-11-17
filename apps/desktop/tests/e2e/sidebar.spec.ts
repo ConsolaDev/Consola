@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -484,27 +484,13 @@ test.describe('Home scopes and groups', () => {
     await expect(renaming.locator('.session-nav-item-name')).toHaveCount(0);
   });
 
-  const workingHeader = (target: Page) => target.getByRole('button', { name: /^Working/ });
-  const workingChord = process.platform === 'darwin' ? 'Meta+Shift+KeyB' : 'Control+Shift+KeyB';
-
-  test('the Working shelf starts collapsed with a live count, and one chord opens it', async () => {
-    const header = workingHeader(page);
-    await expect(header).toHaveAttribute('aria-expanded', 'false');
-    // Nothing has run, so nothing is working; the count is live, not a label.
-    await expect(header.locator('.shelf-header-count')).toHaveText('0');
-
-    await page.keyboard.press(workingChord);
-    await expect(header).toHaveAttribute('aria-expanded', 'true');
-    await page.keyboard.press(workingChord);
-    await expect(header).toHaveAttribute('aria-expanded', 'false');
-  });
-
-  test('the palette shows or hides the Working shelf', async () => {
-    await page.keyboard.press(commandPaletteChord());
-    const palette = page.getByRole('dialog', { name: 'Command palette', exact: true });
-    await palette.getByRole('combobox').fill('working sessions');
-    await palette.getByRole('option', { name: /Show or hide working sessions/ }).click();
-    await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
+  test('with nothing running there is no Working section at all', async () => {
+    // Every seeded session is ready: an empty Working shelf would be a header
+    // with nothing behind it, so the sidebar leaves it out. (The section that
+    // appears when something runs is covered under 'the Working section'.)
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(page.getByRole('region', { name: 'Working', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Working/ })).toHaveCount(0);
   });
 
   test('the Settled section starts folded and empty, pinned below the list', async () => {
@@ -691,12 +677,112 @@ test.describe('Home scopes and groups', () => {
 
   test('a shelf choice survives a relaunch', async () => {
     test.setTimeout(60_000);
-    await workingHeader(page).click();
-    await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
+    const settledHeader = (target: Page) => target.getByRole('button', { name: /^Settled/ });
+    await settledHeader(page).click();
+    await expect(settledHeader(page)).toHaveAttribute('aria-expanded', 'true');
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
-    await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
+    await expect(settledHeader(page)).toHaveAttribute('aria-expanded', 'true');
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+  });
+});
+
+/**
+ * A stand-in for the CLI that sits at its prompt until it gets Enter, then
+ * prints a line every tenth of a second for a minute: a turn the test starts
+ * when it chooses, long enough to read as working. Any launch that is not an
+ * interactive session (a version or capabilities probe) exits at once rather
+ * than streaming.
+ */
+const TURN_STUB = `#!/bin/sh
+case " $* " in *" --session-id "*|*" --resume "*) ;; *) exit 0 ;; esac
+printf 'Stub ready\\r\\n> '
+IFS= read -r _ || exit 0
+i=0
+while [ "$i" -lt 600 ]; do printf 'step %s\\r\\n' "$i"; i=$((i + 1)); sleep 0.1; done
+exec sleep 300
+`;
+
+test.describe('the Working section', () => {
+  let root: string;
+
+  test.beforeEach(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-working-'));
+    ({ app, page, userDataDir } = await launchElectron());
+  });
+
+  test.afterEach(async () => {
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  test('appears right above Settled when a session starts working, and brings back a hidden sidebar with every running session in view', async () => {
+    test.setTimeout(90_000);
+    const stub = path.join(root, 'agent.sh');
+    fs.writeFileSync(stub, TURN_STUB, { mode: 0o755 });
+    await page.evaluate(async ({ root, stub }) => {
+      await window.harnessStateAPI.addHarness({ id: 'turn-stub', driverId: 'claude', name: 'Stub', binaryPath: stub, accentColor: '#555555' });
+      const workspace = await window.workspaceAPI.createWorkspace('Working test', root, false, 'turn-stub');
+      for (const [name, instanceId] of [['Session A', 'turn-a'], ['Session B', 'turn-b']]) {
+        await window.workspaceAPI.createSession(workspace.id, {
+          name, nameIsUserSet: true, workspaceId: workspace.id,
+          instanceId, harnessId: 'turn-stub', scopeId: workspace.scopes[0].id,
+        });
+      }
+    }, { root, stub });
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Working test/ }).click();
+
+    const sidebar = page.getByRole('complementary', { name: 'Home sidebar' });
+    const working = page.getByRole('region', { name: 'Working', exact: true });
+    const workingHeader = working.getByRole('button', { name: /^Working/ });
+    const rowIn = (where: Locator, name: string) => where.locator('.session-nav-item').filter({ hasText: name });
+    /** Open a row and wait for main to have its terminal, so input has somewhere to go. */
+    const open = async (name: string, instanceId: string) => {
+      await rowIn(sidebar, name).click();
+      await expect.poll(() => page.evaluate(async (id) => id in await window.terminalAPI.getStatusSnapshot(), instanceId)).toBe(true);
+    };
+    const startTurn = (instanceId: string) => page.evaluate((id) => window.terminalAPI.sendInput(id, '\r'), instanceId);
+
+    // Nothing is running yet, so there is no Working section to show.
+    await expect(rowIn(page.locator('.sidebar-bucket--waiting'), 'Session A')).toBeVisible();
+    await expect(working).toHaveCount(0);
+
+    // A starts a turn. Working appears, already open though it starts folded,
+    // pinned below the scrolling list and directly above Settled.
+    await open('Session A', 'turn-a');
+    await expect(working).toHaveCount(0);
+    await startTurn('turn-a');
+    await expect(rowIn(working, 'Session A')).toBeVisible({ timeout: 15_000 });
+    await expect(workingHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('.sidebar-sessions .sidebar-bucket--working')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() =>
+      [...document.querySelectorAll('.sidebar-dock > section')].map((section) => section.getAttribute('aria-label'))
+    )).toEqual(['Working', 'Settled']);
+    const panelBox = (await page.locator('.sidebar-sessions').boundingBox())!;
+    const workingBox = (await working.boundingBox())!;
+    const settledBox = (await page.getByRole('region', { name: 'Settled', exact: true }).boundingBox())!;
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(workingBox.y);
+    expect(workingBox.y + workingBox.height).toBeLessThanOrEqual(settledBox.y);
+
+    // The chord folds it. Folded, it keeps only the open session, so once B
+    // is opened A runs on behind the fold and only the count says so.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyB' : 'Control+Shift+KeyB');
+    await expect(workingHeader).toHaveAttribute('aria-expanded', 'false');
+    await open('Session B', 'turn-b');
+    await expect(rowIn(working, 'Session A')).toHaveCount(0);
+    await expect(workingHeader.locator('.shelf-header-count')).toHaveText('1');
+
+    // With the sidebar hidden, B starting a turn brings it back with Working
+    // open, so A is in view again beside B.
+    await page.locator('.sidebar-toggle').click();
+    await expect(sidebar).toHaveCount(0);
+    await startTurn('turn-b');
+    await expect(sidebar).toBeVisible({ timeout: 15_000 });
+    await expect(workingHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(rowIn(working, 'Session A')).toBeVisible();
+    await expect(rowIn(working, 'Session B')).toBeVisible();
+    await expect(workingHeader.locator('.shelf-header-count')).toHaveText('2');
   });
 });

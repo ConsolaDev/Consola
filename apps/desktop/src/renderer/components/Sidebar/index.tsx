@@ -9,6 +9,7 @@ import { filteredScope, useHomeStore } from '../../stores/homeStore';
 import { listedSessions } from '../../../shared/workspace';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
+import type { AttentionState } from '../../../shared/attention';
 import { AssistantNavItem } from './AssistantNavItem';
 import { AutomationsNavItem } from './AutomationsNavItem';
 import { FilterBar } from './FilterBar';
@@ -34,6 +35,7 @@ import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ShelfHeader } from './rows/ShelfHeader';
 import { TreeRow } from './rows/TreeRow';
+import { useRevealWorking } from './useRevealWorking';
 import './styles.css';
 
 const NO_RUNS: never[] = [];
@@ -85,16 +87,20 @@ export function Sidebar() {
   const sessionPanelRef = useRef<HTMLDivElement>(null);
   useSettleOnChange(sessionPanelRef, scope?.id ?? 'all', { rise: 4 });
 
-  if (isSidebarHidden) return null;
-
   const allSessions = workspace ? listedSessions(workspace).filter(session => session.name.length > 0) : [];
   const facets = workspace ? effectiveFilters(workspace, allSessions, facetSelection) : {};
   // Filter -> entries -> narrow -> trees -> buckets. A filter only decides which
   // entries survive; placement is bucketize's alone.
-  const entries = workspace
-    ? [...sessionEntries(allSessions, { records, attention: derived }, workspace.labels), ...runEntries(runs, { attention: derived })]
+  const entriesAt = (attention: AttentionState['attention']) => workspace
+    ? [...sessionEntries(allSessions, { records, attention }, workspace.labels), ...runEntries(runs, { attention })]
     : [];
-  const { entries: shown, hiddenNeedingYou } = applyFilter(entries, filterSelection(scope?.id, facets));
+  const { entries: shown, hiddenNeedingYou } = applyFilter(entriesAt(derived), filterSelection(scope?.id, facets));
+  // Before the early return: a hidden sidebar is the one a starting turn most
+  // needs to bring back.
+  useRevealWorking(derived, shown, entriesAt);
+
+  if (isSidebarHidden) return null;
+
   const natural = bucketize(buildForest(shown));
 
   const activeKey = workspace && activeSessionId && allSessions.some(session => session.id === activeSessionId)
@@ -185,25 +191,30 @@ export function Sidebar() {
               {list(placed.waiting, 'waiting')}
             </nav>
           </div>}
-          {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" aria-label="Working">
+        </div>
+        {/* Pinned to the bottom of the sidebar, outside the scrolling panel,
+            so the sessions waiting on the person fill the space above however
+            many are running or were put away. */}
+        {shown.length > 0 && <div className="sidebar-dock">
+          {/* Only while something is in it, right above Settled. A session
+              starting work opens it (`useRevealWorking`); collapsed, it keeps
+              only the tree the person has open. */}
+          {placed.working.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" aria-label="Working">
             <ShelfHeader title="Working" count={leafCount(placed.working)} open={workingOpen}
               onToggle={() => toggleShelf('working')} shortcutHint={WORKING_SHELF_SHORTCUT_LABEL} />
-            {/* Collapsed keeps only the tree the person has open. */}
             <nav className="session-list" aria-label="Working sessions">
               {list(visibleNodes(placed.working, !workingOpen, activeKey), 'working')}
             </nav>
           </section>}
-        </div>
-        {/* Only what was put away, by hand or after sitting idle (see
-            AutoSettler). Nothing is deleted. It sits outside the scrolling
-            panel, pinned to the bottom of the sidebar, so the sessions still
-            in play fill the space above it however many were put away. */}
-        {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
-          <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
-          <nav className="session-list" aria-label="Settled sessions">
-            {list(visibleNodes(placed.settled, !settledOpen, activeKey), 'settled')}
-          </nav>
-        </section>}
+          {/* Only what was put away, by hand or after sitting idle (see
+              AutoSettler). Nothing is deleted. */}
+          <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
+            <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
+            <nav className="session-list" aria-label="Settled sessions">
+              {list(visibleNodes(placed.settled, !settledOpen, activeKey), 'settled')}
+            </nav>
+          </section>
+        </div>}
       </div>}
     </aside>
   );

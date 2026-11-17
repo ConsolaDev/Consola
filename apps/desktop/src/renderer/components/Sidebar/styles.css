@@ -1244,21 +1244,32 @@
    bar above it without a gap it has not earned. */
 .sidebar-bucket + .sidebar-bucket { margin-top: var(--space-2); }
 
-/* Settled is pinned to the bottom of the sidebar, below the scrolling panel
-   rather than inside it. It sizes to its rows up to a cap, and past that its
-   rows scroll under a header that stays put: however many sessions have
-   stopped, they never push the ones above out of view. */
-.sidebar-bucket--settled {
+/* Working and Settled are pinned to the bottom of the sidebar, below the
+   scrolling panel rather than inside it. They size to their rows and share
+   one cap: past it each list scrolls under a header that stays put, so
+   however many sessions are running or were put away, they never push the
+   ones waiting on the person out of view. The cap is on the pair, not on
+   each, because two caps of 40% would leave the list above a fifth of the
+   sidebar. Its 2px padding plus each bucket's own makes the same 4px Settled
+   had on its own. */
+.sidebar-dock {
   display: flex;
   flex: 0 1 auto;
   flex-direction: column;
   min-height: 0;
-  max-height: 40%;
-  padding-top: var(--space-1);
-  padding-bottom: var(--space-1);
+  max-height: 50%;
+  padding-block: 2px;
   border-top: 1px solid var(--color-border);
 }
-.sidebar-bucket--settled .session-list { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+/* When the dock is short, each section gives up rows but never its header:
+   the floor is the header's row plus the bucket's 2px above and below. */
+.sidebar-dock > .sidebar-bucket {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: calc(var(--sidebar-row-height) + 4px);
+}
+.sidebar-dock .session-list { min-height: 0; overflow-y: auto; overflow-x: hidden; }
 
 /* A section's header. The same height as a session row and on the same left
    edge, told apart by weight and colour, with a live count so a folded shelf
