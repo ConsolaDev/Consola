@@ -697,6 +697,17 @@ test.describe('Home scopes and groups', () => {
     await page.keyboard.press('Tab');
     await expect(settle).toBeFocused();
 
+    // A right-click does not take focus, and closing its menu hands focus
+    // back to whatever had it, so the row is not left wearing the keyboard
+    // ring with its Settle pill held open over its age.
+    const elsewhere = page.getByRole('button', { name: 'Navigation settings', exact: true });
+    await elsewhere.focus();
+    await row.click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(elsewhere).toBeFocused();
+    expect(await row.evaluate((element) => element.matches(':focus-visible, :has(:focus-visible)'))).toBe(false);
+
     // The row the window is showing is offered Settle like any other, and goes
     // under the fold like any other: a folded shelf does not show it as though
     // it had opened itself. It stays put away, since opening a session is not

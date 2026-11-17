@@ -77,6 +77,8 @@ function SessionRowBody({
   const [actionsOpen, setActionsOpen] = useState(false);
   /** Where a right-click opened the actions menu, in the row's own box; null opens it at the row's corner. */
   const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  /** Where focus was when the actions menu was asked for; it goes back there on close. */
+  const menuReturnFocus = useRef<Element | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -233,6 +235,7 @@ function SessionRowBody({
       onClick();
     } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
+      menuReturnFocus.current = e.currentTarget;
       setMenuAt(null);
       setActionsOpen(true);
     }
@@ -262,10 +265,17 @@ function SessionRowBody({
       className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
+      // A press that is about to open the menu does not move focus onto the
+      // row: whatever the person was in (usually the terminal) keeps it, so
+      // the menu can hand it back. Ctrl-click is the same request on macOS.
+      onMouseDown={(event) => {
+        if (!isRenaming && (event.button === 2 || (event.button === 0 && event.ctrlKey))) event.preventDefault();
+      }}
       onContextMenu={(event) => {
         if (isRenaming) return;
         event.preventDefault();
         event.stopPropagation();
+        menuReturnFocus.current = document.activeElement;
         // At the pointer, like a native context menu. Anywhere else, the item
         // that happens to land under it is picked when the button comes up.
         const box = event.currentTarget.getBoundingClientRect();
@@ -411,6 +421,7 @@ function SessionRowBody({
           open={actionsOpen}
           onOpenChange={setActionsOpen}
           at={menuAt}
+          returnFocus={menuReturnFocus}
           session={session}
           workspaceId={workspaceId}
           onRename={handleStartRename}

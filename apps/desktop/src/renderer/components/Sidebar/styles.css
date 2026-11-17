@@ -735,6 +735,16 @@
   background: var(--color-bg-hover);
 }
 
+/* Keyboard focus, drawn inside the row like every other control in the
+   sidebar. The app-wide ring sits 2px outside its element, which on a
+   full-width row meant past the list's inset and clipped by the sidebar's
+   edge. A pointer never shows it: the row's background already says which
+   one was clicked. */
+.session-nav-item:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+
 .session-nav-item.active {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
@@ -835,7 +845,7 @@
 }
 
 .session-nav-item--compact:has(.session-settle-action):hover .session-nav-item-read-only,
-.session-nav-item--compact:has(.session-settle-action):focus-within .session-nav-item-read-only {
+.session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-nav-item-read-only {
   opacity: 0;
 }
 
@@ -1012,7 +1022,7 @@
 }
 
 .session-nav-item:hover .nav-row-actions,
-.session-nav-item:focus-within .nav-row-actions,
+.session-nav-item:is(:focus-visible, :has(:focus-visible)) .nav-row-actions,
 .scope-row:hover .nav-row-actions,
 .scope-row:focus-within .nav-row-actions,
 .nav-row-actions[data-open='true'] {
@@ -1035,10 +1045,10 @@
 }
 
 .session-nav-item:has(.session-settle-action):hover .session-row-age,
-.session-nav-item:has(.session-settle-action):focus-within .session-row-age,
+.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-row-age,
 .session-nav-item:has(.nav-row-actions[data-open='true'] .session-settle-action) .session-row-age,
 .session-nav-item:has(.session-settle-action):hover .session-row-status,
-.session-nav-item:has(.session-settle-action):focus-within .session-row-status,
+.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-row-status,
 .session-nav-item:has(.nav-row-actions[data-open='true'] .session-settle-action) .session-row-status {
   opacity: 0;
 }

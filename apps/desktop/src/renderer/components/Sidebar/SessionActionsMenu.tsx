@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type MutableRefObject } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Archive,
@@ -29,6 +29,12 @@ interface SessionActionsMenuProps {
    * asked. Null (the keyboard) opens it under the row's top-right corner.
    */
   at: { x: number; y: number } | null;
+  /**
+   * What had focus when the menu was asked for, so closing it hands focus
+   * back there: the row when the menu key opened it, the terminal the person
+   * was typing in when a right-click did. Written by the row as it opens.
+   */
+  returnFocus: MutableRefObject<Element | null>;
   session: Session;
   workspaceId: string;
   onRename: () => void;
@@ -51,7 +57,7 @@ interface SessionActionsMenuProps {
  * new one and have it applied at once. There is no "move to group" — groups are
  * not shown anywhere, so a move into one would change nothing on screen.
  */
-export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, at, settle }: SessionActionsMenuProps) {
+export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, at, returnFocus, settle }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
   );
@@ -128,18 +134,27 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
           // to rename or settle (and start its terminal, which takes the focus).
           onClick={(event) => event.stopPropagation()}
           onCloseAutoFocus={(event) => {
+            const previous = returnFocus.current;
+            returnFocus.current = null;
             if (openingDialog.current) {
               event.preventDefault();
               openingDialog.current = false;
               return;
             }
-            // Radix would hand focus back to the anchor, which cannot take it,
-            // leaving a keyboard user on <body>. The row it was opened from can.
-            // A row that went away (deleted) or swapped its anchor out for the
-            // rename field is left alone, so the field keeps its focus.
+            // Radix would hand focus to the anchor, which cannot take it. Focus
+            // goes back where it came from instead. A right-click from the
+            // terminal returns to the terminal: parking it on the row drew the
+            // keyboard ring around a row nobody had tabbed to, and held its
+            // Settle pill open over its age until something else took focus.
+            // A row swapped out for the rename field keeps the field focused.
             const row = anchorRef.current?.closest<HTMLElement>('.session-nav-item');
-            if (row) {
-              event.preventDefault();
+            if (!row) return;
+            event.preventDefault();
+            if (previous instanceof HTMLElement && previous !== document.body && previous.isConnected) {
+              previous.focus({ preventScroll: true });
+            } else if (!at) {
+              // Opened from the keyboard, with nothing to return to: the row,
+              // so a keyboard user is not left on <body>.
               row.focus();
             }
           }}
