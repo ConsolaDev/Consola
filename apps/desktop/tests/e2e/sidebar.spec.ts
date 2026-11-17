@@ -200,9 +200,10 @@ test.describe('Home scopes and groups', () => {
 
   /**
    * Where the seeded sessions sit: all of them are ready and none has run, so
-   * every row is under Recent. Attention, not group or scope, decides sections.
+   * every row is under Settled — a session that has stopped, which is what
+   * Settled holds. Attention, not group or scope, decides sections.
    */
-  const recent = (target: Page) => target.locator('.sidebar-bucket--recent');
+  const stopped = (target: Page) => target.locator('.sidebar-bucket--settled');
   /** The labels a ⋯ menu write left on a session, read back from main. */
   const labelsOf = (target: Page, sessionId: string) =>
     target.evaluate(
@@ -310,17 +311,17 @@ test.describe('Home scopes and groups', () => {
 
   test('scope selection filters the list, and Clear filters brings every scope back', async () => {
     // All scopes by default: every session, each naming the scope it runs in.
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(rowFor(page, 'Bump deps').locator('.session-nav-item-scope')).toContainText('shared-lib');
     await chooseScope(page, 'shared-lib');
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(1);
-    await expect(recent(page)).toContainText('Bump deps');
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(stopped(page)).toContainText('Bump deps');
     // A filtered list says its scope once, in the filter bar, never per row.
     await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
     await chooseScope(page, 'catalog-portal');
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(3);
     await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
@@ -332,8 +333,8 @@ test.describe('Home scopes and groups', () => {
     await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: /Fan out/ }).click();
     await page.keyboard.press('Escape');
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(1);
-    await expect(recent(page)).toContainText('Fan member');
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(stopped(page)).toContainText('Fan member');
     await chooseScope(page, 'shared-lib');
     await expect(page.locator('.session-nav-item')).toHaveCount(0);
     await expect(page.getByText('No sessions match these filters.')).toBeVisible();
@@ -341,7 +342,7 @@ test.describe('Home scopes and groups', () => {
     await page.getByRole('button', { name: 'Clear filters', exact: true }).first().click();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await expect(page.locator('.sidebar-filter-chips')).toHaveCount(0);
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   const jumpWithPalette = async (target: Page, name: string) => {
@@ -364,7 +365,7 @@ test.describe('Home scopes and groups', () => {
     await jumpWithPalette(page, 'Bump deps');
     await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   test('the scope row sits under the Assistant on Home only, never in the title bar', async () => {
@@ -506,17 +507,22 @@ test.describe('Home scopes and groups', () => {
     await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
   });
 
-  test('the Settled shelf starts collapsed with a live count of zero', async () => {
+  test('the Settled section starts open, counting everything that has stopped', async () => {
     const header = page.getByRole('button', { name: /^Settled/ });
+    // It holds the body of the list, so it is not folded away unasked — but it
+    // does fold, and the choice sticks.
+    await expect(header).toHaveAttribute('aria-expanded', 'true');
+    await expect(header.locator('.shelf-header-count')).toHaveText('4');
+
+    await header.click();
     await expect(header).toHaveAttribute('aria-expanded', 'false');
-    await expect(header.locator('.shelf-header-count')).toHaveText('0');
   });
 
   test('archiving a group never hides its sessions', async () => {
     await page.evaluate(() => window.workspaceAPI.archiveGroup('ws-folding-e2e', 'group-fanout'));
     // Groups are not a place any more: the member stays among the others.
     await expect(rowFor(page, 'Fan member')).toHaveCount(1);
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   test('the ⋯ menu\'s New label… creates a label and gives it to the session in one step', async () => {
@@ -573,7 +579,7 @@ test.describe('Home scopes and groups', () => {
     await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
     await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
     // A label is a tag, not a place: the row has not moved anywhere.
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
 
     // The same item unticks it. The menu stays open after a pick, but the
     // submenu does not survive the row re-rendering, so reopen from scratch.
@@ -594,7 +600,7 @@ test.describe('Home scopes and groups', () => {
     await holdWorkspace(page);
 
     expect(await labelsOf(page, 's3')).toEqual(['group-fanout']);
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   test('the row settles from hover and back; deleting stays in the menu and confirms', async () => {
@@ -628,22 +634,27 @@ test.describe('Home scopes and groups', () => {
     const quiet = rowFor(page, 'Fix flaky test');
     const settleQuiet = quiet.getByRole('button', { name: 'Settle session Fix flaky test', exact: true });
     const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
-    await expect(settledHeader).toHaveText(/0/);
+    const shelf = page.getByRole('navigation', { name: 'Settled sessions' });
+    // Every seeded session has stopped, so the count is the whole list and
+    // settling moves a row within the section rather than out of it: what
+    // someone put away sinks to the bottom.
+    await expect(settledHeader).toHaveText(/4/);
+    await expect(shelf.locator('.session-nav-item').last()).not.toContainText('Fix flaky test');
     await quiet.hover();
     await expect(settleQuiet).toBeVisible();
     await settleQuiet.click();
-    await expect(settledHeader).toHaveText(/1/);
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(shelf.locator('.session-nav-item').last()).toContainText('Fix flaky test');
+    await expect(settledHeader).toHaveText(/4/);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
     expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
 
     // The same slot offers the way back, so nothing is settled irreversibly by
-    // a stray click — the shelf has to be open for its rows to be reachable.
-    await settledHeader.click();
-    const shelved = page.getByRole('navigation', { name: 'Settled sessions' }).locator('.session-nav-item').first();
+    // a stray click.
+    const shelved = shelf.locator('.session-nav-item').last();
     await shelved.hover();
     await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
-    await expect(settledHeader).toHaveText(/0/);
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(shelf.locator('.session-nav-item').last()).not.toContainText('Fix flaky test');
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
 
     // Tab order: the row, its ⋯ trigger, then its one action.
     await row.focus();
@@ -679,6 +690,6 @@ test.describe('Home scopes and groups', () => {
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
     await expect(workingHeader(page)).toHaveAttribute('aria-expanded', 'true');
-    await expect(recent(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(stopped(page).locator('.session-nav-item')).toHaveCount(4);
   });
 });

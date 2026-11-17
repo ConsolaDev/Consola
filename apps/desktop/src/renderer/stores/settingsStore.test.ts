@@ -85,9 +85,10 @@ describe('inbox filter actions', () => {
 });
 
 describe('sidebar shelves', () => {
-  it('starts Working and Settled shut and everything else open', () => {
+  it('starts Working shut and everything else, Settled included, open', () => {
     expect(isShelfOpen({}, 'working')).toBe(false);
-    expect(isShelfOpen({}, 'settled')).toBe(false);
+    // Settled is the body of the list, not a shelf of put-away odds and ends.
+    expect(isShelfOpen({}, 'settled')).toBe(true);
     expect(isShelfOpen({}, 'session:some-conductor')).toBe(true);
   });
 

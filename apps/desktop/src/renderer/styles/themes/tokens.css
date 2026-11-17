@@ -78,6 +78,15 @@
   --transition-normal: 0.2s ease;
   --transition-slow: 0.3s ease;
 
+  /* Easing. Exponential ease-out only: a thing that moves here is arriving,
+     and arriving means most of the distance is covered immediately and the
+     last of it quietly. No bounce, no elastic — the UI is a surface being
+     revealed, not an object being thrown. `useSettleOnChange` uses the same
+     quart curve from JS, so motion written in CSS and motion written in a
+     hook cannot drift apart. */
+  --ease-out-quart: cubic-bezier(0.25, 1, 0.5, 1);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+
   /* Z-index layers */
   --z-sidebar: 100;
   --z-dropdown: 150;

@@ -1,12 +1,19 @@
 /*
- * Session status dots, shared.
+ * Session status marks, shared.
  *
  * The sidebar's `.session-status-indicator--*` rules (Sidebar/styles.css)
  * were the only place a session's status had a colour. The Inbox pane, the
  * link dialog and the strip's sibling menu all show the same vocabulary, so
- * the shapes and colours live here once: filled accent for working, a dim
- * ring for ready, a heavy warning ring for needs-attention, filled success
- * for done, an error ring for exited. Shape carries meaning alongside hue.
+ * the shapes, colours and motion live here once: a turning accent arc for
+ * working, a dim ring for ready, a breathing warning ring for needs-attention,
+ * filled success for done, an error ring for exited. Shape carries meaning
+ * alongside hue, and so does motion — the two states that are going somewhere
+ * move, the three that have arrived hold still.
+ *
+ * The keyframes below are the app's status motion, named without a surface in
+ * them because the sidebar rows, the sidebar's nav items and the command
+ * palette all animate from here. One definition, or a status means a slightly
+ * different thing on each surface that draws it.
  */
 .status-dot {
   box-sizing: border-box;
@@ -17,9 +24,12 @@
   flex-shrink: 0;
 }
 
+/* A rotation, not a pulse. A pulse says "look at me" on a loop; a rotation
+   says only "this is still turning", which is all the row is claiming. */
 .status-dot--working {
-  background: var(--color-accent);
-  animation: status-dot-pulse 1.5s ease-in-out infinite;
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  animation: status-spin 850ms linear infinite;
 }
 
 .status-dot--ready {
@@ -28,6 +38,7 @@
 
 .status-dot--needs-attention {
   border: 2px solid var(--color-warning);
+  animation: status-breathe 2.4s ease-in-out infinite;
 }
 
 .status-dot--done {
@@ -38,18 +49,27 @@
   border: 1px solid var(--color-error);
 }
 
-@keyframes status-dot-pulse {
-  0%,
-  100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.4;
-  }
+@keyframes status-spin {
+  to { transform: rotate(1turn); }
+}
+
+/* The ring stays drawn and only its weight breathes, so something waiting for
+   the person never disappears from a glance taken at the wrong moment. */
+@keyframes status-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.55; transform: scale(0.88); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .status-dot--working {
+  .status-dot--working,
+  .status-dot--needs-attention {
     animation: none;
+  }
+
+  /* A ring that cannot turn is only a broken circle, so it closes into the
+     solid accent dot. The warning ring already reads at rest. */
+  .status-dot--working {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
   }
 }

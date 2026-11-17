@@ -21,9 +21,15 @@ export const TERMINAL_FONT_SIZE_DEFAULT = 14;
 
 /**
  * What a shelf does before the person has touched it. Working is the shelf
- * that is out of the way until asked for; everything else is open.
+ * that is out of the way until asked for — a running session is asking
+ * nothing of anyone — and everything else is open.
+ *
+ * Settled is deliberately not in here. It holds every session that has
+ * stopped, which is the body of the list, so shutting it by default would
+ * open the app on an all-but-empty sidebar. Folding it is the person's own
+ * move, and their choice persists.
  */
-export const SHELF_DEFAULTS: Record<string, boolean> = { working: false, settled: false };
+export const SHELF_DEFAULTS: Record<string, boolean> = { working: false };
 
 /** Whether a shelf is open, with its default for a shelf never touched. */
 export function isShelfOpen(shelves: Record<string, boolean>, id: string): boolean {

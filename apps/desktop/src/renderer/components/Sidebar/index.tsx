@@ -141,7 +141,6 @@ export function Sidebar() {
     return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey, settle: settleOffer(node, false, viewedKey) });
   };
   const list = (nodes: TreeNode[], bucket: Bucket) => nodes.map(node => renderNode(node, bucket));
-  const needsYou = placed.waiting.length + placed.done.length;
 
   return (
     <aside className="sidebar" aria-label={isInbox ? 'Inbox sidebar' : 'Home sidebar'}>
@@ -177,11 +176,16 @@ export function Sidebar() {
           </button>}
           {!shown.length && <p className="sidebar-empty">{emptyMessage()}</p>}
           {scopeError && <p className="sidebar-error" role="alert">{scopeError}</p>}
-          {needsYou > 0 && <section className="sidebar-bucket sidebar-bucket--needs-you" aria-label="Needs you">
-            <div className="sidebar-section-header"><span className="sidebar-section-title">Needs you</span></div>
+          {/* Three sections, and every row is in one of them: it is waiting on
+              you, it is running, or it has stopped. Nothing is filed anywhere
+              else, so there is never a run of rows under no heading for the
+              person to work out. */}
+          {placed.waiting.length > 0 && <section className="sidebar-bucket sidebar-bucket--needs-you" aria-label="Needs you">
+            {/* Never foldable: the one section whose whole reason for existing
+                is that you have not dealt with it yet. */}
+            <ShelfHeader title="Needs you" count={leafCount(placed.waiting)} />
             <nav className="session-list" aria-label="Sessions that need you">
               {list(placed.waiting, 'waiting')}
-              {list(placed.done, 'done')}
             </nav>
           </section>}
           {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" aria-label="Working">
@@ -192,17 +196,13 @@ export function Sidebar() {
               {list(visibleNodes(placed.working, !workingOpen, activeKey), 'working')}
             </nav>
           </section>}
-          {/* No heading: this is simply the list. "Needs you", the Working shelf
-              and the Settled shelf are departures from the ordinary, and each
-              earns its label by saying something the rows do not. "Recent" only
-              restated that these were the sessions — and with an age now on
-              every row, it restated that too. The landmark stays for screen
-              readers, which need the region named even when sighted users read
-              it from position. */}
-          {placed.recent.length > 0 && <section className="sidebar-bucket sidebar-bucket--recent" aria-label="Recent">
-            <nav className="session-list" aria-label="Recent sessions">{list(placed.recent, 'recent')}</nav>
-          </section>}
-          {/* Where settled sessions land: by hand, or after sitting idle (see AutoSettler). Never deleted. */}
+          {/* Everything that has stopped: a turn that finished, a session
+              sitting idle, a process that exited, and anything put away by
+              hand or after sitting idle (see AutoSettler). Nothing is deleted.
+              Unread results are first (`settledOrder`) and survive the fold
+              (`visibleNodes`), so a finish still arrives where it can be seen
+              while the tail of sessions already dealt with stays out of the
+              way. */}
           {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
             <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
             <nav className="session-list" aria-label="Settled sessions">

@@ -8,9 +8,10 @@ import { JsonAttentionLedger, type AttentionLedgerStateFile } from '../../main/a
 import { SessionSource } from '../../main/attention/SessionSource';
 import { settleSession, unsettleSession } from '../../main/attention/settling';
 import { makeSession, makeWorkspace } from '../../main/conductor/ConductorTools.test';
-import { bucketize, type Bucket } from './bucketize';
+import { bucketize } from './bucketize';
 import { sessionEntries, sessionKey } from './entries';
-import { buildForest, type TreeNode } from './forest';
+import { visibleNodes } from './fold';
+import { aggregateAttention, buildForest, membersOf, type TreeNode } from './forest';
 import { settleOffer } from './settleRules';
 
 /**
@@ -36,13 +37,25 @@ function world(specs: Spec[]) {
   for (const spec of specs) if (spec.finished) ledger.markFinished(spec.id, 'w1', 20);
   const terminals = new Map<string, TerminalStatus>(specs.map((spec) => [`inst-${spec.id}`, spec.terminal]));
   const source = new SessionSource({ getWorkspaces: () => [workspace], terminalStatus: (i) => terminals.get(i) ?? 'exited', ledger, now: () => NOW });
-  const forest = (): TreeNode[] =>
-    buildForest(sessionEntries(sessions, { records: ledger.snapshot(), attention: Object.fromEntries(source.read()) }, []));
-  const bucketOf = (id: string): Bucket => {
-    const placed = bucketize(forest());
-    const found = (Object.keys(placed) as Bucket[]).find((bucket) => placed[bucket].some((root) => root.entry.key === sessionKey(id) || root.children.some((c) => c.entry.key === sessionKey(id))));
-    return found!;
+  const entriesNow = () =>
+    sessionEntries(sessions, { records: ledger.snapshot(), attention: Object.fromEntries(source.read()) }, []);
+  const forest = (): TreeNode[] => buildForest(entriesNow());
+  /**
+   * Whether the row's *tree* has reached the shelf — the visible move, since a
+   * tree is drawn and filed as one. Asked of its aggregate attention rather
+   * than of its bucket: Settled is every session that has stopped, so a tree
+   * sitting in that bucket says nothing about whether anyone put it there.
+   */
+  const treeOnShelf = (id: string): boolean => {
+    const root = forest().find((node) => membersOf(node).some((entry) => entry.key === sessionKey(id)));
+    return root !== undefined && aggregateAttention(root) === 'settled';
   };
+  /** Whether the row itself was shelved, whatever its tree reads as. */
+  const rowOnShelf = (id: string): boolean =>
+    entriesNow().find((entry) => entry.key === sessionKey(id))?.attention === 'settled';
+  /** The ids a folded Settled shelf still shows: unread results, and nothing else. */
+  const throughTheFold = (): string[] =>
+    visibleNodes(bucketize(forest()).settled, true, null).map((node) => node.entry.key);
   /** The offer the row for `id` would carry, from the tree it sits in, with `viewing` open in the window. */
   const offerFor = (id: string, viewing?: string) => {
     const viewed = viewing ? sessionKey(viewing) : null;
@@ -52,7 +65,7 @@ function world(specs: Spec[]) {
     }
     throw new Error('no such row');
   };
-  return { ledger, workspace, bucketOf, offerFor };
+  return { ledger, workspace, treeOnShelf, rowOnShelf, throughTheFold, offerFor };
 }
 
 const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }[] = [
@@ -67,19 +80,23 @@ const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }
 ];
 
 describe('settling by hand, end to end', () => {
-  it.each(SCENARIOS)('settling $name: lands in Settled exactly when it is offered', ({ specs, target, lands }) => {
+  it.each(SCENARIOS)('settling $name: reaches the shelf exactly when it is offered', ({ specs, target, lands }) => {
     const w = world(specs);
     const offer = w.offerFor(target).kind;
     settleSession(w.workspace, target, w.ledger, NOW);
-    expect(w.bucketOf(target) === 'settled').toBe(lands);
+    expect(w.treeOnShelf(target)).toBe(lands);
     expect(offer === 'settle').toBe(lands);
   });
 
-  it('a done root is where settling is most wanted: it reads done first, then lands on the shelf', () => {
+  it('a done root is where settling is most wanted: it reads done first, then goes behind the fold', () => {
     const w = world([{ id: 'a', terminal: 'ready', finished: true }]);
-    expect(w.bucketOf('a')).toBe('done');
+    // An unread result survives a folded shelf, which is how a finish arrives.
+    expect(w.throughTheFold()).toEqual([sessionKey('a')]);
+
     settleSession(w.workspace, 'a', w.ledger, NOW);
-    expect(w.bucketOf('a')).toBe('settled');
+
+    expect(w.treeOnShelf('a')).toBe(true);
+    expect(w.throughTheFold()).toEqual([]);
   });
 
   it('a blocked row says why', () => {
@@ -87,18 +104,17 @@ describe('settling by hand, end to end', () => {
     expect(w.offerFor('a')).toMatchObject({ kind: 'blocked', reason: expect.stringMatching(/working|needs you/i) });
   });
 
-  it('undo returns the row to the bucket it left, and un-settling a shelved tree brings it back', () => {
+  it('undo takes the row back off the shelf, and un-settling a shelved tree does too', () => {
     const w = world([{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'exited' }]);
-    const before = w.bucketOf('p');
     const memento = settleSession(w.workspace, 'p', w.ledger, NOW);
-    expect(w.bucketOf('p')).toBe('settled');
+    expect(w.treeOnShelf('p')).toBe(true);
     expect(w.offerFor('p').kind).toBe('unsettle');
     w.ledger.restore(memento);
-    expect(w.bucketOf('p')).toBe(before);
+    expect(w.treeOnShelf('p')).toBe(false);
 
     settleSession(w.workspace, 'p', w.ledger, NOW);
     unsettleSession(w.workspace, 'p', w.ledger, NOW + 1);
-    expect(w.bucketOf('p')).toBe('recent');
+    expect(w.treeOnShelf('p')).toBe(false);
   });
 
   it('offers no Settle for the row the window is showing, and says why', () => {
@@ -111,13 +127,13 @@ describe('settling by hand, end to end', () => {
   it('is why: settling the open row is undone by the first thing its CLI paints', () => {
     const w = world([{ id: 'a', terminal: 'ready' }]);
     settleSession(w.workspace, 'a', w.ledger, NOW);
-    expect(w.bucketOf('a')).toBe('settled');
+    expect(w.treeOnShelf('a')).toBe(true);
 
     // Opening a session makes its CLI paint, which is activity, which un-settles
     // it with no write at all — the row bounces straight back under a toast
     // that said it had gone to the shelf.
     w.ledger.touch('a', 'w1', NOW + 1000);
-    expect(w.bucketOf('a')).not.toBe('settled');
+    expect(w.treeOnShelf('a')).toBe(false);
   });
 
   it('a conductor whose child the window is showing is not offered Settle either: a tree settles as one', () => {
@@ -136,7 +152,8 @@ describe('settling by hand, end to end', () => {
   it('a settled child inside a tree that is not settled offers no way back of its own', () => {
     const w = world([{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }]);
     settleSession(w.workspace, 'k', w.ledger, NOW);
-    expect(w.bucketOf('k')).toBe('recent');
+    expect(w.rowOnShelf('k')).toBe(true);
+    expect(w.treeOnShelf('k')).toBe(false);
     expect(w.offerFor('k').kind).toBe('blocked');
   });
 });

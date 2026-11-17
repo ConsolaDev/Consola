@@ -13,6 +13,15 @@
      it — so they run a step under even the metadata. */
   --sidebar-font-size-label: 11px;
   --sidebar-row-padding-y: 4px;
+  /* The list's two insets, and the only two. A row's text starts at
+     `--sidebar-list-inset + --sidebar-row-padding-x` from the sidebar's edge
+     and ends the same distance from the other one — the same on both sides,
+     because a session's subject is a long string and every pixel spent on
+     the left is a word lost on the right. The outer inset is small on
+     purpose: it exists so a hover background reads as a shape rather than as
+     a band welded to the window frame, and 4px is enough to say that. */
+  --sidebar-list-inset: var(--space-1);
+  --sidebar-row-padding-x: var(--space-2);
   /* Every nav row — inbox, scope, session, settings — locks to one height.
      Content differs per row (icons, dots, hover triggers), so the min-height
      is what keeps the list reading as one rhythm. */
@@ -600,18 +609,19 @@
 .automations-nav-pill--failed { background: color-mix(in srgb, var(--color-error) 16%, transparent); color: var(--color-error); }
 
 /* Session nav item */
-/* Two zones: a fixed gutter the status dot lives in, and a column that takes
-   every remaining pixel. Nothing else is allowed into the horizontal flow,
-   because the title is what the list is for and chrome beside it is what
-   turned "PR #4194 · Review the bidding path" into "PR #4194 · Revi…". */
+/* One zone: the text column, and it takes every pixel the row has. Nothing is
+   allowed into the horizontal flow beside it, because the title is what the
+   list is for and chrome next to it is what turned "PR #4194 · Review the
+   bidding path" into "PR #4194 · Revi…". The status dot used to hold a gutter
+   here; it now rides the meta line's trailing edge, where it costs the title
+   nothing and says a word instead of a colour. */
 .session-nav-item {
   position: relative;
   display: flex;
   align-items: flex-start;
-  gap: var(--space-2);
   width: 100%;
   min-height: var(--sidebar-row-height);
-  padding: 7px var(--space-2);
+  padding: 7px var(--sidebar-row-padding-x);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
@@ -621,17 +631,7 @@
   cursor: pointer;
   /* The row is a div acting as a button; keep its label a target, not text. */
   user-select: none;
-  transition: background var(--transition-fast);
-}
-
-/* Holds its width whether or not a dot is in it, so every title in the list
-   starts on one vertical line. 7px dot, centred on the meta line's cap height. */
-.session-row-gutter {
-  display: flex;
-  flex: none;
-  justify-content: center;
-  width: 7px;
-  padding-top: 4px;
+  transition: background 140ms var(--ease-out-quart), color 140ms var(--ease-out-quart);
 }
 
 /* Everything that is not the title: glyphs, where it runs, its state, its age.
@@ -660,6 +660,77 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* --- What a row is doing, at the meta line's trailing edge ---------------
+
+   Three states get a word here; everything else gets its age in the same
+   column. Both are the same size and colour weight, so a row changing state
+   swaps one short string for another in one place rather than lighting up
+   somewhere new. */
+.session-row-status {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  font-weight: var(--font-weight-medium);
+  /* Remounted on every status change (keyed in SessionRow), so this plays
+     once per change and never on the clock tick inside it. */
+  animation: session-status-in 200ms var(--ease-out-quart);
+}
+
+.session-row-status-word {
+  white-space: nowrap;
+}
+
+/* The number moves once a second. Tabular figures so the row beside it does
+   not twitch as 9s becomes 10s. */
+.session-row-status-elapsed {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+
+.session-row-status-mark {
+  box-sizing: border-box;
+  width: 7px;
+  height: 7px;
+  flex: none;
+  border-radius: 50%;
+}
+
+/* Working: an arc going round, not a dot fading in and out. A pulse says
+   "look at me" on a loop; a rotation says "this is still turning", which is
+   the only thing the row is claiming. */
+.session-row-status--working {
+  color: var(--color-accent);
+}
+
+.session-row-status--working .session-row-status-mark {
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  animation: status-spin 850ms linear infinite;
+}
+
+/* Needs you: the heavy warning ring the rest of the app uses for the same
+   thing, breathing slowly. Yellow is reserved for this and nothing else. */
+.session-row-status--needs-attention {
+  color: var(--color-warning);
+}
+
+.session-row-status--needs-attention .session-row-status-mark {
+  border: 2px solid var(--color-warning);
+  animation: status-breathe 2.4s ease-in-out infinite;
+}
+
+/* Done: the one moment in the list worth a small flourish. The check draws
+   itself in once, as the row arrives, and then holds still. */
+.session-row-status--done {
+  color: var(--color-success);
+}
+
+.session-row-status-check {
+  flex: none;
+  animation: session-status-check 420ms var(--ease-out-expo) backwards;
+}
+
 .session-nav-item:hover {
   background: var(--color-bg-hover);
 }
@@ -669,9 +740,10 @@
   color: var(--color-text-primary);
 }
 
-/* Accent bar on the active row. Anchored at the row's own left edge here;
-   nested rows pull it back out of their indent below, so it always sits at
-   the sidebar's edge regardless of nesting depth. */
+/* Accent bar on the active row. Anchored at the row's own left edge; the
+   indent on a nested row is padding, so the bar sits on the list's edge at
+   every depth. It grows from the middle out rather than appearing whole —
+   a transform, so nothing around it reflows. */
 .session-nav-item.active::before {
   content: '';
   position: absolute;
@@ -681,6 +753,7 @@
   width: 2px;
   border-radius: 1px;
   background: var(--color-accent);
+  animation: session-accent-in 220ms var(--ease-out-quart);
 }
 
 /* The row's text column. It carries the flexing the name used to, so a
@@ -789,6 +862,19 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-sm);
   background: var(--color-bg-sidebar);
+  /* Opacity carries the arrival; visibility is what keeps a hidden tray out
+     of the tab order and away from stray clicks, so it still switches
+     outright — immediately on the way in, and only once the fade is over on
+     the way out.
+
+     Opacity and nothing else, deliberately: this tray is the ⋯ menu's anchor,
+     and Radix's popper tracks its anchor's box. A few pixels of slide here
+     dragged the open menu along with it, and because opening the menu takes
+     the pointer off the row, hover dropped and returned and the slide ran
+     again — a menu that never came to rest under the cursor aiming at it.
+     Nothing that anchors a popper may move. */
+  opacity: 0;
+  transition: opacity 120ms var(--ease-out-quart), visibility 0s 120ms;
 }
 
 /* Inside a session row the actions leave the flow entirely. Held in layout
@@ -798,7 +884,7 @@
 .session-nav-item .nav-row-actions {
   position: absolute;
   top: 4px;
-  right: var(--space-2);
+  right: var(--sidebar-row-padding-x);
   z-index: 1;
 }
 
@@ -808,13 +894,27 @@
 .scope-row:focus-within .nav-row-actions,
 .nav-row-actions[data-open='true'] {
   visibility: visible;
+  opacity: 1;
+  transition-delay: 0s;
 }
 
-/* With the actions overhead, the age would sit under them. It steps aside
-   rather than being covered. */
+/* The meta line's trailing slot and the actions tray want the same corner.
+   The slot steps aside rather than being covered — both of its occupants, the
+   age and the status, because "Waiting" half-hidden behind a ⋯ button is
+   worse than no word at all. It fades on the same curve the tray arrives on,
+   so the corner reads as one thing being exchanged for another, and it is
+   back before the pointer has finished leaving. */
+.session-row-age,
+.session-row-status {
+  transition: opacity 120ms var(--ease-out-quart);
+}
+
 .session-nav-item:hover .session-row-age,
 .session-nav-item:focus-within .session-row-age,
-.session-nav-item:has(.nav-row-actions[data-open='true']) .session-row-age {
+.session-nav-item:has(.nav-row-actions[data-open='true']) .session-row-age,
+.session-nav-item:hover .session-row-status,
+.session-nav-item:focus-within .session-row-status,
+.session-nav-item:has(.nav-row-actions[data-open='true']) .session-row-status {
   opacity: 0;
 }
 
@@ -863,13 +963,18 @@
   flex-shrink: 0;
 }
 
+/* The same arc the session rows turn, so the Assistant, Automations and the
+   command palette say "working" in exactly the motion a row does. One status
+   vocabulary, or the sidebar has a dialect per surface. */
 .session-status-indicator--working {
-  background: var(--color-accent);
-  animation: session-pulse 1.5s ease-in-out infinite;
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  animation: status-spin 850ms linear infinite;
 }
 
 .session-status-indicator--needs-attention {
   border: 2px solid var(--color-warning);
+  animation: status-breathe 2.4s ease-in-out infinite;
 }
 
 .session-status-indicator--done {
@@ -894,19 +999,56 @@
   flex: none;
 }
 
-@keyframes session-pulse {
-  0%, 100% {
-    opacity: 1;
-  }
-  50% {
-    opacity: 0.5;
-  }
+/* A status arriving: it rises into the column it shares with the age, so the
+   change reads as a line being replaced rather than as a word blinking. */
+@keyframes session-status-in {
+  from { opacity: 0; transform: translateY(-3px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* `status-spin` and `status-breathe` are defined once in styles/statusDots.css,
+   beside the shared marks they animate. */
+
+@keyframes session-status-check {
+  from { opacity: 0; transform: scale(0.4); }
+  60% { transform: scale(1.08); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@keyframes session-accent-in {
+  from { transform: scaleY(0); }
+  to { transform: scaleY(1); }
+}
+
+/* A count that changed. One tick over, from the direction a list grows. */
+@keyframes shelf-count-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* Flat list of the sessions in the workspace this window holds. */
 .session-list {
   display: flex;
   flex-direction: column;
+}
+
+/* A row arriving. Rows are keyed by entry, so this plays exactly when one is
+   genuinely new to the list — a session started, a shelf unfolded, a turn
+   finishing and moving its row up to Needs you — and never on a re-render.
+   Opacity and transform only: the row's neighbours do not move for it, so an
+   arrival somewhere in the list cannot shove the row under the cursor.
+
+   It is deliberately the *arriving* row that moves and not the ones making
+   space. Animating the gap would be animating layout, and the list is read
+   top to bottom all day: it has to stay still enough to read. */
+.session-list > *,
+.tree-row-children > * {
+  animation: session-row-in 200ms var(--ease-out-quart);
+}
+
+@keyframes session-row-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
 }
 
 /* Project collapsible styles */
@@ -1090,47 +1232,75 @@
    as a detached box inside the group. Full width also means nothing can
    overflow the sidebar and summon a horizontal scrollbar. */
 .scope-group .session-nav-item {
-  padding-left: calc(var(--space-2) + var(--space-3));
+  padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3));
 }
 
 /* --- Attention shelves and conductor trees ------------------------------ */
 
 .sidebar-sessions { display: flex; flex-direction: column; }
-.sidebar-bucket { padding: var(--space-1) var(--space-2); }
+.sidebar-bucket { padding: 2px var(--sidebar-list-inset); }
 
-/* The unlabelled list. Without a heading it needs its own breathing room above,
-   or it reads as a continuation of the Working shelf rather than as the list. */
-.sidebar-bucket--recent { padding-top: var(--space-2); }
-.sidebar-bucket .sidebar-section-title { text-transform: none; letter-spacing: normal; }
+/* Air between sections, and only between them: the first one meets the filter
+   bar above it without a gap it has not earned. */
+.sidebar-bucket + .sidebar-bucket { margin-top: var(--space-2); }
 
-/* A collapsible shelf's header: the same row height as a session, told apart
-   by weight, with a live count so a collapsed shelf still says what is in it. */
+/* A section's header. The same height as a session row and on the same left
+   edge, told apart by weight and colour, with a live count so a folded shelf
+   still says what is behind it. Two shapes: a button that folds (Working,
+   Settled) and a plain label that does not (Needs you). They look the same
+   apart from the chevron, because they are the same thing — the line that
+   says these rows below are one group. */
 .shelf-header {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
+  gap: 6px;
   width: 100%;
   min-height: var(--sidebar-row-height);
-  padding: var(--sidebar-row-padding-y) var(--space-2);
+  padding: var(--sidebar-row-padding-y) var(--sidebar-row-padding-x);
   border: none;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-tertiary);
   font: inherit;
   font-size: var(--sidebar-font-size-label);
-  font-weight: var(--font-weight-medium);
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.01em;
   text-align: left;
   cursor: pointer;
+  transition: background 140ms var(--ease-out-quart), color 140ms var(--ease-out-quart);
 }
-.shelf-header:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
+/* Scoped to the button: a label is not a control, so nothing about it may
+   answer the pointer as though it were. */
+button.shelf-header:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .shelf-header:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+
+/* A label names its rows and takes no pointer, and no more room than the
+   words need. */
+.shelf-header--label { cursor: default; min-height: 22px; }
+
 .shelf-header-title { flex: 1; min-width: 0; }
-.shelf-header-count { flex: none; font-size: var(--sidebar-font-size-small); font-variant-numeric: tabular-nums; }
+.shelf-header-count {
+  flex: none;
+  font-size: var(--sidebar-font-size-small);
+  font-weight: var(--font-weight-normal);
+  font-variant-numeric: tabular-nums;
+  animation: shelf-count-in 220ms var(--ease-out-quart);
+}
+
+/* Trailing, beside the count, and one chevron that turns rather than two that
+   swap: the rotation is the fold, so the control and what it does are the
+   same gesture. */
+.shelf-header-chevron {
+  flex: none;
+  transform: rotate(-90deg);
+  transition: transform 200ms var(--ease-out-quart);
+}
+.shelf-header-chevron[data-open] { transform: none; }
 
 /* An empty shelf is scaffolding, not content. It stays reachable but stops
    competing with the rows that have something in them. */
 .shelf-header[data-empty='true'] { color: color-mix(in srgb, var(--color-text-tertiary) 65%, transparent); }
-.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary); }
+button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary); }
 
 .tree-row { display: flex; flex-direction: column; row-gap: 2px; }
 .tree-row-head { display: flex; align-items: center; }
@@ -1146,10 +1316,11 @@
 
 /* Children sit one step in from their conductor. Padding rather than margin, so
    hover and active backgrounds still meet the accent bar at the edge. */
-.session-nav-item--child { padding-left: calc(var(--space-2) + var(--space-3)); }
+.session-nav-item--child { padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3)); }
 
 .tree-aggregate {
   flex: none;
+  margin-left: var(--space-2);
   padding: 0 6px;
   border-radius: 999px;
   font-size: 11px;
@@ -1160,7 +1331,7 @@
 
 .tree-row-more {
   align-self: flex-start;
-  margin: 0 0 0 calc(var(--space-2) + var(--space-3) + 16px);
+  margin: 0 0 0 calc(var(--sidebar-row-padding-x) + var(--space-3) + 16px);
   padding: 0 6px;
   border: 0;
   border-radius: 999px;
@@ -1358,8 +1529,16 @@
    ═══════════════════════════════════════════════════════════ */
 
 @media (prefers-reduced-motion: reduce) {
-  .session-status-indicator--working {
+  .session-status-indicator--working,
+  .session-status-indicator--needs-attention {
     animation: none;
+  }
+
+  /* A ring that cannot turn is only a broken circle, so it closes into the
+     solid accent dot. The warning ring already reads at rest. */
+  .session-status-indicator--working {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
   }
 
   .project-collapsible-content[data-state='open'],
@@ -1367,6 +1546,34 @@
   .dropdown-content,
   .tooltip-content {
     animation: none;
+  }
+
+  /* Every status still reads: the mark keeps its shape and colour, the word
+     keeps its place, the check is simply there rather than drawn. What goes
+     is the movement, not the information — which is why none of these resolve
+     to a hidden or half-faded state. */
+  .session-row-status,
+  .session-row-status-check,
+  .session-row-status-mark,
+  .shelf-header-count,
+  .session-nav-item.active::before,
+  .session-list > *,
+  .tree-row-children > * {
+    animation: none;
+  }
+
+  .shelf-header-chevron,
+  .nav-row-actions,
+  .session-row-age,
+  .session-row-status {
+    transition: none;
+  }
+
+  /* A spinner that cannot spin says nothing by being a broken ring, so it
+     closes into the solid accent dot the rest of the app uses for working. */
+  .session-row-status--working .session-row-status-mark {
+    border-color: var(--color-accent);
+    background: var(--color-accent);
   }
 }
 
@@ -1499,7 +1706,7 @@
   background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
 }
 .run-nav-item-icon { color: var(--color-accent); flex-shrink: 0; }
-.run-nav-item-actions { display: flex; gap: 4px; margin-left: auto; }
+.run-nav-item-actions { display: flex; gap: 4px; margin-left: auto; padding-left: var(--space-2); }
 .run-nav-item-action {
   background: none; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px;
   color: inherit; font: inherit; font-size: 11px; cursor: pointer;

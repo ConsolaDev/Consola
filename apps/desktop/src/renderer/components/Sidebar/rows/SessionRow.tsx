@@ -7,6 +7,7 @@ import { useCheckout } from '../../../stores/checkoutStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useSessionModel } from '../../../hooks/useSessionModel';
 import { SessionHarnessIcon } from '../SessionHarnessIcon';
+import { RowStatus, isLive } from './RowStatus';
 import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore';
 import { SessionActionsMenu } from '../SessionActionsMenu';
 import { startSessionDrag } from '../sessionDrag';
@@ -34,14 +35,6 @@ const STATUS_LABELS: Record<Attention, string> = {
   exited: 'exited',
   settled: 'settled',
 };
-
-/**
- * Which states draw a dot. Only the three that are *about to want something*
- * do — a dot on a calm row is the "persistent status circle when nothing needs
- * attention" PRODUCT.md names as an anti-reference, and at eleven rows it was
- * eleven circles saying nothing.
- */
-const MARKED: ReadonlySet<Attention> = new Set<Attention>(['working', 'done', 'needs-attention']);
 
 /**
  * The one state worth a word, and it rides the meta line rather than the title
@@ -232,10 +225,16 @@ function SessionRowBody({
   // conductor is never draggable — its tree is the fleet it orchestrates.
   const draggable = !isRenaming && session.kind !== 'conductor';
 
+  // What is happening now, at the line's trailing edge. `working` counts from
+  // the turn's own start — `activityAt` is written on the edge into working —
+  // and shows the number instead of an age, because a turn that started eight
+  // seconds ago has no meaningful age.
+  const live = isLive(displayStatus);
+  const showAge = age && displayStatus !== 'working';
   // The meta line carries everything that used to sit on the title's line and
   // eat its width: the glyphs, where the row runs, its state, its age. Rendered
   // whenever it has anything to say, which with an age is always.
-  const meta = showHarness || session.kind === 'conductor' || readOnly || scopeLabel || subtitle || statusWord || age;
+  const meta = showHarness || session.kind === 'conductor' || readOnly || scopeLabel || subtitle || statusWord || live || age;
 
   return (
     <div
@@ -259,16 +258,6 @@ function SessionRowBody({
       title={accessibleName}
       aria-label={accessibleName}
     >
-      {/* A fixed gutter rather than a flow item: the dot comes and goes with the
-          state, and the titles must stay in one column whether or not it is there.
-          Decorative — the row's aria-label already carries the status, and an
-          ancestor's aria-label short-circuits the accessible-name computation
-          before it descends into subtree content. */}
-      <span className="session-row-gutter" aria-hidden="true">
-        {MARKED.has(displayStatus) && (
-          <span className={`session-status-indicator session-status-indicator--${displayStatus}`} />
-        )}
-      </span>
       {isRenaming ? (
         <input
           ref={inputRef}
@@ -308,10 +297,14 @@ function SessionRowBody({
               {statusWord && (
                 <span className={`session-status-word session-status-word--${displayStatus}`}>{statusWord}</span>
               )}
-              {/* Pushed right by the spacer, so the age keeps one column down
-                  the list however much or little precedes it. */}
+              {/* Pushed right by the spacer, so what a row is doing — and the
+                  age where it is doing nothing — keeps one column down the
+                  list however much or little precedes it. Keyed on the status,
+                  so each change is a fresh element and replays its arrival
+                  instead of mutating the words under the person's eyes. */}
               <span className="session-row-meta-spacer" />
-              {age && <span className="session-row-age">{age}</span>}
+              {live && <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />}
+              {showAge && <span className="session-row-age">{age}</span>}
             </span>
           )}
           {/* The hero. It owns the full width of the column and may take a

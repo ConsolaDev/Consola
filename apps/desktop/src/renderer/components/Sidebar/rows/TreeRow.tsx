@@ -44,7 +44,7 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, viewedKey, highl
   const toggle = useSettingsStore((state) => state.toggleSidebarShelf);
 
   // The same fold the shelves use: pinned children stay even when collapsed.
-  const { collapsed, shown, left } = treeView(node, bucket, chosen, activeKey);
+  const { collapsed, shown, left } = treeView(node, chosen, activeKey);
 
   const worst = worstStatus(node.children.map((child) => child.entry.attention));
   const badgeWord = worst && BADGE_WORDS[worst];
