@@ -78,7 +78,7 @@ export function WorkspaceIcon({
   const image = isWorkspaceImageIcon(icon) && icon.dataUrl !== failedImage ? icon : undefined;
   const emoji = WORKSPACE_EMOJIS.find(([id]) => id === icon)?.[2];
   const hasSymbol = typeof icon === 'string' && Object.prototype.hasOwnProperty.call(SYMBOLS, icon);
-  const Symbol = hasSymbol ? SYMBOLS[icon as WorkspaceSymbolId] : PanelsTopLeft;
+  const SymbolIcon = hasSymbol ? SYMBOLS[icon as WorkspaceSymbolId] : PanelsTopLeft;
   const initial = Array.from(name?.trim() || 'Workspace')[0].toLocaleUpperCase();
   const isInitial = !image && !emoji && !hasSymbol;
   const avatarSize = isInitial ? Math.max(20, size) : size;
@@ -120,7 +120,11 @@ export function WorkspaceIcon({
         />
       ) : (
         (emoji ??
-        (hasSymbol ? <Symbol size={size} /> : <span style={{ fontWeight: 600 }}>{initial}</span>))
+        (hasSymbol ? (
+          <SymbolIcon size={size} />
+        ) : (
+          <span style={{ fontWeight: 600 }}>{initial}</span>
+        )))
       )}
     </span>
   );

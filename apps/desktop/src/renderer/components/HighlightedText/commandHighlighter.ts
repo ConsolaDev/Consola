@@ -57,6 +57,7 @@ export function findCommandReferences(
   // Reset regex state
   COMMAND_REGEX.lastIndex = 0;
 
+  // biome-ignore lint/suspicious/noAssignInExpressions: walks each match of the global regex in turn
   while ((match = COMMAND_REGEX.exec(text)) !== null) {
     const fullMatch = match[0];
     const commandName = match[1];

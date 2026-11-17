@@ -1,5 +1,4 @@
 const pty = require('node-pty');
-const os = require('node:os');
 
 const shell = '/bin/zsh';
 console.log(`Testing spawn of ${shell}`);

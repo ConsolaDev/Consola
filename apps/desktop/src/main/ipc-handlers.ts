@@ -162,7 +162,6 @@ let autoSettler: AutoSettler | null = null;
 let workspaceService: WorkspaceService | null = null;
 
 // The single writer for harness records, shared by every window
-let harnessService: HarnessService | null = null;
 
 // Provider organs: one inbox fetcher, one worktree owner — both main-side.
 // The drivers themselves live in the registry under ./providers.
@@ -613,7 +612,6 @@ export function setupIpcHandlers(): boolean {
   );
   const harnesses = new HarnessService(harnessFile);
   if (!loadOrExit(() => harnesses.load(), 'harnesses')) return false;
-  harnessService = harnesses;
 
   harnesses.onChange((all) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -1970,7 +1968,6 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN);
 
-  harnessService = null;
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_IMPORT);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_ADD);

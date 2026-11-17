@@ -34,7 +34,7 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
         setLoading(false);
       }
     }
-    loadFile();
+    void loadFile();
   }, [filePath]);
 
   // Memoize both views so switching modes doesn't re-parse content.

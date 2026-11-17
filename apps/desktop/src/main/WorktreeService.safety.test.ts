@@ -292,8 +292,14 @@ describe('checking a pull request out onto a branch an earlier checkout left beh
       return git(dir, 'rev-parse', 'HEAD');
     };
     return {
-      open: () => (commit(dir, 'feature.txt'), push()),
-      forcePush: () => (git(dir, 'commit', '-q', '--amend', '-m', 'feature, rebased'), push()),
+      open: () => {
+        commit(dir, 'feature.txt');
+        return push();
+      },
+      forcePush: () => {
+        git(dir, 'commit', '-q', '--amend', '-m', 'feature, rebased');
+        return push();
+      },
     };
   }
 

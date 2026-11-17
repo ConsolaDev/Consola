@@ -144,7 +144,7 @@ async function loadDownload() {
     status.textContent = 'Check GitHub releases for the latest macOS download.';
   }
 }
-loadDownload();
+void loadDownload();
 
 // The product demo uses the actual desktop renderer in an isolated iframe.
 const demoFrame = document.querySelector('[data-live-demo] iframe');

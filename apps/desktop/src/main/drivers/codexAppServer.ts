@@ -52,6 +52,7 @@ export function createCodexThread(
         return;
       }
       let newline: number;
+      // biome-ignore lint/suspicious/noAssignInExpressions: takes one complete line per pass until none is left
       while (!settled && (newline = pending.indexOf('\n')) !== -1) {
         const line = pending.slice(0, newline);
         pending = pending.slice(newline + 1);

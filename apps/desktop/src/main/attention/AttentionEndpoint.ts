@@ -91,8 +91,14 @@ export class AttentionEndpoint {
     };
     const registration = this.registrationFor(req.url);
     // Unknown token and wrong method look the same: nothing to learn.
-    if (!registration) return reply(401);
-    if (req.method !== 'POST') return reply(405);
+    if (!registration) {
+      reply(401);
+      return;
+    }
+    if (req.method !== 'POST') {
+      reply(405);
+      return;
+    }
 
     // Answered the moment the token checks out, before a byte of the body is
     // read. Nothing in the reply depends on what the body says, and a CLI

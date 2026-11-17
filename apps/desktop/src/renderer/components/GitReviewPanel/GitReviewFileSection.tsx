@@ -122,6 +122,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
           setStats({ added, removed });
         }
       })
+      .catch(() => setDiffData(null))
       .finally(() => setIsLoading(false));
   }, [isExpanded, rootPath, filePath, status]);
 
