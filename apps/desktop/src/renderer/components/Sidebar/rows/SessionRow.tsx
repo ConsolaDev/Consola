@@ -21,6 +21,7 @@ import { isSessionViewed } from '../../../utils/viewing';
 import { scopeTrail } from '../../../utils/scopeTrail';
 import { basename } from '../../../utils/fileUtils';
 import { relativeSince } from '../../../utils/relativeSince';
+import { shortModelName } from '../../../utils/harnessMark';
 import { useCheckoutStore } from '../../../stores/checkoutStore';
 import { hasScopeChoice, filteredScope, useHomeStore } from '../../../stores/homeStore';
 import { idOfKey } from '../../../sidebar/entries';
@@ -83,12 +84,13 @@ function SessionRowBody({
   const showHarnessSetting = useSettingsStore((state) => state.showSidebarHarness);
   const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
   // A settled row is finished work, so it says what the session was rather
-  // than how it ran: no harness glyph and no worktree line, whatever the
-  // settings say for the rest of the list.
-  const inSettledShelf = bucket === 'settled';
-  const showHarness = showHarnessSetting && !inSettledShelf;
-  const showWorktreeLine = showWorktree && !inSettledShelf;
-  const model = useSessionModel(session, showModel);
+  // than how it ran: one line, its name and its age, with no harness, model,
+  // worktree or labels, whatever the settings say for the rest of the list.
+  // An archive is scanned for a name; two-line rows made it a wall.
+  const compact = bucket === 'settled';
+  const showHarness = showHarnessSetting && !compact;
+  const showWorktreeLine = showWorktree && !compact;
+  const model = useSessionModel(session, showModel && !compact);
   // Read from the folder, not the record: a scope can itself be a worktree.
   // Nothing is read at all while the line is switched off.
   const checkoutPath = useWorkspaceStore((state) => {
@@ -98,7 +100,7 @@ function SessionRowBody({
   const checkout = useCheckout(showWorktreeLine ? checkoutPath : null);
   const worktreeRef =
     showWorktreeLine && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
-  const shownModel = showModel ? model : undefined;
+  const shownModel = showModel && !compact ? model : undefined;
   // The stored list, resolved in render: a selector building an array would
   // hand React a fresh snapshot on every read. Ids naming a deleted label
   // simply find nothing.
@@ -251,13 +253,13 @@ function SessionRowBody({
   // The meta line carries everything that used to sit on the title's line and
   // eat its width: the glyphs, where the row runs, its state, its age. Rendered
   // whenever it has anything to say, which with an age is always.
-  const meta = showHarness || session.kind === 'conductor' || readOnly || scopeLabel || subtitle || statusWord || live || age;
+  const meta = showHarness || shownModel || session.kind === 'conductor' || readOnly || scopeLabel || subtitle || statusWord || live || age;
 
   return (
     <div
       role="button"
       tabIndex={0}
-      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
+      className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
       onContextMenu={(event) => {
@@ -290,6 +292,22 @@ function SessionRowBody({
           onKeyDown={handleKeyDown}
           onClick={(e) => e.stopPropagation()}
         />
+      ) : compact ? (
+        // One line: the name, then the lock where it applies, then the age.
+        // The lock trails so every name on the shelf starts on one edge. The
+        // age keeps the trailing column every other row's age sits in, and
+        // steps aside for Restore on hover exactly as it does for Settle.
+        <span className="session-nav-item-text">
+          <span className="session-nav-item-title">
+            <span className="session-nav-item-name">{label}</span>
+          </span>
+          {readOnly && (
+            <span className="session-nav-item-read-only" title={readOnlyNote}>
+              <Lock size={10} aria-hidden="true" />
+            </span>
+          )}
+          {age && <span className="session-row-age">{age}</span>}
+        </span>
       ) : (
         <span className="session-nav-item-text">
           {meta && (
@@ -300,6 +318,14 @@ function SessionRowBody({
                 </span>
               )}
               {showHarness && <SessionHarnessIcon harnessId={session.harnessId} />}
+              {/* How it runs, read together: the harness, then the model it
+                  talks to, said the way a person says it. The id is in the
+                  tooltip. */}
+              {shownModel && (
+                <span className="session-nav-item-model" title={shownModel}>
+                  {shortModelName(shownModel)}
+                </span>
+              )}
               {readOnly && (
                 <span
                   className="session-nav-item-read-only"
@@ -315,17 +341,23 @@ function SessionRowBody({
                 </span>
               )}
               {subtitle && <span className="session-nav-item-subtitle">{subtitle}</span>}
-              {statusWord && (
-                <span className={`session-status-word session-status-word--${displayStatus}`}>{statusWord}</span>
-              )}
               {/* Pushed right by the spacer, so what a row is doing — and the
                   age where it is doing nothing — keeps one column down the
                   list however much or little precedes it. Keyed on the status,
                   so each change is a fresh element and replays its arrival
-                  instead of mutating the words under the person's eyes. */}
+                  instead of mutating the words under the person's eyes.
+                  "exited" rides in the same column, before the age, where it
+                  reads as "exited 47m" rather than running into the model. */}
               <span className="session-row-meta-spacer" />
               {live && <RowStatus key={displayStatus} status={displayStatus} since={entry.activityAt} />}
-              {showAge && <span className="session-row-age">{age}</span>}
+              {(statusWord || showAge) && (
+                <span className="session-row-age">
+                  {statusWord && (
+                    <span className={`session-status-word session-status-word--${displayStatus}`}>{statusWord} </span>
+                  )}
+                  {showAge && age}
+                </span>
+              )}
             </span>
           )}
           {/* The hero. It owns the full width of the column and may take a
@@ -334,7 +366,7 @@ function SessionRowBody({
           <span className="session-nav-item-title">
             <span className="session-nav-item-name">{label}</span>
           </span>
-          {(worktreeRef || shownModel || labelNames.length > 0) && (
+          {(worktreeRef || labelNames.length > 0) && (
             <span className="session-nav-item-meta">
               {worktreeRef && (
                 <span className="session-nav-item-worktree" title={`Worktree · ${worktreeRef}`}>
@@ -342,7 +374,6 @@ function SessionRowBody({
                   <span className="session-nav-item-worktree-ref">{worktreeRef}</span>
                 </span>
               )}
-              {shownModel && <span className="session-nav-item-model" title={shownModel}>{shownModel}</span>}
               {labelNames.map((item) => (
                 <span key={item.id} className="session-nav-item-label">
                   {item.emoji ? `${item.emoji} ` : ''}

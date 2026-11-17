@@ -180,9 +180,10 @@ test.describe('worktree visibility', () => {
     const worktreeLine = (name: string) => row(page, name).locator('.session-nav-item-worktree');
     await expect(worktreeLine('Fix the login redirect')).toHaveText(WORKTREE_BRANCH);
     await expect(worktreeLine('Tidy the README')).toHaveCount(0);
-    // The model stays whole beside or under the branch, never cut to a stub.
-    await expect(row(page, 'Fix the login redirect').locator('.session-nav-item-meta .session-nav-item-model'))
-      .toHaveText('claude-opus-4-6');
+    // The model rides the line above the name, beside its harness, so the
+    // branch has the line under the name to itself.
+    await expect(row(page, 'Fix the login redirect').locator('.session-row-meta .session-nav-item-model'))
+      .toHaveText('Opus 4.6');
     await screenshot('worktree-sidebar-rows.png');
 
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();

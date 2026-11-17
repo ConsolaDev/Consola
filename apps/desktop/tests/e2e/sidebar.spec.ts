@@ -263,11 +263,18 @@ test.describe('Home scopes and groups', () => {
     test.setTimeout(60_000);
     await chooseScope(page, 'catalog-portal');
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
-    await expect(page.locator('.session-nav-item-model').first()).toHaveText('claude-opus-4-6');
+    // Said the way a person says it, on the line with the harness; the id is the tooltip.
+    await expect(page.locator('.session-nav-item-model').first()).toHaveText('Opus 4.6');
+    await expect(page.locator('.session-nav-item-model').first()).toHaveAttribute('title', 'claude-opus-4-6');
+    await expect(page.locator('.session-row-meta .session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.sidebar [data-harness-type="claude"]')).toHaveCount(3);
     await chooseScope(page, 'shared-lib');
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveCount(1);
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
+    // With more than one harness, each row wears its harness's initials in
+    // the harness's accent colour, so two profiles of one CLI read apart.
+    await expect(page.locator('.session-harness-initials')).toHaveText('CA');
+    await expect(page.locator('.session-harness-mark').first()).toHaveAttribute('style', /--harness-accent/);
     await chooseScope(page, 'catalog-portal');
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
     const toggle = page.getByRole('menuitemcheckbox', { name: 'Model', exact: true });
@@ -301,9 +308,9 @@ test.describe('Home scopes and groups', () => {
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
     fs.writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-4-6' } }) + '\n');
     const row = page.locator('.session-nav-item').filter({ hasText: 'Controller boot' });
-    await expect(row.locator('.session-nav-item-model')).toHaveText('claude-sonnet-4-6', { timeout: 10_000 });
+    await expect(row.locator('.session-nav-item-model')).toHaveText('Sonnet 4.6', { timeout: 10_000 });
     fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-opus-4-6' } }) + '\n');
-    await expect(row.locator('.session-nav-item-model')).toHaveText('claude-opus-4-6', { timeout: 10_000 });
+    await expect(row.locator('.session-nav-item-model')).toHaveText('Opus 4.6', { timeout: 10_000 });
     const stored = JSON.parse(fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'));
     expect(stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model).toBe('claude-opus-4-6');
   });
@@ -504,6 +511,39 @@ test.describe('Home scopes and groups', () => {
 
     await header.click();
     await expect(header).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('a Settled shelf too long for the dock scrolls one-line rows instead of squeezing them', async () => {
+    // Settle everything, then make the window short enough that the dock's
+    // cap is smaller than the shelf.
+    await page.evaluate(async () => {
+      for (const id of ['s1', 's2', 's3', 's4']) await window.attentionAPI.settle('ws-folding-e2e', id);
+    });
+    const header = page.getByRole('button', { name: /^Settled/ });
+    await expect(header.locator('.shelf-header-count')).toHaveText('4');
+    await header.click();
+    await page.setViewportSize({ width: 900, height: 300 });
+    // The top of the list says there is nothing waiting rather than going blank.
+    await expect(page.locator('.sidebar-all-clear')).toHaveText('Nothing is waiting on you.');
+
+    const rows = page.getByRole('navigation', { name: 'Settled sessions' }).locator('.session-nav-item');
+    await expect(rows).toHaveCount(4);
+    const boxes = await rows.evaluateAll((elements) => elements.map((element) => {
+      const box = element.getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, height: box.height, content: element.scrollHeight };
+    }));
+    for (const [index, box] of boxes.entries()) {
+      // Every row is as tall as what it says, and one line of it: a put-away
+      // row is its name and its age.
+      expect(box.height).toBeGreaterThanOrEqual(box.content);
+      expect(box.height).toBeLessThan(36);
+      // No row is painted over the one before it.
+      if (index > 0) expect(box.top).toBeGreaterThanOrEqual(boxes[index - 1].bottom - 0.5);
+    }
+    // The shelf scrolls instead.
+    const list = page.getByRole('navigation', { name: 'Settled sessions' });
+    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(rows.locator('.session-nav-item-harness, .session-nav-item-model')).toHaveCount(0);
   });
 
   test('archiving a group never hides its sessions', async () => {

@@ -10,6 +10,8 @@ interface ShelfHeaderProps {
   onToggle: () => void;
   /** The shelf's chord, shown on hover. */
   shortcutHint?: string;
+  /** Whether what is on the shelf is running: the header turns the same arc its rows do. */
+  live?: boolean;
 }
 
 /**
@@ -22,7 +24,7 @@ interface ShelfHeaderProps {
  * scanned down. Trailing, every title and every row name starts on one line,
  * and the chevron reads as what it is: the control, beside the count.
  */
-export function ShelfHeader({ title, count, open, onToggle, shortcutHint }: ShelfHeaderProps) {
+export function ShelfHeader({ title, count, open, onToggle, shortcutHint, live }: ShelfHeaderProps) {
   return (
     <button
       type="button"
@@ -36,6 +38,9 @@ export function ShelfHeader({ title, count, open, onToggle, shortcutHint }: Shel
       onClick={onToggle}
     >
       <span className="shelf-header-title">{title}</span>
+      {/* Folded, the rows are out of sight but still turning; the header says
+          so in the same motion they would, so a fold never reads as stopped. */}
+      {live && <span className="shelf-header-live" aria-hidden="true" />}
       {/* Keyed on the value: a changed count remounts and replays its tick-over,
           so a row arriving in a folded shelf is still visible as an arrival. */}
       <span key={count} className="shelf-header-count">{count}</span>

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { GitPullRequest, Home, Inbox } from 'lucide-react';
+import { CheckCheck, GitPullRequest, Home, Inbox } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useAttentionStore } from '../../stores/attentionStore';
@@ -181,6 +181,13 @@ export function Sidebar() {
             {hiddenNeedingYou} hidden by filter {hiddenNeedingYou === 1 ? 'needs' : 'need'} you
           </button>}
           {!shown.length && <p className="sidebar-empty">{emptyMessage()}</p>}
+          {/* Everything is running or put away: the top of the list is the
+              answer to "does anything need me?", so it says no in words
+              rather than leaving a blank that could be a list still loading. */}
+          {shown.length > 0 && placed.waiting.length === 0 && hiddenNeedingYou === 0 && <p className="sidebar-all-clear">
+            <CheckCheck size={13} aria-hidden="true" />
+            <span>Nothing is waiting on you.</span>
+          </p>}
           {scopeError && <p className="sidebar-error" role="alert">{scopeError}</p>}
           {/* Everything in play that is not running, first and under no
               heading: questions, unread results, idle prompts, exited
@@ -200,7 +207,7 @@ export function Sidebar() {
               starting work opens it (`useRevealWorking`); collapsed, it keeps
               only the tree the person has open. */}
           {placed.working.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" aria-label="Working">
-            <ShelfHeader title="Working" count={leafCount(placed.working)} open={workingOpen}
+            <ShelfHeader title="Working" count={leafCount(placed.working)} open={workingOpen} live
               onToggle={() => toggleShelf('working')} shortcutHint={WORKING_SHELF_SHORTCUT_LABEL} />
             <nav className="session-list" aria-label="Working sessions">
               {list(visibleNodes(placed.working, !workingOpen, activeKey), 'working')}

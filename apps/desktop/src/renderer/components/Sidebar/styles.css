@@ -268,17 +268,21 @@
   font-size: var(--sidebar-font-size-small);
 }
 
+/* The model, on the meta line beside the harness that runs it: "Opus 4.6",
+   not "claude-opus-4-6". One step firmer than the tertiary line around it,
+   because it is the one fact on that line a person picks between sessions
+   by. It gives way before the harness mark does, never before the age. */
 .session-nav-item-model {
-  max-width: 100%;
+  flex: 0 1 auto;
+  min-width: 2ch;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: var(--color-text-secondary);
-  font-size: var(--sidebar-font-size-small);
 }
 
-/* The line under a row's name that says where and on what it runs: its
-   worktree, its model, or both. They share the line when both fit whole and
+/* The line under a row's name that says where it runs and how it is filed:
+   its worktree and its labels. They share the line when both fit whole and
    wrap onto two when they don't, so neither is ever cut to a stub. Told
    apart by hue and the folder glyph rather than a separator, which would
    dangle at the start of a wrapped line. */
@@ -291,10 +295,6 @@
   max-width: 100%;
   min-width: 0;
   margin-top: 3px;
-}
-
-.session-nav-item-meta .session-nav-item-model {
-  min-width: 0;
 }
 
 /* Worktree rows wear the same hue as the header's worktree chip, so the row
@@ -790,6 +790,59 @@
 .session-nav-item--past .session-nav-item-title {
   font-weight: 400;
   color: var(--color-text-secondary);
+  transition: color 140ms var(--ease-out-quart);
+}
+
+/* Pointing at a past row brings its name forward, so the row under the cursor
+   is the one that reads as present. */
+.session-nav-item--past:hover .session-nav-item-title,
+.session-nav-item--past.active .session-nav-item-title {
+  color: var(--color-text-primary);
+}
+
+/* A settled row: one line, the name and its age. The shelf is an archive you
+   scan for a name, so every row is the same height and the names line up as
+   a column. The row keeps the list's 28px rhythm and its age keeps the
+   trailing column the rest of the list uses. */
+.session-nav-item--compact {
+  align-items: center;
+  padding-block: var(--sidebar-row-padding-y);
+}
+
+.session-nav-item--compact .session-nav-item-text {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+}
+
+.session-nav-item--compact .session-nav-item-title {
+  flex: 1 1 auto;
+  width: auto;
+  line-height: 20px;
+}
+
+.session-nav-item--compact .session-nav-item-name {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The trailing lock belongs to the corner Restore takes over on hover, so it
+   steps aside with the age rather than peeking out beside the pill. */
+.session-nav-item--compact .session-nav-item-read-only {
+  transition: color var(--transition-fast), opacity 120ms var(--ease-out-quart);
+}
+
+.session-nav-item--compact:has(.session-settle-action):hover .session-nav-item-read-only,
+.session-nav-item--compact:has(.session-settle-action):focus-within .session-nav-item-read-only {
+  opacity: 0;
+}
+
+.session-nav-item--compact .session-row-age {
+  font-size: 11px;
+  line-height: 20px;
+  color: var(--color-text-tertiary);
 }
 
 /* A read-only session wears the lock its terminal toolbar does, so the row
@@ -819,10 +872,19 @@
 /* The scope a row runs in, while the list mixes several. Allowed to shrink
    first: which repo is context, the subject is the point. */
 .session-nav-item-scope {
+  flex: 0 4 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+/* "Opus 4.6 · consola": two names in a row need a seam, or they read as one. */
+.session-nav-item-model + .session-nav-item-scope::before,
+.session-nav-item-model + .session-nav-item-subtitle::before {
+  content: '·';
+  padding-right: 5px;
+  color: var(--color-text-tertiary);
 }
 
 /* "sprocket / apps/api": the scope's own name reads a step firmer than its parent. */
@@ -1044,16 +1106,46 @@
   background: var(--color-success);
 }
 
-/* Both ride the meta line now, sized to it rather than to the name. */
+/* The harness: the driver's mark, then its initials on a tag of its own accent
+   colour. Mark and tag sit 3px apart and read as one token, the way an avatar
+   and its name badge do. Never shrinks: it is two letters, and the first
+   thing on the line. */
+.session-harness-mark {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 3px;
+}
+
 .harness-driver-icon.session-nav-item-harness {
-  width: 11px;
-  height: 11px;
+  width: 12px;
+  height: 12px;
   flex: none;
 }
 
 .harness-driver-icon.session-nav-item-harness > svg {
-  width: 9px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
+}
+
+/* Tinted, not filled: a saturated block on every row would outshout the
+   status words, which are the only colour on this line that means "look".
+   The text is the accent pulled toward the theme's text colour, so it stays
+   legible on both the dark and the light sidebar without a per-theme rule. */
+.session-harness-initials {
+  display: inline-flex;
+  align-items: center;
+  height: 13px;
+  padding: 0 3px;
+  border-radius: 3px;
+  background: color-mix(in oklab, var(--harness-accent) 24%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in oklab, var(--harness-accent) 30%, transparent);
+  color: color-mix(in oklab, var(--harness-accent) 72%, var(--color-text-primary));
+  font-size: 9px;
+  font-weight: var(--font-weight-semibold);
+  letter-spacing: 0.04em;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
 }
 
 .session-conductor-glyph {
@@ -1324,8 +1416,8 @@
   padding-block: 2px;
   border-top: 1px solid var(--color-border);
 }
-/* When the dock is short, each section gives up rows but never its header:
-   the floor is the header's row plus the bucket's 2px above and below. */
+/* When the dock is short, Settled gives up rows but never its header: the
+   floor is the header's row plus the bucket's 2px above and below. */
 .sidebar-dock > .sidebar-bucket {
   display: flex;
   flex: 0 1 auto;
@@ -1333,6 +1425,19 @@
   min-height: calc(var(--sidebar-row-height) + 4px);
 }
 .sidebar-dock .session-list { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+
+/* A row is as tall as what it says, always. The list is a flex column, and
+   flex items shrink by default down to their min-height (one 28px row), so
+   a long Settled list squeezed every row to that and painted each one over
+   its neighbours. Rows scroll; they never compress. */
+.sidebar-dock .session-list > * { flex-shrink: 0; }
+
+/* Running sessions are what is happening now, and the archive below them is
+   not: Working never gives up height to Settled. It holds its rows whole up
+   to about five, then scrolls under its own header, which leaves Settled at
+   least its header however many are running. */
+.sidebar-dock > .sidebar-bucket--working { flex-shrink: 0; }
+.sidebar-bucket--working .session-list { max-height: calc(var(--sidebar-row-height) * 8); }
 
 /* A section's header. The same height as a session row and on the same left
    edge, told apart by weight and colour, with a live count so a folded shelf
@@ -1361,6 +1466,19 @@ button.shelf-header:hover { background: var(--color-bg-hover); color: var(--colo
 .shelf-header:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
 
 .shelf-header-title { flex: 1; min-width: 0; }
+
+/* Working's header turns the arc its rows turn, beside the count, so a folded
+   shelf still says its sessions are running rather than only how many. */
+.shelf-header-live {
+  box-sizing: border-box;
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  border-radius: 50%;
+  animation: status-spin 850ms linear infinite;
+}
 .shelf-header-count {
   flex: none;
   font-size: var(--sidebar-font-size-small);
@@ -1437,6 +1555,24 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   cursor: pointer;
 }
 .sidebar-hidden-chip:hover { background: color-mix(in srgb, var(--color-accent) 28%, transparent); }
+
+/* The list with nothing at the top. Quiet and on the rows' left edge: it is
+   an answer, not an event, and it settles in once rather than announcing. */
+.sidebar-all-clear {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: var(--space-2) calc(var(--sidebar-list-inset) + var(--sidebar-row-padding-x));
+  color: var(--color-text-tertiary);
+  font-size: var(--sidebar-font-size-small);
+  animation: session-row-in 260ms var(--ease-out-quart);
+}
+
+.sidebar-all-clear > svg {
+  flex: none;
+  color: color-mix(in srgb, var(--color-success) 70%, var(--color-text-tertiary));
+}
 
 /* ═══════════════════════════════════════════════════════════
    SCOPE ROW - The filter between the Assistant and the session list
@@ -1637,6 +1773,8 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   .session-row-status,
   .session-row-status-check,
   .session-row-status-mark,
+  .shelf-header-live,
+  .sidebar-all-clear,
   .shelf-header-count,
   .session-nav-item.active::before,
   .session-list > *,
@@ -1653,9 +1791,14 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
 
   /* A spinner that cannot spin says nothing by being a broken ring, so it
      closes into the solid accent dot the rest of the app uses for working. */
-  .session-row-status--working .session-row-status-mark {
+  .session-row-status--working .session-row-status-mark,
+  .shelf-header-live {
     border-color: var(--color-accent);
     background: var(--color-accent);
+  }
+
+  .session-nav-item--past .session-nav-item-title {
+    transition: none;
   }
 }
 
