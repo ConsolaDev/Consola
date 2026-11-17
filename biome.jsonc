@@ -1,0 +1,126 @@
+{
+  "$schema": "./node_modules/@biomejs/biome/configuration_schema.json",
+  "vcs": {
+    "enabled": true,
+    "clientKind": "git",
+    "useIgnoreFile": true
+  },
+  "files": {
+    "includes": [
+      "**",
+      "!**/dist",
+      "!**/release",
+      // Worktrees live here, each a full copy of the repo.
+      "!.claude",
+      "!.claude-tracker.json",
+      "!.worktrees",
+      // Captured GitHub API responses, kept byte for byte.
+      "!apps/desktop/tests/fixtures/stub-gh",
+      // Hand-minified, and parts of it do not parse.
+      "!apps/website/src/styles.css"
+    ]
+  },
+  "formatter": {
+    "indentStyle": "space",
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "javascript": {
+    // Applies to TypeScript and TSX as well; Biome has no separate section.
+    "formatter": {
+      "quoteStyle": "single",
+      "jsxQuoteStyle": "double",
+      "semicolons": "always",
+      "trailingCommas": "all",
+      "arrowParentheses": "always"
+    }
+  },
+  "assist": {
+    // Sorting imports would reorder nearly every file, and in the main
+    // process module order can carry side effects. Off until wanted.
+    "actions": { "source": { "organizeImports": "off" } }
+  },
+  "linter": {
+    "rules": {
+      "preset": "recommended",
+      "correctness": {
+        "noUnusedImports": "error",
+        "noUnusedVariables": "error",
+        // Each existing case needs its own judgment (adding a dependency can
+        // loop an effect). Warn so the editor flags them while fixing.
+        "useExhaustiveDependencies": "warn"
+      },
+      "suspicious": {
+        "noArrayIndexKey": "warn",
+        // Terminal code matches escape and control characters on purpose.
+        "noControlCharactersInRegex": "off",
+        // Shell commands are written as strings, `${VAR}` included.
+        "noTemplateCurlyInString": "off",
+        // `string | void` lets a callback with no return satisfy the type.
+        "noConfusingVoidType": "off",
+        // Its fix, Object.hasOwn, needs the ES2022 lib; the code already uses
+        // the safe Object.prototype.hasOwnProperty.call form.
+        "noPrototypeBuiltins": "off",
+        // Only hit was a semicolon that belongs to the sentence.
+        "noSuspiciousSemicolonInJsx": "off",
+        "useIterableCallbackReturn": {
+          "level": "error",
+          "options": { "checkForEach": false }
+        }
+      },
+      "style": {
+        "noNonNullAssertion": "off"
+      },
+      "complexity": {
+        // Used to override third-party styles (syntax highlighting, xterm)
+        // and to stop motion under prefers-reduced-motion.
+        "noImportantStyles": "off"
+      },
+      "a11y": {
+        // A desktop app focusing the field a dialog opened for.
+        "noAutofocus": "off",
+        // Existing cases need per-component review. Warn until cleared.
+        "useButtonType": "warn",
+        "useSemanticElements": "warn",
+        "noStaticElementInteractions": "warn",
+        "useKeyWithClickEvents": "warn",
+        "useAriaPropsSupportedByRole": "warn",
+        "noNoninteractiveTabindex": "warn",
+        "useFocusableInteractive": "warn",
+        "noSvgWithoutTitle": "warn",
+        "useValidAnchor": "warn",
+        "noLabelWithoutControl": "warn",
+        "useValidAriaValues": "warn"
+      },
+      "nursery": {
+        "noFloatingPromises": "error"
+        // noMisusedPromises stays off: Biome reads a Map.get result as always
+        // present, so every `if (pending) return pending` was a false alarm.
+      }
+    }
+  },
+  "css": {
+    "linter": { "enabled": true }
+  },
+  // Code only: prose and workflow files keep the style they were written in.
+  "markdown": {
+    "formatter": { "enabled": false },
+    "linter": { "enabled": false }
+  },
+  "yaml": {
+    "formatter": { "enabled": false },
+    "linter": { "enabled": false }
+  },
+  "overrides": [
+    {
+      // Component stylesheets are ordered by component, not by specificity.
+      "includes": ["**/*.css"],
+      "linter": { "rules": { "style": { "noDescendingSpecificity": "off" } } }
+    },
+    {
+      // Playwright requires the fixtures argument to be destructured.
+      "includes": ["**/tests/e2e/**"],
+      "linter": { "rules": { "correctness": { "noEmptyPattern": "off" } } }
+    }
+  ]
+}
