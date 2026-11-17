@@ -1,5 +1,5 @@
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
-import { JsonStateFile } from './JsonStateFile';
+import type { JsonStateFile } from './JsonStateFile';
 
 /** Read stored preferences, falling back per field so one bad value costs only itself. */
 export function normalizePreferences(value: unknown): Preferences {

@@ -11,7 +11,7 @@ const { created } = vi.hoisted(() => ({
 }));
 
 vi.mock('./TerminalService', async () => {
-  const { EventEmitter } = await import('events');
+  const { EventEmitter } = await import('node:events');
   class FakeTerminalService extends EventEmitter {
     public readonly queued: string[] = [];
     public readonly relaunched: unknown[] = [];

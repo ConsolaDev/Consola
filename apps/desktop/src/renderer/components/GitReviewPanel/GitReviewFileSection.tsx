@@ -6,7 +6,7 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { gitBridge } from '../../services/gitBridge';
 import { fileBridge } from '../../services/fileBridge';
 import { FileIcon } from '../FileExplorer/FileIcon';
-import { GitFileStatus, GitDiffResult } from '../../types/electron';
+import type { GitFileStatus, GitDiffResult } from '../../types/electron';
 import { getLanguageFromPath } from '../../utils/fileUtils';
 import { buildUnifiedDiff } from '../../utils/diffUtils';
 import { codeTheme } from '../../utils/codeTheme';

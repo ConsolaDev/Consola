@@ -5,8 +5,7 @@
  * Commands that are recognized (known) are highlighted differently from unknown commands.
  */
 
-import React from 'react';
-import { TextSegment } from './commandHighlighter';
+import type { TextSegment } from './commandHighlighter';
 import { useCommandHighlighting } from './useCommandHighlighting';
 import './styles.css';
 

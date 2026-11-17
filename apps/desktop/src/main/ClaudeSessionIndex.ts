@@ -1,8 +1,8 @@
-import * as fs from 'fs';
-import * as fsp from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import * as readline from 'readline';
+import * as fs from 'node:fs';
+import * as fsp from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import * as readline from 'node:readline';
 import type {
   ConversationEntry,
   ConversationRecord,
@@ -478,7 +478,7 @@ function settleSteps(
     tool_use_id?: unknown;
     is_error?: unknown;
   }>) {
-    if (!block || block.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
+    if (block?.type !== 'tool_result' || typeof block.tool_use_id !== 'string') continue;
     const step = awaitingResult.get(block.tool_use_id);
     if (!step) continue;
     awaitingResult.delete(block.tool_use_id);

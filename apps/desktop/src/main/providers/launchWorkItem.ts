@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import type { GitProviderId } from '../../shared/providers';
 import type { InboxItem, WorkItemLaunchAction, WorkItemRef } from '../../shared/workItems';
 import {

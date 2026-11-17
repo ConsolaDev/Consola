@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activityOf, type Attention } from '../../shared/attention';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
@@ -169,7 +169,7 @@ describe('AutoSettler trees', () => {
   });
 
   it.each([
-    ['working', (s: Set<string>, a: Map<string, Attention>) => a.set('c2', 'working')],
+    ['working', (_s: Set<string>, a: Map<string, Attention>) => a.set('c2', 'working')],
     ['held by a run', (s: Set<string>) => s.add('c1')],
   ])('settles nothing when one member is %s', (_label, block) => {
     for (const id of ['root', 'c1', 'c2']) attention.set(id, 'ready');

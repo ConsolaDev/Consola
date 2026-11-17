@@ -1,9 +1,9 @@
-import { execFile } from 'child_process';
-import { randomUUID } from 'crypto';
-import * as fs from 'fs/promises';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
+import { execFile } from 'node:child_process';
+import { randomUUID } from 'node:crypto';
+import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import type { CheckoutContext, CheckoutWorktree, SessionCheckout } from '../shared/sessionCheckout';
 
 const exec = promisify(execFile);

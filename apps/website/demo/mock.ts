@@ -495,7 +495,7 @@ export function installMock() {
       );
       return { ok: true };
     },
-    cloneRepo: async (id, repo, destination) => ({ ok: true, path: destination }),
+    cloneRepo: async (_id, _repo, destination) => ({ ok: true, path: destination }),
   };
   changes.set('/demo/acme/platform', [
     { path: 'src/lib/retry.ts', status: 'modified' },

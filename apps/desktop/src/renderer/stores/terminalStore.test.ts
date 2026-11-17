@@ -16,7 +16,7 @@ vi.mock('../services/terminalBridge', () => ({
 }));
 
 import { terminalBridge } from '../services/terminalBridge';
-import { hydrateTerminalStatus, useTerminalStore } from './terminalStore';
+import { useTerminalStore } from './terminalStore';
 
 const store = () => useTerminalStore.getState();
 

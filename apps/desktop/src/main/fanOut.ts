@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import { generateSessionInstanceId } from '../shared/workspace';
 import type { Group, Label, NewLabelFields, Session, Workspace } from '../shared/workspace';
 import type { SessionFanOutIntent, SessionFanOutResult } from '../shared/types';

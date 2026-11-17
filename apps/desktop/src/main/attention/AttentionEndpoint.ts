@@ -1,6 +1,6 @@
-import * as crypto from 'crypto';
-import * as http from 'http';
-import type { AddressInfo } from 'net';
+import * as crypto from 'node:crypto';
+import * as http from 'node:http';
+import type { AddressInfo } from 'node:net';
 import type { AttentionSignal } from './hookSignals';
 
 /**

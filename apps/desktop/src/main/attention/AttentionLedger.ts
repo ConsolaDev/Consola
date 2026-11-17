@@ -1,6 +1,6 @@
 import type { AttentionRecord, AttentionSnapshot } from '../../shared/attention';
 import type { SettleMemento } from '../../shared/preferences';
-import { JsonStateFile } from '../state/JsonStateFile';
+import type { JsonStateFile } from '../state/JsonStateFile';
 
 /**
  * Where each session was last active.

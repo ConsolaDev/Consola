@@ -1,4 +1,4 @@
-import { createHash } from 'crypto';
+import { createHash } from 'node:crypto';
 import {
   automationEntryText,
   automationVersion,
@@ -973,7 +973,7 @@ export class AutomationService {
   public stop(runId: string): void {
     const run = this.deps.store.get(runId);
     if (run && isAgentRun(run) && TERMINAL_RUN_STATUSES.includes(run.status)) return;
-    if (!run || run.status !== 'running' || !isAgentRun(run))
+    if (run?.status !== 'running' || !isAgentRun(run))
       throw new Error(`Run ${runId} is not a running agent run.`);
     if (this.starting.has(runId)) {
       // No turn exists yet: remember, and end it the moment it does.

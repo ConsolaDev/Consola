@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { listedSessions } from '../../../shared/workspace';
 import { Folder, GitBranch, Pencil, Plus, Trash2 } from 'lucide-react';
-import { type Scope, type Workspace } from '../../stores/workspaceStore';
+import type { Scope, Workspace } from '../../stores/workspaceStore';
 import { addScopeViaDialog, deleteScopeCompletely } from '../../utils/scopeActions';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 import { ScopeEditor } from './ScopeEditor';

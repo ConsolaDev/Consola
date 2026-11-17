@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import type { Session, Workspace } from '../../shared/workspace';
 import { assistantItemMode, generateSessionInstanceId } from '../../shared/workspace';
 import { isValidWorkItemRef } from '../../shared/workItems';

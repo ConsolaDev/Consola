@@ -1,6 +1,6 @@
-import { execFile } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { execFile } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import { countUntrackedLines, readUntrackedFile } from './untrackedLines';
 
 /**
@@ -135,8 +135,8 @@ export async function readStatus(rootPath: string): Promise<GitStatusResult> {
     if (diff.error) continue;
     for (const line of diff.stdout.split('\n').filter(Boolean)) {
       const [added, removed] = line.split('\t').map((n) => parseInt(n, 10));
-      if (!isNaN(added)) addedLines += added;
-      if (!isNaN(removed)) removedLines += removed;
+      if (!Number.isNaN(added)) addedLines += added;
+      if (!Number.isNaN(removed)) removedLines += removed;
     }
   }
   // Neither diff above sees untracked files, which the file list does include.

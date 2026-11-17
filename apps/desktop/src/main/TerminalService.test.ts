@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import * as os from 'os';
+import * as os from 'node:os';
 
 const { spawnMock, buildArgsMock, readCwdMock, loginEnv, providerDriverMock } = vi.hoisted(() => ({
   spawnMock: vi.fn(),

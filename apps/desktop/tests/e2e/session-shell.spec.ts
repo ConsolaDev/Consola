@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 test('session shells retain state across hiding and switching, and restart independently', async () => {

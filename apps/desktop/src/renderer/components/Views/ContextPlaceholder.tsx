@@ -37,7 +37,7 @@ function FileViewer({ filePath }: { filePath: string }) {
   }
 }
 
-export function ContextPlaceholder({ contextId, selectedFile }: ContextPlaceholderProps) {
+export function ContextPlaceholder({ selectedFile }: ContextPlaceholderProps) {
   if (selectedFile) {
     return <FileViewer filePath={selectedFile} />;
   }

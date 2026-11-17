@@ -6,12 +6,7 @@
  */
 
 import { useMemo } from 'react';
-import {
-  buildCommandLookups,
-  parseTextWithCommands,
-  TextSegment,
-  CommandMatch,
-} from './commandHighlighter';
+import { buildCommandLookups, parseTextWithCommands, type TextSegment } from './commandHighlighter';
 
 export interface UseCommandHighlightingOptions {
   /** Array of available skill names */

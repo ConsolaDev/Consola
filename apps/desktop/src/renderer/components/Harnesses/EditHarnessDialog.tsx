@@ -48,7 +48,7 @@ export function EditHarnessDialog({
   };
 
   const save = async () => {
-    if (!harness || !activeDraft || !activeDraft.name.trim()) return;
+    if (!harness || !activeDraft?.name.trim()) return;
     // Awaited so the probe that follows reads the harness main just wrote,
     // not the pre-edit binary path or config directory.
     await updateHarness(harness.id, {

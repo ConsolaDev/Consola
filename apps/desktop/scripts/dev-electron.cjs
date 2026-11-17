@@ -15,10 +15,10 @@
  * Deliberately dependency-free: `pnpm install` here triggers a native rebuild of
  * node-pty, which is not a price worth paying for a file watcher.
  */
-const { spawn } = require('child_process');
-const crypto = require('crypto');
-const fs = require('fs');
-const path = require('path');
+const { spawn } = require('node:child_process');
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const electronBinary = require('electron');
 

@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createProfileDir, launchElectron } from './helpers/electron';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');

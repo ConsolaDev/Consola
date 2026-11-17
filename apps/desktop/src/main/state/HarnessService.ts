@@ -1,4 +1,4 @@
-import { JsonStateFile } from './JsonStateFile';
+import type { JsonStateFile } from './JsonStateFile';
 import { BUILT_IN_HARNESS_ID } from '../../shared/constants';
 import {
   createBuiltInHarness,

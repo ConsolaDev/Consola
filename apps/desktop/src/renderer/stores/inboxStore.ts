@@ -163,7 +163,7 @@ export const useInboxStore = create<InboxState>((set, get) => ({
         item.workItem.repo,
         destinationDir,
       );
-      if (!result || !result.ok) {
+      if (!result?.ok) {
         set((state) => ({
           launchErrors: { ...state.launchErrors, [key]: result?.error ?? 'Clone failed.' },
         }));

@@ -5,7 +5,7 @@
  * This enables code selection functionality without prop drilling.
  */
 
-import { createContext, useContext, ReactNode, useMemo } from 'react';
+import { createContext, useContext, type ReactNode, useMemo } from 'react';
 
 interface CodeSelectionContextValue {
   /** The current agent instance ID */

@@ -1,4 +1,4 @@
-import { GitFileStatus } from '../../types/electron';
+import type { GitFileStatus } from '../../types/electron';
 import { FileIcon } from './FileIcon';
 
 interface GitChangesItemProps {

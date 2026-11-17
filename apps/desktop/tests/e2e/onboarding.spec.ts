@@ -1,8 +1,8 @@
 import { expect, test, type ElectronApplication } from '@playwright/test';
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /** Answer the next native folder dialogs with these folders, as if picked by hand. */

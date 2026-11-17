@@ -52,7 +52,7 @@ export function CodeBlock({
       const text = lineEl.textContent?.trim();
       if (text) {
         const num = parseInt(text, 10);
-        if (!isNaN(num)) return num;
+        if (!Number.isNaN(num)) return num;
       }
     }
     return null;

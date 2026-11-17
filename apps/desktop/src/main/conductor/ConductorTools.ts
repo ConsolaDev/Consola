@@ -1,4 +1,4 @@
-import * as path from 'path';
+import * as path from 'node:path';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 // 'zod/v3', not 'zod': the root import trips TS2589 in the SDK's zod-compat conditional types.
 import { z } from 'zod/v3';

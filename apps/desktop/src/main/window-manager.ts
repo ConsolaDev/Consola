@@ -1,5 +1,5 @@
 import { BrowserWindow, app, screen, shell } from 'electron';
-import * as path from 'path';
+import * as path from 'node:path';
 import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';

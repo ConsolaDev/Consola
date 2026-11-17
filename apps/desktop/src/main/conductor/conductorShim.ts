@@ -7,7 +7,7 @@
  * SessionMcpHost on the other end of the socket; keeping this dumb
  * means the security boundary has exactly one implementation.
  */
-import * as net from 'net';
+import * as net from 'node:net';
 
 const socketPath = process.env.CONSOLA_CONDUCTOR_SOCKET;
 const token = process.env.CONSOLA_CONDUCTOR_TOKEN;

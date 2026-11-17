@@ -98,7 +98,7 @@ function activeGitRoot(ctx: PaletteContext): string | null {
  */
 function hasFreshGitStatus(ctx: PaletteContext): boolean {
   const scope = activeScope(ctx);
-  return scope !== null && scope.isGitRepo && ctx.gitStatusRootPath === activeGitRoot(ctx);
+  return scope?.isGitRepo === true && ctx.gitStatusRootPath === activeGitRoot(ctx);
 }
 
 /** Actions, filtered to the ones that make sense right now. */

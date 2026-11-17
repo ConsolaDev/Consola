@@ -1,4 +1,4 @@
-import * as fs from 'fs';
+import * as fs from 'node:fs';
 import type { Harness } from '../shared/harness';
 import type { HarnessLaunchFields } from '../shared/types';
 import type { ActionConversation } from '../shared/workItemActions';

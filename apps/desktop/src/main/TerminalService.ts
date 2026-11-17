@@ -1,7 +1,7 @@
 import * as pty from 'node-pty';
-import { EventEmitter } from 'events';
-import * as fs from 'fs';
-import { TerminalDimensions, HarnessLaunchFields, type ScreenReplay } from '../shared/types';
+import { EventEmitter } from 'node:events';
+import * as fs from 'node:fs';
+import type { TerminalDimensions, HarnessLaunchFields, ScreenReplay } from '../shared/types';
 import { DEFAULT_DIMENSIONS } from '../shared/constants';
 import { getLoginEnv, loginEnvProblem, loginEnvRetry } from './LoginEnvironment';
 import { getDriver, toHarnessConfig, type HarnessConfig, type HarnessDriver } from './drivers';

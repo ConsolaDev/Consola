@@ -3,8 +3,8 @@ import {
   execFileSync,
   type ExecFileOptions,
   type ExecFileSyncOptionsWithStringEncoding,
-} from 'child_process';
-import * as os from 'os';
+} from 'node:child_process';
+import * as os from 'node:os';
 
 /**
  * The ambient environment every spawned process inherits.

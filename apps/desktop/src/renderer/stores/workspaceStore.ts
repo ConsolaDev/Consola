@@ -5,19 +5,19 @@ import { forgetSessionLocally } from '../utils/forgetSession';
 import { vanishedSessions } from '../utils/vanishedSessions';
 import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
-import {
-  type Group,
-  type DeletedLabel,
-  type Label,
-  type NewGroupFields,
-  type NewLabelFields,
-  type NewSessionFields,
-  type Scope,
-  type Session,
-  type SessionUpdates,
-  type Workspace,
-  type WorkspaceProvider,
-  type WorkspaceUpdates,
+import type {
+  Group,
+  DeletedLabel,
+  Label,
+  NewGroupFields,
+  NewLabelFields,
+  NewSessionFields,
+  Scope,
+  Session,
+  SessionUpdates,
+  Workspace,
+  WorkspaceProvider,
+  WorkspaceUpdates,
 } from '../../shared/workspace';
 
 export type { Group, Label, Scope, Session, Workspace } from '../../shared/workspace';
@@ -88,7 +88,7 @@ interface WorkspaceState {
  * applies them and broadcasts, and this store replaces its snapshot wholesale.
  * No renderer ever sends a snapshot back, which is what makes two windows safe.
  */
-export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
+export const useWorkspaceStore = create<WorkspaceState>()((_set, get) => ({
   workspaces: [],
 
   createWorkspace: (name, path, isGitRepo, defaultHarnessId) =>

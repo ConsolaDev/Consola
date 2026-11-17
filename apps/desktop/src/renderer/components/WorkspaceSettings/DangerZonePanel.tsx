@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { type Workspace } from '../../stores/workspaceStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { DeleteWorkspaceDialog } from '../Dialogs/DeleteWorkspaceDialog';
 
 interface DangerZonePanelProps {

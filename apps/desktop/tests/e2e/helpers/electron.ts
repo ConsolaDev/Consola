@@ -1,7 +1,7 @@
-import { _electron as electron, ElectronApplication, Page } from '@playwright/test';
-import fs from 'fs';
-import os from 'os';
-import path from 'path';
+import { _electron as electron, type ElectronApplication, type Page } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 export interface LaunchOptions {
   /** Profile directory. Defaults to a fresh temp dir, so runs cannot collide. */

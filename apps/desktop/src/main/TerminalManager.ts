@@ -1,9 +1,9 @@
-import { BrowserWindow, WebContents } from 'electron';
+import type { BrowserWindow, WebContents } from 'electron';
 import {
   TerminalService,
-  TerminalExitInfo,
-  TerminalServiceOptions,
-  RelaunchFields,
+  type TerminalExitInfo,
+  type TerminalServiceOptions,
+  type RelaunchFields,
 } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';

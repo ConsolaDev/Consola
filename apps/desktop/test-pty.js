@@ -1,5 +1,5 @@
 const pty = require('node-pty');
-const os = require('os');
+const os = require('node:os');
 
 const shell = '/bin/zsh';
 console.log(`Testing spawn of ${shell}`);
@@ -14,7 +14,7 @@ try {
   });
 
   console.log('Spawn success!');
-  ptyProcess.on('data', function (data) {
+  ptyProcess.on('data', (data) => {
     console.log('Data:', data);
     process.exit(0);
   });

@@ -10,7 +10,6 @@ import {
 import { WorkspaceSettingsModal } from '../components/WorkspaceSettings';
 import type { WorkspaceSettingsSectionId } from '../components/WorkspaceSettings/WorkspaceSettingsModal';
 import { useNavigationStore } from '../stores/navigationStore';
-import { windowBridge } from '../services/windowBridge';
 
 interface WorkspaceSettingsContextType {
   /**

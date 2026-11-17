@@ -1,5 +1,5 @@
-import * as fs from 'fs/promises';
-import * as path from 'path';
+import * as fs from 'node:fs/promises';
+import * as path from 'node:path';
 
 const cache = new Map<string, { size: number; mtimeMs: number; model: string | null }>();
 

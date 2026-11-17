@@ -100,7 +100,7 @@ function findLineNumber(
       const lineClass = Array.from(element.classList).find((c) => c.startsWith('line-'));
       if (lineClass) {
         const num = parseInt(lineClass.replace('line-', ''), 10);
-        if (!isNaN(num)) return num;
+        if (!Number.isNaN(num)) return num;
       }
 
       // react-syntax-highlighter uses linenumber class with index
@@ -108,7 +108,7 @@ function findLineNumber(
         const text = element.textContent?.trim();
         if (text) {
           const num = parseInt(text, 10);
-          if (!isNaN(num)) return num;
+          if (!Number.isNaN(num)) return num;
         }
       }
 
@@ -127,7 +127,7 @@ function findLineNumber(
           const text = lineNumSibling.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
 
@@ -139,7 +139,7 @@ function findLineNumber(
           const text = diffLineNumSibling.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
       }
@@ -173,7 +173,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
           const text = lineNumEl.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
 
@@ -183,7 +183,7 @@ function findLineNumberFromRow(node: Node | null): number | null {
           const text = diffLineNumEl.textContent?.trim();
           if (text) {
             const num = parseInt(text, 10);
-            if (!isNaN(num)) return num;
+            if (!Number.isNaN(num)) return num;
           }
         }
       }
@@ -239,7 +239,7 @@ function getSelectionLineRange(
         const firstLineNum = lineNumEls[0].textContent?.trim();
         if (firstLineNum) {
           const num = parseInt(firstLineNum, 10);
-          if (!isNaN(num)) {
+          if (!Number.isNaN(num)) {
             startLine = startLine ?? num;
             // Count the actual lines in selection
             const text = selection.toString();
@@ -396,7 +396,7 @@ export function useCodeSelection({
     // Clear selection on mousedown outside
     const handleMouseDown = (e: MouseEvent) => {
       const popup = document.querySelector('.code-selection-popup');
-      if (popup && popup.contains(e.target as Node)) {
+      if (popup?.contains(e.target as Node)) {
         return; // Don't clear if clicking the popup
       }
       // Clear will happen naturally when selection changes

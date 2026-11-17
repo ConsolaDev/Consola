@@ -1,6 +1,6 @@
-import * as fs from 'fs';
-import * as path from 'path';
-import { JsonStateFile } from './JsonStateFile';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+import type { JsonStateFile } from './JsonStateFile';
 import type { InboxSection } from '../../shared/inboxSections';
 import {
   createDefaultActions,

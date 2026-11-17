@@ -1,11 +1,11 @@
-import { useState, useMemo, useCallback, memo } from 'react';
+import { useState, useMemo, memo } from 'react';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import { ChevronRight } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { gitBridge } from '../../services/gitBridge';
 import { FileIcon } from '../FileExplorer/FileIcon';
-import { GitFileStatus } from '../../types/electron';
+import type { GitFileStatus } from '../../types/electron';
 
 interface GitReviewFileListProps {
   rootPath: string;

@@ -89,7 +89,7 @@ function makeDeps(workspace: Workspace, overrides: Partial<WorkItemLaunchDeps> =
   const deps: WorkItemLaunchDeps = {
     getWorkspace: (id) => (id === workspace.id ? workspace : undefined),
     resolveDriver: vi.fn(() => stubDriver),
-    createSession: (workspaceId, fields) => {
+    createSession: (_workspaceId, fields) => {
       created.push(fields);
       minted += 1;
       return {

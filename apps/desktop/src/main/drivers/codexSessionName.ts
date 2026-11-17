@@ -1,5 +1,5 @@
-import { createReadStream } from 'fs';
-import { createInterface } from 'readline';
+import { createReadStream } from 'node:fs';
+import { createInterface } from 'node:readline';
 import type { SessionNameResult } from '../../shared/types';
 
 /** Stream rollouts so naming does not load a whole conversation into memory. */

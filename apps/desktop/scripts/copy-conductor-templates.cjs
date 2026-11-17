@@ -5,8 +5,8 @@
  * tsc emits only TypeScript output; the .tmpl files must still ship, because
  * the packaged app (electron-builder `files: dist/**`) reads them at runtime.
  */
-const fs = require('fs');
-const path = require('path');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const src = path.join(__dirname, '../src/main/conductor/templates');
 const dest = path.join(__dirname, '../dist/main/main/conductor/templates');

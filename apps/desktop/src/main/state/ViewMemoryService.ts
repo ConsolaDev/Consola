@@ -1,6 +1,6 @@
 import type { WorkspaceView } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
-import { JsonStateFile } from './JsonStateFile';
+import type { JsonStateFile } from './JsonStateFile';
 
 /** The on-disk shape: one remembered view per workspace id. */
 export interface ViewMemoryStateFile {

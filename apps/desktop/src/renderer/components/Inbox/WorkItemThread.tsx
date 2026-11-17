@@ -209,7 +209,7 @@ export function PostBody({ post, empty }: { post: WorkItemPost; empty?: ReactNod
       </p>
     );
   }
-  if (!post.body.trim()) return empty ? <>{empty}</> : null;
+  if (!post.body.trim()) return empty ? empty : null;
   return (
     <div className="inbox-detail-post-body">
       <WorkItemMarkdown content={post.body} />

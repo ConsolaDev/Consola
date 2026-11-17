@@ -9,7 +9,7 @@ import type { Entry } from '../../../sidebar/entry';
 import type { RowProps } from '../../../sidebar/rowRegistry';
 
 /** Choosing a run opens its detail, where the evidence for deciding is. */
-export function activateRun(workspaceId: string, entry: Entry): void {
+export function activateRun(_workspaceId: string, entry: Entry): void {
   useAutomationsStore.getState().openPanel({ kind: 'run', runId: idOfKey(entry.key) });
   useNavigationStore.getState().openAutomations();
 }

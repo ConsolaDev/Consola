@@ -1,4 +1,4 @@
-import { spawn } from 'child_process';
+import { spawn } from 'node:child_process';
 
 /**
  * Reserve a resumable Codex conversation without running a model turn.

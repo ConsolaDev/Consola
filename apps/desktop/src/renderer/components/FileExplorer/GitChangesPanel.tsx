@@ -4,7 +4,7 @@ import { ChevronRight } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { GitChangesItem } from './GitChangesItem';
-import { GitFileStatus } from '../../types/electron';
+import type { GitFileStatus } from '../../types/electron';
 
 interface GitChangesPanelProps {
   rootPath: string;

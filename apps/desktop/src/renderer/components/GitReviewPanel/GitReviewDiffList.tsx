@@ -3,7 +3,7 @@ import { CheckCircle2 } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { GitReviewFileSection } from './GitReviewFileSection';
-import { GitFileStatus } from '../../types/electron';
+import type { GitFileStatus } from '../../types/electron';
 
 interface GitReviewDiffListProps {
   rootPath: string;

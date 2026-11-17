@@ -1,5 +1,5 @@
-import { BlockList, isIP } from 'net';
-import { promises as dns } from 'dns';
+import { BlockList, isIP } from 'node:net';
+import { promises as dns } from 'node:dns';
 import { parseWorkItemAssetUrl, webImageUrl } from '../../shared/workItemAssets';
 import type { InboxServiceDeps } from './InboxService';
 

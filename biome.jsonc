@@ -69,7 +69,9 @@
         }
       },
       "style": {
-        "noNonNullAssertion": "off"
+        "noNonNullAssertion": "off",
+        // Its fix turns `lines.join('\n') + '\n'` into a nested template.
+        "useTemplate": "off"
       },
       "complexity": {
         // Used to override third-party styles (syntax highlighting, xterm)

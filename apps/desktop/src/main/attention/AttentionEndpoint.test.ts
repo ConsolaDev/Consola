@@ -1,4 +1,4 @@
-import * as http from 'http';
+import * as http from 'node:http';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AttentionEndpoint, MAX_BODY_BYTES } from './AttentionEndpoint';
 import type { AttentionSignal } from './hookSignals';
