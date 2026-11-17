@@ -11,7 +11,7 @@ import type { JSONRPCMessage } from '@modelcontextprotocol/sdk/types.js';
 import type { RunRecord } from '@consola/factory-spec';
 import { AssistantTools, type AssistantToolsDeps } from '../assistant/AssistantTools';
 import { ConductorTools, type ConductorToolsDeps } from '../conductor/ConductorTools';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { consolaTools, MAX_DIFF_CHARS, type ConsolaToolDeps } from '../tools/consolaTools';
 import { agentContext, ToolRegistry } from '../tools/Tool';
 import { buildSessionServer, type SessionServerDeps } from './buildSessionServer';

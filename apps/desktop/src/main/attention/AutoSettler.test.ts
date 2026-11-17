@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activityOf, type Attention } from '../../shared/attention';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { PreferencesService } from '../state/PreferencesService';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';

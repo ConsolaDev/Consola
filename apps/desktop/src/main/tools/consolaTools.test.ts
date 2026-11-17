@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Session, Workspace } from '../../shared/workspace';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import type { AutomationCapabilities } from '../automations/capabilities';
 import { consolaTools, type AutomationControl, type ConsolaToolDeps } from './consolaTools';

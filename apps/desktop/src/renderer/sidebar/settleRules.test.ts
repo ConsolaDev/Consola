@@ -10,7 +10,7 @@ import {
 } from '../../main/attention/AttentionLedger';
 import { SessionSource } from '../../main/attention/SessionSource';
 import { settleSession, unsettleSession } from '../../main/attention/settling';
-import { makeSession, makeWorkspace } from '../../main/conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../../main/conductor/ConductorTools.test-helpers';
 import { bucketize } from './bucketize';
 import { sessionEntries, sessionKey } from './entries';
 import { visibleNodes } from './fold';

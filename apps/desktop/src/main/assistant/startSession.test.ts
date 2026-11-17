@@ -4,7 +4,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
-import { makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import {
   startAssistantSession,
   type AssistantStartDeps,

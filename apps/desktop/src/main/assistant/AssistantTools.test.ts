@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
 import type { Session } from '../../shared/workspace';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { AssistantTools, type AssistantToolsDeps } from './AssistantTools';
 
 type MockDeps = { [K in keyof AssistantToolsDeps]: Mock<AssistantToolsDeps[K]> };

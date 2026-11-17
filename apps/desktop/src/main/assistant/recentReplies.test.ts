@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Harness } from '../../shared/harness';
-import { makeSession } from '../conductor/ConductorTools.test';
+import { makeSession } from '../conductor/ConductorTools.test-helpers';
 import type { HarnessDriver } from '../drivers';
 import { recentRepliesFor } from './recentReplies';
 

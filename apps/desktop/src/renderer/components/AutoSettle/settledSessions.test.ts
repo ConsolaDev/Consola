@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { makeSession, makeWorkspace } from '../../../main/conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../../../main/conductor/ConductorTools.test-helpers';
 import { settledSessionsFor } from './settledSessions';
 
 describe('settledSessionsFor', () => {

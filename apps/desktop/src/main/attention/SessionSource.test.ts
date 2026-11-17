@@ -3,7 +3,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
 import { HookSignals } from './hookSignals';
