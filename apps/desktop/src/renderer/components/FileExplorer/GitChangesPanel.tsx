@@ -71,10 +71,7 @@ export function GitChangesPanel({ rootPath, selectedPath }: GitChangesPanelProps
       {staged.length > 0 && (
         <Collapsible.Root open={stagedOpen} onOpenChange={setStagedOpen}>
           <Collapsible.Trigger className="git-changes-section-header">
-            <ChevronRight
-              size={14}
-              className={`git-changes-chevron ${stagedOpen ? 'open' : ''}`}
-            />
+            <ChevronRight size={14} className={`git-changes-chevron ${stagedOpen ? 'open' : ''}`} />
             <span className="git-changes-section-title">Staged Changes</span>
             <span className="git-changes-section-count">{staged.length}</span>
           </Collapsible.Trigger>

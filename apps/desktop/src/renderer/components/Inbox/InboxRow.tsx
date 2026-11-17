@@ -1,5 +1,12 @@
 // src/renderer/components/Inbox/InboxRow.tsx
-import { Check, CircleDot, GitPullRequest, GitPullRequestDraft, MessageSquare, X } from 'lucide-react';
+import {
+  Check,
+  CircleDot,
+  GitPullRequest,
+  GitPullRequestDraft,
+  MessageSquare,
+  X,
+} from 'lucide-react';
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
@@ -45,7 +52,11 @@ export function InboxRow({ item, sessions, attention, cloned, selected, onSelect
     item.workItem.type === 'issue' ? (
       <CircleDot size={14} className="inbox-row-icon inbox-row-icon--issue" aria-hidden="true" />
     ) : item.isDraft ? (
-      <GitPullRequestDraft size={14} className="inbox-row-icon inbox-row-icon--draft" aria-hidden="true" />
+      <GitPullRequestDraft
+        size={14}
+        className="inbox-row-icon inbox-row-icon--draft"
+        aria-hidden="true"
+      />
     ) : (
       <GitPullRequest size={14} className="inbox-row-icon" aria-hidden="true" />
     );
@@ -100,11 +111,20 @@ export function InboxRow({ item, sessions, attention, cloned, selected, onSelect
       </div>
       <div className="inbox-row-status">
         {review && (
-          <span className={`inbox-row-review inbox-row-review--${item.reviewDecision}`}>{review}</span>
+          <span className={`inbox-row-review inbox-row-review--${item.reviewDecision}`}>
+            {review}
+          </span>
         )}
         {checks && (
-          <span className={`inbox-row-checks inbox-row-checks--${checks.tone}`} title={checksBreakdown}>
-            {checks.tone === 'bad' ? <X size={11} aria-hidden="true" /> : <Check size={11} aria-hidden="true" />}
+          <span
+            className={`inbox-row-checks inbox-row-checks--${checks.tone}`}
+            title={checksBreakdown}
+          >
+            {checks.tone === 'bad' ? (
+              <X size={11} aria-hidden="true" />
+            ) : (
+              <Check size={11} aria-hidden="true" />
+            )}
             {checks.text}
             {/* checks.text is just "passed/total" -- the pass/fail/pending
                 split otherwise lives only in the hover title, which most

@@ -9,7 +9,8 @@ beforeEach(() => {
 });
 afterEach(() => vi.useRealTimers());
 
-const make = (persistent: boolean) => new TurnSettle((key, status) => finished.push([key, status]), { persistent });
+const make = (persistent: boolean) =>
+  new TurnSettle((key, status) => finished.push([key, status]), { persistent });
 
 describe('TurnSettle', () => {
   it('ignores a ready seen before any work: that is the state the prompt found', () => {
@@ -88,7 +89,10 @@ describe('TurnSettle', () => {
         settle.observe('a', 'ready');
         vi.advanceTimersByTime(SETTLE_MS);
       }
-      expect(finished).toEqual([['a', 'ready'], ['a', 'ready']]);
+      expect(finished).toEqual([
+        ['a', 'ready'],
+        ['a', 'ready'],
+      ]);
     });
 
     it('needs fresh work after a report before the next ready counts', () => {

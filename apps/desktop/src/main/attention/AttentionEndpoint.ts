@@ -21,17 +21,17 @@ interface Registration {
 }
 
 /**
-* The loopback endpoint an agent CLI's hooks post to.
-*
-* Local IPC, not a service: it binds 127.0.0.1 only, on a port the OS picks
-* for each launch of the app, and every terminal posts to a URL carrying its
-* own random token. A request without a known token learns nothing and
-* changes nothing. Hooks use HTTP rather than the MCP endpoint because the
-* CLI's Notification hook does not wait for an MCP server that is still
-* connecting, so the earliest events would vanish without a trace.
-*
-* It only hears and translates. What a signal means is `HookSignals`'.
-*/
+ * The loopback endpoint an agent CLI's hooks post to.
+ *
+ * Local IPC, not a service: it binds 127.0.0.1 only, on a port the OS picks
+ * for each launch of the app, and every terminal posts to a URL carrying its
+ * own random token. A request without a known token learns nothing and
+ * changes nothing. Hooks use HTTP rather than the MCP endpoint because the
+ * CLI's Notification hook does not wait for an MCP server that is still
+ * connecting, so the earliest events would vanish without a trace.
+ *
+ * It only hears and translates. What a signal means is `HookSignals`'.
+ */
 export class AttentionEndpoint {
   private readonly byToken = new Map<string, Registration>();
   private readonly tokenOf = new Map<string, string>();
@@ -57,11 +57,11 @@ export class AttentionEndpoint {
   }
 
   /**
-  * The URL this terminal's hooks should post to, or undefined when the
-  * endpoint is not up (the session then runs on the screen heuristic alone).
-  * The same instance keeps the same URL until `unregister`, so a relaunch in
-  * place needs no new registration.
-  */
+   * The URL this terminal's hooks should post to, or undefined when the
+   * endpoint is not up (the session then runs on the screen heuristic alone).
+   * The same instance keeps the same URL until `unregister`, so a relaunch in
+   * place needs no new registration.
+   */
   public async urlFor(instanceId: string, parse: ParseHookEvent): Promise<string | undefined> {
     const port = await this.start();
     if (port === undefined) return undefined;
@@ -127,7 +127,10 @@ export class AttentionEndpoint {
         const signal = registration.parse(JSON.parse(Buffer.concat(chunks).toString('utf8')));
         if (signal) this.onSignal(registration.instanceId, signal);
       } catch (error) {
-        console.warn('Ignored an unreadable hook event:', error instanceof Error ? error.message : error);
+        console.warn(
+          'Ignored an unreadable hook event:',
+          error instanceof Error ? error.message : error,
+        );
       }
     });
   }

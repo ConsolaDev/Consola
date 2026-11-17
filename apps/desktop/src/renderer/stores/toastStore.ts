@@ -35,9 +35,22 @@ export function showToast(message: string, action?: { label: string; run: () => 
   const toast: Toast = {
     id,
     message,
-    ...(action ? { action: { label: action.label, run: () => { dismissToast(id); action.run(); } } } : {}),
+    ...(action
+      ? {
+          action: {
+            label: action.label,
+            run: () => {
+              dismissToast(id);
+              action.run();
+            },
+          },
+        }
+      : {}),
   };
   useToastStore.setState((state) => ({ toasts: [...state.toasts, toast] }));
-  timers.set(id, setTimeout(() => dismissToast(id), TOAST_LIFE_MS));
+  timers.set(
+    id,
+    setTimeout(() => dismissToast(id), TOAST_LIFE_MS),
+  );
   return id;
 }

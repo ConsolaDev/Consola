@@ -30,7 +30,14 @@ describe('checks', () => {
   });
 
   it('keeps the set that offers "Fix failing checks" unchanged', () => {
-    for (const state of ['FAILURE', 'ERROR', 'TIMED_OUT', 'CANCELLED', 'ACTION_REQUIRED', 'STARTUP_FAILURE']) {
+    for (const state of [
+      'FAILURE',
+      'ERROR',
+      'TIMED_OUT',
+      'CANCELLED',
+      'ACTION_REQUIRED',
+      'STARTUP_FAILURE',
+    ]) {
       expect(isFailingCheck(state)).toBe(true);
     }
     expect(isFailingCheck('SUCCESS')).toBe(false);
@@ -51,22 +58,49 @@ describe('checks', () => {
       { name: 'd', state: 'SKIPPED', url: '' },
       { name: 'e', state: 'SUCCESS', url: '' },
     ];
-    expect(summarizeChecks(checks)).toEqual({ failing: 1, pending: 1, passing: 2, skipped: 1, total: 5 });
+    expect(summarizeChecks(checks)).toEqual({
+      failing: 1,
+      pending: 1,
+      passing: 2,
+      skipped: 1,
+      total: 5,
+    });
     expect(sortChecks(checks).map((check) => check.name)).toEqual(['b', 'c', 'a', 'e', 'd']);
-    expect(checksSentence(summarizeChecks(checks))).toBe('1 failing · 1 pending · 2 passed · 1 skipped');
+    expect(checksSentence(summarizeChecks(checks))).toBe(
+      '1 failing · 1 pending · 2 passed · 1 skipped',
+    );
     expect(checksSentence(summarizeChecks([]))).toBe('No checks');
   });
 });
 
 describe('item status', () => {
   it('reads like GitHub for each pull request and issue state', () => {
-    expect(itemStatus('pr', 'open', false)).toMatchObject({ label: 'Open', tone: 'success', kind: 'pr-open' });
-    expect(itemStatus('pr', 'open', true)).toMatchObject({ label: 'Draft', tone: 'neutral', kind: 'pr-draft' });
+    expect(itemStatus('pr', 'open', false)).toMatchObject({
+      label: 'Open',
+      tone: 'success',
+      kind: 'pr-open',
+    });
+    expect(itemStatus('pr', 'open', true)).toMatchObject({
+      label: 'Draft',
+      tone: 'neutral',
+      kind: 'pr-draft',
+    });
     expect(itemStatus('pr', 'merged', false)).toMatchObject({ label: 'Merged', tone: 'merged' });
     expect(itemStatus('pr', 'closed', false)).toMatchObject({ label: 'Closed', tone: 'error' });
-    expect(itemStatus('issue', 'closed', false)).toMatchObject({ label: 'Closed', tone: 'merged', kind: 'issue-closed' });
-    expect(itemStatus('issue', 'closed', false, 'completed')).toMatchObject({ label: 'Closed', tone: 'merged' });
-    expect(itemStatus('issue', 'closed', false, 'not-planned')).toMatchObject({ label: 'Closed as not planned', tone: 'neutral', kind: 'issue-not-planned' });
+    expect(itemStatus('issue', 'closed', false)).toMatchObject({
+      label: 'Closed',
+      tone: 'merged',
+      kind: 'issue-closed',
+    });
+    expect(itemStatus('issue', 'closed', false, 'completed')).toMatchObject({
+      label: 'Closed',
+      tone: 'merged',
+    });
+    expect(itemStatus('issue', 'closed', false, 'not-planned')).toMatchObject({
+      label: 'Closed as not planned',
+      tone: 'neutral',
+      kind: 'issue-not-planned',
+    });
   });
 
   it('uses the Inbox row wording for review decisions', () => {
@@ -117,7 +151,9 @@ describe('conversation', () => {
 
 describe('files', () => {
   it('numbers both sides of each hunk and keeps the sign in the text', () => {
-    const rows = parsePatch('@@ -8,3 +8,4 @@ class A {\n keep\n-old\n+new\n+more\n\\ No newline at end of file');
+    const rows = parsePatch(
+      '@@ -8,3 +8,4 @@ class A {\n keep\n-old\n+new\n+more\n\\ No newline at end of file',
+    );
     expect(rows).toEqual([
       { kind: 'hunk', text: '@@ -8,3 +8,4 @@ class A {' },
       { kind: 'context', text: ' keep', oldLine: 8, newLine: 8 },

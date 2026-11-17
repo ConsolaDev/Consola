@@ -8,7 +8,14 @@ import type { Session, Workspace } from '../../shared/workspace';
  */
 export type FacetKey = 'harness' | 'model' | 'automation' | 'repo' | 'readOnly' | 'label';
 
-export const FACET_KEYS: readonly FacetKey[] = ['harness', 'model', 'automation', 'repo', 'readOnly', 'label'];
+export const FACET_KEYS: readonly FacetKey[] = [
+  'harness',
+  'model',
+  'automation',
+  'repo',
+  'readOnly',
+  'label',
+];
 
 /** Selected values per facet. Values within a facet are OR'd; facets are AND'd. */
 export type SessionFilters = Partial<Record<FacetKey, string[]>>;
@@ -24,12 +31,18 @@ export const READ_ONLY_VALUE = 'read-only';
 /** What a session has for a facet. Labels are by id, as stored. */
 export function facetValuesOf(session: Session, key: FacetKey): string[] {
   switch (key) {
-    case 'harness': return [session.harnessId];
-    case 'model': return session.model ? [session.model] : [];
-    case 'automation': return session.automation?.name ? [session.automation.name] : [];
-    case 'repo': return session.workItem?.repo ? [session.workItem.repo] : [];
-    case 'readOnly': return session.toolPolicy === 'read-only' ? [READ_ONLY_VALUE] : [];
-    case 'label': return session.labelIds ?? [];
+    case 'harness':
+      return [session.harnessId];
+    case 'model':
+      return session.model ? [session.model] : [];
+    case 'automation':
+      return session.automation?.name ? [session.automation.name] : [];
+    case 'repo':
+      return session.workItem?.repo ? [session.workItem.repo] : [];
+    case 'readOnly':
+      return session.toolPolicy === 'read-only' ? [READ_ONLY_VALUE] : [];
+    case 'label':
+      return session.labelIds ?? [];
   }
 }
 
@@ -38,9 +51,13 @@ export function facetValuesOf(session: Session, key: FacetKey): string[] {
  * first-seen order. Labels are not here: they come from the workspace's own
  * list, so a label no session carries yet can still be picked.
  */
-export function deriveFacets(sessions: readonly Session[]): Record<Exclude<FacetKey, 'label'>, FacetValue[]> {
-  const derived = { harness: [], model: [], automation: [], repo: [], readOnly: [] } as
-    Record<Exclude<FacetKey, 'label'>, FacetValue[]>;
+export function deriveFacets(
+  sessions: readonly Session[],
+): Record<Exclude<FacetKey, 'label'>, FacetValue[]> {
+  const derived = { harness: [], model: [], automation: [], repo: [], readOnly: [] } as Record<
+    Exclude<FacetKey, 'label'>,
+    FacetValue[]
+  >;
   for (const session of sessions) {
     for (const key of Object.keys(derived) as (keyof typeof derived)[]) {
       for (const value of facetValuesOf(session, key)) {
@@ -62,7 +79,7 @@ export function deriveFacets(sessions: readonly Session[]): Record<Exclude<Facet
 export function effectiveFilters(
   workspace: Workspace,
   sessions: readonly Session[],
-  filters: SessionFilters | undefined
+  filters: SessionFilters | undefined,
 ): SessionFilters {
   if (!filters) return {};
   const derived = deriveFacets(sessions);
@@ -71,9 +88,10 @@ export function effectiveFilters(
   for (const key of FACET_KEYS) {
     const chosen = filters[key];
     if (!chosen?.length) continue;
-    const live = key === 'label'
-      ? chosen.filter((id) => labelIds.has(id))
-      : chosen.filter((value) => derived[key].some((candidate) => candidate.value === value));
+    const live =
+      key === 'label'
+        ? chosen.filter((id) => labelIds.has(id))
+        : chosen.filter((value) => derived[key].some((candidate) => candidate.value === value));
     if (live.length > 0) effective[key] = live;
   }
   return effective;

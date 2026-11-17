@@ -3,7 +3,8 @@ import { promises as dns } from 'dns';
 import { parseWorkItemAssetUrl, webImageUrl } from '../../shared/workItemAssets';
 import type { InboxServiceDeps } from './InboxService';
 
-export interface WorkItemAssetDeps extends Pick<InboxServiceDeps, 'getWorkspace' | 'resolveDriver'> {
+export interface WorkItemAssetDeps
+  extends Pick<InboxServiceDeps, 'getWorkspace' | 'resolveDriver'> {
   /**
    * Node's fetch, not Electron's net.fetch: every hop is followed by hand
    * with `redirect: 'manual'`, which needs the 3xx itself back, and net.fetch
@@ -28,10 +29,25 @@ const REDIRECTS = new Set([301, 302, 303, 307, 308]);
  */
 const NON_PUBLIC = new BlockList();
 for (const [network, prefix] of [
-  ['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16],
-  ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 3],
-] as const) NON_PUBLIC.addSubnet(network, prefix, 'ipv4');
-for (const [network, prefix] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8]] as const) {
+  ['0.0.0.0', 8],
+  ['10.0.0.0', 8],
+  ['100.64.0.0', 10],
+  ['127.0.0.0', 8],
+  ['169.254.0.0', 16],
+  ['172.16.0.0', 12],
+  ['192.0.0.0', 24],
+  ['192.168.0.0', 16],
+  ['198.18.0.0', 15],
+  ['224.0.0.0', 3],
+] as const)
+  NON_PUBLIC.addSubnet(network, prefix, 'ipv4');
+for (const [network, prefix] of [
+  ['::', 128],
+  ['::1', 128],
+  ['fc00::', 7],
+  ['fe80::', 10],
+  ['ff00::', 8],
+] as const) {
   NON_PUBLIC.addSubnet(network, prefix, 'ipv6');
 }
 
@@ -41,12 +57,22 @@ const systemLookup = (hostname: string) => dns.lookup(hostname, { all: true, ver
  * Whether every address `url` names is on the public internet. Checked before
  * each request, redirects included; a name that resolves to nothing fails.
  */
-async function isPublicDestination(url: URL, lookup: NonNullable<WorkItemAssetDeps['lookup']>): Promise<boolean> {
-  const host = url.hostname.replace(/^\[(.*)\]$/, '$1').replace(/\.$/, '').toLowerCase();
+async function isPublicDestination(
+  url: URL,
+  lookup: NonNullable<WorkItemAssetDeps['lookup']>,
+): Promise<boolean> {
+  const host = url.hostname
+    .replace(/^\[(.*)\]$/, '$1')
+    .replace(/\.$/, '')
+    .toLowerCase();
   if (host === 'localhost' || host.endsWith('.localhost')) return false;
   const addresses = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host);
-  return addresses.length > 0
-    && addresses.every(({ address, family }) => !NON_PUBLIC.check(address, family === 6 ? 'ipv6' : 'ipv4'));
+  return (
+    addresses.length > 0 &&
+    addresses.every(
+      ({ address, family }) => !NON_PUBLIC.check(address, family === 6 ? 'ipv6' : 'ipv4'),
+    )
+  );
 }
 
 class Refusal extends Error {
@@ -132,7 +158,7 @@ interface StoredAsset {
  */
 export function createWorkItemAssetCache(
   deps: WorkItemAssetDeps,
-  { maxEntries = 300, maxBytes = 512 * 1024 }: { maxEntries?: number; maxBytes?: number } = {}
+  { maxEntries = 300, maxBytes = 512 * 1024 }: { maxEntries?: number; maxBytes?: number } = {},
 ): (href: string) => Promise<Response> {
   const stored = new Map<string, Promise<StoredAsset | null>>();
   const serve = (entry: StoredAsset) =>
@@ -150,7 +176,9 @@ export function createWorkItemAssetCache(
       }
     }
     let settle!: (entry: StoredAsset | null) => void;
-    const slot = new Promise<StoredAsset | null>((resolve) => { settle = resolve; });
+    const slot = new Promise<StoredAsset | null>((resolve) => {
+      settle = resolve;
+    });
     stored.set(href, slot);
     // Every way out but a stored image goes through here, so whoever waits
     // on this fetch is never left waiting, and the next request asks again.
@@ -175,7 +203,13 @@ export function createWorkItemAssetCache(
         if (done) break;
         chunks.push(value);
         size += value.byteLength;
-        if (size > maxBytes) return forget(new Response(resume(chunks, reader), { status: 200, headers: { 'Content-Type': type } }));
+        if (size > maxBytes)
+          return forget(
+            new Response(resume(chunks, reader), {
+              status: 200,
+              headers: { 'Content-Type': type },
+            }),
+          );
       }
       const bytes = new Uint8Array(size);
       let offset = 0;
@@ -196,7 +230,10 @@ export function createWorkItemAssetCache(
 }
 
 /** A stream of the chunks already read, then whatever `reader` has left. */
-function resume(chunks: Uint8Array[], reader: ReadableStreamDefaultReader<Uint8Array>): ReadableStream<Uint8Array> {
+function resume(
+  chunks: Uint8Array[],
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
     start(controller) {
       for (const chunk of chunks.splice(0)) controller.enqueue(chunk);

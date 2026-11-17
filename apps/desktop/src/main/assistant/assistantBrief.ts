@@ -33,5 +33,5 @@ You may edit this file; Consola never overwrites it.
 `;
 
 export function renderAssistantBrief(values: { workspaceName: string }): string {
-    return renderTemplate(ASSISTANT_BRIEF, values);
+  return renderTemplate(ASSISTANT_BRIEF, values);
 }

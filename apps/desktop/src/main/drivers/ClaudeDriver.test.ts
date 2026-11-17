@@ -16,8 +16,10 @@ describe('buildSessionArgs MCP registration', () => {
       mcpConfigPath: '/tmp/conductor.json',
     });
     expect(args).toEqual([
-      '--session-id', 'abc',
-      '--mcp-config', '/tmp/conductor.json',
+      '--session-id',
+      'abc',
+      '--mcp-config',
+      '/tmp/conductor.json',
       '--verbose',
     ]);
   });
@@ -55,7 +57,7 @@ describe('getRecentReplies', () => {
         [
           line('user', 'review it'),
           line('assistant', [{ type: 'text', text: 'Two issues found.' }]),
-        ].join('\n') + '\n'
+        ].join('\n') + '\n',
       );
       expect(await driver.getRecentReplies({ ...config, configDir: dir }, id, 3)).toEqual([
         'Two issues found.',
@@ -67,7 +69,7 @@ describe('getRecentReplies', () => {
 
   it('is null when the session has no transcript', async () => {
     expect(
-      await driver.getRecentReplies({ ...config, configDir: '/nonexistent-consola-dir' }, 'abc', 3)
+      await driver.getRecentReplies({ ...config, configDir: '/nonexistent-consola-dir' }, 'abc', 3),
     ).toBeNull();
   });
 });
@@ -98,7 +100,9 @@ describe('readWorkingDirectory', () => {
       kind: 'interactive',
       status: 'busy',
     });
-    expect(driver.readWorkingDirectory(harness(), 4242)).toBe('/code/consola/.claude/worktrees/assistant');
+    expect(driver.readWorkingDirectory(harness(), 4242)).toBe(
+      '/code/consola/.claude/worktrees/assistant',
+    );
   });
 
   it('says nothing for a process the CLI has not recorded yet', () => {

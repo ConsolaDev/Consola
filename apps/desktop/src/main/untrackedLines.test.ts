@@ -7,7 +7,10 @@ import { countUntrackedLines, readUntrackedFile } from './untrackedLines';
 
 let repo: string;
 const git = (...args: string[]) =>
-  execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', ['-C', repo, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 
 /** What git itself would add for these files, were they marked intent-to-add. */
 function gitAddedLines(paths: string[]): number {
@@ -25,7 +28,16 @@ function gitAddedLines(paths: string[]): number {
 beforeEach(() => {
   repo = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-untracked-lines-')));
   git('init', '-b', 'main');
-  git('-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-m', 'initial');
+  git(
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.com',
+    'commit',
+    '--allow-empty',
+    '-m',
+    'initial',
+  );
 });
 afterEach(() => fs.rmSync(repo, { recursive: true, force: true }));
 
@@ -57,7 +69,10 @@ describe('countUntrackedLines', () => {
   });
 
   it('counts no lines for a binary file, as git does', async () => {
-    fs.writeFileSync(path.join(repo, 'image.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a, 0x0a, 0x1a]));
+    fs.writeFileSync(
+      path.join(repo, 'image.png'),
+      Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0x0a, 0x0a, 0x1a]),
+    );
     expect(await countUntrackedLines(repo, ['image.png'])).toBe(0);
     expect(gitAddedLines(['image.png'])).toBe(0);
   });
@@ -91,7 +106,10 @@ describe('countUntrackedLines', () => {
 describe('readUntrackedFile', () => {
   it('reads a text file as text', async () => {
     fs.writeFileSync(path.join(repo, 'notes.md'), '# Notes\n');
-    expect(await readUntrackedFile(repo, 'notes.md')).toEqual({ content: '# Notes\n', isBinary: false });
+    expect(await readUntrackedFile(repo, 'notes.md')).toEqual({
+      content: '# Notes\n',
+      isBinary: false,
+    });
   });
 
   // The review panel shows this file's content and counts its lines; calling

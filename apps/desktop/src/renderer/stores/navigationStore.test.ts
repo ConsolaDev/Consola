@@ -104,8 +104,12 @@ describe('mergeNavigationState', () => {
   it('takes the work-item panel preference from the blob, and keeps current without one', () => {
     const current = makeCurrent({ isWorkItemPanelVisible: false });
 
-    expect(mergeNavigationState({ isWorkItemPanelVisible: true }, current).isWorkItemPanelVisible).toBe(true);
-    expect(mergeNavigationState({ isWorkItemPanelVisible: 'yes' }, current).isWorkItemPanelVisible).toBe(false);
+    expect(
+      mergeNavigationState({ isWorkItemPanelVisible: true }, current).isWorkItemPanelVisible,
+    ).toBe(true);
+    expect(
+      mergeNavigationState({ isWorkItemPanelVisible: 'yes' }, current).isWorkItemPanelVisible,
+    ).toBe(false);
     expect(mergeNavigationState({}, current).isWorkItemPanelVisible).toBe(false);
   });
 
@@ -136,9 +140,16 @@ describe('inbox navigation', () => {
   });
 
   it('openAutomations keeps the session and reports the overlay', () => {
-    useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', activeSessionId: 'session-1', overlay: null });
+    useNavigationStore.setState({
+      activeWorkspaceId: 'workspace-1',
+      activeSessionId: 'session-1',
+      overlay: null,
+    });
     useNavigationStore.getState().openAutomations();
-    expect(useNavigationStore.getState()).toMatchObject({ activeSessionId: 'session-1', overlay: 'automations' });
+    expect(useNavigationStore.getState()).toMatchObject({
+      activeSessionId: 'session-1',
+      overlay: 'automations',
+    });
     expect(windowBridge.setView).toHaveBeenLastCalledWith('workspace-1', {
       activeSessionId: 'session-1',
       overlay: 'automations',
@@ -203,10 +214,10 @@ describe('sidebar width', () => {
     // A hand-edited blob, or one written before the bounds changed, still has
     // to land on a width the layout can show.
     expect(mergeNavigationState({ sidebarWidth: 50 }, makeCurrent()).sidebarWidth).toBe(
-      SIDEBAR_WIDTH_MIN
+      SIDEBAR_WIDTH_MIN,
     );
     expect(mergeNavigationState({ sidebarWidth: 9999 }, makeCurrent()).sidebarWidth).toBe(
-      SIDEBAR_WIDTH_MAX
+      SIDEBAR_WIDTH_MAX,
     );
   });
 
@@ -397,7 +408,10 @@ describe('remembering where each workspace was left', () => {
     useNavigationStore.setState({ activeWorkspaceId: 'workspace-1', overlay: null });
     closePanel.mockClear();
     subscribeToShowAutomations();
-    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1', runId: 'run-9' });
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({
+      workspaceId: 'workspace-1',
+      runId: 'run-9',
+    });
     expect(closePanel).not.toHaveBeenCalled();
   });
 
@@ -405,7 +419,9 @@ describe('remembering where each workspace was left', () => {
     openPanel.mockClear();
     useNavigationStore.setState({ overlay: null });
     subscribeToShowAutomations();
-    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({ workspaceId: 'workspace-1' });
+    vi.mocked(windowBridge.onShowAutomations).mock.calls.at(-1)?.[0]?.({
+      workspaceId: 'workspace-1',
+    });
     expect(useNavigationStore.getState().overlay).toBe('automations');
     expect(openPanel).not.toHaveBeenCalled();
   });

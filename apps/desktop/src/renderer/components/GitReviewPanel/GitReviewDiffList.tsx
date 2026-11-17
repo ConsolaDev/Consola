@@ -37,7 +37,7 @@ export function GitReviewDiffList({ rootPath }: GitReviewDiffListProps) {
   useEffect(() => {
     if (hasAutoExpandedRef.current || files.length === 0) return;
     hasAutoExpandedRef.current = true;
-    const first3 = files.slice(0, 3).map(f => f.path);
+    const first3 = files.slice(0, 3).map((f) => f.path);
     expandFiles(first3);
   }, [files, expandFiles]);
 
@@ -54,7 +54,7 @@ export function GitReviewDiffList({ rootPath }: GitReviewDiffListProps) {
       // Scroll the container to position the element at the top
       container.scrollTo({
         top: elementTop,
-        behavior: 'smooth'
+        behavior: 'smooth',
       });
 
       element.classList.add('highlight');
@@ -78,7 +78,11 @@ export function GitReviewDiffList({ rootPath }: GitReviewDiffListProps) {
   if (files.length === 0) {
     return (
       <div className="git-review-diff-list-empty">
-        <CheckCircle2 size={48} strokeWidth={1.5} style={{ opacity: 0.3, marginBottom: 'var(--space-4)' }} />
+        <CheckCircle2
+          size={48}
+          strokeWidth={1.5}
+          style={{ opacity: 0.3, marginBottom: 'var(--space-4)' }}
+        />
         <p>No changes to review</p>
         <p>Your working directory is clean</p>
       </div>

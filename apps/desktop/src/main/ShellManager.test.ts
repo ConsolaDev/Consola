@@ -2,16 +2,26 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WebContents } from 'electron';
 const { spawn } = vi.hoisted(() => ({ spawn: vi.fn() }));
 vi.mock('node-pty', () => ({ spawn }));
-vi.mock('./LoginEnvironment', () => ({ getLoginEnv: () => ({ SHELL: '/bin/zsh', PATH: '/usr/bin' }) }));
+vi.mock('./LoginEnvironment', () => ({
+  getLoginEnv: () => ({ SHELL: '/bin/zsh', PATH: '/usr/bin' }),
+}));
 import { ShellManager } from './ShellManager';
 
 function fakePty() {
   let data: (text: string) => void = () => {};
   let exit: (event: { exitCode: number }) => void = () => {};
   const child = {
-    onData: vi.fn(callback => { data = callback; return { dispose: vi.fn() }; }),
-    onExit: vi.fn(callback => { exit = callback; return { dispose: vi.fn() }; }),
-    write: vi.fn(), resize: vi.fn(), kill: vi.fn(),
+    onData: vi.fn((callback) => {
+      data = callback;
+      return { dispose: vi.fn() };
+    }),
+    onExit: vi.fn((callback) => {
+      exit = callback;
+      return { dispose: vi.fn() };
+    }),
+    write: vi.fn(),
+    resize: vi.fn(),
+    kill: vi.fn(),
   };
   spawn.mockReturnValueOnce(child);
   return { child, feed: (text: string) => data(text), exit: () => exit({ exitCode: 0 }) };
@@ -32,7 +42,11 @@ describe('session shells', () => {
       const second = owner();
       const snapshot = await manager.attach(options, '/different/path', second);
       expect(spawn).toHaveBeenCalledTimes(1);
-      expect(spawn).toHaveBeenCalledWith('/bin/zsh', ['-il'], expect.objectContaining({ cwd: '/checkout/a' }));
+      expect(spawn).toHaveBeenCalledWith(
+        '/bin/zsh',
+        ['-il'],
+        expect.objectContaining({ cwd: '/checkout/a' }),
+      );
       expect(snapshot.replay).toContain('background output');
       expect(snapshot.sequence).toBe(1);
       expect(snapshot.cwd).toBe('/checkout/a');
@@ -41,7 +55,9 @@ describe('session shells', () => {
       expect(pty.child.write).toHaveBeenCalledTimes(1);
       manager.resize(options.instanceId, 100, 30, second);
       expect(pty.child.resize).toHaveBeenCalledWith(100, 30);
-    } finally { manager.destroyAll(); }
+    } finally {
+      manager.destroyAll();
+    }
   });
 
   it('isolates sessions and kills only the removed shell', async () => {
@@ -80,11 +96,15 @@ describe('session shells', () => {
 
   it('allows retry after spawn failure and rejects invalid dimensions', async () => {
     const manager = new ShellManager();
-    spawn.mockImplementationOnce(() => { throw new Error('missing shell'); });
+    spawn.mockImplementationOnce(() => {
+      throw new Error('missing shell');
+    });
     await expect(manager.attach(options, '/a', owner())).rejects.toThrow('missing shell');
     fakePty();
     await manager.attach(options, '/a', owner());
-    await expect(manager.attach({ ...options, cols: -1 }, '/a', owner())).rejects.toThrow('dimensions');
+    await expect(manager.attach({ ...options, cols: -1 }, '/a', owner())).rejects.toThrow(
+      'dimensions',
+    );
     manager.destroyAll();
   });
 });

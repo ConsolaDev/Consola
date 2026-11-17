@@ -23,7 +23,10 @@ let repo: string;
 let tree: string;
 
 const git = (cwd: string, ...args: string[]) =>
-  execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  execFileSync('git', ['-C', cwd, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
 
 function seed(): void {
   base = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'consola-checkout-e2e-')));
@@ -33,7 +36,17 @@ function seed(): void {
   git(repo, 'init', '-q', '-b', 'main');
   fs.writeFileSync(path.join(repo, 'README.md'), '# catalog-portal\n');
   git(repo, 'add', 'README.md');
-  git(repo, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '-q', '-m', 'initial');
+  git(
+    repo,
+    '-c',
+    'user.name=Test',
+    '-c',
+    'user.email=test@example.com',
+    'commit',
+    '-q',
+    '-m',
+    'initial',
+  );
   git(repo, 'worktree', 'add', '-q', '-b', WORKTREE_BRANCH, tree);
   // Uncommitted work exists only in the worktree, so a header reading the
   // main checkout instead would show none.
@@ -49,20 +62,34 @@ function seed(): void {
   // records it — `<config>/sessions/<pid>.json`, kept by the process itself.
   // \342\235\257 is UTF-8 for ❯, an empty composer.
   const stubPath = path.join(base, 'enters-worktree.sh');
-  fs.writeFileSync(stubPath, [
-    '#!/bin/sh',
-    'mkdir -p "$CLAUDE_CONFIG_DIR/sessions"',
-    'record="$CLAUDE_CONFIG_DIR/sessions/$$.json"',
-    `printf '{"pid":%s,"cwd":"%s"}' "$$" '${repo}' > "$record"`,
-    "printf '\\342\\235\\257 '",
-    'sleep 4',
-    `printf '{"pid":%s,"cwd":"%s"}' "$$" '${tree}' > "$record"`,
-    "printf 'Entered the worktree\\r\\n\\342\\235\\257 '",
-    'sleep 300',
-    '',
-  ].join('\n'), { mode: 0o755 });
-  const stub = { ...createBuiltInHarness(), id: 'stub', name: 'Stub', isBuiltIn: false, binaryPath: stubPath, configDir: profile };
-  fs.writeFileSync(path.join(effective, 'harnesses.json'), JSON.stringify({ version: 1, harnesses: [builtIn, stub] }));
+  fs.writeFileSync(
+    stubPath,
+    [
+      '#!/bin/sh',
+      'mkdir -p "$CLAUDE_CONFIG_DIR/sessions"',
+      'record="$CLAUDE_CONFIG_DIR/sessions/$$.json"',
+      `printf '{"pid":%s,"cwd":"%s"}' "$$" '${repo}' > "$record"`,
+      "printf '\\342\\235\\257 '",
+      'sleep 4',
+      `printf '{"pid":%s,"cwd":"%s"}' "$$" '${tree}' > "$record"`,
+      "printf 'Entered the worktree\\r\\n\\342\\235\\257 '",
+      'sleep 300',
+      '',
+    ].join('\n'),
+    { mode: 0o755 },
+  );
+  const stub = {
+    ...createBuiltInHarness(),
+    id: 'stub',
+    name: 'Stub',
+    isBuiltIn: false,
+    binaryPath: stubPath,
+    configDir: profile,
+  };
+  fs.writeFileSync(
+    path.join(effective, 'harnesses.json'),
+    JSON.stringify({ version: 1, harnesses: [builtIn, stub] }),
+  );
   const session = (id: string, name: string, extra: Record<string, unknown> = {}) => ({
     id,
     name,
@@ -77,35 +104,51 @@ function seed(): void {
     lastActiveAt: now,
     ...extra,
   });
-  fs.writeFileSync(path.join(effective, 'workspaces.json'), JSON.stringify({
-    version: 7,
-    workspaces: [{
-      id: 'ws-worktree-e2e',
-      name: WORKSPACE_NAME,
-      defaultHarnessId: 'default',
-      scopes: [{ id: 'scope-app', name: 'catalog-portal', path: repo, isGitRepo: true, createdAt: now }],
-      groups: [],
-      actions: [],
-      sectionDefaults: {},
-      sessions: [
-        session('s-main', 'Tidy the README'),
-        session('s-tree', 'Fix the login redirect', { cwd: tree, model: 'claude-opus-4-6' }),
-        session('s-enters', 'Plan the redirect fix', { harnessId: 'stub' }),
+  fs.writeFileSync(
+    path.join(effective, 'workspaces.json'),
+    JSON.stringify({
+      version: 7,
+      workspaces: [
+        {
+          id: 'ws-worktree-e2e',
+          name: WORKSPACE_NAME,
+          defaultHarnessId: 'default',
+          scopes: [
+            {
+              id: 'scope-app',
+              name: 'catalog-portal',
+              path: repo,
+              isGitRepo: true,
+              createdAt: now,
+            },
+          ],
+          groups: [],
+          actions: [],
+          sectionDefaults: {},
+          sessions: [
+            session('s-main', 'Tidy the README'),
+            session('s-tree', 'Fix the login redirect', { cwd: tree, model: 'claude-opus-4-6' }),
+            session('s-enters', 'Plan the redirect fix', { harnessId: 'stub' }),
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
       ],
-      createdAt: now,
-      updatedAt: now,
-    }],
-  }), 'utf8');
+    }),
+    'utf8',
+  );
 }
 
 async function holdWorkspace(target: Page): Promise<void> {
-  const button = target.getByRole('navigation', { name: 'Workspaces', exact: true })
+  const button = target
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
     .getByRole('button', { name: WORKSPACE_NAME, exact: true });
   await button.click();
   await expect(button).toHaveAttribute('aria-current', 'true');
 }
 
-const row = (target: Page, name: string) => target.locator('.session-nav-item').filter({ hasText: name });
+const row = (target: Page, name: string) =>
+  target.locator('.session-nav-item').filter({ hasText: name });
 const chip = (target: Page) => target.locator('.workspace-view-header .checkout-chip');
 const screenshot = (name: string) => page.screenshot({ path: `tests/e2e/screenshots/${name}` });
 
@@ -165,11 +208,15 @@ test.describe('worktree visibility', () => {
     await expect(chip(page)).toHaveAttribute('data-kind', 'worktree', { timeout: 15_000 });
     await expect(chip(page)).toContainText(WORKTREE_BRANCH);
     await expect(page.locator('.git-stats-count')).toHaveText('1 file');
-    await expect(row(page, 'Plan the redirect fix').locator('.session-nav-item-worktree')).toHaveText(WORKTREE_BRANCH);
+    await expect(
+      row(page, 'Plan the redirect fix').locator('.session-nav-item-worktree'),
+    ).toHaveText(WORKTREE_BRANCH);
     await screenshot('worktree-entered-by-agent.png');
 
     // Main recorded it, so it outlives this window's view of the session.
-    const recorded = JSON.parse(fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'));
+    const recorded = JSON.parse(
+      fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'),
+    );
     const enters = recorded.workspaces[0].sessions.find((s: { id: string }) => s.id === 's-enters');
     expect(enters.agentCwd).toBe(tree);
     expect(enters).not.toHaveProperty('cwd');
@@ -182,8 +229,9 @@ test.describe('worktree visibility', () => {
     await expect(worktreeLine('Tidy the README')).toHaveCount(0);
     // The model rides the line above the name, beside its harness, so the
     // branch has the line under the name to itself.
-    await expect(row(page, 'Fix the login redirect').locator('.session-row-meta .session-nav-item-model'))
-      .toHaveText('Opus 4.6');
+    await expect(
+      row(page, 'Fix the login redirect').locator('.session-row-meta .session-nav-item-model'),
+    ).toHaveText('Opus 4.6');
     await screenshot('worktree-sidebar-rows.png');
 
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();

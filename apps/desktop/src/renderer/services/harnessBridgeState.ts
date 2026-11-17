@@ -8,25 +8,25 @@ import type { Harness, HarnessUpdates, NewHarnessFields } from '../../shared/har
  * business travelling with the records.
  */
 export const harnessBridgeState = {
-    getSnapshot(): Promise<{ harnesses: Harness[]; needsImport: boolean }> {
-        return window.harnessStateAPI.getSnapshot();
-    },
-    importState(harnesses: Harness[]): Promise<boolean> {
-        return window.harnessStateAPI.importState(harnesses);
-    },
-    addHarness(input: NewHarnessFields): Promise<Harness> {
-        return window.harnessStateAPI.addHarness(input);
-    },
-    updateHarness(id: string, updates: HarnessUpdates): Promise<void> {
-        return window.harnessStateAPI.updateHarness(id, updates);
-    },
-    archiveHarness(id: string): Promise<void> {
-        return window.harnessStateAPI.archiveHarness(id);
-    },
-    restoreHarness(id: string): Promise<void> {
-        return window.harnessStateAPI.restoreHarness(id);
-    },
-    onChanged(callback: (harnesses: Harness[]) => void): () => void {
-        return window.harnessStateAPI.onChanged(callback);
-    },
+  getSnapshot(): Promise<{ harnesses: Harness[]; needsImport: boolean }> {
+    return window.harnessStateAPI.getSnapshot();
+  },
+  importState(harnesses: Harness[]): Promise<boolean> {
+    return window.harnessStateAPI.importState(harnesses);
+  },
+  addHarness(input: NewHarnessFields): Promise<Harness> {
+    return window.harnessStateAPI.addHarness(input);
+  },
+  updateHarness(id: string, updates: HarnessUpdates): Promise<void> {
+    return window.harnessStateAPI.updateHarness(id, updates);
+  },
+  archiveHarness(id: string): Promise<void> {
+    return window.harnessStateAPI.archiveHarness(id);
+  },
+  restoreHarness(id: string): Promise<void> {
+    return window.harnessStateAPI.restoreHarness(id);
+  },
+  onChanged(callback: (harnesses: Harness[]) => void): () => void {
+    return window.harnessStateAPI.onChanged(callback);
+  },
 };

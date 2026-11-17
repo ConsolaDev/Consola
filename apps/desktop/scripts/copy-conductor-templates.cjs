@@ -13,6 +13,6 @@ const dest = path.join(__dirname, '../dist/main/main/conductor/templates');
 
 fs.mkdirSync(dest, { recursive: true });
 for (const entry of fs.readdirSync(src)) {
-    fs.copyFileSync(path.join(src, entry), path.join(dest, entry));
+  fs.copyFileSync(path.join(src, entry), path.join(dest, entry));
 }
 console.log(`Copied ${fs.readdirSync(src).length} conductor templates to ${dest}`);

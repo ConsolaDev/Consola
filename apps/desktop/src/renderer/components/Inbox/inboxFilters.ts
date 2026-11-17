@@ -55,7 +55,7 @@ const UPDATED_WINDOW_MS: Record<Exclude<InboxUpdatedFilter, 'any'>, number> = {
 export function filterByUpdated(
   items: InboxItem[],
   updated: InboxUpdatedFilter,
-  now: number = Date.now()
+  now: number = Date.now(),
 ): InboxItem[] {
   if (updated === 'any') return items;
   const cutoff = now - UPDATED_WINDOW_MS[updated];

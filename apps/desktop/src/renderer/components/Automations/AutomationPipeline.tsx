@@ -18,7 +18,14 @@ import {
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import { automationsBridge } from '../../services/automationsBridge';
 import { ipcErrorMessage } from '../../utils/ipcErrorMessage';
-import { approvalStep, formatCountdown, formatDueAt, formatDuration, formatTime, yamlTokens } from './presentation';
+import {
+  approvalStep,
+  formatCountdown,
+  formatDueAt,
+  formatDuration,
+  formatTime,
+  yamlTokens,
+} from './presentation';
 
 type NodeState = 'due' | 'waiting' | 'running' | 'queued' | 'passed' | 'preview';
 
@@ -55,7 +62,13 @@ export function PipelineGraph({
   const countdown = automation.nextRunAt ? formatCountdown(automation.nextRunAt, now) : null;
   const due = !automation.problem && countdown === 'due now';
   // Once a run is working, the steps it came through are lit: the path it took.
-  const targetState: NodeState | undefined = running ? 'running' : queued ? 'queued' : step?.kind === 'notify' ? 'preview' : undefined;
+  const targetState: NodeState | undefined = running
+    ? 'running'
+    : queued
+      ? 'queued'
+      : step?.kind === 'notify'
+        ? 'preview'
+        : undefined;
   const pathLit = targetState === 'running' || targetState === 'queued';
 
   const TriggerIcon: LucideIcon = automation.onEvent ? Inbox : automation.schedule ? Clock : Zap;
@@ -73,7 +86,10 @@ export function PipelineGraph({
           'Checked on each Inbox refresh, once added'
         ) : automation.nextRunAt && Date.parse(automation.nextRunAt) > now.getTime() ? (
           <span title={formatTime(automation.nextRunAt)}>
-            First run <span className="automations-node-quiet">· {formatDueAt(automation.nextRunAt, now)}</span>
+            First run{' '}
+            <span className="automations-node-quiet">
+              · {formatDueAt(automation.nextRunAt, now)}
+            </span>
           </span>
         ) : (
           'On its schedule, once added'
@@ -85,7 +101,10 @@ export function PipelineGraph({
       ) : automation.nextRunAt && countdown ? (
         <span title={formatTime(automation.nextRunAt)}>
           {due ? 'Due now' : `Next ${countdown}`}
-          <span className="automations-node-quiet"> · {formatDueAt(automation.nextRunAt, now)}</span>
+          <span className="automations-node-quiet">
+            {' '}
+            · {formatDueAt(automation.nextRunAt, now)}
+          </span>
         </span>
       ) : (
         'Not scheduled'
@@ -96,13 +115,23 @@ export function PipelineGraph({
   const gate = step && (
     <PipelineNode
       key="gate"
-      state={step.kind === 'approve' && waiting ? 'waiting' : step.kind === 'approve' && pathLit ? 'passed' : undefined}
+      state={
+        step.kind === 'approve' && waiting
+          ? 'waiting'
+          : step.kind === 'approve' && pathLit
+            ? 'passed'
+            : undefined
+      }
       icon={step.kind === 'approve' ? Hand : Bell}
       kicker={step.kind === 'approve' ? 'Approval' : 'Notify'}
       title={step.title}
     >
       {step.kind === 'approve' && waiting ? (
-        <button type="button" className="automations-node-action" onClick={() => onOpenRun(waiting.id)}>
+        <button
+          type="button"
+          className="automations-node-action"
+          onClick={() => onOpenRun(waiting.id)}
+        >
           Waiting for you · Review
           <ArrowRight size={12} aria-hidden="true" />
         </button>
@@ -122,13 +151,21 @@ export function PipelineGraph({
       title={isAgent ? automation.runs : <code>{automation.target.split('#').pop()}</code>}
     >
       {running ? (
-        <button type="button" className="automations-node-action" onClick={() => onOpenRun(running.id)}>
+        <button
+          type="button"
+          className="automations-node-action"
+          onClick={() => onOpenRun(running.id)}
+        >
           <LoaderCircle size={12} className="automations-spin" aria-hidden="true" />
           Running · {formatDuration(running, now) ?? '0s'}
           <ArrowRight size={12} aria-hidden="true" />
         </button>
       ) : queued ? (
-        <button type="button" className="automations-node-action" onClick={() => onOpenRun(queued.id)}>
+        <button
+          type="button"
+          className="automations-node-action"
+          onClick={() => onOpenRun(queued.id)}
+        >
           Queued{place(queued.id) !== undefined ? ` · ${place(queued.id)} in line` : ''}
           <ArrowRight size={12} aria-hidden="true" />
         </button>
@@ -145,7 +182,10 @@ export function PipelineGraph({
   // Told about a preview, rather than asked before a run: the step comes after.
   const nodes = step?.kind === 'notify' ? [trigger, target, gate] : [trigger, gate, target];
   return (
-    <ol className={`automations-pipeline ${automation.problem ? 'automations-pipeline-paused' : ''}`} aria-label="Pipeline">
+    <ol
+      className={`automations-pipeline ${automation.problem ? 'automations-pipeline-paused' : ''}`}
+      aria-label="Pipeline"
+    >
       {nodes}
     </ol>
   );

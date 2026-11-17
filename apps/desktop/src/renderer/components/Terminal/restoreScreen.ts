@@ -2,10 +2,10 @@ import type { ScreenReplay } from '../../../shared/types';
 
 /** What this needs of a terminal: @xterm/xterm's and @xterm/headless's alike. */
 interface RestorableTerminal {
-    readonly cols: number;
-    readonly rows: number;
-    resize(cols: number, rows: number): void;
-    write(data: string, callback?: () => void): void;
+  readonly cols: number;
+  readonly rows: number;
+  resize(cols: number, rows: number): void;
+  write(data: string, callback?: () => void): void;
 }
 
 /**
@@ -23,11 +23,15 @@ interface RestorableTerminal {
  * if the pane differs from the captured size, that is a real resize of the
  * PTY, and the CLI repaints for it.
  */
-export function restoreScreen(terminal: RestorableTerminal, screen: ScreenReplay, restored: () => void): void {
-    if (terminal.cols !== screen.cols || terminal.rows !== screen.rows) {
-        terminal.resize(screen.cols, screen.rows);
-    }
-    terminal.write(screen.replay, restored);
+export function restoreScreen(
+  terminal: RestorableTerminal,
+  screen: ScreenReplay,
+  restored: () => void,
+): void {
+  if (terminal.cols !== screen.cols || terminal.rows !== screen.rows) {
+    terminal.resize(screen.cols, screen.rows);
+  }
+  terminal.write(screen.replay, restored);
 }
 
 /** How long a pane's size must hold before its view and the PTY follow it. */
@@ -44,14 +48,14 @@ export const PANE_SETTLE_MS = 100;
  * settle means a wobble never reaches the view or the PTY at all.
  */
 export function whenSettled(fit: () => void): { request(): void; cancel(): void } {
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    return {
-        request() {
-            clearTimeout(timer);
-            timer = setTimeout(fit, PANE_SETTLE_MS);
-        },
-        cancel() {
-            clearTimeout(timer);
-        },
-    };
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return {
+    request() {
+      clearTimeout(timer);
+      timer = setTimeout(fit, PANE_SETTLE_MS);
+    },
+    cancel() {
+      clearTimeout(timer);
+    },
+  };
 }

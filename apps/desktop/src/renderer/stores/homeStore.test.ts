@@ -1,6 +1,10 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { filteredScope, hasScopeChoice, newSessionScope, useHomeStore } from './homeStore';
-import { createScopeRecord, createSessionRecord, createWorkspaceRecord } from '../../shared/workspace';
+import {
+  createScopeRecord,
+  createSessionRecord,
+  createWorkspaceRecord,
+} from '../../shared/workspace';
 
 function setup() {
   const workspace = createWorkspaceRecord('App', '/app', false, 'default-agent');
@@ -8,13 +12,22 @@ function setup() {
   const api = createScopeRecord({ name: 'API', path: '/app/api', isGitRepo: false });
   workspace.scopes.push(api);
   const inApi = createSessionRecord({
-    name: 'In API', workspaceId: workspace.id, instanceId: 'in-api', harnessId: 'default-agent',
-    model: undefined, scopeId: api.id,
+    name: 'In API',
+    workspaceId: workspace.id,
+    instanceId: 'in-api',
+    harnessId: 'default-agent',
+    model: undefined,
+    scopeId: api.id,
   });
   // The Assistant's record still carries a scope, but it runs none of them.
   const assistant = createSessionRecord({
-    name: 'Assistant', workspaceId: workspace.id, instanceId: 'assistant', harnessId: 'default-agent',
-    model: undefined, scopeId: api.id, kind: 'assistant',
+    name: 'Assistant',
+    workspaceId: workspace.id,
+    instanceId: 'assistant',
+    harnessId: 'default-agent',
+    model: undefined,
+    scopeId: api.id,
+    kind: 'assistant',
   });
   workspace.sessions.push(inApi, assistant);
   return { workspace, root, api, inApi, assistant };
@@ -62,7 +75,7 @@ describe('newSessionScope', () => {
     expect(newSessionScope(workspace, 'removed', inApi.id)).toBe(api);
   });
 
-  it('never inherits the Assistant\'s scope', () => {
+  it("never inherits the Assistant's scope", () => {
     const { workspace, root, assistant } = setup();
     expect(newSessionScope(workspace, undefined, assistant.id)).toBe(root);
   });

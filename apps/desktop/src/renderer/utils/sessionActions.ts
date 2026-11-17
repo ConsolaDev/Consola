@@ -11,7 +11,10 @@ import { forgetSessionLocally } from './forgetSession';
 import { ipcErrorMessage } from './ipcErrorMessage';
 import { generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
-import { useNewSessionDialogStore, type NewSessionDestination } from '../stores/newSessionDialogStore';
+import {
+  useNewSessionDialogStore,
+  type NewSessionDestination,
+} from '../stores/newSessionDialogStore';
 
 export { generateSessionInstanceId };
 
@@ -68,8 +71,11 @@ export function chooseScope(workspaceId: string, scopeId: string | null): void {
   if (scopeId === null) return;
   const navigation = useNavigationStore.getState();
   if (navigation.activeWorkspaceId !== workspaceId || navigation.overlay !== null) return;
-  const open = useWorkspaceStore.getState().getSession(workspaceId, navigation.activeSessionId ?? '');
-  if (open && open.kind !== 'assistant' && open.scopeId !== scopeId) navigation.setActiveSession(null);
+  const open = useWorkspaceStore
+    .getState()
+    .getSession(workspaceId, navigation.activeSessionId ?? '');
+  if (open && open.kind !== 'assistant' && open.scopeId !== scopeId)
+    navigation.setActiveSession(null);
 }
 
 /**
@@ -93,7 +99,8 @@ export function clearAllFilters(workspaceId: string): void {
 export function revealSessionScope(workspaceId: string, sessionId: string | null): void {
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
   // Resolved as the list resolves it: a filter whose scope was removed is All.
-  const scope = workspace && filteredScope(workspace, useHomeStore.getState().scopeFilters[workspaceId]);
+  const scope =
+    workspace && filteredScope(workspace, useHomeStore.getState().scopeFilters[workspaceId]);
   if (!scope || !sessionId) return;
   const session = useWorkspaceStore.getState().getSession(workspaceId, sessionId);
   if (!session || session.kind === 'assistant' || session.scopeId === scope.id) return;
@@ -119,7 +126,7 @@ export async function openAssistant(workspaceId: string): Promise<void> {
  */
 export async function activateSessionAnywhere(
   workspaceId: string,
-  sessionId: string
+  sessionId: string,
 ): Promise<void> {
   if (useNavigationStore.getState().activeWorkspaceId === workspaceId) {
     activateSession(workspaceId, sessionId);
@@ -140,8 +147,11 @@ function sessionDestination(workspaceId: string, destination: NewSessionDestinat
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
   if (!workspace) return destination;
   const navigation = useNavigationStore.getState();
-  const scope = newSessionScope(workspace, destination.scopeId ?? useHomeStore.getState().scopeFilters[workspaceId],
-    navigation.activeWorkspaceId === workspaceId ? navigation.activeSessionId : null);
+  const scope = newSessionScope(
+    workspace,
+    destination.scopeId ?? useHomeStore.getState().scopeFilters[workspaceId],
+    navigation.activeWorkspaceId === workspaceId ? navigation.activeSessionId : null,
+  );
   return { ...destination, scopeId: scope?.id };
 }
 
@@ -161,14 +171,23 @@ export function revealCreatedScope(workspaceId: string, scopeId: string): void {
 }
 
 /** Open options without creating a session or replacing the view underneath. */
-export function openNewSessionDialog(workspaceId: string, destination: NewSessionDestination = {}): void {
-  useNewSessionDialogStore.getState().open(workspaceId, sessionDestination(workspaceId, destination));
+export function openNewSessionDialog(
+  workspaceId: string,
+  destination: NewSessionDestination = {},
+): void {
+  useNewSessionDialogStore
+    .getState()
+    .open(workspaceId, sessionDestination(workspaceId, destination));
 }
 
 /** Shared creation path for default sessions and the options dialog. */
 export async function createSessionAndOpen(
   workspaceId: string,
-  options: NewSessionDestination & { harnessId?: string; model?: string; checkout?: SessionCheckout } = {}
+  options: NewSessionDestination & {
+    harnessId?: string;
+    model?: string;
+    checkout?: SessionCheckout;
+  } = {},
 ): Promise<Session | undefined> {
   const workspace = useWorkspaceStore.getState().getWorkspace(workspaceId);
   if (!workspace) throw new Error('This workspace is no longer available.');
@@ -181,15 +200,19 @@ export async function createSessionAndOpen(
     closePanelOnWorkspaceSwitch(useNavigationStore.getState().activeWorkspaceId, workspaceId);
     useNavigationStore.setState({ activeWorkspaceId: workspaceId, ...result.view });
   }
-  const session = await useWorkspaceStore.getState().createSession(workspaceId, {
-    name: 'New Session',
+  const session = await useWorkspaceStore.getState().createSession(
     workspaceId,
-    instanceId: generateSessionInstanceId(workspaceId),
-    harnessId: options.harnessId ?? workspace.defaultHarnessId,
-    model: options.model,
-    scopeId,
-    groupId,
-  }, options.checkout);
+    {
+      name: 'New Session',
+      workspaceId,
+      instanceId: generateSessionInstanceId(workspaceId),
+      harnessId: options.harnessId ?? workspace.defaultHarnessId,
+      model: options.model,
+      scopeId,
+      groupId,
+    },
+    options.checkout,
+  );
   if (!session) throw new Error('The session could not be created. Please try again.');
   // A slow worktree creation must not pull the user back from another workspace.
   if (useNavigationStore.getState().activeWorkspaceId === workspaceId) {
@@ -203,7 +226,7 @@ const pendingQuickSessions = new Set<string>();
 /** Start immediately with defaults; failed launches can be corrected in options. */
 export async function createQuickSession(
   workspaceId: string,
-  destination: NewSessionDestination = {}
+  destination: NewSessionDestination = {},
 ): Promise<Session | undefined> {
   if (pendingQuickSessions.has(workspaceId)) return undefined;
   pendingQuickSessions.add(workspaceId);
@@ -212,8 +235,9 @@ export async function createQuickSession(
     return await createSessionAndOpen(workspaceId, resolved);
   } catch (reason) {
     if (useNavigationStore.getState().activeWorkspaceId === workspaceId) {
-      useNewSessionDialogStore.getState().open(workspaceId, resolved,
-        reason instanceof Error ? reason.message : String(reason));
+      useNewSessionDialogStore
+        .getState()
+        .open(workspaceId, resolved, reason instanceof Error ? reason.message : String(reason));
     }
     return undefined;
   } finally {
@@ -231,7 +255,7 @@ export async function createQuickSession(
  */
 export async function deleteSessionCompletely(
   workspaceId: string,
-  session: Session
+  session: Session,
 ): Promise<void> {
   // Main deletes the record first and stops the PTY only once that reached
   // disk, so a failed delete leaves the session running and listed.
@@ -270,7 +294,7 @@ export function restartSession(instanceId: string): void {
 export async function runActionInSession(
   workspaceId: string,
   session: Pick<Session, 'id' | 'instanceId'>,
-  actionId: string
+  actionId: string,
 ): Promise<string | null> {
   try {
     const result = await providerBridge.runActionInSession(workspaceId, session.id, actionId);
@@ -286,7 +310,7 @@ export async function runActionInSession(
 export async function renameSession(
   workspaceId: string,
   session: Session,
-  name: string
+  name: string,
 ): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed || trimmed === session.name) return;

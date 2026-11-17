@@ -206,7 +206,7 @@
 }
 
 .code-block-content code {
-  font-family: var(--font-mono, 'Fira Code', 'Consolas', monospace) !important;
+  font-family: var(--font-mono, "Fira Code", "Consolas", monospace) !important;
 }
 
 /* Gradient fade for collapsed code */
@@ -216,11 +216,7 @@
   left: 0;
   right: 0;
   height: 60px;
-  background: linear-gradient(
-    to bottom,
-    transparent,
-    var(--color-bg-secondary)
-  );
+  background: linear-gradient(to bottom, transparent, var(--color-bg-secondary));
   pointer-events: none;
 }
 
@@ -236,7 +232,9 @@
   color: var(--color-code-text-muted, rgba(255, 255, 255, 0.6));
   gap: var(--space-1, 4px);
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition:
+    background 0.15s,
+    color 0.15s;
 }
 
 .code-block-toggle:hover {

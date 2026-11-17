@@ -28,7 +28,10 @@ export class ViewingTracker {
 
   public viewing(windowId: number, instanceId: string | null): void {
     const before = this.effective(windowId);
-    this.windows.set(windowId, { viewing: instanceId, focused: this.windows.get(windowId)?.focused ?? false });
+    this.windows.set(windowId, {
+      viewing: instanceId,
+      focused: this.windows.get(windowId)?.focused ?? false,
+    });
     this.announce(windowId, before);
     this.reported();
   }

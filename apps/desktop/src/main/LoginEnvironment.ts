@@ -1,4 +1,9 @@
-import { execFile, execFileSync, type ExecFileOptions, type ExecFileSyncOptionsWithStringEncoding } from 'child_process';
+import {
+  execFile,
+  execFileSync,
+  type ExecFileOptions,
+  type ExecFileSyncOptionsWithStringEncoding,
+} from 'child_process';
 import * as os from 'os';
 
 /**
@@ -36,14 +41,14 @@ const PROBE_ARGS = ['-ilc', 'env -0'];
  * Each terminal must look like a fresh top-level session.
  */
 const INHERITED_SESSION_VARS = [
-    'CLAUDECODE',
-    'CLAUDE_CODE_ENTRYPOINT',
-    'CLAUDE_CODE_SESSION_ID',
-    'CLAUDE_CODE_CHILD_SESSION',
-    'CLAUDE_CODE_MESSAGING_SOCKET',
-    'CLAUDE_CODE_MESSAGING_TOKEN',
-    'CLAUDE_CODE_EXECPATH',
-    'CLAUDE_PID',
+  'CLAUDECODE',
+  'CLAUDE_CODE_ENTRYPOINT',
+  'CLAUDE_CODE_SESSION_ID',
+  'CLAUDE_CODE_CHILD_SESSION',
+  'CLAUDE_CODE_MESSAGING_SOCKET',
+  'CLAUDE_CODE_MESSAGING_TOKEN',
+  'CLAUDE_CODE_EXECPATH',
+  'CLAUDE_PID',
 ];
 
 let cachedEnv: NodeJS.ProcessEnv | null = null;
@@ -55,40 +60,40 @@ let probeProblem: string | null = null;
 let retryInFlight: Promise<void> | null = null;
 
 function getLoginShell(): string {
-    if (os.platform() === 'win32') {
-        return process.env.COMSPEC || 'powershell.exe';
-    }
-    return process.env.SHELL || '/bin/bash';
+  if (os.platform() === 'win32') {
+    return process.env.COMSPEC || 'powershell.exe';
+  }
+  return process.env.SHELL || '/bin/bash';
 }
 
 function stripInheritedSession(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-    for (const name of INHERITED_SESSION_VARS) {
-        delete env[name];
-    }
-    return env;
+  for (const name of INHERITED_SESSION_VARS) {
+    delete env[name];
+  }
+  return env;
 }
 
 /** Electron's own variables with the login shell's on top, so its PATH wins. */
 function fromLoginShell(raw: string): NodeJS.ProcessEnv {
-    const parsed: NodeJS.ProcessEnv = {};
-    for (const entry of raw.split('\0')) {
-        const separator = entry.indexOf('=');
-        if (separator > 0) {
-            parsed[entry.slice(0, separator)] = entry.slice(separator + 1);
-        }
+  const parsed: NodeJS.ProcessEnv = {};
+  for (const entry of raw.split('\0')) {
+    const separator = entry.indexOf('=');
+    if (separator > 0) {
+      parsed[entry.slice(0, separator)] = entry.slice(separator + 1);
     }
-    return stripInheritedSession({ ...process.env, ...parsed });
+  }
+  return stripInheritedSession({ ...process.env, ...parsed });
 }
 
 function describeProbeFailure(shell: string, error: unknown, timeoutMs: number): string {
-    const failure = error as { code?: unknown; killed?: boolean; message?: string };
-    // execFileSync reports a timeout as ETIMEDOUT; execFile kills the child
-    // and says so on the error.
-    if (failure.code === 'ETIMEDOUT' || failure.killed) {
-        return `\`${shell} -ilc\` did not finish within ${timeoutMs / 1000}s`;
-    }
-    const firstLine = (failure.message ?? String(error)).split('\n')[0];
-    return `\`${shell} -ilc\` failed: ${firstLine}`;
+  const failure = error as { code?: unknown; killed?: boolean; message?: string };
+  // execFileSync reports a timeout as ETIMEDOUT; execFile kills the child
+  // and says so on the error.
+  if (failure.code === 'ETIMEDOUT' || failure.killed) {
+    return `\`${shell} -ilc\` did not finish within ${timeoutMs / 1000}s`;
+  }
+  const firstLine = (failure.message ?? String(error)).split('\n')[0];
+  return `\`${shell} -ilc\` failed: ${firstLine}`;
 }
 
 /**
@@ -111,37 +116,37 @@ function describeProbeFailure(shell: string, error: unknown, timeoutMs: number):
  * leak into every other.
  */
 export function getLoginEnv(): NodeJS.ProcessEnv {
-    if (cachedEnv) return cachedEnv;
+  if (cachedEnv) return cachedEnv;
 
-    // Windows shells don't support the -ilc/env -0 probe; the GUI environment
-    // there is already close enough to the user's.
-    if (os.platform() === 'win32') {
-        cachedEnv = stripInheritedSession({ ...process.env });
-        return cachedEnv;
-    }
-
-    const shell = getLoginShell();
-    try {
-        // NUL-separated output so values containing newlines survive parsing.
-        // Node supports detached for synchronous spawns; our Node typings omit it.
-        const probeOptions: ExecFileSyncOptionsWithStringEncoding & { detached: boolean } = {
-            encoding: 'utf8',
-            timeout: PROBE_TIMEOUT_MS,
-            stdio: ['ignore', 'pipe', 'ignore'],
-            // An interactive zsh can open /dev/tty even with stdin ignored,
-            // take the parent's foreground process group, and leave Ctrl+C
-            // targeting its dead group. A new session has no controlling tty.
-            detached: true,
-        };
-        cachedEnv = fromLoginShell(execFileSync(shell, PROBE_ARGS, probeOptions));
-    } catch (error) {
-        console.error('Failed to probe login shell environment:', error);
-        cachedEnv = stripInheritedSession({ ...process.env });
-        probeProblem = describeProbeFailure(shell, error, PROBE_TIMEOUT_MS);
-        retryProbe(shell, 0);
-    }
-
+  // Windows shells don't support the -ilc/env -0 probe; the GUI environment
+  // there is already close enough to the user's.
+  if (os.platform() === 'win32') {
+    cachedEnv = stripInheritedSession({ ...process.env });
     return cachedEnv;
+  }
+
+  const shell = getLoginShell();
+  try {
+    // NUL-separated output so values containing newlines survive parsing.
+    // Node supports detached for synchronous spawns; our Node typings omit it.
+    const probeOptions: ExecFileSyncOptionsWithStringEncoding & { detached: boolean } = {
+      encoding: 'utf8',
+      timeout: PROBE_TIMEOUT_MS,
+      stdio: ['ignore', 'pipe', 'ignore'],
+      // An interactive zsh can open /dev/tty even with stdin ignored,
+      // take the parent's foreground process group, and leave Ctrl+C
+      // targeting its dead group. A new session has no controlling tty.
+      detached: true,
+    };
+    cachedEnv = fromLoginShell(execFileSync(shell, PROBE_ARGS, probeOptions));
+  } catch (error) {
+    console.error('Failed to probe login shell environment:', error);
+    cachedEnv = stripInheritedSession({ ...process.env });
+    probeProblem = describeProbeFailure(shell, error, PROBE_TIMEOUT_MS);
+    retryProbe(shell, 0);
+  }
+
+  return cachedEnv;
 }
 
 /**
@@ -151,43 +156,43 @@ export function getLoginEnv(): NodeJS.ProcessEnv {
  * probe already finds it running.
  */
 function retryProbe(shell: string, attempt: number): void {
-    retryInFlight = probeInBackground(shell)
-        .then(
-            (raw) => {
-                cachedEnv = fromLoginShell(raw);
-                probeProblem = null;
-            },
-            (error: unknown) => {
-                console.error('Retrying the login shell environment probe failed:', error);
-                probeProblem = describeProbeFailure(shell, error, RETRY_TIMEOUT_MS);
-                const backoff = RETRY_BACKOFF_MS[attempt];
-                if (backoff !== undefined) {
-                    setTimeout(() => retryProbe(shell, attempt + 1), backoff).unref?.();
-                }
-            }
-        )
-        .finally(() => {
-            retryInFlight = null;
-        });
+  retryInFlight = probeInBackground(shell)
+    .then(
+      (raw) => {
+        cachedEnv = fromLoginShell(raw);
+        probeProblem = null;
+      },
+      (error: unknown) => {
+        console.error('Retrying the login shell environment probe failed:', error);
+        probeProblem = describeProbeFailure(shell, error, RETRY_TIMEOUT_MS);
+        const backoff = RETRY_BACKOFF_MS[attempt];
+        if (backoff !== undefined) {
+          setTimeout(() => retryProbe(shell, attempt + 1), backoff).unref?.();
+        }
+      },
+    )
+    .finally(() => {
+      retryInFlight = null;
+    });
 }
 
 function probeInBackground(shell: string): Promise<string> {
-    return new Promise((resolve, reject) => {
-        // Detached for the same reason as the first probe. Our Node typings
-        // omit `detached` here too, though execFile passes it on to spawn.
-        const options: ExecFileOptions & { encoding: 'utf8'; detached: boolean } = {
-            encoding: 'utf8',
-            timeout: RETRY_TIMEOUT_MS,
-            detached: true,
-        };
-        const child = execFile(shell, PROBE_ARGS, options, (error, stdout) => {
-            if (error) reject(error);
-            else resolve(stdout);
-        });
-        // Like the first probe's ignored stdin: nothing in an rc file should
-        // sit waiting to read from Consola.
-        child.stdin?.end();
+  return new Promise((resolve, reject) => {
+    // Detached for the same reason as the first probe. Our Node typings
+    // omit `detached` here too, though execFile passes it on to spawn.
+    const options: ExecFileOptions & { encoding: 'utf8'; detached: boolean } = {
+      encoding: 'utf8',
+      timeout: RETRY_TIMEOUT_MS,
+      detached: true,
+    };
+    const child = execFile(shell, PROBE_ARGS, options, (error, stdout) => {
+      if (error) reject(error);
+      else resolve(stdout);
     });
+    // Like the first probe's ignored stdin: nothing in an rc file should
+    // sit waiting to read from Consola.
+    child.stdin?.end();
+  });
 }
 
 /**
@@ -203,8 +208,8 @@ function probeInBackground(shell: string): Promise<string> {
  * that keeps failing delays a launch by at most one retry.
  */
 export function loginEnvRetry(): Promise<void> | null {
-    getLoginEnv();
-    return retryInFlight;
+  getLoginEnv();
+  return retryInFlight;
 }
 
 /**
@@ -216,5 +221,5 @@ export function loginEnvRetry(): Promise<void> | null {
  * place.
  */
 export function loginEnvProblem(): string | null {
-    return probeProblem;
+  return probeProblem;
 }

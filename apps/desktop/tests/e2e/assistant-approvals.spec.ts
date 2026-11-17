@@ -38,7 +38,9 @@ async function launch() {
 }
 
 function railButton(name: string) {
-  return page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name, exact: true });
+  return page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name, exact: true });
 }
 
 async function openWorkspace(name: string) {
@@ -49,7 +51,9 @@ async function openWorkspace(name: string) {
 async function sessionNames(workspaceId: string): Promise<string[]> {
   return page.evaluate(async (id) => {
     const { workspaces } = await window.workspaceAPI.getSnapshot();
-    return workspaces.find((workspace) => workspace.id === id)!.sessions.map((session) => session.name);
+    return workspaces
+      .find((workspace) => workspace.id === id)!
+      .sessions.map((session) => session.name);
   }, workspaceId);
 }
 
@@ -58,8 +62,11 @@ test('approving the Assistant’s request from its tray', async () => {
   const scopePath = path.join(base, 'sprocket');
   fs.mkdirSync(scopePath, { recursive: true });
   const workspaceId = await page.evaluate(
-    (scope) => window.workspaceAPI.createWorkspace('sprocket', scope, false).then((workspace) => workspace.id),
-    scopePath
+    (scope) =>
+      window.workspaceAPI
+        .createWorkspace('sprocket', scope, false)
+        .then((workspace) => workspace.id),
+    scopePath,
   );
   const sessionId = await page.evaluate(async (id) => {
     const { workspaces } = await window.workspaceAPI.getSnapshot();
@@ -78,7 +85,9 @@ test('approving the Assistant’s request from its tray', async () => {
   await expect(page.locator('.workspace-view-header')).toContainText('✦ Assistant');
   const assistantId = await page.evaluate(async (id) => {
     const { workspaces } = await window.workspaceAPI.getSnapshot();
-    return workspaces.find((workspace) => workspace.id === id)!.sessions.find((s) => s.kind === 'assistant')!.id;
+    return workspaces
+      .find((workspace) => workspace.id === id)!
+      .sessions.find((s) => s.kind === 'assistant')!.id;
   }, workspaceId);
   const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
   await app.close();
@@ -104,12 +113,18 @@ test('approving the Assistant’s request from its tray', async () => {
           status: 'needs-approval',
           summary: 'Would delete "old review". Asked by "Assistant".',
           approval: { args: { session_id: sessionId } },
-          attribution: { automationId: ref, actionName: ref, triggerKind: 'manual', workspaceId, actorId: assistantId },
+          attribution: {
+            automationId: ref,
+            actionName: ref,
+            triggerKind: 'manual',
+            workspaceId,
+            actorId: assistantId,
+          },
           createdAt: at,
           updatedAt: at,
         },
       ],
-    })
+    }),
   );
 
   await launch();

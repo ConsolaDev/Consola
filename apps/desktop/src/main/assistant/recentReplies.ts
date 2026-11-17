@@ -13,13 +13,15 @@ import { launchFieldsFor } from '../SessionLauncher';
  * harness is unreadable.
  */
 export async function recentRepliesFor(
-    harness: Harness | undefined,
-    session: Session,
-    count: number,
-    driverFor: (id?: HarnessDriverId) => HarnessDriver = getDriver
+  harness: Harness | undefined,
+  session: Session,
+  count: number,
+  driverFor: (id?: HarnessDriverId) => HarnessDriver = getDriver,
 ): Promise<string[] | null> {
-    const fields = launchFieldsFor(harness);
-    const driver = driverFor(fields.driverId);
-    if (!driver.getRecentReplies) return null;
-    return (await driver.getRecentReplies(toHarnessConfig(fields), session.claudeSessionId, count)) ?? [];
+  const fields = launchFieldsFor(harness);
+  const driver = driverFor(fields.driverId);
+  if (!driver.getRecentReplies) return null;
+  return (
+    (await driver.getRecentReplies(toHarnessConfig(fields), session.claudeSessionId, count)) ?? []
+  );
 }

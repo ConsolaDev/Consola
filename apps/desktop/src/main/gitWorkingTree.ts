@@ -64,7 +64,7 @@ interface GitRun {
 function git(cwd: string, args: string[], maxBuffer = DEFAULT_OUTPUT): Promise<GitRun> {
   return new Promise((resolve) => {
     execFile('git', ['--literal-pathspecs', ...args], { cwd, maxBuffer }, (error, stdout, stderr) =>
-      resolve({ error, stdout, stderr })
+      resolve({ error, stdout, stderr }),
     );
   });
 }
@@ -111,7 +111,12 @@ export function parseStatus(output: string): GitStatusResult['files'] {
 
 export async function readStatus(rootPath: string): Promise<GitStatusResult> {
   if (!fs.existsSync(path.join(rootPath, '.git'))) {
-    return { files: [], stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 }, isGitRepo: false, branch: null };
+    return {
+      files: [],
+      stats: { modifiedCount: 0, addedLines: 0, removedLines: 0 },
+      isGitRepo: false,
+      branch: null,
+    };
   }
 
   const head = await git(rootPath, ['rev-parse', '--abbrev-ref', 'HEAD']);
@@ -122,7 +127,10 @@ export async function readStatus(rootPath: string): Promise<GitStatusResult> {
 
   let addedLines = 0;
   let removedLines = 0;
-  for (const args of [['diff', '--numstat'], ['diff', '--cached', '--numstat']]) {
+  for (const args of [
+    ['diff', '--numstat'],
+    ['diff', '--cached', '--numstat'],
+  ]) {
     const diff = await git(rootPath, args);
     if (diff.error) continue;
     for (const line of diff.stdout.split('\n').filter(Boolean)) {
@@ -135,10 +143,19 @@ export async function readStatus(rootPath: string): Promise<GitStatusResult> {
   const untracked = files.filter((f) => f.status === 'untracked').map((f) => f.path);
   addedLines += await countUntrackedLines(rootPath, untracked);
 
-  return { files, stats: { modifiedCount: files.length, addedLines, removedLines }, isGitRepo: true, branch };
+  return {
+    files,
+    stats: { modifiedCount: files.length, addedLines, removedLines },
+    isGitRepo: true,
+    branch,
+  };
 }
 
-export async function readDiff(rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> {
+export async function readDiff(
+  rootPath: string,
+  filePath: string,
+  staged: boolean,
+): Promise<GitDiffResult> {
   const absolutePath = path.join(rootPath, filePath);
   const fileExists = fs.existsSync(absolutePath);
   const nothing = { filePath, staged, oldContent: '', newContent: '', hunks: [], isBinary: false };
@@ -160,12 +177,21 @@ export async function readDiff(rootPath: string, filePath: string, staged: boole
     }
   }
 
-  const diff = await git(rootPath, ['diff', ...(staged ? ['--cached'] : []), '--', filePath], CONTENT_OUTPUT);
+  const diff = await git(
+    rootPath,
+    ['diff', ...(staged ? ['--cached'] : []), '--', filePath],
+    CONTENT_OUTPUT,
+  );
   if (diff.error || !diff.stdout) return { ...nothing, isNew: false, isDeleted: !fileExists };
-  if (diff.stdout.includes('Binary files')) return { ...nothing, isBinary: true, isNew: false, isDeleted: false };
+  if (diff.stdout.includes('Binary files'))
+    return { ...nothing, isBinary: true, isNew: false, isDeleted: false };
 
   // Old content from HEAD for a staged diff, from the index otherwise.
-  const old = await git(rootPath, ['show', staged ? `HEAD:${filePath}` : `:${filePath}`], CONTENT_OUTPUT);
+  const old = await git(
+    rootPath,
+    ['show', staged ? `HEAD:${filePath}` : `:${filePath}`],
+    CONTENT_OUTPUT,
+  );
   let newContent = '';
   if (staged) {
     const indexed = await git(rootPath, ['show', `:${filePath}`], CONTENT_OUTPUT);
@@ -196,12 +222,18 @@ export async function unstageFile(rootPath: string, filePath: string): Promise<v
   if (!reset.error) return;
   // Before the first commit there is no HEAD to reset to: drop it from the index.
   const remove = await git(rootPath, ['rm', '--cached', '--', filePath]);
-  if (remove.error) throw new Error(remove.stderr.trim() || gitError({ ...reset, error: reset.error }));
+  if (remove.error)
+    throw new Error(remove.stderr.trim() || gitError({ ...reset, error: reset.error }));
 }
 
-export async function commit(rootPath: string, message: string): Promise<{ success: boolean; error?: string }> {
+export async function commit(
+  rootPath: string,
+  message: string,
+): Promise<{ success: boolean; error?: string }> {
   const run = await git(rootPath, ['commit', '-m', message]);
-  return run.error ? { success: false, error: gitError({ ...run, error: run.error }) } : { success: true };
+  return run.error
+    ? { success: false, error: gitError({ ...run, error: run.error }) }
+    : { success: true };
 }
 
 function parseDiffHunks(diffOutput: string): GitDiffHunk[] {

@@ -116,7 +116,7 @@
   cursor: pointer;
 }
 
-.ws-icon-tabs button[data-state='active'] {
+.ws-icon-tabs button[data-state="active"] {
   color: var(--color-text-primary);
   box-shadow: inset 0 -2px var(--color-accent);
 }
@@ -140,7 +140,7 @@
   cursor: pointer;
 }
 
-.ws-icon-choice[aria-pressed='true'] {
+.ws-icon-choice[aria-pressed="true"] {
   border-color: var(--color-accent);
   background: var(--color-bg-hover);
 }
@@ -180,7 +180,7 @@
   gap: var(--space-2);
 }
 
-.ws-icon-upload[data-state='inactive'] {
+.ws-icon-upload[data-state="inactive"] {
   display: none;
 }
 
@@ -227,7 +227,7 @@
 }
 
 .ws-fact + .ws-fact::before {
-  content: '·';
+  content: "·";
   margin: 0 var(--space-2);
   color: var(--color-text-disabled);
 }
@@ -357,7 +357,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .ws-row-action:hover:not(:disabled) {
@@ -412,7 +414,9 @@
   cursor: pointer;
   text-align: left;
   font-size: var(--font-size-sm);
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .ws-choice-row:hover {
@@ -450,7 +454,9 @@
   font-weight: var(--font-weight-medium);
   color: var(--color-error);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .ws-danger-button:hover {
@@ -496,7 +502,7 @@
   gap: var(--space-2);
 }
 
-.ws-action-row[draggable='true'] {
+.ws-action-row[draggable="true"] {
   cursor: grab;
 }
 

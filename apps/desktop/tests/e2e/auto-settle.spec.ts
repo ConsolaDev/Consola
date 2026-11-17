@@ -15,21 +15,49 @@ function seed(profileDir: string, scopeDir: string): void {
   fs.mkdirSync(effective, { recursive: true });
   const now = Date.now();
   const builtIn = { ...createBuiltInHarness(), configDir: path.join(scopeDir, 'claude-profile') };
-  fs.writeFileSync(path.join(effective, 'harnesses.json'), JSON.stringify({ version: 1, harnesses: [builtIn] }));
+  fs.writeFileSync(
+    path.join(effective, 'harnesses.json'),
+    JSON.stringify({ version: 1, harnesses: [builtIn] }),
+  );
   const session = (id: string, name: string, lastActiveAt: number) => ({
-    id, name, workspaceId: 'ws-settle-e2e', instanceId: `inst-${id}`, claudeSessionId: `claude-${id}`,
-    hasStarted: false, harnessId: 'default', scopeId: 'scope-app', kind: 'interactive', createdAt: lastActiveAt, lastActiveAt,
+    id,
+    name,
+    workspaceId: 'ws-settle-e2e',
+    instanceId: `inst-${id}`,
+    claudeSessionId: `claude-${id}`,
+    hasStarted: false,
+    harnessId: 'default',
+    scopeId: 'scope-app',
+    kind: 'interactive',
+    createdAt: lastActiveAt,
+    lastActiveAt,
   });
-  fs.writeFileSync(path.join(effective, 'workspaces.json'), JSON.stringify({
-    version: 7,
-    workspaces: [{
-      id: 'ws-settle-e2e', name: WORKSPACE_NAME, defaultHarnessId: 'default',
-      scopes: [{ id: 'scope-app', name: 'portal', path: scopeDir, isGitRepo: false, createdAt: now }],
-      groups: [], actions: [], sectionDefaults: {},
-      sessions: [session('old', 'Old spike', now - 30 * DAY), session('fresh', 'Fresh work', now)],
-      createdAt: now, updatedAt: now,
-    }],
-  }), 'utf8');
+  fs.writeFileSync(
+    path.join(effective, 'workspaces.json'),
+    JSON.stringify({
+      version: 7,
+      workspaces: [
+        {
+          id: 'ws-settle-e2e',
+          name: WORKSPACE_NAME,
+          defaultHarnessId: 'default',
+          scopes: [
+            { id: 'scope-app', name: 'portal', path: scopeDir, isGitRepo: false, createdAt: now },
+          ],
+          groups: [],
+          actions: [],
+          sectionDefaults: {},
+          sessions: [
+            session('old', 'Old spike', now - 30 * DAY),
+            session('fresh', 'Fresh work', now),
+          ],
+          createdAt: now,
+          updatedAt: now,
+        },
+      ],
+    }),
+    'utf8',
+  );
 }
 
 let app: ElectronApplication;
@@ -38,7 +66,9 @@ let profile: string;
 let scopeDir: string;
 
 async function hold(target: Page): Promise<void> {
-  const button = target.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: WORKSPACE_NAME, exact: true });
+  const button = target
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: WORKSPACE_NAME, exact: true });
   await button.click();
   await expect(button).toHaveAttribute('aria-current', 'true');
 }
@@ -78,7 +108,9 @@ test('the first auto-settle is explained, once, and nothing is deleted', async (
   // A row's actions appear on hover, so every reach for one hovers first.
   const shelved = shelf.locator('.session-nav-item').filter({ hasText: 'Old spike' });
   await shelved.hover();
-  await expect(shelved.getByRole('button', { name: 'Move Old spike back to the list' })).toBeVisible();
+  await expect(
+    shelved.getByRole('button', { name: 'Move Old spike back to the list' }),
+  ).toBeVisible();
   const fresh = list.locator('.session-nav-item').filter({ hasText: 'Fresh work' });
   await fresh.hover();
   await expect(fresh.getByRole('button', { name: 'Settle session Fresh work' })).toBeVisible();

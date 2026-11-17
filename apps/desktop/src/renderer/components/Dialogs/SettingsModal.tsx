@@ -1,7 +1,19 @@
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus, ListChecks } from 'lucide-react';
+import {
+  X,
+  Sun,
+  Moon,
+  Monitor,
+  Palette,
+  Keyboard,
+  Boxes,
+  Folder,
+  Minus,
+  Plus,
+  ListChecks,
+} from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
@@ -11,7 +23,11 @@ import {
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useTheme } from '../../hooks/useTheme';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
-import { ASSISTANT_SHORTCUT_LABEL, COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
+import {
+  ASSISTANT_SHORTCUT_LABEL,
+  COMMAND_PALETTE_SHORTCUT_LABEL,
+  isMac,
+} from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
 import './styles.css';
@@ -48,7 +64,12 @@ interface SettingsModalProps {
   onOpenChange: (open: boolean) => void;
 }
 
-export function SettingsModal({ open, onOpenChange, activeSection, onSectionChange }: SettingsModalProps) {
+export function SettingsModal({
+  open,
+  onOpenChange,
+  activeSection,
+  onSectionChange,
+}: SettingsModalProps) {
   const { theme, setTheme, terminalFontSize, setTerminalFontSize } = useSettingsStore();
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const { openWorkspaceSettings } = useWorkspaceSettings();
@@ -73,7 +94,9 @@ export function SettingsModal({ open, onOpenChange, activeSection, onSectionChan
                 className="settings-modal-nav-pointer"
                 onClick={() => openWorkspaceSettings()}
                 disabled={activeWorkspaceId === null}
-                title={activeWorkspaceId === null ? 'Open a workspace to manage it here.' : undefined}
+                title={
+                  activeWorkspaceId === null ? 'Open a workspace to manage it here.' : undefined
+                }
               >
                 <Folder size={14} />
                 <span>Workspace settings are in the workspace menu</span>
@@ -193,7 +216,9 @@ function SessionsSection() {
         <div className="settings-modal-option-info">
           <span className="settings-modal-option-label">Settle idle sessions</span>
           <span className="settings-modal-option-description">
-            Sessions with nothing happening move to the Settled shelf after this long. Nothing is deleted, and new activity brings a session back. Choose Off to keep every session where it is.
+            Sessions with nothing happening move to the Settled shelf after this long. Nothing is
+            deleted, and new activity brings a session back. Choose Off to keep every session where
+            it is.
           </span>
         </div>
         <AutoSettleControl />

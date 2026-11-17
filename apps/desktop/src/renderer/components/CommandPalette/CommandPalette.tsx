@@ -41,7 +41,7 @@ const ROOT_MODE: PaletteMode = { kind: 'root' };
 /** Placeholder and heading text per mode. */
 function describeMode(
   mode: PaletteMode,
-  scope: PaletteScope | null
+  scope: PaletteScope | null,
 ): { title: string | null; placeholder: string } {
   switch (mode.kind) {
     case 'root':
@@ -89,10 +89,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
 
   // Row position comes from the flat list rather than being recounted while
   // rendering groups, so keyboard indexes cannot drift from what is drawn.
-  const rowIndexById = useMemo(
-    () => new Map(flat.map((item, index) => [item.id, index])),
-    [flat]
-  );
+  const rowIndexById = useMemo(() => new Map(flat.map((item, index) => [item.id, index])), [flat]);
 
   // The palette is a fire-and-forget tool: every open starts from scratch.
   // Keyed on the scope too, so a scope chord pressed while the palette is
@@ -112,7 +109,9 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
 
   // Results can shrink under a selection that was valid a keystroke ago.
   useEffect(() => {
-    setSelectedIndex((current) => (current >= flat.length ? Math.max(0, flat.length - 1) : current));
+    setSelectedIndex((current) =>
+      current >= flat.length ? Math.max(0, flat.length - 1) : current,
+    );
   }, [flat.length]);
 
   useEffect(() => {
@@ -157,7 +156,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
       setQuery(value);
     },
-    [scope, mode]
+    [scope, mode],
   );
 
   /** Widen back to everything, keeping the query — it still means something. */
@@ -191,7 +190,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
 
       if (purpose === 'delete') {
         const confirmed = window.confirm(
-          `Delete session "${session.name}"? This will remove the session and its chat history.`
+          `Delete session "${session.name}"? This will remove the session and its chat history.`,
         );
         // Staying in the picker on cancel means a misfire costs one keystroke.
         if (!confirmed) return;
@@ -206,7 +205,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       void activateSessionAnywhere(workspace.id, session.id);
       close();
     },
-    [close]
+    [close],
   );
 
   const activate = useCallback(
@@ -271,7 +270,7 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
         close();
       }
     },
-    [mode, close, pushMode, handlePickedSession]
+    [mode, close, pushMode, handlePickedSession],
   );
 
   const commitRename = useCallback(() => {

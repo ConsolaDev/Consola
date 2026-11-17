@@ -64,7 +64,7 @@
 }
 
 .sidebar-resize-handle::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -73,7 +73,7 @@
 }
 
 .sidebar-resize-handle::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 0;
   bottom: 0;
@@ -190,7 +190,9 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .sidebar-section-button:hover {
@@ -244,20 +246,32 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background-color 120ms ease-out, color 120ms ease-out;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
 }
 
 .sidebar-navigation-settings:hover,
-.sidebar-navigation-settings[data-state='open'] {
+.sidebar-navigation-settings[data-state="open"] {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
-.sidebar-navigation-settings:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.sidebar-navigation-settings:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 /* The same small sink on press as ＋ and ▾ beside it. */
-.sidebar-navigation-settings > svg { transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1); }
-.sidebar-navigation-settings:active > svg { transform: scale(0.86); transition-duration: 60ms; }
+.sidebar-navigation-settings > svg {
+  transition: transform 180ms cubic-bezier(0.25, 1, 0.5, 1);
+}
+.sidebar-navigation-settings:active > svg {
+  transform: scale(0.86);
+  transition-duration: 60ms;
+}
 @media (prefers-reduced-motion: reduce) {
-  .sidebar-navigation-settings > svg { transition: none; }
+  .sidebar-navigation-settings > svg {
+    transition: none;
+  }
 }
 
 .navigation-settings-check {
@@ -336,7 +350,9 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
   -webkit-app-region: no-drag;
 }
 
@@ -434,7 +450,9 @@
   text-align: left;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .project-nav-item:hover {
@@ -477,7 +495,10 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .project-nav-item:hover .project-actions-trigger {
@@ -489,7 +510,7 @@
   color: var(--color-text-primary);
 }
 
-.project-actions-trigger[data-state='open'] {
+.project-actions-trigger[data-state="open"] {
   opacity: 1;
   background: var(--color-bg-active);
   color: var(--color-text-primary);
@@ -528,7 +549,9 @@
   color: var(--color-text-secondary);
   cursor: pointer;
   outline: none;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .dropdown-item:hover,
@@ -580,23 +603,60 @@
   transition: background var(--transition-fast);
 }
 .assistant-nav-item:hover,
-.automations-nav-item:hover { background: var(--color-bg-hover); }
+.automations-nav-item:hover {
+  background: var(--color-bg-hover);
+}
 .assistant-nav-item.active,
-.automations-nav-item.active { background: var(--color-bg-active); }
-.assistant-nav-item[aria-disabled='true'] { opacity: 0.5; cursor: default; }
-.assistant-nav-item[aria-disabled='true']:hover { background: transparent; }
+.automations-nav-item.active {
+  background: var(--color-bg-active);
+}
+.assistant-nav-item[aria-disabled="true"] {
+  opacity: 0.5;
+  cursor: default;
+}
+.assistant-nav-item[aria-disabled="true"]:hover {
+  background: transparent;
+}
 .assistant-nav-item:focus-visible,
-.automations-nav-item:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.automations-nav-item:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 /* A 14px slot like the search and scope icons, so the label lines up with
    theirs; flex centring lets the slightly wider glyph spill evenly. */
-.assistant-spark { display: inline-flex; flex-shrink: 0; justify-content: center; width: 14px; font-size: 16px; line-height: 1; color: var(--color-worktree); }
+.assistant-spark {
+  display: inline-flex;
+  flex-shrink: 0;
+  justify-content: center;
+  width: 14px;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--color-worktree);
+}
 .assistant-nav-label,
-.automations-nav-label { flex: 1; font-weight: 500; }
-.assistant-nav-shortcut { font: 11px ui-monospace, Menlo, monospace; color: var(--color-text-tertiary); }
+.automations-nav-label {
+  flex: 1;
+  font-weight: 500;
+}
+.assistant-nav-shortcut {
+  font:
+    11px ui-monospace,
+    Menlo,
+    monospace;
+  color: var(--color-text-tertiary);
+}
 .assistant-nav-word,
-.automations-nav-word { font-size: var(--sidebar-font-size-small); color: var(--color-text-secondary); }
-.assistant-nav-word--attention { color: var(--color-warning); }
-.automations-nav-icon { flex-shrink: 0; color: var(--color-text-secondary); }
+.automations-nav-word {
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-secondary);
+}
+.assistant-nav-word--attention {
+  color: var(--color-warning);
+}
+.automations-nav-icon {
+  flex-shrink: 0;
+  color: var(--color-text-secondary);
+}
 /* A literal radius: var(--radius-full) resolves to 0 inside .radix-themes. */
 .automations-nav-pill {
   flex-shrink: 0;
@@ -608,8 +668,14 @@
   font-variant-numeric: tabular-nums;
 }
 /* Amber is what needs the person; red is what went wrong. */
-.automations-nav-pill--waiting { background: color-mix(in srgb, var(--color-warning) 18%, transparent); color: var(--color-warning); }
-.automations-nav-pill--failed { background: color-mix(in srgb, var(--color-error) 16%, transparent); color: var(--color-error); }
+.automations-nav-pill--waiting {
+  background: color-mix(in srgb, var(--color-warning) 18%, transparent);
+  color: var(--color-warning);
+}
+.automations-nav-pill--failed {
+  background: color-mix(in srgb, var(--color-error) 16%, transparent);
+  color: var(--color-error);
+}
 
 /* Session nav item */
 /* One zone: the text column, and it takes every pixel the row has. Nothing is
@@ -638,7 +704,9 @@
   cursor: pointer;
   /* The row is a div acting as a button; keep its label a target, not text. */
   user-select: none;
-  transition: background 140ms var(--ease-out-quart), color 140ms var(--ease-out-quart);
+  transition:
+    background 140ms var(--ease-out-quart),
+    color 140ms var(--ease-out-quart);
 }
 
 /* Everything that is not the title: glyphs, where it runs, its state, its age.
@@ -835,11 +903,14 @@
 /* The trailing lock belongs to the corner Restore takes over on hover, so it
    steps aside with the age rather than peeking out beside the pill. */
 .session-nav-item--compact .session-nav-item-read-only {
-  transition: color var(--transition-fast), opacity 120ms var(--ease-out-quart);
+  transition:
+    color var(--transition-fast),
+    opacity 120ms var(--ease-out-quart);
 }
 
 .session-nav-item--compact:has(.session-settle-action):hover .session-nav-item-read-only,
-.session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-nav-item-read-only {
+.session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-nav-item-read-only {
   opacity: 0;
 }
 
@@ -892,7 +963,7 @@
 /* "Opus 4.6 · consola": two names in a row need a seam, or they read as one. */
 .session-nav-item-model + .session-nav-item-scope::before,
 .session-nav-item-model + .session-nav-item-subtitle::before {
-  content: '·';
+  content: "·";
   padding-right: 5px;
   color: var(--color-text-tertiary);
 }
@@ -946,7 +1017,9 @@
      again — a menu that never came to rest under the cursor aiming at it.
      Nothing that anchors a popper may move. */
   opacity: 0;
-  transition: opacity 120ms var(--ease-out-quart), visibility 0s 120ms;
+  transition:
+    opacity 120ms var(--ease-out-quart),
+    visibility 0s 120ms;
 }
 
 /* Inside a session row the actions leave the flow entirely. Held in layout
@@ -1027,7 +1100,7 @@
 .session-nav-item:is(:focus-visible, :has(:focus-visible)) .nav-row-actions,
 .scope-row:hover .nav-row-actions,
 .scope-row:focus-within .nav-row-actions,
-.nav-row-actions[data-open='true'] {
+.nav-row-actions[data-open="true"] {
   visibility: visible;
   opacity: 1;
   transition-delay: 0s;
@@ -1047,11 +1120,14 @@
 }
 
 .session-nav-item:has(.session-settle-action):hover .session-row-age,
-.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-row-age,
-.session-nav-item:has(.nav-row-actions[data-open='true'] .session-settle-action) .session-row-age,
+.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-row-age,
+.session-nav-item:has(.nav-row-actions[data-open="true"] .session-settle-action) .session-row-age,
 .session-nav-item:has(.session-settle-action):hover .session-row-status,
-.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible)) .session-row-status,
-.session-nav-item:has(.nav-row-actions[data-open='true'] .session-settle-action) .session-row-status {
+.session-nav-item:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-row-status,
+.session-nav-item:has(.nav-row-actions[data-open="true"] .session-settle-action)
+  .session-row-status {
   opacity: 0;
 }
 
@@ -1068,7 +1144,9 @@
   background: transparent;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .nav-row-action:hover {
@@ -1076,7 +1154,7 @@
   color: var(--color-text-primary);
 }
 
-.nav-row-action[data-state='open'] {
+.nav-row-action[data-state="open"] {
   background: var(--color-bg-active);
   color: var(--color-text-primary);
 }
@@ -1169,23 +1247,43 @@
 /* A status arriving: it rises into the column it shares with the age, so the
    change reads as a line being replaced rather than as a word blinking. */
 @keyframes session-status-in {
-  from { opacity: 0; transform: translateY(-3px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* `status-spin` and `status-breathe` are defined once in styles/statusDots.css,
    beside the shared marks they animate. */
 
 @keyframes session-status-check {
-  from { opacity: 0; transform: scale(0.4); }
-  60% { transform: scale(1.08); }
-  to { opacity: 1; transform: scale(1); }
+  from {
+    opacity: 0;
+    transform: scale(0.4);
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
 }
 
 /* A count that changed. One tick over, from the direction a list grows. */
 @keyframes shelf-count-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Flat list of the sessions in the workspace this window holds. The 2px
@@ -1212,8 +1310,14 @@
 }
 
 @keyframes session-row-in {
-  from { opacity: 0; transform: translateY(-4px); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 /* Project collapsible styles */
@@ -1237,7 +1341,10 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
   z-index: 1;
 }
 
@@ -1259,11 +1366,11 @@
   overflow: hidden;
 }
 
-.project-collapsible-content[data-state='open'] {
+.project-collapsible-content[data-state="open"] {
   animation: collapsible-slide-down 150ms ease-out;
 }
 
-.project-collapsible-content[data-state='closed'] {
+.project-collapsible-content[data-state="closed"] {
   animation: collapsible-slide-up 150ms ease-out;
 }
 
@@ -1287,7 +1394,10 @@
   color: var(--color-text-tertiary);
   cursor: pointer;
   opacity: 0;
-  transition: opacity var(--transition-fast), background var(--transition-fast), color var(--transition-fast);
+  transition:
+    opacity var(--transition-fast),
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .project-nav-item-container:hover .project-add-session {
@@ -1402,12 +1512,19 @@
 
 /* --- Attention shelves and conductor trees ------------------------------ */
 
-.sidebar-sessions { display: flex; flex-direction: column; }
-.sidebar-bucket { padding: 2px var(--sidebar-list-inset); }
+.sidebar-sessions {
+  display: flex;
+  flex-direction: column;
+}
+.sidebar-bucket {
+  padding: 2px var(--sidebar-list-inset);
+}
 
 /* Air between sections, and only between them: the first one meets the filter
    bar above it without a gap it has not earned. */
-.sidebar-bucket + .sidebar-bucket { margin-top: var(--space-2); }
+.sidebar-bucket + .sidebar-bucket {
+  margin-top: var(--space-2);
+}
 
 /* Working and Settled are pinned to the bottom of the sidebar, below the
    scrolling panel rather than inside it. They size to their rows and share
@@ -1434,20 +1551,30 @@
   flex-direction: column;
   min-height: calc(var(--sidebar-row-height) + 4px);
 }
-.sidebar-dock .session-list { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.sidebar-dock .session-list {
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
 
 /* A row is as tall as what it says, always. The list is a flex column, and
    flex items shrink by default down to their min-height (one 28px row), so
    a long Settled list squeezed every row to that and painted each one over
    its neighbours. Rows scroll; they never compress. */
-.sidebar-dock .session-list > * { flex-shrink: 0; }
+.sidebar-dock .session-list > * {
+  flex-shrink: 0;
+}
 
 /* Running sessions are what is happening now, and the archive below them is
    not: Working never gives up height to Settled. It holds its rows whole up
    to about five, then scrolls under its own header, which leaves Settled at
    least its header however many are running. */
-.sidebar-dock > .sidebar-bucket--working { flex-shrink: 0; }
-.sidebar-bucket--working .session-list { max-height: calc(var(--sidebar-row-height) * 10); }
+.sidebar-dock > .sidebar-bucket--working {
+  flex-shrink: 0;
+}
+.sidebar-bucket--working .session-list {
+  max-height: calc(var(--sidebar-row-height) * 10);
+}
 
 /* A section's header. The same height as a session row and on the same left
    edge, told apart by weight and colour, with a live count so a folded shelf
@@ -1470,12 +1597,23 @@
   letter-spacing: 0.01em;
   text-align: left;
   cursor: pointer;
-  transition: background 140ms var(--ease-out-quart), color 140ms var(--ease-out-quart);
+  transition:
+    background 140ms var(--ease-out-quart),
+    color 140ms var(--ease-out-quart);
 }
-button.shelf-header:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.shelf-header:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+button.shelf-header:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.shelf-header:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 
-.shelf-header-title { flex: 1; min-width: 0; }
+.shelf-header-title {
+  flex: 1;
+  min-width: 0;
+}
 
 /* Working's header turns the arc its rows turn, beside the count, so a folded
    shelf still says its sessions are running rather than only how many. */
@@ -1505,28 +1643,65 @@ button.shelf-header:hover { background: var(--color-bg-hover); color: var(--colo
   transform: rotate(-90deg);
   transition: transform 200ms var(--ease-out-quart);
 }
-.shelf-header-chevron[data-open] { transform: none; }
+.shelf-header-chevron[data-open] {
+  transform: none;
+}
 
 /* An empty shelf is scaffolding, not content. It stays reachable but stops
    competing with the rows that have something in them. */
-.shelf-header[data-empty='true'] { color: color-mix(in srgb, var(--color-text-tertiary) 65%, transparent); }
-button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary); }
-
-.tree-row { display: flex; flex-direction: column; row-gap: 2px; }
-.tree-row-head { display: flex; align-items: center; }
-.tree-row-head > .session-nav-item { flex: 1; min-width: 0; }
-.tree-row-toggle {
-  display: flex; flex: none; align-items: center; justify-content: center;
-  width: 16px; height: 20px; padding: 0; border: none; border-radius: var(--radius-sm);
-  background: transparent; color: var(--color-text-tertiary); cursor: pointer;
+.shelf-header[data-empty="true"] {
+  color: color-mix(in srgb, var(--color-text-tertiary) 65%, transparent);
 }
-.tree-row-toggle:hover { color: var(--color-text-primary); background: var(--color-bg-hover); }
-.tree-row-toggle:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-.tree-row-children { display: flex; flex-direction: column; row-gap: 2px; }
+button.shelf-header[data-empty="true"]:hover {
+  color: var(--color-text-secondary);
+}
+
+.tree-row {
+  display: flex;
+  flex-direction: column;
+  row-gap: 2px;
+}
+.tree-row-head {
+  display: flex;
+  align-items: center;
+}
+.tree-row-head > .session-nav-item {
+  flex: 1;
+  min-width: 0;
+}
+.tree-row-toggle {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+.tree-row-toggle:hover {
+  color: var(--color-text-primary);
+  background: var(--color-bg-hover);
+}
+.tree-row-toggle:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.tree-row-children {
+  display: flex;
+  flex-direction: column;
+  row-gap: 2px;
+}
 
 /* Children sit one step in from their conductor. Padding rather than margin, so
    hover and active backgrounds still run to the list's edge. */
-.session-nav-item--child { padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3)); }
+.session-nav-item--child {
+  padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3));
+}
 
 .tree-aggregate {
   flex: none;
@@ -1537,7 +1712,9 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   background: var(--color-bg-hover);
   color: var(--color-text-secondary);
 }
-.tree-aggregate--needs-attention { color: var(--color-warning, var(--color-accent)); }
+.tree-aggregate--needs-attention {
+  color: var(--color-warning, var(--color-accent));
+}
 
 .tree-row-more {
   align-self: flex-start;
@@ -1550,7 +1727,9 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   font-size: 11px;
   cursor: pointer;
 }
-.tree-row-more:hover { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+.tree-row-more:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
 
 /* What a filter hides that needs the person, never silently. */
 .sidebar-hidden-chip {
@@ -1564,7 +1743,9 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   font-size: 11px;
   cursor: pointer;
 }
-.sidebar-hidden-chip:hover { background: color-mix(in srgb, var(--color-accent) 28%, transparent); }
+.sidebar-hidden-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 28%, transparent);
+}
 
 /* The list with nothing at the top. Quiet and on the rows' left edge: it is
    an answer, not an event, and it settles in once rather than announcing. */
@@ -1607,10 +1788,14 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   height: var(--sidebar-row-height);
   margin: 0 var(--space-2) var(--space-1);
   border-radius: var(--radius-sm);
-  transition: background var(--transition-fast), box-shadow var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    box-shadow var(--transition-fast);
 }
 
-.sidebar-scope-filter:hover { background: var(--color-bg-hover); }
+.sidebar-scope-filter:hover {
+  background: var(--color-bg-hover);
+}
 
 /* Narrowed: the tint is the signal, the label firms up. */
 .sidebar-scope-filter.is-filtered {
@@ -1639,23 +1824,52 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   cursor: pointer;
 }
 
-.sidebar-scope-filter-trigger > svg { flex-shrink: 0; color: var(--color-text-tertiary); }
+.sidebar-scope-filter-trigger > svg {
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
 .sidebar-scope-filter-trigger:hover,
-.sidebar-scope-filter-trigger[aria-expanded='true'] { color: var(--color-text-primary); }
+.sidebar-scope-filter-trigger[aria-expanded="true"] {
+  color: var(--color-text-primary);
+}
 
 .sidebar-scope-filter.is-filtered .sidebar-scope-filter-trigger {
   color: var(--color-text-primary);
   font-weight: 500;
 }
 
-.sidebar-scope-filter.is-filtered .sidebar-scope-filter-trigger > svg { color: var(--color-accent); }
+.sidebar-scope-filter.is-filtered .sidebar-scope-filter-trigger > svg {
+  color: var(--color-accent);
+}
 
 /* "sprocket / apps/api": the containing scope, dimmed, gives way before the
    folder's own name does. */
-.sidebar-scope-filter-label { display: flex; flex: 0 1 auto; min-width: 0; white-space: nowrap; }
-.sidebar-scope-filter-parent { flex: 0 4 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; color: var(--color-text-tertiary); font-weight: 400; }
-.sidebar-scope-filter-slash { flex: none; padding: 0 var(--space-1); color: var(--color-text-tertiary); font-weight: 400; }
-.sidebar-scope-filter-name { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.sidebar-scope-filter-label {
+  display: flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+}
+.sidebar-scope-filter-parent {
+  flex: 0 4 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.sidebar-scope-filter-slash {
+  flex: none;
+  padding: 0 var(--space-1);
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.sidebar-scope-filter-name {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 
 .sidebar-scope-filter-clear {
   display: flex;
@@ -1705,7 +1919,9 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   cursor: pointer;
 }
 
-.sidebar-filter-chip:hover { background: color-mix(in srgb, var(--color-accent) 22%, transparent); }
+.sidebar-filter-chip:hover {
+  background: color-mix(in srgb, var(--color-accent) 22%, transparent);
+}
 
 .session-nav-item-label {
   padding: 0 5px;
@@ -1724,11 +1940,29 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   overflow-y: auto;
 }
 
-.sidebar-scope-menu-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.sidebar-scope-menu-parent { color: var(--color-text-tertiary); }
-.sidebar-scope-menu-count { flex: none; font-size: var(--font-size-xs); font-variant-numeric: tabular-nums; color: var(--color-text-tertiary); }
+.sidebar-scope-menu-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-scope-menu-parent {
+  color: var(--color-text-tertiary);
+}
+.sidebar-scope-menu-count {
+  flex: none;
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
 /* A fixed slot, so the counts line up whichever row is checked. */
-.sidebar-scope-menu-check { display: flex; flex: none; width: 14px; color: var(--color-accent); }
+.sidebar-scope-menu-check {
+  display: flex;
+  flex: none;
+  width: 14px;
+  color: var(--color-accent);
+}
 
 .sidebar-scope-menu-search {
   box-sizing: border-box;
@@ -1743,7 +1977,10 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   font-size: var(--font-size-sm);
 }
 
-.sidebar-scope-menu-search:focus { outline: 1px solid var(--color-accent); outline-offset: -1px; }
+.sidebar-scope-menu-search:focus {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 
 .sidebar-scope-menu-empty {
   margin: 0;
@@ -1769,8 +2006,8 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
     background: var(--color-accent);
   }
 
-  .project-collapsible-content[data-state='open'],
-  .project-collapsible-content[data-state='closed'],
+  .project-collapsible-content[data-state="open"],
+  .project-collapsible-content[data-state="closed"],
   .dropdown-content,
   .tooltip-content {
     animation: none;
@@ -1824,15 +2061,24 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   z-index: 1;
   border-radius: var(--radius-sm);
   background-color: var(--color-bg-sidebar);
-  background-image: linear-gradient(var(--travel-fill, transparent), var(--travel-fill, transparent));
+  background-image: linear-gradient(
+    var(--travel-fill, transparent),
+    var(--travel-fill, transparent)
+  );
   box-shadow: var(--sidebar-row-lift);
 }
-.session-list > .active[data-travelling] { --travel-fill: var(--color-bg-active); }
+.session-list > .active[data-travelling] {
+  --travel-fill: var(--color-bg-active);
+}
 .session-list > [data-travelling],
-.session-list > [data-landed] { transition: box-shadow 180ms var(--ease-out-quart); }
+.session-list > [data-landed] {
+  transition: box-shadow 180ms var(--ease-out-quart);
+}
 
 /* A shelf that does not scroll lets the row cross its edge while it flies in. */
-.sidebar-dock .session-list[data-travel-open] { overflow: visible; }
+.sidebar-dock .session-list[data-travel-open] {
+  overflow: visible;
+}
 
 /* A folded shelf has no slot to land in, so a copy of the row slides down
    into the dock, under its top edge: the clip is everything above the dock.
@@ -1853,8 +2099,13 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   background: var(--color-bg-sidebar);
   box-shadow: var(--sidebar-row-lift);
 }
-.sidebar-ghost > * { height: 100%; }
-.sidebar-ghost * { animation: none !important; transition: none !important; }
+.sidebar-ghost > * {
+  height: 100%;
+}
+.sidebar-ghost * {
+  animation: none !important;
+  transition: none !important;
+}
 
 /* --- Moving a session in and out of a group ----------------------------- */
 
@@ -1898,13 +2149,26 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   font-size: var(--sidebar-font-size);
   font-weight: var(--font-weight-medium);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
-.app-navigation-label { display: none; }
-.app-navigation-item.active .app-navigation-label { display: inline; }
-.app-navigation-item:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
-.app-navigation-item.active { padding-inline: var(--space-2); background: var(--color-bg-active); color: var(--color-text-primary); }
+.app-navigation-label {
+  display: none;
+}
+.app-navigation-item.active .app-navigation-label {
+  display: inline;
+}
+.app-navigation-item:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+.app-navigation-item.active {
+  padding-inline: var(--space-2);
+  background: var(--color-bg-active);
+  color: var(--color-text-primary);
+}
 .app-navigation-badge {
   min-width: 14px;
   padding: 0 3px;
@@ -1927,7 +2191,9 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   gap: var(--space-1);
   padding: var(--space-3) var(--space-2);
 }
-.sidebar-search .new-menu-buttons { --new-menu-height: 32px; }
+.sidebar-search .new-menu-buttons {
+  --new-menu-height: 32px;
+}
 .sidebar-search-field {
   display: flex;
   flex: 1;
@@ -1943,53 +2209,156 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
   font-size: var(--sidebar-font-size);
   text-align: left;
   cursor: pointer;
-  transition: background var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
 }
-.sidebar-search-field:hover { background: var(--color-bg-hover); border-color: var(--color-border-hover); }
-.sidebar-search-field:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-.sidebar-search-field > svg { flex-shrink: 0; }
-.sidebar-search-placeholder { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.sidebar-search-field:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border-hover);
+}
+.sidebar-search-field:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
+.sidebar-search-field > svg {
+  flex-shrink: 0;
+}
+.sidebar-search-placeholder {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 /* On a narrow sidebar the chord hint gives way first, and the buttons close
    in, so the field keeps its word: ⌘K alone in a squeezed box only looks
    broken. */
 @container (max-width: 215px) {
-  .sidebar-search-shortcut { display: none; }
-  .sidebar-navigation-settings { width: 24px; }
-  .sidebar-search .new-menu-trigger { width: 24px; }
-  .sidebar-search .new-menu-trigger.new-menu-more { width: 18px; }
+  .sidebar-search-shortcut {
+    display: none;
+  }
+  .sidebar-navigation-settings {
+    width: 24px;
+  }
+  .sidebar-search .new-menu-trigger {
+    width: 24px;
+  }
+  .sidebar-search .new-menu-trigger.new-menu-more {
+    width: 18px;
+  }
 }
 .sidebar-search-shortcut {
   flex-shrink: 0;
   padding: 1px 6px;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
-  font: 11px ui-monospace, Menlo, monospace;
+  font:
+    11px ui-monospace,
+    Menlo,
+    monospace;
   color: var(--color-text-tertiary);
 }
-.home-navigation { display: flex; flex: 1; min-height: 0; flex-direction: column; }
-.home-session-panel { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
-.home-session-panel .sidebar-section { flex: none; overflow: visible; }
-.home-session-panel .sidebar-section-title { text-transform: none; letter-spacing: normal; }
-.sidebar-empty, .sidebar-error { margin: var(--space-1) var(--space-2) var(--space-2); font-size: var(--sidebar-font-size-small); color: var(--color-text-tertiary); line-height: var(--line-height-normal); }
-.sidebar-error { color: var(--color-error); }
-.sidebar-empty-link { padding: 0; border: 0; background: transparent; color: var(--color-accent); font: inherit; cursor: pointer; text-align: left; }
-.sidebar-empty-link:hover { text-decoration: underline; }
-.sidebar-empty-link:focus-visible { outline: 1px solid var(--color-accent); outline-offset: 1px; }
-.app-navigation-item:focus-visible, .sidebar-scope-filter-trigger:focus-visible, .sidebar-scope-filter-clear:focus-visible, .sidebar-section-button:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-
+.home-navigation {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+}
+.home-session-panel {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+.home-session-panel .sidebar-section {
+  flex: none;
+  overflow: visible;
+}
+.home-session-panel .sidebar-section-title {
+  text-transform: none;
+  letter-spacing: normal;
+}
+.sidebar-empty,
+.sidebar-error {
+  margin: var(--space-1) var(--space-2) var(--space-2);
+  font-size: var(--sidebar-font-size-small);
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-normal);
+}
+.sidebar-error {
+  color: var(--color-error);
+}
+.sidebar-empty-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent);
+  font: inherit;
+  cursor: pointer;
+  text-align: left;
+}
+.sidebar-empty-link:hover {
+  text-decoration: underline;
+}
+.sidebar-empty-link:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
+}
+.app-navigation-item:focus-visible,
+.sidebar-scope-filter-trigger:focus-visible,
+.sidebar-scope-filter-clear:focus-visible,
+.sidebar-section-button:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: -1px;
+}
 
 /* A run waiting for approval: a row with its decision beside it. */
-.run-nav-item { flex-wrap: wrap; }
+.run-nav-item {
+  flex-wrap: wrap;
+}
 .run-nav-item-main {
-  display: flex; align-items: center; gap: 6px; flex: 1; min-width: 0;
-  background: none; border: 0; padding: 0; color: inherit; font: inherit; text-align: left; cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+  background: none;
+  border: 0;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
 }
-.run-nav-item-icon { color: var(--color-accent); flex-shrink: 0; }
-.run-nav-item-actions { display: flex; gap: 4px; margin-left: auto; padding-left: var(--space-2); }
+.run-nav-item-icon {
+  color: var(--color-accent);
+  flex-shrink: 0;
+}
+.run-nav-item-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: auto;
+  padding-left: var(--space-2);
+}
 .run-nav-item-action {
-  background: none; border: 1px solid var(--color-border); border-radius: 4px; padding: 0 6px;
-  color: inherit; font: inherit; font-size: 11px; cursor: pointer;
+  background: none;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  padding: 0 6px;
+  color: inherit;
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
 }
-.run-nav-item-action:hover:not(:disabled) { background: var(--color-bg-hover); }
-.run-nav-item-action:disabled { opacity: 0.5; cursor: default; }
-.run-nav-item-error { flex-basis: 100%; font-size: 11px; color: var(--color-error, #d33); }
+.run-nav-item-action:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+}
+.run-nav-item-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.run-nav-item-error {
+  flex-basis: 100%;
+  font-size: 11px;
+  color: var(--color-error, #d33);
+}

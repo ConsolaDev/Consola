@@ -8,8 +8,8 @@ import { INBOX_QUERY, INBOX_SEARCH_ALIASES, parseInboxPayload, searchStrings } f
 const canned = JSON.parse(
   fs.readFileSync(
     path.resolve(__dirname, '../../../../tests/fixtures/stub-gh/graphql-inbox.json'),
-    'utf8'
-  )
+    'utf8',
+  ),
 );
 
 /** One PullRequest node carrying every field the fragment asks for. */
@@ -188,7 +188,7 @@ describe('parseInboxPayload derivation rules', () => {
           checkRun('COMPLETED', 'ACTION_REQUIRED'),
           checkRun('COMPLETED', 'STARTUP_FAILURE'),
         ],
-      })
+      }),
     );
     expect(only(payloadWith({ authored: [node] })).checks).toEqual({
       passed: 3,
@@ -208,7 +208,7 @@ describe('parseInboxPayload derivation rules', () => {
           checkRun('QUEUED', null),
           checkRun('COMPLETED', 'STALE'),
         ],
-      })
+      }),
     );
     expect(only(payloadWith({ authored: [node] })).checks).toEqual({
       passed: 0,
@@ -230,7 +230,7 @@ describe('parseInboxPayload derivation rules', () => {
           statusContext('PENDING'),
           statusContext('EXPECTED'),
         ],
-      })
+      }),
     );
     expect(only(payloadWith({ authored: [node] })).checks).toEqual({
       passed: 1,
@@ -246,7 +246,7 @@ describe('parseInboxPayload derivation rules', () => {
       rollup('SUCCESS', {
         totalCount: 2,
         nodes: [{ __typename: 'Mystery' }, checkRun('COMPLETED', 'SUCCESS')],
-      })
+      }),
     );
     expect(only(payloadWith({ authored: [node] })).checks).toEqual({
       passed: 1,
@@ -274,16 +274,19 @@ describe('parseInboxPayload derivation rules', () => {
   });
 
   it('reads a null or unfamiliar reviewDecision as none', () => {
-    expect(only(payloadWith({ authored: [prNode(1, { reviewDecision: null })] })).reviewDecision).toBe(
-      'none'
-    );
     expect(
-      only(payloadWith({ authored: [prNode(1, { reviewDecision: 'SOMETHING_NEW' })] })).reviewDecision
+      only(payloadWith({ authored: [prNode(1, { reviewDecision: null })] })).reviewDecision,
+    ).toBe('none');
+    expect(
+      only(payloadWith({ authored: [prNode(1, { reviewDecision: 'SOMETHING_NEW' })] }))
+        .reviewDecision,
     ).toBe('none');
   });
 
   it('defaults a missing author and comment count', () => {
-    const item = only(payloadWith({ authored: [prNode(1, { author: null, comments: undefined })] }));
+    const item = only(
+      payloadWith({ authored: [prNode(1, { author: null, comments: undefined })] }),
+    );
     expect(item.author).toBe('');
     expect(item.commentCount).toBe(0);
   });
@@ -335,14 +338,14 @@ describe('parseInboxPayload derivation rules', () => {
 
   it('throws when errors exist without data, carrying the message', () => {
     expect(() => parseInboxPayload({ errors: [{ message: 'API rate limit exceeded' }] })).toThrow(
-      'API rate limit exceeded'
+      'API rate limit exceeded',
     );
   });
 
   it('tolerates errors alongside usable data', () => {
-    expect(parseInboxPayload({ ...(payloadWith({}) as object), errors: [{ message: 'warning' }] })).toEqual(
-      []
-    );
+    expect(
+      parseInboxPayload({ ...(payloadWith({}) as object), errors: [{ message: 'warning' }] }),
+    ).toEqual([]);
   });
 
   // A GraphQL partial failure: `data` is present but every alias resolved to

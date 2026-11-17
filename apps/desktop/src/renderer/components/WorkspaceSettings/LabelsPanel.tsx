@@ -46,11 +46,15 @@ export function LabelsPanel({ workspace }: LabelsPanelProps) {
           Add label
         </button>
       </div>
-      {error && <p className="dialog-error" role="alert">{error}</p>}
+      {error && (
+        <p className="dialog-error" role="alert">
+          {error}
+        </p>
+      )}
       {workspace.labels.length === 0 ? (
         <p className="ws-panel-hint">
-          No labels yet. A label tags sessions that belong together, and narrows the sidebar list
-          to them from the filter bar.
+          No labels yet. A label tags sessions that belong together, and narrows the sidebar list to
+          them from the filter bar.
         </p>
       ) : (
         <div className="ws-row-list">
@@ -59,7 +63,9 @@ export function LabelsPanel({ workspace }: LabelsPanelProps) {
             return (
               <div key={label.id} className="ws-row">
                 <span className="ws-row-icon">
-                  <span className="group-emoji" aria-hidden="true">{label.emoji || <Tag size={13} />}</span>
+                  <span className="group-emoji" aria-hidden="true">
+                    {label.emoji || <Tag size={13} />}
+                  </span>
                 </span>
                 <span className="ws-row-name">{label.name}</span>
                 {members > 0 && (
@@ -91,7 +97,11 @@ export function LabelsPanel({ workspace }: LabelsPanelProps) {
         </div>
       )}
       {editing && (
-        <EditLabelDialog workspaceId={workspace.id} label={editing} onClose={() => setEditing(null)} />
+        <EditLabelDialog
+          workspaceId={workspace.id}
+          label={editing}
+          onClose={() => setEditing(null)}
+        />
       )}
       {creating && <NewLabelDialog workspaceId={workspace.id} onClose={() => setCreating(false)} />}
     </section>

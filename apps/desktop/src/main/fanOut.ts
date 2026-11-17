@@ -6,14 +6,14 @@ import type { LaunchSessionFields } from './SessionLauncher';
 
 /** The slices of WorkspaceService and SessionLauncher fan-out needs. */
 export interface FanOutDeps {
-    workspaces: {
-        getAll(): Workspace[];
-        createGroup(workspaceId: string, fields: { name: string }): Group;
-        createLabel(workspaceId: string, fields: NewLabelFields): Label;
-    };
-    launcher: {
-        launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
-    };
+  workspaces: {
+    getAll(): Workspace[];
+    createGroup(workspaceId: string, fields: { name: string }): Group;
+    createLabel(workspaceId: string, fields: NewLabelFields): Label;
+  };
+  launcher: {
+    launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
+  };
 }
 
 /**
@@ -26,48 +26,48 @@ export interface FanOutDeps {
  * launched before it stay.
  */
 export async function fanOut(
-    deps: FanOutDeps,
-    intent: SessionFanOutIntent
+  deps: FanOutDeps,
+  intent: SessionFanOutIntent,
 ): Promise<SessionFanOutResult> {
-    const workspace = deps.workspaces
-        .getAll()
-        .find((candidate) => candidate.id === intent.workspaceId);
-    if (!workspace) {
-        throw new Error(`Cannot fan out: no workspace ${intent.workspaceId}`);
+  const workspace = deps.workspaces
+    .getAll()
+    .find((candidate) => candidate.id === intent.workspaceId);
+  if (!workspace) {
+    throw new Error(`Cannot fan out: no workspace ${intent.workspaceId}`);
+  }
+
+  const group = deps.workspaces.createGroup(intent.workspaceId, { name: intent.groupName });
+  // Peers, not a tree: every session carries the label and none has a parent,
+  // which is the shape the v7 -> v8 migration gives a group with no conductor.
+  // The label shares the group's id so that migration stays idempotent.
+  deps.workspaces.createLabel(intent.workspaceId, { id: group.id, name: intent.groupName });
+
+  const created: Session[] = [];
+  const failed: Array<{ path: string; error: string }> = [];
+
+  for (const targetPath of intent.targetPaths) {
+    try {
+      created.push(
+        await deps.launcher.launchSession(intent.workspaceId, {
+          name: path.basename(targetPath),
+          workspaceId: intent.workspaceId,
+          instanceId: generateSessionInstanceId(intent.workspaceId),
+          harnessId: workspace.defaultHarnessId,
+          scopeId: intent.scopeId,
+          cwd: targetPath,
+          groupId: group.id,
+          labelIds: [group.id],
+          kind: 'interactive',
+          initialPrompt: intent.prompt,
+        }),
+      );
+    } catch (error) {
+      failed.push({
+        path: targetPath,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
+  }
 
-    const group = deps.workspaces.createGroup(intent.workspaceId, { name: intent.groupName });
-    // Peers, not a tree: every session carries the label and none has a parent,
-    // which is the shape the v7 -> v8 migration gives a group with no conductor.
-    // The label shares the group's id so that migration stays idempotent.
-    deps.workspaces.createLabel(intent.workspaceId, { id: group.id, name: intent.groupName });
-
-    const created: Session[] = [];
-    const failed: Array<{ path: string; error: string }> = [];
-
-    for (const targetPath of intent.targetPaths) {
-        try {
-            created.push(
-                await deps.launcher.launchSession(intent.workspaceId, {
-                    name: path.basename(targetPath),
-                    workspaceId: intent.workspaceId,
-                    instanceId: generateSessionInstanceId(intent.workspaceId),
-                    harnessId: workspace.defaultHarnessId,
-                    scopeId: intent.scopeId,
-                    cwd: targetPath,
-                    groupId: group.id,
-                    labelIds: [group.id],
-                    kind: 'interactive',
-                    initialPrompt: intent.prompt,
-                })
-            );
-        } catch (error) {
-            failed.push({
-                path: targetPath,
-                error: error instanceof Error ? error.message : String(error),
-            });
-        }
-    }
-
-    return { group, created, failed };
+  return { group, created, failed };
 }

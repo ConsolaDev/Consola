@@ -17,7 +17,9 @@ const BUCKETS: Bucket[] = ['waiting', 'working', 'settled'];
 export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null {
   if (activeKey === null) return null;
   for (const bucket of BUCKETS) {
-    const index = placed[bucket].findIndex((root) => membersOf(root).some((entry) => entry.key === activeKey));
+    const index = placed[bucket].findIndex((root) =>
+      membersOf(root).some((entry) => entry.key === activeKey),
+    );
     if (index >= 0) return { rootKey: placed[bucket][index].entry.key, bucket, index };
   }
   return null;
@@ -54,7 +56,9 @@ export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null
  */
 export function applyHold(placed: Placed, hold: Hold | null): Placed {
   if (hold === null) return placed;
-  const from = BUCKETS.find((bucket) => placed[bucket].some((root) => root.entry.key === hold.rootKey));
+  const from = BUCKETS.find((bucket) =>
+    placed[bucket].some((root) => root.entry.key === hold.rootKey),
+  );
   if (from === undefined || from === hold.bucket) return placed;
   if (from === 'settled' || hold.bucket === 'settled') return placed;
   const node = placed[from].find((root) => root.entry.key === hold.rootKey)!;

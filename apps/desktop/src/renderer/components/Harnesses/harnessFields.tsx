@@ -84,9 +84,7 @@ export function IdentityFields({
             <button
               key={color}
               type="button"
-              className={`harness-color-swatch ${
-                draft.accentColor === color ? 'selected' : ''
-              }`}
+              className={`harness-color-swatch ${draft.accentColor === color ? 'selected' : ''}`}
               style={{ background: color }}
               onClick={() => onChange({ accentColor: color })}
               aria-label={`Accent color ${color}`}
@@ -106,13 +104,7 @@ export function IdentityFields({
  * Every field is optional: left blank, the harness resolves exactly the way
  * Consola does with no harness configured at all.
  */
-export function ConfigFields({
-  draft,
-  onChange,
-}: {
-  draft: HarnessDraft;
-  onChange: DraftChange;
-}) {
+export function ConfigFields({ draft, onChange }: { draft: HarnessDraft; onChange: DraftChange }) {
   const driver = getDriverDescriptor(draft.driverId);
 
   const browseForConfigDir = async () => {
@@ -160,8 +152,8 @@ export function ConfigFields({
           </button>
         </div>
         <span className="harness-field-hint">
-          A separate config directory keeps this harness's login and history to
-          itself. Leave blank to share the default one.
+          A separate config directory keeps this harness's login and history to itself. Leave blank
+          to share the default one.
         </span>
       </div>
 
@@ -174,11 +166,11 @@ export function ConfigFields({
           className="dialog-input"
           value={draft.launchArgs}
           onChange={(event) => onChange({ launchArgs: event.target.value })}
-          placeholder={draft.driverId === 'codex' ? 'e.g. --sandbox read-only' : 'e.g. --permission-mode plan'}
+          placeholder={
+            draft.driverId === 'codex' ? 'e.g. --sandbox read-only' : 'e.g. --permission-mode plan'
+          }
         />
-        <span className="harness-field-hint">
-          Passed to every session this harness starts.
-        </span>
+        <span className="harness-field-hint">Passed to every session this harness starts.</span>
       </div>
     </div>
   );

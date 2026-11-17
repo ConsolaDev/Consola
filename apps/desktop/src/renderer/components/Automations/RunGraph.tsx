@@ -84,7 +84,11 @@ export function RunGraph({
             </div>
             <div className="automations-node-title">
               {target ? (
-                <button type="button" className="automations-node-link" onClick={() => onReveal(target)}>
+                <button
+                  type="button"
+                  className="automations-node-link"
+                  onClick={() => onReveal(target)}
+                >
                   {view.title}
                 </button>
               ) : (
@@ -129,21 +133,37 @@ function stageView(
   switch (stage.key) {
     case 'trigger': {
       const { trigger } = run;
-      const time = new Date(trigger.at).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' });
+      const time = new Date(trigger.at).toLocaleTimeString(undefined, {
+        hour: '2-digit',
+        minute: '2-digit',
+      });
       const late = Date.parse(run.createdAt) - Date.parse(trigger.at);
       if (trigger.kind === 'cron') {
         return {
           icon: Clock,
           kicker: trigger.catchUp ? 'Schedule, caught up' : 'Schedule',
           title: schedule ?? 'On schedule',
-          outcome: trigger.catchUp && late >= 1000 ? `Due ${time} · ran ${formatElapsed(late)} late` : `Fired ${time}`,
+          outcome:
+            trigger.catchUp && late >= 1000
+              ? `Due ${time} · ran ${formatElapsed(late)} late`
+              : `Fired ${time}`,
         };
       }
       if (trigger.kind === 'event') {
-        return { icon: Inbox, kicker: 'Inbox event', title: agent?.item?.label ?? 'An item arrived', outcome: `Seen ${time}` };
+        return {
+          icon: Inbox,
+          kicker: 'Inbox event',
+          title: agent?.item?.label ?? 'An item arrived',
+          outcome: `Seen ${time}`,
+        };
       }
       if (trigger.by === 'agent') {
-        return { icon: Bot, kicker: 'Agent request', title: askerName ? `Asked by ${askerName}` : 'Asked by an agent', outcome: `Asked ${time}` };
+        return {
+          icon: Bot,
+          kicker: 'Agent request',
+          title: askerName ? `Asked by ${askerName}` : 'Asked by an agent',
+          outcome: `Asked ${time}`,
+        };
       }
       return { icon: Play, kicker: 'Run now', title: 'Run by you', outcome: `Started ${time}` };
     }

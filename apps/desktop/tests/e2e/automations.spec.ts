@@ -13,14 +13,25 @@ import { launchElectron } from './helpers/electron';
  */
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
-const GIT_ENV = { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' };
+const GIT_ENV = {
+  ...process.env,
+  GIT_AUTHOR_NAME: 't',
+  GIT_AUTHOR_EMAIL: 't@t',
+  GIT_COMMITTER_NAME: 't',
+  GIT_COMMITTER_EMAIL: 't@t',
+};
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], { encoding: 'utf8', env: GIT_ENV }).trim();
 }
 
 /** A worktree on `branch` that tracks it on origin, without needing a reachable origin. */
-function worktree(clone: string, root: string, name: string, branch: string): { dir: string; head: string } {
+function worktree(
+  clone: string,
+  root: string,
+  name: string,
+  branch: string,
+): { dir: string; head: string } {
   const dir = path.join(root, name);
   git(clone, 'worktree', 'add', '-q', '-b', branch, dir);
   fs.writeFileSync(path.join(dir, `${name}.txt`), name);
@@ -44,7 +55,10 @@ async function openAutomations(page: Page, workspaceName: string) {
     .getByRole('button', { name: workspaceName, exact: true });
   await railButton.click();
   await expect(railButton).toHaveAttribute('aria-current', 'true');
-  await page.locator('.home-navigation').getByRole('button', { name: /^Automations/ }).click();
+  await page
+    .locator('.home-navigation')
+    .getByRole('button', { name: /^Automations/ })
+    .click();
   return page.getByRole('region', { name: 'Automations', exact: true });
 }
 
@@ -90,7 +104,7 @@ test('a confirm-mode cleanup previews, waits for approval, and removes only what
     [
       `${endpoint('consola/session-done')} ${JSON.stringify([mergedPull(7, 'consola/session-done', done.head)])}`,
       `${endpoint('consola/session-dirty')} ${JSON.stringify([mergedPull(8, 'consola/session-dirty', dirty.head)])}`,
-    ].join('\n')
+    ].join('\n'),
   );
 
   const factoryDir = path.join(base, 'factories');
@@ -108,10 +122,13 @@ test('a confirm-mode cleanup previews, waits for approval, and removes only what
     const workspaceId = await page.evaluate(
       async ([folder]) => {
         const workspace = await window.workspaceAPI.createWorkspace('Acme', folder, true);
-        await window.workspaceAPI.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'JaviDev' });
+        await window.workspaceAPI.setProviderBinding(workspace.id, {
+          id: 'github',
+          accountLogin: 'JaviDev',
+        });
         return workspace.id;
       },
-      [clone] as const
+      [clone] as const,
     );
     await page.evaluate(
       async ([id, doneDir, dirtyDir]) => {
@@ -131,7 +148,7 @@ test('a confirm-mode cleanup previews, waits for approval, and removes only what
           });
         }
       },
-      [workspaceId, done.dir, dirty.dir] as const
+      [workspaceId, done.dir, dirty.dir] as const,
     );
     // The workspace's own file, picked up by the watcher.
     writeFactoryFile(
@@ -143,13 +160,15 @@ automations:
     on: { cron: "0 9 * * *" }
     run: { tool: consola#cleanup_stale_sessions, with: { pr_states: [merged, closed] } }
     mode: confirm
-`
+`,
     );
 
     // The dashboard opens on the Automations tab.
     const dashboard = await openAutomations(page, 'Acme');
 
-    const card = dashboard.locator('.automations-row', { hasText: 'clean-up-stale-sessions' }).first();
+    const card = dashboard
+      .locator('.automations-row', { hasText: 'clean-up-stale-sessions' })
+      .first();
     await expect(card).toBeVisible({ timeout: 15_000 });
     await expect(card).toContainText('confirm');
     await expect(card).toContainText('Next run');
@@ -183,7 +202,9 @@ automations:
     expect(git(clone, 'branch', '--list', 'consola/session-done')).toBe('');
     // The session with unsaved work kept everything.
     expect(fs.readFileSync(path.join(dirty.dir, 'unsaved.txt'), 'utf8')).toBe('work in progress');
-    expect(git(clone, 'branch', '--list', 'consola/session-dirty')).toContain('consola/session-dirty');
+    expect(git(clone, 'branch', '--list', 'consola/session-dirty')).toContain(
+      'consola/session-dirty',
+    );
   } finally {
     await app.close();
     fs.rmSync(base, { recursive: true, force: true });
@@ -199,19 +220,22 @@ test('a broken factory.yml is reported with its line, and nothing is scheduled',
   try {
     const workspaceId = await page.evaluate(
       async ([dir]) => (await window.workspaceAPI.createWorkspace('Broken', dir, true)).id,
-      [folder] as const
+      [folder] as const,
     );
     writeFactoryFile(
       factoryDir,
       workspaceId,
-      'version: 1\nautomations:\n  - name: sweep\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#cleanup_stale_sessions }\n    mode: sometimes\n'
+      'version: 1\nautomations:\n  - name: sweep\n    on: { cron: "0 9 * * *" }\n    run: { tool: consola#cleanup_stale_sessions }\n    mode: sometimes\n',
     );
     const dashboard = await openAutomations(page, 'Broken');
     const issues = dashboard.locator('.automations-issues');
     await expect(issues).toContainText('line 6', { timeout: 15_000 });
     await expect(issues).toContainText('automations[0].mode');
     // Where the dashboard opens: the problem, no rows, and no offer to start from nothing.
-    await expect(dashboard.getByRole('tab', { name: 'Automations' })).toHaveAttribute('aria-selected', 'true');
+    await expect(dashboard.getByRole('tab', { name: 'Automations' })).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
     await expect(dashboard.locator('.automations-row')).toHaveCount(0);
     await expect(dashboard.locator('.automations-empty-state')).toHaveCount(0);
   } finally {
@@ -253,7 +277,7 @@ function writeInbox(file: string, direct: number[], assigned: number[] = []): vo
         assigned: { nodes: assigned.map(requestedPull) },
         involved: none,
       },
-    })
+    }),
   );
 }
 
@@ -286,7 +310,7 @@ test('a review request starts a read-only session in its worktree; one already w
       'exec sleep 300',
       '',
     ].join('\n'),
-    { mode: 0o755 }
+    { mode: 0o755 },
   );
   const inboxFile = path.join(base, 'inbox.json');
   writeInbox(inboxFile, [1]);
@@ -305,13 +329,22 @@ test('a review request starts a read-only session in its worktree; one already w
   try {
     const workspaceId = await page.evaluate(
       async ([folder, binaryPath]) => {
-        await window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#555555', binaryPath });
+        await window.harnessStateAPI.addHarness({
+          id: 'stub',
+          driverId: 'claude',
+          name: 'Stub',
+          accentColor: '#555555',
+          binaryPath,
+        });
         const workspace = await window.workspaceAPI.createWorkspace('Acme', folder, true, 'stub');
         // Binding seeds the default actions, Review among them.
-        await window.workspaceAPI.setProviderBinding(workspace.id, { id: 'github', accountLogin: 'JaviDev' });
+        await window.workspaceAPI.setProviderBinding(workspace.id, {
+          id: 'github',
+          accountLogin: 'JaviDev',
+        });
         return workspace.id;
       },
-      [clone, agent] as const
+      [clone, agent] as const,
     );
     writeFactoryFile(
       factoryDir,
@@ -322,14 +355,17 @@ automations:
     on: { github: [pull_request.review_requested, pull_request.assigned] }
     run: { action: Review }
     mode: auto
-`
+`,
     );
 
     const dashboard = await openAutomations(page, 'Acme');
     const automationsTab = dashboard.getByRole('tab', { name: 'Automations' });
     const activityTab = dashboard.getByRole('tab', { name: 'Activity' });
     const card = dashboard.locator('.automations-row', { hasText: 'review-requests' }).first();
-    await expect(card).toContainText('When a pull request asks for your review or is assigned to you', { timeout: 15_000 });
+    await expect(card).toContainText(
+      'When a pull request asks for your review or is assigned to you',
+      { timeout: 15_000 },
+    );
     await expect(card).toContainText('Review action');
     await expect(card).toContainText('Agent session, read-only');
     const checkNow = card.getByRole('button', { name: 'Check now' });
@@ -342,7 +378,9 @@ automations:
     writeInbox(inboxFile, [1, 2]);
     await checkNow.click();
     const waiting = dashboard.locator('.automations-waiting-card');
-    await expect(waiting).toContainText('acme/app#2 “Add retries #2” by @alice', { timeout: 30_000 });
+    await expect(waiting).toContainText('acme/app#2 “Add retries #2” by @alice', {
+      timeout: 30_000,
+    });
     await expect(waiting).toHaveCount(1);
     expect(fs.existsSync(launches)).toBe(false);
     await waiting.getByRole('button', { name: 'Review…' }).click();
@@ -351,14 +389,24 @@ automations:
 
     // A headless session in #2's own worktree: one unattended turn, restricted,
     // with Consola's MCP only, and its prompt as the argument after `--`.
-    const launched = () => (fs.existsSync(launches) ? fs.readFileSync(launches, 'utf8').trim().split('\n') : []);
+    const launched = () =>
+      fs.existsSync(launches) ? fs.readFileSync(launches, 'utf8').trim().split('\n') : [];
     await expect.poll(launched, { timeout: 30_000 }).toHaveLength(1);
     const [first] = launched();
-    expect(first.startsWith(`${path.join(worktreesDir, 'app-pr-2')} :: -p --session-id `)).toBe(true);
-    for (const flag of ['--restricted', '--strict-mcp-config', '--permission-mode dontAsk', '--tools Read,Grep,Glob --allowedTools mcp__consola__consola_work_item_context']) {
+    expect(first.startsWith(`${path.join(worktreesDir, 'app-pr-2')} :: -p --session-id `)).toBe(
+      true,
+    );
+    for (const flag of [
+      '--restricted',
+      '--strict-mcp-config',
+      '--permission-mode dontAsk',
+      '--tools Read,Grep,Glob --allowedTools mcp__consola__consola_work_item_context',
+    ]) {
       expect(first).toContain(flag);
     }
-    expect(first).toContain(' -- This session was started by the automation "review-requests" for pull request #2');
+    expect(first).toContain(
+      ' -- This session was started by the automation "review-requests" for pull request #2',
+    );
 
     // The turn printed its findings and exited: the run is completed.
     await activityTab.click();
@@ -374,11 +422,17 @@ automations:
           action: session.workItemAction,
           toolPolicy: session.toolPolicy,
           automation: session.automation?.name,
-        }))
+        })),
       );
     });
     expect(sessions).toEqual([
-      { name: 'Add retries #2', number: 2, action: 'Review', toolPolicy: 'read-only', automation: 'review-requests' },
+      {
+        name: 'Add retries #2',
+        number: 2,
+        action: 'Review',
+        toolPolicy: 'read-only',
+        automation: 'review-requests',
+      },
     ]);
 
     // Approved once: #3 — asking for a review and assigned — starts on its own, once.
@@ -400,7 +454,9 @@ automations:
     // The findings are in #2's tab.
     const review = await page.evaluate(async () => {
       const { workspaces } = await window.workspaceAPI.getSnapshot();
-      return workspaces.flatMap((workspace) => workspace.sessions).find((session) => session.name === 'Add retries #2')!;
+      return workspaces
+        .flatMap((workspace) => workspace.sessions)
+        .find((session) => session.name === 'Add retries #2')!;
     });
     await row.click();
     await panel.getByRole('button', { name: 'Open session' }).click();
@@ -415,7 +471,7 @@ automations:
             resume: true,
           })
         ).replay,
-      review
+      review,
     );
     expect(replay).toContain('FINDINGS: looks good');
     const toolbar = page.locator('.terminal-panel-toolbar');
@@ -424,13 +480,19 @@ automations:
     // Continue: the same conversation, interactive now, and still restricted.
     await toolbar.getByRole('button', { name: 'Continue', exact: true }).click();
     await expect.poll(launched, { timeout: 30_000 }).toHaveLength(3);
-    expect(launched()[2]).toMatch(new RegExp(` :: --resume ${review.claudeSessionId} .*--permission-mode dontAsk .*--restricted`));
+    expect(launched()[2]).toMatch(
+      new RegExp(
+        ` :: --resume ${review.claudeSessionId} .*--permission-mode dontAsk .*--restricted`,
+      ),
+    );
     expect(launched()[2]).not.toContain(' -p ');
 
     // Continue with full tools: a fork under a new id, with nothing restricted.
     await toolbar.getByRole('button', { name: 'Continue with full tools' }).click();
     await expect.poll(launched, { timeout: 30_000 }).toHaveLength(4);
-    expect(launched()[3]).toMatch(new RegExp(` :: --resume ${review.claudeSessionId} --fork-session --session-id \\S+`));
+    expect(launched()[3]).toMatch(
+      new RegExp(` :: --resume ${review.claudeSessionId} --fork-session --session-id \\S+`),
+    );
     expect(launched()[3]).not.toContain('--restricted');
     await expect(page.locator('.terminal-panel-toolbar')).toHaveCount(0);
 
@@ -447,16 +509,31 @@ automations:
       },
     });
     relaunched = again.app;
-    await again.page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: 'Acme', exact: true }).click();
+    await again.page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: 'Acme', exact: true })
+      .click();
     const before = launched().length;
     // The review and its full-tools fork share a label; only the review wears the lock.
-    const reviewRows = again.page.locator('.session-nav-item').filter({ hasText: 'PR #2 · Review' });
+    const reviewRows = again.page
+      .locator('.session-nav-item')
+      .filter({ hasText: 'PR #2 · Review' });
     await expect(reviewRows).toHaveCount(2);
     const lockedRow = reviewRows.filter({ has: again.page.locator('.session-nav-item-read-only') });
     await expect(lockedRow).toHaveCount(1);
     await lockedRow.click();
-    const resumed = new RegExp(` :: --resume ${review.claudeSessionId} .*--permission-mode dontAsk .*--restricted`);
-    await expect.poll(() => launched().slice(before).some((line) => resumed.test(line)), { timeout: 30_000 }).toBe(true);
+    const resumed = new RegExp(
+      ` :: --resume ${review.claudeSessionId} .*--permission-mode dontAsk .*--restricted`,
+    );
+    await expect
+      .poll(
+        () =>
+          launched()
+            .slice(before)
+            .some((line) => resumed.test(line)),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
   } finally {
     await (relaunched ?? app).close();
     fs.rmSync(base, { recursive: true, force: true });

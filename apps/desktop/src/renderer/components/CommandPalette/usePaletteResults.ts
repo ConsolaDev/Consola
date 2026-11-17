@@ -64,12 +64,12 @@ export function usePaletteContext(): PaletteContext {
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
-    [workspaces, activeWorkspaceId]
+    [workspaces, activeWorkspaceId],
   );
 
   const activeSession = useMemo(
     () => activeWorkspace?.sessions.find((session) => session.id === activeSessionId) ?? null,
-    [activeWorkspace, activeSessionId]
+    [activeWorkspace, activeSessionId],
   );
 
   // A session with no name yet is still being created; the sidebar hides those
@@ -78,17 +78,18 @@ export function usePaletteContext(): PaletteContext {
     const entries = workspaces.flatMap((workspace) =>
       listedSessions(workspace)
         .filter((session) => session.name.length > 0)
-        .map((session) => ({ session, workspace }))
+        .map((session) => ({ session, workspace })),
     );
     return entries.sort(
       (a, b) =>
-        activityOf(b.session, attention[b.session.id]) - activityOf(a.session, attention[a.session.id])
+        activityOf(b.session, attention[b.session.id]) -
+        activityOf(a.session, attention[a.session.id]),
     );
   }, [workspaces, attention]);
 
   const exitedSessions = useMemo(
     () => allSessions.filter(({ session }) => terminals[session.instanceId]?.hasExited),
-    [allSessions, terminals]
+    [allSessions, terminals],
   );
 
   const stagedCount = useMemo(() => {
@@ -138,7 +139,7 @@ export function usePaletteContext(): PaletteContext {
       terminalFontSize,
       openSettings,
       openWorkspaceSettings,
-    ]
+    ],
   );
 }
 
@@ -153,7 +154,7 @@ const EMPTY_RESULTS: PaletteResults = { groups: [], flat: [] };
 function collectCandidates(
   mode: PaletteMode,
   ctx: PaletteContext,
-  scope: PaletteScope | null
+  scope: PaletteScope | null,
 ): PaletteItem[] {
   if (mode.kind === 'root') {
     switch (scope) {
@@ -190,7 +191,7 @@ export function usePaletteResults(
   mode: PaletteMode,
   scope: PaletteScope | null,
   query: string,
-  ctx: PaletteContext
+  ctx: PaletteContext,
 ): PaletteResults {
   return useMemo(() => {
     // The dialog stays mounted so it can hand focus back on close, so this

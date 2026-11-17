@@ -10,28 +10,28 @@ export const COALESCE_MS = 5_000;
 const MAX_NAME_LENGTH = 60;
 
 export interface AssistantActivityDeps {
-    getWorkspaces(): Workspace[];
-    /** False when the Assistant has no live process; nothing here may start one. */
-    queuePrompt(instanceId: string, prompt: string): boolean;
-    broadcast(workspaceId: string, activity: AssistantActivitySnapshot): void;
+  getWorkspaces(): Workspace[];
+  /** False when the Assistant has no live process; nothing here may start one. */
+  queuePrompt(instanceId: string, prompt: string): boolean;
+  broadcast(workspaceId: string, activity: AssistantActivitySnapshot): void;
 }
 
 interface Watch {
-    assistantSessionId: string;
-    workspaceId: string;
+  assistantSessionId: string;
+  workspaceId: string;
 }
 
 interface Entry {
-    /** `"<name>" <is ready | needs you | has exited>`, or a report's own text. */
-    text: string;
-    /** The session a notice is about, when it is one to read. */
-    sessionId?: string;
+  /** `"<name>" <is ready | needs you | has exited>`, or a report's own text. */
+  text: string;
+  /** The session a notice is about, when it is one to read. */
+  sessionId?: string;
 }
 
 const VERDICT: Record<'ready' | 'needs-attention' | 'exited', string> = {
-    ready: 'is ready',
-    'needs-attention': 'needs you',
-    exited: 'has exited',
+  ready: 'is ready',
+  'needs-attention': 'needs you',
+  exited: 'has exited',
 };
 
 /**
@@ -40,9 +40,9 @@ const VERDICT: Record<'ready' | 'needs-attention' | 'exited', string> = {
  * run so it cannot close the quote, start a new line or carry a paragraph.
  */
 export function quoteName(name: string): string {
-    const flat = name.replace(/\s+/g, ' ').trim().replace(/"/g, '’');
-    const cut = flat.length > MAX_NAME_LENGTH ? `${flat.slice(0, MAX_NAME_LENGTH - 1)}…` : flat;
-    return `"${cut}"`;
+  const flat = name.replace(/\s+/g, ' ').trim().replace(/"/g, '’');
+  const cut = flat.length > MAX_NAME_LENGTH ? `${flat.slice(0, MAX_NAME_LENGTH - 1)}…` : flat;
+  return `"${cut}"`;
 }
 
 /**
@@ -51,129 +51,133 @@ export function quoteName(name: string): string {
  * of what finished unseen for the sidebar. Watches live for this app run only.
  */
 export class AssistantActivity {
-    private readonly watches = new Map<string, Watch>();
-    private readonly touched = new Map<string, Set<string>>();
-    private readonly unseen = new Map<string, number>();
-    private readonly pending = new Map<string, { entries: Entry[]; timer: NodeJS.Timeout }>();
-    /** When a prompted session has really finished. Shared with the attention ledger; the unseen count is ours. */
-    private readonly settler = new TurnSettle((targetId, status) => this.settle(targetId, status), {
-        persistent: false,
+  private readonly watches = new Map<string, Watch>();
+  private readonly touched = new Map<string, Set<string>>();
+  private readonly unseen = new Map<string, number>();
+  private readonly pending = new Map<string, { entries: Entry[]; timer: NodeJS.Timeout }>();
+  /** When a prompted session has really finished. Shared with the attention ledger; the unseen count is ours. */
+  private readonly settler = new TurnSettle((targetId, status) => this.settle(targetId, status), {
+    persistent: false,
+  });
+
+  constructor(private readonly deps: AssistantActivityDeps) {}
+
+  /** Called after each prompt or start. A new watch replaces the old one: one notice per prompt. */
+  watch(assistantSessionId: string, targetSessionId: string): void {
+    const workspace = this.deps
+      .getWorkspaces()
+      .find((w) => w.sessions.some((s) => s.id === assistantSessionId));
+    if (!workspace || assistantSessionId === targetSessionId) return;
+    if (!workspace.sessions.some((s) => s.id === targetSessionId)) return;
+
+    this.watches.set(targetSessionId, { assistantSessionId, workspaceId: workspace.id });
+    this.settler.watch(targetSessionId);
+
+    const set = this.touched.get(workspace.id) ?? new Set<string>();
+    const added = !set.has(targetSessionId);
+    set.add(targetSessionId);
+    this.touched.set(workspace.id, set);
+    if (added) this.emit(workspace.id);
+  }
+
+  statusChanged(instanceId: string, status: TerminalStatus): void {
+    // Every status flip in the app lands here; most have nothing to do with the Assistant.
+    if (this.watches.size === 0) return;
+    const found = this.findByInstance(instanceId);
+    const watch = found && this.watches.get(found.session.id);
+    if (!found || !watch) return;
+    this.settler.observe(found.session.id, status);
+  }
+
+  snapshot(workspaceId: string): AssistantActivitySnapshot {
+    const workspace = this.deps.getWorkspaces().find((w) => w.id === workspaceId);
+    const live = new Set(workspace?.sessions.map((s) => s.id));
+    return {
+      touchedSessionIds: [...(this.touched.get(workspaceId) ?? [])].filter((id) => live.has(id)),
+      unseenFinished: this.unseen.get(workspaceId) ?? 0,
+    };
+  }
+
+  /**
+   * Tell the Assistant something that is not a session settling — what the
+   * person decided about its request. Batched with the notices about
+   * finished sessions, and never counted among them.
+   */
+  report(assistantSessionId: string, text: string): void {
+    this.enqueue(assistantSessionId, { text });
+  }
+
+  markSeen(workspaceId: string): void {
+    if (!this.unseen.get(workspaceId)) return;
+    this.unseen.delete(workspaceId);
+    this.emit(workspaceId);
+  }
+
+  private settle(targetId: string, status: 'ready' | 'needs-attention' | 'exited'): void {
+    const watch = this.watches.get(targetId);
+    if (!watch) return;
+    this.watches.delete(targetId);
+
+    this.unseen.set(watch.workspaceId, (this.unseen.get(watch.workspaceId) ?? 0) + 1);
+    this.emit(watch.workspaceId);
+
+    const target = this.findById(targetId)?.session;
+    this.enqueue(watch.assistantSessionId, {
+      sessionId: targetId,
+      text: `${quoteName(target?.name ?? targetId)} ${VERDICT[status]}`,
     });
+  }
 
-    constructor(private readonly deps: AssistantActivityDeps) {}
+  /** Notices landing within COALESCE_MS of the first go out as one line. */
+  private enqueue(assistantSessionId: string, entry: Entry): void {
+    const batch = this.pending.get(assistantSessionId) ?? {
+      entries: [],
+      timer: setTimeout(() => this.flush(assistantSessionId), COALESCE_MS),
+    };
+    batch.timer.unref?.();
+    batch.entries.push(entry);
+    this.pending.set(assistantSessionId, batch);
+  }
 
-    /** Called after each prompt or start. A new watch replaces the old one: one notice per prompt. */
-    watch(assistantSessionId: string, targetSessionId: string): void {
-        const workspace = this.deps.getWorkspaces().find((w) => w.sessions.some((s) => s.id === assistantSessionId));
-        if (!workspace || assistantSessionId === targetSessionId) return;
-        if (!workspace.sessions.some((s) => s.id === targetSessionId)) return;
+  private flush(assistantSessionId: string): void {
+    const batch = this.pending.get(assistantSessionId);
+    this.pending.delete(assistantSessionId);
+    const assistant = this.findById(assistantSessionId)?.session;
+    if (!batch || !assistant) return;
 
-        this.watches.set(targetSessionId, { assistantSessionId, workspaceId: workspace.id });
-        this.settler.watch(targetSessionId);
+    const [only] = batch.entries;
+    const toRead = batch.entries.filter((entry) => entry.sessionId).length;
+    const tail =
+      toRead === 0 ? '.' : ` — read ${toRead === 1 ? 'it' : 'them'} with consola_read_session.`;
+    const line =
+      batch.entries.length === 1 && only.sessionId
+        ? `[consola] ${only.text} — read it with consola_read_session (session_id: ${only.sessionId}).`
+        : `[consola] ${batch.entries
+            .map((entry) =>
+              entry.sessionId ? `${entry.text} (session_id: ${entry.sessionId})` : entry.text,
+            )
+            .join('; ')}${tail}`;
+    // A stopped Assistant drops the notice; the unseen count carries it.
+    this.deps.queuePrompt(assistant.instanceId, line);
+  }
 
-        const set = this.touched.get(workspace.id) ?? new Set<string>();
-        const added = !set.has(targetSessionId);
-        set.add(targetSessionId);
-        this.touched.set(workspace.id, set);
-        if (added) this.emit(workspace.id);
+  private emit(workspaceId: string): void {
+    this.deps.broadcast(workspaceId, this.snapshot(workspaceId));
+  }
+
+  private findById(sessionId: string): { session: Session } | undefined {
+    for (const workspace of this.deps.getWorkspaces()) {
+      const session = workspace.sessions.find((s) => s.id === sessionId);
+      if (session) return { session };
     }
+    return undefined;
+  }
 
-    statusChanged(instanceId: string, status: TerminalStatus): void {
-        // Every status flip in the app lands here; most have nothing to do with the Assistant.
-        if (this.watches.size === 0) return;
-        const found = this.findByInstance(instanceId);
-        const watch = found && this.watches.get(found.session.id);
-        if (!found || !watch) return;
-        this.settler.observe(found.session.id, status);
+  private findByInstance(instanceId: string): { session: Session } | undefined {
+    for (const workspace of this.deps.getWorkspaces()) {
+      const session = workspace.sessions.find((s) => s.instanceId === instanceId);
+      if (session) return { session };
     }
-
-    snapshot(workspaceId: string): AssistantActivitySnapshot {
-        const workspace = this.deps.getWorkspaces().find((w) => w.id === workspaceId);
-        const live = new Set(workspace?.sessions.map((s) => s.id));
-        return {
-            touchedSessionIds: [...(this.touched.get(workspaceId) ?? [])].filter((id) => live.has(id)),
-            unseenFinished: this.unseen.get(workspaceId) ?? 0,
-        };
-    }
-
-    /**
-     * Tell the Assistant something that is not a session settling — what the
-     * person decided about its request. Batched with the notices about
-     * finished sessions, and never counted among them.
-     */
-    report(assistantSessionId: string, text: string): void {
-        this.enqueue(assistantSessionId, { text });
-    }
-
-    markSeen(workspaceId: string): void {
-        if (!this.unseen.get(workspaceId)) return;
-        this.unseen.delete(workspaceId);
-        this.emit(workspaceId);
-    }
-
-    private settle(targetId: string, status: 'ready' | 'needs-attention' | 'exited'): void {
-        const watch = this.watches.get(targetId);
-        if (!watch) return;
-        this.watches.delete(targetId);
-
-        this.unseen.set(watch.workspaceId, (this.unseen.get(watch.workspaceId) ?? 0) + 1);
-        this.emit(watch.workspaceId);
-
-        const target = this.findById(targetId)?.session;
-        this.enqueue(watch.assistantSessionId, {
-            sessionId: targetId,
-            text: `${quoteName(target?.name ?? targetId)} ${VERDICT[status]}`,
-        });
-    }
-
-    /** Notices landing within COALESCE_MS of the first go out as one line. */
-    private enqueue(assistantSessionId: string, entry: Entry): void {
-        const batch = this.pending.get(assistantSessionId) ?? {
-            entries: [],
-            timer: setTimeout(() => this.flush(assistantSessionId), COALESCE_MS),
-        };
-        batch.timer.unref?.();
-        batch.entries.push(entry);
-        this.pending.set(assistantSessionId, batch);
-    }
-
-    private flush(assistantSessionId: string): void {
-        const batch = this.pending.get(assistantSessionId);
-        this.pending.delete(assistantSessionId);
-        const assistant = this.findById(assistantSessionId)?.session;
-        if (!batch || !assistant) return;
-
-        const [only] = batch.entries;
-        const toRead = batch.entries.filter((entry) => entry.sessionId).length;
-        const tail =
-            toRead === 0 ? '.' : ` — read ${toRead === 1 ? 'it' : 'them'} with consola_read_session.`;
-        const line =
-            batch.entries.length === 1 && only.sessionId
-                ? `[consola] ${only.text} — read it with consola_read_session (session_id: ${only.sessionId}).`
-                : `[consola] ${batch.entries
-                      .map((entry) => (entry.sessionId ? `${entry.text} (session_id: ${entry.sessionId})` : entry.text))
-                      .join('; ')}${tail}`;
-        // A stopped Assistant drops the notice; the unseen count carries it.
-        this.deps.queuePrompt(assistant.instanceId, line);
-    }
-
-    private emit(workspaceId: string): void {
-        this.deps.broadcast(workspaceId, this.snapshot(workspaceId));
-    }
-
-    private findById(sessionId: string): { session: Session } | undefined {
-        for (const workspace of this.deps.getWorkspaces()) {
-            const session = workspace.sessions.find((s) => s.id === sessionId);
-            if (session) return { session };
-        }
-        return undefined;
-    }
-
-    private findByInstance(instanceId: string): { session: Session } | undefined {
-        for (const workspace of this.deps.getWorkspaces()) {
-            const session = workspace.sessions.find((s) => s.instanceId === instanceId);
-            if (session) return { session };
-        }
-        return undefined;
-    }
+    return undefined;
+  }
 }

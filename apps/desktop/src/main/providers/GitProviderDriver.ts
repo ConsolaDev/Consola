@@ -1,4 +1,7 @@
-import type { WorkItemDetails as SharedWorkItemDetails, WorkItemMutation } from '../../shared/workItemDetails';
+import type {
+  WorkItemDetails as SharedWorkItemDetails,
+  WorkItemMutation,
+} from '../../shared/workItemDetails';
 import type { GitProviderId, ProviderBinding, ProviderProbeResult } from '../../shared/providers';
 import type { InboxItem, WorkItemRef } from '../../shared/workItems';
 import type { PullRequestLookup, PullRequestQuery } from './pullRequests';
@@ -57,7 +60,12 @@ export interface GitProviderDriver {
    * `resetBranch` — which WorktreeService passes only once it has proved
    * that branch holds nothing but commits fetched from a remote.
    */
-  checkout(worktreeDir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv, options?: CheckoutOptions): Promise<void>;
+  checkout(
+    worktreeDir: string,
+    ref: WorkItemRef,
+    env: NodeJS.ProcessEnv,
+    options?: CheckoutOptions,
+  ): Promise<void>;
 
   /** Clone `repo` to `destinationDir` (the clone's own directory, not its parent). */
   cloneRepo(repo: string, destinationDir: string, env: NodeJS.ProcessEnv): Promise<void>;
@@ -91,7 +99,10 @@ export interface GitProviderDriver {
    * `error` instead of failing the batch. Must refuse unrecognised replies:
    * an empty list reads as "no PR", and callers act on that.
    */
-  lookupPullRequests?(queries: PullRequestQuery[], env: NodeJS.ProcessEnv): Promise<PullRequestLookup[]>;
+  lookupPullRequests?(
+    queries: PullRequestQuery[],
+    env: NodeJS.ProcessEnv,
+  ): Promise<PullRequestLookup[]>;
 
   /**
    * One item as a reviewer reads it: its description and comments, and for a

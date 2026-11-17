@@ -7,10 +7,5 @@ interface FileIconProps {
 
 export function FileIcon({ filename, className }: FileIconProps) {
   const icon = getIcon(filename);
-  return (
-    <span
-      className={className}
-      dangerouslySetInnerHTML={{ __html: icon.svg }}
-    />
-  );
+  return <span className={className} dangerouslySetInnerHTML={{ __html: icon.svg }} />;
 }

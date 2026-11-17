@@ -21,7 +21,11 @@ const PLACEHOLDER_PATTERN = /\{\{\s*(number|repo|title|url|type)\s*\}\}/g;
  * the inbox has one, the cached item. A template with no placeholders comes
  * back untouched, which is what lets a body be a bare slash command.
  */
-export function substitutePlaceholders(template: string, ref: WorkItemRef, item?: InboxItem): string {
+export function substitutePlaceholders(
+  template: string,
+  ref: WorkItemRef,
+  item?: InboxItem,
+): string {
   const values: Record<string, string> = {
     number: String(ref.number),
     repo: ref.repo,
@@ -36,7 +40,7 @@ export function substitutePlaceholders(template: string, ref: WorkItemRef, item?
 export function renderSeedHeader(
   templates: Record<'pr' | 'issue', string>,
   ref: WorkItemRef,
-  item?: InboxItem
+  item?: InboxItem,
 ): string {
   return substitutePlaceholders(templates[ref.type], ref, item);
 }
@@ -58,7 +62,7 @@ export function renderActionPrompt(
   header: string,
   body: string,
   ref: WorkItemRef,
-  item?: InboxItem
+  item?: InboxItem,
 ): WorkItemPromptResult {
   const renderedBody = substitutePlaceholders(body, ref, item).trim();
   if (!renderedBody) {

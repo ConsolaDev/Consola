@@ -10,13 +10,26 @@ import { SessionSource } from './SessionSource';
 import { settleAndVerify } from './settling';
 
 let dir: string;
-beforeEach(() => { dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-settling-')); });
+beforeEach(() => {
+  dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-settling-'));
+});
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
 function world(held: string[] = []) {
-  const ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
+  const ledger = new JsonAttentionLedger(
+    new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')),
+  );
   const sessions = ['p', 'k'].map((id) =>
-    makeSession({ id, name: id, instanceId: `inst-${id}`, kind: 'interactive', groupId: undefined, parentSessionId: id === 'k' ? 'p' : undefined, lastActiveAt: 10 }));
+    makeSession({
+      id,
+      name: id,
+      instanceId: `inst-${id}`,
+      kind: 'interactive',
+      groupId: undefined,
+      parentSessionId: id === 'k' ? 'p' : undefined,
+      lastActiveAt: 10,
+    }),
+  );
   const workspace = makeWorkspace({ id: 'w1', sessions });
   const source = new SessionSource({
     getWorkspaces: () => [workspace],

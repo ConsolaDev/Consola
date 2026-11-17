@@ -27,7 +27,13 @@ function tmp(prefix: string): string {
 function git(cwd: string, ...args: string[]): string {
   return execFileSync('git', ['-C', cwd, ...args], {
     encoding: 'utf8',
-    env: { ...process.env, GIT_AUTHOR_NAME: 't', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 't', GIT_COMMITTER_EMAIL: 't@t' },
+    env: {
+      ...process.env,
+      GIT_AUTHOR_NAME: 't',
+      GIT_AUTHOR_EMAIL: 't@t',
+      GIT_COMMITTER_NAME: 't',
+      GIT_COMMITTER_EMAIL: 't@t',
+    },
   }).trim();
 }
 
@@ -137,19 +143,23 @@ describe('commitsArePublished', () => {
   it('against a known PR head: equal or ancestor is published, extra commits are not', async () => {
     const { dir, head } = r.addWorktree('app-session-1', 'feat-1');
     const facts = (await r.service.inspect(dir))!;
-    expect(await r.service.commitsArePublished(facts, { knownHead: head }, process.env)).toBe('published');
+    expect(await r.service.commitsArePublished(facts, { knownHead: head }, process.env)).toBe(
+      'published',
+    );
 
     // The PR moved on after this checkout (someone pushed a fix-up): still safe.
     const later = commit(dir, 'later.txt');
     git(dir, 'reset', '-q', '--hard', 'HEAD~1');
     const behind = (await r.service.inspect(dir))!;
-    expect(await r.service.commitsArePublished(behind, { knownHead: later }, process.env)).toBe('published');
+    expect(await r.service.commitsArePublished(behind, { knownHead: later }, process.env)).toBe(
+      'published',
+    );
 
     // A commit made locally after the PR's final head: not safe.
     commit(dir, 'local-only.txt');
     const ahead = (await r.service.inspect(dir))!;
     expect(await r.service.commitsArePublished(ahead, { knownHead: head }, process.env)).toBe(
-      'local-commits'
+      'local-commits',
     );
   });
 
@@ -157,7 +167,7 @@ describe('commitsArePublished', () => {
     const { dir } = r.addWorktree('app-session-1', 'feat-1');
     const facts = (await r.service.inspect(dir))!;
     expect(
-      await r.service.commitsArePublished(facts, { knownHead: 'f'.repeat(40) }, process.env)
+      await r.service.commitsArePublished(facts, { knownHead: 'f'.repeat(40) }, process.env),
     ).toBe('unverifiable');
   });
 
@@ -175,8 +185,8 @@ describe('commitsArePublished', () => {
       await r.service.commitsArePublished(
         facts,
         { knownHead: theirs, fetchRef: 'pull/7/head' },
-        process.env
-      )
+        process.env,
+      ),
     ).toBe('published');
   });
 
@@ -210,10 +220,10 @@ describe('removeWorktree', () => {
     const outside = path.join(tmp('consola-outside-'), 'wt');
     git(r.clone, 'worktree', 'add', '-q', '-b', 'elsewhere', outside);
     await expect(r.service.removeWorktree((await r.service.inspect(outside))!)).rejects.toThrow(
-      /not a Consola worktree/
+      /not a Consola worktree/,
     );
     await expect(r.service.removeWorktree((await r.service.inspect(r.clone))!)).rejects.toThrow(
-      /not a Consola worktree/
+      /not a Consola worktree/,
     );
     expect(fs.existsSync(outside)).toBe(true);
   });
@@ -236,7 +246,10 @@ describe('deleteBranchAt', () => {
     const head = await removed('app-session-1', 'feat-1');
     git(r.clone, 'branch', '-f', 'feat-1', 'main');
     const result = await r.service.deleteBranchAt(r.clone, 'feat-1', head);
-    expect(result).toMatchObject({ deleted: false, reason: expect.stringMatching(/no longer points/) });
+    expect(result).toMatchObject({
+      deleted: false,
+      reason: expect.stringMatching(/no longer points/),
+    });
     expect(git(r.clone, 'branch', '--list', 'feat-1')).toContain('feat-1');
   });
 
@@ -252,7 +265,12 @@ describe('deleteBranchAt', () => {
 });
 
 describe('checking a pull request out onto a branch an earlier checkout left behind', () => {
-  const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
+  const pr51 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 51,
+  } as const;
   // The fixture gh checks out origin's `feature` the way real gh does a
   // same-repo PR: reusing a local `feature` and only fast-forwarding it.
   const env = { ...process.env, STUB_GH_PR_BRANCH: 'feature' };

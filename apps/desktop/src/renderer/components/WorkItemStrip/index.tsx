@@ -40,14 +40,14 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
   const item = useInboxStore((state) =>
     workItem
       ? state.snapshots[workspaceId]?.items.find((candidate) =>
-          sameWorkItem(candidate.workItem, workItem)
+          sameWorkItem(candidate.workItem, workItem),
         )
-      : undefined
+      : undefined,
   );
   // The whole workspace is selected (a stable reference) and the siblings
   // derived below: a selector returning a fresh array would re-render forever.
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === workspaceId)
+    state.workspaces.find((candidate) => candidate.id === workspaceId),
   );
   const attention = useAttentionStore((state) => state.attention);
   const isPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
@@ -58,7 +58,7 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
   const noun = workItem.type === 'pr' ? 'PR' : 'issue';
   const providerName = PROVIDER_META[workItem.provider].displayName;
   const siblings = (workspace?.sessions ?? []).filter(
-    (candidate) => candidate.id !== session.id && sameWorkItem(candidate.workItem, workItem)
+    (candidate) => candidate.id !== session.id && sameWorkItem(candidate.workItem, workItem),
   );
   const total = siblings.length + 1;
 
@@ -75,14 +75,20 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
       {(session.workItemAction || session.cwd) && (
         <span className="work-item-strip-facts">
           {session.workItemAction && (
-            <span className="work-item-strip-fact" title={`Started with the ${session.workItemAction} action`}>
+            <span
+              className="work-item-strip-fact"
+              title={`Started with the ${session.workItemAction} action`}
+            >
               {/* A label, not a verb: a play glyph would read as "run this". */}
               <Tag size={12} aria-hidden="true" />
               {session.workItemAction}
             </span>
           )}
           {session.cwd && (
-            <span className="work-item-strip-fact" title={`Runs in its own worktree: ${tildePath(session.cwd)}`}>
+            <span
+              className="work-item-strip-fact"
+              title={`Runs in its own worktree: ${tildePath(session.cwd)}`}
+            >
               <FolderGit2 size={12} aria-hidden="true" />
               worktree · {workItem.type}-{workItem.number}
             </span>
@@ -90,7 +96,11 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
         </span>
       )}
       {workspace && (
-        <RunActionMenu workspace={workspace} session={session} triggerClassName="work-item-strip-button" />
+        <RunActionMenu
+          workspace={workspace}
+          session={session}
+          triggerClassName="work-item-strip-button"
+        />
       )}
       {siblings.length > 0 && (
         <DropdownMenu.Root>
@@ -137,7 +147,9 @@ export function WorkItemStrip({ workspaceId, session }: WorkItemStripProps) {
           type="button"
           className="work-item-strip-button"
           aria-pressed={isPanelVisible}
-          title={isPanelVisible ? `Hide ${noun} details` : `Show ${noun} details beside the session`}
+          title={
+            isPanelVisible ? `Hide ${noun} details` : `Show ${noun} details beside the session`
+          }
           onClick={togglePanel}
         >
           <PanelRight size={13} aria-hidden="true" />

@@ -4,7 +4,11 @@ import { makeSession } from '../conductor/ConductorTools.test';
 import type { HarnessDriver } from '../drivers';
 import { recentRepliesFor } from './recentReplies';
 
-const session = makeSession({ id: 'w-1', harnessId: 'work', claudeSessionId: '00000000-0000-4000-8000-0000000000aa' });
+const session = makeSession({
+  id: 'w-1',
+  harnessId: 'work',
+  claudeSessionId: '00000000-0000-4000-8000-0000000000aa',
+});
 
 function harness(overrides: Partial<Harness> = {}): Harness {
   return {
@@ -26,7 +30,9 @@ function harness(overrides: Partial<Harness> = {}): Harness {
 describe('recentRepliesFor', () => {
   it('is null when the harness’s driver cannot read transcripts at all', async () => {
     const driverFor = vi.fn(() => ({}) as HarnessDriver);
-    expect(await recentRepliesFor(harness({ driverId: 'codex' }), session, 3, driverFor)).toBeNull();
+    expect(
+      await recentRepliesFor(harness({ driverId: 'codex' }), session, 3, driverFor),
+    ).toBeNull();
     expect(driverFor).toHaveBeenCalledWith('codex');
   });
 
@@ -37,7 +43,14 @@ describe('recentRepliesFor', () => {
   it('is empty, not null, when a readable harness has no transcript yet', async () => {
     // A session before its first turn: its harness can be read, there is just nothing to read.
     const getRecentReplies = vi.fn(async () => null);
-    expect(await recentRepliesFor(harness(), session, 3, () => ({ getRecentReplies }) as unknown as HarnessDriver)).toEqual([]);
+    expect(
+      await recentRepliesFor(
+        harness(),
+        session,
+        3,
+        () => ({ getRecentReplies }) as unknown as HarnessDriver,
+      ),
+    ).toEqual([]);
   });
 
   it('reads the session’s own conversation where its harness keeps it', async () => {
@@ -48,7 +61,7 @@ describe('recentRepliesFor', () => {
     expect(getRecentReplies).toHaveBeenCalledWith(
       expect.objectContaining({ configDir: '/profiles/work' }),
       '00000000-0000-4000-8000-0000000000aa',
-      2
+      2,
     );
   });
 });

@@ -11,29 +11,29 @@ import type { ScopeRepo } from '../shared/types';
  * deserves a scope of its own.
  */
 export async function listScopeRepos(scope: {
-    path: string;
-    isGitRepo: boolean;
+  path: string;
+  isGitRepo: boolean;
 }): Promise<ScopeRepo[]> {
-    if (scope.isGitRepo) {
-        return [{ name: path.basename(scope.path), path: scope.path }];
-    }
+  if (scope.isGitRepo) {
+    return [{ name: path.basename(scope.path), path: scope.path }];
+  }
 
-    let entries: fs.Dirent[];
-    try {
-        entries = await fs.promises.readdir(scope.path, { withFileTypes: true });
-    } catch {
-        // A moved or unreadable folder offers no targets. The dialog shows an
-        // empty list; an error dialog would be worse than the truth.
-        return [];
-    }
+  let entries: fs.Dirent[];
+  try {
+    entries = await fs.promises.readdir(scope.path, { withFileTypes: true });
+  } catch {
+    // A moved or unreadable folder offers no targets. The dialog shows an
+    // empty list; an error dialog would be worse than the truth.
+    return [];
+  }
 
-    const repos: ScopeRepo[] = [];
-    for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const childPath = path.join(scope.path, entry.name);
-        if (fs.existsSync(path.join(childPath, '.git'))) {
-            repos.push({ name: entry.name, path: childPath });
-        }
+  const repos: ScopeRepo[] = [];
+  for (const entry of entries) {
+    if (!entry.isDirectory()) continue;
+    const childPath = path.join(scope.path, entry.name);
+    if (fs.existsSync(path.join(childPath, '.git'))) {
+      repos.push({ name: entry.name, path: childPath });
     }
-    return repos.sort((a, b) => a.name.localeCompare(b.name));
+  }
+  return repos.sort((a, b) => a.name.localeCompare(b.name));
 }

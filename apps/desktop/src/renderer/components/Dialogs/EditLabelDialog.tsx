@@ -11,7 +11,11 @@ import './styles.css';
  * always sends the emoji key, so removing one is a clear rather than a no-op.
  * The label keeps its id, so every assignment it carries survives a rename.
  */
-export function EditLabelDialog({ workspaceId, label, onClose }: {
+export function EditLabelDialog({
+  workspaceId,
+  label,
+  onClose,
+}: {
   workspaceId: string;
   label: Label;
   onClose: () => void;
@@ -27,7 +31,9 @@ export function EditLabelDialog({ workspaceId, label, onClose }: {
     setError(null);
     setSubmitting(true);
     try {
-      await useWorkspaceStore.getState().updateLabel(workspaceId, label.id, { name: trimmed, emoji });
+      await useWorkspaceStore
+        .getState()
+        .updateLabel(workspaceId, label.id, { name: trimmed, emoji });
       onClose();
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -47,9 +53,16 @@ export function EditLabelDialog({ workspaceId, label, onClose }: {
           </Dialog.Description>
           <div className="dialog-form">
             <div className="dialog-field">
-              <label className="dialog-label" htmlFor="edit-label-name">Name</label>
+              <label className="dialog-label" htmlFor="edit-label-name">
+                Name
+              </label>
               <div className="group-name-field">
-                <GroupEmojiPicker subject="label" value={emoji} onChange={setEmoji} disabled={submitting} />
+                <GroupEmojiPicker
+                  subject="label"
+                  value={emoji}
+                  onChange={setEmoji}
+                  disabled={submitting}
+                />
                 <input
                   id="edit-label-name"
                   className="dialog-input"
@@ -57,15 +70,27 @@ export function EditLabelDialog({ workspaceId, label, onClose }: {
                   disabled={submitting}
                   value={name}
                   onChange={(event) => setName(event.target.value)}
-                  onKeyDown={(event) => { if (event.key === 'Enter') void save(); }}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') void save();
+                  }}
                 />
               </div>
-              {error && <span className="dialog-error" role="alert">{error}</span>}
+              {error && (
+                <span className="dialog-error" role="alert">
+                  {error}
+                </span>
+              )}
             </div>
           </div>
           <div className="dialog-actions">
-            <button className="dialog-button-secondary" onClick={onClose}>Cancel</button>
-            <button className="dialog-button-primary" onClick={() => void save()} disabled={!name.trim() || submitting}>
+            <button className="dialog-button-secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button
+              className="dialog-button-primary"
+              onClick={() => void save()}
+              disabled={!name.trim() || submitting}
+            >
               {submitting ? 'Saving…' : 'Save'}
             </button>
           </div>

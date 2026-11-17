@@ -18,53 +18,55 @@ const REPO_SLUG = /^[A-Za-z0-9-]+\/(?!\.\.?$)[A-Za-z0-9_.-]+$/;
  */
 
 const restPullSchema = z.object({
-    number: z.number().int().positive(),
-    state: z.enum(['open', 'closed']),
-    merged_at: z.string().nullable(),
-    html_url: z.string(),
-    created_at: z.string(),
-    head: z.object({ sha: z.string().min(7), ref: z.string() }),
+  number: z.number().int().positive(),
+  state: z.enum(['open', 'closed']),
+  merged_at: z.string().nullable(),
+  html_url: z.string(),
+  created_at: z.string(),
+  head: z.object({ sha: z.string().min(7), ref: z.string() }),
 });
 
 /** The `gh api` endpoint answering one query. Throws on a query that could escape the path. */
 export function pullsEndpoint(query: PullRequestQuery): string {
-    if (!REPO_SLUG.test(query.repo)) throw new Error(`Not an owner/name repository: "${query.repo}".`);
-    if ('number' in query) {
-        if (!Number.isInteger(query.number) || query.number <= 0) {
-            throw new Error(`Not a pull request number: ${query.number}.`);
-        }
-        return `repos/${query.repo}/pulls/${query.number}`;
+  if (!REPO_SLUG.test(query.repo))
+    throw new Error(`Not an owner/name repository: "${query.repo}".`);
+  if ('number' in query) {
+    if (!Number.isInteger(query.number) || query.number <= 0) {
+      throw new Error(`Not a pull request number: ${query.number}.`);
     }
-    if (!query.headBranch) throw new Error('A head branch is required.');
-    const owner = query.repo.split('/')[0];
-    const head = encodeURIComponent(`${owner}:${query.headBranch}`);
-    return `repos/${query.repo}/pulls?state=all&per_page=20&head=${head}`;
+    return `repos/${query.repo}/pulls/${query.number}`;
+  }
+  if (!query.headBranch) throw new Error('A head branch is required.');
+  const owner = query.repo.split('/')[0];
+  const head = encodeURIComponent(`${owner}:${query.headBranch}`);
+  return `repos/${query.repo}/pulls?state=all&per_page=20&head=${head}`;
 }
 
 /** Parse what `gh api <pullsEndpoint(query)>` printed. Throws on an unrecognised shape. */
 export function parsePullsResponse(query: PullRequestQuery, stdout: string): PullRequestState[] {
-    let payload: unknown;
-    try {
-        payload = JSON.parse(stdout);
-    } catch {
-        throw new Error('GitHub returned a pulls response that is not JSON.');
-    }
-    const raw = 'number' in query ? [payload] : payload;
-    const parsed = z.array(restPullSchema).safeParse(raw);
-    if (!parsed.success) throw new Error('GitHub returned a pulls response Consola does not recognise.');
-    return parsed.data
-        .map(
-            (pull): PullRequestState => ({
-                number: pull.number,
-                status: pull.state === 'open' ? 'open' : pull.merged_at ? 'merged' : 'closed',
-                headOid: pull.head.sha,
-                headBranch: pull.head.ref,
-                // GitHub keeps every PR's head here, merged, closed or with
-                // its branch deleted.
-                fetchRef: `pull/${pull.number}/head`,
-                url: pull.html_url,
-                createdAt: pull.created_at,
-            })
-        )
-        .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
+  let payload: unknown;
+  try {
+    payload = JSON.parse(stdout);
+  } catch {
+    throw new Error('GitHub returned a pulls response that is not JSON.');
+  }
+  const raw = 'number' in query ? [payload] : payload;
+  const parsed = z.array(restPullSchema).safeParse(raw);
+  if (!parsed.success)
+    throw new Error('GitHub returned a pulls response Consola does not recognise.');
+  return parsed.data
+    .map(
+      (pull): PullRequestState => ({
+        number: pull.number,
+        status: pull.state === 'open' ? 'open' : pull.merged_at ? 'merged' : 'closed',
+        headOid: pull.head.sha,
+        headBranch: pull.head.ref,
+        // GitHub keeps every PR's head here, merged, closed or with
+        // its branch deleted.
+        fetchRef: `pull/${pull.number}/head`,
+        url: pull.html_url,
+        createdAt: pull.created_at,
+      }),
+    )
+    .sort((a, b) => b.createdAt.localeCompare(a.createdAt));
 }

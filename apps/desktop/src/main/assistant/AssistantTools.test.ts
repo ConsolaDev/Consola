@@ -8,15 +8,24 @@ type MockDeps = { [K in keyof AssistantToolsDeps]: Mock<AssistantToolsDeps[K]> }
 let deps: MockDeps;
 let tools: AssistantTools;
 
-const worker = () => makeSession({ id: 'w-1', name: 'worker', instanceId: 'inst-w1', kind: 'interactive' });
+const worker = () =>
+  makeSession({ id: 'w-1', name: 'worker', instanceId: 'inst-w1', kind: 'interactive' });
 const assistant = () =>
-  makeSession({ id: 'a-1', name: 'Assistant', instanceId: 'inst-a1', kind: 'assistant', groupId: undefined });
+  makeSession({
+    id: 'a-1',
+    name: 'Assistant',
+    instanceId: 'inst-a1',
+    kind: 'assistant',
+    groupId: undefined,
+  });
 const workspaces = () => [
   makeWorkspace({ sessions: [makeSession(), worker(), assistant()] }),
   makeWorkspace({
     id: 'ws-2',
     name: 'Other',
-    sessions: [makeSession({ id: 'x-1', workspaceId: 'ws-2', instanceId: 'inst-x1', kind: 'interactive' })],
+    sessions: [
+      makeSession({ id: 'x-1', workspaceId: 'ws-2', instanceId: 'inst-x1', kind: 'interactive' }),
+    ],
   }),
 ];
 
@@ -36,73 +45,89 @@ beforeEach(() => {
 describe('consola_prompt_session', () => {
   it('prompts a session in its own workspace and watches it', async () => {
     deps.deliverPrompt.mockResolvedValue('woken');
-    const result = await tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'pull latest' });
+    const result = await tools.handlePromptSession('a-1', {
+      session_id: 'w-1',
+      prompt: 'pull latest',
+    });
     expect(deps.deliverPrompt).toHaveBeenCalledWith('ws-1', 'w-1', 'pull latest');
     expect(deps.watch).toHaveBeenCalledWith('a-1', 'w-1');
     expect(result).toEqual({
       delivery: 'woken',
-      summary: '"worker" was not running; Consola resumed it (or started it fresh if its conversation is gone) and queued the prompt.',
+      summary:
+        '"worker" was not running; Consola resumed it (or started it fresh if its conversation is gone) and queued the prompt.',
     });
   });
 
   it('says how a queued or re-run prompt travels, never that it arrived', async () => {
     expect(await tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' })).toEqual({
       delivery: 'queued',
-      summary: 'Queued for "worker"; it is delivered when its composer is free, never typed into a menu.',
+      summary:
+        'Queued for "worker"; it is delivered when its composer is free, never typed into a menu.',
     });
     deps.deliverPrompt.mockResolvedValue('rerun');
     expect(await tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' })).toEqual({
       delivery: 'rerun',
-      summary: '"worker" is read-only; Consola re-ran it unattended with this prompt. It can only read and report.',
+      summary:
+        '"worker" is read-only; Consola re-ran it unattended with this prompt. It can only read and report.',
     });
   });
 
   it('watches nothing when delivery fails', async () => {
-    deps.deliverPrompt.mockRejectedValue(new Error('"worker" is in the middle of an unattended run; wait for it to finish.'));
-    await expect(tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' })).rejects.toThrow(/unattended run/);
+    deps.deliverPrompt.mockRejectedValue(
+      new Error('"worker" is in the middle of an unattended run; wait for it to finish.'),
+    );
+    await expect(
+      tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' }),
+    ).rejects.toThrow(/unattended run/);
     expect(deps.watch).not.toHaveBeenCalled();
   });
 });
 
 describe('the workspace boundary', () => {
   it('never reaches another workspace, or itself', async () => {
-    await expect(tools.handlePromptSession('a-1', { session_id: 'x-1', prompt: 'hi' })).rejects.toThrow(
-      'No session x-1 in this workspace.'
-    );
-    await expect(tools.handleReadSession('a-1', { session_id: 'x-1', messages: 3 })).rejects.toThrow(
-      'No session x-1 in this workspace.'
-    );
-    await expect(tools.handlePromptSession('a-1', { session_id: 'a-1', prompt: 'hi' })).rejects.toThrow('That is you.');
-    await expect(tools.handleReadSession('a-1', { session_id: 'a-1', messages: 3 })).rejects.toThrow('That is you.');
+    await expect(
+      tools.handlePromptSession('a-1', { session_id: 'x-1', prompt: 'hi' }),
+    ).rejects.toThrow('No session x-1 in this workspace.');
+    await expect(
+      tools.handleReadSession('a-1', { session_id: 'x-1', messages: 3 }),
+    ).rejects.toThrow('No session x-1 in this workspace.');
+    await expect(
+      tools.handlePromptSession('a-1', { session_id: 'a-1', prompt: 'hi' }),
+    ).rejects.toThrow('That is you.');
+    await expect(
+      tools.handleReadSession('a-1', { session_id: 'a-1', messages: 3 }),
+    ).rejects.toThrow('That is you.');
     expect(deps.deliverPrompt).not.toHaveBeenCalled();
     expect(deps.recentReplies).not.toHaveBeenCalled();
     expect(deps.watch).not.toHaveBeenCalled();
   });
 
   it('refuses a caller that is not the Assistant', async () => {
-    await expect(tools.handlePromptSession('w-1', { session_id: 'cond-1', prompt: 'hi' })).rejects.toThrow(
-      'Calling session is not the Assistant.'
-    );
+    await expect(
+      tools.handlePromptSession('w-1', { session_id: 'cond-1', prompt: 'hi' }),
+    ).rejects.toThrow('Calling session is not the Assistant.');
     await expect(tools.handleStartSession('cond-1', { name: 'n', prompt: 'p' })).rejects.toThrow(
-      'Calling session is not the Assistant.'
+      'Calling session is not the Assistant.',
     );
     expect(deps.deliverPrompt).not.toHaveBeenCalled();
     expect(deps.start).not.toHaveBeenCalled();
   });
 
   it('refuses a caller whose record is gone', async () => {
-    await expect(tools.handleReadSession('gone-1', { session_id: 'w-1', messages: 3 })).rejects.toThrow(
-      'The Assistant no longer exists.'
-    );
+    await expect(
+      tools.handleReadSession('gone-1', { session_id: 'w-1', messages: 3 }),
+    ).rejects.toThrow('The Assistant no longer exists.');
   });
 
   it('re-reads the records on every call', async () => {
     await tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' });
     // w-1 deleted after the first call: the next one must not reach it.
-    deps.getWorkspaces.mockImplementation(() => [makeWorkspace({ sessions: [makeSession(), assistant()] })]);
-    await expect(tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' })).rejects.toThrow(
-      'No session w-1 in this workspace.'
-    );
+    deps.getWorkspaces.mockImplementation(() => [
+      makeWorkspace({ sessions: [makeSession(), assistant()] }),
+    ]);
+    await expect(
+      tools.handlePromptSession('a-1', { session_id: 'w-1', prompt: 'go' }),
+    ).rejects.toThrow('No session w-1 in this workspace.');
     expect(deps.deliverPrompt).toHaveBeenCalledTimes(1);
   });
 });
@@ -179,7 +204,10 @@ describe('consola_start_session', () => {
   });
 
   it('passes a folder, a cwd and a group through, and says when it got full tools', async () => {
-    deps.start.mockResolvedValue({ session: { id: 's-10', name: 'fix flaky e2e' } as Session, mode: 'full-tools' });
+    deps.start.mockResolvedValue({
+      session: { id: 's-10', name: 'fix flaky e2e' } as Session,
+      mode: 'full-tools',
+    });
     const result = await tools.handleStartSession('a-1', {
       name: 'fix flaky e2e',
       prompt: 'fix it',
@@ -194,13 +222,15 @@ describe('consola_start_session', () => {
       cwd: '/repos/app/e2e',
       group: 'catalog',
     });
-    expect(result.summary).toBe('Started "fix flaky e2e" (full tools). You will hear when it settles.');
+    expect(result.summary).toBe(
+      'Started "fix flaky e2e" (full tools). You will hear when it settles.',
+    );
   });
 
   it('watches nothing when the start is refused', async () => {
     deps.start.mockRejectedValue(new Error('/elsewhere is not one of this workspace’s folders.'));
     await expect(
-      tools.handleStartSession('a-1', { name: 'n', prompt: 'p', scope_path: '/elsewhere' })
+      tools.handleStartSession('a-1', { name: 'n', prompt: 'p', scope_path: '/elsewhere' }),
     ).rejects.toThrow(/not one of this workspace’s folders/);
     expect(deps.watch).not.toHaveBeenCalled();
   });

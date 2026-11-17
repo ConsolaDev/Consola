@@ -30,7 +30,9 @@ export function NewLabelDialog({ workspaceId, onClose, onCreated }: NewLabelDial
     setError(null);
     setSubmitting(true);
     try {
-      const label = await useWorkspaceStore.getState().createLabel(workspaceId, { name: trimmed, emoji });
+      const label = await useWorkspaceStore
+        .getState()
+        .createLabel(workspaceId, { name: trimmed, emoji });
       // Inside the try on purpose: a callback that fails leaves the dialog
       // open with its message, rather than closing over a half-done assignment.
       await onCreated?.(label);
@@ -58,7 +60,12 @@ export function NewLabelDialog({ workspaceId, onClose, onCreated }: NewLabelDial
                 Name
               </label>
               <div className="group-name-field">
-                <GroupEmojiPicker subject="label" value={emoji} onChange={setEmoji} disabled={submitting} />
+                <GroupEmojiPicker
+                  subject="label"
+                  value={emoji}
+                  onChange={setEmoji}
+                  disabled={submitting}
+                />
                 <input
                   id="new-label-name"
                   className="dialog-input"
@@ -72,7 +79,11 @@ export function NewLabelDialog({ workspaceId, onClose, onCreated }: NewLabelDial
                   placeholder="e.g. bump lodash v5"
                 />
               </div>
-              {error && <span className="dialog-error" role="alert">{error}</span>}
+              {error && (
+                <span className="dialog-error" role="alert">
+                  {error}
+                </span>
+              )}
             </div>
           </div>
           <div className="dialog-actions">

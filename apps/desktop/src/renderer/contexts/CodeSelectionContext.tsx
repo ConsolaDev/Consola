@@ -22,14 +22,14 @@ interface CodeSelectionProviderProps {
   basePath?: string;
 }
 
-export function CodeSelectionProvider({ children, instanceId, basePath }: CodeSelectionProviderProps) {
+export function CodeSelectionProvider({
+  children,
+  instanceId,
+  basePath,
+}: CodeSelectionProviderProps) {
   const value = useMemo(() => ({ instanceId, basePath }), [instanceId, basePath]);
 
-  return (
-    <CodeSelectionContext.Provider value={value}>
-      {children}
-    </CodeSelectionContext.Provider>
-  );
+  return <CodeSelectionContext.Provider value={value}>{children}</CodeSelectionContext.Provider>;
 }
 
 /**

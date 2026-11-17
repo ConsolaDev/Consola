@@ -13,17 +13,22 @@ import type { FolderInfo } from '../types/electron';
  */
 export async function createWorkspaceFromFolders(
   folders: FolderInfo[],
-  name?: string
+  name?: string,
 ): Promise<Workspace | undefined> {
   const [first, ...rest] = folders;
   if (!first) return undefined;
   const store = useWorkspaceStore.getState();
   const workspace = await store.createWorkspace(first.name, first.path, first.isGitRepo);
   for (const folder of rest) {
-    await store.addScope(workspace.id, { name: folder.name, path: folder.path, isGitRepo: folder.isGitRepo });
+    await store.addScope(workspace.id, {
+      name: folder.name,
+      path: folder.path,
+      isGitRepo: folder.isGitRepo,
+    });
   }
   const trimmed = name?.trim();
-  if (trimmed && trimmed !== workspace.name) await store.updateWorkspace(workspace.id, { name: trimmed });
+  if (trimmed && trimmed !== workspace.name)
+    await store.updateWorkspace(workspace.id, { name: trimmed });
   await useNavigationStore.getState().setActiveWorkspace(workspace.id);
   return workspace;
 }

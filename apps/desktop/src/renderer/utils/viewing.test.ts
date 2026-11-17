@@ -22,7 +22,7 @@ function workspace(): Workspace {
 }
 
 describe('viewedInstanceId', () => {
-  it('is the active session\'s terminal', () => {
+  it("is the active session's terminal", () => {
     expect(viewedInstanceId({ activeSessionId: 'a', overlay: null }, workspace())).toBe('inst-a');
   });
 

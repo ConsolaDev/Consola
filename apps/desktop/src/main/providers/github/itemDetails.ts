@@ -41,7 +41,8 @@ const EVENT = `id createdAt actor { ${ACTOR} }`;
 const REFERENCE = 'number title url state repository { nameWithOwner }';
 const LABELS = 'labels(first: 100) { nodes { name color } }';
 const ASSIGNEES = `assignees(first: 100) { nodes { ${ACTOR} } }`;
-const CHECK_CONTEXT = '__typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl }';
+const CHECK_CONTEXT =
+  '__typename ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl }';
 const THREAD_COMMENT = `${COMMENT} diffHunk state viewerCanDelete pullRequestReview { id }`;
 
 /** What the timeline asks for, per type: the events the pane has a sentence for, and nothing else. */
@@ -151,7 +152,11 @@ export const PULL_REQUEST_ID_QUERY = `query ConsolaPullRequestId(${ITEM_ARGS}) {
 }`;
 
 /** What a write addressed by id expects that id to be. */
-export type OwnedNodeType = 'PullRequestReviewThread' | 'PullRequestReview' | 'PullRequestReviewComment' | 'IssueComment';
+export type OwnedNodeType =
+  | 'PullRequestReviewThread'
+  | 'PullRequestReview'
+  | 'PullRequestReviewComment'
+  | 'IssueComment';
 
 const OWNER_FIELDS = [
   '... on PullRequestReviewThread { pullRequest { number repository { nameWithOwner } } }',
@@ -209,17 +214,31 @@ export const MUTATIONS = {
 
 const GHOST: WorkItemPerson = { login: 'ghost', isBot: false };
 
-const actor = z.object({ __typename: z.string(), login: z.string(), avatarUrl: z.string().nullish() });
+const actor = z.object({
+  __typename: z.string(),
+  login: z.string(),
+  avatarUrl: z.string().nullish(),
+});
 const nullableActor = actor.nullable();
 type Actor = z.infer<typeof actor>;
 
 function person(raw: Actor | null | undefined): WorkItemPerson {
   if (!raw) return GHOST;
-  return { login: raw.login, ...(raw.avatarUrl ? { avatarUrl: raw.avatarUrl } : {}), isBot: raw.__typename === 'Bot' };
+  return {
+    login: raw.login,
+    ...(raw.avatarUrl ? { avatarUrl: raw.avatarUrl } : {}),
+    isBot: raw.__typename === 'Bot',
+  };
 }
 
 const reactionGroups = z
-  .array(z.object({ content: z.enum(WORK_ITEM_REACTIONS), viewerHasReacted: z.boolean(), reactors: z.object({ totalCount: z.number() }) }))
+  .array(
+    z.object({
+      content: z.enum(WORK_ITEM_REACTIONS),
+      viewerHasReacted: z.boolean(),
+      reactors: z.object({ totalCount: z.number() }),
+    }),
+  )
   .nullish();
 
 const post = z.object({
@@ -246,17 +265,28 @@ function toPost(raw: RawPost): WorkItemPost {
     ...(raw.lastEditedAt ? { editedAt: raw.lastEditedAt } : {}),
     reactions: (raw.reactionGroups ?? [])
       .filter((group) => group.reactors.totalCount > 0)
-      .map((group) => ({ content: group.content, count: group.reactors.totalCount, viewerReacted: group.viewerHasReacted })),
-    ...(raw.isMinimized ? { minimized: (raw.minimizedReason ?? 'hidden').toLowerCase().replace(/_/g, ' ') } : {}),
+      .map((group) => ({
+        content: group.content,
+        count: group.reactors.totalCount,
+        viewerReacted: group.viewerHasReacted,
+      })),
+    ...(raw.isMinimized
+      ? { minimized: (raw.minimizedReason ?? 'hidden').toLowerCase().replace(/_/g, ' ') }
+      : {}),
     viewerCanEdit: raw.viewerCanUpdate,
   };
 }
 
 const label = z.object({ name: z.string(), color: z.string().regex(/^[0-9a-f]{6}$/i) });
-const toLabel = (raw: z.infer<typeof label>): WorkItemLabel => ({ name: raw.name, color: raw.color.toLowerCase() });
+const toLabel = (raw: z.infer<typeof label>): WorkItemLabel => ({
+  name: raw.name,
+  color: raw.color.toLowerCase(),
+});
 const event = z.object({ id: z.string(), createdAt: z.string(), actor: nullableActor });
 const named = z.object({ login: z.string() }).partial().nullable();
-const reviewer = z.object({ __typename: z.string(), login: z.string().optional(), name: z.string().optional() }).nullable();
+const reviewer = z
+  .object({ __typename: z.string(), login: z.string().optional(), name: z.string().optional() })
+  .nullable();
 const reference = z.object({
   __typename: z.enum(['Issue', 'PullRequest']),
   number: z.number(),
@@ -269,7 +299,11 @@ const reviewState = z.enum(['APPROVED', 'CHANGES_REQUESTED', 'COMMENTED', 'DISMI
 
 const timelineNode = z.discriminatedUnion('__typename', [
   comment.extend({ __typename: z.literal('IssueComment') }),
-  comment.extend({ __typename: z.literal('PullRequestReview'), state: reviewState, submittedAt: z.string().nullish() }),
+  comment.extend({
+    __typename: z.literal('PullRequestReview'),
+    state: reviewState,
+    submittedAt: z.string().nullish(),
+  }),
   z.object({
     __typename: z.literal('PullRequestCommit'),
     id: z.string(),
@@ -279,7 +313,13 @@ const timelineNode = z.discriminatedUnion('__typename', [
       messageHeadline: z.string(),
       committedDate: z.string(),
       statusCheckRollup: z.object({ state: z.string() }).nullish(),
-      author: z.object({ name: z.string().nullish(), avatarUrl: z.string().nullish(), user: nullableActor.optional() }).nullable(),
+      author: z
+        .object({
+          name: z.string().nullish(),
+          avatarUrl: z.string().nullish(),
+          user: nullableActor.optional(),
+        })
+        .nullable(),
     }),
   }),
   event.extend({
@@ -290,18 +330,34 @@ const timelineNode = z.discriminatedUnion('__typename', [
   }),
   event.extend({ __typename: z.literal('LabeledEvent'), label }),
   event.extend({ __typename: z.literal('UnlabeledEvent'), label }),
-  event.extend({ __typename: z.literal('RenamedTitleEvent'), previousTitle: z.string(), currentTitle: z.string() }),
+  event.extend({
+    __typename: z.literal('RenamedTitleEvent'),
+    previousTitle: z.string(),
+    currentTitle: z.string(),
+  }),
   event.extend({ __typename: z.literal('ReviewRequestedEvent'), requestedReviewer: reviewer }),
   event.extend({ __typename: z.literal('ReviewRequestRemovedEvent'), requestedReviewer: reviewer }),
   event.extend({ __typename: z.literal('AssignedEvent'), assignee: named }),
   event.extend({ __typename: z.literal('UnassignedEvent'), assignee: named }),
-  event.extend({ __typename: z.literal('CrossReferencedEvent'), willCloseTarget: z.boolean(), source: reference }),
+  event.extend({
+    __typename: z.literal('CrossReferencedEvent'),
+    willCloseTarget: z.boolean(),
+    source: reference,
+  }),
   event.extend({ __typename: z.literal('ReadyForReviewEvent') }),
   event.extend({ __typename: z.literal('ConvertToDraftEvent') }),
   event.extend({ __typename: z.literal('ClosedEvent'), stateReason: z.string().nullish() }),
   event.extend({ __typename: z.literal('ReopenedEvent') }),
-  event.extend({ __typename: z.literal('MergedEvent'), commit: z.object({ abbreviatedOid: z.string() }).nullable(), mergeRefName: z.string() }),
-  event.extend({ __typename: z.literal('BaseRefChangedEvent'), previousRefName: z.string(), currentRefName: z.string() }),
+  event.extend({
+    __typename: z.literal('MergedEvent'),
+    commit: z.object({ abbreviatedOid: z.string() }).nullable(),
+    mergeRefName: z.string(),
+  }),
+  event.extend({
+    __typename: z.literal('BaseRefChangedEvent'),
+    previousRefName: z.string(),
+    currentRefName: z.string(),
+  }),
   event.extend({ __typename: z.literal('HeadRefDeletedEvent'), headRefName: z.string() }),
   event.extend({ __typename: z.literal('HeadRefRestoredEvent') }),
 ]);
@@ -318,11 +374,17 @@ const stateReason = (raw: string | null | undefined) => (raw ? STATE_REASONS[raw
 
 const reviewerName = (raw: z.infer<typeof reviewer>) => raw?.login ?? raw?.name ?? 'ghost';
 
-function commitAuthor(raw: z.infer<typeof timelineNode> & { __typename: 'PullRequestCommit' }): WorkItemPerson {
+function commitAuthor(
+  raw: z.infer<typeof timelineNode> & { __typename: 'PullRequestCommit' },
+): WorkItemPerson {
   const author = raw.commit.author;
   if (author?.user) return person(author.user);
   const name = author?.name ?? 'unknown';
-  return { login: name, ...(author?.avatarUrl ? { avatarUrl: author.avatarUrl } : {}), isBot: /\[bot\]$/.test(name) };
+  return {
+    login: name,
+    ...(author?.avatarUrl ? { avatarUrl: author.avatarUrl } : {}),
+    isBot: /\[bot\]$/.test(name),
+  };
 }
 
 function toReference(raw: z.infer<typeof reference>): WorkItemReference {
@@ -338,13 +400,19 @@ function toReference(raw: z.infer<typeof reference>): WorkItemReference {
 
 /** Null for the viewer's own pending review: it is not history yet, and the details carry it apart. */
 function toTimelineItem(node: TimelineNode): WorkItemTimelineItem | null {
-  const base = 'actor' in node ? { id: node.id, createdAt: node.createdAt, actor: person(node.actor) } : null;
+  const base =
+    'actor' in node ? { id: node.id, createdAt: node.createdAt, actor: person(node.actor) } : null;
   switch (node.__typename) {
     case 'IssueComment':
       return { kind: 'comment', ...toPost(node) };
     case 'PullRequestReview':
       if (node.state === 'PENDING') return null;
-      return { kind: 'review', ...toPost(node), createdAt: node.submittedAt ?? node.createdAt, state: node.state };
+      return {
+        kind: 'review',
+        ...toPost(node),
+        createdAt: node.submittedAt ?? node.createdAt,
+        state: node.state,
+      };
     case 'PullRequestCommit': {
       const item: WorkItemCommitItem = {
         kind: 'commit',
@@ -354,7 +422,9 @@ function toTimelineItem(node: TimelineNode): WorkItemTimelineItem | null {
         headline: node.commit.messageHeadline,
         author: commitAuthor(node),
         url: node.url,
-        ...(node.commit.statusCheckRollup ? { checkState: node.commit.statusCheckRollup.state } : {}),
+        ...(node.commit.statusCheckRollup
+          ? { checkState: node.commit.statusCheckRollup.state }
+          : {}),
       };
       return item;
     }
@@ -368,21 +438,37 @@ function toTimelineItem(node: TimelineNode): WorkItemTimelineItem | null {
       };
     case 'LabeledEvent':
     case 'UnlabeledEvent':
-      return { kind: node.__typename === 'LabeledEvent' ? 'labeled' : 'unlabeled', ...base!, label: toLabel(node.label) };
+      return {
+        kind: node.__typename === 'LabeledEvent' ? 'labeled' : 'unlabeled',
+        ...base!,
+        label: toLabel(node.label),
+      };
     case 'RenamedTitleEvent':
       return { kind: 'renamed', ...base!, from: node.previousTitle, to: node.currentTitle };
     case 'ReviewRequestedEvent':
     case 'ReviewRequestRemovedEvent':
       return {
-        kind: node.__typename === 'ReviewRequestedEvent' ? 'review-requested' : 'review-request-removed',
+        kind:
+          node.__typename === 'ReviewRequestedEvent'
+            ? 'review-requested'
+            : 'review-request-removed',
         ...base!,
         reviewer: reviewerName(node.requestedReviewer),
       };
     case 'AssignedEvent':
     case 'UnassignedEvent':
-      return { kind: node.__typename === 'AssignedEvent' ? 'assigned' : 'unassigned', ...base!, assignee: node.assignee?.login ?? 'ghost' };
+      return {
+        kind: node.__typename === 'AssignedEvent' ? 'assigned' : 'unassigned',
+        ...base!,
+        assignee: node.assignee?.login ?? 'ghost',
+      };
     case 'CrossReferencedEvent':
-      return { kind: 'cross-referenced', ...base!, source: toReference(node.source), willClose: node.willCloseTarget };
+      return {
+        kind: 'cross-referenced',
+        ...base!,
+        source: toReference(node.source),
+        willClose: node.willCloseTarget,
+      };
     case 'ReadyForReviewEvent':
       return { kind: 'ready-for-review', ...base! };
     case 'ConvertToDraftEvent':
@@ -396,9 +482,19 @@ function toTimelineItem(node: TimelineNode): WorkItemTimelineItem | null {
       return { kind: 'closed', ...base!, ...(reason ? { stateReason: reason } : {}) };
     }
     case 'MergedEvent':
-      return { kind: 'merged', ...base!, ...(node.commit ? { commit: node.commit.abbreviatedOid } : {}), base: node.mergeRefName };
+      return {
+        kind: 'merged',
+        ...base!,
+        ...(node.commit ? { commit: node.commit.abbreviatedOid } : {}),
+        base: node.mergeRefName,
+      };
     case 'BaseRefChangedEvent':
-      return { kind: 'base-ref-changed', ...base!, from: node.previousRefName, to: node.currentRefName };
+      return {
+        kind: 'base-ref-changed',
+        ...base!,
+        from: node.previousRefName,
+        to: node.currentRefName,
+      };
     case 'HeadRefDeletedEvent':
       return { kind: 'head-ref-deleted', ...base!, ref: node.headRefName };
   }
@@ -439,7 +535,10 @@ function toThreadComment(raw: RawThreadComment): WorkItemThreadComment {
   };
 }
 
-function toThread(raw: RawThread, comments: RawThreadComment[] = raw.comments.nodes): WorkItemThread {
+function toThread(
+  raw: RawThread,
+  comments: RawThreadComment[] = raw.comments.nodes,
+): WorkItemThread {
   return {
     id: raw.id,
     path: raw.path,
@@ -466,18 +565,30 @@ const checkContext = z.discriminatedUnion('__typename', [
     conclusion: z.string().nullable(),
     detailsUrl: z.string().nullable(),
   }),
-  z.object({ __typename: z.literal('StatusContext'), context: z.string(), state: z.string(), targetUrl: z.string().nullable() }),
+  z.object({
+    __typename: z.literal('StatusContext'),
+    context: z.string(),
+    state: z.string(),
+    targetUrl: z.string().nullable(),
+  }),
 ]);
 type RawCheck = z.infer<typeof checkContext>;
 
 /** A run still going has no conclusion yet: its status (IN_PROGRESS, QUEUED) is the state. */
 const toCheck = (raw: RawCheck) =>
   raw.__typename === 'CheckRun'
-    ? { name: raw.name, state: raw.conclusion || raw.status || 'PENDING', url: raw.detailsUrl ?? '' }
+    ? {
+        name: raw.name,
+        state: raw.conclusion || raw.status || 'PENDING',
+        url: raw.detailsUrl ?? '',
+      }
     : { name: raw.context, state: raw.state || 'PENDING', url: raw.targetUrl ?? '' };
 
 const page = <T extends z.ZodTypeAny>(nodes: T) =>
-  z.object({ pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }), nodes: z.array(nodes) });
+  z.object({
+    pageInfo: z.object({ hasNextPage: z.boolean(), endCursor: z.string().nullable() }),
+    nodes: z.array(nodes),
+  });
 
 const pullRequestHeader = post.extend({
   title: z.string(),
@@ -486,11 +597,22 @@ const pullRequestHeader = post.extend({
   labels: z.object({ nodes: z.array(label) }),
   assignees: z.object({ nodes: z.array(actor) }),
   reviewRequests: z.object({
-    nodes: z.array(z.object({
-      requestedReviewer: z.object({ __typename: z.string(), login: z.string().optional(), avatarUrl: z.string().nullish(), name: z.string().optional() }).nullable(),
-    })),
+    nodes: z.array(
+      z.object({
+        requestedReviewer: z
+          .object({
+            __typename: z.string(),
+            login: z.string().optional(),
+            avatarUrl: z.string().nullish(),
+            name: z.string().optional(),
+          })
+          .nullable(),
+      }),
+    ),
   }),
-  latestReviews: z.object({ nodes: z.array(z.object({ state: reviewState, author: nullableActor })) }),
+  latestReviews: z.object({
+    nodes: z.array(z.object({ state: reviewState, author: nullableActor })),
+  }),
   headRefOid: z.string(),
   headRefName: z.string(),
   baseRefName: z.string(),
@@ -500,14 +622,26 @@ const pullRequestHeader = post.extend({
   deletions: z.number(),
   viewerCanUpdateBranch: z.boolean(),
   reviews: z.object({
-    nodes: z.array(z.object({ id: z.string(), viewerDidAuthor: z.boolean(), comments: z.object({ totalCount: z.number() }) })),
+    nodes: z.array(
+      z.object({
+        id: z.string(),
+        viewerDidAuthor: z.boolean(),
+        comments: z.object({ totalCount: z.number() }),
+      }),
+    ),
   }),
   commits: z.object({
-    nodes: z.array(z.object({
-      commit: z.object({
-        statusCheckRollup: z.object({ contexts: z.object({ totalCount: z.number(), nodes: z.array(checkContext) }) }).nullable(),
+    nodes: z.array(
+      z.object({
+        commit: z.object({
+          statusCheckRollup: z
+            .object({
+              contexts: z.object({ totalCount: z.number(), nodes: z.array(checkContext) }),
+            })
+            .nullable(),
+        }),
       }),
-    })),
+    ),
   }),
 });
 
@@ -520,7 +654,9 @@ const issueHeader = post.extend({
 });
 
 const headerReply = <T extends z.ZodTypeAny>(name: 'pullRequest' | 'issue', item: T) =>
-  z.object({ data: z.object({ viewer: actor, repository: z.object({ [name]: item.nullable() }).nullable() }) });
+  z.object({
+    data: z.object({ viewer: actor, repository: z.object({ [name]: item.nullable() }).nullable() }),
+  });
 
 const pullRequestReply = headerReply('pullRequest', pullRequestHeader);
 const issueReply = headerReply('issue', issueHeader);
@@ -529,35 +665,71 @@ const issueReply = headerReply('issue', issueHeader);
 const pages = <T extends z.ZodTypeAny>(reply: T) => z.array(reply).min(1);
 
 const timelineReply = (name: 'pullRequest' | 'issue') =>
-  pages(z.object({ data: z.object({ repository: z.object({ [name]: z.object({ timelineItems: page(timelineNode) }).nullable() }).nullable() }) }));
+  pages(
+    z.object({
+      data: z.object({
+        repository: z
+          .object({ [name]: z.object({ timelineItems: page(timelineNode) }).nullable() })
+          .nullable(),
+      }),
+    }),
+  );
 
-const threadsReply = pages(z.object({
-  data: z.object({ repository: z.object({ pullRequest: z.object({ reviewThreads: page(thread) }).nullable() }).nullable() }),
-}));
-
-const threadCommentsReply = pages(z.object({
-  data: z.object({ node: z.object({ comments: page(threadComment) }).nullable() }),
-}));
-
-const checksReply = pages(z.object({
-  data: z.object({
-    repository: z.object({
-      pullRequest: z.object({
-        commits: z.object({ nodes: z.array(z.object({ commit: z.object({ statusCheckRollup: z.object({ contexts: page(checkContext) }).nullable() }) })) }),
-      }).nullable(),
-    }).nullable(),
+const threadsReply = pages(
+  z.object({
+    data: z.object({
+      repository: z
+        .object({ pullRequest: z.object({ reviewThreads: page(thread) }).nullable() })
+        .nullable(),
+    }),
   }),
-}));
+);
+
+const threadCommentsReply = pages(
+  z.object({
+    data: z.object({ node: z.object({ comments: page(threadComment) }).nullable() }),
+  }),
+);
+
+const checksReply = pages(
+  z.object({
+    data: z.object({
+      repository: z
+        .object({
+          pullRequest: z
+            .object({
+              commits: z.object({
+                nodes: z.array(
+                  z.object({
+                    commit: z.object({
+                      statusCheckRollup: z.object({ contexts: page(checkContext) }).nullable(),
+                    }),
+                  }),
+                ),
+              }),
+            })
+            .nullable(),
+        })
+        .nullable(),
+    }),
+  }),
+);
 
 export const githubFileSchema = z.object({
-  filename: z.string(), status: z.string(), additions: z.number(), deletions: z.number(), patch: z.string().optional(),
+  filename: z.string(),
+  status: z.string(),
+  additions: z.number(),
+  deletions: z.number(),
+  patch: z.string().optional(),
 });
 
 function strict<T extends z.ZodTypeAny>(schema: T, raw: unknown, what: string): z.infer<T> {
   const parsed = schema.safeParse(raw);
   if (!parsed.success) {
     const issue = parsed.error.issues[0];
-    throw new Error(`Unrecognised ${what} from GitHub${issue ? ` at ${issue.path.join('.') || 'the top'}: ${issue.message}` : ''}.`);
+    throw new Error(
+      `Unrecognised ${what} from GitHub${issue ? ` at ${issue.path.join('.') || 'the top'}: ${issue.message}` : ''}.`,
+    );
   }
   return parsed.data;
 }
@@ -574,7 +746,10 @@ export type IssueHeader = z.infer<typeof issueHeader> & { viewer: Actor };
 
 export function parsePullRequestHeader(raw: unknown): PullRequestHeader {
   const reply = strict(pullRequestReply, raw, 'pull request');
-  const item = reply.data.repository?.pullRequest as z.infer<typeof pullRequestHeader> | null | undefined;
+  const item = reply.data.repository?.pullRequest as
+    | z.infer<typeof pullRequestHeader>
+    | null
+    | undefined;
   if (!item) missing('pr');
   return { ...item, viewer: reply.data.viewer };
 }
@@ -589,9 +764,16 @@ export function parseIssueHeader(raw: unknown): IssueHeader {
 export function parseTimeline(raw: unknown, type: 'pr' | 'issue'): WorkItemTimelineItem[] {
   const replies = strict(timelineReply(field(type)), raw, 'timeline');
   return replies.flatMap((reply) => {
-    const item = (reply.data.repository as Record<string, { timelineItems: { nodes: TimelineNode[] } } | null> | null)?.[field(type)];
+    const item = (
+      reply.data.repository as Record<
+        string,
+        { timelineItems: { nodes: TimelineNode[] } } | null
+      > | null
+    )?.[field(type)];
     if (!item) missing(type);
-    return item.timelineItems.nodes.map(toTimelineItem).filter((entry): entry is WorkItemTimelineItem => entry !== null);
+    return item.timelineItems.nodes
+      .map(toTimelineItem)
+      .filter((entry): entry is WorkItemTimelineItem => entry !== null);
   });
 }
 
@@ -624,13 +806,19 @@ export function parseChecks(raw: unknown): WorkItemDetails['checks'] {
   return strict(checksReply, raw, 'checks').flatMap((reply) => {
     const pullRequest = reply.data.repository?.pullRequest;
     if (!pullRequest) missing('pr');
-    return (pullRequest.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []).map(toCheck);
+    return (pullRequest.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []).map(
+      toCheck,
+    );
   });
 }
 
 export function parseFiles(rows: unknown[]): WorkItemDetails['files'] {
   return strict(z.array(githubFileSchema), rows, 'file list').map((file) => ({
-    path: file.filename, status: file.status, additions: file.additions, deletions: file.deletions, patch: file.patch,
+    path: file.filename,
+    status: file.status,
+    additions: file.additions,
+    deletions: file.deletions,
+    patch: file.patch,
   }));
 }
 
@@ -650,8 +838,13 @@ function reviewersOf(header: PullRequestHeader): WorkItemReviewer[] {
   const authorLogin = header.author?.login;
   const reviewers = new Map<string, WorkItemReviewer>();
   for (const review of header.latestReviews.nodes) {
-    if (review.state === 'PENDING' || !review.author || review.author.login === authorLogin) continue;
-    reviewers.set(`user:${review.author.login}`, { who: person(review.author), isTeam: false, state: REVIEWER_STATES[review.state] });
+    if (review.state === 'PENDING' || !review.author || review.author.login === authorLogin)
+      continue;
+    reviewers.set(`user:${review.author.login}`, {
+      who: person(review.author),
+      isTeam: false,
+      state: REVIEWER_STATES[review.state],
+    });
   }
   for (const { requestedReviewer: requested } of header.reviewRequests.nodes) {
     if (!requested) continue;
@@ -659,7 +852,11 @@ function reviewersOf(header: PullRequestHeader): WorkItemReviewer[] {
     const login = isTeam ? requested.name : requested.login;
     if (!login) continue;
     reviewers.set(`${isTeam ? 'team' : 'user'}:${login}`, {
-      who: { login, ...(!isTeam && requested.avatarUrl ? { avatarUrl: requested.avatarUrl } : {}), isBot: requested.__typename === 'Bot' },
+      who: {
+        login,
+        ...(!isTeam && requested.avatarUrl ? { avatarUrl: requested.avatarUrl } : {}),
+        isBot: requested.__typename === 'Bot',
+      },
       isTeam,
       state: 'requested',
     });
@@ -672,7 +869,9 @@ export function pullRequestDetails(
   timeline: WorkItemTimelineItem[],
   threads: WorkItemThread[],
   files: WorkItemDetails['files'],
-  checks: WorkItemDetails['checks'] = (header.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []).map(toCheck),
+  checks: WorkItemDetails['checks'] = (
+    header.commits.nodes[0]?.commit.statusCheckRollup?.contexts.nodes ?? []
+  ).map(toCheck),
 ): WorkItemDetails {
   const pending = header.reviews.nodes.find((review) => review.viewerDidAuthor);
   const description = toPost(header);
@@ -690,7 +889,9 @@ export function pullRequestDetails(
     reviewers: reviewersOf(header),
     timeline,
     threads,
-    ...(pending ? { pendingReview: { id: pending.id, commentCount: pending.comments.totalCount } } : {}),
+    ...(pending
+      ? { pendingReview: { id: pending.id, commentCount: pending.comments.totalCount } }
+      : {}),
     checks,
     files,
     additions: header.additions,
@@ -704,7 +905,10 @@ export function pullRequestDetails(
   };
 }
 
-export function issueDetails(header: IssueHeader, timeline: WorkItemTimelineItem[]): WorkItemDetails {
+export function issueDetails(
+  header: IssueHeader,
+  timeline: WorkItemTimelineItem[],
+): WorkItemDetails {
   const description = toPost(header);
   const reason = stateReason(header.stateReason);
   return {
@@ -729,19 +933,28 @@ export function issueDetails(header: IssueHeader, timeline: WorkItemTimelineItem
 
 export { toThread };
 
-const owner = z.object({
-  __typename: z.string(),
-  pullRequest: z.object({ number: z.number(), repository: z.object({ nameWithOwner: z.string() }) }).optional(),
-  issue: z.object({ number: z.number() }).optional(),
-  repository: z.object({ nameWithOwner: z.string() }).optional(),
-}).nullable();
+const owner = z
+  .object({
+    __typename: z.string(),
+    pullRequest: z
+      .object({ number: z.number(), repository: z.object({ nameWithOwner: z.string() }) })
+      .optional(),
+    issue: z.object({ number: z.number() }).optional(),
+    repository: z.object({ nameWithOwner: z.string() }).optional(),
+  })
+  .nullable();
 
 /**
  * Throws unless every id names a thing of the expected kind on `repo#number`.
  * A write addressed by id would otherwise skip the check that keeps a
  * workspace's actions inside its own organization and item.
  */
-export function assertOwners(raw: unknown, expected: Array<{ type: OwnedNodeType }>, repo: string, number: number): void {
+export function assertOwners(
+  raw: unknown,
+  expected: Array<{ type: OwnedNodeType }>,
+  repo: string,
+  number: number,
+): void {
   const reply = strict(z.object({ data: z.record(owner) }), raw, 'reply');
   expected.forEach(({ type }, index) => {
     const node = reply.data[`n${index}`];
@@ -750,14 +963,28 @@ export function assertOwners(raw: unknown, expected: Array<{ type: OwnedNodeType
       : node?.issue && node.repository
         ? { repo: node.repository.nameWithOwner, number: node.issue.number }
         : null;
-    if (!node || node.__typename !== type || !where || where.repo.toLowerCase() !== repo.toLowerCase() || where.number !== number) {
+    if (
+      !node ||
+      node.__typename !== type ||
+      !where ||
+      where.repo.toLowerCase() !== repo.toLowerCase() ||
+      where.number !== number
+    ) {
       throw new Error('That comment or thread does not belong to this item.');
     }
   });
 }
 
 export function parsePullRequestId(raw: unknown): string {
-  const reply = strict(z.object({ data: z.object({ repository: z.object({ pullRequest: z.object({ id: z.string() }).nullable() }).nullable() }) }), raw, 'reply');
+  const reply = strict(
+    z.object({
+      data: z.object({
+        repository: z.object({ pullRequest: z.object({ id: z.string() }).nullable() }).nullable(),
+      }),
+    }),
+    raw,
+    'reply',
+  );
   const id = reply.data.repository?.pullRequest?.id;
   if (!id) missing('pr');
   return id;
@@ -765,8 +992,12 @@ export function parsePullRequestId(raw: unknown): string {
 
 export function parseStartedReviewId(raw: unknown): string {
   return strict(
-    z.object({ data: z.object({ addPullRequestReview: z.object({ pullRequestReview: z.object({ id: z.string() }) }) }) }),
+    z.object({
+      data: z.object({
+        addPullRequestReview: z.object({ pullRequestReview: z.object({ id: z.string() }) }),
+      }),
+    }),
     raw,
-    'reply'
+    'reply',
   ).data.addPullRequestReview.pullRequestReview.id;
 }

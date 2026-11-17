@@ -61,16 +61,19 @@ async function loadDownload() {
   const downloadPage = document.querySelector('[data-download-page]');
   const platform = navigator.userAgentData?.platform || navigator.platform || navigator.userAgent;
   // iPadOS can report MacIntel when browsing desktop sites.
-  const isMac = /mac/i.test(platform) && !(navigator.maxTouchPoints > 1) &&
+  const isMac =
+    /mac/i.test(platform) &&
+    !(navigator.maxTouchPoints > 1) &&
     !/iPad|iPhone|iPod|Android/i.test(navigator.userAgent);
   if (!isMac) {
-    status.textContent = 'Consola is currently available for macOS. View GitHub Releases for downloads.';
+    status.textContent =
+      'Consola is currently available for macOS. View GitHub Releases for downloads.';
     return;
   }
   try {
     const response = await fetch(`https://api.github.com/repos/${repository}/releases/latest`, {
       headers: { Accept: 'application/vnd.github+json' },
-      signal: AbortSignal.timeout(8000)
+      signal: AbortSignal.timeout(8000),
     });
     if (response.status === 404) {
       status.textContent = 'The first macOS release is coming soon. Check GitHub for releases.';
@@ -79,18 +82,28 @@ async function loadDownload() {
     if (!response.ok) throw new Error('GitHub releases unavailable');
     const release = await response.json();
     if (release.draft || release.prerelease) throw new Error('No stable release available');
-    const installer = (arch) => release.assets.find((asset) =>
-      asset.state === 'uploaded' && asset.size > 0 &&
-      new RegExp(`^Consola-.+-${arch}\\.dmg$`, 'i').test(asset.name) &&
-      asset.browser_download_url?.startsWith(`https://github.com/${repository}/releases/download/`)
-    );
+    const installer = (arch) =>
+      release.assets.find(
+        (asset) =>
+          asset.state === 'uploaded' &&
+          asset.size > 0 &&
+          new RegExp(`^Consola-.+-${arch}\\.dmg$`, 'i').test(asset.name) &&
+          asset.browser_download_url?.startsWith(
+            `https://github.com/${repository}/releases/download/`,
+          ),
+      );
     const appleSilicon = installer('arm64');
     const intel = installer('x64');
     const requestedArch = new URLSearchParams(location.search).get('arch');
-    const primary = downloadPage && requestedArch === 'x64' ? intel
-      : downloadPage && requestedArch === 'arm64' ? appleSilicon : appleSilicon || intel;
+    const primary =
+      downloadPage && requestedArch === 'x64'
+        ? intel
+        : downloadPage && requestedArch === 'arm64'
+          ? appleSilicon
+          : appleSilicon || intel;
     if (!primary) {
-      status.textContent = 'No macOS installer is attached to the latest release. Check GitHub for downloads.';
+      status.textContent =
+        'No macOS installer is attached to the latest release. Check GitHub for downloads.';
       return;
     }
     const archSlug = primary === appleSilicon ? 'arm64' : 'x64';
@@ -114,7 +127,8 @@ async function loadDownload() {
       const retry = document.querySelector('[data-download-retry]');
       retry.href = primary.browser_download_url;
       retry.textContent = 'Click here';
-      document.querySelector('[data-download-message]').textContent = ' if your download hasn’t started.';
+      document.querySelector('[data-download-message]').textContent =
+        ' if your download hasn’t started.';
       retry.click();
       // Downloads are counted here, where the installer transfer actually starts,
       // rather than on the landing page's buttons: those only navigate to this page,
@@ -138,25 +152,32 @@ let demoReady = false;
 let pendingCommand;
 function sendDemoCommand(command) {
   if (!demoFrame) return;
-  if (!demoReady) { pendingCommand = command; return; }
+  if (!demoReady) {
+    pendingCommand = command;
+    return;
+  }
   demoFrame.contentWindow.postMessage({ type: 'consola:demo-command', command }, location.origin);
   if (command === 'reset') demoReady = false;
 }
 window.addEventListener('message', (event) => {
   if (event.origin !== location.origin || event.source !== demoFrame?.contentWindow) return;
   if (event.data?.type === 'consola:demo-view') {
-    document.querySelectorAll('.live-demo-shortcuts [data-demo-command]').forEach(button => {
+    document.querySelectorAll('.live-demo-shortcuts [data-demo-command]').forEach((button) => {
       button.setAttribute('aria-pressed', String(button.dataset.demoCommand === event.data.view));
     });
     return;
   }
   if (event.data?.type !== 'consola:demo-ready') return;
   demoReady = true;
-  if (pendingCommand) { const command = pendingCommand; pendingCommand = undefined; sendDemoCommand(command); }
+  if (pendingCommand) {
+    const command = pendingCommand;
+    pendingCommand = undefined;
+    sendDemoCommand(command);
+  }
 });
-document.querySelectorAll('[data-demo-command]').forEach(button => {
+document.querySelectorAll('[data-demo-command]').forEach((button) => {
   button.addEventListener('click', () => sendDemoCommand(button.dataset.demoCommand));
 });
-document.querySelectorAll('[data-demo-launch]').forEach(link => {
+document.querySelectorAll('[data-demo-launch]').forEach((link) => {
   link.addEventListener('click', () => sendDemoCommand(link.dataset.demoLaunch));
 });

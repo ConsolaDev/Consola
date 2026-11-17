@@ -34,7 +34,13 @@ const FILTERS: ReadonlyArray<{ id: RunFilter; label: string }> = [
  * it is always what the sidebar's "N failed" counts from. Everything a run
  * says — summaries, item titles — is other people's text, shown as text.
  */
-export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
+export function ActivityTab({
+  workspace,
+  snapshot,
+}: {
+  workspace: Workspace;
+  snapshot: AutomationsSnapshot;
+}) {
   useMarkRunsSeen(workspace.id, snapshot);
   const filter = useAutomationsStore((state) => state.runFilters[workspace.id] ?? NO_RUN_FILTER);
   const setRunFilter = useAutomationsStore((state) => state.setRunFilter);
@@ -49,7 +55,11 @@ export function ActivityTab({ workspace, snapshot }: { workspace: Workspace; sna
   const options = runAutomationOptions(snapshot, history, filter.automation);
   const chosen = options.find((option) => option.id === filter.automation);
   // The month of the automation chosen, whatever the kind or search: a rate of "Failed" runs says nothing.
-  const overview = filterRuns(snapshot.runs, { ...NO_RUN_FILTER, automation: filter.automation }, now);
+  const overview = filterRuns(
+    snapshot.runs,
+    { ...NO_RUN_FILTER, automation: filter.automation },
+    now,
+  );
 
   return (
     <div className="automations-activity automations-log">
@@ -89,7 +99,10 @@ function NoRunsYet() {
         <History size={16} className="automations-status-icon" aria-hidden="true" />
         <div>
           <strong>No runs yet.</strong>
-          <p>Runs show here as automations fire on their schedules and events, and as you press Run now.</p>
+          <p>
+            Runs show here as automations fire on their schedules and events, and as you press Run
+            now.
+          </p>
         </div>
       </div>
     </div>
@@ -119,7 +132,9 @@ function RunList({
   const headingId = useId();
   const listRef = useRef<HTMLDivElement>(null);
   const openPanel = useAutomationsStore((state) => state.openPanel);
-  const openRunId = useAutomationsStore((state) => (state.panel?.kind === 'run' ? state.panel.runId : null));
+  const openRunId = useAutomationsStore((state) =>
+    state.panel?.kind === 'run' ? state.panel.runId : null,
+  );
   const arrivals = useArrivals(snapshot.runs);
   const runs = filterRuns(snapshot.runs, filter, now);
   const kindCounts = runKindCounts(snapshot.runs, filter, now);
@@ -129,15 +144,22 @@ function RunList({
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-    const items = Array.from(listRef.current?.querySelectorAll<HTMLButtonElement>('.automations-run-item') ?? []);
+    const items = Array.from(
+      listRef.current?.querySelectorAll<HTMLButtonElement>('.automations-run-item') ?? [],
+    );
     const index = items.findIndex((item) => item === document.activeElement);
     if (index === -1) return;
     event.preventDefault();
-    items[Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))]?.focus();
+    items[
+      Math.max(0, Math.min(items.length - 1, index + (event.key === 'ArrowDown' ? 1 : -1)))
+    ]?.focus();
   };
 
   return (
-    <section className="automations-detail-section automations-activity-runs" aria-labelledby={headingId}>
+    <section
+      className="automations-detail-section automations-activity-runs"
+      aria-labelledby={headingId}
+    >
       <div className="automations-runs-toolbar">
         <div className="automations-runs-heading">
           <h2 id={headingId} className="automations-section-title">
@@ -155,7 +177,11 @@ function RunList({
             </span>
           )}
         </div>
-        <AutomationFilterMenu options={options} value={filter.automation} onChange={(automation) => onChange({ automation })} />
+        <AutomationFilterMenu
+          options={options}
+          value={filter.automation}
+          onChange={(automation) => onChange({ automation })}
+        />
         <div className="automations-segmented" role="group" aria-label="Filter runs">
           {FILTERS.map(({ id, label }) => (
             <button
@@ -235,10 +261,15 @@ function RunList({
 }
 
 /** Why the list is empty, as specifically as the filter allows. */
-function emptyRunsMessage(filter: RunListFilter, options: RunAutomationOption[], historyCount: number): string {
+function emptyRunsMessage(
+  filter: RunListFilter,
+  options: RunAutomationOption[],
+  historyCount: number,
+): string {
   if (historyCount === 0) return 'No runs in the last 30 days.';
   if (filter.automation !== null && filter.query.trim() === '' && filter.kind === 'all') {
-    const label = options.find((option) => option.id === filter.automation)?.label ?? filter.automation;
+    const label =
+      options.find((option) => option.id === filter.automation)?.label ?? filter.automation;
     return `${label} has not run in the last 30 days.`;
   }
   return 'No runs match.';

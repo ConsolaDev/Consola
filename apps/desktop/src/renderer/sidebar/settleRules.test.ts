@@ -4,7 +4,10 @@ import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import { JsonStateFile } from '../../main/state/JsonStateFile';
-import { JsonAttentionLedger, type AttentionLedgerStateFile } from '../../main/attention/AttentionLedger';
+import {
+  JsonAttentionLedger,
+  type AttentionLedgerStateFile,
+} from '../../main/attention/AttentionLedger';
 import { SessionSource } from '../../main/attention/SessionSource';
 import { settleSession, unsettleSession } from '../../main/attention/settling';
 import { makeSession, makeWorkspace } from '../../main/conductor/ConductorTools.test';
@@ -27,18 +30,45 @@ beforeEach(() => {
 });
 afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
 
-interface Spec { id: string; parent?: string; terminal: TerminalStatus; /** An unseen finish: reads as done. */ finished?: boolean }
+interface Spec {
+  id: string;
+  parent?: string;
+  terminal: TerminalStatus /** An unseen finish: reads as done. */;
+  finished?: boolean;
+}
 
 function world(specs: Spec[]) {
-  const ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
+  const ledger = new JsonAttentionLedger(
+    new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')),
+  );
   const sessions = specs.map((spec) =>
-    makeSession({ id: spec.id, name: spec.id, instanceId: `inst-${spec.id}`, kind: 'interactive', groupId: undefined, parentSessionId: spec.parent, lastActiveAt: 10 }));
+    makeSession({
+      id: spec.id,
+      name: spec.id,
+      instanceId: `inst-${spec.id}`,
+      kind: 'interactive',
+      groupId: undefined,
+      parentSessionId: spec.parent,
+      lastActiveAt: 10,
+    }),
+  );
   const workspace = makeWorkspace({ id: 'w1', sessions });
   for (const spec of specs) if (spec.finished) ledger.markFinished(spec.id, 'w1', 20);
-  const terminals = new Map<string, TerminalStatus>(specs.map((spec) => [`inst-${spec.id}`, spec.terminal]));
-  const source = new SessionSource({ getWorkspaces: () => [workspace], terminalStatus: (i) => terminals.get(i) ?? 'exited', ledger, now: () => NOW });
+  const terminals = new Map<string, TerminalStatus>(
+    specs.map((spec) => [`inst-${spec.id}`, spec.terminal]),
+  );
+  const source = new SessionSource({
+    getWorkspaces: () => [workspace],
+    terminalStatus: (i) => terminals.get(i) ?? 'exited',
+    ledger,
+    now: () => NOW,
+  });
   const entriesNow = () =>
-    sessionEntries(sessions, { records: ledger.snapshot(), attention: Object.fromEntries(source.read()) }, []);
+    sessionEntries(
+      sessions,
+      { records: ledger.snapshot(), attention: Object.fromEntries(source.read()) },
+      [],
+    );
   const forest = (): TreeNode[] => buildForest(entriesNow());
   /**
    * Whether the row's *tree* has reached the shelf — the visible move, since a
@@ -46,7 +76,9 @@ function world(specs: Spec[]) {
    * is what files a tree under Settled.
    */
   const treeOnShelf = (id: string): boolean => {
-    const root = forest().find((node) => membersOf(node).some((entry) => entry.key === sessionKey(id)));
+    const root = forest().find((node) =>
+      membersOf(node).some((entry) => entry.key === sessionKey(id)),
+    );
     return root !== undefined && aggregateAttention(root) === 'settled';
   };
   /** Whether the row itself was shelved, whatever its tree reads as. */
@@ -61,7 +93,8 @@ function world(specs: Spec[]) {
   const offerFor = (id: string) => {
     for (const root of forest()) {
       if (root.entry.key === sessionKey(id)) return settleOffer(root, false);
-      if (root.children.some((c) => c.entry.key === sessionKey(id))) return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true);
+      if (root.children.some((c) => c.entry.key === sessionKey(id)))
+        return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true);
     }
     throw new Error('no such row');
   };
@@ -70,23 +103,60 @@ function world(specs: Spec[]) {
 
 const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }[] = [
   { name: 'an idle root', specs: [{ id: 'a', terminal: 'ready' }], target: 'a', lands: true },
-  { name: 'a finished root the person has not opened (done)', specs: [{ id: 'a', terminal: 'ready', finished: true }], target: 'a', lands: true },
+  {
+    name: 'a finished root the person has not opened (done)',
+    specs: [{ id: 'a', terminal: 'ready', finished: true }],
+    target: 'a',
+    lands: true,
+  },
   { name: 'an exited root', specs: [{ id: 'a', terminal: 'exited' }], target: 'a', lands: true },
-  { name: 'a conductor whose children are all idle', specs: [{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }], target: 'p', lands: true },
-  { name: 'a child of an idle parent', specs: [{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }], target: 'k', lands: false },
+  {
+    name: 'a conductor whose children are all idle',
+    specs: [
+      { id: 'p', terminal: 'ready' },
+      { id: 'k', parent: 'p', terminal: 'ready' },
+    ],
+    target: 'p',
+    lands: true,
+  },
+  {
+    name: 'a child of an idle parent',
+    specs: [
+      { id: 'p', terminal: 'ready' },
+      { id: 'k', parent: 'p', terminal: 'ready' },
+    ],
+    target: 'k',
+    lands: false,
+  },
   { name: 'a working root', specs: [{ id: 'a', terminal: 'working' }], target: 'a', lands: false },
-  { name: 'a root that needs the person', specs: [{ id: 'a', terminal: 'needs-attention' }], target: 'a', lands: false },
-  { name: 'a conductor with a working child', specs: [{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'working' }], target: 'p', lands: false },
+  {
+    name: 'a root that needs the person',
+    specs: [{ id: 'a', terminal: 'needs-attention' }],
+    target: 'a',
+    lands: false,
+  },
+  {
+    name: 'a conductor with a working child',
+    specs: [
+      { id: 'p', terminal: 'ready' },
+      { id: 'k', parent: 'p', terminal: 'working' },
+    ],
+    target: 'p',
+    lands: false,
+  },
 ];
 
 describe('settling by hand, end to end', () => {
-  it.each(SCENARIOS)('settling $name: reaches the shelf exactly when it is offered', ({ specs, target, lands }) => {
-    const w = world(specs);
-    const offer = w.offerFor(target).kind;
-    settleSession(w.workspace, target, w.ledger, NOW);
-    expect(w.treeOnShelf(target)).toBe(lands);
-    expect(offer === 'settle').toBe(lands);
-  });
+  it.each(SCENARIOS)(
+    'settling $name: reaches the shelf exactly when it is offered',
+    ({ specs, target, lands }) => {
+      const w = world(specs);
+      const offer = w.offerFor(target).kind;
+      settleSession(w.workspace, target, w.ledger, NOW);
+      expect(w.treeOnShelf(target)).toBe(lands);
+      expect(offer === 'settle').toBe(lands);
+    },
+  );
 
   it('a done root is where settling is most wanted: it waits at the top, then goes behind the fold', () => {
     const w = world([{ id: 'a', terminal: 'ready', finished: true }]);
@@ -102,11 +172,17 @@ describe('settling by hand, end to end', () => {
 
   it('a blocked row says why', () => {
     const w = world([{ id: 'a', terminal: 'working' }]);
-    expect(w.offerFor('a')).toMatchObject({ kind: 'blocked', reason: expect.stringMatching(/working|needs you/i) });
+    expect(w.offerFor('a')).toMatchObject({
+      kind: 'blocked',
+      reason: expect.stringMatching(/working|needs you/i),
+    });
   });
 
   it('undo takes the row back off the shelf, and un-settling a shelved tree does too', () => {
-    const w = world([{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'exited' }]);
+    const w = world([
+      { id: 'p', terminal: 'ready' },
+      { id: 'k', parent: 'p', terminal: 'exited' },
+    ]);
     const memento = settleSession(w.workspace, 'p', w.ledger, NOW);
     expect(w.treeOnShelf('p')).toBe(true);
     expect(w.offerFor('p').kind).toBe('unsettle');
@@ -131,11 +207,13 @@ describe('settling by hand, end to end', () => {
   });
 
   it('a settled child inside a tree that is not settled offers no way back of its own', () => {
-    const w = world([{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }]);
+    const w = world([
+      { id: 'p', terminal: 'ready' },
+      { id: 'k', parent: 'p', terminal: 'ready' },
+    ]);
     settleSession(w.workspace, 'k', w.ledger, NOW);
     expect(w.rowOnShelf('k')).toBe(true);
     expect(w.treeOnShelf('k')).toBe(false);
     expect(w.offerFor('k').kind).toBe('blocked');
   });
 });
-

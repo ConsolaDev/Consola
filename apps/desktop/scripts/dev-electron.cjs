@@ -24,10 +24,7 @@ const electronBinary = require('electron');
 
 const projectRoot = path.join(__dirname, '..');
 const mainEntry = path.join(projectRoot, 'dist/main/main/index.js');
-const watchDirs = [
-    path.join(projectRoot, 'dist/main'),
-    path.join(projectRoot, 'dist/preload'),
-];
+const watchDirs = [path.join(projectRoot, 'dist/main'), path.join(projectRoot, 'dist/preload')];
 
 /**
  * How often the build output is scanned for a newer file.
@@ -49,7 +46,7 @@ let restarting = false;
 let shuttingDown = false;
 
 function log(message) {
-    console.log(`[dev-electron] ${message}`);
+  console.log(`[dev-electron] ${message}`);
 }
 
 /**
@@ -63,47 +60,47 @@ function log(message) {
  * developer is doing.
  */
 function isRuntimeOutput(fileName) {
-    return fileName.endsWith('.js') && !/\.test[.-]/.test(fileName);
+  return fileName.endsWith('.js') && !/\.test[.-]/.test(fileName);
 }
 
 /** Every runtime file under the watched build output, in a stable order. */
 function runtimeOutputs() {
-    const files = [];
+  const files = [];
 
-    const visit = (dir) => {
-        let entries;
-        try {
-            entries = fs.readdirSync(dir, { withFileTypes: true });
-        } catch {
-            // Removed mid-scan, or not compiled yet; the next tick will see it.
-            return;
-        }
-        for (const entry of entries) {
-            const target = path.join(dir, entry.name);
-            if (entry.isDirectory()) {
-                visit(target);
-            } else if (isRuntimeOutput(entry.name)) {
-                files.push(target);
-            }
-        }
-    };
+  const visit = (dir) => {
+    let entries;
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      // Removed mid-scan, or not compiled yet; the next tick will see it.
+      return;
+    }
+    for (const entry of entries) {
+      const target = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        visit(target);
+      } else if (isRuntimeOutput(entry.name)) {
+        files.push(target);
+      }
+    }
+  };
 
-    for (const dir of watchDirs) visit(dir);
-    return files.sort();
+  for (const dir of watchDirs) visit(dir);
+  return files.sort();
 }
 
 /** Modification time of the most recently written runtime file. */
 function newestBuildTime() {
-    let newest = 0;
-    for (const file of runtimeOutputs()) {
-        try {
-            const { mtimeMs } = fs.statSync(file);
-            if (mtimeMs > newest) newest = mtimeMs;
-        } catch {
-            // Removed between listing and stat; the next tick will see it.
-        }
+  let newest = 0;
+  for (const file of runtimeOutputs()) {
+    try {
+      const { mtimeMs } = fs.statSync(file);
+      if (mtimeMs > newest) newest = mtimeMs;
+    } catch {
+      // Removed between listing and stat; the next tick will see it.
     }
-    return newest;
+  }
+  return newest;
 }
 
 /**
@@ -116,65 +113,65 @@ function newestBuildTime() {
  * timestamps have settled, so the hashing never runs on an idle poll.
  */
 function buildFingerprint() {
-    const hash = crypto.createHash('sha1');
-    for (const file of runtimeOutputs()) {
-        hash.update(path.relative(projectRoot, file));
-        hash.update('\0');
-        try {
-            hash.update(fs.readFileSync(file));
-        } catch {
-            // Vanished mid-read: hashing it as missing still reads as a change.
-        }
-        hash.update('\0');
+  const hash = crypto.createHash('sha1');
+  for (const file of runtimeOutputs()) {
+    hash.update(path.relative(projectRoot, file));
+    hash.update('\0');
+    try {
+      hash.update(fs.readFileSync(file));
+    } catch {
+      // Vanished mid-read: hashing it as missing still reads as a change.
     }
-    return hash.digest('hex');
+    hash.update('\0');
+  }
+  return hash.digest('hex');
 }
 
 function startElectron() {
-    child = spawn(electronBinary, ['.'], {
-        cwd: projectRoot,
-        stdio: 'inherit',
-        env: { ...process.env, NODE_ENV: 'development' },
-    });
+  child = spawn(electronBinary, ['.'], {
+    cwd: projectRoot,
+    stdio: 'inherit',
+    env: { ...process.env, NODE_ENV: 'development' },
+  });
 
-    child.on('exit', (code, signal) => {
-        child = null;
-        // A restart kills the process itself; anything else is the user closing
-        // the app, which should end `pnpm run dev` exactly as it did before.
-        if (restarting || shuttingDown) return;
-        log(`Electron exited (${signal ?? code}). Stopping.`);
-        process.exit(code ?? 0);
-    });
+  child.on('exit', (code, signal) => {
+    child = null;
+    // A restart kills the process itself; anything else is the user closing
+    // the app, which should end `pnpm run dev` exactly as it did before.
+    if (restarting || shuttingDown) return;
+    log(`Electron exited (${signal ?? code}). Stopping.`);
+    process.exit(code ?? 0);
+  });
 }
 
 function stopElectron() {
-    return new Promise((resolve) => {
-        if (!child) {
-            resolve();
-            return;
-        }
+  return new Promise((resolve) => {
+    if (!child) {
+      resolve();
+      return;
+    }
 
-        const target = child;
-        const forceKill = setTimeout(() => target.kill('SIGKILL'), SHUTDOWN_GRACE_MS);
+    const target = child;
+    const forceKill = setTimeout(() => target.kill('SIGKILL'), SHUTDOWN_GRACE_MS);
 
-        target.once('exit', () => {
-            clearTimeout(forceKill);
-            resolve();
-        });
-
-        // Takes the session PTYs down with it — they are children of this
-        // process and belong to the build being replaced.
-        target.kill('SIGTERM');
+    target.once('exit', () => {
+      clearTimeout(forceKill);
+      resolve();
     });
+
+    // Takes the session PTYs down with it — they are children of this
+    // process and belong to the build being replaced.
+    target.kill('SIGTERM');
+  });
 }
 
 async function restart() {
-    restarting = true;
-    log('Main process rebuilt — restarting Electron');
-    await stopElectron();
-    if (shuttingDown) return;
-    restarting = false;
-    startElectron();
+  restarting = true;
+  log('Main process rebuilt — restarting Electron');
+  await stopElectron();
+  if (shuttingDown) return;
+  restarting = false;
+  startElectron();
 }
 
 /**
@@ -186,72 +183,72 @@ async function restart() {
  * half-written build.
  */
 function watchBuildOutput() {
-    let settled = newestBuildTime();
-    let pending = null;
-    // What the running Electron was launched with; a settled rebuild that
-    // matches it changed timestamps only.
-    let running = buildFingerprint();
+  let settled = newestBuildTime();
+  let pending = null;
+  // What the running Electron was launched with; a settled rebuild that
+  // matches it changed timestamps only.
+  let running = buildFingerprint();
 
-    setInterval(() => {
-        if (shuttingDown || restarting) return;
+  setInterval(() => {
+    if (shuttingDown || restarting) return;
 
-        const newest = newestBuildTime();
-        if (newest <= settled) {
-            pending = null;
-            return;
-        }
+    const newest = newestBuildTime();
+    if (newest <= settled) {
+      pending = null;
+      return;
+    }
 
-        if (pending === newest) {
-            settled = newest;
-            pending = null;
-            const fingerprint = buildFingerprint();
-            if (fingerprint === running) {
-                log('Rebuilt with identical output — keeping Electron running');
-                return;
-            }
-            running = fingerprint;
-            restart().catch((error) => {
-                console.error('[dev-electron] Restart failed:', error);
-                process.exit(1);
-            });
-            return;
-        }
+    if (pending === newest) {
+      settled = newest;
+      pending = null;
+      const fingerprint = buildFingerprint();
+      if (fingerprint === running) {
+        log('Rebuilt with identical output — keeping Electron running');
+        return;
+      }
+      running = fingerprint;
+      restart().catch((error) => {
+        console.error('[dev-electron] Restart failed:', error);
+        process.exit(1);
+      });
+      return;
+    }
 
-        pending = newest;
-    }, POLL_MS).unref();
+    pending = newest;
+  }, POLL_MS).unref();
 }
 
 /** Wait for the first compile, so a cold checkout does not fail to launch. */
 function waitForEntry() {
-    return new Promise((resolve) => {
-        if (fs.existsSync(mainEntry)) {
-            resolve();
-            return;
-        }
-        log('Waiting for the main process to compile...');
-        const timer = setInterval(() => {
-            if (!fs.existsSync(mainEntry)) return;
-            clearInterval(timer);
-            resolve();
-        }, ENTRY_POLL_MS);
-    });
+  return new Promise((resolve) => {
+    if (fs.existsSync(mainEntry)) {
+      resolve();
+      return;
+    }
+    log('Waiting for the main process to compile...');
+    const timer = setInterval(() => {
+      if (!fs.existsSync(mainEntry)) return;
+      clearInterval(timer);
+      resolve();
+    }, ENTRY_POLL_MS);
+  });
 }
 
 async function main() {
-    await waitForEntry();
-    startElectron();
-    watchBuildOutput();
-    log('Watching dist/main and dist/preload for rebuilds');
+  await waitForEntry();
+  startElectron();
+  watchBuildOutput();
+  log('Watching dist/main and dist/preload for rebuilds');
 }
 
 for (const signal of ['SIGINT', 'SIGTERM']) {
-    process.on(signal, () => {
-        shuttingDown = true;
-        stopElectron().finally(() => process.exit(0));
-    });
+  process.on(signal, () => {
+    shuttingDown = true;
+    stopElectron().finally(() => process.exit(0));
+  });
 }
 
 main().catch((error) => {
-    console.error('[dev-electron] Failed to start:', error);
-    process.exit(1);
+  console.error('[dev-electron] Failed to start:', error);
+  process.exit(1);
 });

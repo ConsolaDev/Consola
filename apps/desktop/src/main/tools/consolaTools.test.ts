@@ -43,17 +43,38 @@ beforeEach(() => {
     makeWorkspace({
       sessions: [
         caller(),
-        makeSession({ id: 'ro', instanceId: 'inst-ro', kind: 'interactive', toolPolicy: 'read-only', hasStarted: true }),
+        makeSession({
+          id: 'ro',
+          instanceId: 'inst-ro',
+          kind: 'interactive',
+          toolPolicy: 'read-only',
+          hasStarted: true,
+        }),
       ],
     }),
   ];
   capabilities = vi.fn(() => ({ grammar: 'g' }) as unknown as AutomationCapabilities);
-  saveEntry = vi.fn(async () => ({ name: 'sweep', replaced: false, entry: '- name: sweep', line: 3 }));
+  saveEntry = vi.fn(async () => ({
+    name: 'sweep',
+    replaced: false,
+    entry: '- name: sweep',
+    line: 3,
+  }));
   launchSession = vi.fn(async (_workspaceId: string, fields: LaunchSessionFields) =>
-    makeSession({ ...fields, id: 'new-1', kind: 'interactive', hasStarted: true } as Partial<Session>)
+    makeSession({
+      ...fields,
+      id: 'new-1',
+      kind: 'interactive',
+      hasStarted: true,
+    } as Partial<Session>),
   );
   const deps: ConsolaToolDeps = {
-    cleanup: { previewStale: vi.fn(), cleanupStale: vi.fn(), previewDelete: vi.fn(), deleteSession: vi.fn() },
+    cleanup: {
+      previewStale: vi.fn(),
+      cleanupStale: vi.fn(),
+      previewDelete: vi.fn(),
+      deleteSession: vi.fn(),
+    },
     getWorkspaces: () => workspaces,
     status: () => 'ready',
     attention: () => 'ready',
@@ -69,7 +90,10 @@ beforeEach(() => {
 
 describe('start_session', () => {
   it('opens a session beside the caller: its workspace, harness, model, folder and group', async () => {
-    const result = await start({ name: 'Digital twin design', prompt: '/resume-handoff ./handoff.md' });
+    const result = await start({
+      name: 'Digital twin design',
+      prompt: '/resume-handoff ./handoff.md',
+    });
 
     expect(launchSession).toHaveBeenCalledTimes(1);
     const [workspaceId, fields] = launchSession.mock.calls[0];
@@ -87,7 +111,11 @@ describe('start_session', () => {
     });
     expect(fields.instanceId).toEqual(expect.any(String));
     expect(fields.instanceId).not.toBe('inst-me');
-    expect(result.data).toMatchObject({ sessionId: 'new-1', name: 'Digital twin design', forked: false });
+    expect(result.data).toMatchObject({
+      sessionId: 'new-1',
+      name: 'Digital twin design',
+      forked: false,
+    });
     expect(result.summary).toMatch(/Started "Digital twin design"/);
   });
 
@@ -111,7 +139,11 @@ describe('start_session', () => {
   });
 
   it('forks the caller’s own conversation when asked', async () => {
-    const result = await start({ name: 'Digital twin design', prompt: 'Carry on only the twin thread.', fork: true });
+    const result = await start({
+      name: 'Digital twin design',
+      prompt: 'Carry on only the twin thread.',
+      fork: true,
+    });
 
     const [, fields] = launchSession.mock.calls[0];
     expect(fields).toMatchObject({
@@ -128,7 +160,7 @@ describe('start_session', () => {
 
   it('refuses to fork into another folder', async () => {
     await expect(
-      start({ name: 'x', prompt: 'go', fork: true, scope_path: '/repos/parent' })
+      start({ name: 'x', prompt: 'go', fork: true, scope_path: '/repos/parent' }),
     ).rejects.toThrow(/fork runs in your own folder/);
     expect(launchSession).not.toHaveBeenCalled();
   });
@@ -142,7 +174,7 @@ describe('start_session', () => {
 
   it('refuses a scope_path that is not one of the workspace’s folders', async () => {
     await expect(start({ name: 'x', prompt: 'go', scope_path: '/elsewhere' })).rejects.toThrow(
-      /not one of this workspace’s folders/
+      /not one of this workspace’s folders/,
     );
     expect(launchSession).not.toHaveBeenCalled();
   });
@@ -158,10 +190,13 @@ describe('start_session', () => {
     expect(registry.get('start_session')).toMatchObject({ mutating: true, automatable: false });
     expect(registry.get('start_session')?.destructive).toBeFalsy();
     await expect(
-      start({ name: 'x', prompt: 'go' }, {
-        caller: { kind: 'automation', automation: 'sweep' },
-        scope: { workspaceIds: 'all', excludeSessionIds: [] },
-      })
+      start(
+        { name: 'x', prompt: 'go' },
+        {
+          caller: { kind: 'automation', automation: 'sweep' },
+          scope: { workspaceIds: 'all', excludeSessionIds: [] },
+        },
+      ),
     ).rejects.toThrow(/Only a session’s agent/);
     expect(launchSession).not.toHaveBeenCalled();
   });
@@ -188,18 +223,28 @@ describe('automation_capabilities', () => {
 
 describe('save_automation', () => {
   it('passes the caller as the author, and replace through', async () => {
-    const result = await registry.invoke('save_automation', { entry: '- name: sweep', replace: true }, as('me'));
+    const result = await registry.invoke(
+      'save_automation',
+      { entry: '- name: sweep', replace: true },
+      as('me'),
+    );
     expect(saveEntry).toHaveBeenCalledWith('ws-1', '- name: sweep', {
       replace: true,
       by: { sessionId: 'me', sessionName: 'Code review cost sizing' },
     });
     expect(result.data).toMatchObject({ name: 'sweep', replaced: false });
-    expect(registry.get('save_automation')).toMatchObject({ mutating: true, automatable: false, fullToolsOnly: true });
+    expect(registry.get('save_automation')).toMatchObject({
+      mutating: true,
+      automatable: false,
+      fullToolsOnly: true,
+    });
   });
 
   it('does not replace unless asked, and needs an entry', async () => {
     await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
     expect(saveEntry.mock.calls[0][2].replace).toBe(false);
-    await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(/Invalid arguments/);
+    await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(
+      /Invalid arguments/,
+    );
   });
 });

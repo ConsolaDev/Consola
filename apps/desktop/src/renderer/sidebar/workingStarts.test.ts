@@ -14,7 +14,12 @@ describe('a row that starts working', () => {
   });
 
   it('does not count a row that was already working', () => {
-    expect(startedWorking([entry('a', 'working'), entry('b', 'ready')], [entry('a', 'working'), entry('b', 'ready')])).toBe(false);
+    expect(
+      startedWorking(
+        [entry('a', 'working'), entry('b', 'ready')],
+        [entry('a', 'working'), entry('b', 'ready')],
+      ),
+    ).toBe(false);
   });
 
   it('does not count a row that stopped', () => {
@@ -23,6 +28,8 @@ describe('a row that starts working', () => {
 
   it('only looks at the rows it is given, so a hidden row starting work does not count', () => {
     // `now` is the list after filtering; `b` is not on it.
-    expect(startedWorking([entry('a', 'ready')], [entry('a', 'ready'), entry('b', 'ready')])).toBe(false);
+    expect(startedWorking([entry('a', 'ready')], [entry('a', 'ready'), entry('b', 'ready')])).toBe(
+      false,
+    );
   });
 });

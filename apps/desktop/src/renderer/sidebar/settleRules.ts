@@ -38,5 +38,7 @@ export function settleOffer(node: TreeNode, isChild: boolean): SettleOffer {
     return { kind: 'blocked', reason: 'Not while it is working or needs you' };
   }
   // Only a root that is itself ready or exited: one already settled has nothing to settle.
-  return node.entry.attention === 'settled' ? { kind: 'blocked', reason: 'Settles with its children' } : { kind: 'settle' };
+  return node.entry.attention === 'settled'
+    ? { kind: 'blocked', reason: 'Settles with its children' }
+    : { kind: 'settle' };
 }

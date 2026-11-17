@@ -25,13 +25,15 @@ interface OrchestrationDialogProps {
  */
 export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialogProps) {
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === workspaceId)
+    state.workspaces.find((candidate) => candidate.id === workspaceId),
   );
   const scopes = workspace?.scopes ?? [];
 
   const [name, setName] = useState('');
   const [kickoff, setKickoff] = useState('');
-  const [scopeId, setScopeId] = useState<string | undefined>(() => defaultSessionScopeId(workspaceId));
+  const [scopeId, setScopeId] = useState<string | undefined>(() =>
+    defaultSessionScopeId(workspaceId),
+  );
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -88,8 +90,8 @@ export function OrchestrationDialog({ workspaceId, onClose }: OrchestrationDialo
               />
               {name.length > 0 && !nameValid && (
                 <span className="dialog-error">
-                  Letters, digits, dots, dashes and underscores only; up to 64 characters,
-                  starting with a letter or digit.
+                  Letters, digits, dots, dashes and underscores only; up to 64 characters, starting
+                  with a letter or digit.
                 </span>
               )}
             </div>

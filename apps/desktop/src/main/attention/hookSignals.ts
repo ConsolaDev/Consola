@@ -53,7 +53,7 @@ export interface HookInputs {
 }
 
 interface State {
-  needsInput: false | AttentionSignal & { kind: 'needs-input' };
+  needsInput: false | (AttentionSignal & { kind: 'needs-input' });
   holdingBackgroundWork: boolean;
   awaitingAgents: boolean;
   status?: TerminalStatus;
@@ -180,7 +180,8 @@ export class HookSignals {
       before?.needsInput === after?.needsInput &&
       before?.holdingBackgroundWork === after?.holdingBackgroundWork &&
       before?.awaitingAgents === after?.awaitingAgents
-    ) return;
+    )
+      return;
     this.notify(instanceId);
   }
 

@@ -27,30 +27,44 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const workspace = () => service.getAll()[0];
 const sessionsOf = () => workspace().sessions;
-const labelsOn = (sessionId: string) => sessionsOf().find((session) => session.id === sessionId)?.labelIds;
+const labelsOn = (sessionId: string) =>
+  sessionsOf().find((session) => session.id === sessionId)?.labelIds;
 const toasts = () => useToastStore.getState().toasts;
-const chips = () => effectiveFilters(workspace(), sessionsOf(), useSessionFilterStore.getState().filters[workspaceId]).label;
+const chips = () =>
+  effectiveFilters(workspace(), sessionsOf(), useSessionFilterStore.getState().filters[workspaceId])
+    .label;
 
 /** A drop carrying a session row, as the chip receives it. */
 function drop(sessionId: string | null) {
   const prevented = vi.fn();
   const event = {
     preventDefault: prevented,
-    dataTransfer: { getData: (type: string) => (type === SESSION_DRAG_TYPE && sessionId ? sessionId : '') },
+    dataTransfer: {
+      getData: (type: string) => (type === SESSION_DRAG_TYPE && sessionId ? sessionId : ''),
+    },
   } as unknown as DragEvent;
   return { event, prevented };
 }
 
 beforeEach(() => {
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-label-actions-'));
-  service = new WorkspaceService(new JsonStateFile<WorkspaceStateFile>(path.join(dir, 'workspaces.json')));
+  service = new WorkspaceService(
+    new JsonStateFile<WorkspaceStateFile>(path.join(dir, 'workspaces.json')),
+  );
   service.load();
   const created = service.createWorkspace('W', '/w', false);
   workspaceId = created.id;
-  sessionIds = ['A', 'B'].map((name) => service.createSession(created.id, {
-    name, workspaceId: created.id, instanceId: `i-${name}`, harnessId: 'default-agent',
-    model: undefined, scopeId: created.scopes[0].id,
-  })!.id);
+  sessionIds = ['A', 'B'].map(
+    (name) =>
+      service.createSession(created.id, {
+        name,
+        workspaceId: created.id,
+        instanceId: `i-${name}`,
+        harnessId: 'default-agent',
+        model: undefined,
+        scopeId: created.scopes[0].id,
+      })!.id,
+  );
   // The bridge's own seam, with main's real service on the other side of it.
   (globalThis as { window?: unknown }).window = {
     workspaceAPI: {
@@ -58,7 +72,8 @@ beforeEach(() => {
       deleteLabel: async (id: string, labelId: string) => service.deleteLabel(id, labelId),
       restoreLabel: async (id: string, removed: Parameters<WorkspaceService['restoreLabel']>[1]) =>
         service.restoreLabel(id, removed),
-      assignLabel: async (id: string, sessionId: string, labelId: string) => service.assignLabel(id, sessionId, labelId),
+      assignLabel: async (id: string, sessionId: string, labelId: string) =>
+        service.assignLabel(id, sessionId, labelId),
     },
   };
   for (const toast of toasts()) dismissToast(toast.id);
@@ -172,6 +187,8 @@ describe('dropping a session row on a label chip', () => {
   });
 
   it('reports a drop on a label that has gone, rather than failing silently', async () => {
-    await expect(dropSessionOnLabel(workspaceId, drop(sessionIds[0]).event, 'gone')).rejects.toThrow(/No label/);
+    await expect(
+      dropSessionOnLabel(workspaceId, drop(sessionIds[0]).event, 'gone'),
+    ).rejects.toThrow(/No label/);
   });
 });

@@ -9,22 +9,22 @@ import type { Session } from '../../shared/workspace';
  * anything — the pane does, like any other session.
  */
 export const assistantBridge = {
-    open(workspaceId: string): Promise<Session> {
-        return window.assistantAPI.open(workspaceId);
-    },
-    startFresh(workspaceId: string): Promise<Session> {
-        return window.assistantAPI.startFresh(workspaceId);
-    },
-    /** The sessions the Assistant touched here, and how many finished unseen. */
-    getActivity(workspaceId: string): Promise<AssistantActivitySnapshot> {
-        return window.assistantAPI.getActivity(workspaceId);
-    },
-    markSeen(workspaceId: string): Promise<void> {
-        return window.assistantAPI.markSeen(workspaceId);
-    },
-    onActivityChanged(
-        callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void
-    ): () => void {
-        return window.assistantAPI.onActivityChanged(callback);
-    },
+  open(workspaceId: string): Promise<Session> {
+    return window.assistantAPI.open(workspaceId);
+  },
+  startFresh(workspaceId: string): Promise<Session> {
+    return window.assistantAPI.startFresh(workspaceId);
+  },
+  /** The sessions the Assistant touched here, and how many finished unseen. */
+  getActivity(workspaceId: string): Promise<AssistantActivitySnapshot> {
+    return window.assistantAPI.getActivity(workspaceId);
+  },
+  markSeen(workspaceId: string): Promise<void> {
+    return window.assistantAPI.markSeen(workspaceId);
+  },
+  onActivityChanged(
+    callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void,
+  ): () => void {
+    return window.assistantAPI.onActivityChanged(callback);
+  },
 };

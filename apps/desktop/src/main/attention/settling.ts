@@ -6,7 +6,9 @@ import type { AttentionLedger, SettleTarget } from './AttentionLedger';
 
 /** The sessions a person sees in the list: no Assistant, and nothing still unnamed. */
 export function settleable(workspace: Workspace): Session[] {
-  return workspace.sessions.filter((session) => session.kind !== 'assistant' && session.name.length > 0);
+  return workspace.sessions.filter(
+    (session) => session.kind !== 'assistant' && session.name.length > 0,
+  );
 }
 
 /**
@@ -55,7 +57,7 @@ export function withDescendants(sessions: readonly Session[], sessionId: string)
 export function settleTargets(
   workspace: Workspace,
   sessions: readonly Session[],
-  ledger: Pick<AttentionLedger, 'get'>
+  ledger: Pick<AttentionLedger, 'get'>,
 ): SettleTarget[] {
   return sessions.map((session) => ({
     sessionId: session.id,
@@ -73,7 +75,7 @@ export function settleSession(
   workspace: Workspace,
   sessionId: string,
   ledger: AttentionLedger,
-  now: number
+  now: number,
 ): SettleMemento {
   const members = withDescendants(settleable(workspace), sessionId);
   return ledger.settle(settleTargets(workspace, members, ledger), now, { markSeen: true });
@@ -84,10 +86,13 @@ export function unsettleSession(
   workspace: Workspace,
   sessionId: string,
   ledger: AttentionLedger,
-  now: number
+  now: number,
 ): SettleMemento {
   const members = withDescendants(settleable(workspace), sessionId);
-  return ledger.unsettle(members.map((session) => session.id), now);
+  return ledger.unsettle(
+    members.map((session) => session.id),
+    now,
+  );
 }
 
 /**
@@ -102,11 +107,12 @@ export function settleAndVerify(
   sessionId: string,
   ledger: AttentionLedger,
   derive: () => ReadonlyMap<string, Attention>,
-  now: number
+  now: number,
 ): SettleResult {
   const memento = settleSession(workspace, sessionId, ledger, now);
   const attention = derive();
-  if (Object.keys(memento).every((id) => attention.get(id) === 'settled')) return { settled: true, memento };
+  if (Object.keys(memento).every((id) => attention.get(id) === 'settled'))
+    return { settled: true, memento };
   ledger.restore(memento);
   return { settled: false, memento: {} };
 }

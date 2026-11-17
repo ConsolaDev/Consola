@@ -24,7 +24,7 @@ interface GitReviewFileSectionProps {
 // Memoized syntax highlighter for an entire code block - renders once per content change
 const HighlightedCode = memo(function HighlightedCode({
   content,
-  language
+  language,
 }: {
   content: string;
   language: string;
@@ -42,7 +42,7 @@ const HighlightedCode = memo(function HighlightedCode({
         overflow: 'visible',
       }}
       codeTagProps={{
-        style: { fontFamily: 'inherit' }
+        style: { fontFamily: 'inherit' },
       }}
       PreTag="span"
     >
@@ -53,24 +53,20 @@ const HighlightedCode = memo(function HighlightedCode({
 
 // Use granular selectors to prevent unnecessary re-renders
 function useIsFileExpanded(filePath: string) {
-  return useGitReviewStore(useCallback(
-    (state) => state.expandedFiles.has(filePath),
-    [filePath]
-  ));
+  return useGitReviewStore(useCallback((state) => state.expandedFiles.has(filePath), [filePath]));
 }
 
 function useFileViewMode(filePath: string) {
-  return useGitReviewStore(useCallback(
-    (state) => state.viewMode.get(filePath) ?? 'diff',
-    [filePath]
-  ));
+  return useGitReviewStore(
+    useCallback((state) => state.viewMode.get(filePath) ?? 'diff', [filePath]),
+  );
 }
 
 export const GitReviewFileSection = memo(function GitReviewFileSection({
   rootPath,
   filePath,
   status,
-  sectionRef
+  sectionRef,
 }: GitReviewFileSectionProps) {
   const [diffData, setDiffData] = useState<GitDiffResult | null>(null);
   const [fileContent, setFileContent] = useState<string | null>(null);
@@ -103,7 +99,8 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
     setIsLoading(true);
     const isStaged = status === 'staged';
 
-    gitBridge.getDiff(rootPath, filePath, isStaged)
+    gitBridge
+      .getDiff(rootPath, filePath, isStaged)
       .then((data) => {
         if (data) {
           setDiffData(data);
@@ -133,7 +130,8 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
     if (!isExpanded || currentViewMode !== 'file') return;
 
     const absolutePath = `${rootPath}/${filePath}`;
-    fileBridge.readFile(absolutePath)
+    fileBridge
+      .readFile(absolutePath)
       .then((content) => setFileContent(content))
       .catch(() => setFileContent(null));
   }, [isExpanded, currentViewMode, rootPath, filePath]);
@@ -146,7 +144,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
       ([entry]) => {
         headerRef.current?.classList.toggle('stuck', !entry.isIntersecting);
       },
-      { threshold: [1], rootMargin: '-1px 0px 0px 0px' }
+      { threshold: [1], rootMargin: '-1px 0px 0px 0px' },
     );
 
     observer.observe(sentinelRef.current);
@@ -191,7 +189,14 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
   const renderDiffContent = () => {
     if (isLoading) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-4)' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'var(--space-4)',
+          }}
+        >
           <Loader2 size={16} className="spinner" />
         </div>
       );
@@ -199,7 +204,13 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
 
     if (!diffData) {
       return (
-        <div style={{ padding: 'var(--space-4)', color: 'var(--color-text-tertiary)', fontSize: '12px' }}>
+        <div
+          style={{
+            padding: 'var(--space-4)',
+            color: 'var(--color-text-tertiary)',
+            fontSize: '12px',
+          }}
+        >
           No diff available
         </div>
       );
@@ -207,7 +218,13 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
 
     if (diffData.isBinary) {
       return (
-        <div style={{ padding: 'var(--space-4)', color: 'var(--color-text-tertiary)', fontSize: '12px' }}>
+        <div
+          style={{
+            padding: 'var(--space-4)',
+            color: 'var(--color-text-tertiary)',
+            fontSize: '12px',
+          }}
+        >
           Binary file - diff not available
         </div>
       );
@@ -220,7 +237,9 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
         <div className="git-review-inline-diff">
           {lines.map((line, idx) => (
             <div key={idx} className="git-review-inline-diff-line git-review-inline-diff-line-add">
-              <span className="git-review-inline-diff-gutter git-review-inline-diff-gutter-add">+</span>
+              <span className="git-review-inline-diff-gutter git-review-inline-diff-gutter-add">
+                +
+              </span>
               <span className="git-review-inline-diff-line-number">{idx + 1}</span>
               <span className="git-review-inline-diff-content">
                 <HighlightedCode content={line} language={language} />
@@ -237,8 +256,13 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
       return (
         <div className="git-review-inline-diff">
           {lines.map((line, idx) => (
-            <div key={idx} className="git-review-inline-diff-line git-review-inline-diff-line-remove">
-              <span className="git-review-inline-diff-gutter git-review-inline-diff-gutter-remove">-</span>
+            <div
+              key={idx}
+              className="git-review-inline-diff-line git-review-inline-diff-line-remove"
+            >
+              <span className="git-review-inline-diff-gutter git-review-inline-diff-gutter-remove">
+                -
+              </span>
               <span className="git-review-inline-diff-line-number">{idx + 1}</span>
               <span className="git-review-inline-diff-content">
                 <HighlightedCode content={line} language={language} />
@@ -253,18 +277,20 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
     return (
       <div className="git-review-inline-diff">
         {unifiedLines.map((line, idx) => {
-          const lineClass = line.type === 'add'
-            ? 'git-review-inline-diff-line-add'
-            : line.type === 'remove'
-              ? 'git-review-inline-diff-line-remove'
-              : '';
+          const lineClass =
+            line.type === 'add'
+              ? 'git-review-inline-diff-line-add'
+              : line.type === 'remove'
+                ? 'git-review-inline-diff-line-remove'
+                : '';
 
           const gutter = line.type === 'add' ? '+' : line.type === 'remove' ? '-' : ' ';
-          const gutterClass = line.type === 'add'
-            ? 'git-review-inline-diff-gutter-add'
-            : line.type === 'remove'
-              ? 'git-review-inline-diff-gutter-remove'
-              : '';
+          const gutterClass =
+            line.type === 'add'
+              ? 'git-review-inline-diff-gutter-add'
+              : line.type === 'remove'
+                ? 'git-review-inline-diff-gutter-remove'
+                : '';
 
           return (
             <div key={idx} className={`git-review-inline-diff-line ${lineClass}`}>
@@ -285,7 +311,14 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
   const renderFileContent = () => {
     if (fileContent === null) {
       return (
-        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 'var(--space-4)' }}>
+        <div
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: 'var(--space-4)',
+          }}
+        >
           <Loader2 size={16} className="spinner" />
         </div>
       );
@@ -308,11 +341,7 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
   };
 
   return (
-    <div
-      className="git-review-file-section"
-      ref={sectionRef}
-      data-filepath={filePath}
-    >
+    <div className="git-review-file-section" ref={sectionRef} data-filepath={filePath}>
       {/* Sentinel for sticky detection */}
       <div ref={sentinelRef} style={{ height: '1px', marginTop: '-1px' }} />
 
@@ -342,8 +371,12 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
 
         {(stats.added > 0 || stats.removed > 0) && (
           <div className="git-review-file-header-stats">
-            {stats.added > 0 && <span className="git-review-file-header-stats-add">+{stats.added}</span>}
-            {stats.removed > 0 && <span className="git-review-file-header-stats-remove">-{stats.removed}</span>}
+            {stats.added > 0 && (
+              <span className="git-review-file-header-stats-add">+{stats.added}</span>
+            )}
+            {stats.removed > 0 && (
+              <span className="git-review-file-header-stats-remove">-{stats.removed}</span>
+            )}
           </div>
         )}
 
@@ -375,19 +408,19 @@ export const GitReviewFileSection = memo(function GitReviewFileSection({
       </div>
 
       {/* Content */}
-      <div className={`git-review-file-content ${!isExpanded ? 'git-review-file-content-collapsed' : ''}`}>
-        {isExpanded && (
-          selectionContext ? (
-            <SelectableCode
-              filePath={absoluteFilePath}
-              instanceId={selectionContext.instanceId}
-            >
+      <div
+        className={`git-review-file-content ${!isExpanded ? 'git-review-file-content-collapsed' : ''}`}
+      >
+        {isExpanded &&
+          (selectionContext ? (
+            <SelectableCode filePath={absoluteFilePath} instanceId={selectionContext.instanceId}>
               {currentViewMode === 'diff' ? renderDiffContent() : renderFileContent()}
             </SelectableCode>
+          ) : currentViewMode === 'diff' ? (
+            renderDiffContent()
           ) : (
-            currentViewMode === 'diff' ? renderDiffContent() : renderFileContent()
-          )
-        )}
+            renderFileContent()
+          ))}
       </div>
     </div>
   );

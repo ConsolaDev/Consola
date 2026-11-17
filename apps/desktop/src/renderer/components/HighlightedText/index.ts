@@ -7,7 +7,11 @@
 
 // Components
 export { HighlightedText, HighlightedSegments, CommandBadge } from './HighlightedText';
-export type { HighlightedTextProps, HighlightedSegmentsProps, CommandBadgeProps } from './HighlightedText';
+export type {
+  HighlightedTextProps,
+  HighlightedSegmentsProps,
+  CommandBadgeProps,
+} from './HighlightedText';
 
 // Context
 export {
@@ -19,7 +23,10 @@ export type { CommandHighlightProviderProps } from './CommandHighlightContext';
 
 // Hooks
 export { useCommandHighlighting, useParseCommandText } from './useCommandHighlighting';
-export type { UseCommandHighlightingOptions, UseCommandHighlightingResult } from './useCommandHighlighting';
+export type {
+  UseCommandHighlightingOptions,
+  UseCommandHighlightingResult,
+} from './useCommandHighlighting';
 
 // Utilities
 export {

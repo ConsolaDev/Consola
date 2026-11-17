@@ -1,4 +1,8 @@
-import { createQuickSession, openAssistant, openNewSessionDialog } from '../../utils/sessionActions';
+import {
+  createQuickSession,
+  openAssistant,
+  openNewSessionDialog,
+} from '../../utils/sessionActions';
 import { pickFoldersAndCreateWorkspace } from '../../utils/workspaceActions';
 import { NewSessionDialog } from '../Dialogs/NewSessionDialog';
 import { useNewSessionDialogStore } from '../../stores/newSessionDialogStore';
@@ -41,7 +45,8 @@ export function Layout() {
   // workspace, or, with none open, the workspace itself.
   const handleNewSession = () => {
     if (activeWorkspaceId) {
-      if (!useNewSessionDialogStore.getState().destination) void createQuickSession(activeWorkspaceId);
+      if (!useNewSessionDialogStore.getState().destination)
+        void createQuickSession(activeWorkspaceId);
     } else {
       void pickFoldersAndCreateWorkspace();
     }
@@ -99,7 +104,11 @@ export function Layout() {
   const layoutStyle = { '--sidebar-width': `${sidebarWidth}px` } as CSSProperties;
 
   return (
-    <div ref={layoutRef} className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`} style={layoutStyle}>
+    <div
+      ref={layoutRef}
+      className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`}
+      style={layoutStyle}
+    >
       <NewSessionDialog />
       <AutoSettleExplanation />
       <Toaster />

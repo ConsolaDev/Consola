@@ -4,7 +4,13 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { isAssistantShortcut, isCommandPaletteShortcut, isWorkingShelfShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
+import {
+  isAssistantShortcut,
+  isCommandPaletteShortcut,
+  isWorkingShelfShortcut,
+  matchScopeShortcut,
+  matchWorkspaceShortcut,
+} from '../utils/platform';
 import { windowBridge } from '../services/windowBridge';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
@@ -29,7 +35,14 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
-  const { onNewSession, onNewSessionWithOptions, onOpenSettings, onTogglePalette, onOpenScopedPalette, onOpenAssistant } = options;
+  const {
+    onNewSession,
+    onNewSessionWithOptions,
+    onOpenSettings,
+    onTogglePalette,
+    onOpenScopedPalette,
+    onOpenAssistant,
+  } = options;
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -78,7 +91,9 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (isShellShortcut(event)) {
         const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
         if (activeWorkspaceId && activeSessionId && overlay === null) {
-          const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
+          const session = useWorkspaceStore
+            .getState()
+            .getSession(activeWorkspaceId, activeSessionId);
           if (session) {
             event.preventDefault();
             if (!event.repeat) useShellStore.getState().toggle(session.instanceId);

@@ -30,7 +30,7 @@ export function createProfileDir(): string {
 }
 
 export async function launchElectron(
-  options: LaunchOptions = {}
+  options: LaunchOptions = {},
 ): Promise<{ app: ElectronApplication; page: Page; userDataDir: string }> {
   const userDataDir = options.userDataDir ?? createProfileDir();
 

@@ -3,7 +3,11 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { JsonStateFile } from '../state/JsonStateFile';
-import { JsonAttentionLedger, WRITE_INTERVAL_MS, type AttentionLedgerStateFile } from './AttentionLedger';
+import {
+  JsonAttentionLedger,
+  WRITE_INTERVAL_MS,
+  type AttentionLedgerStateFile,
+} from './AttentionLedger';
 
 let dir: string;
 
@@ -41,7 +45,12 @@ describe('JsonAttentionLedger.clearFinished', () => {
     ledger.markFinished('s1', 'w1', 20);
     ledger.markSeen('s1', 30);
     ledger.clearFinished('s1');
-    expect(ledger.get('s1')).toEqual({ sessionId: 's1', workspaceId: 'w1', lastActiveAt: 10, seenAt: 30 });
+    expect(ledger.get('s1')).toEqual({
+      sessionId: 's1',
+      workspaceId: 'w1',
+      lastActiveAt: 10,
+      seenAt: 30,
+    });
   });
 });
 
@@ -57,7 +66,7 @@ describe('JsonAttentionLedger', () => {
       new Map([
         ['s1', 10],
         ['s2', 20],
-      ])
+      ]),
     );
     expect(Object.keys(ledger.snapshot()).sort()).toEqual(['s1', 's2']);
   });
@@ -142,12 +151,17 @@ describe('JsonAttentionLedger', () => {
           good: { sessionId: 'good', workspaceId: 'w1', lastActiveAt: 5, seenAt: 6 },
           bad: { sessionId: 'bad', workspaceId: 'w1', lastActiveAt: 'yesterday' },
         },
-      })
+      }),
     );
 
     const ledger = build();
 
-    expect(ledger.get('good')).toEqual({ sessionId: 'good', workspaceId: 'w1', lastActiveAt: 5, seenAt: 6 });
+    expect(ledger.get('good')).toEqual({
+      sessionId: 'good',
+      workspaceId: 'w1',
+      lastActiveAt: 5,
+      seenAt: 6,
+    });
     expect(ledger.get('bad')).toBeUndefined();
   });
 

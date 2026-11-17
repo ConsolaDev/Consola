@@ -57,7 +57,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // Its folder is not a repo and holds only its brief, so none of the
   // checkout-shaped panels (explorer, git review) have anything to show.
   const isAssistant = session?.kind === 'assistant';
-  const hasUnseenFinished = useAssistantStore((state) => (state.activity[workspaceId]?.unseenFinished ?? 0) > 0);
+  const hasUnseenFinished = useAssistantStore(
+    (state) => (state.activity[workspaceId]?.unseenFinished ?? 0) > 0,
+  );
   // What the Assistant asked for that waits for the person sits beside it,
   // until hidden; a request it has not shown yet brings it back.
   const assistantRequests = useAssistantRequests(isAssistant ? workspace : undefined);
@@ -103,14 +105,16 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const getLaunchFields = useHarnessStore((state) => state.getLaunchFields);
   const launchFields = useMemo(
     () => getLaunchFields(harnessId),
-    [getLaunchFields, harnessId, harnesses]
+    [getLaunchFields, harnessId, harnesses],
   );
   const supportsSessionNaming = driverSupportsSessionNaming(launchFields.driverId);
 
   // Git status follows the checkout the session runs in. A worktree has its
   // own branch, index and changes, so its scope's path would report a
   // different checkout than the one the agent is editing.
-  useGitStatusAutoRefresh(!isAssistant && (scope?.isGitRepo || session?.cwd || session?.agentCwd) ? cwd : null);
+  useGitStatusAutoRefresh(
+    !isAssistant && (scope?.isGitRepo || session?.cwd || session?.agentCwd) ? cwd : null,
+  );
 
   // The Assistant's finished count means "since you last looked". Looking is
   // this pane being on screen, so it clears on arrival and again whenever
@@ -150,15 +154,17 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
         .then((result) => {
           if (cancelled || !result) return;
           // Codex can switch conversations or rename them inside the same TUI.
-          if (result.source === 'summary' && launchFields.driverId !== 'codex' && timer !== undefined) {
+          if (
+            result.source === 'summary' &&
+            launchFields.driverId !== 'codex' &&
+            timer !== undefined
+          ) {
             clearInterval(timer);
           }
           // Read the live name rather than depending on it: a dependency
           // would restart this effect — and its interval — on every adoption,
           // and the poll must outlive the names it writes.
-          const currentSession = useWorkspaceStore
-            .getState()
-            .getSession(workspaceId, sessionId);
+          const currentSession = useWorkspaceStore.getState().getSession(workspaceId, sessionId);
           if (!currentSession || currentSession.nameIsUserSet) return;
           if (result.name !== currentSession.name) {
             void updateSession(workspaceId, sessionId, { name: result.name });
@@ -250,7 +256,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             <>
               <Separator className="resize-handle" />
               <Panel id="approvals" defaultSize="320px" minSize="260px" maxSize="45%">
-                <AssistantTray requests={assistantRequests} onHide={() => setTrayHidden(workspaceId, true)} />
+                <AssistantTray
+                  requests={assistantRequests}
+                  onHide={() => setTrayHidden(workspaceId, true)}
+                />
               </Panel>
             </>
           )}

@@ -14,7 +14,11 @@ test('adds a Codex harness in settings, launches a configured session, and resum
   const launches = () => {
     const file = path.join(codexHome, 'launches.jsonl');
     return fs.existsSync(file)
-      ? fs.readFileSync(file, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+      ? fs
+          .readFileSync(file, 'utf8')
+          .trim()
+          .split('\n')
+          .map((line) => JSON.parse(line))
       : [];
   };
   try {
@@ -40,9 +44,18 @@ test('adds a Codex harness in settings, launches a configured session, and resum
     await editor.getByRole('button', { name: 'Cancel', exact: true }).click();
     await settings.getByRole('button', { name: 'Close', exact: true }).click();
 
-    await page.evaluate(folder => window.workspaceAPI.createWorkspace('Codex workspace', folder, false, 'codex-test'), root);
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Codex workspace/ }).click();
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
+    await page.evaluate(
+      (folder) =>
+        window.workspaceAPI.createWorkspace('Codex workspace', folder, false, 'codex-test'),
+      root,
+    );
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Codex workspace/ })
+      .click();
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN',
+    );
     await expect(page.getByLabel('Agent', { exact: true })).toContainText('Codex test');
     await expect(page.getByLabel('Model', { exact: true })).toBeEnabled();
     await page.getByLabel('Model', { exact: true }).click();
@@ -59,8 +72,11 @@ test('adds a Codex harness in settings, launches a configured session, and resum
 
     // Wheel scrolling must move through conversation history, not just leave
     // a working composer on an alternate screen with no scrollback.
-    const slider = page.locator('.terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider');
-    const sliderTop = () => slider.evaluate(element => parseFloat((element as HTMLElement).style.top));
+    const slider = page.locator(
+      '.terminal-surface .xterm-scrollable-element > .scrollbar.vertical > .slider',
+    );
+    const sliderTop = () =>
+      slider.evaluate((element) => parseFloat((element as HTMLElement).style.top));
     await expect.poll(sliderTop).toBeGreaterThan(0);
     const bottom = await sliderTop();
     await page.locator('.terminal-surface .xterm-screen').hover();
@@ -78,16 +94,23 @@ test('adds a Codex harness in settings, launches a configured session, and resum
     await expect.poll(() => fs.existsSync(activePath)).toBe(true);
     const activeThread = fs.readFileSync(activePath, 'utf8');
     expect(activeThread).not.toBe(first.args[1]);
-    await expect.poll(() => {
-      const mappings = path.join(codexHome, 'consola', 'sessions');
-      return fs.readdirSync(mappings).filter(file => file.endsWith('.json'))
-        .map(file => JSON.parse(fs.readFileSync(path.join(mappings, file), 'utf8')).threadId);
-    }).toContain(activeThread);
+    await expect
+      .poll(() => {
+        const mappings = path.join(codexHome, 'consola', 'sessions');
+        return fs
+          .readdirSync(mappings)
+          .filter((file) => file.endsWith('.json'))
+          .map((file) => JSON.parse(fs.readFileSync(path.join(mappings, file), 'utf8')).threadId);
+      })
+      .toContain(activeThread);
 
     await running.app.close();
     running = await launchElectron({ userDataDir });
     // Restore through the sidebar as well as the persisted workspace view.
-    await running.page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Codex workspace/ }).click();
+    await running.page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Codex workspace/ })
+      .click();
     await running.page.locator('.sidebar').getByText('New Session', { exact: true }).click();
     await expect.poll(() => launches().length).toBe(2);
     expect(launches()[1].args.slice(0, 2)).toEqual(['resume', activeThread]);

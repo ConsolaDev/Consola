@@ -101,7 +101,14 @@ function automationPhase(status: Attention): string | null {
  * passed in: the pane knows the item, and the section is a pure function
  * of it.
  */
-export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixInSession, onOpenWorkItem }: InboxItemPaneProps) {
+export function InboxItemPane({
+  workspace,
+  item,
+  onClose,
+  currentSessionId,
+  fixInSession,
+  onOpenWorkItem,
+}: InboxItemPaneProps) {
   const attention = useAttentionStore((state) => state.records);
   const derived = useAttentionStore((state) => state.attention);
   const launch = useInboxStore((state) => state.launch);
@@ -131,7 +138,12 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
   // until a read says, rather than a guess that would flip.
   const knownState = fetched?.state ?? item.state;
   const status = knownState
-    ? itemStatus(item.workItem.type, knownState, fetched?.isDraft ?? item.isDraft, fetched?.stateReason)
+    ? itemStatus(
+        item.workItem.type,
+        knownState,
+        fetched?.isDraft ?? item.isDraft,
+        fetched?.stateReason,
+      )
     : null;
 
   // Task 8 fix-wave rule: name the bound provider, never hardcode "GitHub".
@@ -144,7 +156,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
     : 'the provider';
 
   const siblings = workspace.sessions.filter((session) =>
-    sameWorkItem(session.workItem, item.workItem)
+    sameWorkItem(session.workItem, item.workItem),
   );
   const statusOf = (session: Session) => attentionOf(derived, session.id);
   // The warning lives here, where the sessions are listed: a
@@ -170,7 +182,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         .filter((session) => session.automation && session.workItemAction === action.name)
         .reduce<Session | undefined>(
           (newest, session) => (!newest || session.createdAt > newest.createdAt ? session : newest),
-          undefined
+          undefined,
         ),
     }));
 
@@ -303,13 +315,18 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                     <span className="inbox-pane-session-label">
                       {sessionLabel(session)}
                       {session.automation && (
-                        <span className="inbox-pane-automation-badge" title="Started by an automation, read-only">
+                        <span
+                          className="inbox-pane-automation-badge"
+                          title="Started by an automation, read-only"
+                        >
                           {session.automation.name}
                         </span>
                       )}
                     </span>
                     <span className="inbox-pane-session-sub">
-                      <span className="inbox-pane-session-status">{phase ?? STATUS_WORDS[status]}</span>
+                      <span className="inbox-pane-session-status">
+                        {phase ?? STATUS_WORDS[status]}
+                      </span>
                       {' · '}
                       {formatAge(activityOf(session, attention[session.id]))}
                       {session.cwd ? ` · ${basename(session.cwd)}` : ''}
@@ -356,12 +373,17 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                   data-launching={launching[repoKey] || undefined}
                   onClick={() => openClonePrompt(workspace.id, item)}
                 >
-                  <ActionIcon icon={launching[repoKey] ? LoaderCircle : FolderDown} spin={launching[repoKey]} />
+                  <ActionIcon
+                    icon={launching[repoKey] ? LoaderCircle : FolderDown}
+                    spin={launching[repoKey]}
+                  />
                   {launching[repoKey] ? 'Cloning…' : 'Clone into scope…'}
                 </button>
               </div>
               {launchErrors[repoKey] && (
-                <p className="inbox-pane-action-error" role="alert">{launchErrors[repoKey]}</p>
+                <p className="inbox-pane-action-error" role="alert">
+                  {launchErrors[repoKey]}
+                </p>
               )}
             </>
           ) : (
@@ -395,11 +417,17 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                         'inbox-pane-action',
                         isDefault && 'inbox-pane-action--default',
                         confirming && 'inbox-pane-action--confirm',
-                      ].filter(Boolean).join(' ')}
+                      ]
+                        .filter(Boolean)
+                        .join(' ')}
                       data-action-id={action.id}
                       data-launching={pending || undefined}
                       disabled={pending}
-                      title={automationReview ? `Open the review ${automationReview.automation!.name} started` : undefined}
+                      title={
+                        automationReview
+                          ? `Open the review ${automationReview.automation!.name} started`
+                          : undefined
+                      }
                       onClick={() =>
                         automationReview
                           ? activateSession(workspace.id, automationReview.id)
@@ -428,7 +456,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                     {actions.length > 1 && <strong>{action.name}: </strong>}
                     {launchErrors[key]}
                   </p>
-                ) : null
+                ) : null,
               )}
 
               {customOpen && (
@@ -453,8 +481,14 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                     aria-keyshortcuts={MOD_KEY === '⌘' ? 'Meta+Enter' : 'Control+Enter'}
                     autoFocus
                   />
-                  <div className="inbox-pane-placeholders" role="group" aria-label="Insert a placeholder">
-                    <span className="inbox-pane-placeholders-label" aria-hidden="true">Insert</span>
+                  <div
+                    className="inbox-pane-placeholders"
+                    role="group"
+                    aria-label="Insert a placeholder"
+                  >
+                    <span className="inbox-pane-placeholders-label" aria-hidden="true">
+                      Insert
+                    </span>
                     {PLACEHOLDERS.map((name) => (
                       <button
                         key={name}
@@ -471,14 +505,20 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                   </div>
                   <div className="inbox-pane-custom-actions">
                     <span className="inbox-pane-kbd-hint" aria-hidden="true">
-                      <kbd>{MOD_KEY}</kbd><kbd>↵</kbd> start · <kbd>Esc</kbd> cancel
+                      <kbd>{MOD_KEY}</kbd>
+                      <kbd>↵</kbd> start · <kbd>Esc</kbd> cancel
                     </span>
-                    <button className="inbox-pane-action inbox-pane-action--quiet" onClick={closeCustom}>
+                    <button
+                      className="inbox-pane-action inbox-pane-action--quiet"
+                      onClick={closeCustom}
+                    >
                       Cancel
                     </button>
                     <button
                       className={`inbox-pane-action ${
-                        confirmingKey === customKey ? 'inbox-pane-action--confirm' : 'inbox-pane-action--default'
+                        confirmingKey === customKey
+                          ? 'inbox-pane-action--confirm'
+                          : 'inbox-pane-action--default'
                       }`}
                       data-action-id="custom"
                       data-launching={launching[customKey] || undefined}
@@ -486,7 +526,13 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                       onClick={() => start({ customPrompt: trimmedCustom }, customKey)}
                     >
                       <ActionIcon
-                        icon={launching[customKey] ? LoaderCircle : confirmingKey === customKey ? TriangleAlert : Play}
+                        icon={
+                          launching[customKey]
+                            ? LoaderCircle
+                            : confirmingKey === customKey
+                              ? TriangleAlert
+                              : Play
+                        }
                         spin={launching[customKey]}
                         filled={!launching[customKey] && confirmingKey !== customKey}
                       />
@@ -498,7 +544,9 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                     </button>
                   </div>
                   {launchErrors[customKey] && (
-                    <p className="inbox-pane-action-error" role="alert">{launchErrors[customKey]}</p>
+                    <p className="inbox-pane-action-error" role="alert">
+                      {launchErrors[customKey]}
+                    </p>
                   )}
                 </div>
               )}
@@ -507,22 +555,32 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
         </div>
       </section>
 
-      {workspace.provider && <WorkItemDetailPanel
-        key={`${workspace.id}:${workspace.provider.accountLogin}:${workspace.provider.org ?? ''}`}
-        workspaceId={workspace.id}
-        accountLogin={workspace.provider.accountLogin}
-        item={item}
-        headSlot={detailHead}
-        onDetails={setFetched}
-        fixTarget={fixInSession ? 'this session' : 'a session'}
-        onFix={fixInSession ?? receiveFix}
-        onOpenWorkItem={onOpenWorkItem}
-      />}
+      {workspace.provider && (
+        <WorkItemDetailPanel
+          key={`${workspace.id}:${workspace.provider.accountLogin}:${workspace.provider.org ?? ''}`}
+          workspaceId={workspace.id}
+          accountLogin={workspace.provider.accountLogin}
+          item={item}
+          headSlot={detailHead}
+          onDetails={setFetched}
+          fixTarget={fixInSession ? 'this session' : 'a session'}
+          onFix={fixInSession ?? receiveFix}
+          onOpenWorkItem={onOpenWorkItem}
+        />
+      )}
     </aside>
   );
 }
 
-function ActionIcon({ icon: Icon, spin, filled }: { icon: LucideIcon; spin?: boolean; filled?: boolean }) {
+function ActionIcon({
+  icon: Icon,
+  spin,
+  filled,
+}: {
+  icon: LucideIcon;
+  spin?: boolean;
+  filled?: boolean;
+}) {
   return (
     <Icon
       size={13}

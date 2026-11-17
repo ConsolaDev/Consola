@@ -28,7 +28,7 @@ export const idOfKey = (key: EntryKey): string => key.slice(key.indexOf(':') + 1
 export function sessionEntries(
   sessions: readonly Session[],
   snapshot: Pick<AttentionState, 'records' | 'attention'>,
-  labels: readonly Label[]
+  labels: readonly Label[],
 ): Entry[] {
   const liveLabels = new Set(labels.map((label) => label.id));
   return sessions.map((session) => {
@@ -62,7 +62,10 @@ export function sessionEntries(
  * The selection `applyFilter` takes, from the two places the choices live:
  * the scope (`homeStore`) and the facets and labels (`sessionFilterStore`).
  */
-export function filterSelection(scopeId: string | undefined, facets: SessionFilters): FilterSelection {
+export function filterSelection(
+  scopeId: string | undefined,
+  facets: SessionFilters,
+): FilterSelection {
   const { label, ...rest } = facets;
   const chosen: Record<string, string[]> = {};
   for (const [key, values] of Object.entries(rest)) if (values?.length) chosen[key] = values;
@@ -79,7 +82,7 @@ export function filterSelection(scopeId: string | undefined, facets: SessionFilt
  */
 export function runEntries(
   runs: readonly RunListEntry[],
-  snapshot: Pick<AttentionState, 'attention'>
+  snapshot: Pick<AttentionState, 'attention'>,
 ): Entry[] {
   const entries: Entry[] = [];
   for (const run of runs) {
@@ -105,7 +108,7 @@ export function runEntries(
 /** The runs main says are waiting for the person: what the Automations surfaces list, so they agree with the sidebar. */
 export function waitingRuns<T extends { id: string }>(
   runs: readonly T[],
-  snapshot: Pick<AttentionState, 'attention'>
+  snapshot: Pick<AttentionState, 'attention'>,
 ): T[] {
   return runs.filter((run) => snapshot.attention[runKey(run.id)] === 'needs-attention');
 }

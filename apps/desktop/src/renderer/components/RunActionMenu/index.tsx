@@ -106,11 +106,17 @@ export function RunActionMenu({ workspace, session, triggerClassName, onRan }: R
             align="end"
             data-testid="run-action-menu"
           >
-            <DropdownMenu.Label className="run-action-menu-label">Run in this session</DropdownMenu.Label>
+            <DropdownMenu.Label className="run-action-menu-label">
+              Run in this session
+            </DropdownMenu.Label>
             {actions.map((action) => {
               const conversation = actionConversation(action);
               const pending = runningId === action.id;
-              const Icon = pending ? LoaderCircle : conversation === 'fresh' ? RotateCcw : CornerDownLeft;
+              const Icon = pending
+                ? LoaderCircle
+                : conversation === 'fresh'
+                  ? RotateCcw
+                  : CornerDownLeft;
               return (
                 <DropdownMenu.Item
                   key={action.id}
@@ -127,7 +133,9 @@ export function RunActionMenu({ workspace, session, triggerClassName, onRan }: R
                   <Icon
                     size={13}
                     aria-hidden="true"
-                    className={pending ? 'run-action-icon run-action-icon--spin' : 'run-action-icon'}
+                    className={
+                      pending ? 'run-action-icon run-action-icon--spin' : 'run-action-icon'
+                    }
                   />
                   <span className="run-action-text">
                     {action.name}

@@ -30,11 +30,7 @@ export const SelectionPopup = memo(function SelectionPopup({
         top: position.y,
       }}
     >
-      <button
-        className="code-selection-popup-btn"
-        onClick={onAddToChat}
-        type="button"
-      >
+      <button className="code-selection-popup-btn" onClick={onAddToChat} type="button">
         <MessageSquarePlus size={14} />
         <span>Add to Chat</span>
         <span className="code-selection-shortcut">{shortcutKey}L</span>

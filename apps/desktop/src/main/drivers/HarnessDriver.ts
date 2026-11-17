@@ -2,11 +2,11 @@ import * as os from 'os';
 import * as path from 'path';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type {
-    HarnessCapabilities,
-    HarnessDriverId,
-    HarnessLaunchFields,
-    HarnessProbeResult,
-    SessionNameResult,
+  HarnessCapabilities,
+  HarnessDriverId,
+  HarnessLaunchFields,
+  HarnessProbeResult,
+  SessionNameResult,
 } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import type { AttentionSignal } from '../attention/hookSignals';
@@ -22,128 +22,135 @@ import type { AttentionSignal } from '../attention/hookSignals';
  * tell whether it is installed and signed in.
  */
 export interface HarnessDriver {
-    readonly id: HarnessDriverId;
+  readonly id: HarnessDriverId;
 
-    /**
-     * Environment variable this CLI reads for its config/profile directory.
-     *
-     * Named per driver rather than assumed, so a second CLI with a differently
-     * named variable is a new driver rather than a change to shared code.
-     */
-    readonly configDirEnvVar: string;
+  /**
+   * Environment variable this CLI reads for its config/profile directory.
+   *
+   * Named per driver rather than assumed, so a second CLI with a differently
+   * named variable is a new driver rather than a change to shared code.
+   */
+  readonly configDirEnvVar: string;
 
-    /** Absolute path to the binary, or a bare name to let the spawn fail loudly. */
-    resolveBinary(config: HarnessConfig): string;
+  /** Absolute path to the binary, or a bare name to let the spawn fail loudly. */
+  resolveBinary(config: HarnessConfig): string;
 
-    /**
-     * argv for an interactive session, including the harness's extra args.
-     *
-     * Throws when `launch.toolPolicy` is set and `toolPolicyProblem` says it
-     * cannot be enforced: a session that was meant to be restricted must
-     * never start unrestricted.
-     */
-    buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] | Promise<string[]>;
+  /**
+   * argv for an interactive session, including the harness's extra args.
+   *
+   * Throws when `launch.toolPolicy` is set and `toolPolicyProblem` says it
+   * cannot be enforced: a session that was meant to be restricted must
+   * never start unrestricted.
+   */
+  buildSessionArgs(config: HarnessConfig, launch: SessionLaunch): string[] | Promise<string[]>;
 
-    /**
-     * Why this harness cannot launch a session under `policy`, or null when
-     * it can. Null for no policy. A driver whose CLI has no way to enforce a
-     * policy says so here rather than launching without it, and so does one
-     * whose harness's extra args would loosen it.
-     */
-    toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null;
+  /**
+   * Why this harness cannot launch a session under `policy`, or null when
+   * it can. Null for no policy. A driver whose CLI has no way to enforce a
+   * policy says so here rather than launching without it, and so does one
+   * whose harness's extra args would loosen it.
+   */
+  toolPolicyProblem(config: HarnessConfig, policy: SessionToolPolicy | undefined): string | null;
 
-    /** Deliver the opening prompt through argv instead of waiting on the TUI. */
-    readonly initialPromptViaArgs?: boolean;
+  /** Deliver the opening prompt through argv instead of waiting on the TUI. */
+  readonly initialPromptViaArgs?: boolean;
 
-    /** False when retrying a failed resume would risk replacing a conversation. */
-    readonly retryResumeAsFresh?: boolean;
+  /** False when retrying a failed resume would risk replacing a conversation. */
+  readonly retryResumeAsFresh?: boolean;
 
-    /** Observe one PTY's output to persist native conversation switches. */
-    createOutputObserver?(config: HarnessConfig, sessionId: string): (data: string) => void;
+  /** Observe one PTY's output to persist native conversation switches. */
+  createOutputObserver?(config: HarnessConfig, sessionId: string): (data: string) => void;
 
-    /**
-     * The folder a running session's process says it works in, read from
-     * the CLI's own record of it — never inferred from what it printed.
-     *
-     * Optional: an agent can move itself (Claude's EnterWorktree moves the
-     * whole process into a worktree), and a CLI that keeps no such record
-     * simply omits this, leaving its sessions shown where they launched.
-     * Null while the CLI has nothing to say for `pid`; throws when the record
-     * is there but not one this driver recognises, since a guess would put
-     * every git view on the wrong checkout.
-     */
-    readWorkingDirectory?(config: HarnessConfig, pid: number): string | null;
+  /**
+   * The folder a running session's process says it works in, read from
+   * the CLI's own record of it — never inferred from what it printed.
+   *
+   * Optional: an agent can move itself (Claude's EnterWorktree moves the
+   * whole process into a worktree), and a CLI that keeps no such record
+   * simply omits this, leaving its sessions shown where they launched.
+   * Null while the CLI has nothing to say for `pid`; throws when the record
+   * is there but not one this driver recognises, since a guess would put
+   * every git view on the wrong checkout.
+   */
+  readWorkingDirectory?(config: HarnessConfig, pid: number): string | null;
 
-    /** The ambient environment plus this harness's own variables. */
-    composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
+  /** The ambient environment plus this harness's own variables. */
+  composeEnv(config: HarnessConfig, baseEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv;
 
-    /** Whether the binary is present and who it is authenticated as. */
-    probeHealth(config: HarnessConfig): Promise<HarnessProbeResult>;
+  /** Whether the binary is present and who it is authenticated as. */
+  probeHealth(config: HarnessConfig): Promise<HarnessProbeResult>;
 
-    /**
-     * A display name for a session, read from this CLI's own transcripts.
-     *
-     * Optional: a driver whose transcript format Consola cannot read simply
-     * omits it, and sessions keep whatever name they were given. Callers must
-     * check for its absence rather than polling an answer that never comes.
-     */
-    getSessionDisplayName?(config: HarnessConfig, sessionId: string): SessionNameResult | null | Promise<SessionNameResult | null>;
+  /**
+   * A display name for a session, read from this CLI's own transcripts.
+   *
+   * Optional: a driver whose transcript format Consola cannot read simply
+   * omits it, and sessions keep whatever name they were given. Callers must
+   * check for its absence rather than polling an answer that never comes.
+   */
+  getSessionDisplayName?(
+    config: HarnessConfig,
+    sessionId: string,
+  ): SessionNameResult | null | Promise<SessionNameResult | null>;
 
-    /** Latest model reported by this conversation, when a transcript exists. */
-    getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
+  /** Latest model reported by this conversation, when a transcript exists. */
+  getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
 
-    /**
-     * What the agent last said, one entry per turn, oldest first, read from the
-     * CLI's own transcript. `null` when there is no transcript.
-     */
-    getRecentReplies?(config: HarnessConfig, sessionId: string, count: number): Promise<string[] | null>;
+  /**
+   * What the agent last said, one entry per turn, oldest first, read from the
+   * CLI's own transcript. `null` when there is no transcript.
+   */
+  getRecentReplies?(
+    config: HarnessConfig,
+    sessionId: string,
+    count: number,
+  ): Promise<string[] | null>;
 
-    /**
-     * A conversation's prompts, tool calls and replies, read from the CLI's
-     * own transcript — never by resuming it. Serves the Automations side
-     * panel and any future "read a session" tool alike. `window` keeps only
-     * the records inside it. `null` when there is no transcript.
-     *
-     * Optional: a CLI whose transcripts Consola cannot read omits it, and the
-     * UI offers "Open session" alone.
-     */
-    readConversation?(
-        config: HarnessConfig,
-        conversationId: string,
-        window?: ConversationWindow
-    ): Promise<ConversationRecord | null>;
+  /**
+   * A conversation's prompts, tool calls and replies, read from the CLI's
+   * own transcript — never by resuming it. Serves the Automations side
+   * panel and any future "read a session" tool alike. `window` keeps only
+   * the records inside it. `null` when there is no transcript.
+   *
+   * Optional: a CLI whose transcripts Consola cannot read omits it, and the
+   * UI offers "Open session" alone.
+   */
+  readConversation?(
+    config: HarnessConfig,
+    conversationId: string,
+    window?: ConversationWindow,
+  ): Promise<ConversationRecord | null>;
 
-    /**
-     * The commands, agents and models this CLI offers, asked of the CLI itself.
-     *
-     * Optional for the same reason as `getSessionDisplayName`: a CLI with no
-     * way to enumerate its own features simply omits this, and the composer
-     * goes without autocomplete rather than waiting on an answer that never
-     * comes.
-     *
-     * Unlike the other methods here this one may reject. It talks to a separate
-     * process over a pipe, so a missing binary, a hung child and unrecognised
-     * output are all ordinary outcomes. `HarnessCapabilitiesCache` is the one
-     * place that turns any driver's failure into the uniform shape the UI
-     * renders, so drivers should throw rather than invent an empty result.
-     */
-    probeCapabilities?(config: HarnessConfig): Promise<HarnessCapabilities>;
+  /**
+   * The commands, agents and models this CLI offers, asked of the CLI itself.
+   *
+   * Optional for the same reason as `getSessionDisplayName`: a CLI with no
+   * way to enumerate its own features simply omits this, and the composer
+   * goes without autocomplete rather than waiting on an answer that never
+   * comes.
+   *
+   * Unlike the other methods here this one may reject. It talks to a separate
+   * process over a pipe, so a missing binary, a hung child and unrecognised
+   * output are all ordinary outcomes. `HarnessCapabilitiesCache` is the one
+   * place that turns any driver's failure into the uniform shape the UI
+   * renders, so drivers should throw rather than invent an empty result.
+   */
+  probeCapabilities?(config: HarnessConfig): Promise<HarnessCapabilities>;
 
-    /**
-     * How this CLI reports, on its own initiative, that it needs the person.
-     *
-     * Optional: a CLI with nothing like hooks omits it and its sessions stay
-     * on the screen heuristic alone, which is always running regardless. What
-     * this adds is truth the screen cannot show — a question that is no known
-     * menu, a subagent waiting — never a replacement for reading the screen.
-     */
-    readonly attentionHooks?: AttentionHooks;
+  /**
+   * How this CLI reports, on its own initiative, that it needs the person.
+   *
+   * Optional: a CLI with nothing like hooks omits it and its sessions stay
+   * on the screen heuristic alone, which is always running regardless. What
+   * this adds is truth the screen cannot show — a question that is no known
+   * menu, a subagent waiting — never a replacement for reading the screen.
+   */
+  readonly attentionHooks?: AttentionHooks;
 }
 
 /** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
 export interface AttentionHooks {
-    /** Translate one posted payload. Null for an event that says nothing about attention. */
-    parse(body: unknown): AttentionSignal | null;
+  /** Translate one posted payload. Null for an event that says nothing about attention. */
+  parse(body: unknown): AttentionSignal | null;
 }
 
 /**
@@ -154,41 +161,41 @@ export interface AttentionHooks {
  * the list grows as new session-scoped pins are added.
  */
 export interface SessionLaunch {
-    sessionId: string;
-    cwd?: string;
-    initialPrompt?: string;
-    /** Resume the existing conversation instead of starting one. */
-    resume: boolean;
-    /** Model selector to pin, when the session chose one. */
-    model?: string;
-    /**
-     * MCP config file to register with the CLI, when the session carries one.
-     *
-     * Set only for conductor sessions. A driver whose CLI cannot load MCP
-     * servers from a config file must throw when this is set — silently
-     * ignoring it would launch a conductor with no hands.
-     */
-    mcpConfigPath?: string;
-    /** What the agent may do, fixed for the session's lifetime and replayed on every resume. */
-    toolPolicy?: SessionToolPolicy;
-    /**
-     * Run one turn non-interactively, with `initialPrompt` as its argument,
-     * and exit: nobody is there to type, so there is no composer to type
-     * into. Only for a read-only session — a non-interactive turn skips the
-     * CLI's folder-trust prompt — and a driver that cannot do it refuses.
-     */
-    unattended?: boolean;
-    /**
-     * Start `sessionId` as a copy of this conversation, leaving the original
-     * as it was. First launch only; a driver that cannot fork refuses.
-     */
-    forkFrom?: string;
-    /**
-     * Loopback URL this session's hooks post to, when the driver has
-     * `attentionHooks` and Consola's endpoint is up. Absent otherwise, and a
-     * session launched without it is simply not reporting.
-     */
-    attentionUrl?: string;
+  sessionId: string;
+  cwd?: string;
+  initialPrompt?: string;
+  /** Resume the existing conversation instead of starting one. */
+  resume: boolean;
+  /** Model selector to pin, when the session chose one. */
+  model?: string;
+  /**
+   * MCP config file to register with the CLI, when the session carries one.
+   *
+   * Set only for conductor sessions. A driver whose CLI cannot load MCP
+   * servers from a config file must throw when this is set — silently
+   * ignoring it would launch a conductor with no hands.
+   */
+  mcpConfigPath?: string;
+  /** What the agent may do, fixed for the session's lifetime and replayed on every resume. */
+  toolPolicy?: SessionToolPolicy;
+  /**
+   * Run one turn non-interactively, with `initialPrompt` as its argument,
+   * and exit: nobody is there to type, so there is no composer to type
+   * into. Only for a read-only session — a non-interactive turn skips the
+   * CLI's folder-trust prompt — and a driver that cannot do it refuses.
+   */
+  unattended?: boolean;
+  /**
+   * Start `sessionId` as a copy of this conversation, leaving the original
+   * as it was. First launch only; a driver that cannot fork refuses.
+   */
+  forkFrom?: string;
+  /**
+   * Loopback URL this session's hooks post to, when the driver has
+   * `attentionHooks` and Consola's endpoint is up. Absent otherwise, and a
+   * session launched without it is simply not reporting.
+   */
+  attentionUrl?: string;
 }
 
 /**
@@ -197,26 +204,26 @@ export interface SessionLaunch {
  * each CLI's own business.
  */
 export function namedFlags(args: readonly string[], flags: readonly string[]): string[] {
-    return flags.filter((flag) => args.some((arg) => arg === flag || arg.startsWith(`${flag}=`)));
+  return flags.filter((flag) => args.some((arg) => arg === flag || arg.startsWith(`${flag}=`)));
 }
 
 /** The refusal every driver gives for loosening extra args, so they read alike. */
 export function looseningProblem(flags: readonly string[]): string | null {
-    if (flags.length === 0) return null;
-    return (
-        `This harness's extra arguments (${flags.join(', ')}) would loosen a read-only session, ` +
-        'so automations cannot start sessions on it. Remove them in Settings › Harnesses, or make ' +
-        'another harness this workspace’s default.'
-    );
+  if (flags.length === 0) return null;
+  return (
+    `This harness's extra arguments (${flags.join(', ')}) would loosen a read-only session, ` +
+    'so automations cannot start sessions on it. Remove them in Settings › Harnesses, or make ' +
+    'another harness this workspace’s default.'
+  );
 }
 
 /** A harness's launch settings, normalised for driver consumption. */
 export interface HarnessConfig {
-    /** Explicit binary path, when the harness pins one. */
-    binaryPath?: string;
-    /** Config directory for this driver's `configDirEnvVar`, when set. */
-    configDir?: string;
-    extraArgs: string[];
+  /** Explicit binary path, when the harness pins one. */
+  binaryPath?: string;
+  /** Config directory for this driver's `configDirEnvVar`, when set. */
+  configDir?: string;
+  extraArgs: string[];
 }
 
 /**
@@ -236,9 +243,9 @@ export interface HarnessConfig {
  * an ordinary character in a path name.
  */
 function expandHome(target: string): string {
-    if (target === '~') return os.homedir();
-    if (target.startsWith('~/')) return path.join(os.homedir(), target.slice(2));
-    return target;
+  if (target === '~') return os.homedir();
+  if (target.startsWith('~/')) return path.join(os.homedir(), target.slice(2));
+  return target;
 }
 
 /**
@@ -248,11 +255,11 @@ function expandHome(target: string): string {
  * form means "use the default" rather than "use the empty path".
  */
 export function toHarnessConfig(fields: HarnessLaunchFields | undefined): HarnessConfig {
-    const binaryPath = fields?.binaryOverride?.trim() || undefined;
-    const configDir = fields?.configDirOverride?.trim() || undefined;
-    return {
-        binaryPath: binaryPath && expandHome(binaryPath),
-        configDir: configDir && expandHome(configDir),
-        extraArgs: fields?.extraArgs ?? [],
-    };
+  const binaryPath = fields?.binaryOverride?.trim() || undefined;
+  const configDir = fields?.configDirOverride?.trim() || undefined;
+  return {
+    binaryPath: binaryPath && expandHome(binaryPath),
+    configDir: configDir && expandHome(configDir),
+    extraArgs: fields?.extraArgs ?? [],
+  };
 }

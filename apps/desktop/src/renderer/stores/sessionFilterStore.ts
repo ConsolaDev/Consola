@@ -16,16 +16,20 @@ interface SessionFilterState {
  */
 export const useSessionFilterStore = create<SessionFilterState>((set) => ({
   filters: {},
-  toggle: (workspaceId, facet, value) => set((state) => {
-    const current = state.filters[workspaceId] ?? {};
-    const chosen = current[facet] ?? [];
-    const next = chosen.includes(value) ? chosen.filter((candidate) => candidate !== value) : [...chosen, value];
-    const { [facet]: _previous, ...rest } = current;
-    const updated: SessionFilters = next.length > 0 ? { ...rest, [facet]: next } : rest;
-    return { filters: { ...state.filters, [workspaceId]: updated } };
-  }),
-  clear: (workspaceId) => set((state) => {
-    const { [workspaceId]: _previous, ...rest } = state.filters;
-    return { filters: rest };
-  }),
+  toggle: (workspaceId, facet, value) =>
+    set((state) => {
+      const current = state.filters[workspaceId] ?? {};
+      const chosen = current[facet] ?? [];
+      const next = chosen.includes(value)
+        ? chosen.filter((candidate) => candidate !== value)
+        : [...chosen, value];
+      const { [facet]: _previous, ...rest } = current;
+      const updated: SessionFilters = next.length > 0 ? { ...rest, [facet]: next } : rest;
+      return { filters: { ...state.filters, [workspaceId]: updated } };
+    }),
+  clear: (workspaceId) =>
+    set((state) => {
+      const { [workspaceId]: _previous, ...rest } = state.filters;
+      return { filters: rest };
+    }),
 }));

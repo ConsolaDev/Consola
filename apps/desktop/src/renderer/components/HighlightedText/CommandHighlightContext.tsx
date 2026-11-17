@@ -51,13 +51,11 @@ export function CommandHighlightProvider({
       skills,
       slashCommands,
     }),
-    [highlighting, skills, slashCommands]
+    [highlighting, skills, slashCommands],
   );
 
   return (
-    <CommandHighlightContext.Provider value={value}>
-      {children}
-    </CommandHighlightContext.Provider>
+    <CommandHighlightContext.Provider value={value}>{children}</CommandHighlightContext.Provider>
   );
 }
 
@@ -91,7 +89,7 @@ export function useRequiredCommandHighlightContext(): CommandHighlightContextVal
   const context = useContext(CommandHighlightContext);
   if (!context) {
     throw new Error(
-      'useRequiredCommandHighlightContext must be used within a CommandHighlightProvider'
+      'useRequiredCommandHighlightContext must be used within a CommandHighlightProvider',
     );
   }
   return context;

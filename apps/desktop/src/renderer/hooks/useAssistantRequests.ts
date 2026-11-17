@@ -9,15 +9,21 @@ const NONE: RunRecord[] = [];
 export function useAssistantRequests(workspace: Workspace | undefined): RunRecord[] {
   const workspaceId = workspace?.id;
   const assistantId = workspace ? assistantSession(workspace)?.id : undefined;
-  const snapshot = useAutomationsStore((state) => (workspaceId ? state.snapshots[workspaceId] : undefined));
+  const snapshot = useAutomationsStore((state) =>
+    workspaceId ? state.snapshots[workspaceId] : undefined,
+  );
   const loaded = Boolean(snapshot);
 
   useEffect(() => {
-    if (workspaceId && !loaded) void useAutomationsStore.getState().load(workspaceId).catch(() => {});
+    if (workspaceId && !loaded)
+      void useAutomationsStore
+        .getState()
+        .load(workspaceId)
+        .catch(() => {});
   }, [workspaceId, loaded]);
 
   return useMemo(
     () => (snapshot ? waitingAssistantRequests(snapshot.runs, assistantId) : NONE),
-    [snapshot, assistantId]
+    [snapshot, assistantId],
   );
 }

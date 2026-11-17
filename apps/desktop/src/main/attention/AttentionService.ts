@@ -20,7 +20,10 @@ export class AttentionService {
 
   /** Returns the unregister. */
   public register(source: AttentionSource): () => void {
-    this.sources.set(source, source.subscribe(() => this.schedule()));
+    this.sources.set(
+      source,
+      source.subscribe(() => this.schedule()),
+    );
     this.schedule();
     return () => {
       this.sources.get(source)?.();

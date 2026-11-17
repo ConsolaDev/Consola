@@ -175,7 +175,11 @@ export class JsonAttentionLedger implements AttentionLedger {
     return false;
   }
 
-  public settle(targets: SettleTarget[], at: number, { markSeen }: { markSeen: boolean }): SettleMemento {
+  public settle(
+    targets: SettleTarget[],
+    at: number,
+    { markSeen }: { markSeen: boolean },
+  ): SettleMemento {
     const memento: SettleMemento = {};
     const next: AttentionRecord[] = [];
     for (const { sessionId, workspaceId, activityAt } of targets) {

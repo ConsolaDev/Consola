@@ -44,7 +44,10 @@ export interface Entry {
  * The facets a session answers for. One it has no value for — a session with
  * no automation — is still hidden by that facet.
  */
-export const SESSION_FACET_DOMAIN: readonly string[] = ['scope', ...FACET_KEYS.filter((key) => key !== 'label')];
+export const SESSION_FACET_DOMAIN: readonly string[] = [
+  'scope',
+  ...FACET_KEYS.filter((key) => key !== 'label'),
+];
 
 /** The facets a run answers for. A run belongs to an automation, not a scope. */
 export const RUN_FACET_DOMAIN: readonly string[] = ['automation'];

@@ -21,13 +21,18 @@ let hooks: HookSignals;
 beforeEach(() => {
   vi.useFakeTimers();
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-session-source-'));
-  ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
+  ledger = new JsonAttentionLedger(
+    new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')),
+  );
   terminals = new Map([['inst-a', 'ready']]);
   clock = 1000;
   viewed = new Set();
   hooks = new HookSignals();
   hooks.subscribe((instanceId) => source?.hookChanged(instanceId));
-  const workspace = makeWorkspace({ id: 'w1', sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })] });
+  const workspace = makeWorkspace({
+    id: 'w1',
+    sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })],
+  });
   source = new SessionSource({
     getWorkspaces: () => [workspace],
     terminalStatus: (instanceId) => terminals.get(instanceId) ?? 'exited',
@@ -172,7 +177,10 @@ describe('SessionSource with a session held by an open run', () => {
       ...ledger,
       get: () => ({ sessionId: 'a', workspaceId: 'w1', lastActiveAt: 100, settledAt: 200 }),
     } as unknown as JsonAttentionLedger;
-    const workspace = makeWorkspace({ id: 'w1', sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })] });
+    const workspace = makeWorkspace({
+      id: 'w1',
+      sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })],
+    });
     let held = false;
     const heldSource = new SessionSource({
       getWorkspaces: () => [workspace],

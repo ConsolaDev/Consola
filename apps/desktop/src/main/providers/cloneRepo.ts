@@ -28,7 +28,7 @@ export async function cloneWorkspaceRepo(
   deps: CloneRepoDeps,
   workspace: Workspace,
   repo: string,
-  destinationDir: string
+  destinationDir: string,
 ): Promise<CloneRepoResult> {
   const provider = workspace.provider;
   if (!provider) {
@@ -53,7 +53,7 @@ export async function cloneWorkspaceRepo(
   }
 
   const covered = workspace.scopes.some(
-    (scope) => target === scope.path || target.startsWith(scope.path + path.sep)
+    (scope) => target === scope.path || target.startsWith(scope.path + path.sep),
   );
   if (!covered) {
     try {

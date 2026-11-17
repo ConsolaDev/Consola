@@ -14,15 +14,24 @@ export function SettingsProvider({ children }: { children: ReactNode }) {
 
   const openSettings = () => setModalOpen(true);
 
-  useEffect(() => windowBridge.onOpenSettings(section => {
-    if (section) setActiveSection(section);
-    setModalOpen(true);
-  }), []);
+  useEffect(
+    () =>
+      windowBridge.onOpenSettings((section) => {
+        if (section) setActiveSection(section);
+        setModalOpen(true);
+      }),
+    [],
+  );
 
   return (
     <SettingsContext.Provider value={{ openSettings }}>
       {children}
-      <SettingsModal open={modalOpen} onOpenChange={setModalOpen} activeSection={activeSection} onSectionChange={setActiveSection} />
+      <SettingsModal
+        open={modalOpen}
+        onOpenChange={setModalOpen}
+        activeSection={activeSection}
+        onSectionChange={setActiveSection}
+      />
     </SettingsContext.Provider>
   );
 }

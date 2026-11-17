@@ -1,5 +1,10 @@
 import { create } from 'zustand';
-import type { Attention, AttentionChange, AttentionSnapshot, AttentionState } from '../../shared/attention';
+import type {
+  Attention,
+  AttentionChange,
+  AttentionSnapshot,
+  AttentionState,
+} from '../../shared/attention';
 import { attentionBridge } from '../services/attentionBridge';
 
 interface AttentionStoreState {
@@ -9,7 +14,10 @@ interface AttentionStoreState {
   attention: AttentionState['attention'];
 }
 
-export const useAttentionStore = create<AttentionStoreState>(() => ({ records: {}, attention: {} }));
+export const useAttentionStore = create<AttentionStoreState>(() => ({
+  records: {},
+  attention: {},
+}));
 
 /** A session main has said nothing about is `ready`: it has asked for nothing. */
 export function attentionOf(attention: AttentionState['attention'], sessionId: string): Attention {
@@ -18,7 +26,9 @@ export function attentionOf(attention: AttentionState['attention'], sessionId: s
 
 /** One session's attention. Selects a single value, so a row re-renders only for its own change. */
 export function useSessionAttention(sessionId: string | undefined): Attention {
-  return useAttentionStore((state) => (sessionId ? attentionOf(state.attention, sessionId) : 'ready'));
+  return useAttentionStore((state) =>
+    sessionId ? attentionOf(state.attention, sessionId) : 'ready',
+  );
 }
 
 /** Apply a delta, leaving every entry it does not name as it was. */

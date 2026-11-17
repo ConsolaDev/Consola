@@ -6,7 +6,12 @@ import type { GitProviderDriver } from './GitProviderDriver';
 import { createLaunchCoalescer, launchWorkItem, type WorkItemLaunchDeps } from './launchWorkItem';
 import { launchAgentRun, type AgentLaunchDeps } from '../automations/launchAgentRun';
 
-const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
+const pr51: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/catalog-portal',
+  type: 'pr',
+  number: 51,
+};
 
 const item51: InboxItem = {
   workItem: pr51,
@@ -49,7 +54,13 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     defaultHarnessId: 'default',
     scopes: [
       { id: 'scope-container', name: 'sprocket', path: '/repos', isGitRepo: false, createdAt: now },
-      { id: 'scope-controller', name: 'catalog-portal', path: '/repos/catalog-portal', isGitRepo: true, createdAt: now },
+      {
+        id: 'scope-controller',
+        name: 'catalog-portal',
+        path: '/repos/catalog-portal',
+        isGitRepo: true,
+        createdAt: now,
+      },
     ],
     groups: [],
     provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
@@ -107,7 +118,9 @@ describe('launchWorkItem', () => {
     const { deps, created } = makeDeps(makeWorkspace({ scopes: [] }));
     const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
     expect(result).toEqual({
-      ok: false, reason: 'error', message: 'Add a scope to this workspace to start a session.',
+      ok: false,
+      reason: 'error',
+      message: 'Add a scope to this workspace to start a session.',
     });
     expect(created).toHaveLength(0);
     expect(deps.resolveRepo).not.toHaveBeenCalled();
@@ -118,7 +131,11 @@ describe('launchWorkItem', () => {
   it('errors plainly for an unknown workspace', async () => {
     const { deps } = makeDeps(makeWorkspace());
     const result = await launchWorkItem(deps, 'ws-missing', pr51, { id: review.id });
-    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown workspace: ws-missing' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'Unknown workspace: ws-missing',
+    });
   });
 
   it('errors plainly for a workspace without a provider binding, touching nothing', async () => {
@@ -153,7 +170,11 @@ describe('launchWorkItem', () => {
   it('refuses an empty rendered body before touching disk', async () => {
     const { deps, created } = makeDeps(makeWorkspace());
     const result = await launchWorkItem(deps, 'ws-1', pr51, { id: blank.id });
-    expect(result).toEqual({ ok: false, reason: 'error', message: 'This action has no prompt to send.' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'This action has no prompt to send.',
+    });
     expect(created).toHaveLength(0);
     expect(deps.resolveRepo).not.toHaveBeenCalled();
     expect(deps.ensureWorktree).not.toHaveBeenCalled();
@@ -200,7 +221,11 @@ describe('launchWorkItem', () => {
       }),
     });
     const result = await launchWorkItem(deps, 'ws-1', pr51, { id: review.id });
-    expect(result).toEqual({ ok: false, reason: 'error', message: 'Unknown git provider "gitlab".' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'Unknown git provider "gitlab".',
+    });
     expect(created).toHaveLength(0);
     expect(deps.ensureWorktree).not.toHaveBeenCalled();
   });
@@ -214,7 +239,7 @@ describe('launchWorkItem', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(result.seedPrompt).toBe(
-      'HEADER pr #51 "Extract billing client"\n\nReview pull request #51 ("Extract billing client").'
+      'HEADER pr #51 "Extract billing client"\n\nReview pull request #51 ("Extract billing client").',
     );
     expect(created).toHaveLength(1);
     expect(created[0]).toMatchObject({
@@ -244,7 +269,8 @@ describe('launchWorkItem', () => {
 
     expect(result).toMatchObject({
       ok: true,
-      seedPrompt: 'HEADER pr #51 "Extract billing client"\n\n/security-review on sprocket/catalog-portal',
+      seedPrompt:
+        'HEADER pr #51 "Extract billing client"\n\n/security-review on sprocket/catalog-portal',
     });
     expect(created[0]).toMatchObject({ workItemAction: 'Custom prompt' });
   });
@@ -252,14 +278,23 @@ describe('launchWorkItem', () => {
   it('refuses a whitespace-only custom prompt', async () => {
     const { deps, created } = makeDeps(makeWorkspace());
     const result = await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: ' \n ' });
-    expect(result).toEqual({ ok: false, reason: 'error', message: 'This action has no prompt to send.' });
+    expect(result).toEqual({
+      ok: false,
+      reason: 'error',
+      message: 'This action has no prompt to send.',
+    });
     expect(created).toHaveLength(0);
   });
 
   it('falls back to the plain label as the name when the inbox has no item', async () => {
     const { deps, created } = makeDeps(makeWorkspace(), { findItem: () => undefined });
     const issue87: WorkItemRef = { ...pr51, type: 'issue', number: 87 };
-    const implement: WorkItemAction = { id: 'a-impl', name: 'Implement', appliesTo: ['issue'], prompt: 'Go.' };
+    const implement: WorkItemAction = {
+      id: 'a-impl',
+      name: 'Implement',
+      appliesTo: ['issue'],
+      prompt: 'Go.',
+    };
     const workspace = makeWorkspace({ actions: [implement] });
     const { deps: deps2, created: created2 } = makeDeps(workspace, { findItem: () => undefined });
 
@@ -300,7 +335,12 @@ describe('launchWorkItem', () => {
   // test can observe the second call has not started until the first
   // settles, without a real timing race.
   it('serialises the worktree step per item while different actions still run concurrently', async () => {
-    const fixCi: WorkItemAction = { id: 'a-fixci', name: 'Fix CI', appliesTo: ['pr'], prompt: 'Fix.' };
+    const fixCi: WorkItemAction = {
+      id: 'a-fixci',
+      name: 'Fix CI',
+      appliesTo: ['pr'],
+      prompt: 'Fix.',
+    };
     const workspace = makeWorkspace({ actions: [review, fixCi] });
     const firstCall = deferred<string>();
     const secondCall = deferred<string>();
@@ -347,7 +387,7 @@ describe('launchWorkItem — an automation already reviewing the item', () => {
     createdAt: 1,
   } as unknown as Session;
 
-  it('returns the automation\'s review instead of starting a second session', async () => {
+  it("returns the automation's review instead of starting a second session", async () => {
     const { deps, created } = makeDeps(makeWorkspace({ sessions: [automationReview] }));
     expect(await launchWorkItem(deps, 'ws-1', pr51, { id: review.id })).toEqual({
       ok: false,
@@ -358,7 +398,9 @@ describe('launchWorkItem — an automation already reviewing the item', () => {
     expect(created).toEqual([]);
 
     // A custom prompt is a deliberate new session, and a person's own review is not the automation's.
-    expect((await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: 'Look at the tests.' })).ok).toBe(true);
+    expect(
+      (await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: 'Look at the tests.' })).ok,
+    ).toBe(true);
     const byHand = { ...automationReview, id: 'mine', automation: undefined } as unknown as Session;
     const { deps: mine } = makeDeps(makeWorkspace({ sessions: [byHand] }));
     expect((await launchWorkItem(mine, 'ws-1', pr51, { id: review.id })).ok).toBe(true);
@@ -374,7 +416,7 @@ describe('launchWorkItem — an automation already reviewing the item', () => {
     });
   });
 
-  it('an Inbox click during an automation launch opens the automation\'s session', async () => {
+  it("an Inbox click during an automation launch opens the automation's session", async () => {
     const workspace = makeWorkspace();
     const { deps, created } = makeDeps(workspace);
     const checkout = deferred<void>();
@@ -422,9 +464,9 @@ describe('launchWorkItem — the group an action lands in', () => {
   const reviews = { id: 'g-reviews', name: 'PR reviews', createdAt: 1 };
   const routed = { ...review, groupId: reviews.id };
 
-  it('lands the session in the action\'s group', async () => {
+  it("lands the session in the action's group", async () => {
     const { deps, created, restored } = makeDeps(
-      makeWorkspace({ actions: [routed], groups: [reviews] })
+      makeWorkspace({ actions: [routed], groups: [reviews] }),
     );
     const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
     expect(result.ok).toBe(true);
@@ -441,7 +483,7 @@ describe('launchWorkItem — the group an action lands in', () => {
   it('restores an archived target so the arrival is visible under its heading', async () => {
     const archived = { ...reviews, archivedAt: 1_700_000_000_000 };
     const { deps, created, restored } = makeDeps(
-      makeWorkspace({ actions: [routed], groups: [archived] })
+      makeWorkspace({ actions: [routed], groups: [archived] }),
     );
     const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
     expect(result.ok).toBe(true);
@@ -465,7 +507,7 @@ describe('launchWorkItem — the group an action lands in', () => {
         ensureWorktree: vi.fn(async () => {
           throw new Error('git said no');
         }),
-      }
+      },
     );
     const result = await launchWorkItem(deps, 'ws-1', pr51, { id: routed.id });
     expect(result).toEqual({ ok: false, reason: 'error', message: 'git said no' });
@@ -473,7 +515,7 @@ describe('launchWorkItem — the group an action lands in', () => {
     expect(restored).toEqual([]);
   });
 
-  it('lands a custom prompt ungrouped — it is nobody\'s configured verb', async () => {
+  it("lands a custom prompt ungrouped — it is nobody's configured verb", async () => {
     const { deps, created } = makeDeps(makeWorkspace({ actions: [routed], groups: [reviews] }));
     const result = await launchWorkItem(deps, 'ws-1', pr51, { customPrompt: 'Just look at it.' });
     expect(result.ok).toBe(true);
@@ -498,11 +540,19 @@ describe('createLaunchCoalescer', () => {
   });
 
   it('does not coalesce two different actions on the same item', async () => {
-    const fixCi: WorkItemAction = { id: 'a-fixci', name: 'Fix CI', appliesTo: ['pr'], prompt: 'Fix.' };
+    const fixCi: WorkItemAction = {
+      id: 'a-fixci',
+      name: 'Fix CI',
+      appliesTo: ['pr'],
+      prompt: 'Fix.',
+    };
     const { deps, created } = makeDeps(makeWorkspace({ actions: [review, fixCi] }));
     const launch = createLaunchCoalescer(deps);
 
-    await Promise.all([launch('ws-1', pr51, { id: review.id }), launch('ws-1', pr51, { id: fixCi.id })]);
+    await Promise.all([
+      launch('ws-1', pr51, { id: review.id }),
+      launch('ws-1', pr51, { id: fixCi.id }),
+    ]);
 
     expect(created).toHaveLength(2);
     expect(created.map((fields) => fields.workItemAction).sort()).toEqual(['Fix CI', 'Review']);
@@ -522,11 +572,19 @@ describe('createLaunchCoalescer', () => {
 
   it('does not coalesce launches of different work items', async () => {
     const issue87: WorkItemRef = { ...pr51, type: 'issue', number: 87 };
-    const implement: WorkItemAction = { id: 'a-impl', name: 'Implement', appliesTo: ['issue'], prompt: 'Go.' };
+    const implement: WorkItemAction = {
+      id: 'a-impl',
+      name: 'Implement',
+      appliesTo: ['issue'],
+      prompt: 'Go.',
+    };
     const { deps, created } = makeDeps(makeWorkspace({ actions: [review, implement] }));
     const launch = createLaunchCoalescer(deps);
 
-    await Promise.all([launch('ws-1', pr51, { id: review.id }), launch('ws-1', issue87, { id: implement.id })]);
+    await Promise.all([
+      launch('ws-1', pr51, { id: review.id }),
+      launch('ws-1', issue87, { id: implement.id }),
+    ]);
 
     expect(created).toHaveLength(2);
   });

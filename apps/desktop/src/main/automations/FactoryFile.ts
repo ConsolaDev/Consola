@@ -2,10 +2,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import {
-    appendAutomationEntry,
-    parseFactorySpec,
-    replaceAutomationEntry,
-    type FactorySpecParseResult,
+  appendAutomationEntry,
+  parseFactorySpec,
+  replaceAutomationEntry,
+  type FactorySpecParseResult,
 } from '@consola/factory-spec';
 
 /** Workspace ids are generated tokens; anything else never reaches the filesystem as a path. */
@@ -19,19 +19,20 @@ const WORKSPACE_ID = /^[A-Za-z0-9_-]+$/;
  * them. `CONSOLA_FACTORY_DIR` replaces the `workspaces` folder — the seam tests use.
  */
 export function workspaceDataDir(workspaceId: string): string {
-    if (!WORKSPACE_ID.test(workspaceId)) throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
-    const root = process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces');
-    return path.join(root, workspaceId);
+  if (!WORKSPACE_ID.test(workspaceId))
+    throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
+  const root = process.env.CONSOLA_FACTORY_DIR ?? path.join(os.homedir(), '.consola', 'workspaces');
+  return path.join(root, workspaceId);
 }
 
 /** One workspace's personal automations: `factory.yml` in its data folder. */
 export function workspaceFactoryPath(workspaceId: string): string {
-    return path.join(workspaceDataDir(workspaceId), 'factory.yml');
+  return path.join(workspaceDataDir(workspaceId), 'factory.yml');
 }
 
 export interface LoadedFactoryFile {
-    exists: boolean;
-    spec: FactorySpecParseResult;
+  exists: boolean;
+  spec: FactorySpecParseResult;
 }
 
 /** The automation that reviews pull requests asking for the person's review or assigned to them. */
@@ -43,26 +44,29 @@ export const ASSIGNED_REVIEWS_NAME = 'review-assigned-prs';
  * reads as something else, so they are quoted too.
  */
 export function yamlName(name: string): string {
-    const plain = /^[A-Za-z][A-Za-z0-9 _-]*$/.test(name) && !/^(true|false|null)$/i.test(name) && name === name.trim();
-    return plain ? name : JSON.stringify(name);
+  const plain =
+    /^[A-Za-z][A-Za-z0-9 _-]*$/.test(name) &&
+    !/^(true|false|null)$/i.test(name) &&
+    name === name.trim();
+  return plain ? name : JSON.stringify(name);
 }
 
 /** `review-assigned-prs` running `action`, as one list item: the entry "Add" appends. */
 export function assignedReviewsEntry(action: string): string {
-    return [
-        `- name: ${ASSIGNED_REVIEWS_NAME}`,
-        '  on: { github: [pull_request.review_requested, pull_request.assigned] }',
-        '  filter: { authors_not: ["dependabot[bot]"] }',
-        `  run: { action: ${yamlName(action)} }`,
-        '  mode: auto',
-    ].join('\n');
+  return [
+    `- name: ${ASSIGNED_REVIEWS_NAME}`,
+    '  on: { github: [pull_request.review_requested, pull_request.assigned] }',
+    '  filter: { authors_not: ["dependabot[bot]"] }',
+    `  run: { action: ${yamlName(action)} }`,
+    '  mode: auto',
+  ].join('\n');
 }
 
 const indent = (text: string, prefix: string) =>
-    text
-        .split('\n')
-        .map((line) => `${prefix}${line}`)
-        .join('\n');
+  text
+    .split('\n')
+    .map((line) => `${prefix}${line}`)
+    .join('\n');
 
 /**
  * A file with no automations yet: what saving an entry starts from when there
@@ -80,12 +84,12 @@ automations:
 
 /** What review-assigned-prs does, said where a person reading the file meets it. */
 function describeAssignedReviews(what: string): string {
-    return [
-        'When a pull request asks for your review or is assigned to you, run',
-        `${what} on it, read-only, in its own worktree, so the findings are`,
-        'waiting when you sit down. Only requests from now on count, and each pull',
-        'request is reviewed once. "auto" asks you once, before the first review.',
-    ].join('\n');
+  return [
+    'When a pull request asks for your review or is assigned to you, run',
+    `${what} on it, read-only, in its own worktree, so the findings are`,
+    'waiting when you sit down. Only requests from now on count, and each pull',
+    'request is reviewed once. "auto" asks you once, before the first review.',
+  ].join('\n');
 }
 
 const CLEANUP_EXAMPLE = `  # - name: clean-up-stale-sessions
@@ -110,18 +114,18 @@ const CLEANUP_EXAMPLE = `  # - name: clean-up-stale-sessions
  * level as the YAML would become YAML, and the file would stop loading.
  */
 export function factoryTemplate(prAction: string | null): string {
-    const review = prAction
-        ? `${indent(describeAssignedReviews(`your ${prAction} action`), '  # ')}\n${indent(assignedReviewsEntry(prAction), '  ')}\n`
-        : `${indent(
-              [
-                  assignedReviewsEntry('Review').split('\n')[0],
-                  '  # Add an action for pull requests in Settings › Actions, then uncomment this and name it under run.',
-                  indent(describeAssignedReviews('that action'), '  # '),
-                  ...assignedReviewsEntry('Review').split('\n').slice(1),
-              ].join('\n'),
-              '  # '
-          )}\n`;
-    return `${EMPTY_FACTORY_FILE}${review}${CLEANUP_EXAMPLE}`;
+  const review = prAction
+    ? `${indent(describeAssignedReviews(`your ${prAction} action`), '  # ')}\n${indent(assignedReviewsEntry(prAction), '  ')}\n`
+    : `${indent(
+        [
+          assignedReviewsEntry('Review').split('\n')[0],
+          '  # Add an action for pull requests in Settings › Actions, then uncomment this and name it under run.',
+          indent(describeAssignedReviews('that action'), '  # '),
+          ...assignedReviewsEntry('Review').split('\n').slice(1),
+        ].join('\n'),
+        '  # ',
+      )}\n`;
+  return `${EMPTY_FACTORY_FILE}${review}${CLEANUP_EXAMPLE}`;
 }
 
 /**
@@ -133,92 +137,100 @@ export function factoryTemplate(prAction: string | null): string {
  * a scheduler cannot afford.
  */
 export class FactoryFile {
-    private watching = false;
+  private watching = false;
 
-    constructor(
-        public readonly filePath: string,
-        private readonly pollMs = 2000
-    ) {}
+  constructor(
+    public readonly filePath: string,
+    private readonly pollMs = 2000,
+  ) {}
 
-    public async load(): Promise<LoadedFactoryFile> {
-        let text: string;
-        try {
-            text = await fs.promises.readFile(this.filePath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-                return { exists: false, spec: { automations: [], issues: [] } };
-            }
-            return {
-                exists: true,
-                spec: {
-                    automations: [],
-                    issues: [{ message: `Could not read the file: ${(error as Error).message}`, path: '' }],
-                },
-            };
+  public async load(): Promise<LoadedFactoryFile> {
+    let text: string;
+    try {
+      text = await fs.promises.readFile(this.filePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return { exists: false, spec: { automations: [], issues: [] } };
+      }
+      return {
+        exists: true,
+        spec: {
+          automations: [],
+          issues: [{ message: `Could not read the file: ${(error as Error).message}`, path: '' }],
+        },
+      };
+    }
+    return { exists: true, spec: parseFactorySpec(text) };
+  }
+
+  public watch(onChange: () => void): void {
+    if (this.watching) return;
+    this.watching = true;
+    fs.watchFile(
+      this.filePath,
+      { interval: this.pollMs, persistent: false },
+      (current, previous) => {
+        if (
+          current.mtimeMs !== previous.mtimeMs ||
+          current.size !== previous.size ||
+          current.ino !== previous.ino
+        ) {
+          onChange();
         }
-        return { exists: true, spec: parseFactorySpec(text) };
-    }
+      },
+    );
+  }
 
-    public watch(onChange: () => void): void {
-        if (this.watching) return;
-        this.watching = true;
-        fs.watchFile(this.filePath, { interval: this.pollMs, persistent: false }, (current, previous) => {
-            if (current.mtimeMs !== previous.mtimeMs || current.size !== previous.size || current.ino !== previous.ino) {
-                onChange();
-            }
-        });
-    }
+  public unwatch(): void {
+    if (!this.watching) return;
+    this.watching = false;
+    fs.unwatchFile(this.filePath);
+  }
 
-    public unwatch(): void {
-        if (!this.watching) return;
-        this.watching = false;
-        fs.unwatchFile(this.filePath);
+  /** Create the file from `template` if missing; returns its path. */
+  public async ensureExists(template: string): Promise<string> {
+    await fs.promises.mkdir(path.dirname(this.filePath), { recursive: true });
+    try {
+      await fs.promises.writeFile(this.filePath, template, { flag: 'wx' });
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
     }
+    return this.filePath;
+  }
 
-    /** Create the file from `template` if missing; returns its path. */
-    public async ensureExists(template: string): Promise<string> {
-        await fs.promises.mkdir(path.dirname(this.filePath), { recursive: true });
-        try {
-            await fs.promises.writeFile(this.filePath, template, { flag: 'wx' });
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code !== 'EEXIST') throw error;
-        }
-        return this.filePath;
+  /** The file as written, or null when there is none yet. */
+  public async readText(): Promise<string | null> {
+    try {
+      return await fs.promises.readFile(this.filePath, 'utf8');
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
+  }
 
-    /** The file as written, or null when there is none yet. */
-    public async readText(): Promise<string | null> {
-        try {
-            return await fs.promises.readFile(this.filePath, 'utf8');
-        } catch (error) {
-            if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
-            throw error;
-        }
-    }
+  /**
+   * Add one automation at the end of the file's list, leaving every other
+   * entry and comment as the person wrote it.
+   */
+  public async appendAutomation(entryYaml: string): Promise<void> {
+    await this.rewrite((text) => appendAutomationEntry(text, entryYaml));
+  }
 
-    /**
-     * Add one automation at the end of the file's list, leaving every other
-     * entry and comment as the person wrote it.
-     */
-    public async appendAutomation(entryYaml: string): Promise<void> {
-        await this.rewrite((text) => appendAutomationEntry(text, entryYaml));
-    }
+  /** Swap the automation called `name` for `entryYaml` in place, every byte outside it kept. */
+  public async replaceAutomation(name: string, entryYaml: string): Promise<void> {
+    await this.rewrite((text) => replaceAutomationEntry(text, name, entryYaml));
+  }
 
-    /** Swap the automation called `name` for `entryYaml` in place, every byte outside it kept. */
-    public async replaceAutomation(name: string, entryYaml: string): Promise<void> {
-        await this.rewrite((text) => replaceAutomationEntry(text, name, entryYaml));
-    }
-
-    /**
-     * Written whole, through a temporary file, so the watcher never reads
-     * half of it. An edit that throws leaves the file as it was.
-     */
-    private async rewrite(edit: (text: string) => string): Promise<void> {
-        // Through any symlink to the file itself — one kept with dotfiles stays a link.
-        const target = await fs.promises.realpath(this.filePath);
-        const next = edit(await fs.promises.readFile(target, 'utf8'));
-        const temporary = `${target}.${process.pid}.tmp`;
-        await fs.promises.writeFile(temporary, next);
-        await fs.promises.rename(temporary, target);
-    }
+  /**
+   * Written whole, through a temporary file, so the watcher never reads
+   * half of it. An edit that throws leaves the file as it was.
+   */
+  private async rewrite(edit: (text: string) => string): Promise<void> {
+    // Through any symlink to the file itself — one kept with dotfiles stays a link.
+    const target = await fs.promises.realpath(this.filePath);
+    const next = edit(await fs.promises.readFile(target, 'utf8'));
+    const temporary = `${target}.${process.pid}.tmp`;
+    await fs.promises.writeFile(temporary, next);
+    await fs.promises.rename(temporary, target);
+  }
 }

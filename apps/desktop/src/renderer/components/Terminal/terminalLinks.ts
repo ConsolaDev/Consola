@@ -13,5 +13,5 @@
  * `ILinkHandler.activate` adds a buffer range this ignores.
  */
 export function openTerminalLink(_event: MouseEvent, uri: string): void {
-    window.open(uri, '_blank');
+  window.open(uri, '_blank');
 }

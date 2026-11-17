@@ -47,7 +47,14 @@ export const ROW_KINDS: Record<string, RowKind> = {
 /** The row for an entry, or nothing for a kind nobody registered. */
 export function entryRow(
   entry: Entry,
-  props: { workspaceId: string; active: boolean; child?: boolean; trailing?: ReactNode; settle?: SettleOffer; bucket?: Bucket }
+  props: {
+    workspaceId: string;
+    active: boolean;
+    child?: boolean;
+    trailing?: ReactNode;
+    settle?: SettleOffer;
+    bucket?: Bucket;
+  },
 ): ReactElement | null {
   const kind = ROW_KINDS[entry.kind];
   if (!kind) return null;

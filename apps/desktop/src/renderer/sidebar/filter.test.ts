@@ -21,7 +21,11 @@ describe('applyFilter', () => {
   });
 
   it('treats empty value lists as no filter', () => {
-    expect(keys(applyFilter(entries, { labels: [], facets: { harness: [] } }).entries)).toEqual(['a', 'b', 'c']);
+    expect(keys(applyFilter(entries, { labels: [], facets: { harness: [] } }).entries)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
   });
 
   it('ORs label ids', () => {
@@ -30,12 +34,20 @@ describe('applyFilter', () => {
   });
 
   it('ORs values within a facet', () => {
-    expect(keys(applyFilter(entries, { facets: { harness: ['h1', 'h2'] } }).entries)).toEqual(['a', 'b', 'c']);
+    expect(keys(applyFilter(entries, { facets: { harness: ['h1', 'h2'] } }).entries)).toEqual([
+      'a',
+      'b',
+      'c',
+    ]);
   });
 
   it('ANDs across facets and labels', () => {
-    expect(keys(applyFilter(entries, { labels: ['bug'], facets: { harness: ['h1'] } }).entries)).toEqual(['a']);
-    expect(keys(applyFilter(entries, { facets: { harness: ['h1'], scope: ['s1'] } }).entries)).toEqual(['a']);
+    expect(
+      keys(applyFilter(entries, { labels: ['bug'], facets: { harness: ['h1'] } }).entries),
+    ).toEqual(['a']);
+    expect(
+      keys(applyFilter(entries, { facets: { harness: ['h1'], scope: ['s1'] } }).entries),
+    ).toEqual(['a']);
   });
 
   it('hides an entry that lacks a facet its own kind answers for', () => {
@@ -46,8 +58,15 @@ describe('applyFilter', () => {
 
   describe('a facet an entry\u2019s kind cannot have', () => {
     const run = (id: string, rest: Partial<Entry> = {}): Entry => ({
-      key: `run:${id}`, kind: 'run', attention: 'needs-attention', since: 0, activityAt: 0,
-      labels: [], facets: { automation: 'nightly' }, facetDomain: RUN_FACET_DOMAIN, ...rest,
+      key: `run:${id}`,
+      kind: 'run',
+      attention: 'needs-attention',
+      since: 0,
+      activityAt: 0,
+      labels: [],
+      facets: { automation: 'nightly' },
+      facetDomain: RUN_FACET_DOMAIN,
+      ...rest,
     });
 
     it('lets a run past a scope filter: a run has no scope and can never have one', () => {
@@ -66,12 +85,18 @@ describe('applyFilter', () => {
     it('does not let a session past a facet it answers for but has no value in', () => {
       // The whole point of declaring a domain rather than reading the keys
       // present: a session with no automation is still hidden by one.
-      expect(keys(applyFilter(entries, { facets: { automation: ['nightly'] } }).entries)).toEqual([]);
+      expect(keys(applyFilter(entries, { facets: { automation: ['nightly'] } }).entries)).toEqual(
+        [],
+      );
     });
 
     it('leaves a run that a scope filter would have hidden in its bucket', () => {
-      const result = applyFilter([entry('a', 'working', { facets: { scope: 's1' } }), run('1')], { facets: { scope: ['s1'] } });
-      expect(bucketize(buildForest(result.entries)).waiting.map((n) => n.entry.key)).toEqual(['run:1']);
+      const result = applyFilter([entry('a', 'working', { facets: { scope: 's1' } }), run('1')], {
+        facets: { scope: ['s1'] },
+      });
+      expect(bucketize(buildForest(result.entries)).waiting.map((n) => n.entry.key)).toEqual([
+        'run:1',
+      ]);
     });
   });
 
@@ -101,19 +126,30 @@ describe('applyFilter', () => {
     });
 
     it('counts runs and gates the same way', () => {
-      const run = { ...entry('r', 'needs-attention'), key: 'run:1' as const, kind: 'run', facetDomain: RUN_FACET_DOMAIN };
+      const run = {
+        ...entry('r', 'needs-attention'),
+        key: 'run:1' as const,
+        kind: 'run',
+        facetDomain: RUN_FACET_DOMAIN,
+      };
       expect(applyFilter([run], { labels: ['x'] }).hiddenNeedingYou).toBe(1);
     });
   });
 
   describe('against bucketing', () => {
-    const bucketsOf = (list: ReturnType<typeof entry>[], selection: Parameters<typeof applyFilter>[1]) => {
+    const bucketsOf = (
+      list: ReturnType<typeof entry>[],
+      selection: Parameters<typeof applyFilter>[1],
+    ) => {
       const result = applyFilter(list, selection);
       return { result, buckets: bucketize(buildForest(result.entries)) };
     };
 
     it('leaves a row that is not part of a tree in its bucket', () => {
-      const all = [entry('w', 'working', { labels: ['x'] }), entry('asks', 'needs-attention', { labels: ['y'] })];
+      const all = [
+        entry('w', 'working', { labels: ['x'] }),
+        entry('asks', 'needs-attention', { labels: ['y'] }),
+      ];
       const { buckets } = bucketsOf(all, { labels: ['x'] });
       expect(ids(buckets.working)).toEqual(['w']);
     });
@@ -143,7 +179,7 @@ describe('applyFilter', () => {
         expect(buckets.waiting).toEqual([]);
         expect(buckets.settled).toEqual([]);
         expect(result.hiddenNeedingYou).toBe(1);
-      }
+      },
     );
   });
 });

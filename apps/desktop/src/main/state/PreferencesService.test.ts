@@ -18,7 +18,11 @@ describe('PreferencesService', () => {
   it('starts with auto-settle on at 7 days and nothing explained', () => {
     const service = build();
     service.load();
-    expect(service.get()).toEqual({ autoSettleDays: 7, hasExplainedAutoSettle: false, pendingAutoSettle: [] });
+    expect(service.get()).toEqual({
+      autoSettleDays: 7,
+      hasExplainedAutoSettle: false,
+      pendingAutoSettle: [],
+    });
   });
 
   it('loads non-fatally from a corrupt file', () => {
@@ -32,10 +36,21 @@ describe('PreferencesService', () => {
   });
 
   it('falls back per field when a value is malformed', () => {
-    fs.writeFileSync(file(), JSON.stringify({ autoSettleDays: 'soon', hasExplainedAutoSettle: true, pendingAutoSettle: ['a', 3] }));
+    fs.writeFileSync(
+      file(),
+      JSON.stringify({
+        autoSettleDays: 'soon',
+        hasExplainedAutoSettle: true,
+        pendingAutoSettle: ['a', 3],
+      }),
+    );
     const service = build();
     service.load();
-    expect(service.get()).toEqual({ autoSettleDays: 7, hasExplainedAutoSettle: true, pendingAutoSettle: ['a'] });
+    expect(service.get()).toEqual({
+      autoSettleDays: 7,
+      hasExplainedAutoSettle: true,
+      pendingAutoSettle: ['a'],
+    });
   });
 
   it('persists a changed threshold, and 0 means off', () => {

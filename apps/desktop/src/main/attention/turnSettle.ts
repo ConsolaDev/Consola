@@ -33,7 +33,7 @@ export class TurnSettle {
 
   constructor(
     private readonly onFinished: (key: string, status: SettledStatus) => void,
-    private readonly options: { persistent: boolean }
+    private readonly options: { persistent: boolean },
   ) {}
 
   /** Start (or restart) watching a key: the next quiet only counts after it has worked. */

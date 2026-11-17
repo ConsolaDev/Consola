@@ -13,16 +13,16 @@
  * baselines.
  */
 export interface SeenRecord {
-    definition: string;
-    items: string[];
-    /**
-     * Members that already fired, or were waiting when the record baselined.
-     * Absent on records the first build wrote, whose `items` were all
-     * reviewed or baselined: every one of them counts as fired.
-     */
-    fired?: string[];
-    /** ISO time of that poll: anything started by hand since answers what arrived since. */
-    at: string;
+  definition: string;
+  items: string[];
+  /**
+   * Members that already fired, or were waiting when the record baselined.
+   * Absent on records the first build wrote, whose `items` were all
+   * reviewed or baselined: every one of them counts as fired.
+   */
+  fired?: string[];
+  /** ISO time of that poll: anything started by hand since answers what arrived since. */
+  at: string;
 }
 
 /**
@@ -35,26 +35,26 @@ export interface SeenRecord {
  * so it fires once it becomes ready.
  */
 export function advanceSeen(
-    previous: SeenRecord | undefined,
-    definition: string,
-    current: ReadonlyArray<{ key: string; passes: boolean }>,
-    at: string
+  previous: SeenRecord | undefined,
+  definition: string,
+  current: ReadonlyArray<{ key: string; passes: boolean }>,
+  at: string,
 ): { record: SeenRecord; fire: string[] } {
-    const items = current.map((entry) => entry.key);
-    if (!previous || previous.definition !== definition) {
-        const fired = current.filter((entry) => entry.passes).map((entry) => entry.key);
-        return { record: { definition, items, fired, at }, fire: [] };
+  const items = current.map((entry) => entry.key);
+  if (!previous || previous.definition !== definition) {
+    const fired = current.filter((entry) => entry.passes).map((entry) => entry.key);
+    return { record: { definition, items, fired, at }, fire: [] };
+  }
+  const before = new Set(previous.items);
+  const firedBefore = previous.fired ? new Set(previous.fired) : before;
+  const fired: string[] = [];
+  const fire: string[] = [];
+  for (const { key, passes } of current) {
+    if (before.has(key) && firedBefore.has(key)) fired.push(key);
+    else if (passes) {
+      fire.push(key);
+      fired.push(key);
     }
-    const before = new Set(previous.items);
-    const firedBefore = previous.fired ? new Set(previous.fired) : before;
-    const fired: string[] = [];
-    const fire: string[] = [];
-    for (const { key, passes } of current) {
-        if (before.has(key) && firedBefore.has(key)) fired.push(key);
-        else if (passes) {
-            fire.push(key);
-            fired.push(key);
-        }
-    }
-    return { record: { definition, items, fired, at }, fire };
+  }
+  return { record: { definition, items, fired, at }, fire };
 }

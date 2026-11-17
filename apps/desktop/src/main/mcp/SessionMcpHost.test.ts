@@ -160,23 +160,33 @@ describe('connection handling', () => {
 
 describe('mcpConfigForSession', () => {
   it('hands every kind of session its config path', async () => {
-    await expect(mcpConfigForSession({ id: 'c', kind: 'conductor' }, host)).resolves.toMatch(/c\.json$/);
-    await expect(mcpConfigForSession({ id: 'i', kind: 'interactive' }, host)).resolves.toMatch(/i\.json$/);
+    await expect(mcpConfigForSession({ id: 'c', kind: 'conductor' }, host)).resolves.toMatch(
+      /c\.json$/,
+    );
+    await expect(mcpConfigForSession({ id: 'i', kind: 'interactive' }, host)).resolves.toMatch(
+      /i\.json$/,
+    );
   });
 
   it('launches an ordinary session without MCP when the endpoint cannot be set up', async () => {
     const broken = { register: () => Promise.reject(new Error('EACCES')) };
     vi.spyOn(console, 'error').mockImplementation(() => {});
-    await expect(mcpConfigForSession({ id: 'i', kind: 'interactive' }, broken)).resolves.toBeUndefined();
+    await expect(
+      mcpConfigForSession({ id: 'i', kind: 'interactive' }, broken),
+    ).resolves.toBeUndefined();
   });
 
   it('refuses to launch a conductor without its control tools', async () => {
     const broken = { register: () => Promise.reject(new Error('EACCES')) };
-    await expect(mcpConfigForSession({ id: 'c', kind: 'conductor' }, broken)).rejects.toThrow('EACCES');
+    await expect(mcpConfigForSession({ id: 'c', kind: 'conductor' }, broken)).rejects.toThrow(
+      'EACCES',
+    );
   });
 
   it('refuses to launch the Assistant without its tools', async () => {
     const broken = { register: () => Promise.reject(new Error('EACCES')) };
-    await expect(mcpConfigForSession({ id: 'a', kind: 'assistant' }, broken)).rejects.toThrow('EACCES');
+    await expect(mcpConfigForSession({ id: 'a', kind: 'assistant' }, broken)).rejects.toThrow(
+      'EACCES',
+    );
   });
 });

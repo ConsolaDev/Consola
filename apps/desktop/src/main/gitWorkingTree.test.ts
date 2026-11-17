@@ -3,11 +3,21 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { commit, parseStatus, readDiff, readStatus, stageFile, unstageFile } from './gitWorkingTree';
+import {
+  commit,
+  parseStatus,
+  readDiff,
+  readStatus,
+  stageFile,
+  unstageFile,
+} from './gitWorkingTree';
 
 let repo: string;
 const gitRaw = (...args: string[]) =>
-  execFileSync('git', ['-C', repo, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  execFileSync('git', ['-C', repo, ...args], {
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  });
 const git = (...args: string[]) => gitRaw(...args).trim();
 const write = (file: string, content: string) => {
   fs.mkdirSync(path.dirname(path.join(repo, file)), { recursive: true });
@@ -24,7 +34,13 @@ const staged = () => gitRaw('diff', '--cached', '--name-only', '-z').split('\0')
 const SPACED_COMMAND = '$(touch PWNED).txt';
 const UNSPACED_COMMAND = '$(touch${IFS}PWNED).txt';
 const BACKTICKS = '`touch PWNED`.md';
-const awkwardNames = ['my notes.md', 'café.md', 'say "hi".txt', 'app/[slug]/page.tsx', ' padded .txt'];
+const awkwardNames = [
+  'my notes.md',
+  'café.md',
+  'say "hi".txt',
+  'app/[slug]/page.tsx',
+  ' padded .txt',
+];
 const hostileNames = [SPACED_COMMAND, UNSPACED_COMMAND, BACKTICKS];
 
 beforeEach(() => {
@@ -44,7 +60,15 @@ afterEach(() => {
 
 describe('parseStatus', () => {
   it('reads -z output: names verbatim, and a rename as its new path', () => {
-    const output = ['R  new name.txt', 'old name.txt', '?? café.md', ' M say "hi".txt', ' D gone.txt', 'A  added.ts', ''].join('\0');
+    const output = [
+      'R  new name.txt',
+      'old name.txt',
+      '?? café.md',
+      ' M say "hi".txt',
+      ' D gone.txt',
+      'A  added.ts',
+      '',
+    ].join('\0');
     expect(parseStatus(output)).toEqual([
       { path: 'new name.txt', status: 'staged' },
       { path: 'café.md', status: 'untracked' },
@@ -75,7 +99,11 @@ describe('readStatus', () => {
     commitAll('add');
     write('tracked.txt', 'a\nb\nc\n');
     write('my notes.md', 'one\ntwo\n');
-    expect((await readStatus(repo)).stats).toEqual({ modifiedCount: 2, addedLines: 4, removedLines: 0 });
+    expect((await readStatus(repo)).stats).toEqual({
+      modifiedCount: 2,
+      addedLines: 4,
+      removedLines: 0,
+    });
   });
 
   it('answers a folder that is not a repository as not one', async () => {
@@ -94,33 +122,58 @@ describe('readStatus', () => {
 });
 
 describe('readDiff', () => {
-  it.each([...awkwardNames, ...hostileNames])('diffs an untracked, a modified and a staged %j', async (name) => {
-    write(name, 'first\n');
-    const untracked = await readDiff(repo, name, false);
-    expect(untracked).toMatchObject({ isNew: true, isDeleted: false, newContent: 'first\n' });
+  it.each([...awkwardNames, ...hostileNames])(
+    'diffs an untracked, a modified and a staged %j',
+    async (name) => {
+      write(name, 'first\n');
+      const untracked = await readDiff(repo, name, false);
+      expect(untracked).toMatchObject({ isNew: true, isDeleted: false, newContent: 'first\n' });
 
-    commitAll('add');
-    write(name, 'first\nsecond\n');
-    const modified = await readDiff(repo, name, false);
-    expect(modified).toMatchObject({ isNew: false, isDeleted: false, oldContent: 'first\n', newContent: 'first\nsecond\n' });
-    expect(modified.hunks.flatMap((h) => h.lines).filter((l) => l.type === 'add').map((l) => l.content)).toEqual(['second']);
+      commitAll('add');
+      write(name, 'first\nsecond\n');
+      const modified = await readDiff(repo, name, false);
+      expect(modified).toMatchObject({
+        isNew: false,
+        isDeleted: false,
+        oldContent: 'first\n',
+        newContent: 'first\nsecond\n',
+      });
+      expect(
+        modified.hunks
+          .flatMap((h) => h.lines)
+          .filter((l) => l.type === 'add')
+          .map((l) => l.content),
+      ).toEqual(['second']);
 
-    git('add', '--', name);
-    const stagedDiff = await readDiff(repo, name, true);
-    expect(stagedDiff).toMatchObject({ isNew: false, oldContent: 'first\n', newContent: 'first\nsecond\n' });
-  });
+      git('add', '--', name);
+      const stagedDiff = await readDiff(repo, name, true);
+      expect(stagedDiff).toMatchObject({
+        isNew: false,
+        oldContent: 'first\n',
+        newContent: 'first\nsecond\n',
+      });
+    },
+  );
 
   it('diffs a staged new file against nothing', async () => {
     write('my notes.md', 'one\n');
     git('add', '--', 'my notes.md');
-    expect(await readDiff(repo, 'my notes.md', true)).toMatchObject({ isNew: true, oldContent: '', newContent: 'one\n' });
+    expect(await readDiff(repo, 'my notes.md', true)).toMatchObject({
+      isNew: true,
+      oldContent: '',
+      newContent: 'one\n',
+    });
   });
 
   it('diffs a deleted file as deleted', async () => {
     write('my notes.md', 'one\n');
     commitAll('add');
     fs.rmSync(path.join(repo, 'my notes.md'));
-    expect(await readDiff(repo, 'my notes.md', false)).toMatchObject({ isDeleted: true, oldContent: 'one\n', newContent: '' });
+    expect(await readDiff(repo, 'my notes.md', false)).toMatchObject({
+      isDeleted: true,
+      oldContent: 'one\n',
+      newContent: '',
+    });
   });
 });
 

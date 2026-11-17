@@ -60,7 +60,7 @@ describe('scaffold', () => {
   it('refuses when the directory already exists, naming the path', async () => {
     await scaffold(scopeDir, 'dup', 'k', 'ws');
     await expect(scaffold(scopeDir, 'dup', 'k', 'ws')).rejects.toThrow(
-      path.join(scopeDir, 'conductor', 'dup')
+      path.join(scopeDir, 'conductor', 'dup'),
     );
   });
 

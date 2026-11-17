@@ -55,14 +55,14 @@ export interface UseCommandHighlightingResult {
  * ```
  */
 export function useCommandHighlighting(
-  options: UseCommandHighlightingOptions = {}
+  options: UseCommandHighlightingOptions = {},
 ): UseCommandHighlightingResult {
   const { skills = [], slashCommands = [] } = options;
 
   // Memoize the lookup structures
   const { knownCommands, commandTypes } = useMemo(
     () => buildCommandLookups(skills, slashCommands),
-    [skills, slashCommands]
+    [skills, slashCommands],
   );
 
   // Memoize the parse function
@@ -97,7 +97,7 @@ export function useCommandHighlighting(
  */
 export function useParseCommandText(
   skills: string[] = [],
-  slashCommands: string[] = []
+  slashCommands: string[] = [],
 ): (text: string) => TextSegment[] {
   const { parseText } = useCommandHighlighting({ skills, slashCommands });
   return parseText;

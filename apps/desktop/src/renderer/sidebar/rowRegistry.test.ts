@@ -20,6 +20,8 @@ describe('rowRegistry', () => {
   });
 
   it('draws nothing for a kind nobody registered rather than guessing a row', () => {
-    expect(entryRow(entry('a', 'ready', { kind: 'gate' }), { workspaceId: 'w', active: false })).toBeNull();
+    expect(
+      entryRow(entry('a', 'ready', { kind: 'gate' }), { workspaceId: 'w', active: false }),
+    ).toBeNull();
   });
 });

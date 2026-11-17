@@ -33,7 +33,9 @@ function getStatusClass(status: GitFileStatus): string {
   }
 }
 
-export const GitReviewFileList = memo(function GitReviewFileList({ rootPath }: GitReviewFileListProps) {
+export const GitReviewFileList = memo(function GitReviewFileList({
+  rootPath,
+}: GitReviewFileListProps) {
   const [stagedOpen, setStagedOpen] = useState(true);
   const [changesOpen, setChangesOpen] = useState(true);
 

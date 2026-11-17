@@ -7,7 +7,9 @@ interface GitReviewCommitBarProps {
   rootPath: string;
 }
 
-export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }: GitReviewCommitBarProps) {
+export const GitReviewCommitBar = memo(function GitReviewCommitBar({
+  rootPath,
+}: GitReviewCommitBarProps) {
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
   const setCommitMessage = useGitReviewStore((state) => state.setCommitMessage);
   const isGeneratingMessage = useGitReviewStore((state) => state.isGeneratingMessage);
@@ -51,7 +53,8 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }:
     <div className="git-review-commit-bar">
       <div className="git-review-commit-input-wrapper">
         <label className="git-review-commit-label">
-          Commit message {stagedCount > 0 && `(${stagedCount} file${stagedCount === 1 ? '' : 's'} approved)`}
+          Commit message{' '}
+          {stagedCount > 0 && `(${stagedCount} file${stagedCount === 1 ? '' : 's'} approved)`}
         </label>
         <textarea
           className="git-review-commit-input"
@@ -75,11 +78,7 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }:
           disabled={isGeneratingMessage || stagedCount === 0}
           title="Generate commit message (Cmd+G)"
         >
-          {isGeneratingMessage ? (
-            <Loader2 size={14} className="spinner" />
-          ) : (
-            <Sparkles size={14} />
-          )}
+          {isGeneratingMessage ? <Loader2 size={14} className="spinner" /> : <Sparkles size={14} />}
           Generate
         </button>
 
@@ -89,11 +88,7 @@ export const GitReviewCommitBar = memo(function GitReviewCommitBar({ rootPath }:
           disabled={isCommitting || !commitMessage.trim() || stagedCount === 0}
           title="Commit changes (Cmd+Enter)"
         >
-          {isCommitting ? (
-            <Loader2 size={14} className="spinner" />
-          ) : (
-            <GitCommit size={14} />
-          )}
+          {isCommitting ? <Loader2 size={14} className="spinner" /> : <GitCommit size={14} />}
           Commit
         </button>
       </div>

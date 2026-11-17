@@ -7,10 +7,16 @@ const placedOf = (...entries: ReturnType<typeof entry>[]) => bucketize(forest(en
 
 describe('the open row holds its bucket', () => {
   it('keeps the open session in Working when its turn finishes under the cursor', () => {
-    const opened = placedOf(entry('a', 'working', { activityAt: 5 }), entry('b', 'working', { activityAt: 4 }));
+    const opened = placedOf(
+      entry('a', 'working', { activityAt: 5 }),
+      entry('b', 'working', { activityAt: 4 }),
+    );
     const hold = holdFor(opened, keyOf('a'));
 
-    const afterTurn = placedOf(entry('a', 'done', { finishedAt: 6 }), entry('b', 'working', { activityAt: 4 }));
+    const afterTurn = placedOf(
+      entry('a', 'done', { finishedAt: 6 }),
+      entry('b', 'working', { activityAt: 4 }),
+    );
 
     expect(ids(afterTurn.waiting)).toEqual(['a']);
     const held = applyHold(afterTurn, hold);
@@ -20,13 +26,20 @@ describe('the open row holds its bucket', () => {
 
   it('puts it back at the position it had, not at the end', () => {
     const opened = placedOf(
-      entry('a', 'working', { activityAt: 9 }), entry('b', 'working', { activityAt: 5 }), entry('c', 'working', { activityAt: 1 })
+      entry('a', 'working', { activityAt: 9 }),
+      entry('b', 'working', { activityAt: 5 }),
+      entry('c', 'working', { activityAt: 1 }),
     );
     const hold = holdFor(opened, keyOf('b'));
 
-    const held = applyHold(placedOf(
-      entry('a', 'working', { activityAt: 9 }), entry('b', 'done', { finishedAt: 6 }), entry('c', 'working', { activityAt: 1 })
-    ), hold);
+    const held = applyHold(
+      placedOf(
+        entry('a', 'working', { activityAt: 9 }),
+        entry('b', 'done', { finishedAt: 6 }),
+        entry('c', 'working', { activityAt: 1 }),
+      ),
+      hold,
+    );
 
     expect(ids(held.working)).toEqual(['a', 'b', 'c']);
   });
@@ -36,7 +49,10 @@ describe('the open row holds its bucket', () => {
     const hold = holdFor(opened, keyOf('c'));
     expect(hold).toMatchObject({ rootKey: keyOf('p'), bucket: 'working' });
 
-    const held = applyHold(placedOf(entry('p', 'ready'), entry('c', 'done', { parent: keyOf('p'), finishedAt: 3 })), hold);
+    const held = applyHold(
+      placedOf(entry('p', 'ready'), entry('c', 'done', { parent: keyOf('p'), finishedAt: 3 })),
+      hold,
+    );
 
     expect(ids(held.working)).toEqual(['p']);
   });
@@ -57,7 +73,9 @@ describe('the open row holds its bucket', () => {
     const placed = placedOf(entry('a', 'done', { finishedAt: 5 }));
     const hold = holdFor(placed, keyOf('a'));
     expect(hold).toMatchObject({ bucket: 'waiting' });
-    expect(applyHold(placedOf(entry('a', 'ready')), hold)).toMatchObject({ waiting: [expect.anything()] });
+    expect(applyHold(placedOf(entry('a', 'ready')), hold)).toMatchObject({
+      waiting: [expect.anything()],
+    });
   });
 
   it('leaves a tree alone while it is still in the bucket it was held in', () => {
@@ -76,9 +94,15 @@ describe('the open row holds its bucket', () => {
   });
 
   it('releases a tree when a child of the open conductor asks', () => {
-    const hold = holdFor(placedOf(entry('p', 'ready'), entry('c', 'ready', { parent: keyOf('p') })), keyOf('p'));
+    const hold = holdFor(
+      placedOf(entry('p', 'ready'), entry('c', 'ready', { parent: keyOf('p') })),
+      keyOf('p'),
+    );
 
-    const held = applyHold(placedOf(entry('p', 'ready'), entry('c', 'needs-attention', { parent: keyOf('p') })), hold);
+    const held = applyHold(
+      placedOf(entry('p', 'ready'), entry('c', 'needs-attention', { parent: keyOf('p') })),
+      hold,
+    );
 
     expect(ids(held.waiting)).toEqual(['p']);
   });
@@ -91,16 +115,25 @@ describe('the open row holds its bucket', () => {
       const hold = holdFor(placedOf(entry('a', 'exited'), entry('b', 'ready')), keyOf('a'));
       expect(hold).toMatchObject({ bucket: 'waiting' });
 
-      const held = applyHold(placedOf(entry('a', 'working', { activityAt: 9 }), entry('b', 'ready')), hold);
+      const held = applyHold(
+        placedOf(entry('a', 'working', { activityAt: 9 }), entry('b', 'ready')),
+        hold,
+      );
 
       expect(ids(held.working)).toEqual(['a']);
       expect(ids(held.waiting)).toEqual(['b']);
     });
 
     it('releases a tree when a child of the open conductor starts working', () => {
-      const hold = holdFor(placedOf(entry('p', 'ready'), entry('c', 'ready', { parent: keyOf('p') })), keyOf('p'));
+      const hold = holdFor(
+        placedOf(entry('p', 'ready'), entry('c', 'ready', { parent: keyOf('p') })),
+        keyOf('p'),
+      );
 
-      const held = applyHold(placedOf(entry('p', 'ready'), entry('c', 'working', { parent: keyOf('p') })), hold);
+      const held = applyHold(
+        placedOf(entry('p', 'ready'), entry('c', 'working', { parent: keyOf('p') })),
+        hold,
+      );
 
       expect(ids(held.working)).toEqual(['p']);
       expect(ids(held.waiting)).toEqual([]);

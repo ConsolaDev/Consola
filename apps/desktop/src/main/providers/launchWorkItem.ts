@@ -1,7 +1,12 @@
 import * as path from 'path';
 import type { GitProviderId } from '../../shared/providers';
 import type { InboxItem, WorkItemLaunchAction, WorkItemRef } from '../../shared/workItems';
-import { isValidWorkItemRef, sameWorkItem, workItemActionKey, workItemKey } from '../../shared/workItems';
+import {
+  isValidWorkItemRef,
+  sameWorkItem,
+  workItemActionKey,
+  workItemKey,
+} from '../../shared/workItems';
 import { fallbackWorkItemTitle, renderActionPrompt } from '../../shared/workItemPrompt';
 import type { WorkItemPromptResult } from '../../shared/workItemPrompt';
 import type { WorkItemLaunchResult } from '../../shared/types';
@@ -16,11 +21,7 @@ export interface WorkItemLaunchDeps {
   resolveDriver(id: GitProviderId): GitProviderDriver;
   createSession(workspaceId: string, fields: NewSessionFields): Session | undefined;
   resolveRepo(workspace: Workspace, repo: string): string | null;
-  ensureWorktree(
-    clonePath: string,
-    workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
-  ): Promise<string>;
+  ensureWorktree(clonePath: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<string>;
   /** Login env plus the provider's token var for this account. Composed main-side only. */
   composeEnv(driver: GitProviderDriver, accountLogin: string): Promise<NodeJS.ProcessEnv>;
   findItem(workspaceId: string, ref: WorkItemRef): InboxItem | undefined;
@@ -52,7 +53,7 @@ export function scopeIdForPath(workspace: Workspace, clonePath: string): string 
  */
 function resolveAction(
   workspace: Workspace,
-  action: WorkItemLaunchAction
+  action: WorkItemLaunchAction,
 ): { name: string; body: string; groupId?: string } | undefined {
   if ('id' in action) {
     const stored = workspace.actions.find((candidate) => candidate.id === action.id);
@@ -80,7 +81,7 @@ function resolveAction(
 export function readyGroup(
   deps: Pick<WorkItemLaunchDeps, 'restoreGroup'>,
   workspace: Workspace,
-  groupId: string | undefined
+  groupId: string | undefined,
 ): string | undefined {
   if (groupId === undefined) return undefined;
   const group = workspace.groups.find((candidate) => candidate.id === groupId);
@@ -111,9 +112,11 @@ const worktreeChains = new Map<string, Promise<unknown>>();
 export function chainWorktreeStep<T>(key: string, run: () => Promise<T>): Promise<T> {
   const previous = worktreeChains.get(key) ?? Promise.resolve();
   const started = previous.catch(() => undefined).then(run);
-  const settled = started.catch(() => undefined).then(() => {
-    if (worktreeChains.get(key) === settled) worktreeChains.delete(key);
-  });
+  const settled = started
+    .catch(() => undefined)
+    .then(() => {
+      if (worktreeChains.get(key) === settled) worktreeChains.delete(key);
+    });
   worktreeChains.set(key, settled);
   return started;
 }
@@ -124,7 +127,11 @@ export function chainWorktreeStep<T>(key: string, run: () => Promise<T>): Promis
  * whichever comes second sees the first one's session and one session
  * results. Taken before the per-item worktree step, always in that order.
  */
-export function itemActionLaunchKey(workspaceId: string, ref: WorkItemRef, actionName: string): string {
+export function itemActionLaunchKey(
+  workspaceId: string,
+  ref: WorkItemRef,
+  actionName: string,
+): string {
   return `${workspaceId}:${workItemKey(ref)}:action:${actionName}`;
 }
 
@@ -146,14 +153,18 @@ export async function launchWorkItem(
   deps: WorkItemLaunchDeps,
   workspaceId: string,
   ref: WorkItemRef,
-  action: WorkItemLaunchAction
+  action: WorkItemLaunchAction,
 ): Promise<WorkItemLaunchResult> {
   const workspace = deps.getWorkspace(workspaceId);
   if (!workspace) {
     return { ok: false, reason: 'error', message: `Unknown workspace: ${workspaceId}` };
   }
   if (workspace.scopes.length === 0) {
-    return { ok: false, reason: 'error', message: 'Add a scope to this workspace to start a session.' };
+    return {
+      ok: false,
+      reason: 'error',
+      message: 'Add a scope to this workspace to start a session.',
+    };
   }
   if (!workspace.provider) {
     return { ok: false, reason: 'error', message: 'This workspace has no provider account bound.' };
@@ -203,9 +214,15 @@ export async function launchWorkItem(
           .getWorkspace(workspaceId)
           ?.sessions.filter(
             (session) =>
-              session.automation && sameWorkItem(session.workItem, ref) && session.workItemAction === resolved.name
+              session.automation &&
+              sameWorkItem(session.workItem, ref) &&
+              session.workItemAction === resolved.name,
           )
-          .reduce<Session | undefined>((newest, session) => (!newest || session.createdAt > newest.createdAt ? session : newest), undefined);
+          .reduce<Session | undefined>(
+            (newest, session) =>
+              !newest || session.createdAt > newest.createdAt ? session : newest,
+            undefined,
+          );
         if (reviewing) return { ok: false, reason: 'automation-review', sessionId: reviewing.id };
       }
 
@@ -215,7 +232,7 @@ export async function launchWorkItem(
       const env = await deps.composeEnv(driver, provider.accountLogin);
       const worktreeChainKey = `${workspaceId}:${workItemKey(ref)}`;
       const worktreePath = await chainWorktreeStep(worktreeChainKey, () =>
-        deps.ensureWorktree(clonePath, ref, env)
+        deps.ensureWorktree(clonePath, ref, env),
       );
 
       // Last, so a failed worktree step never leaves a group restored for a
@@ -234,8 +251,14 @@ export async function launchWorkItem(
         workItemAction: resolved.name,
         ...(groupId !== undefined ? { groupId } : {}),
       });
-    }
-  ).catch((error: unknown): WorkItemLaunchResult => ({ ok: false, reason: 'error', message: describeError(error) }));
+    },
+  ).catch(
+    (error: unknown): WorkItemLaunchResult => ({
+      ok: false,
+      reason: 'error',
+      message: describeError(error),
+    }),
+  );
   if (!created) {
     return { ok: false, reason: 'error', message: 'Could not create the session record.' };
   }
@@ -259,11 +282,11 @@ export async function launchWorkItem(
  * — this coalescer's job is strictly the identical-request case above it.
  */
 export function createLaunchCoalescer(
-  deps: WorkItemLaunchDeps
+  deps: WorkItemLaunchDeps,
 ): (
   workspaceId: string,
   ref: WorkItemRef,
-  action: WorkItemLaunchAction
+  action: WorkItemLaunchAction,
 ) => Promise<WorkItemLaunchResult> {
   const inFlight = new Map<string, Promise<WorkItemLaunchResult>>();
   return (workspaceId, ref, action) => {

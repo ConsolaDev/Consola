@@ -70,8 +70,8 @@ export function HarnessesSection() {
       </div>
 
       <p className="harness-section-description">
-        Each harness is a separate agent CLI installation. Giving one its own
-        config directory keeps its login and history apart from the others.
+        Each harness is a separate agent CLI installation. Giving one its own config directory keeps
+        its login and history apart from the others.
       </p>
 
       <div className="harness-list">
@@ -89,8 +89,8 @@ export function HarnessesSection() {
         <>
           <div className="harness-archived-heading">Archived</div>
           <p className="harness-section-description">
-            Kept so their existing conversations can still be resumed, since
-            each transcript lives in the config directory that wrote it.
+            Kept so their existing conversations can still be resumed, since each transcript lives
+            in the config directory that wrote it.
           </p>
           <div className="harness-list">
             {archived.map((harness) => (

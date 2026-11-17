@@ -46,13 +46,14 @@ function itemMode(workspace: Workspace, readOnly: boolean | undefined): Assistan
 export async function startAssistantSession(
   deps: AssistantStartDeps,
   workspace: Workspace,
-  request: AssistantStartRequest
+  request: AssistantStartRequest,
 ): Promise<{ session: Session; mode: AssistantSessionMode }> {
   let groupId: string | undefined;
   if (request.group !== undefined) {
     const wanted = request.group;
     const group = workspace.groups.find(
-      (candidate) => candidate.id === wanted || candidate.name.toLowerCase() === wanted.toLowerCase()
+      (candidate) =>
+        candidate.id === wanted || candidate.name.toLowerCase() === wanted.toLowerCase(),
     );
     if (!group) throw new Error(`No group "${wanted}" in this workspace.`);
     groupId = group.id;
@@ -67,19 +68,23 @@ export async function startAssistantSession(
     if (!workspace.provider) throw new Error('This workspace has no provider account bound.');
     const ref = { provider: workspace.provider.id, ...request.workItem };
     if (!isValidWorkItemRef(ref)) {
-      throw new Error(`Not a valid pull request or issue: ${request.workItem.repo}#${request.workItem.number}.`);
+      throw new Error(
+        `Not a valid pull request or issue: ${request.workItem.repo}#${request.workItem.number}.`,
+      );
     }
     workItem = ref;
   } else {
     const scope =
       request.scopePath === undefined
         ? workspace.scopes[0]
-        : workspace.scopes.find((candidate) => path.resolve(candidate.path) === path.resolve(request.scopePath!));
+        : workspace.scopes.find(
+            (candidate) => path.resolve(candidate.path) === path.resolve(request.scopePath!),
+          );
     if (!scope) {
       throw new Error(
         request.scopePath === undefined
           ? 'Add a scope to this workspace first.'
-          : `${request.scopePath} is not one of this workspace’s folders.`
+          : `${request.scopePath} is not one of this workspace’s folders.`,
       );
     }
     if (request.cwd !== undefined) {
@@ -91,11 +96,15 @@ export async function startAssistantSession(
     scopePlace = { scopeId: scope.id, ...(request.cwd !== undefined ? { cwd: request.cwd } : {}) };
   }
 
-  const mode: AssistantSessionMode = workItem ? itemMode(workspace, request.readOnly) : 'full-tools';
+  const mode: AssistantSessionMode = workItem
+    ? itemMode(workspace, request.readOnly)
+    : 'full-tools';
   // Only a read-only session may have its worktree moved to the latest head:
   // a full-tools one would load newly pushed settings in a folder already trusted.
   const place = workItem
-    ? await prepareItemWorktree(deps, workspace, workItem, { refreshExisting: mode === 'read-only' })
+    ? await prepareItemWorktree(deps, workspace, workItem, {
+        refreshExisting: mode === 'read-only',
+      })
     : scopePlace!;
   // Readied last: restoring an archived group is a write a refusal must not leave.
   const readiedGroup = readyGroup(deps, workspace, groupId);

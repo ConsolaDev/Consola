@@ -38,7 +38,9 @@ describe('checkoutStore', () => {
 
     getCheckout.mockResolvedValue({ ...tree, branch: 'feature/renamed' });
     await useCheckoutStore.getState().load(tree.root);
-    expect(useCheckoutStore.getState().byPath[tree.root]).toMatchObject({ branch: 'feature/renamed' });
+    expect(useCheckoutStore.getState().byPath[tree.root]).toMatchObject({
+      branch: 'feature/renamed',
+    });
   });
 
   it('leaves the map untouched when a re-read says nothing new, so rows do not re-render', async () => {

@@ -18,7 +18,11 @@ async function setup() {
 }
 
 const post = (url: string, body: unknown = { hook_event_name: 'Notification' }) =>
-  fetch(url, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+  fetch(url, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
 describe('AttentionEndpoint', () => {
   it('binds loopback only', async () => {
@@ -37,7 +41,14 @@ describe('AttentionEndpoint', () => {
     const { heard, url } = await setup();
     const base = new URL(url).origin;
     const wrong = `${base}/attention/${'0'.repeat(48)}`;
-    for (const bad of [`${base}/attention/`, `${base}/attention`, `${base}/`, wrong, `${wrong}/extra`, `${url}x`]) {
+    for (const bad of [
+      `${base}/attention/`,
+      `${base}/attention`,
+      `${base}/`,
+      wrong,
+      `${wrong}/extra`,
+      `${url}x`,
+    ]) {
       expect((await post(bad)).status).toBe(401);
     }
     expect(heard).toEqual([]);
@@ -73,14 +84,20 @@ describe('AttentionEndpoint', () => {
     const { heard, url } = await setup();
     const target = new URL(url);
     const req = http.request({
-      hostname: target.hostname, port: target.port, path: target.pathname, method: 'POST',
+      hostname: target.hostname,
+      port: target.port,
+      path: target.pathname,
+      method: 'POST',
       headers: { 'content-type': 'application/json' },
     });
     // The hook's body is still open here: a CLI that streams one slowly, or
     // one that stalls, must not be waiting on this process.
     req.write('{"hook_event_name":');
     const status = await new Promise<number>((resolve, reject) => {
-      req.on('response', (res) => { res.resume(); resolve(res.statusCode ?? 0); });
+      req.on('response', (res) => {
+        res.resume();
+        resolve(res.statusCode ?? 0);
+      });
       req.on('error', reject);
     });
     expect(status).toBe(200);
@@ -108,7 +125,10 @@ describe('AttentionEndpoint', () => {
   it('takes a large-but-plausible payload, such as a tool_input over the old 256KB cap', async () => {
     const { heard, url } = await setup();
 
-    const res = await post(url, { hook_event_name: 'PostToolUse', tool_input: { content: 'x'.repeat(400 * 1024) } });
+    const res = await post(url, {
+      hook_event_name: 'PostToolUse',
+      tool_input: { content: 'x'.repeat(400 * 1024) },
+    });
 
     expect(res.status).toBe(200);
     await vi.waitFor(() => expect(heard).toHaveLength(1));

@@ -16,12 +16,18 @@ import { TemplateCards } from './TemplatesTab';
  * their own CLI permissions, on the workspace's default harness — whose
  * agent drafts the entry with them. The new session opens in Home.
  */
-export function NewAutomation({ workspace, basis }: { workspace: Workspace; basis?: AuthoringBasis }) {
+export function NewAutomation({
+  workspace,
+  basis,
+}: {
+  workspace: Workspace;
+  basis?: AuthoringBasis;
+}) {
   const fieldId = useId();
   const snapshot = useAutomationsStore((state) => state.snapshots[workspace.id]);
   // The record's name: asking the harness itself would start a process.
   const harnessName = useHarnessStore(
-    (state) => state.harnesses.find((harness) => harness.id === workspace.defaultHarnessId)?.name
+    (state) => state.harnesses.find((harness) => harness.id === workspace.defaultHarnessId)?.name,
   );
   const [description, setDescription] = useState('');
   const { busy, error, act } = useIntent();
@@ -30,10 +36,15 @@ export function NewAutomation({ workspace, basis }: { workspace: Workspace; basi
   const start = () =>
     void act('start', async () => {
       const navigation = useNavigationStore.getState();
-      const activeSessionId = navigation.activeWorkspaceId === workspace.id ? navigation.activeSessionId : null;
+      const activeSessionId =
+        navigation.activeWorkspaceId === workspace.id ? navigation.activeSessionId : null;
       // Where any new session would start: the sidebar's filter, else the
       // open session's scope, else the primary one.
-      const scope = newSessionScope(workspace, useHomeStore.getState().scopeFilters[workspace.id], activeSessionId);
+      const scope = newSessionScope(
+        workspace,
+        useHomeStore.getState().scopeFilters[workspace.id],
+        activeSessionId,
+      );
       const session = await automationsBridge.startAuthoring({
         workspaceId: workspace.id,
         description: description.trim(),
@@ -60,14 +71,21 @@ export function NewAutomation({ workspace, basis }: { workspace: Workspace; basi
         value={description}
         onChange={(event) => setDescription(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && (event.metaKey || event.ctrlKey) && canStart && busy === null) {
+          if (
+            event.key === 'Enter' &&
+            (event.metaKey || event.ctrlKey) &&
+            canStart &&
+            busy === null
+          ) {
             event.preventDefault();
             start();
           }
         }}
       />
       <div className="automations-panel-row">
-        <span className="automations-meta">Starts a session on {harnessName ?? workspace.defaultHarnessId}</span>
+        <span className="automations-meta">
+          Starts a session on {harnessName ?? workspace.defaultHarnessId}
+        </span>
         <button
           type="button"
           className="dialog-button-primary automations-small-button"
@@ -78,9 +96,14 @@ export function NewAutomation({ workspace, basis }: { workspace: Workspace; basi
         </button>
       </div>
       <p className="automations-hint">
-        Its agent works out the entry with you, shows it to you, and adds it to factory.yml once you agree.
+        Its agent works out the entry with you, shows it to you, and adds it to factory.yml once you
+        agree.
       </p>
-      {error && <div className="automations-error" role="alert">{error}</div>}
+      {error && (
+        <div className="automations-error" role="alert">
+          {error}
+        </div>
+      )}
 
       {snapshot && snapshot.templates.length > 0 && (
         <section className="automations-section" aria-label="Templates">
@@ -92,8 +115,13 @@ export function NewAutomation({ workspace, basis }: { workspace: Workspace; basi
   );
 }
 
-function basisInWords(basis: AuthoringBasis, templates: Array<{ id: string; title: string }> = []): string {
-  if ('automation' in basis) return `Changes ${basis.automation}, starting from its entry in factory.yml.`;
-  const title = templates.find((template) => template.id === basis.template)?.title ?? basis.template;
+function basisInWords(
+  basis: AuthoringBasis,
+  templates: Array<{ id: string; title: string }> = [],
+): string {
+  if ('automation' in basis)
+    return `Changes ${basis.automation}, starting from its entry in factory.yml.`;
+  const title =
+    templates.find((template) => template.id === basis.template)?.title ?? basis.template;
   return `Starts from the template “${title}”.`;
 }

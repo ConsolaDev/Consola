@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import {Box, Flex, ScrollArea, Text} from '@radix-ui/themes';
+import { Box, Flex, ScrollArea, Text } from '@radix-ui/themes';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { MarkdownRenderer } from '../Markdown';
 import { fileBridge } from '../../services/fileBridge';
@@ -40,40 +40,51 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
   // Memoize both views so switching modes doesn't re-parse content.
   // Must be above early returns to satisfy React's rules of hooks.
   const previewView = useMemo(() => <MarkdownRenderer content={content} />, [content]);
-  const sourceView = useMemo(() => (
-    <SyntaxHighlighter
-      style={codeTheme}
-      language="markdown"
-      showLineNumbers
-      customStyle={{
-        ...codeCustomStyle,
-        background: 'transparent',
-        padding: 'var(--space-4)',
-        margin: 0,
-      }}
-      lineNumberStyle={{
-        minWidth: '3em',
-        paddingRight: '1em',
-        color: 'var(--color-text-disabled)',
-        userSelect: 'none',
-      }}
-    >
-      {content}
-    </SyntaxHighlighter>
-  ), [content]);
+  const sourceView = useMemo(
+    () => (
+      <SyntaxHighlighter
+        style={codeTheme}
+        language="markdown"
+        showLineNumbers
+        customStyle={{
+          ...codeCustomStyle,
+          background: 'transparent',
+          padding: 'var(--space-4)',
+          margin: 0,
+        }}
+        lineNumberStyle={{
+          minWidth: '3em',
+          paddingRight: '1em',
+          color: 'var(--color-text-disabled)',
+          userSelect: 'none',
+        }}
+      >
+        {content}
+      </SyntaxHighlighter>
+    ),
+    [content],
+  );
 
   if (loading) {
     return (
       <Flex align="center" justify="center" className="markdown-file-view loading">
         <Loader2 className="spinner" size={24} />
-        <Text color="gray" ml="2">Loading...</Text>
+        <Text color="gray" ml="2">
+          Loading...
+        </Text>
       </Flex>
     );
   }
 
   if (error) {
     return (
-      <Flex align="center" justify="center" direction="column" gap="2" className="markdown-file-view error">
+      <Flex
+        align="center"
+        justify="center"
+        direction="column"
+        gap="2"
+        className="markdown-file-view error"
+      >
         <AlertCircle size={32} color="var(--red-9)" />
         <Text color="red">{error}</Text>
       </Flex>
@@ -101,20 +112,25 @@ export function MarkdownFileView({ filePath }: MarkdownFileViewProps) {
             <Code2 size={14} />
             <span>Source</span>
           </button>
-          <div
-            className="markdown-view-toggle-indicator"
-            data-active={viewMode}
-          />
+          <div className="markdown-view-toggle-indicator" data-active={viewMode} />
         </div>
       </div>
 
       {/* Content area - both views stay mounted, toggled via display */}
       <ScrollArea className="markdown-view-content-wrapper">
         <div ref={contentRef} tabIndex={0} className="markdown-view-content-selectable">
-          <Box p="4" pr="6" className="markdown-view-panel markdown-preview-view" style={{ display: viewMode === 'preview' ? undefined : 'none' }}>
+          <Box
+            p="4"
+            pr="6"
+            className="markdown-view-panel markdown-preview-view"
+            style={{ display: viewMode === 'preview' ? undefined : 'none' }}
+          >
             {previewView}
           </Box>
-          <div className="markdown-view-panel markdown-source-view" style={{ display: viewMode === 'source' ? undefined : 'none' }}>
+          <div
+            className="markdown-view-panel markdown-source-view"
+            style={{ display: viewMode === 'source' ? undefined : 'none' }}
+          >
             {sourceView}
           </div>
         </div>

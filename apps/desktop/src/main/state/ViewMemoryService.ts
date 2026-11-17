@@ -50,7 +50,7 @@ export function normalizeView(value: unknown): WorkspaceView | null {
  */
 export function resolveRememberedView(
   view: WorkspaceView,
-  workspace: Workspace | undefined
+  workspace: Workspace | undefined,
 ): WorkspaceView {
   if (!workspace) return EMPTY_VIEW;
 

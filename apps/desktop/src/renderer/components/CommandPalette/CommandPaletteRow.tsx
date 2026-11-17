@@ -30,12 +30,17 @@ function RowIcon({ item }: { item: PaletteItem }) {
     return <MessageSquare size={15} className="command-palette-row-icon" />;
   }
   if (item.kind === 'workspace') {
-    return <WorkspaceIcon icon={item.icon} name={item.label} size={15} className="command-palette-row-icon" />;
+    return (
+      <WorkspaceIcon
+        icon={item.icon}
+        name={item.label}
+        size={15}
+        className="command-palette-row-icon"
+      />
+    );
   }
   if (item.kind === 'harness') {
-    return (
-      <span className="command-palette-row-dot" style={{ background: item.accentColor }} />
-    );
+    return <span className="command-palette-row-dot" style={{ background: item.accentColor }} />;
   }
   return <FileIcon filename={item.label} className="command-palette-row-file-icon" />;
 }

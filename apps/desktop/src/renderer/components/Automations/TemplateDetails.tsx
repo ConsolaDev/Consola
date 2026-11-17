@@ -36,7 +36,9 @@ export function TemplateDetails({ workspace, id }: { workspace: Workspace; id: s
   const addedAs = template.addedAs;
 
   return (
-    <div className={`automations-detail ${justAdded.has(template.id) ? 'automations-template-just-added' : ''}`}>
+    <div
+      className={`automations-detail ${justAdded.has(template.id) ? 'automations-template-just-added' : ''}`}
+    >
       {error && (
         <div className="automations-error" role="alert">
           {error}
@@ -110,7 +112,11 @@ export function TemplateDetails({ workspace, id }: { workspace: Workspace; id: s
             <h3 id={pipelineHeading} className="automations-section-title">
               Pipeline
             </h3>
-            <div className="automations-segmented automations-view-toggle" role="group" aria-label="Show the pipeline as">
+            <div
+              className="automations-segmented automations-view-toggle"
+              role="group"
+              aria-label="Show the pipeline as"
+            >
               <button
                 type="button"
                 className={`automations-segment ${view === 'graph' ? 'active' : ''}`}

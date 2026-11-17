@@ -78,18 +78,20 @@
   font-size: 11.5px;
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast),
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
     border-color var(--transition-fast);
 }
 
 .work-item-strip-button:hover,
-.work-item-strip-button[data-state='open'] {
+.work-item-strip-button[data-state="open"] {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
 
 /* The Details toggle while the panel is showing. */
-.work-item-strip-button[aria-pressed='true'] {
+.work-item-strip-button[aria-pressed="true"] {
   border-color: var(--color-accent);
   background: color-mix(in srgb, var(--color-accent) 12%, transparent);
   color: var(--color-text-primary);

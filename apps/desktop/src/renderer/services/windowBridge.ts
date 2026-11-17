@@ -1,4 +1,9 @@
-import type { ActivateWorkspaceResult, WindowContext, AutomationsRequest, WorkspaceView } from '../../shared/types';
+import type {
+  ActivateWorkspaceResult,
+  WindowContext,
+  AutomationsRequest,
+  WorkspaceView,
+} from '../../shared/types';
 
 /**
  * Bridge to this window's identity.
@@ -8,44 +13,44 @@ import type { ActivateWorkspaceResult, WindowContext, AutomationsRequest, Worksp
  * took the workspace or another one already had it.
  */
 export const windowBridge = {
-    onOpenSettings(callback: (section?: 'updates') => void): () => void {
-        return window.windowAPI.onOpenSettings(callback);
-    },
+  onOpenSettings(callback: (section?: 'updates') => void): () => void {
+    return window.windowAPI.onOpenSettings(callback);
+  },
 
-    /** Main asked for the Automations dashboard: an automation notification was clicked. */
-    onShowAutomations(callback: (request: AutomationsRequest) => void): () => void {
-        return window.windowAPI.onShowAutomations(callback);
-    },
+  /** Main asked for the Automations dashboard: an automation notification was clicked. */
+  onShowAutomations(callback: (request: AutomationsRequest) => void): () => void {
+    return window.windowAPI.onShowAutomations(callback);
+  },
 
-    get context(): WindowContext {
-        return window.windowAPI.context;
-    },
+  get context(): WindowContext {
+    return window.windowAPI.context;
+  },
 
-    activateWorkspace(workspaceId: string | null): Promise<ActivateWorkspaceResult> {
-        return window.windowAPI.activateWorkspace(workspaceId);
-    },
+  activateWorkspace(workspaceId: string | null): Promise<ActivateWorkspaceResult> {
+    return window.windowAPI.activateWorkspace(workspaceId);
+  },
 
-    openWindow(workspaceId: string | null): Promise<void> {
-        return window.windowAPI.openWindow(workspaceId);
-    },
+  openWindow(workspaceId: string | null): Promise<void> {
+    return window.windowAPI.openWindow(workspaceId);
+  },
 
-    /**
-     * Report what this window is showing.
-     *
-     * Remembered by main against the workspace, so switching away and back —
-     * or relaunching — returns to it. The pair travels together because the
-     * Inbox overlays the pane without clearing the session behind it.
-     */
-    setView(workspaceId: string | null, view: WorkspaceView): void {
-        window.windowAPI.setView(workspaceId, view);
-    },
+  /**
+   * Report what this window is showing.
+   *
+   * Remembered by main against the workspace, so switching away and back —
+   * or relaunching — returns to it. The pair travels together because the
+   * Inbox overlays the pane without clearing the session behind it.
+   */
+  setView(workspaceId: string | null, view: WorkspaceView): void {
+    window.windowAPI.setView(workspaceId, view);
+  },
 
-    onWorkspaceChanged(callback: (workspaceId: string | null) => void): () => void {
-        return window.windowAPI.onWorkspaceChanged(callback);
-    },
+  onWorkspaceChanged(callback: (workspaceId: string | null) => void): () => void {
+    return window.windowAPI.onWorkspaceChanged(callback);
+  },
 
-    /** A notification click chose a session in this window's workspace. */
-    onActivateSession(callback: (sessionId: string) => void): () => void {
-        return window.windowAPI.onActivateSession(callback);
-    },
+  /** A notification click chose a session in this window's workspace. */
+  onActivateSession(callback: (sessionId: string) => void): () => void {
+    return window.windowAPI.onActivateSession(callback);
+  },
 };

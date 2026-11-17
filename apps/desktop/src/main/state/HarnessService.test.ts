@@ -37,7 +37,11 @@ describe('HarnessService', () => {
   it('persists an added harness across a reload', () => {
     service.addHarness({ id: 'work', driverId: 'claude', name: 'Work', accentColor: '#3b82f6' });
 
-    expect(build().getAll().map((harness) => harness.id)).toContain('work');
+    expect(
+      build()
+        .getAll()
+        .map((harness) => harness.id),
+    ).toContain('work');
   });
 
   it('archives rather than deletes, so sessions can still resume', () => {
@@ -146,7 +150,7 @@ describe('HarnessService', () => {
           createdAt: 1,
           updatedAt: 1,
         },
-      ])
+      ]),
     ).toThrow('ENOSPC');
 
     // A snapshot that answers with records while still asking to be imported

@@ -10,8 +10,12 @@ let profile: string;
 let folder: string;
 const modifier = process.platform === 'darwin' ? 'Meta' : 'Control';
 const rail = (target: Page) => target.getByRole('navigation', { name: 'Workspaces', exact: true });
-const button = (target: Page, name: string) => rail(target).getByRole('button', { name, exact: true });
-const order = (target: Page) => rail(target).locator('.workspace-rail-item').evaluateAll(items => items.map(item => item.getAttribute('aria-label')));
+const button = (target: Page, name: string) =>
+  rail(target).getByRole('button', { name, exact: true });
+const order = (target: Page) =>
+  rail(target)
+    .locator('.workspace-rail-item')
+    .evaluateAll((items) => items.map((item) => item.getAttribute('aria-label')));
 
 async function startDrag(target: Page, from: string, to: string) {
   const source = (await button(target, from).boundingBox())!;
@@ -29,7 +33,7 @@ test.beforeEach(async () => {
   profile = createProfileDir();
   folder = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-order-'));
   ({ app, page } = await launchElectron({ userDataDir: profile }));
-  await page.evaluate(async directory => {
+  await page.evaluate(async (directory) => {
     for (const name of ['Alpha', 'Beta', 'Gamma']) {
       await window.workspaceAPI.createWorkspace(name, directory, false);
     }
@@ -68,11 +72,19 @@ test('dragging saves the order, renumbers shortcuts, syncs windows and survives 
   await expect(page.locator('.workspace-drag-overlay')).toHaveCount(0);
   await page.mouse.move(500, 400);
   await button(page, 'Gamma').hover();
-  await expect(page.locator('.workspace-tooltip-shortcut').first().locator('kbd').last()).toHaveText('1');
+  await expect(
+    page.locator('.workspace-tooltip-shortcut').first().locator('kbd').last(),
+  ).toHaveText('1');
   await page.keyboard.press(`${modifier}+Digit1`);
   await expect(button(page, 'Gamma')).toHaveAttribute('aria-current', 'true');
-  const stored = JSON.parse(fs.readFileSync(path.join(`${profile} Test`, 'workspaces.json'), 'utf8'));
-  expect(stored.workspaces.map((workspace: { name: string }) => workspace.name)).toEqual(['Gamma', 'Alpha', 'Beta']);
+  const stored = JSON.parse(
+    fs.readFileSync(path.join(`${profile} Test`, 'workspaces.json'), 'utf8'),
+  );
+  expect(stored.workspaces.map((workspace: { name: string }) => workspace.name)).toEqual([
+    'Gamma',
+    'Alpha',
+    'Beta',
+  ]);
 
   await second.close();
   await app.close();
@@ -85,7 +97,10 @@ test('dragging saves the order, renumbers shortcuts, syncs windows and survives 
   await expect.poll(() => order(page)).toEqual(['Alpha', 'Beta', 'Gamma']);
   await page.keyboard.press(`${modifier}+Digit3`);
   await expect(button(page, 'Gamma')).toHaveAttribute('aria-current', 'true');
-  await page.screenshot({ path: testInfo.outputPath('workspace-reordered.png'), animations: 'disabled' });
+  await page.screenshot({
+    path: testInfo.outputPath('workspace-reordered.png'),
+    animations: 'disabled',
+  });
 });
 
 test('keyboard reordering preserves selection, can be canceled and respects reduced motion', async () => {
@@ -96,7 +111,7 @@ test('keyboard reordering preserves selection, can be canceled and respects redu
   await expect(page.locator('.workspace-drag-overlay')).toHaveCSS('animation-name', 'none');
   await expect(page.locator('.workspace-drag-overlay')).toHaveCSS('transform', 'none');
   // The keyboard sensor attaches its document listener in the next task.
-  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('status')).toHaveText('Gamma, position 2 of 3.');
   await page.keyboard.press('Space');
@@ -109,7 +124,7 @@ test('keyboard reordering preserves selection, can be canceled and respects redu
   const before = fs.readFileSync(path.join(`${profile} Test`, 'workspaces.json'), 'utf8');
   await page.keyboard.press('Space');
   await expect(page.locator('.workspace-drag-overlay')).toBeVisible();
-  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 0)));
+  await page.evaluate(() => new Promise((resolve) => setTimeout(resolve, 0)));
   await page.keyboard.press('ArrowUp');
   await expect(page.getByRole('status')).toHaveText('Gamma, position 1 of 3.');
   await page.keyboard.press('Escape');
@@ -123,11 +138,15 @@ test('keyboard reordering preserves selection, can be canceled and respects redu
 test('a failed save keeps the old order and offers clear feedback', async () => {
   await app.evaluate(({ ipcMain }) => {
     ipcMain.removeHandler('workspace:move');
-    ipcMain.handle('workspace:move', () => { throw new Error('Disk full'); });
+    ipcMain.handle('workspace:move', () => {
+      throw new Error('Disk full');
+    });
   });
   await startDrag(page, 'Gamma', 'Alpha');
   await page.mouse.up();
-  await expect(page.getByRole('alert')).toHaveText('Could not save workspace order. Try dragging again.');
+  await expect(page.getByRole('alert')).toHaveText(
+    'Could not save workspace order. Try dragging again.',
+  );
   await expect(page.locator('.workspace-drag-overlay')).toHaveCount(0);
   expect(await order(page)).toEqual(['Alpha', 'Beta', 'Gamma']);
   await expect(button(page, 'Gamma')).toHaveAttribute('aria-keyshortcuts', `${modifier}+3`);

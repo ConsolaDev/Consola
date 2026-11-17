@@ -3,12 +3,24 @@ import { createPortal } from 'react-dom';
 import { Plus, Settings, X } from 'lucide-react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import {
-  DndContext, DragOverlay, MouseSensor, TouchSensor, KeyboardSensor,
-  closestCenter, defaultDropAnimationSideEffects, useSensor, useSensors,
-  type DragEndEvent, type Modifier,
+  DndContext,
+  DragOverlay,
+  MouseSensor,
+  TouchSensor,
+  KeyboardSensor,
+  closestCenter,
+  defaultDropAnimationSideEffects,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Modifier,
 } from '@dnd-kit/core';
 import {
-  SortableContext, arrayMove, sortableKeyboardCoordinates, useSortable, verticalListSortingStrategy,
+  SortableContext,
+  arrayMove,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
 } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -31,11 +43,11 @@ const dropAnimation = {
 
 export function WorkspaceRail() {
   const { openSettings } = useSettings();
-  const workspaces = useWorkspaceStore(state => state.workspaces);
+  const workspaces = useWorkspaceStore((state) => state.workspaces);
   const reducedMotion = useReducedMotion();
   const [draggedId, setDraggedId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const dragged = workspaces.find(workspace => workspace.id === draggedId);
+  const dragged = workspaces.find((workspace) => workspace.id === draggedId);
   const sensors = useSensors(
     useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
     useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 5 } }),
@@ -43,7 +55,7 @@ export function WorkspaceRail() {
       coordinateGetter: sortableKeyboardCoordinates,
       scrollBehavior: reducedMotion ? 'auto' : 'smooth',
       keyboardCodes: { start: ['Space'], cancel: ['Escape'], end: ['Space', 'Enter'] },
-    })
+    }),
   );
 
   // Keep the overlay lifted until main has persisted and broadcast the move.
@@ -51,12 +63,14 @@ export function WorkspaceRail() {
   const saveDrop = async ({ active, over }: DragEndEvent): Promise<boolean> => {
     if (!over || active.id === over.id) return false;
     const current = useWorkspaceStore.getState().workspaces;
-    const from = current.findIndex(workspace => workspace.id === active.id);
-    const to = current.findIndex(workspace => workspace.id === over.id);
+    const from = current.findIndex((workspace) => workspace.id === active.id);
+    const to = current.findIndex((workspace) => workspace.id === over.id);
     if (from < 0 || to < 0) return true;
     const reordered = arrayMove(current, from, to);
     try {
-      await useWorkspaceStore.getState().moveWorkspace(String(active.id), reordered[to + 1]?.id ?? null);
+      await useWorkspaceStore
+        .getState()
+        .moveWorkspace(String(active.id), reordered[to + 1]?.id ?? null);
       return false;
     } catch {
       setError('Could not save workspace order. Try dragging again.');
@@ -64,7 +78,8 @@ export function WorkspaceRail() {
     }
   };
 
-  const nameOf = (id: string | number) => workspaces.find(workspace => workspace.id === id)?.name ?? 'Workspace';
+  const nameOf = (id: string | number) =>
+    workspaces.find((workspace) => workspace.id === id)?.name ?? 'Workspace';
 
   return (
     <Tooltip.Provider delayDuration={200}>
@@ -73,62 +88,109 @@ export function WorkspaceRail() {
         collisionDetection={closestCenter}
         modifiers={modifiers}
         cancelDrop={saveDrop}
-        onDragStart={({ active }) => { setError(null); setDraggedId(String(active.id)); }}
+        onDragStart={({ active }) => {
+          setError(null);
+          setDraggedId(String(active.id));
+        }}
         onDragEnd={() => setDraggedId(null)}
         onDragCancel={() => setDraggedId(null)}
         accessibility={{
           screenReaderInstructions: {
-            draggable: 'Press Space to pick up a workspace, Up or Down to move it, Space to drop, or Escape to cancel. Press Enter to switch workspace.',
+            draggable:
+              'Press Space to pick up a workspace, Up or Down to move it, Space to drop, or Escape to cancel. Press Enter to switch workspace.',
           },
           announcements: {
-            onDragStart: ({ active }) => `Picked up ${nameOf(active.id)}. Use Up or Down to reorder.`,
-            onDragOver: ({ active, over }) => over
-              ? `${nameOf(active.id)}, position ${workspaces.findIndex(workspace => workspace.id === over.id) + 1} of ${workspaces.length}.`
-              : undefined,
-            onDragEnd: ({ active }) => `${nameOf(active.id)} placed at position ${workspaces.findIndex(workspace => workspace.id === active.id) + 1}. Workspace shortcuts updated.`,
+            onDragStart: ({ active }) =>
+              `Picked up ${nameOf(active.id)}. Use Up or Down to reorder.`,
+            onDragOver: ({ active, over }) =>
+              over
+                ? `${nameOf(active.id)}, position ${workspaces.findIndex((workspace) => workspace.id === over.id) + 1} of ${workspaces.length}.`
+                : undefined,
+            onDragEnd: ({ active }) =>
+              `${nameOf(active.id)} placed at position ${workspaces.findIndex((workspace) => workspace.id === active.id) + 1}. Workspace shortcuts updated.`,
             onDragCancel: () => 'Reordering canceled. Workspace order unchanged.',
           },
         }}
       >
-        <nav className="workspace-rail" aria-label="Workspaces" data-reordering={draggedId ? '' : undefined}>
+        <nav
+          className="workspace-rail"
+          aria-label="Workspaces"
+          data-reordering={draggedId ? '' : undefined}
+        >
           <div className="workspace-rail-list">
-            <SortableContext items={workspaces.map(workspace => workspace.id)} strategy={verticalListSortingStrategy}>
+            <SortableContext
+              items={workspaces.map((workspace) => workspace.id)}
+              strategy={verticalListSortingStrategy}
+            >
               {workspaces.map((workspace, index) => (
-                <SortableWorkspace key={workspace.id} workspace={workspace} index={index}
-                  canReorder={workspaces.length > 1} reordering={draggedId !== null} reducedMotion={reducedMotion} />
+                <SortableWorkspace
+                  key={workspace.id}
+                  workspace={workspace}
+                  index={index}
+                  canReorder={workspaces.length > 1}
+                  reordering={draggedId !== null}
+                  reducedMotion={reducedMotion}
+                />
               ))}
             </SortableContext>
-            <button className="workspace-rail-add" aria-label="Add workspace" title="Add workspace" onClick={() => void pickFoldersAndCreateWorkspace()}>
+            <button
+              className="workspace-rail-add"
+              aria-label="Add workspace"
+              title="Add workspace"
+              onClick={() => void pickFoldersAndCreateWorkspace()}
+            >
               <Plus size={24} />
             </button>
           </div>
-          <button className="workspace-rail-settings" aria-label="Settings" title="Settings" onClick={openSettings}>
+          <button
+            className="workspace-rail-settings"
+            aria-label="Settings"
+            title="Settings"
+            onClick={openSettings}
+          >
             <Settings size={22} />
           </button>
         </nav>
         {createPortal(
           <DragOverlay dropAnimation={reducedMotion ? null : dropAnimation} zIndex={250}>
-            {dragged && <div className="workspace-drag-overlay" aria-hidden="true">
-              <WorkspaceIcon icon={dragged.icon} name={dragged.name} size={32} borderRadius={8} />
-            </div>}
-          </DragOverlay>, document.body
+            {dragged && (
+              <div className="workspace-drag-overlay" aria-hidden="true">
+                <WorkspaceIcon icon={dragged.icon} name={dragged.name} size={32} borderRadius={8} />
+              </div>
+            )}
+          </DragOverlay>,
+          document.body,
         )}
       </DndContext>
-      {error && createPortal(
-        <div className="workspace-reorder-error" role="alert">
-          <span>{error}</span>
-          <button aria-label="Dismiss workspace order error" onClick={() => setError(null)}><X size={14} /></button>
-        </div>, document.body
-      )}
+      {error &&
+        createPortal(
+          <div className="workspace-reorder-error" role="alert">
+            <span>{error}</span>
+            <button aria-label="Dismiss workspace order error" onClick={() => setError(null)}>
+              <X size={14} />
+            </button>
+          </div>,
+          document.body,
+        )}
     </Tooltip.Provider>
   );
 }
 
-function SortableWorkspace({ workspace, index, canReorder, reordering, reducedMotion }: {
-  workspace: Workspace; index: number; canReorder: boolean; reordering: boolean; reducedMotion: boolean;
+function SortableWorkspace({
+  workspace,
+  index,
+  canReorder,
+  reordering,
+  reducedMotion,
+}: {
+  workspace: Workspace;
+  index: number;
+  canReorder: boolean;
+  reordering: boolean;
+  reducedMotion: boolean;
 }) {
-  const activeWorkspaceId = useNavigationStore(state => state.activeWorkspaceId);
-  const setActiveWorkspace = useNavigationStore(state => state.setActiveWorkspace);
+  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
+  const setActiveWorkspace = useNavigationStore((state) => state.setActiveWorkspace);
   const [tooltipOpen, setTooltipOpen] = useState(false);
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: workspace.id,
@@ -136,8 +198,8 @@ function SortableWorkspace({ workspace, index, canReorder, reordering, reducedMo
     transition: reducedMotion ? null : { duration: 180, easing: EASING },
   });
   // A boolean, so a status change inside the workspace that is not a prompt re-renders nothing.
-  const needsAttention = useAttentionStore(state =>
-    workspace.sessions.some(session => state.attention[session.id] === 'needs-attention')
+  const needsAttention = useAttentionStore((state) =>
+    workspace.sessions.some((session) => state.attention[session.id] === 'needs-attention'),
   );
   const shortcut = index < 9 ? index + 1 : null;
 
@@ -157,21 +219,33 @@ function SortableWorkspace({ workspace, index, canReorder, reordering, reducedMo
           aria-current={workspace.id === activeWorkspaceId ? 'true' : undefined}
           aria-description={needsAttention ? 'A prompt needs your attention' : undefined}
           aria-keyshortcuts={shortcut ? `${isMac ? 'Meta' : 'Control'}+${shortcut}` : undefined}
-          onClick={() => { if (!reordering) void setActiveWorkspace(workspace.id); }}
+          onClick={() => {
+            if (!reordering) void setActiveWorkspace(workspace.id);
+          }}
         >
           <WorkspaceIcon icon={workspace.icon} name={workspace.name} size={32} borderRadius={8} />
           {needsAttention && <span className="workspace-rail-attention" aria-hidden="true" />}
         </button>
       </Tooltip.Trigger>
       <Tooltip.Portal>
-        <Tooltip.Content className="workspace-tooltip" side="right" sideOffset={12} collisionPadding={8}>
+        <Tooltip.Content
+          className="workspace-tooltip"
+          side="right"
+          sideOffset={12}
+          collisionPadding={8}
+        >
           <span className="workspace-tooltip-details">
             <span className="workspace-tooltip-name">{workspace.name}</span>
-            {needsAttention && <span className="workspace-tooltip-attention">A prompt needs your attention</span>}
+            {needsAttention && (
+              <span className="workspace-tooltip-attention">A prompt needs your attention</span>
+            )}
           </span>
-          {shortcut && <span className="workspace-tooltip-shortcut">
-            <kbd>{isMac ? '⌘' : 'Ctrl'}</kbd><kbd>{shortcut}</kbd>
-          </span>}
+          {shortcut && (
+            <span className="workspace-tooltip-shortcut">
+              <kbd>{isMac ? '⌘' : 'Ctrl'}</kbd>
+              <kbd>{shortcut}</kbd>
+            </span>
+          )}
           <Tooltip.Arrow className="workspace-tooltip-arrow" width={10} height={6} />
         </Tooltip.Content>
       </Tooltip.Portal>

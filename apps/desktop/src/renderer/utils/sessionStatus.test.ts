@@ -47,8 +47,12 @@ describe('workspaceStatusFor', () => {
   });
 
   it('ignores settled sessions', () => {
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), { a: 'settled', b: 'settled' })).toBe('ready');
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), { a: 'settled', b: 'working' })).toBe('working');
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), { a: 'settled', b: 'settled' })).toBe(
+      'ready',
+    );
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), { a: 'settled', b: 'working' })).toBe(
+      'working',
+    );
   });
 });
 
@@ -69,7 +73,11 @@ describe('anyOtherWorkspaceNeedsAttention', () => {
   });
 
   it('is true when any other workspace needs attention, not only when all of them do', () => {
-    const workspaces = [workspace('active', ['a']), workspace('waiting', ['b']), workspace('idle', ['c'])];
+    const workspaces = [
+      workspace('active', ['a']),
+      workspace('waiting', ['b']),
+      workspace('idle', ['c']),
+    ];
     const attention = { a: 'ready', b: 'needs-attention', c: 'ready' } as const;
 
     expect(anyOtherWorkspaceNeedsAttention(workspaces, 'active', attention)).toBe(true);
@@ -78,8 +86,12 @@ describe('anyOtherWorkspaceNeedsAttention', () => {
   // Tested by name, not rank. `exited` ranks below `working` and `ready` now, so a
   // rank-based rewrite would stop reporting a dead process beside a busy one.
   it('is still true for an exited session after the rank inversion', () => {
-    expect(anyOtherWorkspaceNeedsAttention([workspace('w2', ['b'])], 'w1', { b: 'exited' })).toBe(true);
+    expect(anyOtherWorkspaceNeedsAttention([workspace('w2', ['b'])], 'w1', { b: 'exited' })).toBe(
+      true,
+    );
     const mixed = { a: 'exited', b: 'working', c: 'ready' } as const;
-    expect(anyOtherWorkspaceNeedsAttention([workspace('w2', ['a', 'b', 'c'])], 'w1', mixed)).toBe(true);
+    expect(anyOtherWorkspaceNeedsAttention([workspace('w2', ['a', 'b', 'c'])], 'w1', mixed)).toBe(
+      true,
+    );
   });
 });

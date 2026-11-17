@@ -50,13 +50,11 @@ export const SelectableCode = memo(function SelectableCode({
   return (
     <div ref={containerRef} className={`selectable-code ${className}`.trim()}>
       {children}
-      {selection && createPortal(
-        <SelectionPopup
-          position={selection.position}
-          onAddToChat={addToChat}
-        />,
-        document.body
-      )}
+      {selection &&
+        createPortal(
+          <SelectionPopup position={selection.position} onAddToChat={addToChat} />,
+          document.body,
+        )}
     </div>
   );
 });

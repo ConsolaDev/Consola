@@ -35,7 +35,7 @@ function describePlan(account: HarnessAccount): string | null {
  */
 export function describeHarnessStatus(
   status: HarnessStatus | undefined,
-  reported?: HarnessCapabilityAccount
+  reported?: HarnessCapabilityAccount,
 ): string {
   if (!status || status.state === 'unknown') return 'Not checked yet.';
   if (status.state === 'probing') return 'Checking…';
