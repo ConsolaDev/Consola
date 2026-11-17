@@ -93,6 +93,17 @@ async function buildService(initialPrompt?: string): Promise<TerminalService> {
 /** Idle debounce (500 ms) plus one, so a settle is unambiguous. */
 const SETTLE_MS = 501;
 
+/** Claude repaints its spinner several times a second for as long as a turn runs. */
+const FRAME_MS = 100;
+
+/** A turn's output: one spinner frame every FRAME_MS for `ms`. */
+async function animate(pty: PtyHarness, ms: number): Promise<void> {
+    for (let elapsed = 0; elapsed < ms; elapsed += FRAME_MS) {
+        pty.feed(`\x1b[1;1H✻ Working… ${elapsed}`);
+        await vi.advanceTimersByTimeAsync(FRAME_MS);
+    }
+}
+
 beforeEach(() => {
     vi.useFakeTimers();
     loginEnv.current = { PATH: '/usr/bin' };
@@ -390,7 +401,7 @@ describe('TerminalService status event', () => {
         const statuses: string[] = [];
         service.on('status', (status: string) => statuses.push(status));
 
-        pty.feed('booting up');                        // output starts flowing
+        await animate(pty, 1_500);                     // a turn: output keeps coming
         await vi.advanceTimersByTimeAsync(SETTLE_MS);  // settles, no menu
         pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
         await vi.advanceTimersByTimeAsync(SETTLE_MS);  // settles on a menu
@@ -400,12 +411,11 @@ describe('TerminalService status event', () => {
 
         // The spawn's initial 'ready' fired inside buildService(), before this
         // listener attached — real listeners do see it, because wireEvents()
-        // runs before start() in TerminalManager. From here: data -> working,
+        // runs before start() in TerminalManager. From here: turn -> working,
         // settle -> ready, menu -> needs-attention, cleared -> ready, exit.
         expect(statuses).toEqual([
             'working',
             'ready',
-            'working',
             'needs-attention',
             'ready',
             'exited',
@@ -437,6 +447,127 @@ describe('TerminalService status event', () => {
         // A stale flag surviving the restart would fire an OS notification for
         // a menu that is no longer on screen.
         expect(statuses).toEqual(['ready']);
+
+        service.destroy();
+    });
+});
+
+/**
+ * Opening a session must not read as work. The CLI paints when it launches,
+ * repaints when its pane is fitted, and answers a focus report and every key
+ * — all while the person has asked it nothing. The bursts below are the
+ * shapes Claude Code 2.1 produced for each when measured in a real PTY.
+ */
+describe('TerminalService turn detection', () => {
+    async function idleService(): Promise<{ pty: PtyHarness; service: TerminalService; statuses: string[] }> {
+        const pty = installFakePty();
+        const service = await buildService();
+        await vi.advanceTimersByTimeAsync(0);
+        const statuses: string[] = [];
+        service.on('status', (status: string) => statuses.push(status));
+        return { pty, service, statuses };
+    }
+
+    async function showComposer(pty: PtyHarness): Promise<void> {
+        pty.feed('\x1b[2J\x1b[H❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    }
+
+    it('reads a launch painting itself as ready', async () => {
+        const { pty, service, statuses } = await idleService();
+
+        // A first paint: a run of chunks over ~350 ms, then quiet.
+        pty.feed('\x1b[?1049h\x1b[?1004h');
+        await vi.advanceTimersByTimeAsync(110);
+        pty.feed('Claude Code v2.1');
+        await vi.advanceTimersByTimeAsync(240);
+        pty.feed('\x1b[20;1H❯ ');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+        expect(statuses).toEqual([]);
+        expect(service.busy()).toBe(false);
+        service.destroy();
+    });
+
+    it('reads the repaint that fitting the pane asks for as ready', async () => {
+        const { pty, service, statuses } = await idleService();
+        await showComposer(pty);
+
+        // A resize repaints at once, then once more about 385 ms later.
+        service.resize(100, 30);
+        pty.feed('\x1b[2J\x1b[H❯ ');
+        await vi.advanceTimersByTimeAsync(385);
+        pty.feed('\x1b[?25l\x1b[30;1H\x1b[?25h');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+        expect(statuses).toEqual([]);
+        service.destroy();
+    });
+
+    it('reads the answer to a focus report as ready', async () => {
+        const { pty, service, statuses } = await idleService();
+        await showComposer(pty);
+
+        // Focusing the pane reports focus; Claude answers by restating its modes.
+        service.write('\x1b[I');
+        pty.feed('\x1b[?2004h\x1b[?1000h\x1b[?1002h\x1b[?1003h\x1b[?1006h');
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+        expect(statuses).toEqual([]);
+        service.destroy();
+    });
+
+    it('reads the echo of typing as ready, however long the typing goes on', async () => {
+        const { pty, service, statuses } = await idleService();
+        await showComposer(pty);
+
+        let typed = '';
+        for (const key of 'a prompt typed at a steady pace, one key at a time') {
+            service.write(key);
+            typed += key;
+            pty.feed(`\x1b[20;3H${typed}`);
+            await vi.advanceTimersByTimeAsync(150);
+        }
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+        expect(statuses).toEqual([]);
+        service.destroy();
+    });
+
+    it('reads output that keeps coming after a prompt as working within a second, then ready', async () => {
+        const { pty, service, statuses } = await idleService();
+        await showComposer(pty);
+
+        service.write('\r');
+        await animate(pty, 1_200);
+        expect(statuses).toEqual(['working']);
+        expect(service.busy()).toBe(true);
+
+        await animate(pty, 3_000);
+        await vi.advanceTimersByTimeAsync(SETTLE_MS);
+        expect(statuses).toEqual(['working', 'ready']);
+        service.destroy();
+    });
+
+    it('reads a turn that starts with nothing typed as working', async () => {
+        const { pty, service, statuses } = await idleService();
+        await showComposer(pty);
+
+        // A background task finishing wakes the agent on its own.
+        await animate(pty, 1_200);
+
+        expect(statuses).toEqual(['working']);
+        service.destroy();
+    });
+
+    it('holds a queued prompt while output is still arriving, even before it reads as a turn', async () => {
+        const { pty, service } = await idleService();
+        await showComposer(pty);
+
+        // A turn has just started, with the composer still on screen beneath it.
+        pty.feed('\x1b[1;1H✻ Working…');
+        service.queuePrompt('typed into a running turn');
+        expect(pty.writes).toEqual([]);
 
         service.destroy();
     });

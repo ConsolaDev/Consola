@@ -22,6 +22,20 @@ import type { SessionToolPolicy } from '../shared/workspace';
 /** Silence after which a terminal is considered idle. */
 const IDLE_DEBOUNCE_MS = 500;
 
+/**
+ * How long output must keep coming, with nothing from the view for it to
+ * answer, before it counts as a turn.
+ *
+ * Output alone is not work. The CLI paints when it launches, repaints when
+ * its pane is fitted, and answers a focus report, a scroll and every key, so
+ * merely opening a session used to read as `working` — moving its row to
+ * Working and back, and counting as activity. Each of those is a burst that
+ * ends within about 400 ms (measured against Claude Code 2.1), or that
+ * follows the view's own input. A turn is the CLI painting its spinner, on
+ * its own, for as long as the turn runs.
+ */
+const TURN_MIN_MS = 1_000;
+
 /** How often a working CLI is asked where it works. Never while it is idle. */
 const WORKING_DIRECTORY_POLL_MS = 2_000;
 
@@ -173,7 +187,13 @@ export class TerminalService extends EventEmitter {
     private readonly harness: HarnessConfig;
 
     private screen: ScreenModel | null = null;
+    /** Set while output is arriving: from a chunk until IDLE_DEBOUNCE_MS of quiet. */
     private idleTimer: NodeJS.Timeout | null = null;
+    /** When the output now arriving began. */
+    private outputStartedAt = 0;
+    /** When the view last sent the CLI anything: keys, a paste, a focus or mouse report, a size. */
+    private lastInputAt = 0;
+    /** A turn is running. */
     private isBusy = false;
     private claudeExited = false;
     /** Whether the current Claude launch has painted anything at all. */
@@ -242,7 +262,9 @@ export class TerminalService extends EventEmitter {
      */
     public queuePrompt(prompt: string): void {
         this.promptQueue.push(prompt);
-        if (!this.isBusy) {
+        // Output still arriving may be a turn that has not yet lasted long
+        // enough to read as one; the composer stays on screen beneath it.
+        if (!this.isBusy && this.idleTimer === null) {
             this.deliverPendingPrompt();
         }
     }
@@ -269,6 +291,7 @@ export class TerminalService extends EventEmitter {
     public write(data: string): void {
         // Print mode exits 0 on Ctrl+C: remember that the person stopped it.
         if (this.unattendedTurn && data.includes('\x03')) this.unattendedStopReason ??= 'you pressed Ctrl+C';
+        this.lastInputAt = Date.now();
         this.claudePty?.write(data);
     }
 
@@ -281,10 +304,12 @@ export class TerminalService extends EventEmitter {
      */
     public paste(text: string): void {
         if (!this.claudePty) return;
+        this.lastInputAt = Date.now();
         this.claudePty.write(bracketedPaste(text));
     }
 
     public resize(cols: number, rows: number): void {
+        this.lastInputAt = Date.now();
         this.dimensions = { cols, rows };
         this.claudePty?.resize(cols, rows);
         this.screen?.resize(cols, rows);
@@ -347,6 +372,8 @@ export class TerminalService extends EventEmitter {
         this.disposeScreen();
         this.emit('data', CLEAR_SCREEN);
         this.setBusy(false);
+        // Output that had not yet read as a turn was still being followed.
+        this.followWorkingDirectory();
         if (this.isAwaitingConfirmation) {
             this.isAwaitingConfirmation = false;
             this.emit('awaiting-confirmation', false);
@@ -664,16 +691,25 @@ export class TerminalService extends EventEmitter {
         this.getScreen().write(data);
         this.emit('data', data);
 
-        this.setBusy(true);
-        this.emitStatus();
+        const now = Date.now();
+        const starting = this.idleTimer === null;
         if (this.idleTimer) clearTimeout(this.idleTimer);
         this.idleTimer = setTimeout(() => {
+            this.idleTimer = null;
             this.classifyScreen();
             // Print mode is silent while it works; only its exit ends the turn.
             if (!this.unattendedTurn) this.setBusy(false);
+            this.followWorkingDirectory();
             this.deliverPendingPrompt();
             this.emitStatus();
         }, IDLE_DEBOUNCE_MS);
+        if (starting) {
+            this.outputStartedAt = now;
+            this.followWorkingDirectory();
+        }
+        // See TURN_MIN_MS: a paint, a repaint or an echo is over before this.
+        if (now - Math.max(this.outputStartedAt, this.lastInputAt) >= TURN_MIN_MS) this.setBusy(true);
+        this.emitStatus();
     }
 
     /** Busy from spawn to exit, and stopped if it outlasts the limit. */
@@ -830,30 +866,34 @@ export class TerminalService extends EventEmitter {
     }
 
     /**
-     * Activity is inferred from output flow: Claude animates while it works and
-     * goes quiet when it wants input. This is a heuristic — it reads as busy
-     * for a moment while the user's own keystrokes echo.
+     * A turn is inferred from output flow: Claude animates while it works and
+     * goes quiet when it wants input. A heuristic, so `handleData` only calls
+     * it once output has outlasted anything but a turn (TURN_MIN_MS).
      */
     private setBusy(busy: boolean): void {
         if (this.isBusy === busy) return;
         this.isBusy = busy;
         this.emit('activity', busy);
-        this.followWorkingDirectory(busy);
+        this.followWorkingDirectory();
     }
 
     /**
      * Keep up with where the agent works, which its CLI can change on its own:
      * Claude's EnterWorktree moves the whole process into a worktree, and every
-     * git view belongs on the checkout the agent edits. Only work moves it, so
-     * the CLI is asked while output flows — a long turn shows the move as it
-     * happens — and once more as the turn ends. An idle session costs nothing.
+     * git view belongs on the checkout the agent edits. Only a running process
+     * moves it, so the CLI is asked while output flows or a turn runs — a long
+     * turn shows the move as it happens — and once more when both stop. A
+     * launch's first paint is not a turn, but it is output: that one answer is
+     * how a relaunched process reports where it now is. An idle session costs
+     * nothing.
      */
-    private followWorkingDirectory(busy: boolean): void {
+    private followWorkingDirectory(): void {
         if (!this.driver.readWorkingDirectory || this.workingDirectoryUnreadable) return;
-        if (busy) {
+        if (this.isBusy || this.idleTimer !== null) {
             this.workingDirectoryPoll ??= setInterval(() => this.readWorkingDirectory(), WORKING_DIRECTORY_POLL_MS);
             return;
         }
+        if (this.workingDirectoryPoll === null) return;
         this.stopWorkingDirectoryPoll();
         this.readWorkingDirectory();
     }
