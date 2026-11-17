@@ -1034,7 +1034,7 @@
 
 /* A row arriving. Rows are keyed by entry, so this plays exactly when one is
    genuinely new to the list — a session started, a shelf unfolded, a turn
-   finishing and moving its row up to Needs you — and never on a re-render.
+   finishing and moving its row up to the top of the list — and never on a re-render.
    Opacity and transform only: the row's neighbours do not move for it, so an
    arrival somewhere in the list cannot shove the row under the cursor.
 
@@ -1244,12 +1244,26 @@
    bar above it without a gap it has not earned. */
 .sidebar-bucket + .sidebar-bucket { margin-top: var(--space-2); }
 
+/* Settled is pinned to the bottom of the sidebar, below the scrolling panel
+   rather than inside it. It sizes to its rows up to a cap, and past that its
+   rows scroll under a header that stays put: however many sessions have
+   stopped, they never push the ones above out of view. */
+.sidebar-bucket--settled {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 40%;
+  padding-top: var(--space-1);
+  padding-bottom: var(--space-1);
+  border-top: 1px solid var(--color-border);
+}
+.sidebar-bucket--settled .session-list { min-height: 0; overflow-y: auto; overflow-x: hidden; }
+
 /* A section's header. The same height as a session row and on the same left
    edge, told apart by weight and colour, with a live count so a folded shelf
-   still says what is behind it. Two shapes: a button that folds (Working,
-   Settled) and a plain label that does not (Needs you). They look the same
-   apart from the chevron, because they are the same thing — the line that
-   says these rows below are one group. */
+   still says what is behind it. Both sections that have one (Working,
+   Settled) fold, so the header is the button that does it. */
 .shelf-header {
   display: flex;
   align-items: center;
@@ -1269,14 +1283,8 @@
   cursor: pointer;
   transition: background 140ms var(--ease-out-quart), color 140ms var(--ease-out-quart);
 }
-/* Scoped to the button: a label is not a control, so nothing about it may
-   answer the pointer as though it were. */
 button.shelf-header:hover { background: var(--color-bg-hover); color: var(--color-text-primary); }
 .shelf-header:focus-visible { outline: 1px solid var(--color-accent); outline-offset: -1px; }
-
-/* A label names its rows and takes no pointer, and no more room than the
-   words need. */
-.shelf-header--label { cursor: default; min-height: 22px; }
 
 .shelf-header-title { flex: 1; min-width: 0; }
 .shelf-header-count {

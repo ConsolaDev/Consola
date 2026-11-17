@@ -137,7 +137,7 @@ describe('applyFilter', () => {
           entry('p', 'working', { labels: ['x'] }),
           entry('c', attention, { parent: keyOf('p'), labels: ['y'] }),
         ];
-        expect(ids(bucketize(buildForest(all))[attention === 'done' ? 'settled' : 'waiting'])).toEqual(['p']);
+        expect(ids(bucketize(buildForest(all)).waiting)).toEqual(['p']);
         const { result, buckets } = bucketsOf(all, { labels: ['x'] });
         expect(ids(buckets.working)).toEqual(['p']);
         expect(buckets.waiting).toEqual([]);

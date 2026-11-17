@@ -68,17 +68,20 @@ test('the first auto-settle is explained, once, and nothing is deleted', async (
   await expect(dialog).toHaveCount(0);
 
   await hold(page);
-  // Everything that has stopped is one section now, so what tells the shelved
-  // row from the one left alone is the move each offers, not a heading.
+  // The shelf holds only what was put away: the long-idle session is on it,
+  // and the fresh one stays at the top of the list.
   const shelf = page.getByRole('navigation', { name: 'Settled sessions' });
+  const list = page.getByRole('navigation', { name: 'Sessions', exact: true });
   await expect(shelf.getByText('Old spike')).toBeVisible();
-  await expect(shelf.getByText('Fresh work')).toBeVisible();
+  await expect(shelf.getByText('Fresh work')).toHaveCount(0);
+  await expect(list.getByText('Fresh work')).toBeVisible();
   // A row's actions appear on hover, so every reach for one hovers first.
-  const row = (name: string) => shelf.locator('.session-nav-item').filter({ hasText: name });
-  await row('Old spike').hover();
-  await expect(row('Old spike').getByRole('button', { name: 'Move Old spike back to the list' })).toBeVisible();
-  await row('Fresh work').hover();
-  await expect(row('Fresh work').getByRole('button', { name: 'Settle session Fresh work' })).toBeVisible();
+  const shelved = shelf.locator('.session-nav-item').filter({ hasText: 'Old spike' });
+  await shelved.hover();
+  await expect(shelved.getByRole('button', { name: 'Move Old spike back to the list' })).toBeVisible();
+  const fresh = list.locator('.session-nav-item').filter({ hasText: 'Fresh work' });
+  await fresh.hover();
+  await expect(fresh.getByRole('button', { name: 'Settle session Fresh work' })).toBeVisible();
 });
 
 test('once explained it is not explained again, and Off keeps everything where it is', async () => {

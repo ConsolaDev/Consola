@@ -1,4 +1,5 @@
 import { createElement, type ComponentType, type ReactElement, type ReactNode } from 'react';
+import type { Bucket } from './bucketize';
 import type { Entry } from './entry';
 import { RunRow, activateRun } from '../components/Sidebar/rows/RunRow';
 import { SessionRow } from '../components/Sidebar/rows/SessionRow';
@@ -20,6 +21,8 @@ export interface RowProps {
   trailing?: ReactNode;
   /** What the row may do about the Settled shelf. Decided from the tree, which a row cannot see. */
   settle?: SettleOffer;
+  /** The section the row is drawn in, which a row cannot see either. */
+  bucket?: Bucket;
 }
 
 export interface RowKind {
@@ -44,7 +47,7 @@ export const ROW_KINDS: Record<string, RowKind> = {
 /** The row for an entry, or nothing for a kind nobody registered. */
 export function entryRow(
   entry: Entry,
-  props: { workspaceId: string; active: boolean; child?: boolean; trailing?: ReactNode; settle?: SettleOffer }
+  props: { workspaceId: string; active: boolean; child?: boolean; trailing?: ReactNode; settle?: SettleOffer; bucket?: Bucket }
 ): ReactElement | null {
   const kind = ROW_KINDS[entry.kind];
   if (!kind) return null;

@@ -8,7 +8,7 @@ export type SettleOffer =
   /** Not available, and why: a menu can show the reason, a hover slot just stays out of the way. */
   | { kind: 'blocked'; reason: string };
 
-/** `done` is idle too: settling it marks it seen, which drops it out of Settled's unread tier and behind the fold — putting a looked-at result away is the gesture. */
+/** `done` is idle too: settling it marks it seen and puts it on the shelf — putting a looked-at result away is the gesture. */
 const IDLE = new Set(['ready', 'exited', 'settled', 'done']);
 
 /**

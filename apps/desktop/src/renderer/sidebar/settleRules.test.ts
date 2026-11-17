@@ -42,9 +42,8 @@ function world(specs: Spec[]) {
   const forest = (): TreeNode[] => buildForest(entriesNow());
   /**
    * Whether the row's *tree* has reached the shelf — the visible move, since a
-   * tree is drawn and filed as one. Asked of its aggregate attention rather
-   * than of its bucket: Settled is every session that has stopped, so a tree
-   * sitting in that bucket says nothing about whether anyone put it there.
+   * tree is drawn and filed as one. Asked of its aggregate attention, which
+   * is what files a tree under Settled.
    */
   const treeOnShelf = (id: string): boolean => {
     const root = forest().find((node) => membersOf(node).some((entry) => entry.key === sessionKey(id)));
@@ -53,9 +52,11 @@ function world(specs: Spec[]) {
   /** Whether the row itself was shelved, whatever its tree reads as. */
   const rowOnShelf = (id: string): boolean =>
     entriesNow().find((entry) => entry.key === sessionKey(id))?.attention === 'settled';
-  /** The ids a folded Settled shelf still shows: unread results, and nothing else. */
+  /** The ids a folded Settled shelf still shows, with nothing open. */
   const throughTheFold = (): string[] =>
     visibleNodes(bucketize(forest()).settled, true, null).map((node) => node.entry.key);
+  /** The ids at the top of the list, where everything in play and not running waits. */
+  const atTheTop = (): string[] => bucketize(forest()).waiting.map((node) => node.entry.key);
   /** The offer the row for `id` would carry, from the tree it sits in, with `viewing` open in the window. */
   const offerFor = (id: string, viewing?: string) => {
     const viewed = viewing ? sessionKey(viewing) : null;
@@ -65,7 +66,7 @@ function world(specs: Spec[]) {
     }
     throw new Error('no such row');
   };
-  return { ledger, workspace, treeOnShelf, rowOnShelf, throughTheFold, offerFor };
+  return { ledger, workspace, treeOnShelf, rowOnShelf, throughTheFold, atTheTop, offerFor };
 }
 
 const SCENARIOS: { name: string; specs: Spec[]; target: string; lands: boolean }[] = [
@@ -88,14 +89,15 @@ describe('settling by hand, end to end', () => {
     expect(offer === 'settle').toBe(lands);
   });
 
-  it('a done root is where settling is most wanted: it reads done first, then goes behind the fold', () => {
+  it('a done root is where settling is most wanted: it waits at the top, then goes behind the fold', () => {
     const w = world([{ id: 'a', terminal: 'ready', finished: true }]);
-    // An unread result survives a folded shelf, which is how a finish arrives.
-    expect(w.throughTheFold()).toEqual([sessionKey('a')]);
+    // An unread result waits at the top, which is how a finish arrives.
+    expect(w.atTheTop()).toEqual([sessionKey('a')]);
 
     settleSession(w.workspace, 'a', w.ledger, NOW);
 
     expect(w.treeOnShelf('a')).toBe(true);
+    expect(w.atTheTop()).toEqual([]);
     expect(w.throughTheFold()).toEqual([]);
   });
 

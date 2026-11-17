@@ -70,6 +70,7 @@ function SessionRowBody({
   onActivate: onClick,
   trailing,
   settle,
+  bucket,
 }: RowProps & { session: Session }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
@@ -77,8 +78,14 @@ function SessionRowBody({
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
   const showModel = useSettingsStore((state) => state.showSidebarModel);
-  const showHarness = useSettingsStore((state) => state.showSidebarHarness);
+  const showHarnessSetting = useSettingsStore((state) => state.showSidebarHarness);
   const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
+  // A settled row is finished work, so it says what the session was rather
+  // than how it ran: no harness glyph and no worktree line, whatever the
+  // settings say for the rest of the list.
+  const inSettledShelf = bucket === 'settled';
+  const showHarness = showHarnessSetting && !inSettledShelf;
+  const showWorktreeLine = showWorktree && !inSettledShelf;
   const model = useSessionModel(session, showModel);
   // Read from the folder, not the record: a scope can itself be a worktree.
   // Nothing is read at all while the line is switched off.
@@ -86,9 +93,9 @@ function SessionRowBody({
     const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId);
     return workspace ? checkoutPathForSession(workspace, session) : undefined;
   });
-  const checkout = useCheckout(showWorktree ? checkoutPath : null);
+  const checkout = useCheckout(showWorktreeLine ? checkoutPath : null);
   const worktreeRef =
-    showWorktree && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
+    showWorktreeLine && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
   const shownModel = showModel ? model : undefined;
   // The stored list, resolved in render: a selector building an array would
   // hand React a fresh snapshot on every read. Ids naming a deleted label

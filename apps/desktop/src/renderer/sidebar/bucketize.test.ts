@@ -4,12 +4,11 @@ import { bucketize, type Bucket } from './bucketize';
 import { buildForest } from './forest';
 import { entry, ids, keyOf, node } from './entryFixtures';
 
-// Two live sections and the shelf everything that has stopped falls into.
-// `done`, `ready` and `exited` are not kinds of their own, and neither is a
-// session put away by hand: all four have stopped, which is what Settled means.
+// Everything in play that is not running waits at the top; Settled holds only
+// what was put away. Stopping is not settling.
 const EXPECTED: Record<Attention, Bucket> = {
-  'needs-attention': 'waiting', working: 'working',
-  done: 'settled', ready: 'settled', exited: 'settled', settled: 'settled',
+  'needs-attention': 'waiting', done: 'waiting', ready: 'waiting', exited: 'waiting',
+  working: 'working', settled: 'settled',
 };
 
 describe('bucketize', () => {
@@ -40,39 +39,37 @@ describe('bucketize', () => {
         node(entry('c', 'done', { finishedAt: 300 })),
         node(entry('b', 'done', { finishedAt: 200 })),
       ]);
-      expect(ids(result.settled)).toEqual(['c', 'b', 'a']);
+      expect(ids(result.waiting)).toEqual(['c', 'b', 'a']);
     });
 
-    it('puts unread results above everything that has already been seen', () => {
-      // The read row is the more recent of the two by every clock there is;
-      // the unread finish still comes first, because Settled is where a finish
-      // arrives and an arrival nobody has seen must not land in the tail.
+    it('puts questions first, then unread results, then what is merely idle', () => {
+      // The idle rows are the more recent by every clock there is; the
+      // question and the unread finish still come first, because an arrival
+      // nobody has dealt with must not land in the tail.
       const result = bucketize([
         node(entry('read', 'ready', { activityAt: 900 })),
         node(entry('unread', 'done', { finishedAt: 100, activityAt: 100 })),
         node(entry('older', 'exited', { activityAt: 500 })),
+        node(entry('asking', 'needs-attention', { since: 50, activityAt: 50 })),
       ]);
-      expect(ids(result.settled)).toEqual(['unread', 'read', 'older']);
+      expect(ids(result.waiting)).toEqual(['asking', 'unread', 'read', 'older']);
     });
 
-    it('puts what someone put away last, whatever its clock says', () => {
-      // Everything stopped shares one section, so settling has to be visible
-      // as a move: a row shelved a second ago belongs below one nobody has
-      // touched in a week, and below the finish nobody has read.
+    it('keeps what someone put away out of the top of the list, whatever its clock says', () => {
       const result = bucketize([
         node(entry('shelved', 'settled', { activityAt: 900 })),
         node(entry('idle', 'exited', { activityAt: 100 })),
-        node(entry('unread', 'done', { finishedAt: 50, activityAt: 50 })),
       ]);
-      expect(ids(result.settled)).toEqual(['unread', 'idle', 'shelved']);
+      expect(ids(result.waiting)).toEqual(['idle']);
+      expect(ids(result.settled)).toEqual(['shelved']);
     });
 
     it('sorts a done row with no finishedAt last rather than failing', () => {
       const result = bucketize([node(entry('none', 'done')), node(entry('some', 'done', { finishedAt: 5 }))]);
-      expect(ids(result.settled)).toEqual(['some', 'none']);
+      expect(ids(result.waiting)).toEqual(['some', 'none']);
     });
 
-    it.each([['working', 'working'], ['settled', 'ready'], ['settled', 'settled']] as const)(
+    it.each([['working', 'working'], ['waiting', 'ready'], ['settled', 'settled']] as const)(
       'sorts %s by activityAt descending', (bucket, attention) => {
         const result = bucketize([
           node(entry('a', attention, { activityAt: 100 })),
@@ -83,7 +80,7 @@ describe('bucketize', () => {
       });
 
     it.each([
-      ['waiting', 'needs-attention'], ['settled', 'done'], ['working', 'working'], ['settled', 'settled'],
+      ['waiting', 'needs-attention'], ['waiting', 'done'], ['working', 'working'], ['settled', 'settled'],
     ] as const)('breaks ties in %s on key, whatever the input order', (bucket, attention) => {
       const forward = bucketize([node(entry('a', attention)), node(entry('b', attention)), node(entry('c', attention))]);
       const backward = bucketize([node(entry('c', attention)), node(entry('b', attention)), node(entry('a', attention))]);
@@ -124,12 +121,12 @@ describe('bucketize', () => {
       expect(result.working).toEqual([]);
     });
 
-    it('puts a tree in settled when a child is done and none need attention', () => {
-      expect(ids(bucketize([node(entry('p', 'working'), entry('c', 'done'))]).settled)).toEqual(['p']);
+    it('puts a tree at the top when a child is done and none need attention', () => {
+      expect(ids(bucketize([node(entry('p', 'working'), entry('c', 'done'))]).waiting)).toEqual(['p']);
     });
 
-    it('puts waiting ahead of settled for a mixed tree', () => {
-      const result = bucketize([node(entry('p', 'done'), entry('c', 'needs-attention'))]);
+    it('keeps a tree off the shelf while any member is still in play', () => {
+      const result = bucketize([node(entry('p', 'settled'), entry('c', 'needs-attention'))]);
       expect(ids(result.waiting)).toEqual(['p']);
       expect(result.settled).toEqual([]);
     });
@@ -138,9 +135,9 @@ describe('bucketize', () => {
       expect(ids(bucketize([node(entry('p', 'ready'), entry('c', 'working'))]).working)).toEqual(['p']);
     });
 
-    it('keeps a tree that has stopped out of waiting and working however it stopped', () => {
+    it('shelves a tree only when every member was put away', () => {
       expect(ids(bucketize([node(entry('p', 'settled'), entry('c', 'settled'))]).settled)).toEqual(['p']);
-      expect(ids(bucketize([node(entry('p', 'settled'), entry('c', 'exited'))]).settled)).toEqual(['p']);
+      expect(ids(bucketize([node(entry('p', 'settled'), entry('c', 'exited'))]).waiting)).toEqual(['p']);
     });
 
     it('places a built forest exactly once across all buckets', () => {

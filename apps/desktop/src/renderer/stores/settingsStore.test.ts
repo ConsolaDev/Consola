@@ -85,10 +85,10 @@ describe('inbox filter actions', () => {
 });
 
 describe('sidebar shelves', () => {
-  it('starts Working shut and everything else, Settled included, open', () => {
+  it('starts Working and Settled shut and everything else open', () => {
     expect(isShelfOpen({}, 'working')).toBe(false);
-    // Settled is the body of the list, not a shelf of put-away odds and ends.
-    expect(isShelfOpen({}, 'settled')).toBe(true);
+    // Settled holds only what was put away, so it starts folded.
+    expect(isShelfOpen({}, 'settled')).toBe(false);
     expect(isShelfOpen({}, 'session:some-conductor')).toBe(true);
   });
 

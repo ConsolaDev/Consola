@@ -4,15 +4,10 @@ interface ShelfHeaderProps {
   title: string;
   /** Live leaf count: sessions, with a conductor counted beside its children. */
   count: number;
-  /** Whether the shelf is open. Ignored by a header with no `onToggle`. */
-  open?: boolean;
-  /**
-   * Folds the shelf. A header without one is a label: it names the list under
-   * it and nothing more. Both exist because every section needs a header —
-   * a run of rows under no heading reads as the previous shelf's contents
-   * having escaped it — but Needs you is never folded away.
-   */
-  onToggle?: () => void;
+  /** Whether the shelf is open. */
+  open: boolean;
+  /** Folds or unfolds the shelf. */
+  onToggle: () => void;
   /** The shelf's chord, shown on hover. */
   shortcutHint?: string;
 }
@@ -27,19 +22,7 @@ interface ShelfHeaderProps {
  * scanned down. Trailing, every title and every row name starts on one line,
  * and the chevron reads as what it is: the control, beside the count.
  */
-export function ShelfHeader({ title, count, open = true, onToggle, shortcutHint }: ShelfHeaderProps) {
-  const body = (
-    <>
-      <span className="shelf-header-title">{title}</span>
-      {/* Keyed on the value: a changed count remounts and replays its tick-over,
-          so a row arriving in a folded shelf is still visible as an arrival. */}
-      <span key={count} className="shelf-header-count">{count}</span>
-      {onToggle && <ChevronDown className="shelf-header-chevron" size={12} aria-hidden="true" data-open={open || undefined} />}
-    </>
-  );
-
-  if (!onToggle) return <div className="shelf-header shelf-header--label">{body}</div>;
-
+export function ShelfHeader({ title, count, open, onToggle, shortcutHint }: ShelfHeaderProps) {
   return (
     <button
       type="button"
@@ -52,7 +35,11 @@ export function ShelfHeader({ title, count, open = true, onToggle, shortcutHint 
       title={shortcutHint ? `${title} (${shortcutHint})` : undefined}
       onClick={onToggle}
     >
-      {body}
+      <span className="shelf-header-title">{title}</span>
+      {/* Keyed on the value: a changed count remounts and replays its tick-over,
+          so a row arriving in a folded shelf is still visible as an arrival. */}
+      <span key={count} className="shelf-header-count">{count}</span>
+      <ChevronDown className="shelf-header-chevron" size={12} aria-hidden="true" data-open={open || undefined} />
     </button>
   );
 }

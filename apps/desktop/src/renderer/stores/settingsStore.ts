@@ -29,7 +29,9 @@ export const TERMINAL_FONT_SIZE_DEFAULT = 14;
  * open the app on an all-but-empty sidebar. Folding it is the person's own
  * move, and their choice persists.
  */
-export const SHELF_DEFAULTS: Record<string, boolean> = { working: false };
+// Settled holds only what was put away, so it starts folded: the list above
+// it is what a glance is for.
+export const SHELF_DEFAULTS: Record<string, boolean> = { working: false, settled: false };
 
 /** Whether a shelf is open, with its default for a shelf never touched. */
 export function isShelfOpen(shelves: Record<string, boolean>, id: string): boolean {

@@ -138,7 +138,7 @@ export function Sidebar() {
       return <TreeRow key={node.entry.key} node={node} bucket={bucket} workspaceId={workspace!.id}
         activeKey={activeKey} viewedKey={viewedKey} highlightActive={highlightActive} />;
     }
-    return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey, settle: settleOffer(node, false, viewedKey) });
+    return entryRow(node.entry, { workspaceId: workspace!.id, active: highlightActive && node.entry.key === activeKey, settle: settleOffer(node, false, viewedKey), bucket });
   };
   const list = (nodes: TreeNode[], bucket: Bucket) => nodes.map(node => renderNode(node, bucket));
 
@@ -176,18 +176,15 @@ export function Sidebar() {
           </button>}
           {!shown.length && <p className="sidebar-empty">{emptyMessage()}</p>}
           {scopeError && <p className="sidebar-error" role="alert">{scopeError}</p>}
-          {/* Three sections, and every row is in one of them: it is waiting on
-              you, it is running, or it has stopped. Nothing is filed anywhere
-              else, so there is never a run of rows under no heading for the
-              person to work out. */}
-          {placed.waiting.length > 0 && <section className="sidebar-bucket sidebar-bucket--needs-you" aria-label="Needs you">
-            {/* Never foldable: the one section whose whole reason for existing
-                is that you have not dealt with it yet. */}
-            <ShelfHeader title="Needs you" count={leafCount(placed.waiting)} />
-            <nav className="session-list" aria-label="Sessions that need you">
+          {/* Everything in play that is not running, first and under no
+              heading: questions, unread results, idle prompts, exited
+              processes (`bucketize`). Each row says which in a word, and
+              none of them can be folded away. */}
+          {placed.waiting.length > 0 && <div className="sidebar-bucket sidebar-bucket--waiting">
+            <nav className="session-list" aria-label="Sessions">
               {list(placed.waiting, 'waiting')}
             </nav>
-          </section>}
+          </div>}
           {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" aria-label="Working">
             <ShelfHeader title="Working" count={leafCount(placed.working)} open={workingOpen}
               onToggle={() => toggleShelf('working')} shortcutHint={WORKING_SHELF_SHORTCUT_LABEL} />
@@ -196,20 +193,17 @@ export function Sidebar() {
               {list(visibleNodes(placed.working, !workingOpen, activeKey), 'working')}
             </nav>
           </section>}
-          {/* Everything that has stopped: a turn that finished, a session
-              sitting idle, a process that exited, and anything put away by
-              hand or after sitting idle (see AutoSettler). Nothing is deleted.
-              Unread results are first (`settledOrder`) and survive the fold
-              (`visibleNodes`), so a finish still arrives where it can be seen
-              while the tail of sessions already dealt with stays out of the
-              way. */}
-          {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
-            <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
-            <nav className="session-list" aria-label="Settled sessions">
-              {list(visibleNodes(placed.settled, !settledOpen, activeKey), 'settled')}
-            </nav>
-          </section>}
         </div>
+        {/* Only what was put away, by hand or after sitting idle (see
+            AutoSettler). Nothing is deleted. It sits outside the scrolling
+            panel, pinned to the bottom of the sidebar, so the sessions still
+            in play fill the space above it however many were put away. */}
+        {shown.length > 0 && <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
+          <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
+          <nav className="session-list" aria-label="Settled sessions">
+            {list(visibleNodes(placed.settled, !settledOpen, activeKey), 'settled')}
+          </nav>
+        </section>}
       </div>}
     </aside>
   );

@@ -21,9 +21,9 @@ export interface TreeView {
  * way in, so nothing flaps on the way out.
  *
  * Read from the tree's own aggregate rather than from the bucket it was filed
- * in. The two said the same thing while a bucket held only unread results; now
- * that Settled is every session that has stopped, the bucket would fold a
- * conductor whose children have simply finished and been seen.
+ * in. The top of the list holds idle and exited trees beside the ones asking
+ * or finished, so its bucket would fold a conductor whose children have
+ * simply finished and been seen.
  */
 export function treeView(node: TreeNode, chosen: boolean | undefined, activeKey: EntryKey | null): TreeView {
   const attention = aggregateAttention(node);

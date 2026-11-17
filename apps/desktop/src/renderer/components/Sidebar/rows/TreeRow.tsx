@@ -57,6 +57,7 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, viewedKey, highl
       active: highlightActive && child.entry.key === activeKey,
       child: isChild,
       settle: settleOffer(child, isChild, viewedKey),
+      bucket,
       trailing:
         isChild || !badgeWord ? undefined : (
           <span className={`tree-aggregate tree-aggregate--${worst}`} title={`${worstCount} ${badgeWord}`}>
