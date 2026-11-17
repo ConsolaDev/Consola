@@ -1,8 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessUpdates } from '../../shared/harness';
+import type { Label } from '../../shared/workspace';
 import {
   allowedGroupUpdates,
   allowedHarnessUpdates,
+  allowedLabelRecord,
+  allowedLabelUpdates,
   allowedScopeUpdates,
   allowedSessionUpdates,
   allowedWorkspaceUpdates,
@@ -162,7 +165,55 @@ describe('allowedGroupUpdates', () => {
   });
 });
 
+describe('allowedLabelRecord', () => {
+  it('rebuilds the label and keeps nothing else the memento carried', () => {
+    const payload = { id: 'l1', name: 'Flaky', emoji: '🐛', archivedAt: 1, conductorSessionId: 'c' } as unknown as Label;
+
+    expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky', emoji: '🐛' });
+  });
+
+  it('drops an emoji or colour that is not a string', () => {
+    const payload = { id: 'l1', name: 'Flaky', emoji: 5, color: {} } as unknown as Label;
+
+    expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky' });
+  });
+});
+
 describe('allowedSessionUpdates', () => {
+  it('accepts labelIds and autoSettle', () => {
+    const result = allowedSessionUpdates({ labelIds: ['a', 'b'], autoSettle: 'never' });
+
+    expect(result).toEqual({ labelIds: ['a', 'b'], autoSettle: 'never' });
+  });
+
+  it('passes an explicitly-undefined labelIds or autoSettle through as a clear', () => {
+    const result = allowedSessionUpdates({ labelIds: undefined, autoSettle: undefined });
+
+    expect(Object.keys(result).sort()).toEqual(['autoSettle', 'labelIds']);
+  });
+
+  it('rejects a parentSessionId that names a session: re-parenting stays impossible', () => {
+    const payload = { parentSessionId: 'attacker-chosen', name: 'Legit rename' } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('parentSessionId');
+    expect(result.name).toBe('Legit rename');
+  });
+
+  it('allows clearing parentSessionId, which is the one way out of a conductor', () => {
+    const result = allowedSessionUpdates({ parentSessionId: undefined });
+
+    expect(Object.keys(result)).toEqual(['parentSessionId']);
+    expect(result.parentSessionId).toBeUndefined();
+  });
+
+  it('refuses a malformed label list or auto-settle value', () => {
+    expect(() => allowedSessionUpdates({ labelIds: 'x' } as unknown as SessionUpdates)).toThrow();
+    expect(() => allowedSessionUpdates({ labelIds: [1] } as unknown as SessionUpdates)).toThrow();
+    expect(() => allowedSessionUpdates({ autoSettle: 'always' } as unknown as SessionUpdates)).toThrow();
+  });
+
   it('passes through a normal update', () => {
     const result = allowedSessionUpdates({ name: 'Refactor the parser', hasStarted: true });
 
@@ -194,7 +245,7 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
-  it('drops every field that names the session or its terminal', () => {
+  it('drops every field that names the session or its terminal, and the retired lastActiveAt', () => {
     const payload = {
       id: 'attacker-controlled',
       workspaceId: 'somewhere-else',
@@ -206,7 +257,7 @@ describe('allowedSessionUpdates', () => {
 
     const result = allowedSessionUpdates(payload);
 
-    expect(result).toEqual({ lastActiveAt: 42 });
+    expect(result).toEqual({});
   });
 
   it('drops an explicit name: undefined rather than clobbering a real name', () => {
@@ -299,5 +350,17 @@ describe('allowedWorkspaceUpdates: the Assistant mode', () => {
     expect(() => allowedWorkspaceUpdates({ assistantItemMode: 'yolo' as never })).toThrow(
       'Choose a valid Assistant mode.'
     );
+  });
+});
+
+describe('allowedLabelUpdates', () => {
+  it('passes name, emoji and colour and drops everything else, the id included', () => {
+    const payload = { id: 'x', name: 'Bug', emoji: '🐛', color: '#f00' } as unknown as Parameters<typeof allowedLabelUpdates>[0];
+
+    expect(allowedLabelUpdates(payload)).toEqual({ name: 'Bug', emoji: '🐛', color: '#f00' });
+  });
+
+  it('keeps an explicitly-undefined emoji as a clear', () => {
+    expect(Object.keys(allowedLabelUpdates({ emoji: undefined }))).toEqual(['emoji']);
   });
 });

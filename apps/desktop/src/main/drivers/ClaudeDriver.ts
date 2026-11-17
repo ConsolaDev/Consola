@@ -15,6 +15,7 @@ import type {
 } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
+import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
 import { looseningProblem, namedFlags, type HarnessConfig, type HarnessDriver, type SessionLaunch } from './HarnessDriver';
 
 /**
@@ -199,6 +200,7 @@ function parseVersion(stdout: string): string | undefined {
 export class ClaudeDriver implements HarnessDriver {
     public readonly id = 'claude' as const;
     public readonly configDirEnvVar = 'CLAUDE_CONFIG_DIR';
+    public readonly attentionHooks = claudeAttentionHooks;
 
     /**
      * Absolute path to the `claude` binary.
@@ -288,7 +290,11 @@ export class ClaudeDriver implements HarnessDriver {
         // flags as that value; every extra arg that could override the policy
         // is refused above.
         const policy = launch.toolPolicy === 'read-only' ? READ_ONLY_ARGS : [];
-        const args = [...base, ...model, ...mcp, ...policy, ...config.extraArgs];
+        // Hooks ride in `--settings`, which adds to the user's own and writes
+        // nothing to disk. Under `--restricted` it is one of the only two
+        // sources still loaded, so a read-only turn reports too.
+        const hooks = launch.attentionUrl ? ['--settings', claudeHookSettings(launch.attentionUrl)] : [];
+        const args = [...base, ...model, ...mcp, ...hooks, ...policy, ...config.extraArgs];
         // Print mode: one turn, its answer, and exit. The prompt goes after
         // `--`, because `--allowedTools` takes every value up to the next
         // flag and would otherwise swallow it.

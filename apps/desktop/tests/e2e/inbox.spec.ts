@@ -467,12 +467,12 @@ test('sections, views and filters render; actions, links and renames flow throug
 
     // Home owns the scoped quick-session controls; Inbox hides that sidebar.
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
-    await page.getByRole('button', { name: 'New ungrouped session' }).click();
+    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
     const plainRow = page.locator('.session-nav-item', { hasText: 'New Session' });
     await expect(plainRow).toBeVisible({ timeout: 10_000 });
     const plainCwd = sessionsIn(stateFile).find(session => !session.workItem)?.cwd;
     await plainRow.hover();
-    await plainRow.getByRole('button', { name: 'Session actions' }).click();
+    await plainRow.click({ button: 'right' });
     // Ruling 1: the menu item renders three literal dots, not an ellipsis.
     await page.getByRole('menuitem', { name: 'Link to work item...' }).click();
     const linkDialog = page.getByRole('dialog');
@@ -496,7 +496,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
     await expect(plainRow.locator('.session-nav-item-name')).toHaveText(/^⑂ /);
     await plainRow.hover();
-    await plainRow.getByRole('button', { name: 'Session actions' }).click();
+    await plainRow.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Unlink' }).click();
     await expect
       .poll(() => sessionsOn51(stateFile).length, { timeout: 10_000 })

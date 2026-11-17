@@ -4,7 +4,7 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
-import { isAssistantShortcut, isCommandPaletteShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
+import { isAssistantShortcut, isCommandPaletteShortcut, isWorkingShelfShortcut, matchScopeShortcut, matchWorkspaceShortcut } from '../utils/platform';
 import { windowBridge } from '../services/windowBridge';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
@@ -64,6 +64,14 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (isAssistantShortcut(event)) {
         event.preventDefault();
         if (!event.repeat) onOpenAssistant?.();
+        return;
+      }
+
+      // Shows or hides the Working shelf: the one chord for the shelf that
+      // starts collapsed.
+      if (isWorkingShelfShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) useSettingsStore.getState().toggleSidebarShelf('working');
         return;
       }
 

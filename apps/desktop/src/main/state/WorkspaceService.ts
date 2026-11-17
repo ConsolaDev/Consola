@@ -12,6 +12,7 @@ import { sameWorkItem } from '../../shared/workItems';
 import {
   CURRENT_WORKSPACE_STATE_VERSION,
   createGroupRecord,
+  createLabelRecord,
   createScopeRecord,
   createSessionRecord,
   createWorkspaceRecord,
@@ -21,7 +22,10 @@ import {
   assistantSession,
   migrateWorkspaceState,
   scopeForSession,
+  type DeletedLabel,
   type Group,
+  type Label,
+  type NewLabelFields,
   type NewGroupFields,
   type NewScopeFields,
   type NewSessionFields,
@@ -325,6 +329,112 @@ export class WorkspaceService {
     return group;
   }
 
+  public createLabel(workspaceId: string, fields: NewLabelFields): Label {
+    const label = createLabelRecord(fields);
+    this.editWorkspace(workspaceId, (workspace) => ({ ...workspace, labels: [...workspace.labels, label] }));
+    return label;
+  }
+
+  public updateLabel(
+    workspaceId: string,
+    labelId: string,
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+  ): void {
+    this.editWorkspace(workspaceId, (workspace) => ({
+      ...workspace,
+      labels: workspace.labels.map((label) => {
+        if (label.id !== labelId) return label;
+        const merged = { ...label, ...updates };
+        // Cleared as absence, like an unlinked work item: no stored undefined.
+        if (merged.emoji === undefined) delete merged.emoji;
+        if (merged.color === undefined) delete merged.color;
+        return merged;
+      }),
+    }));
+  }
+
+  /**
+   * Remove a label and take its id off every session in the same write.
+   *
+   * Returns what it removed, or null when there was no such label. The caller
+   * needs that memento because this is the one write that destroys something
+   * a person authored: the label, and its place on every session carrying it.
+   * `restoreLabel` puts the memento back.
+   */
+  public deleteLabel(workspaceId: string, labelId: string): DeletedLabel | null {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const index = workspace?.labels.findIndex((label) => label.id === labelId) ?? -1;
+    if (!workspace || index < 0) return null;
+    const removed: DeletedLabel = {
+      label: workspace.labels[index],
+      index,
+      sessionIds: workspace.sessions.filter((session) => session.labelIds?.includes(labelId)).map((session) => session.id),
+    };
+    this.editWorkspace(workspaceId, (current) => ({
+      ...current,
+      labels: current.labels.filter((label) => label.id !== labelId),
+      sessions: current.sessions.map((session) => {
+        if (!session.labelIds?.includes(labelId)) return session;
+        const labelIds = session.labelIds.filter((id) => id !== labelId);
+        const { labelIds: _previous, ...rest } = session;
+        return labelIds.length > 0 ? { ...rest, labelIds } : rest;
+      }),
+    }));
+    return removed;
+  }
+
+  /**
+   * Put a deleted label back where it was, on the sessions that had it.
+   *
+   * One commit, like the delete: a session that has gone in the meantime is
+   * skipped, and a label that is somehow back already is not added twice, so
+   * undoing twice or undoing late cannot corrupt the list.
+   */
+  public restoreLabel(workspaceId: string, removed: DeletedLabel): void {
+    const carried = new Set(removed.sessionIds);
+    this.editWorkspace(workspaceId, (workspace) => {
+      const labels = [...workspace.labels];
+      if (!labels.some((label) => label.id === removed.label.id)) {
+        labels.splice(Math.min(removed.index, labels.length), 0, removed.label);
+      }
+      return {
+        ...workspace,
+        labels,
+        sessions: workspace.sessions.map((session) => {
+          if (!carried.has(session.id) || session.labelIds?.includes(removed.label.id)) return session;
+          return { ...session, labelIds: [...(session.labelIds ?? []), removed.label.id] };
+        }),
+      };
+    });
+  }
+
+  public assignLabel(workspaceId: string, sessionId: string, labelId: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    if (!workspace?.labels.some((label) => label.id === labelId)) throw new Error(`No label ${labelId}`);
+    const session = workspace.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session || session.labelIds?.includes(labelId)) return;
+    this.updateSession(workspaceId, sessionId, { labelIds: [...(session.labelIds ?? []), labelId] });
+  }
+
+  public unassignLabel(workspaceId: string, sessionId: string, labelId: string): void {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session?.labelIds?.includes(labelId)) return;
+    this.updateSession(workspaceId, sessionId, { labelIds: session.labelIds.filter((id) => id !== labelId) });
+  }
+
+  /** One workspace rewritten in one commit; throws for a workspace that does not exist. */
+  private editWorkspace(workspaceId: string, edit: (workspace: Workspace) => Workspace): void {
+    if (!this.workspaces.some((candidate) => candidate.id === workspaceId)) {
+      throw new Error(`No workspace ${workspaceId}`);
+    }
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId ? { ...edit(candidate), updatedAt: Date.now() } : candidate
+      )
+    );
+  }
+
   public updateGroup(
     workspaceId: string,
     groupId: string,
@@ -507,6 +617,9 @@ export class WorkspaceService {
     if (Object.keys(applied).length === 0) return;
 
     const unlinking = 'workItem' in applied && applied.workItem === undefined;
+    // Presence with `undefined` means detach; the key goes rather than
+    // lingering as an undefined a reload would not produce.
+    const detaching = 'parentSessionId' in applied && applied.parentSessionId === undefined;
     this.commit(
       this.workspaces.map((candidate) =>
         candidate.id === workspaceId
@@ -515,6 +628,7 @@ export class WorkspaceService {
               sessions: candidate.sessions.map((existing) => {
                 if (existing.id !== sessionId) return existing;
                 const merged = { ...existing, ...applied };
+                if (detaching) delete merged.parentSessionId;
                 if (!unlinking) return merged;
                 const { workItem: _workItem, workItemAction: _workItemAction, ...rest } = merged;
                 return rest;

@@ -64,6 +64,20 @@ export function isAssistantShortcut(event: KeyboardEvent): boolean {
   return event.ctrlKey && event.shiftKey && !event.metaKey && !event.altKey && isJ;
 }
 
+/**
+ * The Working shelf chord: Cmd+Shift+B on macOS, Ctrl+Shift+B elsewhere.
+ *
+ * Shift on both for the usual reason (a bare Ctrl+B is a PTY byte); on macOS
+ * Cmd+B alone is left free for the terminal's own use.
+ */
+export function isWorkingShelfShortcut(event: KeyboardEvent): boolean {
+  const isB = event.key.toLowerCase() === 'b';
+  const modifier = isMac ? event.metaKey && !event.ctrlKey : event.ctrlKey && !event.metaKey;
+  return modifier && event.shiftKey && !event.altKey && isB;
+}
+
+export const WORKING_SHELF_SHORTCUT_LABEL = isMac ? '⇧⌘B' : 'Ctrl+Shift+B';
+
 /** How the Assistant's shortcut is written on its sidebar row. */
 export const ASSISTANT_SHORTCUT_LABEL = isMac ? '⌘J' : 'Ctrl+Shift+J';
 

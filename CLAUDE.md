@@ -265,6 +265,28 @@ A harness that pins nothing resolves exactly as Consola did before harnesses
 existed, ambient `CLAUDE_CONFIG_DIR` included. Keep that true: it is what the
 built-in harness and every migrated session rely on.
 
+### Hooks Add to the Screen, They Do Not Replace It
+
+A driver with `attentionHooks` (Claude's) registers hooks through `--settings`
+that POST to a loopback endpoint main owns (`attention/AttentionEndpoint`,
+random port per launch, random token per terminal). They are one more input to
+`deriveAttention` via `HookSignals`, never a status: the screen heuristic stays
+as the fast path and `CONFIRMATION_MARKERS` must stay. Claude's
+`permission_prompt` notification lags about six seconds and `idle_prompt` about
+sixty; no hook fires at all until an interactive session's folder is trusted,
+which is the trust gate's moment. What hooks add is what the screen cannot
+show — a question that is no known menu (`PermissionRequest` fires on
+AskUserQuestion within a model turn), a subagent waiting. Branch on
+`notification_type`, never on message text. A `Stop` listing `background_tasks`
+is a paused turn, not a finished one — counting only tasks still `running`, and
+only for `BACKGROUND_HOLD_MS`, since the payload cannot tell awaited work from a
+dev server. Running `subagent` tasks are the exception: Claude waits on them
+and takes a turn on each result, so the session reads `working` until a later
+`Stop` reports none, with no bound. Only a `Stop` (or exit) ends the hold, never
+a `working` edge: while Claude waits, its spinner stops but the agents panel
+repaints about once a second, which the screen reads as turns. The OS notification follows the derived attention, not terminal status. Hooks use HTTP, not `mcp_tool`: a
+Notification hook does not wait for an MCP server still connecting.
+
 ### Ask the CLI What It Can Do
 
 Slash commands, subagents and models are not Consola's to enumerate. The CLI

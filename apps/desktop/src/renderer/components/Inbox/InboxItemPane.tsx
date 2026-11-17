@@ -13,6 +13,7 @@ import {
   X,
   type LucideIcon,
 } from 'lucide-react';
+import { activityOf } from '../../../shared/attention';
 import { sectionFor } from '../../../shared/inboxSections';
 import { PROVIDER_META } from '../../../shared/providers';
 import { sessionLabel } from '../../../shared/sessionLabel';
@@ -22,11 +23,11 @@ import { sameWorkItem } from '../../../shared/workItems';
 import type { WorkItemDetails } from '../../../shared/workItemDetails';
 import type { Session, Workspace } from '../../../shared/workspace';
 import { itemKey, launchKey, useInboxStore } from '../../stores/inboxStore';
+import { attentionOf, useAttentionStore } from '../../stores/attentionStore';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
 import { activateSession } from '../../utils/sessionActions';
-import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
+import type { Attention } from '../../../shared/attention';
 import { RunActionMenu } from '../RunActionMenu';
 import { MOD_KEY, formatAge, isSubmitChord, prefersReducedMotion } from './inboxPresentation';
 import { StateBadge } from './WorkItemDetailParts';
@@ -61,12 +62,13 @@ const CONFIRM_LABEL = 'Another session is working on this — Start anyway';
 /** What a custom prompt may name; substitutePlaceholders fills them at launch. */
 const PLACEHOLDERS = ['number', 'repo', 'title', 'url', 'type'] as const;
 
-const STATUS_WORDS: Record<SessionStatus, string> = {
+const STATUS_WORDS: Record<Attention, string> = {
   working: 'working',
   ready: 'ready',
   'needs-attention': 'needs you',
   done: 'done',
   exited: 'exited',
+  settled: 'settled',
 };
 
 /**
@@ -74,7 +76,7 @@ const STATUS_WORDS: Record<SessionStatus, string> = {
  * finished and what it found is in the tab. Anything else — the person
  * continued it — reads like any other session.
  */
-function automationPhase(status: SessionStatus): string | null {
+function automationPhase(status: Attention): string | null {
   if (status === 'working') return 'Reviewing…';
   if (status === 'exited') return 'Findings ready';
   return null;
@@ -100,7 +102,8 @@ function automationPhase(status: SessionStatus): string | null {
  * of it.
  */
 export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixInSession, onOpenWorkItem }: InboxItemPaneProps) {
-  const terminals = useTerminalStore((state) => state.terminals);
+  const attention = useAttentionStore((state) => state.records);
+  const derived = useAttentionStore((state) => state.attention);
   const launch = useInboxStore((state) => state.launch);
   const openClonePrompt = useInboxStore((state) => state.openClonePrompt);
   const launching = useInboxStore((state) => state.launching);
@@ -143,8 +146,8 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
   const siblings = workspace.sessions.filter((session) =>
     sameWorkItem(session.workItem, item.workItem)
   );
-  const statusOf = (session: Session) => sessionStatusFor(terminals[session.instanceId]);
-  // Only the renderer knows terminal status, so the warning lives here: a
+  const statusOf = (session: Session) => attentionOf(derived, session.id);
+  // The warning lives here, where the sessions are listed: a
   // second session while one is mid-work is allowed, but not by accident.
   const busy = siblings.some((session) => {
     const status = statusOf(session);
@@ -308,7 +311,7 @@ export function InboxItemPane({ workspace, item, onClose, currentSessionId, fixI
                     <span className="inbox-pane-session-sub">
                       <span className="inbox-pane-session-status">{phase ?? STATUS_WORDS[status]}</span>
                       {' · '}
-                      {formatAge(session.lastActiveAt)}
+                      {formatAge(activityOf(session, attention[session.id]))}
                       {session.cwd ? ` · ${basename(session.cwd)}` : ''}
                     </span>
                   </div>

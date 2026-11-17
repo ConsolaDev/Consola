@@ -25,7 +25,7 @@ import { createRunInSessionCoalescer } from './providers/runActionInSession';
 import { cloneWorkspaceRepo } from './providers/cloneRepo';
 import { WorktreeService } from './WorktreeService';
 import { readCheckout } from './gitCheckout';
-import { NotificationPolicy, findSessionByInstanceId } from './attention';
+import { NotificationPolicy, findSessionById, findSessionByInstanceId, sessionsToNotify } from './attention';
 import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
@@ -75,14 +75,19 @@ import { HarnessService, type HarnessStateFile } from './state/HarnessService';
 import {
     allowedGroupUpdates,
     allowedHarnessUpdates,
+    allowedLabelRecord,
+    allowedLabelUpdates,
     allowedScopeUpdates,
     allowedSessionUpdates,
     allowedWorkspaceUpdates,
     type SessionUpdates,
 } from './state/updateFilters';
 import type {
+    DeletedLabel,
     Group,
+    Label,
     NewGroupFields,
+    NewLabelFields,
     NewScopeFields,
     NewSessionFields,
     Scope,
@@ -106,6 +111,19 @@ import {
     resolveRememberedView,
     type ViewMemoryStateFile,
 } from './state/ViewMemoryService';
+import { JsonAttentionLedger, type AttentionLedgerStateFile } from './attention/AttentionLedger';
+import { TurnActivity } from './attention/TurnActivity';
+import { AttentionService } from './attention/AttentionService';
+import { SessionSource } from './attention/SessionSource';
+import { RunSource } from './automations/RunSource';
+import { AttentionEndpoint } from './attention/AttentionEndpoint';
+import { HookSignals } from './attention/hookSignals';
+import { ViewingTracker } from './attention/ViewingTracker';
+import { AutoSettler } from './attention/AutoSettler';
+import { settleAndVerify, unsettleSession } from './attention/settling';
+import { PreferencesService } from './state/PreferencesService';
+import type { SettleMemento, SettleResult } from '../shared/preferences';
+import type { AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
@@ -114,6 +132,8 @@ let shellManager: ShellManager | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
+let attentionLedgerService: JsonAttentionLedger | null = null;
+let autoSettler: AutoSettler | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
@@ -180,6 +200,26 @@ export function setupIpcHandlers(): boolean {
     if (viewMemory.isEmpty()) viewMemory.seed(viewsFromStoredLayout());
     viewMemoryService = viewMemory;
 
+    // Like view memory, never fatal: a lost ledger sends every session back to
+    // its creation time, which is what a session with no record shows anyway.
+    const attentionLedger = new JsonAttentionLedger(
+        new JsonStateFile<AttentionLedgerStateFile>(
+            path.join(app.getPath('userData'), 'attention-ledger.json')
+        )
+    );
+    attentionLedger.load();
+    attentionLedger.prune(
+        new Set(workspaces.getAll().flatMap((workspace) => workspace.sessions.map((session) => session.id)))
+    );
+    attentionLedgerService = attentionLedger;
+
+    // Main runs the sweeper, so main owns the threshold. Never fatal: a lost
+    // file means the defaults, and the one-time explanation is simply given again.
+    const preferences = new PreferencesService(
+        new JsonStateFile<unknown>(path.join(app.getPath('userData'), 'preferences.json'))
+    );
+    preferences.load();
+
     // Every window renders the same records, so a change goes to all of them
     // rather than to whoever asked for it. A deleted workspace also has to be
     // dropped from any window still holding it, or that window would keep
@@ -190,6 +230,7 @@ export function setupIpcHandlers(): boolean {
         // already refuses to surface it, so this is housekeeping rather than
         // correctness — it stops the file growing forever.
         viewMemory.prune(liveIds);
+        attentionLedger.prune(new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))));
 
         for (const window of BrowserWindow.getAllWindows()) {
             if (window.isDestroyed()) continue;
@@ -238,7 +279,9 @@ export function setupIpcHandlers(): boolean {
         deleteRecord: (workspaceId, sessionId) => workspaces.deleteSession(workspaceId, sessionId),
         destroyTerminal: (instanceId) => {
             terminalManager?.destroy(instanceId);
-            notificationPolicy.forget(instanceId);
+            turnActivity.forget(instanceId);
+            hookSignals.forget(instanceId);
+            attentionSessions.forget(instanceId);
         },
         destroyShell: (instanceId) => shellManager?.destroy(instanceId),
         // A session's endpoint would otherwise outlive its record as a
@@ -302,7 +345,7 @@ export function setupIpcHandlers(): boolean {
 
         // Only once the delete has reached disk — a failed write throws above
         // and leaves the workspace, and its terminals, intact. destroy() clears
-        // the awaiting set and fires onAttentionChanged, so the PTY and the
+        // the session's attention goes with it, so the PTY and the
         // badge close together; the MCP endpoint goes with them.
         stranded.forEach((session) => sessionRemover.stop(session));
     });
@@ -452,6 +495,59 @@ export function setupIpcHandlers(): boolean {
             // has its own archive/restore verbs.
             workspaces.updateGroup(workspaceId, groupId, allowedGroupUpdates(updates));
         }
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_CREATE,
+        (_event, workspaceId: string, fields: NewLabelFields) =>
+            workspaces.createLabel(workspaceId, {
+                name: fields.name,
+                ...(fields.emoji !== undefined ? { emoji: fields.emoji } : {}),
+                ...(fields.color !== undefined ? { color: fields.color } : {}),
+            })
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_UPDATE,
+        (_event, workspaceId: string, labelId: string, updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>) =>
+            workspaces.updateLabel(workspaceId, labelId, allowedLabelUpdates(updates))
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_DELETE,
+        (_event, workspaceId: string, labelId: string) => workspaces.deleteLabel(workspaceId, labelId)
+    );
+
+    // Undo of the above, from the toast it raises. It takes the memento the
+    // delete handed back rather than a label and a list of sessions composed
+    // in a renderer: only what was actually removed can be put back.
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_LABEL_RESTORE,
+        (_event, workspaceId: string, removed: DeletedLabel) => {
+            const label = removed?.label;
+            if (!label || typeof label.id !== 'string' || typeof label.name !== 'string') {
+                throw new Error('Nothing to restore.');
+            }
+            workspaces.restoreLabel(workspaceId, {
+                label: allowedLabelRecord(label),
+                index: Number.isInteger(removed.index) && removed.index >= 0 ? removed.index : 0,
+                sessionIds: Array.isArray(removed.sessionIds)
+                    ? removed.sessionIds.filter((id): id is string => typeof id === 'string')
+                    : [],
+            });
+        }
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN,
+        (_event, workspaceId: string, sessionId: string, labelId: string) =>
+            workspaces.assignLabel(workspaceId, sessionId, labelId)
+    );
+
+    ipcMain.handle(
+        IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN,
+        (_event, workspaceId: string, sessionId: string, labelId: string) =>
+            workspaces.unassignLabel(workspaceId, sessionId, labelId)
     );
 
     ipcMain.handle(
@@ -685,41 +781,158 @@ export function setupIpcHandlers(): boolean {
 
     // With no windows open on macOS the app is still alive and sessions are
     // still running. The badge is the only thing that says so.
-    manager.onAttentionChanged = () => {
-        if (typeof app.setBadgeCount === 'function') {
-            const count = manager.getAttentionCount();
-            app.setBadgeCount(count > 0 ? count : 0);
-        }
+    // One derivation of what needs the person, asked by the badge, the MCP
+    // tools and (pushed, coalesced) every window. The badge counts
+    // `needs-attention` only, a run waiting for approval included: a badge that
+    // counted finished work would stop meaning "come here now".
+    const attention = new AttentionService();
+    // What an agent CLI's own hooks say, as one more input to that derivation:
+    // they never write a status. The screen heuristic runs regardless.
+    const hookSignals = new HookSignals();
+    const attentionEndpoint = new AttentionEndpoint((instanceId, signal) => hookSignals.apply(instanceId, signal));
+    manager.attentionEndpoint = attentionEndpoint;
+    app.on('will-quit', () => attentionEndpoint.close());
+    const attentionSessions = new SessionSource({
+        hookInputs: (instanceId) => hookSignals.get(instanceId),
+        getWorkspaces: () => workspaces.getAll(),
+        terminalStatus: (instanceId) => sessionStatus(instanceId),
+        ledger: attentionLedger,
+        isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
+        // An open automation run keeps the session it uses from being settled.
+        heldSessionIds: () => new Set(attention.holds().keys()),
+    });
+    // Looking at a finished session is what clears `done`. Main decides what
+    // looking means: a window must be focused as well as showing it.
+    const viewing = new ViewingTracker((instanceId) => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        if (located) attentionSessions.markSeen(located.session.id);
+    });
+    const watchedSenders = new Set<number>();
+    const watch = (sender: Electron.WebContents) => {
+        if (watchedSenders.has(sender.id)) return;
+        watchedSenders.add(sender.id);
+        const { id } = sender;
+        sender.once('destroyed', () => {
+            watchedSenders.delete(id);
+            viewing.closed(id);
+        });
     };
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_SNAPSHOT, (): AttentionState => ({
+        records: attentionLedger.snapshot(),
+        attention: Object.fromEntries(attention.snapshot()),
+    }));
+    ipcMain.on(IPC_CHANNELS.ATTENTION_VIEWING, (event, instanceId: unknown) => {
+        watch(event.sender);
+        viewing.viewing(event.sender.id, typeof instanceId === 'string' ? instanceId : null);
+    });
+    ipcMain.on(IPC_CHANNELS.ATTENTION_FOCUSED, (event, focused: unknown) => {
+        watch(event.sender);
+        viewing.focused(event.sender.id, focused === true);
+    });
+    attention.register(attentionSessions);
+
+    // Old, idle work leaves the list on its own — and the first time it does,
+    // every window is told what happened (the renderer reads `pendingAutoSettle`).
+    const settler = new AutoSettler({
+        getWorkspaces: () => workspaces.getAll(),
+        attention: () => attention.snapshot(),
+        heldSessionIds: () => new Set(attention.holds().keys()),
+        isShown: (instanceId) => viewing.isShown(instanceId),
+        ledger: attentionLedger,
+        preferences,
+        changed: () => attentionSessions.refresh(),
+        onWindowReport: (listener) => viewing.onReport(listener),
+    });
+    autoSettler = settler;
+    let sweptDays = preferences.get().autoSettleDays;
+    preferences.onChange((next) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PREFERENCES_CHANGED, next);
+        }
+        // A threshold the person just changed applies now, not in five minutes.
+        if (next.autoSettleDays !== sweptDays) {
+            sweptDays = next.autoSettleDays;
+            settler.sweep();
+        }
+    });
+    ipcMain.handle(IPC_CHANNELS.PREFERENCES_GET, () => preferences.get());
+    ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, (_event, days: unknown) => {
+        if (typeof days === 'number') preferences.setAutoSettleDays(days);
+    });
+    ipcMain.handle(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE, () => preferences.acknowledgeAutoSettle());
+
+    const withWorkspace = <T>(empty: T, run: (workspace: Workspace, sessionId: string) => T) =>
+        (_event: Electron.IpcMainInvokeEvent, workspaceId: unknown, sessionId: unknown): T => {
+            if (typeof workspaceId !== 'string' || typeof sessionId !== 'string') return empty;
+            const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+            if (!workspace) return empty;
+            const result = run(workspace, sessionId);
+            attentionSessions.refresh();
+            return result;
+        };
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_SETTLE, withWorkspace<SettleResult>({ settled: false, memento: {} },
+        (workspace, sessionId) => settleAndVerify(workspace, sessionId, attentionLedger, () => attentionSessions.read(), Date.now())));
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_UNSETTLE, withWorkspace<SettleMemento>({},
+        (workspace, sessionId) => unsettleSession(workspace, sessionId, attentionLedger, Date.now())));
+    ipcMain.handle(IPC_CHANNELS.ATTENTION_RESTORE, (_event, memento: unknown) => {
+        if (typeof memento !== 'object' || memento === null) return;
+        attentionLedger.restore(memento as SettleMemento);
+        attentionSessions.refresh();
+    });
+    hookSignals.subscribe((instanceId) => attentionSessions.hookChanged(instanceId));
+    workspaces.onChange(() => attentionSessions.refresh());
+    attention.onChange((change) => {
+        for (const window of BrowserWindow.getAllWindows()) {
+            if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ATTENTION_CHANGED, change);
+        }
+        if (typeof app.setBadgeCount === 'function') app.setBadgeCount(attention.needsAttentionCount());
+    });
 
     const notificationPolicy = new NotificationPolicy();
+
+    // Turns starting and finishing are the activity worth remembering. The
+    // terminal knows its per-launch instance; the ledger only knows sessions.
+    const turnActivity = new TurnActivity(attentionLedger, (instanceId) => {
+        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+        return located ? { sessionId: located.session.id, workspaceId: located.workspace.id } : undefined;
+    });
+    manager.addStatusListener((instanceId, status) => turnActivity.statusChanged(instanceId, status));
+    // Writes `finishedAt`; TurnActivity writes `lastActiveAt`. Two listeners,
+    // because they own different fields and nothing is written twice.
+    manager.addStatusListener((instanceId, status) => attentionSessions.statusChanged(instanceId, status));
+    // The person acting on a prompt is output starting again; that ends what a hook said.
+    manager.addStatusListener((instanceId, status) => hookSignals.statusChanged(instanceId, status));
 
     // The fourth attention altitude: session dot → group count → switcher dot
     // → OS notification. Rings only for a session hitting needs-attention
     // while no Consola window is focused; the Inbox never notifies — only
     // terminals emit status. Clicking lands on the right window and session.
     manager.addStatusListener((instanceId, status) => assistantActivity.statusChanged(instanceId, status));
-    manager.addStatusListener((instanceId, status) => {
-        const anyWindowFocused = BrowserWindow.getFocusedWindow() !== null;
-        if (!notificationPolicy.shouldNotify(instanceId, status, anyWindowFocused)) return;
-        if (!Notification.isSupported()) return;
+    // Driven by the attention edge, not the terminal's status: a hook can say a
+    // session needs the person when its screen shows nothing recognisable, and
+    // that is exactly when the person is likely to be elsewhere.
+    attention.onChange((change) => {
+        const ringing = sessionsToNotify(change, notificationPolicy, BrowserWindow.getFocusedWindow() !== null);
+        for (const sessionId of ringing) {
+            if (!Notification.isSupported()) continue;
 
-        const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
-        if (!located) return;
+            const located = findSessionById(workspaces.getAll(), sessionId);
+            if (!located) continue;
 
-        // An automation's session waits for nothing but the person: say who
-        // started it. Consola never answers a menu itself.
-        const started = located.session.automation;
-        const notification = new Notification({
-            title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
-            body: started
-                ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
-                : 'Click to open it in Consola.',
-        });
-        notification.on('click', () => {
-            focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
-        });
-        notification.show();
+            // An automation's session waits for nothing but the person: say who
+            // started it. Consola never answers a menu itself.
+            const started = located.session.automation;
+            const notification = new Notification({
+                title: `${located.session.name || 'A session'} needs you — ${located.workspace.name}`,
+                body: started
+                    ? `${started.name} started it, and it is waiting for you. Click to open it in Consola.`
+                    : 'Click to open it in Consola.',
+            });
+            notification.on('click', () => {
+                focusOrCreate(located.workspace.id, viewMemoryPort(), located.session.id);
+            });
+            notification.show();
+        }
     });
 
     // An automation session's unattended turn ending is its run finishing:
@@ -728,11 +941,13 @@ export function setupIpcHandlers(): boolean {
         if (!info.unattended) return;
         const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
         if (!located) return;
-        automationService?.turnEnded(located.session.id, {
+        const ended = automationService?.turnEnded(located.session.id, {
             exitCode: info.exitCode,
             lastLine: info.lastLine,
             stopped: info.stopped,
         });
+        // Work that completed is a result nobody has looked at: the session is done, not merely exited.
+        if (ended?.completed) attentionSessions.runCompleted(instanceId);
     });
 
     // An agent can move itself into another checkout (Claude's EnterWorktree)
@@ -751,7 +966,7 @@ export function setupIpcHandlers(): boolean {
     };
 
     // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
-    const launcher = new SessionLauncher(workspaces, harnesses, manager);
+    const launcher = new SessionLauncher(workspaces, harnesses, manager, attentionLedger);
 
     // An action run in a work-item session that already exists — a follow-up
     // pass on the same job, in the same tab. Coalesced per session and
@@ -826,6 +1041,7 @@ export function setupIpcHandlers(): boolean {
         cleanup: sessionCleanup,
         getWorkspaces: () => workspaces.getAll(),
         status: sessionStatus,
+        attention: (sessionId) => attention.get(sessionId),
         isManagedPath: (dir) => worktrees.isManagedPath(dir),
         automations: () => automations,
         // Fetched here, with the token only main holds: a read-only session
@@ -921,12 +1137,18 @@ export function setupIpcHandlers(): boolean {
         watch: (assistantSessionId, targetSessionId) => assistantActivity.watch(assistantSessionId, targetSessionId),
     });
 
+    const runStore = new RunStore(
+        new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
+        new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
+    );
+    // Runs waiting for a person are rows beside the sessions, and an open run
+    // holds the session it uses. Every run change is a broadcast, so that is
+    // when the source's answer may differ.
+    const attentionRuns = new RunSource(() => runStore.runs());
+    attention.register(attentionRuns);
     const automations = new AutomationService({
         fileFor: (workspaceId) => new FactoryFile(workspaceFactoryPath(workspaceId)),
-        store: new RunStore(
-            new JsonStateFile<AutomationStateFile>(path.join(app.getPath('userData'), 'automation-runs.json')),
-            new RunHistoryFiles(path.join(app.getPath('userData'), 'automation-runs'))
-        ),
+        store: runStore,
         registry: tools,
         getWorkspaces: () => workspaces.getAll(),
         now: () => new Date(),
@@ -946,6 +1168,7 @@ export function setupIpcHandlers(): boolean {
             notification.show();
         },
         broadcast: (workspaceId, snapshot) => {
+            attentionRuns.refresh();
             assistantRequests.observe(workspaceId, snapshot.runs);
             const change: AutomationsChange = { workspaceId, snapshot };
             for (const window of BrowserWindow.getAllWindows()) {
@@ -1071,6 +1294,8 @@ export function setupIpcHandlers(): boolean {
                 getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
                 scaffold,
                 createGroup: (workspaceId, fields) => workspaces.createGroup(workspaceId, fields),
+                createLabel: (workspaceId, fields) => workspaces.createLabel(workspaceId, fields),
+                deleteLabel: (workspaceId, labelId) => workspaces.deleteLabel(workspaceId, labelId),
                 updateGroup: (workspaceId, groupId, updates) =>
                     workspaces.updateGroup(workspaceId, groupId, updates),
                 launchSession: (workspaceId, fields) =>
@@ -1195,7 +1420,9 @@ export function setupIpcHandlers(): boolean {
 
     ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
         manager.destroy(instanceId);
-        notificationPolicy.forget(instanceId);
+        turnActivity.forget(instanceId);
+        hookSignals.forget(instanceId);
+        attentionSessions.forget(instanceId);
     });
 
     // Seed a freshly opened window from main's live state. The status channels
@@ -1481,6 +1708,12 @@ ${truncatedDiff}`;
         }
     );
 
+    // Last: start() arms the sweep against state defined further up — every
+    // session's terminal status, and the windows' own reports. The first sweep
+    // itself waits for a window to say what it is showing, so a session a
+    // restoring window is about to open is not settled out from under it.
+    autoSettler?.start();
+
     return true;
 }
 
@@ -1528,6 +1761,20 @@ export function cleanupIpcHandlers(): void {
     // Every view reached disk as it was set, so there is nothing to flush —
     // only the reference to drop, alongside the other services.
     viewMemoryService = null;
+    // The one thing debounced: a quit inside the window must not lose it.
+    attentionLedgerService?.flush();
+    attentionLedgerService = null;
+    autoSettler?.stop();
+    autoSettler = null;
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE);
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE);
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_RESTORE);
+    ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_GET);
+    ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS);
+    ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE);
+    ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+    ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_VIEWING);
+    ipcMain.removeAllListeners(IPC_CHANNELS.ATTENTION_FOCUSED);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_IMPORT);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_CREATE);
@@ -1548,6 +1795,12 @@ export function cleanupIpcHandlers(): void {
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE);
     ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_CREATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_DELETE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_LABEL_RESTORE);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN);
+    ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN);
 
     harnessService = null;
     ipcMain.removeHandler(IPC_CHANNELS.HARNESS_GET_SNAPSHOT);

@@ -711,9 +711,10 @@ export function tableShowsUnseenFailures(snapshot: AutomationsSnapshot, lastSeen
 export function sidebarRowState(
     snapshot: AutomationsSnapshot | undefined,
     lastSeen: string,
+    /** How many runs main says are waiting; the sidebar's own count, so the two agree. */
+    waiting: number,
 ): { kind: 'waiting' | 'failed' | 'running'; count: number } | { kind: 'idle' } {
     if (!snapshot) return { kind: 'idle' };
-    const waiting = snapshot.runs.filter((run) => run.status === 'needs-approval').length;
     if (waiting > 0) return { kind: 'waiting', count: waiting };
     const failed = unseenFailures(snapshot, lastSeen).length;
     if (failed > 0) return { kind: 'failed', count: failed };

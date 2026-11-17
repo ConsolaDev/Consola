@@ -81,6 +81,7 @@ class Rig {
             defaultHarnessId: 'claude',
             scopes: [{ id: `${id}-scope`, name: 'app', path: this.clone, isGitRepo: true, createdAt: 0 }],
             groups: [],
+            labels: [],
             provider: { id: 'github', accountLogin: 'me' },
             actions: [],
             sectionDefaults: {},

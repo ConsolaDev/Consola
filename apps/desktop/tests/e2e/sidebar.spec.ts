@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import type { ElectronApplication, Page } from '@playwright/test';
+import type { ElectronApplication, Locator, Page } from '@playwright/test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
@@ -198,12 +198,30 @@ test.describe('Home scopes and groups', () => {
     fs.rmSync(scopeDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
   });
 
-  const ungrouped = (target: Page) => target.locator('.sidebar-ungrouped');
+  /**
+   * Where the seeded sessions sit: all of them are ready and none has run or
+   * been put away, so every row is at the top of the list, under no heading.
+   * Attention, not group or scope, decides sections.
+   */
+  const topList = (target: Page) => target.locator('.sidebar-bucket--waiting');
+  /** The labels an actions-menu write left on a session, read back from main. */
+  const labelsOf = (target: Page, sessionId: string) =>
+    target.evaluate(
+      async (id) => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find((candidate) => candidate.id === id)!.labelIds,
+      sessionId
+    );
+  /** Open a row's actions menu and its Labels submenu. */
+  const openLabelsMenu = async (target: Page, name: string) => {
+    const row = rowFor(target, name);
+    await row.click({ button: 'right' });
+    await target.getByRole('menuitem', { name: 'Labels', exact: true }).focus();
+    await target.keyboard.press('ArrowRight');
+  };
   /** A sidebar row, by the name it renders. */
   const rowFor = (target: Page, name: string) =>
     target.locator('.session-nav-item').filter({ hasText: name });
   const chooseScope = async (target: Page, name: string) => {
-    await target.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await target.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await target.getByRole('menuitem', { name: new RegExp(name) }).click();
   };
 
@@ -245,11 +263,18 @@ test.describe('Home scopes and groups', () => {
     test.setTimeout(60_000);
     await chooseScope(page, 'catalog-portal');
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
-    await expect(page.locator('.session-nav-item-model').first()).toHaveText('claude-opus-4-6');
+    // Said the way a person says it, on the line with the harness; the id is the tooltip.
+    await expect(page.locator('.session-nav-item-model').first()).toHaveText('Opus 4.6');
+    await expect(page.locator('.session-nav-item-model').first()).toHaveAttribute('title', 'claude-opus-4-6');
+    await expect(page.locator('.session-row-meta .session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.sidebar [data-harness-type="claude"]')).toHaveCount(3);
     await chooseScope(page, 'shared-lib');
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveCount(1);
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
+    // With more than one harness, each row wears its harness's initials in
+    // the harness's accent colour, so two profiles of one CLI read apart.
+    await expect(page.locator('.session-harness-initials')).toHaveText('CA');
+    await expect(page.locator('.session-harness-mark').first()).toHaveAttribute('style', /--harness-accent/);
     await chooseScope(page, 'catalog-portal');
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
     const toggle = page.getByRole('menuitemcheckbox', { name: 'Model', exact: true });
@@ -283,33 +308,47 @@ test.describe('Home scopes and groups', () => {
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
     fs.writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-4-6' } }) + '\n');
     const row = page.locator('.session-nav-item').filter({ hasText: 'Controller boot' });
-    await expect(row.locator('.session-nav-item-model')).toHaveText('claude-sonnet-4-6', { timeout: 10_000 });
+    await expect(row.locator('.session-nav-item-model')).toHaveText('Sonnet 4.6', { timeout: 10_000 });
     fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-opus-4-6' } }) + '\n');
-    await expect(row.locator('.session-nav-item-model')).toHaveText('claude-opus-4-6', { timeout: 10_000 });
+    await expect(row.locator('.session-nav-item-model')).toHaveText('Opus 4.6', { timeout: 10_000 });
     const stored = JSON.parse(fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'));
     expect(stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model).toBe('claude-opus-4-6');
   });
 
-  test('scope selection filters both groups and ungrouped sessions', async () => {
+  test('scope selection filters the list, and Clear filters brings every scope back', async () => {
     // All scopes by default: every session, each naming the scope it runs in.
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
-    await expect(page.locator('.group-nav-count')).toHaveText('1');
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(rowFor(page, 'Bump deps').locator('.session-nav-item-scope')).toContainText('shared-lib');
     await chooseScope(page, 'shared-lib');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(1);
-    await expect(ungrouped(page)).toContainText('Bump deps');
-    await expect(page.locator('.group-nav-count')).toHaveText('0');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(0);
-    // A filtered list says its scope once, in the scope row, never per row.
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(topList(page)).toContainText('Bump deps');
+    // A filtered list says its scope once, in the filter bar, never per row.
     await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
     await chooseScope(page, 'catalog-portal');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(2);
-    await page.locator('.sidebar-scope-filter').getByRole('button', { name: 'Show all scopes', exact: true }).click();
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(3);
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
     await expect(page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Scopes', exact: true })).toHaveAttribute('aria-current', 'true');
+  });
+
+  test('a label filter and a scope narrow together, and one Clear filters resets both', async () => {
+    // "Fan out" was a group before the v8 migration; its members now carry it as a label.
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await page.getByRole('menuitem', { name: /Fan out/ }).click();
+    await page.keyboard.press('Escape');
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(1);
+    await expect(topList(page)).toContainText('Fan member');
+    await chooseScope(page, 'shared-lib');
+    await expect(page.locator('.session-nav-item')).toHaveCount(0);
+    await expect(page.getByText('No sessions match these filters.')).toBeVisible();
+
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).first().click();
+    await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
+    await expect(page.locator('.sidebar-filter-chips')).toHaveCount(0);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   const jumpWithPalette = async (target: Page, name: string) => {
@@ -332,11 +371,11 @@ test.describe('Home scopes and groups', () => {
     await jumpWithPalette(page, 'Bump deps');
     await expect(page.locator('.session-nav-item.active')).toContainText('Bump deps');
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
   test('the scope row sits under the Assistant on Home only, never in the title bar', async () => {
-    await expect(page.locator('.app-header').getByRole('button', { name: 'Filter sessions by scope' })).toHaveCount(0);
+    await expect(page.locator('.app-header').getByRole('button', { name: 'Filter sessions' })).toHaveCount(0);
     await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
     await expect(page.locator('.sidebar-scope-filter')).toHaveCount(1);
     await page.getByRole('button', { name: 'Inbox', exact: true }).click();
@@ -360,7 +399,7 @@ test.describe('Home scopes and groups', () => {
 
     await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await expect(page.getByRole('menuitem', { name: /catalog-portal/ })).toBeVisible();
     await expect(page.getByRole('menuitem', { name: 'Add scope', exact: true })).toBeVisible();
     // One scope has nothing to tell apart, so rows stay unlabelled.
@@ -368,20 +407,12 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-scope')).toHaveCount(0);
   });
 
-  test('group and ungrouped options share the selected scope without creating a session early', async () => {
+  test('session options share the selected scope without creating a session early', async () => {
     await chooseScope(page, 'shared-lib');
-    await page.locator('.group-nav-header').hover();
-    await page.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
     await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
-    await expect(page.getByLabel('Group', { exact: true }).locator('.session-option-name')).toHaveText('Fan out');
-    const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
-    expect(await count()).toBe(4);
-    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
-    await page.getByRole('button', { name: 'Ungrouped actions' }).click();
-    await page.getByRole('menuitem', { name: 'New session with options…' }).click();
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
-    await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
+    const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
     expect(await count()).toBe(4);
     await page.getByLabel('Scope', { exact: true }).click();
     await page.getByRole('option', { name: 'catalog-portal', exact: true }).click();
@@ -397,7 +428,7 @@ test.describe('Home scopes and groups', () => {
     await page.screenshot({ path: 'test-results/home-sidebar-dark.png', animations: 'disabled' });
 
     // The same sidebar under All, with a session open so the pane names its scope.
-    await page.locator('.sidebar-scope-filter').getByRole('button', { name: 'Show all scopes', exact: true }).click();
+    await page.getByRole('button', { name: 'Clear filters', exact: true }).click();
     await rowFor(page, 'Bump deps').click();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await page.mouse.move(500, 300);
@@ -435,46 +466,176 @@ test.describe('Home scopes and groups', () => {
     expect(await header.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('drag');
   });
 
-  test('a row that names its scope keeps its dot beside the rename field', async () => {
+  test('renaming a row that names its scope replaces the whole text column', async () => {
     const row = rowFor(page, 'Fix flaky test');
     await expect(row.locator('.session-nav-item-scope')).toContainText('catalog-portal');
-    // Measured the moment the field mounts: the open session's terminal can
-    // take focus right after, which commits the rename and closes the field.
-    await page.evaluate(() => {
-      const observer = new MutationObserver(() => {
-        const input = document.querySelector('.session-rename-input');
-        const dot = input?.closest('.session-nav-item')?.querySelector('.session-status-indicator');
-        if (!input || !dot) return;
-        const centre = (element: Element) => { const box = element.getBoundingClientRect(); return box.top + box.height / 2; };
-        (window as any).__renameOffset = Math.abs(centre(dot) - centre(input));
-        observer.disconnect();
-      });
-      observer.observe(document.body, { childList: true, subtree: true });
-    });
+
     await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
+    await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Rename' }).click();
-    // The scope line gives way to the field, so the dot must not stay below it.
-    await expect.poll(() => page.evaluate(() => (window as any).__renameOffset)).toBeLessThanOrEqual(2);
+
+    // Anchored on the field, not on the name: `rowFor` matches by text, and the
+    // name becomes an input VALUE the moment renaming starts, so the row
+    // locator stops matching its own row.
+    const renaming = page.locator('.session-nav-item').filter({ has: page.locator('.session-rename-input') });
+
+    // The field takes the column whole: the meta line it replaces must not
+    // survive beside it, or the row reads as two rows while it is being typed.
+    // This replaces an older assertion that measured the status dot against the
+    // field. That measurement guarded per-glyph margin arithmetic which no
+    // longer exists — the dot now sits in a fixed gutter — and it could not run
+    // at all on a calm row, which draws no dot by design.
+    await expect(renaming.locator('.session-rename-input')).toBeVisible();
+    await expect(renaming.locator('.session-nav-item-scope')).toHaveCount(0);
+    await expect(renaming.locator('.session-nav-item-name')).toHaveCount(0);
   });
 
-  test('a group folds and retains its scope-filtered count', async () => {
-    const toggle = page.locator('.group-nav-toggle');
-
-    await expect(toggle).toHaveAttribute('aria-expanded', 'true');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
-
-    await toggle.click();
-
-    await expect(toggle).toHaveAttribute('aria-expanded', 'false');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(0);
-    // The badge is the group's own and stays put whether folded or not.
-    await expect(page.locator('.group-nav-count')).toHaveText('1');
+  test('with nothing running there is no Working section at all', async () => {
+    // Every seeded session is ready: an empty Working shelf would be a header
+    // with nothing behind it, so the sidebar leaves it out. (The section that
+    // appears when something runs is covered under 'the Working section'.)
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+    await expect(page.getByRole('region', { name: 'Working', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /^Working/ })).toHaveCount(0);
   });
 
-  test('the session × and menu share confirmation without activating the row', async () => {
+  test('the Settled section starts folded and empty, pinned below the list', async () => {
+    const header = page.getByRole('button', { name: /^Settled/ });
+    // It holds only what was put away, and nothing has been yet: stopping is
+    // not settling, so every seeded row stays at the top.
+    await expect(header).toHaveAttribute('aria-expanded', 'false');
+    await expect(header.locator('.shelf-header-count')).toHaveText('0');
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+    // Outside the scrolling list, so it stays at the bottom however long that runs.
+    await expect(page.locator('.sidebar-sessions .sidebar-bucket--settled')).toHaveCount(0);
+
+    await header.click();
+    await expect(header).toHaveAttribute('aria-expanded', 'true');
+  });
+
+  test('a Settled shelf too long for the dock scrolls one-line rows instead of squeezing them', async () => {
+    // Settle everything, then make the window short enough that the dock's
+    // cap is smaller than the shelf.
+    await page.evaluate(async () => {
+      for (const id of ['s1', 's2', 's3', 's4']) await window.attentionAPI.settle('ws-folding-e2e', id);
+    });
+    const header = page.getByRole('button', { name: /^Settled/ });
+    await expect(header.locator('.shelf-header-count')).toHaveText('4');
+    await header.click();
+    await page.setViewportSize({ width: 900, height: 300 });
+    // The top of the list says there is nothing waiting rather than going blank.
+    await expect(page.locator('.sidebar-all-clear')).toHaveText('Nothing is waiting on you.');
+
+    const rows = page.getByRole('navigation', { name: 'Settled sessions' }).locator('.session-nav-item');
+    await expect(rows).toHaveCount(4);
+    const boxes = await rows.evaluateAll((elements) => elements.map((element) => {
+      const box = element.getBoundingClientRect();
+      return { top: box.top, bottom: box.bottom, height: box.height, content: element.scrollHeight };
+    }));
+    for (const [index, box] of boxes.entries()) {
+      // Every row is as tall as what it says, and one line of it: a put-away
+      // row is its name and its age.
+      expect(box.height).toBeGreaterThanOrEqual(box.content);
+      expect(box.height).toBeLessThan(36);
+      // No row is painted over the one before it.
+      if (index > 0) expect(box.top).toBeGreaterThanOrEqual(boxes[index - 1].bottom - 0.5);
+    }
+    // The shelf scrolls instead.
+    const list = page.getByRole('navigation', { name: 'Settled sessions' });
+    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    await expect(rows.locator('.session-nav-item-harness, .session-nav-item-model')).toHaveCount(0);
+  });
+
+  test('archiving a group never hides its sessions', async () => {
+    await page.evaluate(() => window.workspaceAPI.archiveGroup('ws-folding-e2e', 'group-fanout'));
+    // Groups are not a place any more: the member stays among the others.
+    await expect(rowFor(page, 'Fan member')).toHaveCount(1);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+  });
+
+  test('the actions menu\'s New label… creates a label and gives it to the session in one step', async () => {
+    expect(await labelsOf(page, 's1')).toBeUndefined();
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'New label…', exact: true }).click();
+    const dialog = page.getByRole('dialog', { name: 'New label' });
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel('Name').fill('PR reviews');
+    await dialog.getByRole('button', { name: 'Create' }).click();
+
+    await expect(dialog).toBeHidden();
+    const snapshot = await page.evaluate(async () => {
+      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces[0];
+      return { labels: workspace.labels.map((label) => ({ id: label.id, name: label.name })), groups: workspace.groups.length };
+    });
+    expect(snapshot.labels.map((label) => label.name)).toEqual(['Fan out', 'PR reviews']);
+    await expect.poll(() => labelsOf(page, 's1')).toEqual([snapshot.labels[1].id]);
+    // A label, not a group: nothing is written that no screen could show.
+    expect(snapshot.groups).toBe(1);
+  });
+
+  test('deleting a label from the filter bar says so and can be undone, labels and all', async () => {
+    // The seeded group arrived as a label; give it to a session so the delete
+    // has something to take away besides the label itself.
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
+    await page.keyboard.press('Escape');
+
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await page.getByRole('button', { name: 'Delete label Fan out', exact: true }).click();
+
+    // A × in a filtering menu that deletes user-authored organisation says
+    // what it did and offers the way back, rather than asking first.
+    const toast = page.getByRole('status').filter({ hasText: 'Deleted label Fan out' });
+    await expect(toast).toBeVisible();
+    // Gone from the session as well as from the list: deleting a label is one
+    // commit over every session carrying it.
+    await expect.poll(() => labelsOf(page, 's1')).toBeUndefined();
+
+    await toast.getByRole('button', { name: 'Undo', exact: true }).click();
+
+    await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
+    await expect(toast).toHaveCount(0);
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await expect(page.getByRole('button', { name: 'Delete label Fan out', exact: true })).toBeVisible();
+  });
+
+  test('the actions menu ticks and unticks a label on a session', async () => {
+    expect(await labelsOf(page, 's1')).toBeUndefined();
+
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
+    // A label is a tag, not a place: the row has not moved anywhere.
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+
+    // The same item unticks it. The menu stays open after a pick, but the
+    // submenu does not survive the row re-rendering, so reopen from scratch.
+    await page.keyboard.press('Escape');
+    await openLabelsMenu(page, 'Controller boot');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => labelsOf(page, 's1')).toEqual([]);
+  });
+
+  test('a label assignment survives a relaunch — it is a record, not a view preference', async () => {
+    test.setTimeout(60_000);
+    await openLabelsMenu(page, 'Bump deps');
+    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
+    await expect.poll(() => labelsOf(page, 's3')).toEqual(['group-fanout']);
+
+    await app.close();
+    ({ app, page } = await launchElectron({ userDataDir }));
+    await holdWorkspace(page);
+
+    expect(await labelsOf(page, 's3')).toEqual(['group-fanout']);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+  });
+
+  test('the row settles from hover and back; deleting stays in the menu and confirms', async () => {
+    test.setTimeout(60_000);
+    const settledHeader = page.getByRole('button', { name: /^Settled/ });
     const row = rowFor(page, 'Controller boot');
-    const close = row.getByRole('button', { name: 'Delete session Controller boot', exact: true });
+    const settle = row.getByRole('button', { name: 'Settle session Controller boot', exact: true });
     const confirmation = 'Delete session "Controller boot"? This will remove the session and its chat history.';
     // Stub the native dialog so both cancellation and acceptance are exercised
     // without relying on platform-specific Electron dialog automation.
@@ -484,120 +645,238 @@ test.describe('Home scopes and groups', () => {
         return false;
       };
     });
-    const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
-    await row.hover();
-    await expect(close).toBeVisible();
-    await close.click();
-    expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
-    await expect(row).toHaveCount(1);
-    expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
 
-    await page.evaluate(() => { (window as any).__deleteConfirmation = undefined; });
-    await row.getByRole('button', { name: 'Session actions', exact: true }).click();
+    // The row's one-click slot is the reversible move; destroying a session and
+    // its history is behind the row's right-click menu, where a mis-aimed click
+    // cannot reach it.
+    await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
     await expect(row).toHaveCount(1);
 
-    await page.evaluate(() => { window.confirm = () => true; });
+    // Settling acts in place and must not activate the row it acts on. No row
+    // is open here; settling the row the window is showing is covered at the
+    // end of this test.
+    const quiet = rowFor(page, 'Fix flaky test');
+    const settleQuiet = quiet.getByRole('button', { name: 'Settle session Fix flaky test', exact: true });
+    const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
+    const shelf = page.getByRole('navigation', { name: 'Settled sessions' });
+    // Nothing is put away yet, so the shelf is empty and every row is at the top.
+    await expect(settledHeader).toHaveText(/0/);
+    await quiet.hover();
+    await expect(settleQuiet).toBeVisible();
+    await settleQuiet.click();
+    // Settling moves the row out of the list and onto the shelf, folded by default.
+    await expect(settledHeader).toHaveText(/1/);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(3);
+    await expect(topList(page)).not.toContainText('Fix flaky test');
+    expect(await page.locator('.session-nav-item.active').allTextContents()).toEqual(activeBefore);
+
+    // The same slot offers the way back, so nothing is settled irreversibly by
+    // a stray click.
+    await settledHeader.click();
+    const shelved = shelf.locator('.session-nav-item').filter({ hasText: 'Fix flaky test' });
+    // A put-away row says what it was, not how it ran: no harness glyph on the
+    // shelf, while the rows still in play keep theirs.
+    await expect(shelved.locator('.session-nav-item-harness')).toHaveCount(0);
+    await expect(topList(page).locator('.session-nav-item-harness')).toHaveCount(3);
+    await shelved.hover();
+    await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
+    await expect(settledHeader).toHaveText(/0/);
+    await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+
+    // Tab order: the row, then its one action. The actions menu has no button
+    // to tab to; the keyboard opens it from the row, the way it opens any
+    // context menu, and closing it hands focus back to that row.
     await row.focus();
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(row).toBeFocused();
     await page.keyboard.press('Tab');
-    await expect(row.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
-    await page.keyboard.press('Tab');
-    await expect(close).toBeFocused();
-    await page.keyboard.press('Enter');
+    await expect(settle).toBeFocused();
+
+    // A right-click does not take focus, and closing its menu hands focus
+    // back to whatever had it, so the row is not left wearing the keyboard
+    // ring with its Settle pill held open over its age.
+    const elsewhere = page.getByRole('button', { name: 'Navigation settings', exact: true });
+    await elsewhere.focus();
+    await row.click({ button: 'right' });
+    await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(elsewhere).toBeFocused();
+    expect(await row.evaluate((element) => element.matches(':focus-visible, :has(:focus-visible)'))).toBe(false);
+
+    // The row the window is showing is offered Settle like any other, and goes
+    // under the fold like any other: a folded shelf does not show it as though
+    // it had opened itself. It stays put away, since opening a session is not
+    // a turn, so nothing brings it back until the person prompts it.
+    await settledHeader.click();
+    await expect(settledHeader).toHaveAttribute('aria-expanded', 'false');
+    await quiet.click();
+    await quiet.hover();
+    await expect(settleQuiet).toBeVisible();
+    await settleQuiet.click();
+    await expect(settledHeader).toHaveText(/1/);
+    await expect(topList(page)).not.toContainText('Fix flaky test');
+    await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
+    await page.waitForTimeout(1_500);
+    await expect(settledHeader).toHaveText(/1/);
+    await settledHeader.click();
+    await expect(shelved).toHaveCount(1);
+    await shelved.hover();
+    await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+
+    await page.evaluate(() => { window.confirm = () => true; });
+    await row.hover();
+    await row.click({ button: 'right' });
+    await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(row).toHaveCount(0);
     await expect(page.locator('.session-nav-item')).toHaveCount(3);
   });
 
-  test('the group menu archives the group and returns its sessions to Ungrouped', async () => {
-    const header = page.locator('.group-nav-header');
-    await header.hover();
-    await header.getByRole('button', { name: 'Group actions for Fan out', exact: true }).click();
-    await page.getByRole('menuitem', { name: 'Archive group', exact: true }).click();
-    await expect(page.locator('.group-nav-item')).toHaveCount(0);
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(4);
-    await expect(rowFor(page, 'Fan member')).toHaveCount(1);
+  test('a settled row slides into the dock and leaves nothing behind; under reduced motion it simply moves', async () => {
+    const settledHeader = page.getByRole('button', { name: /^Settled/ });
+    /** Records whether a copy of a row was seen on its way into the folded shelf. */
+    const watchForTravel = () => page.evaluate(() => {
+      (window as any).__travelled = false;
+      new MutationObserver((_, observer) => {
+        if (!document.querySelector('.sidebar-ghost')) return;
+        (window as any).__travelled = true;
+        observer.disconnect();
+      }).observe(document.body, { subtree: true, childList: true });
+    });
+    const travelled = () => page.evaluate(() => (window as any).__travelled as boolean);
+    const settle = (id: string) => page.evaluate((sessionId) => window.attentionAPI.settle('ws-folding-e2e', sessionId), id);
+
+    // Settled starts folded, so the row has no slot to land in: a copy of it
+    // slides under the dock's edge, and is gone once it has.
+    await watchForTravel();
+    await settle('s2');
+    await expect(settledHeader).toHaveText(/1/);
+    await expect.poll(travelled).toBe(true);
+    await expect(page.locator('.sidebar-ghost-clip')).toHaveCount(0);
+    await expect(page.locator('[data-travelling], [data-landed], [data-travel-open]')).toHaveCount(0);
+
+    // Reduced motion keeps the move and drops the travel.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await watchForTravel();
+    await settle('s3');
+    await expect(settledHeader).toHaveText(/2/);
+    await page.waitForTimeout(500);
+    expect(await travelled()).toBe(false);
   });
 
-  test('the Your groups heading creates a group', async () => {
-    await expect(page.locator('.group-nav-item')).toHaveCount(1);
-
-    await page.getByRole('button', { name: 'Add group' }).click();
-    const dialog = page.getByRole('dialog', { name: 'New group' });
-    await expect(dialog).toBeVisible();
-    await dialog.getByLabel('Name').fill('PR reviews');
-    await dialog.getByRole('button', { name: 'Create' }).click();
-
-    await expect(dialog).toBeHidden();
-    await expect(page.locator('.group-nav-item')).toHaveCount(2);
-    await expect(page.locator('.group-nav-name').filter({ hasText: 'PR reviews' })).toHaveCount(1);
-  });
-
-  test('the ⋯ menu moves a session into a group and back out again', async () => {
-    const appScope = ungrouped(page);
-    const groupRows = page.locator('.group-nav-item .session-nav-item');
-
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(3);
-    await expect(groupRows).toHaveCount(1);
-
-    // Folded first: a move into a group nobody can see must unfold it, or the
-    // row would appear to have been deleted rather than moved.
-    const groupToggle = page.locator('.group-nav-toggle');
-    await groupToggle.click();
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'false');
-
-    const row = rowFor(page, 'Controller boot');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to group' }).click();
-    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-
-    await expect(groupToggle).toHaveAttribute('aria-expanded', 'true');
-    // The group owns the row now, so the scope it still runs in stops
-    // drawing it — the partition keeps a session on exactly one row.
-    await expect(groupRows).toHaveCount(2);
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(2);
-    await expect(groupRows.filter({ hasText: 'Controller boot' })).toHaveCount(1);
-
-    // Leaving sits beside the submenu, not inside it: the way out must not be
-    // filed under the list of places to go.
-    const moved = rowFor(page, 'Controller boot');
-    await moved.hover();
-    await moved.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Remove from group' }).click();
-
-    await expect(groupRows).toHaveCount(1);
-    await expect(appScope.locator('.session-nav-item')).toHaveCount(3);
-  });
-
-  test('a move survives a relaunch — it is a record, not a view preference', async () => {
+  test('a shelf choice survives a relaunch', async () => {
     test.setTimeout(60_000);
-    await chooseScope(page, 'shared-lib');
-    const row = rowFor(page, 'Bump deps');
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
-    await page.getByRole('menuitem', { name: 'Move to group' }).click();
-    await page.getByRole('menuitem', { name: 'Fan out', exact: true }).click();
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
-
+    const settledHeader = (target: Page) => target.getByRole('button', { name: /^Settled/ });
+    await settledHeader(page).click();
+    await expect(settledHeader(page)).toHaveAttribute('aria-expanded', 'true');
     await app.close();
     ({ app, page } = await launchElectron({ userDataDir }));
     await holdWorkspace(page);
-    await chooseScope(page, 'shared-lib');
+    await expect(settledHeader(page)).toHaveAttribute('aria-expanded', 'true');
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
+  });
+});
 
-    await expect(
-      page.locator('.group-nav-item .session-nav-item').filter({ hasText: 'Bump deps' })
-    ).toHaveCount(1);
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(0);
+/**
+ * A stand-in for the CLI that sits at its prompt until it gets Enter, then
+ * prints a line every tenth of a second for a minute: a turn the test starts
+ * when it chooses, long enough to read as working. Any launch that is not an
+ * interactive session (a version or capabilities probe) exits at once rather
+ * than streaming.
+ */
+const TURN_STUB = `#!/bin/sh
+case " $* " in *" --session-id "*|*" --resume "*) ;; *) exit 0 ;; esac
+printf 'Stub ready\\r\\n> '
+IFS= read -r _ || exit 0
+i=0
+while [ "$i" -lt 600 ]; do printf 'step %s\\r\\n' "$i"; i=$((i + 1)); sleep 0.1; done
+exec sleep 300
+`;
+
+test.describe('the Working section', () => {
+  let root: string;
+
+  test.beforeEach(async () => {
+    root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-working-'));
+    ({ app, page, userDataDir } = await launchElectron());
   });
 
-  test('a group fold survives a relaunch', async () => {
-    test.setTimeout(60_000);
-    await page.locator('.group-nav-toggle').click();
+  test.afterEach(async () => {
     await app.close();
-    ({ app, page } = await launchElectron({ userDataDir }));
-    await holdWorkspace(page);
-    await expect(page.locator('.group-nav-toggle')).toHaveAttribute('aria-expanded', 'false');
-    await expect(ungrouped(page).locator('.session-nav-item')).toHaveCount(3);
+    fs.rmSync(root, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+  });
+
+  test('appears right above Settled when a session starts working, and brings back a hidden sidebar with every running session in view', async () => {
+    test.setTimeout(90_000);
+    const stub = path.join(root, 'agent.sh');
+    fs.writeFileSync(stub, TURN_STUB, { mode: 0o755 });
+    await page.evaluate(async ({ root, stub }) => {
+      await window.harnessStateAPI.addHarness({ id: 'turn-stub', driverId: 'claude', name: 'Stub', binaryPath: stub, accentColor: '#555555' });
+      const workspace = await window.workspaceAPI.createWorkspace('Working test', root, false, 'turn-stub');
+      for (const [name, instanceId] of [['Session A', 'turn-a'], ['Session B', 'turn-b']]) {
+        await window.workspaceAPI.createSession(workspace.id, {
+          name, nameIsUserSet: true, workspaceId: workspace.id,
+          instanceId, harnessId: 'turn-stub', scopeId: workspace.scopes[0].id,
+        });
+      }
+    }, { root, stub });
+    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Working test/ }).click();
+
+    const sidebar = page.getByRole('complementary', { name: 'Home sidebar' });
+    const working = page.getByRole('region', { name: 'Working', exact: true });
+    const workingHeader = working.getByRole('button', { name: /^Working/ });
+    const rowIn = (where: Locator, name: string) => where.locator('.session-nav-item').filter({ hasText: name });
+    /** Open a row and wait for main to have its terminal, so input has somewhere to go. */
+    const open = async (name: string, instanceId: string) => {
+      await rowIn(sidebar, name).click();
+      await expect.poll(() => page.evaluate(async (id) => id in await window.terminalAPI.getStatusSnapshot(), instanceId)).toBe(true);
+    };
+    const startTurn = (instanceId: string) => page.evaluate((id) => window.terminalAPI.sendInput(id, '\r'), instanceId);
+
+    // Nothing is running yet, so there is no Working section to show.
+    await expect(rowIn(page.locator('.sidebar-bucket--waiting'), 'Session A')).toBeVisible();
+    await expect(working).toHaveCount(0);
+
+    // A starts a turn. Working appears, already open though it starts folded,
+    // pinned below the scrolling list and directly above Settled.
+    await open('Session A', 'turn-a');
+    await expect(working).toHaveCount(0);
+    await startTurn('turn-a');
+    await expect(rowIn(working, 'Session A')).toBeVisible({ timeout: 15_000 });
+    await expect(workingHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(page.locator('.sidebar-sessions .sidebar-bucket--working')).toHaveCount(0);
+    await expect.poll(() => page.evaluate(() =>
+      [...document.querySelectorAll('.sidebar-dock > section')].map((section) => section.getAttribute('aria-label'))
+    )).toEqual(['Working', 'Settled']);
+    const panelBox = (await page.locator('.sidebar-sessions').boundingBox())!;
+    const workingBox = (await working.boundingBox())!;
+    const settledBox = (await page.getByRole('region', { name: 'Settled', exact: true }).boundingBox())!;
+    expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(workingBox.y);
+    expect(workingBox.y + workingBox.height).toBeLessThanOrEqual(settledBox.y);
+
+    // The chord folds it. Folded, it keeps only the open session, so once B
+    // is opened A runs on behind the fold and only the count says so.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyB' : 'Control+Shift+KeyB');
+    await expect(workingHeader).toHaveAttribute('aria-expanded', 'false');
+    await open('Session B', 'turn-b');
+    await expect(rowIn(working, 'Session A')).toHaveCount(0);
+    await expect(workingHeader.locator('.shelf-header-count')).toHaveText('1');
+
+    // With the sidebar hidden, B starting a turn brings it back with Working
+    // open, so A is in view again beside B.
+    await page.locator('.sidebar-toggle').click();
+    await expect(sidebar).toHaveCount(0);
+    await startTurn('turn-b');
+    await expect(sidebar).toBeVisible({ timeout: 15_000 });
+    await expect(workingHeader).toHaveAttribute('aria-expanded', 'true');
+    await expect(rowIn(working, 'Session A')).toBeVisible();
+    await expect(rowIn(working, 'Session B')).toBeVisible();
+    await expect(workingHeader.locator('.shelf-header-count')).toHaveText('2');
   });
 });

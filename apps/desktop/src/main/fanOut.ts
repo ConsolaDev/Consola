@@ -1,6 +1,6 @@
 import * as path from 'path';
 import { generateSessionInstanceId } from '../shared/workspace';
-import type { Group, Session, Workspace } from '../shared/workspace';
+import type { Group, Label, NewLabelFields, Session, Workspace } from '../shared/workspace';
 import type { SessionFanOutIntent, SessionFanOutResult } from '../shared/types';
 import type { LaunchSessionFields } from './SessionLauncher';
 
@@ -9,6 +9,7 @@ export interface FanOutDeps {
     workspaces: {
         getAll(): Workspace[];
         createGroup(workspaceId: string, fields: { name: string }): Group;
+        createLabel(workspaceId: string, fields: NewLabelFields): Label;
     };
     launcher: {
         launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session>;
@@ -36,6 +37,10 @@ export async function fanOut(
     }
 
     const group = deps.workspaces.createGroup(intent.workspaceId, { name: intent.groupName });
+    // Peers, not a tree: every session carries the label and none has a parent,
+    // which is the shape the v7 -> v8 migration gives a group with no conductor.
+    // The label shares the group's id so that migration stays idempotent.
+    deps.workspaces.createLabel(intent.workspaceId, { id: group.id, name: intent.groupName });
 
     const created: Session[] = [];
     const failed: Array<{ path: string; error: string }> = [];
@@ -51,6 +56,7 @@ export async function fanOut(
                     scopeId: intent.scopeId,
                     cwd: targetPath,
                     groupId: group.id,
+                    labelIds: [group.id],
                     kind: 'interactive',
                     initialPrompt: intent.prompt,
                 })

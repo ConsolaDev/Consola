@@ -1,6 +1,7 @@
 import {
     ASSISTANT_ITEM_MODES,
     type Group,
+    type Label,
     type Scope,
     type SessionUpdates,
     type WorkspaceUpdates,
@@ -80,6 +81,33 @@ export function allowedGroupUpdates(
     return allowed;
 }
 
+/** A label's name, emoji and colour; its id is fixed. Emoji and colour clear by presence. */
+export function allowedLabelUpdates(
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+): Partial<Pick<Label, 'name' | 'emoji' | 'color'>> {
+    const allowed: Partial<Pick<Label, 'name' | 'emoji' | 'color'>> = {};
+    if (updates.name !== undefined) allowed.name = updates.name;
+    if ('emoji' in updates && (updates.emoji === undefined || typeof updates.emoji === 'string')) {
+        allowed.emoji = updates.emoji;
+    }
+    if ('color' in updates && (updates.color === undefined || typeof updates.color === 'string')) {
+        allowed.color = updates.color;
+    }
+    return allowed;
+}
+
+/**
+ * A label rebuilt field by field, for the one call that takes a whole record
+ * back: Undo of a delete. The memento made the round trip through a renderer,
+ * so what returns is treated as a claim about a label, not as one.
+ */
+export function allowedLabelRecord(label: Label): Label {
+    const rebuilt: Label = { id: label.id, name: label.name };
+    if (typeof label.emoji === 'string') rebuilt.emoji = label.emoji;
+    if (typeof label.color === 'string') rebuilt.color = label.color;
+    return rebuilt;
+}
+
 export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
     const allowed: HarnessUpdates = {};
     if (updates.name !== undefined) allowed.name = updates.name;
@@ -106,13 +134,20 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
  * are the session's identity in the same way: where it belongs, where it
  * runs, what drives it. `groupId` and, since v7, `workItem` are mutable —
  * regrouping and linking are acts of organisation and triage, not identity
- * changes — and both clear by presence. `id`, `workspaceId`, `instanceId`
+ * changes — and both clear by presence. `labelIds` (v8) is mutable the same
+ * way, and `autoSettle` is a preference. `parentSessionId` is clear-only: a
+ * renderer can detach a session from its conductor but never name one, so
+ * the field stays written at creation and by the v8 migration alone. The
+ * clear exists because that migration infers the link from a shared group
+ * and can be wrong, and a child settles only with its conductor and is drawn
+ * into Waiting by any sibling's question — without it, the only way out of a
+ * mis-parenting would be deleting the session. `id`, `workspaceId`, `instanceId`
  * and `claudeSessionId` name the session and its terminal; `createdAt` is
  * history.
  */
 export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     const allowed: SessionUpdates = {};
-    // These three are required on the record and none is clearable, so
+    // These two are required on the record and none is clearable, so
     // `undefined` can only ever be a bug: absence and explicit-undefined are
     // treated alike. Contrast groupId and workItem below, where `undefined`
     // is a value.
@@ -120,12 +155,30 @@ export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
     // Optional on the record but set-only in practice: `undefined` never
     // means "clear the flag", so it is treated like the required fields.
     if (updates.nameIsUserSet !== undefined) allowed.nameIsUserSet = updates.nameIsUserSet;
-    if (updates.lastActiveAt !== undefined) allowed.lastActiveAt = updates.lastActiveAt;
     if (updates.hasStarted !== undefined) allowed.hasStarted = updates.hasStarted;
     // `undefined` IS the value here — "leave the group", "unlink from the
     // item". Structured clone preserves an explicitly-undefined key, so
     // presence is what separates "clear this" from "leave it alone".
     if ('groupId' in updates) allowed.groupId = updates.groupId;
     if ('workItem' in updates) allowed.workItem = updates.workItem;
+    // Both clear by presence: an empty selection and "default" are values.
+    if ('labelIds' in updates) {
+        const ids = updates.labelIds;
+        if (ids !== undefined && !(Array.isArray(ids) && ids.every((id) => typeof id === 'string'))) {
+            throw new Error('Labels must be a list of label ids.');
+        }
+        allowed.labelIds = ids === undefined ? undefined : [...new Set(ids)];
+    }
+    // Clear-only, by presence: an explicit `undefined` detaches, and a value
+    // naming a session is dropped like any other field off the list.
+    if ('parentSessionId' in updates && updates.parentSessionId === undefined) {
+        allowed.parentSessionId = undefined;
+    }
+    if ('autoSettle' in updates) {
+        if (updates.autoSettle !== undefined && updates.autoSettle !== 'never') {
+            throw new Error('Choose a valid auto-settle value.');
+        }
+        allowed.autoSettle = updates.autoSettle;
+    }
     return allowed;
 }

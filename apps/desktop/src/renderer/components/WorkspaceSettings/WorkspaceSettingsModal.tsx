@@ -1,12 +1,12 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Boxes, Folder, Info, Plug, Sparkle, Sparkles, Trash2, X, type LucideIcon } from 'lucide-react';
+import { Folder, Info, Plug, Sparkle, Sparkles, Tag, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
 import { HarnessPanel } from './HarnessPanel';
 import { ScopesPanel } from './ScopesPanel';
-import { GroupsPanel } from './GroupsPanel';
+import { LabelsPanel } from './LabelsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
 import { ActionsPanel } from './ActionsPanel';
 import { AssistantPanel } from './AssistantPanel';
@@ -20,7 +20,7 @@ export type WorkspaceSettingsSectionId =
   | 'provider'
   | 'actions'
   | 'assistant'
-  | 'groups'
+  | 'labels'
   | 'danger';
 
 interface WorkspaceSettingsNavMeta {
@@ -36,7 +36,7 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'provider',
   'actions',
   'assistant',
-  'groups',
+  'labels',
   'danger',
 ];
 
@@ -49,7 +49,7 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
   assistant: { label: () => 'Assistant', icon: Sparkle },
-  groups: { label: () => 'Groups', icon: Boxes },
+  labels: { label: () => 'Labels', icon: Tag },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
 };
 
@@ -166,7 +166,7 @@ function WorkspaceSettingsBody({
           )}
           {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
           {activeSection === 'assistant' && <AssistantPanel workspace={workspace} />}
-          {activeSection === 'groups' && <GroupsPanel workspace={workspace} />}
+          {activeSection === 'labels' && <LabelsPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}
         </div>
       </div>

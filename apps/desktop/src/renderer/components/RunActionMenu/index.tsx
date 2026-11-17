@@ -3,9 +3,8 @@ import { ChevronDown, CornerDownLeft, LoaderCircle, RotateCcw } from 'lucide-rea
 import { useState } from 'react';
 import { actionConversation, type WorkItemAction } from '../../../shared/workItemActions';
 import type { Session, Workspace } from '../../../shared/workspace';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { runActionInSession } from '../../utils/sessionActions';
-import { sessionStatusFor } from '../../utils/sessionStatus';
+import { useSessionAttention } from '../../stores/attentionStore';
 import { ConfirmDialog } from '../Dialogs/ConfirmDialog';
 import './styles.css';
 
@@ -40,7 +39,7 @@ const HINTS = {
  * line of their own, and the menu is where the person is looking.
  */
 export function RunActionMenu({ workspace, session, triggerClassName, onRan }: RunActionMenuProps) {
-  const status = useTerminalStore((state) => sessionStatusFor(state.terminals[session.instanceId]));
+  const status = useSessionAttention(session.id);
   const [open, setOpen] = useState(false);
   const [runningId, setRunningId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);

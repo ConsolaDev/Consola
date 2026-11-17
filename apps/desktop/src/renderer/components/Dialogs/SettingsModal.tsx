@@ -1,7 +1,7 @@
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
-import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus } from 'lucide-react';
+import { X, Sun, Moon, Monitor, Palette, Keyboard, Boxes, Folder, Minus, Plus, ListChecks } from 'lucide-react';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MIN,
@@ -13,9 +13,10 @@ import { useTheme } from '../../hooks/useTheme';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { ASSISTANT_SHORTCUT_LABEL, COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
+import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
 import './styles.css';
 
-export type SettingsSection = 'appearance' | 'harnesses' | 'shortcuts' | 'updates';
+export type SettingsSection = 'appearance' | 'sessions' | 'harnesses' | 'shortcuts' | 'updates';
 
 interface SettingsSectionConfig {
   id: SettingsSection;
@@ -29,6 +30,7 @@ interface SettingsSectionConfig {
 const sections: SettingsSectionConfig[] = [
   { id: 'updates', label: 'Updates', icon: Monitor },
   { id: 'appearance', label: 'Appearance', icon: Palette },
+  { id: 'sessions', label: 'Sessions', icon: ListChecks },
   { id: 'harnesses', label: 'Harnesses', icon: Boxes },
   { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
 ];
@@ -100,6 +102,7 @@ export function SettingsModal({ open, onOpenChange, activeSection, onSectionChan
                 setTerminalFontSize={setTerminalFontSize}
               />
             )}
+            {activeSection === 'sessions' && <SessionsSection />}
             {activeSection === 'harnesses' && <HarnessesSection />}
             {activeSection === 'shortcuts' && <ShortcutsSection />}
             {activeSection === 'updates' && <AppUpdatesSection />}
@@ -177,6 +180,23 @@ function AppearanceSection({
             <Plus size={14} />
           </button>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function SessionsSection() {
+  return (
+    <div className="settings-modal-section">
+      <h2 className="settings-modal-section-title">Sessions</h2>
+      <div className="settings-modal-option">
+        <div className="settings-modal-option-info">
+          <span className="settings-modal-option-label">Settle idle sessions</span>
+          <span className="settings-modal-option-description">
+            Sessions with nothing happening move to the Settled shelf after this long. Nothing is deleted, and new activity brings a session back. Choose Off to keep every session where it is.
+          </span>
+        </div>
+        <AutoSettleControl />
       </div>
     </div>
   );

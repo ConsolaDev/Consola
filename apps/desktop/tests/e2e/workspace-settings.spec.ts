@@ -380,7 +380,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
       'Assistant',
-      'Groups',
+      'Labels',
       'Danger zone',
     ]);
 
@@ -403,6 +403,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await expect(global.locator('.settings-modal-nav-item')).toHaveText([
       'Updates',
       'Appearance',
+      'Sessions',
       'Harnesses',
       'Keyboard Shortcuts',
     ]);
@@ -507,20 +508,22 @@ test('the workspace rail gear opens the global modal; the workspace modal commit
   }
 });
 
-test('the Groups panel makes a group without leaving Settings', async () => {
+test('the Labels panel makes a label without leaving Settings, and the filter bar lists it', async () => {
   test.setTimeout(60_000);
-  const { page, cleanup } = await launchSeeded();
+  const { page, stateFile, cleanup } = await launchSeeded();
+  const savedLabels = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].labels;
   try {
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
+    // The seeded v7 group arrived as a label of the same name.
     const modal = page.getByRole('dialog');
-    await modal.getByRole('button', { name: 'Groups', exact: true }).click();
+    await modal.getByRole('button', { name: 'Labels', exact: true }).click();
     await expect(modal.locator('.ws-row-name')).toHaveCount(1);
 
-    await modal.getByRole('button', { name: 'Add group' }).click();
-    const dialog = page.getByRole('dialog', { name: 'New group' });
+    await modal.getByRole('button', { name: 'Add label' }).click();
+    const dialog = page.getByRole('dialog', { name: 'New label' });
     await expect(dialog).toBeVisible();
     await dialog.getByLabel('Name').fill('CI fixes');
     await dialog.getByRole('button', { name: 'Create' }).click();
@@ -528,6 +531,50 @@ test('the Groups panel makes a group without leaving Settings', async () => {
     await expect(dialog).toBeHidden();
     await expect(modal.locator('.ws-row-name')).toHaveCount(2);
     await expect(modal.locator('.ws-row-name').filter({ hasText: 'CI fixes' })).toHaveCount(1);
+    await expect.poll(() => savedLabels().map((label: { name: string }) => label.name)).toContain('CI fixes');
+    // A label, not a group: nothing is written that no screen could show.
+    expect(JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].groups).toHaveLength(1);
+
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+    await expect(page.getByRole('menuitem', { name: /CI fixes/ })).toBeVisible();
+  } finally {
+    await cleanup();
+  }
+});
+
+test('deleting a label from the Labels panel leaves its sessions in place, without it', async () => {
+  test.setTimeout(60_000);
+  const { page, stateFile, cleanup } = await launchSeeded();
+  const saved = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0];
+  try {
+    await holdWorkspace(page);
+    const workspaceId = saved().id;
+    const created = await page.evaluate(async ([id]) => {
+      const snapshot = await window.workspaceAPI.getSnapshot();
+      const workspace = snapshot.workspaces.find((candidate: { id: string }) => candidate.id === id)!;
+      const session = await window.workspaceAPI.createSession(id, {
+        name: 'Tagged session', instanceId: 'tagged-1', scopeId: workspace.scopes[0].id,
+        workspaceId: id, harnessId: 'default',
+      });
+      if (!session) throw new Error('Session creation failed');
+      await window.workspaceAPI.assignLabel(id, session.id, 'g-reviews');
+      return session.id;
+    }, [workspaceId] as const);
+    await expect.poll(() => saved().sessions.find((s: { id: string }) => s.id === created)?.labelIds).toEqual(['g-reviews']);
+
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const modal = page.getByRole('dialog');
+    await modal.getByRole('button', { name: 'Labels', exact: true }).click();
+    await expect(modal.locator('.ws-row-chip')).toHaveText('1 session');
+    await modal.getByRole('button', { name: 'Delete label PR reviews' }).click();
+
+    await expect(modal.locator('.ws-row-name')).toHaveCount(0);
+    await expect.poll(() => saved().labels).toEqual([]);
+    const survivor = saved().sessions.find((s: { id: string }) => s.id === created);
+    expect(survivor).toBeDefined();
+    expect(survivor.labelIds).toBeUndefined();
   } finally {
     await cleanup();
   }
@@ -559,10 +606,6 @@ test('an action can be pointed at a group, and says so on its row', async () => 
         timeout: 10_000,
       })
       .toBe('g-reviews');
-
-    // The group side says the same thing from the other direction.
-    await modal.getByRole('button', { name: 'Groups', exact: true }).click();
-    await expect(modal.locator('.ws-action-group')).toHaveText('← Review');
   } finally {
     await cleanup();
   }
@@ -717,7 +760,7 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [folder] });
     }, root);
     // The empty list offers the way back as well as the scope row's menu.
-    await page.locator('.sidebar-ungrouped').getByRole('button', { name: 'Add a scope', exact: true }).click();
+    await page.locator('.sidebar-sessions').getByRole('button', { name: 'Add a scope', exact: true }).click();
     await expect(page.locator('.workspace-empty-view').getByRole('button', { name: 'New session', exact: true })).toBeEnabled();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await expect(page.getByRole('region', { name: 'Before your first session' })).toContainText(`Runs in the ${path.basename(root)} scope`);
@@ -800,46 +843,53 @@ test('scope editing saves name and location together, supports cancel, and expos
   }
 });
 
-test('group emojis can be searched, cancelled, saved, reloaded and removed', async ({}, testInfo) => {
+test('label emojis can be searched, cancelled, saved, reloaded and removed', async ({}, testInfo) => {
   test.setTimeout(60_000);
   const { page, stateFile, cleanup } = await launchSeeded();
-  const savedGroup = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].groups[0];
+  const savedLabel = () => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].labels?.[0];
   try {
     await holdWorkspace(page);
+    // Labels are managed in Workspace settings, and from the filter bar.
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    const settings = page.getByRole('dialog').first();
+    await settings.getByRole('button', { name: 'Labels', exact: true }).click();
+    const labelEmoji = settings.locator('.ws-row-icon .group-emoji');
     const openEdit = async () => {
-      await page.locator('.group-nav-header').hover();
-      await page.getByRole('button', { name: 'Group actions for PR reviews' }).click();
-      await page.getByRole('menuitem', { name: 'Rename group…' }).click();
+      await settings.getByRole('button', { name: 'Rename label PR reviews' }).click();
     };
     await openEdit();
-    const dialog = page.getByRole('dialog', { name: 'Rename group', exact: true });
-    await dialog.getByRole('button', { name: 'Choose group emoji' }).click();
-    const picker = page.getByRole('dialog', { name: 'Group emoji', exact: true });
+    const dialog = page.getByRole('dialog', { name: 'Edit label', exact: true });
+    await dialog.getByRole('button', { name: 'Choose label emoji' }).click();
+    const picker = page.getByRole('dialog', { name: 'Label emoji', exact: true });
     await picker.locator('input[type="search"]').fill('sweden');
-    await page.screenshot({ path: testInfo.outputPath('group-emoji-picker.png') });
+    await page.screenshot({ path: testInfo.outputPath('label-emoji-picker.png') });
     await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
     await expect(picker).toBeHidden();
-    await expect(dialog.getByRole('button', { name: 'Change group emoji' })).toHaveText('🇸🇪');
+    await expect(dialog.getByRole('button', { name: 'Change label emoji' })).toHaveText('🇸🇪');
     await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
-    expect(savedGroup().emoji).toBeUndefined();
+    expect(savedLabel()?.emoji).toBeUndefined();
 
     await openEdit();
-    await dialog.getByRole('button', { name: 'Choose group emoji' }).click();
+    await dialog.getByRole('button', { name: 'Choose label emoji' }).click();
     await picker.locator('input[type="search"]').fill('sweden');
     await picker.getByRole('button', { name: '🇸🇪', exact: true }).click();
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => savedGroup().emoji).toBe('🇸🇪');
-    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+    await expect.poll(() => savedLabel()?.emoji).toBe('🇸🇪');
+    await expect(labelEmoji).toHaveText('🇸🇪');
     await page.reload();
     await holdWorkspace(page);
-    await expect(page.locator('.group-nav-toggle .group-emoji')).toHaveText('🇸🇪');
+    await page.getByRole('button', { name: / workspace menu$/ }).click();
+    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+    await settings.getByRole('button', { name: 'Labels', exact: true }).click();
+    await expect(labelEmoji).toHaveText('🇸🇪');
 
     await openEdit();
-    await dialog.getByRole('button', { name: 'Change group emoji' }).click();
+    await dialog.getByRole('button', { name: 'Change label emoji' }).click();
     await picker.getByRole('button', { name: 'Remove emoji' }).click();
     await dialog.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect.poll(() => savedGroup().emoji).toBeUndefined();
-    await expect(page.locator('.group-nav-toggle .group-emoji svg')).toBeVisible();
+    await expect.poll(() => savedLabel()?.emoji).toBeUndefined();
+    await expect(settings.locator('.ws-row-icon .group-emoji svg')).toBeVisible();
   } finally {
     await cleanup();
   }

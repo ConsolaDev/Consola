@@ -1,152 +1,85 @@
 import { describe, expect, it } from 'vitest';
-import {
-  anyOtherWorkspaceNeedsAttention,
-  sessionStatusFor,
-  workspaceStatusFor,
-  worstStatus,
-} from './sessionStatus';
+import { anyOtherWorkspaceNeedsAttention, workspaceStatusFor } from './sessionStatus';
 import { createSessionRecord, createWorkspaceRecord, type Workspace } from '../../shared/workspace';
 
 // Built through the record creators rather than hand-rolled, so a shape
-// change to Workspace/Session updates this fixture automatically. The
-// specific id is what the tests key off of; everything else the creators
-// fill in is incidental to what these tests check.
-function workspace(id: string, instanceIds: string[]): Workspace {
+// change to Workspace/Session updates this fixture automatically. Each session's
+// id is the name given, which is what an attention map is keyed by.
+function workspace(id: string, sessionIds: string[]): Workspace {
   const record = createWorkspaceRecord(id, `/code/${id}`, true);
   const scopeId = record.scopes[0].id;
   return {
     ...record,
     id,
-    sessions: instanceIds.map((instanceId, index) =>
-      createSessionRecord({
+    sessions: sessionIds.map((sessionId, index) => ({
+      ...createSessionRecord({
         name: `Session ${index}`,
         workspaceId: id,
-        instanceId,
+        instanceId: `inst-${sessionId}`,
         harnessId: record.defaultHarnessId,
         scopeId,
-      })
-    ),
+      }),
+      id: sessionId,
+    })),
   };
 }
 
-const IDLE = {
-  isBusy: false,
-  isAwaitingConfirmation: false,
-  hasExited: false,
-  completedWhileAway: false,
-  status: 'ready' as const,
-};
-
-describe('sessionStatusFor', () => {
-  it('is ready for a terminal that has not started', () => {
-    expect(sessionStatusFor(undefined)).toBe('ready');
-  });
-
-  it('ranks an exit above a waiting menu, and a waiting menu above work', () => {
-    expect(sessionStatusFor({ ...IDLE, hasExited: true, isAwaitingConfirmation: true })).toBe(
-      'exited'
-    );
-    expect(sessionStatusFor({ ...IDLE, isAwaitingConfirmation: true, isBusy: true })).toBe(
-      'needs-attention'
-    );
-    expect(sessionStatusFor({ ...IDLE, isBusy: true })).toBe('working');
-    expect(sessionStatusFor(IDLE)).toBe('ready');
-  });
-
-  it('shows a finished-while-away session as done once it is calm', () => {
-    expect(sessionStatusFor({ ...IDLE, completedWhileAway: true })).toBe('done');
-  });
-
-  it('lets every live signal outrank done', () => {
-    expect(sessionStatusFor({ ...IDLE, completedWhileAway: true, isBusy: true })).toBe('working');
-    expect(
-      sessionStatusFor({ ...IDLE, completedWhileAway: true, isAwaitingConfirmation: true })
-    ).toBe('needs-attention');
-    expect(sessionStatusFor({ ...IDLE, completedWhileAway: true, hasExited: true })).toBe(
-      'exited'
-    );
-  });
-});
-
 describe('workspaceStatusFor', () => {
   it('surfaces the most urgent status among its sessions', () => {
-    const terminals = {
-      a: { ...IDLE, isBusy: true },
-      b: { ...IDLE, isAwaitingConfirmation: true },
-    };
-
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('needs-attention');
+    const attention = { a: 'working', b: 'needs-attention' } as const;
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), attention)).toBe('needs-attention');
   });
 
-  it('is ready when nothing is happening', () => {
-    expect(workspaceStatusFor(workspace('w1', ['a']), { a: IDLE })).toBe('ready');
+  it('is ready when nothing is happening, or nothing is known', () => {
+    expect(workspaceStatusFor(workspace('w1', ['a']), { a: 'ready' })).toBe('ready');
+    expect(workspaceStatusFor(workspace('w1', ['a']), {})).toBe('ready');
+    expect(workspaceStatusFor(workspace('w1', []), {})).toBe('ready');
   });
 
-  it('ranks a dead process above a waiting menu across a workspace, matching a single session', () => {
-    const terminals = {
-      a: { ...IDLE, isAwaitingConfirmation: true },
-      b: { ...IDLE, hasExited: true },
-    };
-
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('exited');
+  it('ranks a waiting menu above a dead process: the rank inversion', () => {
+    const attention = { a: 'needs-attention', b: 'exited' } as const;
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), attention)).toBe('needs-attention');
   });
 
   it('ranks an unvisited finish above work still in progress', () => {
-    const terminals = {
-      a: { ...IDLE, isBusy: true },
-      b: { ...IDLE, completedWhileAway: true },
-    };
-
-    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), terminals)).toBe('done');
-  });
-});
-
-describe('worstStatus', () => {
-  it('is ready for nothing at all -- an item with no sessions shows no dot', () => {
-    expect(worstStatus([])).toBe('ready');
+    const attention = { a: 'working', b: 'done' } as const;
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), attention)).toBe('done');
   });
 
-  it('passes a lone status through', () => {
-    expect(worstStatus(['working'])).toBe('working');
-    expect(worstStatus(['done'])).toBe('done');
-  });
-
-  it('picks the most urgent status, in the same order the workspace rollup uses', () => {
-    expect(worstStatus(['ready', 'working'])).toBe('working');
-    expect(worstStatus(['working', 'done'])).toBe('done');
-    expect(worstStatus(['done', 'needs-attention', 'working'])).toBe('needs-attention');
-    expect(worstStatus(['needs-attention', 'exited', 'ready'])).toBe('exited');
+  it('ignores settled sessions', () => {
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), { a: 'settled', b: 'settled' })).toBe('ready');
+    expect(workspaceStatusFor(workspace('w1', ['a', 'b']), { a: 'settled', b: 'working' })).toBe('working');
   });
 });
 
 describe('anyOtherWorkspaceNeedsAttention', () => {
   it('ignores the workspace this window is already showing', () => {
     const workspaces = [workspace('w1', ['a']), workspace('w2', ['b'])];
-    const terminals = { a: { ...IDLE, isAwaitingConfirmation: true }, b: IDLE };
+    const attention = { a: 'needs-attention', b: 'ready' } as const;
 
-    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'w1', terminals)).toBe(false);
-    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'w2', terminals)).toBe(true);
+    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'w1', attention)).toBe(false);
+    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'w2', attention)).toBe(true);
   });
 
-  it('does not count work in progress, calm, or finished sessions as needing you', () => {
-    const workspaces = [workspace('w1', ['a', 'b', 'c'])];
-    const terminals = {
-      a: { ...IDLE, isBusy: true },
-      b: IDLE,
-      c: { ...IDLE, completedWhileAway: true },
-    };
+  it('does not count work in progress, calm, finished or settled sessions as needing you', () => {
+    const workspaces = [workspace('w1', ['a', 'b', 'c', 'd'])];
+    const attention = { a: 'working', b: 'ready', c: 'done', d: 'settled' } as const;
 
-    expect(anyOtherWorkspaceNeedsAttention(workspaces, null, terminals)).toBe(false);
+    expect(anyOtherWorkspaceNeedsAttention(workspaces, null, attention)).toBe(false);
   });
 
   it('is true when any other workspace needs attention, not only when all of them do', () => {
     const workspaces = [workspace('active', ['a']), workspace('waiting', ['b']), workspace('idle', ['c'])];
-    const terminals = {
-      a: IDLE,
-      b: { ...IDLE, isAwaitingConfirmation: true },
-      c: IDLE,
-    };
+    const attention = { a: 'ready', b: 'needs-attention', c: 'ready' } as const;
 
-    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'active', terminals)).toBe(true);
+    expect(anyOtherWorkspaceNeedsAttention(workspaces, 'active', attention)).toBe(true);
+  });
+
+  // Tested by name, not rank. `exited` ranks below `working` and `ready` now, so a
+  // rank-based rewrite would stop reporting a dead process beside a busy one.
+  it('is still true for an exited session after the rank inversion', () => {
+    expect(anyOtherWorkspaceNeedsAttention([workspace('w2', ['b'])], 'w1', { b: 'exited' })).toBe(true);
+    const mixed = { a: 'exited', b: 'working', c: 'ready' } as const;
+    expect(anyOtherWorkspaceNeedsAttention([workspace('w2', ['a', 'b', 'c'])], 'w1', mixed)).toBe(true);
   });
 });

@@ -26,6 +26,7 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
         sectionDefaults: {},
         scopes: [{ id: 'scope-portal', name: 'catalog-portal', path: '/code/catalog-portal', isGitRepo: true, createdAt: 0 }],
         groups: [],
+        labels: [],
         sessions: [],
         createdAt: 0,
         updatedAt: 0,

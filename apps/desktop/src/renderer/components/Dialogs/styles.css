@@ -647,3 +647,19 @@
   opacity: 0.5;
   cursor: default;
 }
+
+/* The first-run auto-settle explanation, and its threshold control */
+.auto-settle-list {
+  margin: 0 0 var(--space-3);
+  padding-left: var(--space-4);
+}
+
+.auto-settle-workspace,
+.auto-settle-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.auto-settle-select {
+  width: auto;
+}

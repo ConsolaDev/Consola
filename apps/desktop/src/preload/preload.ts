@@ -1,5 +1,7 @@
 import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
+import type { AttentionChange, AttentionState } from '../shared/attention';
+import type { Preferences, SettleMemento, SettleResult } from '../shared/preferences';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -38,7 +40,10 @@ import type { WorkItemAction } from '../shared/workItemActions';
 import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
     Group,
+    DeletedLabel,
+    Label,
     NewGroupFields,
+    NewLabelFields,
     NewScopeFields,
     NewSessionFields,
     Scope,
@@ -283,6 +288,28 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
     restoreGroup: (workspaceId: string, groupId: string): Promise<void> =>
         ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE, workspaceId, groupId),
 
+    createLabel: (workspaceId: string, fields: NewLabelFields): Promise<Label> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_CREATE, workspaceId, fields),
+
+    updateLabel: (
+        workspaceId: string,
+        labelId: string,
+        updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+    ): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_UPDATE, workspaceId, labelId, updates),
+
+    deleteLabel: (workspaceId: string, labelId: string): Promise<DeletedLabel | null> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_DELETE, workspaceId, labelId),
+
+    restoreLabel: (workspaceId: string, removed: DeletedLabel): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_LABEL_RESTORE, workspaceId, removed),
+
+    assignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_ASSIGN, workspaceId, sessionId, labelId),
+
+    unassignLabel: (workspaceId: string, sessionId: string, labelId: string): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_LABEL_UNASSIGN, workspaceId, sessionId, labelId),
+
     fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
         ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),
 
@@ -393,6 +420,45 @@ interface GitDiffResult {
     isNew: boolean;
     isDeleted: boolean;
 }
+
+// Expose Attention API to renderer
+contextBridge.exposeInMainWorld('attentionAPI', {
+    getSnapshot: (): Promise<AttentionState> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SNAPSHOT);
+    },
+    onChanged: (callback: (change: AttentionChange) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, change: AttentionChange) => callback(change);
+        ipcRenderer.on(IPC_CHANNELS.ATTENTION_CHANGED, listener);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.ATTENTION_CHANGED, listener);
+    },
+    setViewing: (instanceId: string | null): void => {
+        ipcRenderer.send(IPC_CHANNELS.ATTENTION_VIEWING, instanceId);
+    },
+    setFocused: (focused: boolean): void => {
+        ipcRenderer.send(IPC_CHANNELS.ATTENTION_FOCUSED, focused);
+    },
+    settle: (workspaceId: string, sessionId: string): Promise<SettleResult> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE, workspaceId, sessionId);
+    },
+    unsettle: (workspaceId: string, sessionId: string): Promise<SettleMemento> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_UNSETTLE, workspaceId, sessionId);
+    },
+    restore: (memento: SettleMemento): Promise<void> => {
+        return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_RESTORE, memento);
+    },
+});
+
+contextBridge.exposeInMainWorld('preferencesAPI', {
+    get: (): Promise<Preferences> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_GET),
+    setAutoSettleDays: (days: number): Promise<void> =>
+        ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
+    acknowledgeAutoSettle: (): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE),
+    onChanged: (callback: (preferences: Preferences) => void): (() => void) => {
+        const listener = (_event: Electron.IpcRendererEvent, preferences: Preferences) => callback(preferences);
+        ipcRenderer.on(IPC_CHANNELS.PREFERENCES_CHANGED, listener);
+        return () => ipcRenderer.removeListener(IPC_CHANNELS.PREFERENCES_CHANGED, listener);
+    },
+});
 
 // Expose Git API to renderer
 contextBridge.exposeInMainWorld('gitAPI', {

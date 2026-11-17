@@ -7,7 +7,10 @@ import type { InboxSection } from '../../shared/inboxSections';
 import type { WorkItemAction } from '../../shared/workItemActions';
 import {
   type Group,
+  type DeletedLabel,
+  type Label,
   type NewGroupFields,
+  type NewLabelFields,
   type NewSessionFields,
   type Scope,
   type Session,
@@ -17,7 +20,7 @@ import {
   type WorkspaceUpdates,
 } from '../../shared/workspace';
 
-export type { Group, Scope, Session, Workspace } from '../../shared/workspace';
+export type { Group, Label, Scope, Session, Workspace } from '../../shared/workspace';
 export { migrateWorkspaceState } from '../../shared/workspace';
 
 interface WorkspaceState {
@@ -65,6 +68,15 @@ interface WorkspaceState {
   ) => Promise<void>;
   archiveGroup: (workspaceId: string, groupId: string) => Promise<void>;
   restoreGroup: (workspaceId: string, groupId: string) => Promise<void>;
+  createLabel: (workspaceId: string, fields: NewLabelFields) => Promise<Label>;
+  updateLabel: (
+    workspaceId: string,
+    labelId: string,
+    updates: Partial<Pick<Label, 'name' | 'emoji' | 'color'>>
+  ) => Promise<void>;
+  deleteLabel: (workspaceId: string, labelId: string) => Promise<DeletedLabel | null>;
+  assignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
+  unassignLabel: (workspaceId: string, sessionId: string, labelId: string) => Promise<void>;
 }
 
 /**
@@ -125,6 +137,19 @@ export const useWorkspaceStore = create<WorkspaceState>()((set, get) => ({
   archiveGroup: (workspaceId, groupId) => workspaceBridge.archiveGroup(workspaceId, groupId),
 
   restoreGroup: (workspaceId, groupId) => workspaceBridge.restoreGroup(workspaceId, groupId),
+
+  createLabel: (workspaceId, fields) => workspaceBridge.createLabel(workspaceId, fields),
+
+  updateLabel: (workspaceId, labelId, updates) =>
+    workspaceBridge.updateLabel(workspaceId, labelId, updates),
+
+  deleteLabel: (workspaceId, labelId) => workspaceBridge.deleteLabel(workspaceId, labelId),
+
+  assignLabel: (workspaceId, sessionId, labelId) =>
+    workspaceBridge.assignLabel(workspaceId, sessionId, labelId),
+
+  unassignLabel: (workspaceId, sessionId, labelId) =>
+    workspaceBridge.unassignLabel(workspaceId, sessionId, labelId),
 }));
 
 const LEGACY_STORAGE_KEY = 'consola-workspaces';

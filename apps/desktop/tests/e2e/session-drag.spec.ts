@@ -4,13 +4,10 @@ import fs from 'fs';
 import os from 'os';
 import path from 'path';
 import { launchElectron } from './helpers/electron';
-import {
-  SESSION_DRAG_TYPE,
-  homeScopeType,
-} from '../../src/renderer/components/Sidebar/sessionDrag';
+import { SESSION_DRAG_TYPE } from '../../src/renderer/components/Sidebar/sessionDrag';
 
 /**
- * Dragging a session row into a group and back out again, guarded at the one
+ * Dragging a session row onto a label chip, guarded at the one
  * point where it silently broke: the window-level drop guard runs after the
  * React tree and used to overwrite the target's `dropEffect` with `none`, which
  * makes Chromium refuse the drop without ever firing `drop` — no error, and
@@ -90,8 +87,8 @@ function makeFixture(): { containerDir: string; elsewhereDir: string; stubPath: 
   return { containerDir, elsewhereDir, stubPath };
 }
 
-/** A workspace with two scopes and a real group holding two sessions. */
-async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeFixture>) {
+/** A workspace with two scopes and two fan-out sessions, and an active label chip to drop on. */
+async function seedLabelledWorkspace(page: Page, fixture: ReturnType<typeof makeFixture>) {
   await page.evaluate(
     ([binaryPath]) =>
       window.harnessStateAPI.addHarness({
@@ -110,7 +107,7 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
 
   await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /fleet/ }).click();
 
-  // A real group, built the way the app builds one.
+  // Two sessions, built the way the app builds a fan-out.
   await page.getByRole('button', { name: 'New', exact: true }).click();
   await page.getByRole('menuitem', { name: 'Fan-out…' }).click();
   await page.getByRole('checkbox', { name: 'repo-a' }).check();
@@ -118,7 +115,7 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
   await page.getByLabel('Group name').fill('bump-deps');
   await page.getByLabel(/Prompt/).fill('Say hello in each repo.');
   await page.getByRole('button', { name: /Create group · 2 sessions/ }).click();
-  await expect(page.locator('.group-nav-header')).toBeVisible({ timeout: 15_000 });
+  await expect(page.locator('.session-nav-item')).toHaveCount(2, { timeout: 15_000 });
 
   await page.evaluate(
     ([folder]) =>
@@ -144,59 +141,77 @@ async function seedGroupedWorkspace(page: Page, fixture: ReturnType<typeof makeF
   });
 
   await expect(page.locator('.sidebar-scope-filter')).toBeVisible();
+
+  // A label chip appears while a label is chosen: make one and choose it, as a person would.
+  await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
+  await page.getByRole('textbox', { name: 'New label' }).fill('urgent');
+  await page.keyboard.press('Enter');
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Remove filter urgent' })).toBeVisible();
   return scopes;
 }
 
-test('a group header keeps the move dropEffect it sets, so the drop is not vetoed', async () => {
+const LABEL_CHIP = '.sidebar-filter-chip';
+
+test('a label chip keeps the move dropEffect it sets, so the drop is not vetoed', async () => {
   test.setTimeout(90_000);
   const fixture = makeFixture();
   const { app, page } = await launchElectron();
 
   try {
-    await seedGroupedWorkspace(page, fixture);
+    await seedLabelledWorkspace(page, fixture);
 
-    const writes = await dropEffectWrites(page, '.group-nav-header', [
-      [SESSION_DRAG_TYPE, 'some-ungrouped-session'],
-    ]);
+    const writes = await dropEffectWrites(page, LABEL_CHIP, [[SESSION_DRAG_TYPE, 'some-session']]);
 
-    // The header claims the drag; nothing downstream may take it back.
+    // The chip claims the drag; nothing downstream may take it back.
     expect(writes).toEqual(['move']);
   } finally {
     await app.close();
   }
 });
 
-test('Ungrouped takes a grouped session from any scope under All, only its own when filtered, and the scope row takes no drop', async () => {
+test('a label chip takes only a session row, and the scope control takes no drop', async () => {
   test.setTimeout(90_000);
   const fixture = makeFixture();
   const { app, page } = await launchElectron();
 
   try {
-    const { homeScopeId, otherScopeId } = await seedGroupedWorkspace(page, fixture);
-    const fromElsewhere: [string, string][] = [
-      [SESSION_DRAG_TYPE, 'a-grouped-session'],
-      // Valueless, exactly as the row sets it: the meaning is in the name.
-      [homeScopeType(otherScopeId), ''],
-    ];
-    const ungroupedHeader = '.sidebar-ungrouped .sidebar-section-header';
+    await seedLabelledWorkspace(page, fixture);
 
-    // Under All every session is listed, and leaving a group never changes a
-    // scope, so Ungrouped takes a grouped session from any scope.
-    expect(await dropEffectWrites(page, ungroupedHeader, fromElsewhere)).toEqual(['move']);
+    // Anything that is not one of our rows is nobody's: the lone `none` is the
+    // window guard vetoing a drag no target claimed.
+    expect(await dropEffectWrites(page, LABEL_CHIP, [['text/plain', 'x']])).toEqual(['none']);
 
-    // Filtered to the home scope, a session from elsewhere would land as a
-    // row the list then hides. The lone `none` is the window guard vetoing a
-    // drag no target claimed.
-    const home = await page.evaluate(async (id) => {
-      const snapshot = await window.workspaceAPI.getSnapshot();
-      return snapshot.workspaces.flatMap(workspace => workspace.scopes).find(scope => scope.id === id)!.name;
-    }, homeScopeId);
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
-    await page.getByRole('menuitem', { name: new RegExp(home) }).click();
-    expect(await dropEffectWrites(page, ungroupedHeader, fromElsewhere)).toEqual(['none']);
+    // The scope is a filter, not a place: it takes nothing, a session row included.
+    expect(await dropEffectWrites(page, '.sidebar-scope-filter', [[SESSION_DRAG_TYPE, 'a-session']])).toEqual(['none']);
+  } finally {
+    await app.close();
+  }
+});
 
-    // The scope row is a filter, not a place: it takes nothing.
-    expect(await dropEffectWrites(page, '.sidebar-scope-filter', fromElsewhere)).toEqual(['none']);
+test('dropping a session on a label chip gives it that label', async () => {
+  test.setTimeout(90_000);
+  const fixture = makeFixture();
+  const { app, page } = await launchElectron();
+
+  try {
+    await seedLabelledWorkspace(page, fixture);
+    const read = () => page.evaluate(async () => {
+      const workspace = (await window.workspaceAPI.getSnapshot()).workspaces.find((candidate) => candidate.name === 'fleet')!;
+      const label = workspace.labels.find((candidate) => candidate.name === 'urgent')!;
+      return { label: label.id, session: workspace.sessions[0].id, tagged: workspace.sessions.filter((s) => s.labelIds?.includes(label.id)).length };
+    });
+    const before = await read();
+    expect(before.tagged).toBe(0);
+
+    // A synthetic drop proves the assignment; the dragover tests above prove the gesture is not vetoed.
+    await page.evaluate(([selector, type, id]) => {
+      const transfer = new DataTransfer();
+      transfer.setData(type, id);
+      document.querySelector(selector)!.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, [LABEL_CHIP, SESSION_DRAG_TYPE, before.session] as const);
+
+    await expect.poll(async () => (await read()).tagged).toBe(1);
   } finally {
     await app.close();
   }
@@ -255,7 +270,7 @@ test('a fan-out into another scope widens a filtered list to All, so its session
   try {
     const { homeId } = await seedTwoScopes(page, fixture);
     await openSessionElsewhere(page);
-    await page.getByRole('button', { name: 'Filter sessions by scope', exact: true }).click();
+    await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: /elsewhere/ }).click();
     await expect(page.locator('.sidebar-scope-filter')).toContainText('elsewhere');
 
@@ -266,9 +281,9 @@ test('a fan-out into another scope widens a filtered list to All, so its session
     await page.getByLabel(/Prompt/).fill('Say hello.');
     await page.getByRole('button', { name: /Create group/ }).click();
 
-    await expect(page.locator('.group-nav-header')).toBeVisible({ timeout: 15_000 });
+    // Both rows are listed: the elsewhere session and the fan-out member.
+    await expect(page.locator('.session-nav-item')).toHaveCount(2, { timeout: 15_000 });
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
-    await expect(page.locator('.group-nav-item .session-nav-item')).toHaveCount(1);
   } finally {
     await app.close();
   }

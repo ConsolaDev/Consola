@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import type { Session, Workspace } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
 import { itemRowsFor, sessionRowsFor } from './linkSessionRows';
 
 const pr4118: WorkItemRef = { provider: 'github', repo: 'sprocket/forum-admin', type: 'pr', number: 4118 };
@@ -52,6 +51,7 @@ const workspace = {
   defaultHarnessId: 'default',
   scopes: [{ id: 'scope-1', name: 'sprocket', path: '/repos', isGitRepo: false, createdAt: now }],
   groups: [],
+  labels: [],
   actions: [],
   sectionDefaults: {},
   sessions: [scratch, investigation, fixCi, other, conductor],
@@ -59,10 +59,9 @@ const workspace = {
   updatedAt: now,
 } as Workspace;
 
-const working: TerminalState = { isBusy: true, isAwaitingConfirmation: false, hasExited: false, completedWhileAway: false, status: 'working' };
 
 describe('sessionRowsFor', () => {
-  const rows = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), { 'inst-inv': working }, now);
+  const rows = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), { 's-inv': 'working' }, {}, now);
 
   it('hides conductors and orders by recency', () => {
     expect(rows.map((row) => row.id)).toEqual(['s-inv', 's-fixci', 's-other', 's-scratch']);
@@ -78,6 +77,13 @@ describe('sessionRowsFor', () => {
     });
     // No cwd: the scope's folder is where it runs.
     expect(rows[3].context).toBe('repos · 1d ago');
+  });
+
+  it('orders and ages by the ledger when it knows better than the creation-time seed', () => {
+    const ledger = { 's-scratch': { sessionId: 's-scratch', workspaceId: 'ws-1', lastActiveAt: now - 60_000 } };
+    const recent = sessionRowsFor(workspace, makeItem(pr4118, 'LC-416'), {}, ledger, now);
+    expect(recent[0]).toMatchObject({ id: 's-scratch' });
+    expect(recent[0].context).toBe('repos · 1m ago');
   });
 
   it('greys a session already on this item, and one linked elsewhere, with a hint', () => {

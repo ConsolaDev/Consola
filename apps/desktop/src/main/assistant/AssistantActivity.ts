@@ -1,9 +1,9 @@
 import type { AssistantActivitySnapshot } from '../../shared/types';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { Session, Workspace } from '../../shared/workspace';
+import { SETTLE_MS, TurnSettle } from '../attention/turnSettle';
 
-/** How long a session must stay quiet before it counts as finished. */
-export const SETTLE_MS = 4_000;
+export { SETTLE_MS };
 /** Notices landing within this window of the first are sent as one line. */
 export const COALESCE_MS = 5_000;
 
@@ -19,9 +19,6 @@ export interface AssistantActivityDeps {
 interface Watch {
     assistantSessionId: string;
     workspaceId: string;
-    /** A session that was ready when prompted has not yet reacted to the prompt. */
-    seenWorking: boolean;
-    timer?: NodeJS.Timeout;
 }
 
 interface Entry {
@@ -58,6 +55,10 @@ export class AssistantActivity {
     private readonly touched = new Map<string, Set<string>>();
     private readonly unseen = new Map<string, number>();
     private readonly pending = new Map<string, { entries: Entry[]; timer: NodeJS.Timeout }>();
+    /** When a prompted session has really finished. Shared with the attention ledger; the unseen count is ours. */
+    private readonly settler = new TurnSettle((targetId, status) => this.settle(targetId, status), {
+        persistent: false,
+    });
 
     constructor(private readonly deps: AssistantActivityDeps) {}
 
@@ -67,9 +68,8 @@ export class AssistantActivity {
         if (!workspace || assistantSessionId === targetSessionId) return;
         if (!workspace.sessions.some((s) => s.id === targetSessionId)) return;
 
-        const old = this.watches.get(targetSessionId);
-        if (old?.timer) clearTimeout(old.timer);
-        this.watches.set(targetSessionId, { assistantSessionId, workspaceId: workspace.id, seenWorking: false });
+        this.watches.set(targetSessionId, { assistantSessionId, workspaceId: workspace.id });
+        this.settler.watch(targetSessionId);
 
         const set = this.touched.get(workspace.id) ?? new Set<string>();
         const added = !set.has(targetSessionId);
@@ -84,19 +84,7 @@ export class AssistantActivity {
         const found = this.findByInstance(instanceId);
         const watch = found && this.watches.get(found.session.id);
         if (!found || !watch) return;
-        const targetId = found.session.id;
-
-        if (status === 'working') {
-            watch.seenWorking = true;
-            this.clearTimer(watch);
-        } else if (status === 'exited') {
-            this.settle(targetId, status);
-        } else if (status === 'needs-attention' || watch.seenWorking) {
-            // `ready` before any work is the state the prompt found it in.
-            this.clearTimer(watch);
-            watch.timer = setTimeout(() => this.settle(targetId, status), SETTLE_MS);
-            watch.timer.unref?.();
-        }
+        this.settler.observe(found.session.id, status);
     }
 
     snapshot(workspaceId: string): AssistantActivitySnapshot {
@@ -126,7 +114,6 @@ export class AssistantActivity {
     private settle(targetId: string, status: 'ready' | 'needs-attention' | 'exited'): void {
         const watch = this.watches.get(targetId);
         if (!watch) return;
-        this.clearTimer(watch);
         this.watches.delete(targetId);
 
         this.unseen.set(watch.workspaceId, (this.unseen.get(watch.workspaceId) ?? 0) + 1);
@@ -172,11 +159,6 @@ export class AssistantActivity {
 
     private emit(workspaceId: string): void {
         this.deps.broadcast(workspaceId, this.snapshot(workspaceId));
-    }
-
-    private clearTimer(watch: Watch): void {
-        if (watch.timer) clearTimeout(watch.timer);
-        watch.timer = undefined;
     }
 
     private findById(sessionId: string): { session: Session } | undefined {

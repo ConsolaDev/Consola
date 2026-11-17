@@ -570,6 +570,19 @@ describe('SessionLauncher', () => {
             expect(terminals.relaunch).not.toHaveBeenCalled();
         });
 
+        it('records a delivered prompt as activity on the session, and a refused one as none', async () => {
+            const { workspaces, harnesses, terminals } = setup({ hasStarted: true }, {});
+            const touch = vi.fn();
+            const launcher = new SessionLauncher(workspaces, harnesses, terminals, { touch });
+
+            await launcher.deliverPrompt('ws-1', 'session-1', 'hi');
+            expect(touch).toHaveBeenCalledWith('session-1', 'ws-1', expect.any(Number));
+
+            touch.mockClear();
+            await expect(launcher.deliverPrompt('ws-1', 'no-such-session', 'hi')).rejects.toThrow();
+            expect(touch).not.toHaveBeenCalled();
+        });
+
         it('relaunches an exited full-tools terminal in place, interactively', async () => {
             const { launcher, terminals } = setup({ hasStarted: true }, exited);
             await expect(launcher.deliverPrompt('ws-1', 'session-1', 'hi')).resolves.toBe('woken');

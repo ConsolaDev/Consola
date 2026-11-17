@@ -1,10 +1,11 @@
+import { activityOf, type AttentionSnapshot } from '../../../shared/attention';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../../shared/workItems';
 import { checkoutPathForSession, listedSessions, type Session, type Workspace } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
 import { basename } from '../../utils/fileUtils';
-import { sessionStatusFor, type SessionStatus } from '../../utils/sessionStatus';
+import type { Attention } from '../../../shared/attention';
+import type { AttentionMap } from '../../utils/sessionStatus';
 import { formatAge } from '../Inbox/inboxPresentation';
 import type { SearchableListItem } from '../SearchableList';
 
@@ -15,7 +16,7 @@ import type { SearchableListItem } from '../SearchableList';
 export interface LinkRow extends SearchableListItem {
   sessionId: string;
   workItem: WorkItemRef;
-  status?: SessionStatus;
+  status?: Attention;
 }
 
 /**
@@ -27,19 +28,21 @@ export interface LinkRow extends SearchableListItem {
 export function sessionRowsFor(
   workspace: Workspace,
   item: InboxItem,
-  terminals: Record<string, TerminalState>,
+  statuses: AttentionMap,
+  attention: AttentionSnapshot,
   now: number = Date.now()
 ): LinkRow[] {
+  const activity = (session: Session) => activityOf(session, attention[session.id]);
   return listedSessions(workspace)
     .filter((session) => session.kind !== 'conductor')
-    .sort((a, b) => b.lastActiveAt - a.lastActiveAt)
+    .sort((a, b) => activity(b) - activity(a))
     .map((session) => {
       const runsIn = checkoutPathForSession(workspace, session) ?? '';
       const row: LinkRow = {
         id: session.id,
         label: sessionLabel(session),
-        context: `${basename(runsIn)} · ${formatAge(session.lastActiveAt, now)}`,
-        status: sessionStatusFor(terminals[session.instanceId]),
+        context: `${basename(runsIn)} · ${formatAge(activity(session), now)}`,
+        status: statuses[session.id] ?? 'ready',
         sessionId: session.id,
         workItem: item.workItem,
       };

@@ -1049,3 +1049,189 @@ describe('the Assistant record', () => {
     expect(assistantSession(service.getAll()[0])).toBeUndefined();
   });
 });
+
+describe('detaching a session from its conductor', () => {
+  function seed() {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const make = (name: string, parentSessionId?: string) => service.createSession(workspace.id, {
+      name, workspaceId: workspace.id, instanceId: `i-${name}`, harnessId: 'default-agent', model: undefined,
+      scopeId: scope.id, ...(parentSessionId ? { parentSessionId } : {}),
+    })!;
+    const conductor = make('Conductor');
+    return { workspace, conductor, child: make('Child', conductor.id) };
+  }
+
+  it('clears the link, leaving no key behind, and persists it', () => {
+    const { workspace, child } = seed();
+
+    service.updateSession(workspace.id, child.id, { parentSessionId: undefined });
+
+    // In memory as well as on disk: a key left behind holding `undefined`
+    // survives until the next reload, and every reader of the live record
+    // sees a shape no reload would produce.
+    expect(service.getAll()[0].sessions.find((session) => session.id === child.id)).not.toHaveProperty('parentSessionId');
+    const reloaded = build().getAll()[0].sessions.find((session) => session.id === child.id);
+    expect(reloaded).not.toHaveProperty('parentSessionId');
+  });
+
+  it('leaves the rest of the session, and the conductor, exactly as they were', () => {
+    const { workspace, conductor, child } = seed();
+    const label = service.createLabel(workspace.id, { name: 'L' });
+    service.assignLabel(workspace.id, child.id, label.id);
+
+    service.updateSession(workspace.id, child.id, { parentSessionId: undefined });
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.sessions.find((session) => session.id === child.id)).toMatchObject({
+      name: 'Child', labelIds: [label.id], scopeId: child.scopeId, harnessId: child.harnessId,
+    });
+    expect(reloaded.sessions.find((session) => session.id === conductor.id)).toEqual(conductor);
+  });
+});
+
+describe('labels', () => {
+  function seed() {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const make = (name: string) => service.createSession(workspace.id, {
+      name, workspaceId: workspace.id, instanceId: `i-${name}`, harnessId: 'default-agent', model: undefined, scopeId: scope.id,
+    })!;
+    return { workspace, a: make('A'), b: make('B') };
+  }
+
+  it('creates, renames and sets and clears an emoji, persisting each', () => {
+    const { workspace } = seed();
+    const label = service.createLabel(workspace.id, { name: 'Bug' });
+    service.updateLabel(workspace.id, label.id, { name: 'Bugs', emoji: '🐛' });
+    expect(build().getAll()[0].labels).toEqual([{ id: label.id, name: 'Bugs', emoji: '🐛' }]);
+
+    service.updateLabel(workspace.id, label.id, { emoji: undefined });
+    expect(build().getAll()[0].labels).toEqual([{ id: label.id, name: 'Bugs' }]);
+  });
+
+  it('assigns and unassigns a label on a session, without duplicating', () => {
+    const { workspace, a } = seed();
+    const one = service.createLabel(workspace.id, { name: 'One' });
+    const two = service.createLabel(workspace.id, { name: 'Two' });
+
+    service.assignLabel(workspace.id, a.id, one.id);
+    service.assignLabel(workspace.id, a.id, one.id);
+    service.assignLabel(workspace.id, a.id, two.id);
+    expect(service.getAll()[0].sessions.find(s => s.id === a.id)?.labelIds).toEqual([one.id, two.id]);
+
+    service.unassignLabel(workspace.id, a.id, one.id);
+    expect(build().getAll()[0].sessions.find(s => s.id === a.id)?.labelIds).toEqual([two.id]);
+  });
+
+  it('refuses to assign a label that does not exist', () => {
+    const { workspace, a } = seed();
+    expect(() => service.assignLabel(workspace.id, a.id, 'nope')).toThrow(/No label/);
+  });
+
+  it('deleting a label removes its id from every session and leaves the others alone', () => {
+    const { workspace, a, b } = seed();
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    const kept = service.createLabel(workspace.id, { name: 'Kept' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, a.id, kept.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+
+    service.deleteLabel(workspace.id, gone.id);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels.map(l => l.id)).toEqual([kept.id]);
+    expect(reloaded.sessions.find(s => s.id === a.id)?.labelIds).toEqual([kept.id]);
+    // Emptied entirely: the key goes, rather than leaving an empty list behind.
+    expect(reloaded.sessions.find(s => s.id === b.id)).not.toHaveProperty('labelIds');
+  });
+
+  it('deleting a label hands back what it removed, so it can be put back', () => {
+    const { workspace, a, b } = seed();
+    const first = service.createLabel(workspace.id, { name: 'First' });
+    const gone = service.createLabel(workspace.id, { name: 'Gone', emoji: '🐛' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+
+    const removed = service.deleteLabel(workspace.id, gone.id);
+
+    expect(removed).toEqual({ label: { id: gone.id, name: 'Gone', emoji: '🐛' }, index: 1, sessionIds: [a.id, b.id] });
+    expect(service.getAll()[0].labels.map((l) => l.id)).toEqual([first.id]);
+  });
+
+  it('deleting a label that is not there removes nothing and hands back nothing', () => {
+    const { workspace } = seed();
+    expect(service.deleteLabel(workspace.id, 'nope')).toBeNull();
+  });
+
+  it('restoring puts the label back where it was, on exactly the sessions that had it', () => {
+    const { workspace, a, b } = seed();
+    const first = service.createLabel(workspace.id, { name: 'First' });
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    const last = service.createLabel(workspace.id, { name: 'Last' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, a.id, last.id);
+    const before = service.getAll()[0];
+
+    const removed = service.deleteLabel(workspace.id, gone.id)!;
+    service.restoreLabel(workspace.id, removed);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels).toEqual(before.labels);
+    // Membership, not order: a session's labels are drawn in the workspace's
+    // own label order, so where the id sits in its list is not a fact anyone
+    // can see.
+    expect(reloaded.sessions.find((s) => s.id === a.id)?.labelIds?.slice().sort()).toEqual([gone.id, last.id].sort());
+    expect(reloaded.sessions.find((s) => s.id === b.id)).not.toHaveProperty('labelIds');
+    expect(first.id).toBe(reloaded.labels[0].id);
+  });
+
+  it('restoring skips a session that has gone in the meantime, and never duplicates the label', () => {
+    const { workspace, a, b } = seed();
+    const gone = service.createLabel(workspace.id, { name: 'Gone' });
+    service.assignLabel(workspace.id, a.id, gone.id);
+    service.assignLabel(workspace.id, b.id, gone.id);
+    const removed = service.deleteLabel(workspace.id, gone.id)!;
+    service.deleteSession(workspace.id, b.id);
+
+    service.restoreLabel(workspace.id, removed);
+    service.restoreLabel(workspace.id, removed);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.labels.filter((label) => label.id === gone.id)).toHaveLength(1);
+    expect(reloaded.sessions.find((s) => s.id === a.id)?.labelIds).toEqual([gone.id]);
+  });
+
+  it('label writes leave the group model alone', () => {
+    const { workspace, a } = seed();
+    const group = service.createGroup(workspace.id, { name: 'G' });
+    service.updateSession(workspace.id, a.id, { groupId: group.id });
+    const label = service.createLabel(workspace.id, { name: 'L' });
+    service.assignLabel(workspace.id, a.id, label.id);
+    service.deleteLabel(workspace.id, label.id);
+
+    const reloaded = build().getAll()[0];
+    expect(reloaded.groups.map(g => g.id)).toEqual([group.id]);
+    expect(reloaded.sessions.find(s => s.id === a.id)?.groupId).toBe(group.id);
+  });
+
+  it('load migrates a v7 file in place, so a persisted group becomes a label', () => {
+    const workspace = service.createWorkspace('W', '/w', false);
+    const scope = workspace.scopes[0];
+    const group = service.createGroup(workspace.id, { name: 'Feature' });
+    const s = service.createSession(workspace.id, {
+      name: 'S', workspaceId: workspace.id, instanceId: 'i-S', harnessId: 'default-agent', model: undefined,
+      scopeId: scope.id, groupId: group.id,
+    })!;
+    const file = path.join(dir, 'workspaces.json');
+    const persisted = JSON.parse(fs.readFileSync(file, 'utf8'));
+    delete persisted.workspaces[0].labels;
+    for (const sess of persisted.workspaces[0].sessions) delete sess.labelIds;
+    persisted.version = 7;
+    fs.writeFileSync(file, JSON.stringify(persisted));
+
+    const loaded = build().getAll()[0];
+    expect(loaded.labels).toEqual([{ id: group.id, name: 'Feature' }]);
+    expect(loaded.sessions.find(x => x.id === s.id)?.labelIds).toEqual([group.id]);
+  });
+});

@@ -274,26 +274,26 @@ describe('sidebarRowState', () => {
     const lastSeen = ago(DAY);
 
     it('is idle without a snapshot', () => {
-        expect(sidebarRowState(undefined, lastSeen)).toEqual({ kind: 'idle' });
+        expect(sidebarRowState(undefined, lastSeen, 0)).toEqual({ kind: 'idle' });
     });
 
     it('ranks waiting above failed above running', () => {
         const waiting = run({ id: 'w', status: 'needs-approval' });
         const failed = run({ id: 'f', status: 'failed', finishedAt: ago(HOUR) });
         const running = run({ id: 'r', status: 'running' });
-        expect(sidebarRowState(snapshot([running, failed, waiting]), lastSeen)).toEqual({ kind: 'waiting', count: 1 });
-        expect(sidebarRowState(snapshot([running, failed]), lastSeen)).toEqual({ kind: 'failed', count: 1 });
-        expect(sidebarRowState(snapshot([running]), lastSeen)).toEqual({ kind: 'running', count: 1 });
+        expect(sidebarRowState(snapshot([running, failed, waiting]), lastSeen, 1)).toEqual({ kind: 'waiting', count: 1 });
+        expect(sidebarRowState(snapshot([running, failed]), lastSeen, 0)).toEqual({ kind: 'failed', count: 1 });
+        expect(sidebarRowState(snapshot([running]), lastSeen, 0)).toEqual({ kind: 'running', count: 1 });
     });
 
     it('does not count a failure from before lastSeen', () => {
         const old = run({ status: 'failed', finishedAt: ago(2 * DAY) });
-        expect(sidebarRowState(snapshot([old]), lastSeen)).toEqual({ kind: 'idle' });
+        expect(sidebarRowState(snapshot([old]), lastSeen, 0)).toEqual({ kind: 'idle' });
     });
 
     it('counts only running agent runs', () => {
         const tool = run({ status: 'running', kind: 'tool' });
-        expect(sidebarRowState(snapshot([tool]), lastSeen)).toEqual({ kind: 'idle' });
+        expect(sidebarRowState(snapshot([tool]), lastSeen, 0)).toEqual({ kind: 'idle' });
     });
 });
 

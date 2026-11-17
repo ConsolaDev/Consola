@@ -3,6 +3,7 @@ import { z } from 'zod/v3';
 import type { RunRecord } from '@consola/factory-spec';
 import type { AutomationView, SavedAutomation } from '../../shared/automations';
 import type { AutomationCapabilities } from '../automations/capabilities';
+import type { Attention } from '../../shared/attention';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { InboxSnapshot } from '../../shared/workItems';
 import { generateSessionInstanceId, type Session, type Workspace } from '../../shared/workspace';
@@ -42,6 +43,8 @@ export interface ConsolaToolDeps {
     cleanup: Pick<SessionCleanupService, 'previewStale' | 'cleanupStale' | 'previewDelete' | 'deleteSession'>;
     getWorkspaces(): Workspace[];
     status(instanceId: string): TerminalStatus;
+    /** The derived attention for a session: what the sidebar shows, from the same derivation. */
+    attention(sessionId: string): Attention | undefined;
     isManagedPath(dir: string): boolean;
     automations(): AutomationControl;
     /** The item a session is about, fetched by main with the workspace's token; throws when it has none. */
@@ -102,7 +105,8 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
             name: 'list_sessions',
             description:
                 'List the sessions in your Consola workspace: id, name, status (working | ready | ' +
-                'needs-attention | exited), the pull request or issue it is linked to, its working ' +
+                'needs-attention | exited), attention (needs-attention | done | working | ready | exited | ' +
+                'settled: done is finished work nobody has looked at yet), the pull request or issue it is linked to, its working ' +
                 'directory, and whether that is a Consola-managed worktree. Read-only.',
             input: {},
             mutating: false,
@@ -114,6 +118,7 @@ export function consolaTools(deps: ConsolaToolDeps): ToolDefinition[] {
                         name: session.name,
                         workspace: workspace.name,
                         status: deps.status(session.instanceId),
+                        attention: deps.attention(session.id),
                         kind: session.kind,
                         ...(session.groupId
                             ? { group: workspace.groups.find((group) => group.id === session.groupId)?.name }

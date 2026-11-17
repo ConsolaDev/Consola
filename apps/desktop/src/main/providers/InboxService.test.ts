@@ -54,6 +54,7 @@ function makeWorkspace(overrides: Partial<Workspace> = {}): Workspace {
     defaultHarnessId: 'default',
     scopes: [],
     groups: [],
+    labels: [],
     provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
     actions: [],
     sectionDefaults: {},

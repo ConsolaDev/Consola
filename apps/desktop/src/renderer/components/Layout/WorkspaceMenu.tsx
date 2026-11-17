@@ -85,7 +85,7 @@ export function WorkspaceMenu() {
                   {providerNavLabel(workspace)} settings…
                 </DropdownMenu.Item>
                 <DropdownMenu.Item className="dropdown-item" onSelect={() => openSection('actions')}>Actions…</DropdownMenu.Item>
-                <DropdownMenu.Item className="dropdown-item" onSelect={() => openSection('groups')}>Groups…</DropdownMenu.Item>
+                <DropdownMenu.Item className="dropdown-item" onSelect={() => openSection('labels')}>Labels…</DropdownMenu.Item>
               </DropdownMenu.SubContent>
             </DropdownMenu.Portal>
           </DropdownMenu.Sub>

@@ -9,6 +9,7 @@ import type {
     SessionNameResult,
 } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
+import type { AttentionSignal } from '../attention/hookSignals';
 
 /**
  * What Consola needs to know about an agent CLI in order to drive it.
@@ -127,6 +128,22 @@ export interface HarnessDriver {
      * renders, so drivers should throw rather than invent an empty result.
      */
     probeCapabilities?(config: HarnessConfig): Promise<HarnessCapabilities>;
+
+    /**
+     * How this CLI reports, on its own initiative, that it needs the person.
+     *
+     * Optional: a CLI with nothing like hooks omits it and its sessions stay
+     * on the screen heuristic alone, which is always running regardless. What
+     * this adds is truth the screen cannot show — a question that is no known
+     * menu, a subagent waiting — never a replacement for reading the screen.
+     */
+    readonly attentionHooks?: AttentionHooks;
+}
+
+/** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
+export interface AttentionHooks {
+    /** Translate one posted payload. Null for an event that says nothing about attention. */
+    parse(body: unknown): AttentionSignal | null;
 }
 
 /**
@@ -166,6 +183,12 @@ export interface SessionLaunch {
      * as it was. First launch only; a driver that cannot fork refuses.
      */
     forkFrom?: string;
+    /**
+     * Loopback URL this session's hooks post to, when the driver has
+     * `attentionHooks` and Consola's endpoint is up. Absent otherwise, and a
+     * session launched without it is simply not reporting.
+     */
+    attentionUrl?: string;
 }
 
 /**

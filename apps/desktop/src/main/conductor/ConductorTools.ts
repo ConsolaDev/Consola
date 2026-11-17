@@ -142,9 +142,10 @@ export class ConductorTools {
             }
         }
 
-        // groupId and kind come from the calling conductor's record, never
-        // from arguments: a conductor cannot spawn outside its own group, and
-        // cannot mint further conductors. Workers inherit its harness so the
+        // groupId, kind, parentSessionId and labelIds come from the calling
+        // conductor's record, never from arguments: a conductor cannot spawn
+        // outside its own group, cannot mint further conductors, cannot
+        // parent a session to anyone else and cannot label outside its own set. Workers inherit its harness so the
         // whole group runs as one login.
         const spawned = await this.deps.launchSession(workspace.id, {
             name: args.name,
@@ -154,6 +155,8 @@ export class ConductorTools {
             scopeId: scope.id,
             cwd: args.cwd,
             groupId,
+            parentSessionId: conductor.id,
+            labelIds: [...(conductor.labelIds ?? [])],
             kind: 'interactive',
             initialPrompt: args.prompt,
         } as NewSessionFields & { initialPrompt?: string });

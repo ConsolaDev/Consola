@@ -3,11 +3,10 @@ import { useAssistantRequests } from '../../hooks/useAssistantRequests';
 import { assistantSession, type Workspace } from '../../../shared/workspace';
 import { useAssistantStore } from '../../stores/assistantStore';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useTerminalStore } from '../../stores/terminalStore';
 import { assistantRowState } from '../../utils/assistantRow';
 import { ASSISTANT_SHORTCUT_LABEL } from '../../utils/platform';
 import { openAssistant } from '../../utils/sessionActions';
-import { sessionStatusFor } from '../../utils/sessionStatus';
+import { useSessionAttention } from '../../stores/attentionStore';
 
 const DISABLED_TITLE = 'Add a scope to use the Assistant.';
 
@@ -19,7 +18,7 @@ const DISABLED_TITLE = 'Add a scope to use the Assistant.';
 export function AssistantNavItem({ workspace }: { workspace: Workspace }) {
   const assistant = assistantSession(workspace);
   const isActive = useNavigationStore(state => state.overlay === null && !!assistant && state.activeSessionId === assistant.id);
-  const status = useTerminalStore(state => assistant ? sessionStatusFor(state.terminals[assistant.instanceId]) : undefined);
+  const status = useSessionAttention(assistant?.id);
   const unseenFinished = useAssistantStore(state => state.activity[workspace.id]?.unseenFinished ?? 0);
   const waitingApprovals = useAssistantRequests(workspace).length;
 

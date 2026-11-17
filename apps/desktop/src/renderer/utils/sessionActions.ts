@@ -1,6 +1,6 @@
 import { filteredScope, newSessionScope, useHomeStore } from '../stores/homeStore';
 import { closePanelOnWorkspaceSwitch, useNavigationStore } from '../stores/navigationStore';
-import { useSettingsStore } from '../stores/settingsStore';
+import { useSessionFilterStore } from '../stores/sessionFilterStore';
 import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { providerBridge } from '../services/providerBridge';
@@ -70,6 +70,18 @@ export function chooseScope(workspaceId: string, scopeId: string | null): void {
   if (navigation.activeWorkspaceId !== workspaceId || navigation.overlay !== null) return;
   const open = useWorkspaceStore.getState().getSession(workspaceId, navigation.activeSessionId ?? '');
   if (open && open.kind !== 'assistant' && open.scopeId !== scopeId) navigation.setActiveSession(null);
+}
+
+/**
+ * Drop every narrowing of the session list: the scope and the facets and
+ * labels. They live in two stores (`homeStore.scopeFilters` and
+ * `sessionFilterStore`) because much of the app reads the scope on its own, so
+ * a path that means "show me everything" has to clear both, and goes through
+ * here so none can clear only one.
+ */
+export function clearAllFilters(workspaceId: string): void {
+  useHomeStore.getState().setScopeFilter(workspaceId, null);
+  useSessionFilterStore.getState().clear(workspaceId);
 }
 
 /**
@@ -268,42 +280,6 @@ export async function runActionInSession(
   } catch (error) {
     return ipcErrorMessage(error);
   }
-}
-
-/**
- * Move a session into a group, or out of every group with `undefined`.
- *
- * One write either way. `groupId` clears by presence — the key is sent and
- * explicitly undefined, which is what main reads as "leave the group" — so
- * this must not be shortened to an object built by spreading a defined value
- * in, or removal would silently become a no-op.
- *
- * The destination is unfolded on success, for the same reason activating a
- * session reveals its section: a row that moved into a folded group would
- * vanish from the sidebar, and a move that looks like a delete is worse than
- * no move at all.
- *
- * Shared by the ⋯ menu and the sidebar's drag-and-drop so the two cannot
- * drift on what moving a session means.
- */
-export async function moveSessionToGroup(
-  workspaceId: string,
-  sessionId: string,
-  groupId: string | undefined
-): Promise<void> {
-  try {
-    await useWorkspaceStore.getState().updateSession(workspaceId, sessionId, { groupId });
-  } catch (error) {
-    // The row visibly staying where it was is the signal, as it is for the
-    // menu's other writes.
-    console.error('Failed to move session to group', error);
-    return;
-  }
-  // Leaving a group needs no reveal: the scope the row falls back to is
-  // unfolded by the same gesture only if the user folded it themselves, and
-  // prising that open would undo a choice they made about a section this
-  // move never touched.
-  if (groupId) useSettingsStore.getState().expandSidebarSection(groupId);
 }
 
 /** Rename a session, ignoring a blank or unchanged name. */

@@ -1,35 +1,51 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, type MutableRefObject } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
-  Boxes,
+  Archive,
+  ArchiveRestore,
   Check,
-  CornerUpLeft,
   Link2,
-  MoreVertical,
   Pencil,
+  Plus,
+  Tag,
   Trash2,
   Unlink,
 } from 'lucide-react';
-import type { Group, Session } from '../../../shared/workspace';
+import type { Label, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { NewGroupDialog } from '../Dialogs/NewGroupDialog';
-import { moveSessionToGroup } from '../../utils/sessionActions';
+import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
+import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
+import type { SettleOffer } from '../../sidebar/settleRules';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
-const EMPTY_GROUPS: Group[] = [];
+const EMPTY_LABELS: Label[] = [];
 
 interface SessionActionsMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Where to open, in the row's own box: the pointer of the right-click that
+   * asked. Null (the keyboard) opens it under the row's top-right corner.
+   */
+  at: { x: number; y: number } | null;
+  /**
+   * What had focus when the menu was asked for, so closing it hands focus
+   * back there: the row when the menu key opened it, the terminal the person
+   * was typing in when a right-click did. Written by the row as it opens.
+   */
+  returnFocus: MutableRefObject<Element | null>;
   session: Session;
   workspaceId: string;
   onRename: () => void;
   onDelete: () => void;
+  /** What this row may do about the Settled shelf; absent offers nothing. */
+  settle?: SettleOffer;
 }
 
 /**
- * The ⋯ menu on a sidebar row: rename, regroup, link or unlink, delete.
+ * A sidebar row's actions menu, opened from the row (right-click or the menu
+ * key): rename, regroup, link or unlink, delete.
  *
  * Link and Unlink are the sidebar door into the session-item relation.
  * Linking is metadata only — the session keeps its folder and gets no
@@ -37,40 +53,42 @@ interface SessionActionsMenuProps {
  * it there. Conductors are never offered the link (main would refuse), and
  * a workspace with no provider has no items to link to.
  *
- * "Move to group" is the accessible twin of dragging a row onto a group
- * header — same single write, reachable from the keyboard. Only live groups
- * are offered: an archived one hands its members back to their scopes, so
- * moving into one would look like the move had failed. A conductor is not
- * offered it either, since its group is what it orchestrates.
- *
- * "Remove from group" sits beside that submenu rather than inside it. Leaving
- * is not a destination, and filed under "Move to group" it read as one more
- * group to pick — you had to open the list of places to go to find the way
- * out. It is also the twin of dropping a row back on its own scope row, and
- * the only route left for a session whose scope record is gone: with no scope
- * row on screen, there is nothing to drag it to.
+ * Labels are the one way to file a session: tick the ones it carries, or make a
+ * new one and have it applied at once. There is no "move to group" — groups are
+ * not shown anywhere, so a move into one would change nothing on screen.
  */
-export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange }: SessionActionsMenuProps) {
+export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, at, returnFocus, settle }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
   );
-  // The stored array, filtered in render rather than in the selector: a
-  // selector that built a new array every call would hand React a fresh
-  // snapshot each time it asked for one.
-  const allGroups = useWorkspaceStore(
-    (state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.groups
-  );
-  const groups = (allGroups ?? EMPTY_GROUPS).filter((group) => !group.archivedAt);
   const updateSession = useWorkspaceStore((state) => state.updateSession);
-  const [creatingGroup, setCreatingGroup] = useState(false);
+  const labels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels) ?? EMPTY_LABELS;
+  const assignLabel = useWorkspaceStore((state) => state.assignLabel);
+  const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
+  const [creatingLabel, setCreatingLabel] = useState(false);
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
   const openingDialog = useRef(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
   const handleLink = () => {
     openingDialog.current = true;
     useLinkSessionDialogStore.getState().open({ kind: 'pick-item', workspaceId, session });
+  };
+
+  // The one write permitted on `parentSessionId`, and the reason it is
+  // permitted: the v8 migration infers the link from a session merely sharing
+  // a group with a conductor, and a child settles only with its conductor and
+  // is drawn into Waiting by any sibling's question. Without this the only
+  // escape from a wrong guess would be deleting the session. Clearing is all
+  // it does: nothing anywhere can set the field, so a detached session cannot
+  // be re-parented by hand.
+  const handleDetach = () => {
+    void updateSession(workspaceId, session.id, { parentSessionId: undefined }).catch((error) => {
+      // The row visibly staying under its conductor is the signal.
+      console.error('Failed to detach session', error);
+    });
   };
 
   const handleUnlink = () => {
@@ -82,41 +100,62 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
     });
   };
 
-  const handleMove = (groupId: string | undefined) => {
-    void moveSessionToGroup(workspaceId, session.id, groupId);
-  };
-
-  const handleNewGroup = () => {
+  const handleNewLabel = () => {
     openingDialog.current = true;
-    setCreatingGroup(true);
+    setCreatingLabel(true);
   };
 
   const canLink = bound && session.kind !== 'conductor';
-  // A conductor's group is the fleet it drives, not an inbox folder.
-  const canRegroup = session.kind !== 'conductor';
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+      {/* Not a button: the menu opens from the row itself (right-click, or the
+          menu key while the row has focus), so a visible ⋯ would only crowd the
+          corner Settle lives in. Radix still needs a box to place the menu
+          against: this invisible one, at the pointer or the row's corner. */}
       <DropdownMenu.Trigger asChild>
-        <button
-          className="nav-row-action session-actions-trigger"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Session actions"
-          title="Session actions"
-        >
-          <MoreVertical size={12} aria-hidden="true" />
-        </button>
+        <span
+          ref={anchorRef}
+          className={`session-actions-anchor${at ? ' session-actions-anchor--at-pointer' : ''}`}
+          style={at ? { left: at.x, top: at.y } : undefined}
+          aria-hidden="true"
+        />
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           className="dropdown-content"
-          sideOffset={4}
-          align="end"
+          // From the pointer the menu starts just past it, so releasing the
+          // button that opened it lands on no item.
+          sideOffset={at ? 2 : 4}
+          align={at ? 'start' : 'end'}
+          // The menu is portaled, but React still bubbles its clicks to the row
+          // it belongs to, which would open the session the person only meant
+          // to rename or settle (and start its terminal, which takes the focus).
+          onClick={(event) => event.stopPropagation()}
           onCloseAutoFocus={(event) => {
+            const previous = returnFocus.current;
+            returnFocus.current = null;
             if (openingDialog.current) {
               event.preventDefault();
               openingDialog.current = false;
+              return;
+            }
+            // Radix would hand focus to the anchor, which cannot take it. Focus
+            // goes back where it came from instead. A right-click from the
+            // terminal returns to the terminal: parking it on the row drew the
+            // keyboard ring around a row nobody had tabbed to, and held its
+            // Settle pill open over its age until something else took focus.
+            // A row swapped out for the rename field keeps the field focused.
+            const row = anchorRef.current?.closest<HTMLElement>('.session-nav-item');
+            if (!row) return;
+            event.preventDefault();
+            if (previous instanceof HTMLElement && previous !== document.body && previous.isConnected) {
+              previous.focus({ preventScroll: true });
+            } else if (!at) {
+              // Opened from the keyboard, with nothing to return to: the row,
+              // so a keyboard user is not left on <body>.
+              row.focus();
             }
           }}
         >
@@ -124,42 +163,77 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             <Pencil size={14} />
             <span>Rename</span>
           </DropdownMenu.Item>
-          {canRegroup && (
-            <DropdownMenu.Sub>
+          <DropdownMenu.Sub>
               <DropdownMenu.SubTrigger className="dropdown-item">
-                <Boxes size={14} />
-                <span>Move to group</span>
+                <Tag size={14} />
+                <span>Labels</span>
               </DropdownMenu.SubTrigger>
               <DropdownMenu.Portal>
                 <DropdownMenu.SubContent className="dropdown-content" sideOffset={4}>
-                  {groups.map((group) => (
-                    <DropdownMenu.Item
-                      key={group.id}
-                      className="dropdown-item"
-                      // Selecting the group it is already in would be a
-                      // no-op write; disabling says so instead of pretending.
-                      disabled={group.id === session.groupId}
-                      onSelect={() => handleMove(group.id)}
-                    >
-                      {group.id === session.groupId ? <Check size={14} /> : <Boxes size={14} />}
-                      <span>{group.name}</span>
-                    </DropdownMenu.Item>
-                  ))}
-                  {groups.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
-                  <DropdownMenu.Item className="dropdown-item" onSelect={handleNewGroup}>
-                    <span>New group…</span>
+                  {labels.map((label) => {
+                    const on = session.labelIds?.includes(label.id) ?? false;
+                    return (
+                      <DropdownMenu.Item
+                        key={label.id}
+                        className="dropdown-item"
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          const write = on ? unassignLabel : assignLabel;
+                          void write(workspaceId, session.id, label.id).catch((error) => {
+                            console.error('Failed to change session label', error);
+                          });
+                        }}
+                      >
+                        {on ? <Check size={14} /> : <Tag size={14} />}
+                        <span>{label.emoji ? `${label.emoji} ` : ''}{label.name}</span>
+                      </DropdownMenu.Item>
+                    );
+                  })}
+                  {labels.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
+                  <DropdownMenu.Item className="dropdown-item" onSelect={handleNewLabel}>
+                    <Plus size={14} />
+                    <span>New label…</span>
                   </DropdownMenu.Item>
                 </DropdownMenu.SubContent>
               </DropdownMenu.Portal>
             </DropdownMenu.Sub>
+          {settle?.kind === 'unsettle' && (
+            <DropdownMenu.Item className="dropdown-item" onSelect={() => void unsettleWithUndo(workspaceId, session.id, session.name)}>
+              <ArchiveRestore size={14} />
+              <span>Move back to list</span>
+            </DropdownMenu.Item>
           )}
-          {canRegroup && session.groupId !== undefined && (
-            <DropdownMenu.Item
-              className="dropdown-item"
-              onSelect={() => handleMove(undefined)}
-            >
-              <CornerUpLeft size={14} />
-              <span>Remove from group</span>
+          {settle?.kind === 'settle' && (
+            <DropdownMenu.Item className="dropdown-item" onSelect={() => void settleWithUndo(workspaceId, session.id, session.name)}>
+              <Archive size={14} />
+              <span>Settle</span>
+            </DropdownMenu.Item>
+          )}
+          {/* Where it cannot work, say why rather than leave the person guessing. */}
+          {settle?.kind === 'blocked' && (
+            <DropdownMenu.Item className="dropdown-item" disabled title={settle.reason}>
+              <Archive size={14} />
+              <span>Settle · {settle.reason}</span>
+            </DropdownMenu.Item>
+          )}
+          <DropdownMenu.CheckboxItem
+            className="dropdown-item"
+            checked={session.autoSettle === 'never'}
+            onCheckedChange={(keep) => {
+              void updateSession(workspaceId, session.id, { autoSettle: keep ? 'never' : undefined }).catch((error) => {
+                console.error('Failed to change auto-settle', error);
+              });
+            }}
+          >
+            <span className="navigation-settings-check">
+              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+            </span>
+            <span>Never auto-settle</span>
+          </DropdownMenu.CheckboxItem>
+          {session.parentSessionId && (
+            <DropdownMenu.Item className="dropdown-item" onSelect={handleDetach}>
+              <Unlink size={14} />
+              <span>Detach from conductor</span>
             </DropdownMenu.Item>
           )}
           {canLink &&
@@ -184,11 +258,11 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
           </DropdownMenu.Item>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>
-      {creatingGroup && (
-        <NewGroupDialog
+      {creatingLabel && (
+        <NewLabelDialog
           workspaceId={workspaceId}
-          onClose={() => setCreatingGroup(false)}
-          onCreated={(group) => moveSessionToGroup(workspaceId, session.id, group.id)}
+          onClose={() => setCreatingLabel(false)}
+          onCreated={(label) => assignLabel(workspaceId, session.id, label.id)}
         />
       )}
     </DropdownMenu.Root>

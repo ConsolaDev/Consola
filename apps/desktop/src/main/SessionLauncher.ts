@@ -9,6 +9,7 @@ import {
     type Session,
     type Workspace,
 } from '../shared/workspace';
+import type { AttentionLedger } from './attention/AttentionLedger';
 import { toolPolicyProblem } from './drivers';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';
 import type { RelaunchFields, TerminalService, TerminalServiceOptions } from './TerminalService';
@@ -34,7 +35,7 @@ export interface SessionRecordStore {
     updateSession(
         workspaceId: string,
         sessionId: string,
-        updates: Partial<Pick<Session, 'name' | 'lastActiveAt' | 'hasStarted'>>
+        updates: Partial<Pick<Session, 'name' | 'hasStarted'>>
     ): void;
     deleteSession(workspaceId: string, sessionId: string): void;
     replaceConversation(workspaceId: string, sessionId: string, claudeSessionId?: string): Session;
@@ -113,7 +114,8 @@ export class SessionLauncher {
     constructor(
         private readonly workspaces: SessionRecordStore,
         private readonly harnesses: HarnessRecordStore,
-        private readonly terminals: HeadlessTerminalStarter
+        private readonly terminals: HeadlessTerminalStarter,
+        private readonly ledger?: Pick<AttentionLedger, 'touch'>
     ) {}
 
     public async launchSession(workspaceId: string, fields: LaunchSessionFields): Promise<Session> {
@@ -257,6 +259,14 @@ export class SessionLauncher {
      * unattended and stays read-only; nothing here lifts a restriction.
      */
     public async deliverPrompt(workspaceId: string, sessionId: string, prompt: string): Promise<PromptDelivery> {
+        const delivery = await this.deliver(workspaceId, sessionId, prompt);
+        // A prompt reaching a session is activity, however it got there. Only
+        // a delivery that happened counts: every refusal above throws.
+        this.ledger?.touch(sessionId, workspaceId, Date.now());
+        return delivery;
+    }
+
+    private async deliver(workspaceId: string, sessionId: string, prompt: string): Promise<PromptDelivery> {
         const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
         const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
         if (!workspace || !session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);

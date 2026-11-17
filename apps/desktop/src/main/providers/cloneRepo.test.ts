@@ -40,6 +40,7 @@ function makeWorkspace(
       createdAt: now,
     })),
     groups: [],
+    labels: [],
     provider: { id: 'github', accountLogin: 'JaviDev', org: 'sprocket' },
     actions: [],
     sectionDefaults: {},

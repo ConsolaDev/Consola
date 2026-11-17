@@ -33,4 +33,12 @@ describe('sessionLabel', () => {
   it('is the plain name for an ordinary session', () => {
     expect(sessionLabel({ name: 'scratch: grafana panels' })).toBe('scratch: grafana panels');
   });
+
+  it('drops the CLI paste wrapper from a name and keeps what was pasted', () => {
+    expect(sessionLabel({ name: 'Using the brainstorming skill <pasted_content id="4d38">Understand the model</pasted_content>' }))
+      .toBe('Using the brainstorming skill Understand the model');
+    expect(sessionLabel({ name: 'Review this <pasted_content id="4d38"> Un…' })).toBe('Review this Un…');
+    expect(sessionLabel({ name: 'Cut off <pasted_content id="4d' })).toBe('Cut off');
+    expect(sessionLabel({ workItem: pr4118, name: 'see <pasted_content id="1">log' })).toBe('⑂ see log');
+  });
 });

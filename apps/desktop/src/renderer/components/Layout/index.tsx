@@ -9,6 +9,7 @@ import { AppHeader } from './AppHeader';
 import { WorkspaceRail } from './WorkspaceRail';
 import { MainContent } from './MainContent';
 import { useKeyboardShortcuts } from '../../hooks/useKeyboardShortcuts';
+import { useViewingReport } from '../../hooks/useViewingReport';
 import { useTheme } from '../../hooks/useTheme';
 import { useWindowDropGuard } from '../../hooks/useWindowDropGuard';
 import { useSettings } from '../../contexts/SettingsContext';
@@ -24,6 +25,8 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { useAssistantStore } from '../../stores/assistantStore';
+import { Toaster } from '../Toast/Toaster';
+import { AutoSettleExplanation } from '../AutoSettle/AutoSettleExplanation';
 import './styles.css';
 
 export function Layout() {
@@ -62,6 +65,7 @@ export function Layout() {
     },
   });
   useTheme();
+  useViewingReport();
   useWindowDropGuard();
 
   // Terminals report activity for every session, including ones whose pane is
@@ -97,6 +101,8 @@ export function Layout() {
   return (
     <div ref={layoutRef} className={`layout ${isSidebarHidden ? 'sidebar-hidden' : ''}`} style={layoutStyle}>
       <NewSessionDialog />
+      <AutoSettleExplanation />
+      <Toaster />
       <AppHeader />
       <WorkspaceRail />
       <Sidebar />

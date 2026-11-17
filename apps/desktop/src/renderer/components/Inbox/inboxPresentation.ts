@@ -1,8 +1,9 @@
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import type { TerminalState } from '../../stores/terminalStore';
-import { sessionStatusFor, worstStatus, type SessionStatus } from '../../utils/sessionStatus';
+import { worstStatus, type Attention } from '../../../shared/attention';
+import type { AttentionMap } from '../../utils/sessionStatus';
+import { relativeSince } from '../../utils/relativeSince';
 
 /** Human age of a fetch: 'just now', '2m ago', '3h ago', '2d ago', 'never'. */
 export function formatAge(fetchedAt: number, now: number = Date.now()): string {
@@ -24,17 +25,7 @@ export function formatAge(fetchedAt: number, now: number = Date.now()): string {
 export function relativeTime(iso: string, now: number = Date.now()): string {
   const then = Date.parse(iso);
   if (Number.isNaN(then)) return '';
-  const seconds = Math.max(0, Math.floor((now - then) / 1000));
-  if (seconds < 60) return 'now';
-  const minutes = Math.floor(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  if (days < 30) return `${Math.floor(days / 7)}w`;
-  if (days < 365) return `${Math.floor(days / 30)}mo`;
-  return `${Math.floor(days / 365)}y`;
+  return relativeSince(then, now);
 }
 
 /** GitHub's wording for the review decision; nothing for a PR nobody has to decide on. */
@@ -130,9 +121,9 @@ export function groupSessionsByWorkItem(sessions: Session[]): Map<string, Sessio
 /** The one dot a row shows for its sessions: the most urgent of them. */
 export function worstStatusForItem(
   linked: Session[],
-  terminals: Record<string, TerminalState>
-): SessionStatus {
-  return worstStatus(linked.map((session) => sessionStatusFor(terminals[session.instanceId])));
+  attention: AttentionMap
+): Attention {
+  return worstStatus(linked.map((session) => attention[session.id] ?? 'ready')) ?? 'ready';
 }
 
 /** The platform's modifier, as its keycap reads. */
