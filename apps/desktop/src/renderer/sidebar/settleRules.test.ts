@@ -57,12 +57,11 @@ function world(specs: Spec[]) {
     visibleNodes(bucketize(forest()).settled, true, null).map((node) => node.entry.key);
   /** The ids at the top of the list, where everything in play and not running waits. */
   const atTheTop = (): string[] => bucketize(forest()).waiting.map((node) => node.entry.key);
-  /** The offer the row for `id` would carry, from the tree it sits in, with `viewing` open in the window. */
-  const offerFor = (id: string, viewing?: string) => {
-    const viewed = viewing ? sessionKey(viewing) : null;
+  /** The offer the row for `id` would carry, from the tree it sits in. */
+  const offerFor = (id: string) => {
     for (const root of forest()) {
-      if (root.entry.key === sessionKey(id)) return settleOffer(root, false, viewed);
-      if (root.children.some((c) => c.entry.key === sessionKey(id))) return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true, viewed);
+      if (root.entry.key === sessionKey(id)) return settleOffer(root, false);
+      if (root.children.some((c) => c.entry.key === sessionKey(id))) return settleOffer(root.children.find((c) => c.entry.key === sessionKey(id))!, true);
     }
     throw new Error('no such row');
   };
@@ -119,36 +118,16 @@ describe('settling by hand, end to end', () => {
     expect(w.treeOnShelf('p')).toBe(false);
   });
 
-  it('offers no Settle for the row the window is showing, and says why', () => {
-    const w = world([{ id: 'a', terminal: 'ready' }]);
-    expect(w.offerFor('a').kind).toBe('settle');
-
-    expect(w.offerFor('a', 'a')).toMatchObject({ kind: 'blocked', reason: expect.stringMatching(/open/i) });
-  });
-
-  it('is why: settling the open row is undone by the first thing its CLI paints', () => {
+  it('a settled row leaves the shelf only on a new turn, so the open row can be settled too', () => {
+    // Settle is offered whatever the window shows: opening a session writes no
+    // activity (its launch paint is not a turn), so nothing undoes it.
     const w = world([{ id: 'a', terminal: 'ready' }]);
     settleSession(w.workspace, 'a', w.ledger, NOW);
     expect(w.treeOnShelf('a')).toBe(true);
 
-    // Opening a session makes its CLI paint, which is activity, which un-settles
-    // it with no write at all — the row bounces straight back under a toast
-    // that said it had gone to the shelf.
+    // A turn is activity, and that is what brings it back.
     w.ledger.touch('a', 'w1', NOW + 1000);
     expect(w.treeOnShelf('a')).toBe(false);
-  });
-
-  it('a conductor whose child the window is showing is not offered Settle either: a tree settles as one', () => {
-    const w = world([{ id: 'p', terminal: 'ready' }, { id: 'k', parent: 'p', terminal: 'ready' }]);
-    expect(w.offerFor('p').kind).toBe('settle');
-
-    expect(w.offerFor('p', 'k').kind).toBe('blocked');
-  });
-
-  it('still offers the way back for a settled row the window is showing: un-settling is what opening it means', () => {
-    const w = world([{ id: 'a', terminal: 'ready' }]);
-    settleSession(w.workspace, 'a', w.ledger, NOW);
-    expect(w.offerFor('a', 'a').kind).toBe('unsettle');
   });
 
   it('a settled child inside a tree that is not settled offers no way back of its own', () => {

@@ -204,17 +204,16 @@ test.describe('Home scopes and groups', () => {
    * Attention, not group or scope, decides sections.
    */
   const topList = (target: Page) => target.locator('.sidebar-bucket--waiting');
-  /** The labels a ⋯ menu write left on a session, read back from main. */
+  /** The labels an actions-menu write left on a session, read back from main. */
   const labelsOf = (target: Page, sessionId: string) =>
     target.evaluate(
       async (id) => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find((candidate) => candidate.id === id)!.labelIds,
       sessionId
     );
-  /** Open a row's ⋯ menu and its Labels submenu, from the keyboard the way the trigger is meant to be used. */
+  /** Open a row's actions menu and its Labels submenu. */
   const openLabelsMenu = async (target: Page, name: string) => {
     const row = rowFor(target, name);
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
+    await row.click({ button: 'right' });
     await target.getByRole('menuitem', { name: 'Labels', exact: true }).focus();
     await target.keyboard.press('ArrowRight');
   };
@@ -465,7 +464,7 @@ test.describe('Home scopes and groups', () => {
     await expect(row.locator('.session-nav-item-scope')).toContainText('catalog-portal');
 
     await row.hover();
-    await row.getByRole('button', { name: 'Session actions' }).click();
+    await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Rename' }).click();
 
     // Anchored on the field, not on the name: `rowFor` matches by text, and the
@@ -514,7 +513,7 @@ test.describe('Home scopes and groups', () => {
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
-  test('the ⋯ menu\'s New label… creates a label and gives it to the session in one step', async () => {
+  test('the actions menu\'s New label… creates a label and gives it to the session in one step', async () => {
     expect(await labelsOf(page, 's1')).toBeUndefined();
     await openLabelsMenu(page, 'Controller boot');
     await page.getByRole('menuitem', { name: 'New label…', exact: true }).click();
@@ -561,7 +560,7 @@ test.describe('Home scopes and groups', () => {
     await expect(page.getByRole('button', { name: 'Delete label Fan out', exact: true })).toBeVisible();
   });
 
-  test('the ⋯ menu ticks and unticks a label on a session', async () => {
+  test('the actions menu ticks and unticks a label on a session', async () => {
     expect(await labelsOf(page, 's1')).toBeUndefined();
 
     await openLabelsMenu(page, 'Controller boot');
@@ -608,18 +607,16 @@ test.describe('Home scopes and groups', () => {
     });
 
     // The row's one-click slot is the reversible move; destroying a session and
-    // its history is behind the ⋯ menu, where a mis-aimed click cannot reach it.
-    // The actions are hidden until the row is hovered, so every reach for them
-    // hovers first — the same gesture a person makes.
-    await row.hover();
-    await row.getByRole('button', { name: 'Session actions', exact: true }).click();
+    // its history is behind the row's right-click menu, where a mis-aimed click
+    // cannot reach it.
+    await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
     await expect(row).toHaveCount(1);
 
     // Settling acts in place and must not activate the row it acts on. No row
-    // is open here, which is also the only state in which Settle is offered at
-    // all: the row the window is showing is covered at the end of this test.
+    // is open here; settling the row the window is showing is covered at the
+    // end of this test.
     const quiet = rowFor(page, 'Fix flaky test');
     const settleQuiet = quiet.getByRole('button', { name: 'Settle session Fix flaky test', exact: true });
     const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
@@ -649,27 +646,41 @@ test.describe('Home scopes and groups', () => {
     await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
 
-    // Tab order: the row, its ⋯ trigger, then its one action.
+    // Tab order: the row, then its one action. The actions menu has no button
+    // to tab to; the keyboard opens it from the row, the way it opens any
+    // context menu, and closing it hands focus back to that row.
     await row.focus();
-    await page.keyboard.press('Tab');
-    await expect(row.getByRole('button', { name: 'Session actions', exact: true })).toBeFocused();
+    await page.keyboard.press('Shift+F10');
+    await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(row).toBeFocused();
     await page.keyboard.press('Tab');
     await expect(settle).toBeFocused();
 
-    // The row the window is showing is not offered Settle at all: opening a
-    // session makes its CLI paint, and that activity un-settles it moments
-    // later — the row would bounce back under a toast that said it had reached
-    // the shelf. The ⋯ menu says why rather than leaving the person guessing.
+    // The row the window is showing is offered Settle like any other, and goes
+    // under the fold like any other: a folded shelf does not show it as though
+    // it had opened itself. It stays put away, since opening a session is not
+    // a turn, so nothing brings it back until the person prompts it.
+    await settledHeader.click();
+    await expect(settledHeader).toHaveAttribute('aria-expanded', 'false');
     await quiet.click();
     await quiet.hover();
-    await expect(settleQuiet).toHaveCount(0);
-    await quiet.getByRole('button', { name: 'Session actions', exact: true }).click();
-    await expect(page.getByRole('menuitem', { name: /Settle · Not while you have it open/ })).toBeVisible();
-    await page.keyboard.press('Escape');
+    await expect(settleQuiet).toBeVisible();
+    await settleQuiet.click();
+    await expect(settledHeader).toHaveText(/1/);
+    await expect(topList(page)).not.toContainText('Fix flaky test');
+    await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
+    await page.waitForTimeout(1_500);
+    await expect(settledHeader).toHaveText(/1/);
+    await settledHeader.click();
+    await expect(shelved).toHaveCount(1);
+    await shelved.hover();
+    await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
+    await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
 
     await page.evaluate(() => { window.confirm = () => true; });
     await row.hover();
-    await row.getByRole('button', { name: 'Session actions', exact: true }).click();
+    await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
     await expect(row).toHaveCount(0);
     await expect(page.locator('.session-nav-item')).toHaveCount(3);

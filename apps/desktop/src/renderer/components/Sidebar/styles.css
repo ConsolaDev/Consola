@@ -886,6 +886,67 @@
   top: 4px;
   right: var(--sidebar-row-padding-x);
   z-index: 1;
+  /* No frame of its own: Settle is a filled pill, and a row with nothing to
+     offer must show nothing at all, not an empty outlined box. */
+  padding: 0;
+  border: none;
+  background: none;
+}
+
+/* The actions menu's anchor. The menu opens from the row, not from a visible
+   ⋯, but Radix places it against a box: this one is invisible. Opened from
+   the keyboard it sits at the row's top-right, as tall as the Settle pill so
+   the menu drops just below that line; from a right-click it is a point at
+   the pointer (left/top set inline). */
+.session-actions-anchor {
+  position: absolute;
+  top: 4px;
+  right: var(--sidebar-row-padding-x);
+  width: 0;
+  height: 20px;
+  pointer-events: none;
+}
+
+.session-actions-anchor--at-pointer {
+  right: auto;
+  height: 0;
+}
+
+/* The row's one-click action, said in a word: "✓ Settle", or "Restore" on
+   the Settled shelf. Filled rather than outlined so it reads as a button
+   floating over the meta line it covers, and 20px tall so it centres on it.
+
+   The fill is mixed from the sidebar toward the text colour, not taken from a
+   surface token: a hovered row is already about --color-bg-tertiary in both
+   themes, so the pill vanished into the row it sits on. Mixed, it stays a
+   step brighter (dark) or darker (light) than any row state, and opaque, so
+   no meta text shows through it. */
+.session-settle-action {
+  --settle-fill: color-mix(in srgb, var(--color-bg-sidebar), var(--color-text-primary) 26%);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 20px;
+  padding: 0 7px 0 5px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: var(--settle-fill);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-xs);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.session-settle-action:hover {
+  background: color-mix(in srgb, var(--settle-fill), var(--color-text-primary) 10%);
+}
+
+.session-settle-action:focus-visible {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 1px;
 }
 
 .session-nav-item:hover .nav-row-actions,
@@ -898,23 +959,25 @@
   transition-delay: 0s;
 }
 
-/* The meta line's trailing slot and the actions tray want the same corner.
+/* The meta line's trailing slot and the Settle pill want the same corner.
    The slot steps aside rather than being covered — both of its occupants, the
-   age and the status, because "Waiting" half-hidden behind a ⋯ button is
-   worse than no word at all. It fades on the same curve the tray arrives on,
-   so the corner reads as one thing being exchanged for another, and it is
-   back before the pointer has finished leaving. */
+   age and the status, because "Waiting" half-hidden behind a button is worse
+   than no word at all. It fades on the same curve the pill arrives on, so the
+   corner reads as one thing being exchanged for another, and it is back
+   before the pointer has finished leaving. A row with no Settle to offer (a
+   child, a busy session, the one open) keeps its words: nothing is coming to
+   take their place. */
 .session-row-age,
 .session-row-status {
   transition: opacity 120ms var(--ease-out-quart);
 }
 
-.session-nav-item:hover .session-row-age,
-.session-nav-item:focus-within .session-row-age,
-.session-nav-item:has(.nav-row-actions[data-open='true']) .session-row-age,
-.session-nav-item:hover .session-row-status,
-.session-nav-item:focus-within .session-row-status,
-.session-nav-item:has(.nav-row-actions[data-open='true']) .session-row-status {
+.session-nav-item:has(.session-settle-action):hover .session-row-age,
+.session-nav-item:has(.session-settle-action):focus-within .session-row-age,
+.session-nav-item:has(.nav-row-actions[data-open='true'] .session-settle-action) .session-row-age,
+.session-nav-item:has(.session-settle-action):hover .session-row-status,
+.session-nav-item:has(.session-settle-action):focus-within .session-row-status,
+.session-nav-item:has(.nav-row-actions[data-open='true'] .session-settle-action) .session-row-status {
   opacity: 0;
 }
 

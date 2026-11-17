@@ -5,7 +5,6 @@ import {
   ArchiveRestore,
   Check,
   Link2,
-  MoreVertical,
   Pencil,
   Plus,
   Tag,
@@ -25,6 +24,11 @@ const EMPTY_LABELS: Label[] = [];
 interface SessionActionsMenuProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  /**
+   * Where to open, in the row's own box: the pointer of the right-click that
+   * asked. Null (the keyboard) opens it under the row's top-right corner.
+   */
+  at: { x: number; y: number } | null;
   session: Session;
   workspaceId: string;
   onRename: () => void;
@@ -34,7 +38,8 @@ interface SessionActionsMenuProps {
 }
 
 /**
- * The ⋯ menu on a sidebar row: rename, regroup, link or unlink, delete.
+ * A sidebar row's actions menu, opened from the row (right-click or the menu
+ * key): rename, regroup, link or unlink, delete.
  *
  * Link and Unlink are the sidebar door into the session-item relation.
  * Linking is metadata only — the session keeps its folder and gets no
@@ -46,7 +51,7 @@ interface SessionActionsMenuProps {
  * new one and have it applied at once. There is no "move to group" — groups are
  * not shown anywhere, so a move into one would change nothing on screen.
  */
-export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, settle }: SessionActionsMenuProps) {
+export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, at, settle }: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
   );
@@ -59,6 +64,7 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
   const openingDialog = useRef(false);
+  const anchorRef = useRef<HTMLSpanElement>(null);
 
   const handleLink = () => {
     openingDialog.current = true;
@@ -97,22 +103,26 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
 
   return (
     <DropdownMenu.Root open={open} onOpenChange={onOpenChange}>
+      {/* Not a button: the menu opens from the row itself (right-click, or the
+          menu key while the row has focus), so a visible ⋯ would only crowd the
+          corner Settle lives in. Radix still needs a box to place the menu
+          against: this invisible one, at the pointer or the row's corner. */}
       <DropdownMenu.Trigger asChild>
-        <button
-          className="nav-row-action session-actions-trigger"
-          onClick={(e) => e.stopPropagation()}
-          aria-label="Session actions"
-          title="Session actions"
-        >
-          <MoreVertical size={12} aria-hidden="true" />
-        </button>
+        <span
+          ref={anchorRef}
+          className={`session-actions-anchor${at ? ' session-actions-anchor--at-pointer' : ''}`}
+          style={at ? { left: at.x, top: at.y } : undefined}
+          aria-hidden="true"
+        />
       </DropdownMenu.Trigger>
 
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           className="dropdown-content"
-          sideOffset={4}
-          align="end"
+          // From the pointer the menu starts just past it, so releasing the
+          // button that opened it lands on no item.
+          sideOffset={at ? 2 : 4}
+          align={at ? 'start' : 'end'}
           // The menu is portaled, but React still bubbles its clicks to the row
           // it belongs to, which would open the session the person only meant
           // to rename or settle (and start its terminal, which takes the focus).
@@ -121,6 +131,16 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             if (openingDialog.current) {
               event.preventDefault();
               openingDialog.current = false;
+              return;
+            }
+            // Radix would hand focus back to the anchor, which cannot take it,
+            // leaving a keyboard user on <body>. The row it was opened from can.
+            // A row that went away (deleted) or swapped its anchor out for the
+            // rename field is left alone, so the field keeps its focus.
+            const row = anchorRef.current?.closest<HTMLElement>('.session-nav-item');
+            if (row) {
+              event.preventDefault();
+              row.focus();
             }
           }}
         >

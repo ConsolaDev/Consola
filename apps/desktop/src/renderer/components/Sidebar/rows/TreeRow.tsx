@@ -15,8 +15,6 @@ interface TreeRowProps {
   workspaceId: string;
   /** The entry the window is showing, whether or not an overlay covers it. */
   activeKey: EntryKey | null;
-  /** The same entry only while nothing covers it: the one row Settle is not offered for. */
-  viewedKey: EntryKey | null;
   /** Whether that entry is on screen now, for the active highlight. */
   highlightActive: boolean;
 }
@@ -38,7 +36,7 @@ const BADGE_WORDS: Partial<Record<Attention, string>> = {
  * nothing stored to flap. Toggling the chevron stores an explicit choice per
  * conductor, which then always wins.
  */
-export function TreeRow({ node, bucket, workspaceId, activeKey, viewedKey, highlightActive }: TreeRowProps) {
+export function TreeRow({ node, bucket, workspaceId, activeKey, highlightActive }: TreeRowProps) {
   const key = node.entry.key;
   const chosen = useSettingsStore((state) => state.sidebarShelfOpen[key]);
   const toggle = useSettingsStore((state) => state.toggleSidebarShelf);
@@ -56,7 +54,7 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, viewedKey, highl
       workspaceId,
       active: highlightActive && child.entry.key === activeKey,
       child: isChild,
-      settle: settleOffer(child, isChild, viewedKey),
+      settle: settleOffer(child, isChild),
       bucket,
       trailing:
         isChild || !badgeWord ? undefined : (

@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
-import { Archive, ArchiveRestore, FolderGit2, Lock } from 'lucide-react';
+import { Check, FolderGit2, Lock, Undo2 } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../../shared/workspace';
@@ -74,6 +74,8 @@ function SessionRowBody({
 }: RowProps & { session: Session }) {
   const [isRenaming, setIsRenaming] = useState(false);
   const [actionsOpen, setActionsOpen] = useState(false);
+  /** Where a right-click opened the actions menu, in the row's own box; null opens it at the row's corner. */
+  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [newName, setNewName] = useState(session.name);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -214,20 +216,28 @@ function SessionRowBody({
     setIsRenaming(true);
   };
 
-  // The row activates the session but also hosts the ⋯ actions trigger, and
-  // a <button> may not contain another button. A div with role="button"
-  // carries the same semantics while keeping the nested trigger valid; the
-  // key handler restores the Enter/Space activation a real button gets free.
+  // The row activates the session but also hosts the Settle button, and a
+  // <button> may not contain another button. A div with role="button" carries
+  // the same semantics while keeping the nested button valid; the key handler
+  // restores the Enter/Space activation a real button gets free.
+  //
+  // The actions menu has no visible trigger, so the keyboard reaches it the
+  // way it reaches any context menu: the menu key, or Shift+F10, which macOS
+  // does not turn into a contextmenu event on its own.
   const handleRowKeyDown = (e: React.KeyboardEvent) => {
     if (isRenaming || e.target !== e.currentTarget) return;
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onClick();
+    } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      setMenuAt(null);
+      setActionsOpen(true);
     }
   };
 
-  // Dragging the row onto a label chip assigns that label; the ⋯ menu's label
-  // entries are its keyboard twin, so nothing is reachable only by dragging.
+  // Dragging the row onto a label chip assigns that label; the actions menu's
+  // label entries are its keyboard twin, so nothing is reachable only by dragging.
   // Renaming turns it off so the pointer can select text in the input, and a
   // conductor is never draggable — its tree is the fleet it orchestrates.
   const draggable = !isRenaming && session.kind !== 'conductor';
@@ -254,6 +264,10 @@ function SessionRowBody({
         if (isRenaming) return;
         event.preventDefault();
         event.stopPropagation();
+        // At the pointer, like a native context menu. Anywhere else, the item
+        // that happens to land under it is picked when the button comes up.
+        const box = event.currentTarget.getBoundingClientRect();
+        setMenuAt({ x: event.clientX - box.left, y: event.clientY - box.top });
         setActionsOpen(true);
       }}
       draggable={draggable}
@@ -342,22 +356,13 @@ function SessionRowBody({
       {trailing}
       {!isRenaming && (
         <div className="nav-row-actions" data-open={actionsOpen || undefined}>
-          <SessionActionsMenu
-            open={actionsOpen}
-            onOpenChange={setActionsOpen}
-            session={session}
-            workspaceId={workspaceId}
-            onRename={handleStartRename}
-            onDelete={handleDelete}
-            settle={settle}
-          />
           {/* Settle, not delete. The row's one-click slot belongs to the move a
               person makes constantly and can undo from the toast; destroying a
-              session and its history is rare and permanent, so it stays behind
-              the ⋯ menu where a mis-aimed click cannot reach it. */}
+              session and its history is rare and permanent, so it stays in the
+              row's right-click menu where a mis-aimed click cannot reach it. */}
           {(settle?.kind === 'settle' || settle?.kind === 'unsettle') && <button
             type="button"
-            className="nav-row-action"
+            className="session-settle-action"
             aria-label={isSettled ? `Move ${label} back to the list` : `Settle session ${label}`}
             title={isSettled ? 'Move back to the list' : 'Settle — move it to the Settled shelf'}
             onClick={(event) => {
@@ -365,9 +370,22 @@ function SessionRowBody({
               void (isSettled ? unsettleWithUndo : settleWithUndo)(workspaceId, session.id, label);
             }}
           >
-            {isSettled ? <ArchiveRestore size={12} aria-hidden="true" /> : <Archive size={12} aria-hidden="true" />}
+            {isSettled ? <Undo2 size={12} aria-hidden="true" /> : <Check size={12} aria-hidden="true" />}
+            <span>{isSettled ? 'Restore' : 'Settle'}</span>
           </button>}
         </div>
+      )}
+      {!isRenaming && (
+        <SessionActionsMenu
+          open={actionsOpen}
+          onOpenChange={setActionsOpen}
+          at={menuAt}
+          session={session}
+          workspaceId={workspaceId}
+          onRename={handleStartRename}
+          onDelete={handleDelete}
+          settle={settle}
+        />
       )}
     </div>
   );
