@@ -1,8 +1,8 @@
 import { useEffect, useRef, type RefObject } from 'react';
 import { useReducedMotion } from './useReducedMotion';
 
-/** Ease-out-quart: quick to arrive, quiet to stop. */
-const EASE_OUT = 'cubic-bezier(0.25, 1, 0.5, 1)';
+/** Ease-out-quart: quick to arrive, quiet to stop. The `--ease-out-quart` token, for motion written in JS. */
+export const EASE_OUT = 'cubic-bezier(0.25, 1, 0.5, 1)';
 
 /**
  * A short settle-in (fade and a few pixels' rise) on the element whenever

@@ -35,6 +35,8 @@ import { useAutomationsStore } from '../../stores/automationsStore';
 import { ShelfHeader } from './rows/ShelfHeader';
 import { TreeRow } from './rows/TreeRow';
 import { useRevealWorking } from './useRevealWorking';
+import { BucketMotion } from './BucketMotion';
+import { placementOf } from '../../sidebar/departures';
 import './styles.css';
 
 const NO_RUNS: never[] = [];
@@ -59,6 +61,7 @@ export function Sidebar() {
   const providerAccount = workspace?.provider?.accountLogin;
   // The open row holds the bucket it was opened from until something else is opened.
   const held = useRef<{ activeKey: EntryKey | null; hold: Hold | null }>({ activeKey: null, hold: null });
+  const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
     if (workspace && providerAccount) void useInboxStore.getState().load(workspace.id);
@@ -149,7 +152,7 @@ export function Sidebar() {
   const list = (nodes: TreeNode[], bucket: Bucket) => nodes.map(node => renderNode(node, bucket));
 
   return (
-    <aside className="sidebar" aria-label={isInbox ? 'Inbox sidebar' : 'Home sidebar'}>
+    <aside ref={sidebarRef} className="sidebar" aria-label={isInbox ? 'Inbox sidebar' : 'Home sidebar'}>
       <SidebarSearch><NavigationSettings /><NewMenu /></SidebarSearch>
       <nav className="app-navigation" aria-label="Main navigation">
         <button className={`app-navigation-item ${!isInbox ? 'active' : ''}`} aria-label="Home" title="Home" aria-current={overlay === null ? 'page' : undefined}
@@ -194,7 +197,7 @@ export function Sidebar() {
               processes (`bucketize`). Each row says which in a word, and
               none of them can be folded away. */}
           {placed.waiting.length > 0 && <div className="sidebar-bucket sidebar-bucket--waiting">
-            <nav className="session-list" aria-label="Sessions">
+            <nav className="session-list" data-bucket="waiting" aria-label="Sessions">
               {list(placed.waiting, 'waiting')}
             </nav>
           </div>}
@@ -206,23 +209,25 @@ export function Sidebar() {
           {/* Only while something is in it, right above Settled. A session
               starting work opens it (`useRevealWorking`); collapsed, it keeps
               only the tree the person has open. */}
-          {placed.working.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" aria-label="Working">
+          {placed.working.length > 0 && <section className="sidebar-bucket sidebar-bucket--working" data-shelf="working" aria-label="Working">
             <ShelfHeader title="Working" count={leafCount(placed.working)} open={workingOpen} live
               onToggle={() => toggleShelf('working')} shortcutHint={WORKING_SHELF_SHORTCUT_LABEL} />
-            <nav className="session-list" aria-label="Working sessions">
+            <nav className="session-list" data-bucket="working" aria-label="Working sessions">
               {list(visibleNodes(placed.working, !workingOpen, activeKey), 'working')}
             </nav>
           </section>}
           {/* Only what was put away, by hand or after sitting idle (see
               AutoSettler). Nothing is deleted. */}
-          <section className="sidebar-bucket sidebar-bucket--settled" aria-label="Settled">
+          <section className="sidebar-bucket sidebar-bucket--settled" data-shelf="settled" aria-label="Settled">
             <ShelfHeader title="Settled" count={leafCount(placed.settled)} open={settledOpen} onToggle={() => toggleShelf('settled')} />
-            <nav className="session-list" aria-label="Settled sessions">
+            <nav className="session-list" data-bucket="settled" aria-label="Settled sessions">
               {list(visibleNodes(placed.settled, !settledOpen, settledPinKey), 'settled')}
             </nav>
           </section>
         </div>}
       </div>}
+      {/* A row leaving the list travels to the shelf it joins. */}
+      <BucketMotion placement={placementOf(placed)} rootRef={sidebarRef} />
     </aside>
   );
 }

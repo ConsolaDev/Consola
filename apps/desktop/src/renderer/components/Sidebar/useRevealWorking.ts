@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useLayoutEffect, useRef } from 'react';
 import type { AttentionState } from '../../../shared/attention';
 import type { Entry } from '../../sidebar/entry';
 import { startedWorking } from '../../sidebar/workingStarts';
@@ -25,6 +25,10 @@ export function revealWorking(): void {
  * starting them, and neither re-runs it. The rows are read twice, against the
  * attention before and after the change, through the same providers that
  * build the list (`entriesAt`), so no kind of row is named here.
+ *
+ * A layout effect, so Working is open before the frame that first shows the
+ * row in it is painted: the row travelling there (`BucketMotion`) lands in
+ * the open shelf instead of at a folded header that opens a moment later.
  */
 export function useRevealWorking(
   attention: AttentionMap,
@@ -32,7 +36,7 @@ export function useRevealWorking(
   entriesAt: (attention: AttentionMap) => Entry[]
 ): void {
   const previous = useRef(attention);
-  useEffect(() => {
+  useLayoutEffect(() => {
     const before = previous.current;
     previous.current = attention;
     if (before === attention) return;

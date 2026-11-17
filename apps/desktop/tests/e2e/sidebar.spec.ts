@@ -737,6 +737,38 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item')).toHaveCount(3);
   });
 
+  test('a settled row slides into the dock and leaves nothing behind; under reduced motion it simply moves', async () => {
+    const settledHeader = page.getByRole('button', { name: /^Settled/ });
+    /** Records whether a copy of a row was seen on its way into the folded shelf. */
+    const watchForTravel = () => page.evaluate(() => {
+      (window as any).__travelled = false;
+      new MutationObserver((_, observer) => {
+        if (!document.querySelector('.sidebar-ghost')) return;
+        (window as any).__travelled = true;
+        observer.disconnect();
+      }).observe(document.body, { subtree: true, childList: true });
+    });
+    const travelled = () => page.evaluate(() => (window as any).__travelled as boolean);
+    const settle = (id: string) => page.evaluate((sessionId) => window.attentionAPI.settle('ws-folding-e2e', sessionId), id);
+
+    // Settled starts folded, so the row has no slot to land in: a copy of it
+    // slides under the dock's edge, and is gone once it has.
+    await watchForTravel();
+    await settle('s2');
+    await expect(settledHeader).toHaveText(/1/);
+    await expect.poll(travelled).toBe(true);
+    await expect(page.locator('.sidebar-ghost-clip')).toHaveCount(0);
+    await expect(page.locator('[data-travelling], [data-landed], [data-travel-open]')).toHaveCount(0);
+
+    // Reduced motion keeps the move and drops the travel.
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await watchForTravel();
+    await settle('s3');
+    await expect(settledHeader).toHaveText(/2/);
+    await page.waitForTimeout(500);
+    expect(await travelled()).toBe(false);
+  });
+
   test('a shelf choice survives a relaunch', async () => {
     test.setTimeout(60_000);
     const settledHeader = (target: Page) => target.getByRole('button', { name: /^Settled/ });

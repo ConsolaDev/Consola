@@ -33,6 +33,9 @@
      the sidebar, their icons one step further. A bordered field gives up a
      pixel of padding to its border so its icon lands on the same line. */
   --sidebar-field-padding-x: calc(var(--space-2) - 1px);
+  /* A row lifted off the list while it travels to another section: a hairline
+     edge, and a shadow soft enough to read only as "above". */
+  --sidebar-row-lift: 0 0 0 1px var(--color-border), 0 6px 16px -8px rgba(0, 0, 0, 0.3);
 
   display: flex;
   flex-direction: column;
@@ -1807,6 +1810,51 @@ button.shelf-header[data-empty='true']:hover { color: var(--color-text-secondary
     transition: none;
   }
 }
+
+/* --- A row leaving the list --------------------------------------------- */
+
+/* A row that leaves the top of the list for Working or Settled travels there
+   (BucketMotion): it lifts off its slot, glides down the sidebar and lands
+   flush. In flight it is opaque, so the rows it crosses do not read through
+   it, and keeps the fill it had if it is the open row. Lifting eases the
+   shadow in. Landing eases it away and changes nothing else: the colour the
+   row carried is the colour it comes to rest on. */
+.session-list > [data-travelling] {
+  position: relative;
+  z-index: 1;
+  border-radius: var(--radius-sm);
+  background-color: var(--color-bg-sidebar);
+  background-image: linear-gradient(var(--travel-fill, transparent), var(--travel-fill, transparent));
+  box-shadow: var(--sidebar-row-lift);
+}
+.session-list > .active[data-travelling] { --travel-fill: var(--color-bg-active); }
+.session-list > [data-travelling],
+.session-list > [data-landed] { transition: box-shadow 180ms var(--ease-out-quart); }
+
+/* A shelf that does not scroll lets the row cross its edge while it flies in. */
+.sidebar-dock .session-list[data-travel-open] { overflow: visible; }
+
+/* A folded shelf has no slot to land in, so a copy of the row slides down
+   into the dock, under its top edge: the clip is everything above the dock.
+   A still picture: nothing inside it replays its own arrival. */
+.sidebar-ghost-clip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: var(--z-sidebar);
+  overflow: hidden;
+  pointer-events: none;
+}
+.sidebar-ghost {
+  position: absolute;
+  top: 0;
+  left: 0;
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-sidebar);
+  box-shadow: var(--sidebar-row-lift);
+}
+.sidebar-ghost > * { height: 100%; }
+.sidebar-ghost * { animation: none !important; transition: none !important; }
 
 /* --- Moving a session in and out of a group ----------------------------- */
 

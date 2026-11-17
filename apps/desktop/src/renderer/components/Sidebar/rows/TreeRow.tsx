@@ -65,7 +65,7 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, highlightActive 
     });
 
   return (
-    <div className="tree-row" data-bucket={bucket}>
+    <div className="tree-row" data-bucket={bucket} data-entry-key={key}>
       <div className="tree-row-head">
         <button
           type="button"

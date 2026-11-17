@@ -22,7 +22,7 @@ export function activateRun(workspaceId: string, entry: Entry): void {
 export function RunRow(props: RowProps) {
   const id = idOfKey(props.entry.key);
   const run = useAutomationsStore((state) => state.snapshots[props.workspaceId]?.runs.find((candidate) => candidate.id === id));
-  return run ? <RunRowBody run={run} onActivate={props.onActivate} child={props.child} /> : null;
+  return run ? <RunRowBody run={run} entryKey={props.entry.key} onActivate={props.onActivate} child={props.child} /> : null;
 }
 
 /**
@@ -32,7 +32,7 @@ export function RunRow(props: RowProps) {
  * links, because an approve button that outruns the evidence is worse than a
  * click more.
  */
-export function RunRowBody({ run, onActivate, child }: { run: RunListEntry; onActivate: () => void; child?: boolean }) {
+export function RunRowBody({ run, entryKey, onActivate, child }: { run: RunListEntry; entryKey?: Entry['key']; onActivate: () => void; child?: boolean }) {
   const { busy, error, act } = useIntent();
   const preview = isAgentRunPreview(run.result) ? run.result : undefined;
   const title = runTitle(run);
@@ -40,7 +40,7 @@ export function RunRowBody({ run, onActivate, child }: { run: RunListEntry; onAc
   const name = `${title}${detail ? ` — ${detail}` : ''} — waiting for your approval`;
 
   return (
-    <div className={`session-nav-item run-nav-item ${child ? 'session-nav-item--child' : ''}`} title={name}>
+    <div className={`session-nav-item run-nav-item ${child ? 'session-nav-item--child' : ''}`} data-entry-key={entryKey} title={name}>
       <button type="button" className="run-nav-item-main" aria-label={name} onClick={onActivate}>
         <Hand size={12} className="run-nav-item-icon" aria-hidden="true" />
         <span className="session-nav-item-text">

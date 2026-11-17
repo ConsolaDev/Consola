@@ -262,6 +262,7 @@ function SessionRowBody({
     <div
       role="button"
       tabIndex={0}
+      data-entry-key={entry.key}
       className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
       onClick={isRenaming ? undefined : onClick}
       onKeyDown={handleRowKeyDown}
