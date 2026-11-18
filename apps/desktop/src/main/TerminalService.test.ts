@@ -705,6 +705,43 @@ describe('TerminalService status event', () => {
     service.destroy();
   });
 
+  // Recorded live (2.1.327): after a question is answered the CLI paints
+  // without a half-second pause until the turn ends, 35 s later in that run.
+  // The menu used to be re-read only at such a pause, so the session said it
+  // was waiting on the person for the rest of a turn they had just unblocked.
+  it('stops saying it needs the person once they answer a menu, though output never pauses', async () => {
+    const pty = installFakePty();
+    const service = await buildService();
+    const statuses: string[] = [];
+    service.on('status', (status: string) => statuses.push(status));
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(statuses).toEqual(['needs-attention']);
+
+    service.write('\r');
+    pty.feed('\x1b[2J\x1b[3J\x1b[H✻ Working…');
+    await animate(pty, 3_000);
+
+    expect(statuses).toEqual(['needs-attention', 'ready', 'working']);
+    service.destroy();
+  });
+
+  it('keeps saying it needs the person while keys only move through the menu', async () => {
+    const pty = installFakePty();
+    const service = await buildService();
+    const statuses: string[] = [];
+    service.on('status', (status: string) => statuses.push(status));
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    service.write('\x1b[B');
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed? (2)');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    expect(statuses).toEqual(['needs-attention']);
+    service.destroy();
+  });
+
   it('does not ring needs-attention when a restart follows a menu on screen', async () => {
     const pty = installFakePty();
     const service = await buildService();

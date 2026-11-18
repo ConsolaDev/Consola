@@ -357,6 +357,28 @@ a `working` edge: while Claude waits, its spinner stops but the agents panel
 repaints about once a second, which the screen reads as turns. The OS notification follows the derived attention, not terminal status. Hooks use HTTP, not `mcp_tool`: a
 Notification hook does not wait for an MCP server still connecting.
 
+### Attention Reads a Steadied Status
+
+`TerminalService` infers `working` from output flow: right for delivering a
+prompt, too twitchy to file a row by. Everything that decides attention
+(`SessionSource`, `TurnActivity`) hears `SteadyStatus` instead, which holds
+back the two changes that are usually noise: a `ready` inside a turn
+(`DROP_HOLD_MS`) and a `working` after the CLI said the turn was over
+(`UNTURNED_WORK_MS` — a background agent's tool calls paint in bursts the
+screen reads as turns). `HookInputs.turn` says which side of a turn a change
+is on; without hooks only the drop is held. `needs-attention` and `exited`
+are never delayed, and prompt delivery, the Assistant and the renderer's
+terminal status still read the terminal's own.
+
+A row sits in the section its attention says, the open row included: pinning
+a stopped row under Working made the section state something false. The
+sidebar's own softening is the same for every row (`workingExits`, the shift
+guard).
+
+A menu is looked for when output pauses, and again shortly after the person
+types into one (`ANSWER_RECHECK_MS`): a turn that goes on after its answer
+never pauses, so without that it read as waiting on the person to its end.
+
 ### Ask the CLI What It Can Do
 
 Slash commands, subagents and models are not Consola's to enumerate. The CLI

@@ -144,6 +144,7 @@ import { SessionSource } from './attention/SessionSource';
 import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { HookSignals } from './attention/hookSignals';
+import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
 import { settleAndVerify, unsettleSession } from './attention/settling';
@@ -864,7 +865,7 @@ export function setupIpcHandlers(): boolean {
   const attentionSessions = new SessionSource({
     hookInputs: (instanceId) => hookSignals.get(instanceId),
     getWorkspaces: () => workspaces.getAll(),
-    terminalStatus: (instanceId) => sessionStatus(instanceId),
+    terminalStatus: (instanceId) => steadySessionStatus(instanceId),
     ledger: attentionLedger,
     isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
     // An open automation run keeps the session it uses from being settled.
@@ -968,7 +969,12 @@ export function setupIpcHandlers(): boolean {
     attentionLedger.restore(memento as SettleMemento);
     attentionSessions.refresh();
   });
-  hookSignals.subscribe((instanceId) => attentionSessions.hookChanged(instanceId));
+  // The steady status first: a turn boundary can release a status it was
+  // holding back, and the attention read that follows should see it.
+  hookSignals.subscribe((instanceId) => {
+    steadyStatus.hookChanged(instanceId);
+    attentionSessions.hookChanged(instanceId);
+  });
   workspaces.onChange(() => attentionSessions.refresh());
   attention.onChange((change) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -987,14 +993,29 @@ export function setupIpcHandlers(): boolean {
       ? { sessionId: located.session.id, workspaceId: located.workspace.id }
       : undefined;
   });
-  manager.addStatusListener((instanceId, status) => turnActivity.statusChanged(instanceId, status));
-  // Writes `finishedAt`; TurnActivity writes `lastActiveAt`. Two listeners,
-  // because they own different fields and nothing is written twice.
-  manager.addStatusListener((instanceId, status) =>
-    attentionSessions.statusChanged(instanceId, status),
-  );
-  // The person acting on a prompt is output starting again; that ends what a hook said.
-  manager.addStatusListener((instanceId, status) => hookSignals.statusChanged(instanceId, status));
+  // Attention is decided from the steady status, not the terminal's own:
+  // output flow flickers, and each flicker would move a row between
+  // sections and count as activity (see `SteadyStatus`). Writing
+  // `finishedAt` is SessionSource's and `lastActiveAt` TurnActivity's: two
+  // receivers, because they own different fields and nothing is written twice.
+  const steadyStatus = new SteadyStatus({
+    turn: (instanceId) => hookSignals.get(instanceId)?.turn,
+    emit: (instanceId, status) => {
+      turnActivity.statusChanged(instanceId, status);
+      attentionSessions.statusChanged(instanceId, status);
+    },
+  });
+  /** What attention reads for a terminal. A terminal that is gone is exited, whatever was last shown. */
+  const steadySessionStatus = (instanceId: string): TerminalStatus => {
+    const live = sessionStatus(instanceId);
+    return live === 'exited' ? live : (steadyStatus.get(instanceId) ?? live);
+  };
+  // The person acting on a prompt is output starting again; that ends what a
+  // hook said. Before the steady status, which reads what the hooks say.
+  manager.addStatusListener((instanceId, status) => {
+    hookSignals.statusChanged(instanceId, status);
+    steadyStatus.observe(instanceId, status);
+  });
 
   /**
    * What every attention source knows about a terminal's current process,
@@ -1005,6 +1026,7 @@ export function setupIpcHandlers(): boolean {
   const forgetTerminalAttention = (instanceId: string) => {
     turnActivity.forget(instanceId);
     hookSignals.forget(instanceId);
+    steadyStatus.forget(instanceId);
     attentionSessions.forget(instanceId);
   };
 
