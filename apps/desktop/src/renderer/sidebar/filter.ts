@@ -15,10 +15,12 @@ export interface FilterResult {
 function matches(entry: Entry, selection: FilterSelection): boolean {
   const { labels = [], facets = {} } = selection;
   if (labels.length > 0 && !labels.some((id) => entry.labels.includes(id))) return false;
-  return Object.entries(facets).every(([name, chosen]) =>
-    // A facet this kind cannot answer for is not a filter it can fail.
-    chosen.length === 0 || !entry.facetDomain.includes(name) ||
-    (name in entry.facets && chosen.includes(entry.facets[name]))
+  return Object.entries(facets).every(
+    ([name, chosen]) =>
+      // A facet this kind cannot answer for is not a filter it can fail.
+      chosen.length === 0 ||
+      !entry.facetDomain.includes(name) ||
+      (name in entry.facets && chosen.includes(entry.facets[name])),
   );
 }
 
@@ -35,7 +37,8 @@ export function applyFilter(entries: Entry[], selection: FilterSelection): Filte
   let hiddenNeedingYou = 0;
   for (const entry of entries) {
     if (matches(entry, selection)) shown.push(entry);
-    else if (entry.attention === 'needs-attention' || entry.attention === 'done') hiddenNeedingYou += 1;
+    else if (entry.attention === 'needs-attention' || entry.attention === 'done')
+      hiddenNeedingYou += 1;
   }
   return { entries: shown, hiddenNeedingYou };
 }

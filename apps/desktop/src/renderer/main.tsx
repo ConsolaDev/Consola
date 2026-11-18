@@ -50,7 +50,13 @@ async function bootstrap() {
     // no workspaces at all. Terminal status comes along for the ride: it is
     // broadcast on change only, so a window that opened late has no other way
     // to learn a session is already waiting on a keypress.
-    await Promise.all([hydrateWorkspaceStore(), hydrateHarnessStore(), hydrateTerminalStatus(), hydrateAttention(), hydratePreferences()]);
+    await Promise.all([
+      hydrateWorkspaceStore(),
+      hydrateHarnessStore(),
+      hydrateTerminalStatus(),
+      hydrateAttention(),
+      hydratePreferences(),
+    ]);
   } catch (error) {
     // A blank window is the one outcome worse than an error message: it looks
     // like the app started and the data is gone.
@@ -61,7 +67,7 @@ async function bootstrap() {
   root.render(
     <React.StrictMode>
       <Root />
-    </React.StrictMode>
+    </React.StrictMode>,
   );
 }
 

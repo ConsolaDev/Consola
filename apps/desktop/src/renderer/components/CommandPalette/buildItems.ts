@@ -24,7 +24,11 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
-import { useSettingsStore, TERMINAL_FONT_SIZE_MAX, TERMINAL_FONT_SIZE_MIN } from '../../stores/settingsStore';
+import {
+  useSettingsStore,
+  TERMINAL_FONT_SIZE_MAX,
+  TERMINAL_FONT_SIZE_MIN,
+} from '../../stores/settingsStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
@@ -94,7 +98,7 @@ function activeGitRoot(ctx: PaletteContext): string | null {
  */
 function hasFreshGitStatus(ctx: PaletteContext): boolean {
   const scope = activeScope(ctx);
-  return scope !== null && scope.isGitRepo && ctx.gitStatusRootPath === activeGitRoot(ctx);
+  return scope?.isGitRepo === true && ctx.gitStatusRootPath === activeGitRoot(ctx);
 }
 
 /** Actions, filtered to the ones that make sense right now. */
@@ -112,11 +116,17 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       context: activeWorkspace.name,
       icon: Plus,
       shortcutHint: isMac ? '⌘N' : 'Ctrl+N',
-      run: async () => { await createQuickSession(activeWorkspace.id); },
+      run: async () => {
+        await createQuickSession(activeWorkspace.id);
+      },
     });
     items.push({
-      kind: 'action', section: 'actions', id: 'action.session.new-with-options',
-      label: 'New session with options…', context: activeWorkspace.name, icon: Plus,
+      kind: 'action',
+      section: 'actions',
+      id: 'action.session.new-with-options',
+      label: 'New session with options…',
+      context: activeWorkspace.name,
+      icon: Plus,
       shortcutHint: isMac ? '⇧⌘N' : 'Ctrl+Shift+N',
       run: () => openNewSessionDialog(activeWorkspace.id),
     });
@@ -372,7 +382,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
 
 /** Every named session, labelled with the workspace it belongs to. */
 export function buildSessionItems(
-  entries: Array<{ session: Session; workspace: Workspace }>
+  entries: Array<{ session: Session; workspace: Workspace }>,
 ): SessionPaletteItem[] {
   return entries.map(({ session, workspace }) => ({
     kind: 'session',
@@ -387,7 +397,7 @@ export function buildSessionItems(
 
 export function buildWorkspaceItems(
   workspaces: Workspace[],
-  attention: AttentionMap
+  attention: AttentionMap,
 ): WorkspacePaletteItem[] {
   return workspaces.map((workspace) => ({
     kind: 'workspace',
@@ -430,7 +440,10 @@ export function buildFileItems(ctx: PaletteContext): FilePaletteItem[] {
   return items;
 }
 
-export function buildHarnessItems(harnesses: Harness[], currentDefaultId: string): HarnessPaletteItem[] {
+export function buildHarnessItems(
+  harnesses: Harness[],
+  currentDefaultId: string,
+): HarnessPaletteItem[] {
   return harnesses
     .filter((harness) => harness.id !== currentDefaultId)
     .map((harness) => ({
@@ -446,7 +459,7 @@ export function buildHarnessItems(harnesses: Harness[], currentDefaultId: string
 /** Rows offered by a sub-picker mode. */
 export function buildPickerItems(
   mode: Extract<PaletteMode, { kind: 'pick-workspace' | 'pick-session' | 'pick-harness' }>,
-  ctx: PaletteContext
+  ctx: PaletteContext,
 ): PaletteItem[] {
   switch (mode.kind) {
     case 'pick-workspace':

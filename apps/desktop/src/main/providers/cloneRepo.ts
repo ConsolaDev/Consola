@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { GitProviderId } from '../../shared/providers';
 import type { CloneRepoResult } from '../../shared/types';
 import type { Workspace } from '../../shared/workspace';
@@ -28,7 +28,7 @@ export async function cloneWorkspaceRepo(
   deps: CloneRepoDeps,
   workspace: Workspace,
   repo: string,
-  destinationDir: string
+  destinationDir: string,
 ): Promise<CloneRepoResult> {
   const provider = workspace.provider;
   if (!provider) {
@@ -53,7 +53,7 @@ export async function cloneWorkspaceRepo(
   }
 
   const covered = workspace.scopes.some(
-    (scope) => target === scope.path || target.startsWith(scope.path + path.sep)
+    (scope) => target === scope.path || target.startsWith(scope.path + path.sep),
   );
   if (!covered) {
     try {

@@ -9,7 +9,10 @@ describe('buildForest', () => {
   });
 
   it('nests a child under its conductor', () => {
-    const [root] = buildForest([entry('c', 'working'), entry('k', 'ready', { parent: keyOf('c') })]);
+    const [root] = buildForest([
+      entry('c', 'working'),
+      entry('k', 'ready', { parent: keyOf('c') }),
+    ]);
     expect(ids(root.children)).toEqual(['k']);
   });
 
@@ -40,7 +43,12 @@ describe('buildForest', () => {
       entry('a', 'ready', { parent: keyOf('b') }),
       entry('b', 'ready', { parent: keyOf('a') }),
     ]);
-    expect(roots.flatMap(membersOf).map((e) => e.key).sort()).toEqual([keyOf('a'), keyOf('b')]);
+    expect(
+      roots
+        .flatMap(membersOf)
+        .map((e) => e.key)
+        .sort(),
+    ).toEqual([keyOf('a'), keyOf('b')]);
   });
 
   it('treats an entry that names itself as its parent as a root', () => {
@@ -49,10 +57,15 @@ describe('buildForest', () => {
 
   it('places every entry exactly once', () => {
     const entries = [
-      entry('t', 'working'), entry('m', 'ready', { parent: keyOf('t') }),
-      entry('l', 'ready', { parent: keyOf('m') }), entry('o', 'ready', { parent: keyOf('x') }),
+      entry('t', 'working'),
+      entry('m', 'ready', { parent: keyOf('t') }),
+      entry('l', 'ready', { parent: keyOf('m') }),
+      entry('o', 'ready', { parent: keyOf('x') }),
     ];
-    const placed = buildForest(entries).flatMap(membersOf).map((e) => e.key).sort();
+    const placed = buildForest(entries)
+      .flatMap(membersOf)
+      .map((e) => e.key)
+      .sort();
     expect(placed).toEqual(entries.map((e) => e.key).sort());
   });
 });
@@ -65,7 +78,9 @@ describe('aggregateAttention', () => {
   });
 
   it('is the most urgent of the node and its children', () => {
-    expect(aggregateAttention(node(entry('p', 'working'), entry('c', 'needs-attention')))).toBe('needs-attention');
+    expect(aggregateAttention(node(entry('p', 'working'), entry('c', 'needs-attention')))).toBe(
+      'needs-attention',
+    );
     expect(aggregateAttention(node(entry('p', 'settled'), entry('c', 'exited')))).toBe('exited');
   });
 

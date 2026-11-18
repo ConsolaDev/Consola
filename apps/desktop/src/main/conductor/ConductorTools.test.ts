@@ -1,45 +1,10 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Session, Workspace } from '../../shared/workspace';
+import type { Session } from '../../shared/workspace';
 import { ConductorTools, type ConductorToolsDeps } from './ConductorTools';
+import { makeSession, makeWorkspace } from './ConductorTools.test-helpers';
 
 let control: ConductorTools;
 let deps: ConductorToolsDeps;
-
-/** v6 session fixture. Cast tolerates fields v6 adds beyond this plan's use. */
-export function makeSession(overrides: Partial<Session> = {}): Session {
-  return {
-    id: 'cond-1',
-    name: 'conductor',
-    workspaceId: 'ws-1',
-    instanceId: 'inst-cond',
-    claudeSessionId: '00000000-0000-4000-8000-000000000001',
-    hasStarted: false,
-    harnessId: 'default',
-    scopeId: 'scope-1',
-    groupId: 'grp-1',
-    kind: 'conductor',
-    createdAt: 0,
-    lastActiveAt: 0,
-    ...overrides,
-  } as Session;
-}
-
-export function makeWorkspace(overrides: Record<string, unknown> = {}): Workspace {
-  return {
-    id: 'ws-1',
-    name: 'Sprocket',
-    defaultHarnessId: 'default',
-    scopes: [
-      { id: 'scope-1', name: 'app', path: '/repos/app', isGitRepo: true, createdAt: 0 },
-      { id: 'scope-2', name: 'parent', path: '/repos/parent', isGitRepo: false, createdAt: 0 },
-    ],
-    groups: [{ id: 'grp-1', name: 'symbalance-api', createdAt: 0 }],
-    sessions: [makeSession()],
-    createdAt: 0,
-    updatedAt: 0,
-    ...overrides,
-  } as unknown as Workspace;
-}
 
 beforeEach(() => {
   deps = {
@@ -53,9 +18,20 @@ beforeEach(() => {
 
 describe('tool handlers enforce the group boundary', () => {
   const worker = () =>
-    makeSession({ id: 'w-1', name: 'adapter · implement', instanceId: 'inst-w1', kind: 'interactive' });
+    makeSession({
+      id: 'w-1',
+      name: 'adapter · implement',
+      instanceId: 'inst-w1',
+      kind: 'interactive',
+    });
   const foreign = () =>
-    makeSession({ id: 'f-1', name: 'other', instanceId: 'inst-f1', kind: 'interactive', groupId: 'grp-OTHER' });
+    makeSession({
+      id: 'f-1',
+      name: 'other',
+      instanceId: 'inst-f1',
+      kind: 'interactive',
+      groupId: 'grp-OTHER',
+    });
 
   beforeEach(() => {
     deps.getWorkspaces = vi.fn(() => [
@@ -71,7 +47,7 @@ describe('tool handlers enforce the group boundary', () => {
           name: 'w',
           scopePath: '/somewhere/else',
           prompt: 'go',
-        })
+        }),
       ).rejects.toThrow(/not one of this workspace's scopes/);
       expect(deps.launchSession).not.toHaveBeenCalled();
     });
@@ -82,7 +58,7 @@ describe('tool handlers enforce the group boundary', () => {
       // what the mock hands back — the assertion below pins that the id in
       // the result is the one launchSession returned, not an echo of the arg.
       deps.launchSession = vi.fn(async (_wsId, fields) =>
-        makeSession({ id: 'new-1', ...fields, instanceId: 'inst-new' } as Partial<Session>)
+        makeSession({ id: 'new-1', ...fields, instanceId: 'inst-new' } as Partial<Session>),
       );
       control = new ConductorTools(deps);
 
@@ -95,10 +71,10 @@ describe('tool handlers enforce the group boundary', () => {
       expect(result.sessionId).toBe('new-1');
       expect(result.instanceId).toBe('inst-new');
       const fields = (deps.launchSession as ReturnType<typeof vi.fn>).mock.calls[0][1];
-      expect(fields.groupId).toBe('grp-1');          // the conductor's group, not an argument
+      expect(fields.groupId).toBe('grp-1'); // the conductor's group, not an argument
       expect(fields.kind).toBe('interactive');
-      expect(fields.scopeId).toBe('scope-2');        // resolved from scopePath
-      expect(fields.harnessId).toBe('default');      // inherited from the conductor
+      expect(fields.scopeId).toBe('scope-2'); // resolved from scopePath
+      expect(fields.harnessId).toBe('default'); // inherited from the conductor
       expect(fields.initialPrompt).toBe('[task:1] implement the adapter');
     });
 
@@ -119,7 +95,7 @@ describe('tool handlers enforce the group boundary', () => {
           scopePath: '/repos/app',
           cwd: '/repos/parent/other',
           prompt: 'go',
-        })
+        }),
       ).rejects.toThrow(/cwd must be inside/);
     });
 
@@ -146,7 +122,7 @@ describe('tool handlers enforce the group boundary', () => {
           scopePath: '/repos/app',
           cwd: '/repos/app/../parent/other',
           prompt: 'go',
-        })
+        }),
       ).rejects.toThrow(/cwd must be inside/);
     });
 
@@ -184,9 +160,9 @@ describe('tool handlers enforce the group boundary', () => {
     });
 
     it('rejects a caller that is not a conductor — a worker id cannot drive the tools', async () => {
-      await expect(
-        control.handleSpawnSession('w-1', { name: 'x', prompt: 'go' })
-      ).rejects.toThrow(/not a conductor/);
+      await expect(control.handleSpawnSession('w-1', { name: 'x', prompt: 'go' })).rejects.toThrow(
+        /not a conductor/,
+      );
     });
   });
 
@@ -212,18 +188,18 @@ describe('tool handlers enforce the group boundary', () => {
     });
 
     it('rejects a session outside the group', () => {
-      expect(() =>
-        control.handleSendPrompt('cond-1', { sessionId: 'f-1', prompt: 'hi' })
-      ).toThrow(/not in your group/);
+      expect(() => control.handleSendPrompt('cond-1', { sessionId: 'f-1', prompt: 'hi' })).toThrow(
+        /not in your group/,
+      );
       expect(deps.queuePrompt).not.toHaveBeenCalled();
     });
 
     it('reports a dead terminal instead of silently dropping the prompt', () => {
       deps.queuePrompt = vi.fn(() => false);
       control = new ConductorTools(deps);
-      expect(() =>
-        control.handleSendPrompt('cond-1', { sessionId: 'w-1', prompt: 'hi' })
-      ).toThrow(/no live terminal/);
+      expect(() => control.handleSendPrompt('cond-1', { sessionId: 'w-1', prompt: 'hi' })).toThrow(
+        /no live terminal/,
+      );
     });
 
     it('rejects a session in another workspace, even one sharing the group id', () => {
@@ -245,9 +221,9 @@ describe('tool handlers enforce the group boundary', () => {
       ]);
       control = new ConductorTools(deps);
 
-      expect(() =>
-        control.handleSendPrompt('cond-1', { sessionId: 'x-2', prompt: 'hi' })
-      ).toThrow(/not in your group/);
+      expect(() => control.handleSendPrompt('cond-1', { sessionId: 'x-2', prompt: 'hi' })).toThrow(
+        /not in your group/,
+      );
       expect(deps.queuePrompt).not.toHaveBeenCalled();
     });
   });
@@ -264,7 +240,7 @@ describe('tool handlers enforce the group boundary', () => {
 
     it('rejects a session outside the group', () => {
       expect(() => control.handleSessionStatus('cond-1', { sessionId: 'f-1' })).toThrow(
-        /not in your group/
+        /not in your group/,
       );
     });
 
@@ -288,7 +264,7 @@ describe('tool handlers enforce the group boundary', () => {
       control = new ConductorTools(deps);
 
       expect(() => control.handleSessionStatus('cond-1', { sessionId: 'x-2' })).toThrow(
-        /not in your group/
+        /not in your group/,
       );
     });
   });

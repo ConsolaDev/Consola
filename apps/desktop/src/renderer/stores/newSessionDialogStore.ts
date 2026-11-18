@@ -14,6 +14,7 @@ interface NewSessionDialogState {
 // Window-local and independent of the sidebar, which can be hidden.
 export const useNewSessionDialogStore = create<NewSessionDialogState>((set) => ({
   destination: null,
-  open: (workspaceId, destination = {}, error) => set({ destination: { workspaceId, ...destination, error } }),
+  open: (workspaceId, destination = {}, error) =>
+    set({ destination: { workspaceId, ...destination, error } }),
   close: () => set({ destination: null }),
 }));

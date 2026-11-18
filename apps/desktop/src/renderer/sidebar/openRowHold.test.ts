@@ -8,9 +8,15 @@ const placedOf = (...entries: ReturnType<typeof entry>[]) => bucketize(forest(en
 describe('where the open row was opened from', () => {
   it('names the bucket and position of the tree holding the open entry', () => {
     const placed = placedOf(
-      entry('a', 'working', { activityAt: 9 }), entry('b', 'working', { activityAt: 5 }), entry('c', 'ready')
+      entry('a', 'working', { activityAt: 9 }),
+      entry('b', 'working', { activityAt: 5 }),
+      entry('c', 'ready'),
     );
-    expect(holdFor(placed, keyOf('b'))).toEqual({ rootKey: keyOf('b'), bucket: 'working', index: 1 });
+    expect(holdFor(placed, keyOf('b'))).toEqual({
+      rootKey: keyOf('b'),
+      bucket: 'working',
+      index: 1,
+    });
     expect(holdFor(placed, keyOf('c'))).toMatchObject({ bucket: 'waiting', index: 0 });
   });
 
@@ -30,7 +36,10 @@ describe('where the open row was opened from', () => {
  *  under Working with nothing running, because it was the open row. */
 describe('an open row sits where its attention says', () => {
   it('leaves Working when its turn finishes, open or not', () => {
-    const afterTurn = placedOf(entry('a', 'ready', { activityAt: 6 }), entry('b', 'working', { activityAt: 4 }));
+    const afterTurn = placedOf(
+      entry('a', 'ready', { activityAt: 6 }),
+      entry('b', 'working', { activityAt: 4 }),
+    );
     expect(ids(afterTurn.working)).toEqual(['b']);
     expect(ids(afterTurn.waiting)).toEqual(['a']);
   });

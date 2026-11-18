@@ -1,8 +1,8 @@
-import { execFileSync } from 'child_process';
-import * as childProcess from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as childProcess from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
@@ -12,7 +12,7 @@ import { createStubDriver } from './providers/stubDriver.test-helpers';
 import { WorktreeService, worktreeDirName } from './WorktreeService';
 
 vi.mock('child_process', async (importOriginal) => ({
-  ...await importOriginal<typeof import('child_process')>(),
+  ...(await importOriginal<typeof import('child_process')>()),
 }));
 
 const STUB_GH = path.resolve(__dirname, '../../tests/fixtures/stub-gh/gh');
@@ -51,7 +51,13 @@ function initRepo(dir: string, origin?: string): void {
 }
 
 function makeScope(dir: string, isGitRepo: boolean): Scope {
-  return { id: `scope-${path.basename(dir)}`, name: path.basename(dir), path: dir, isGitRepo, createdAt: Date.now() };
+  return {
+    id: `scope-${path.basename(dir)}`,
+    name: path.basename(dir),
+    path: dir,
+    isGitRepo,
+    createdAt: Date.now(),
+  };
 }
 
 function makeWorkspace(scopes: Scope[], overrides: Partial<Workspace> = {}): Workspace {
@@ -76,10 +82,20 @@ function makeWorkspace(scopes: Scope[], overrides: Partial<Workspace> = {}): Wor
 describe('worktreeDirName', () => {
   it('is <repo-basename>-<type>-<number>', () => {
     expect(
-      worktreeDirName({ provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 })
+      worktreeDirName({
+        provider: 'github',
+        repo: 'sprocket/catalog-portal',
+        type: 'pr',
+        number: 51,
+      }),
     ).toBe('catalog-portal-pr-51');
     expect(
-      worktreeDirName({ provider: 'github', repo: 'sprocket/media-upload-api', type: 'issue', number: 87 })
+      worktreeDirName({
+        provider: 'github',
+        repo: 'sprocket/media-upload-api',
+        type: 'issue',
+        number: 87,
+      }),
     ).toBe('media-upload-api-issue-87');
   });
 });
@@ -116,7 +132,9 @@ describe('WorktreeService.resolveRepo', () => {
     });
     try {
       const service = new WorktreeService(tmpDir('consola-wt-root-'));
-      expect(service.resolveRepo(makeWorkspace([makeScope(dir, true)]), 'ConsolaDev/Consola')).toBe(dir);
+      expect(service.resolveRepo(makeWorkspace([makeScope(dir, true)]), 'ConsolaDev/Consola')).toBe(
+        dir,
+      );
       expect(spy).toHaveBeenCalledWith('ssh', ['-G', 'github.com-personal'], expect.any(Object));
     } finally {
       spy.mockRestore();
@@ -143,7 +161,14 @@ describe('WorktreeService.resolveRepo', () => {
 
     expect(service.resolveRepo(workspace, 'sprocket/old-name')).toBe(dir);
 
-    execFileSync('git', ['-C', dir, 'remote', 'set-url', 'origin', 'git@github.com:sprocket/new-name.git']);
+    execFileSync('git', [
+      '-C',
+      dir,
+      'remote',
+      'set-url',
+      'origin',
+      'git@github.com:sprocket/new-name.git',
+    ]);
     // Stale until told otherwise — scope changes are what invalidate it.
     expect(service.resolveRepo(workspace, 'sprocket/new-name')).toBeNull();
 
@@ -197,8 +222,18 @@ function currentBranch(dir: string): string {
 // exceed 5 seconds under parallel suite load. Using a per-test timeout instead
 // of raising the global default documents which tests need the allowance and why.
 describe('WorktreeService.ensureWorktree', () => {
-  const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
-  const issue87 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 87 } as const;
+  const pr51 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 51,
+  } as const;
+  const issue87 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'issue',
+    number: 87,
+  } as const;
 
   function setup(resolveDriver?: (id: GitProviderId) => GitProviderDriver) {
     const clone = path.join(tmpDir('consola-wt-clone-'), 'catalog-portal');
@@ -235,7 +270,7 @@ describe('WorktreeService.ensureWorktree', () => {
     // the fixture gh, exactly like the other ensureWorktree cases.
     const real = getProviderDriver('github');
     const checkout = vi.fn((dir: string, ref: WorkItemRef, env: NodeJS.ProcessEnv) =>
-      real.checkout(dir, ref, env)
+      real.checkout(dir, ref, env),
     );
     const driver = createStubDriver({ checkout });
     const { clone, service } = setup(() => driver);
@@ -281,7 +316,7 @@ describe('WorktreeService.ensureWorktree', () => {
     // asserting this exact substring, not just "something was thrown",
     // proves the real stderr travels up rather than a generic wrapper.
     await expect(service.ensureWorktree(empty, pr51, { ...process.env })).rejects.toThrow(
-      /invalid reference: HEAD/
+      /invalid reference: HEAD/,
     );
   }, 30_000);
 
@@ -290,7 +325,7 @@ describe('WorktreeService.ensureWorktree', () => {
     const failEnv = { ...process.env, STUB_GH_FAIL: '1' };
 
     await expect(service.ensureWorktree(clone, pr51, failEnv)).rejects.toThrow(
-      /gh: canned failure \(STUB_GH_FAIL=1\)/
+      /gh: canned failure \(STUB_GH_FAIL=1\)/,
     );
 
     const dir = path.join(root, 'catalog-portal-pr-51');
@@ -314,7 +349,7 @@ describe('WorktreeService.ensureWorktree', () => {
     // added exactly like a failed gh checkout does, never leave it behind
     // for the fast path to mistake for done.
     await expect(service.ensureWorktree(clone, pr51, { ...process.env })).rejects.toThrow(
-      /Unknown git provider "github"/
+      /Unknown git provider "github"/,
     );
 
     const dir = path.join(root, 'catalog-portal-pr-51');
@@ -342,7 +377,7 @@ describe('WorktreeService.ensureWorktree', () => {
     // which the fast path must recognise as belonging to cloneA and refuse —
     // never silently hand back cloneA's worktree for cloneB's PR.
     await expect(service.ensureWorktree(cloneB, pr51, { ...process.env })).rejects.toThrow(
-      /different repository/
+      /different repository/,
     );
     // Refusing must not touch cloneA's worktree.
     expect(fs.existsSync(path.join(dirA, '.git'))).toBe(true);
@@ -350,7 +385,12 @@ describe('WorktreeService.ensureWorktree', () => {
 });
 
 describe('WorktreeService.prune', () => {
-  const pr51 = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 } as const;
+  const pr51 = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 51,
+  } as const;
 
   it('refuses while the worktree holds uncommitted changes', async () => {
     const clone = path.join(tmpDir('consola-wt-prune-'), 'catalog-portal');

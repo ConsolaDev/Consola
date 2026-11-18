@@ -115,7 +115,12 @@ export class AutoSettler {
         // A member already on the shelf blocks nothing; a tree wholly there has nothing to do.
         const idle = tree.filter((session) => attention.get(session.id) !== 'settled');
         if (idle.length === 0) continue;
-        if (!idle.every((session) => this.eligible(session, attention.get(session.id), autoSettleDays * DAY_MS, now, held))) continue;
+        if (
+          !idle.every((session) =>
+            this.eligible(session, attention.get(session.id), autoSettleDays * DAY_MS, now, held),
+          )
+        )
+          continue;
         targets.push(...settleTargets(workspace, tree, this.deps.ledger));
         moved.push(...tree.map((session) => session.id));
       }
@@ -129,7 +134,13 @@ export class AutoSettler {
     return moved;
   }
 
-  private eligible(session: Session, attention: Attention | undefined, thresholdMs: number, now: number, held: ReadonlySet<string>): boolean {
+  private eligible(
+    session: Session,
+    attention: Attention | undefined,
+    thresholdMs: number,
+    now: number,
+    held: ReadonlySet<string>,
+  ): boolean {
     if (attention !== 'ready' && attention !== 'exited') return false;
     if (held.has(session.id)) return false;
     if (this.deps.isShown(session.instanceId)) return false;

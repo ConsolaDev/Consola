@@ -14,9 +14,10 @@ import { harnessInitials } from '../../utils/harnessMark';
  */
 export function SessionHarnessIcon({ harnessId }: { harnessId: string | undefined }) {
   // Match launch resolution, including archived harnesses and legacy sessions.
-  const harness = useHarnessStore((state) =>
-    state.harnesses.find((candidate) => candidate.id === harnessId)
-      ?? state.harnesses.find((candidate) => candidate.isBuiltIn)
+  const harness = useHarnessStore(
+    (state) =>
+      state.harnesses.find((candidate) => candidate.id === harnessId) ??
+      state.harnesses.find((candidate) => candidate.isBuiltIn),
   );
   const several = useHarnessStore((state) => state.harnesses.length > 1);
   const driver = getDriverDescriptor(harness?.driverId);

@@ -6,7 +6,12 @@ import { deriveFacets, effectiveFilters, hasActiveFilters, matchesFilters } from
 function session(overrides: Partial<Session> = {}): Session {
   return {
     ...createSessionRecord({
-      name: 'S', workspaceId: 'w', instanceId: `i-${Math.random()}`, harnessId: 'claude', model: undefined, scopeId: 'sc',
+      name: 'S',
+      workspaceId: 'w',
+      instanceId: `i-${Math.random()}`,
+      harnessId: 'claude',
+      model: undefined,
+      scopeId: 'sc',
     }),
     ...overrides,
   };
@@ -15,12 +20,20 @@ function session(overrides: Partial<Session> = {}): Session {
 describe('deriveFacets', () => {
   it('reads harness, model, automation, repo and read-only off fields that already exist', () => {
     const facets = deriveFacets([
-      session({ harnessId: 'claude', model: 'opus', automation: { name: 'Review', runId: 'r1' }, toolPolicy: 'read-only',
-        workItem: { provider: 'github', repo: 'acme/api', type: 'pr', number: 1 } }),
+      session({
+        harnessId: 'claude',
+        model: 'opus',
+        automation: { name: 'Review', runId: 'r1' },
+        toolPolicy: 'read-only',
+        workItem: { provider: 'github', repo: 'acme/api', type: 'pr', number: 1 },
+      }),
       session({ harnessId: 'claude', model: 'opus' }),
       session({ harnessId: 'work' }),
     ]);
-    expect(facets.harness).toEqual([{ value: 'claude', count: 2 }, { value: 'work', count: 1 }]);
+    expect(facets.harness).toEqual([
+      { value: 'claude', count: 2 },
+      { value: 'work', count: 1 },
+    ]);
     expect(facets.model).toEqual([{ value: 'opus', count: 2 }]);
     expect(facets.automation).toEqual([{ value: 'Review', count: 1 }]);
     expect(facets.repo).toEqual([{ value: 'acme/api', count: 1 }]);
@@ -33,7 +46,9 @@ describe('matchesFilters', () => {
     const a = session({ harnessId: 'claude', model: 'opus' });
     const b = session({ harnessId: 'work', model: 'opus' });
     const c = session({ harnessId: 'work', model: 'haiku' });
-    expect([a, b, c].filter((s) => matchesFilters(s, { harness: ['claude', 'work'], model: ['opus'] }))).toEqual([a, b]);
+    expect(
+      [a, b, c].filter((s) => matchesFilters(s, { harness: ['claude', 'work'], model: ['opus'] })),
+    ).toEqual([a, b]);
   });
 
   it('matches labels by id, any of the selected', () => {
@@ -56,12 +71,16 @@ describe('effectiveFilters', () => {
     workspace.labels = [{ id: 'live', name: 'Live' }];
     const sessions = [session({ labelIds: ['gone', 'live'] })];
     expect(effectiveFilters(workspace, sessions, { label: ['gone'] })).toEqual({});
-    expect(effectiveFilters(workspace, sessions, { label: ['gone', 'live'] })).toEqual({ label: ['live'] });
+    expect(effectiveFilters(workspace, sessions, { label: ['gone', 'live'] })).toEqual({
+      label: ['live'],
+    });
   });
 
   it('drops a derived value no session has any more', () => {
     const workspace = createWorkspaceRecord('W', '/w', false);
-    expect(effectiveFilters(workspace, [session({ model: 'opus' })], { model: ['haiku', 'opus'] })).toEqual({ model: ['opus'] });
+    expect(
+      effectiveFilters(workspace, [session({ model: 'opus' })], { model: ['haiku', 'opus'] }),
+    ).toEqual({ model: ['opus'] });
   });
 });
 
@@ -73,7 +92,10 @@ describe('sessionFilterStore', () => {
     toggle('w1', 'model', 'opus');
     toggle('w1', 'model', 'haiku');
     toggle('w2', 'model', 'opus');
-    expect(useSessionFilterStore.getState().filters).toEqual({ w1: { model: ['opus', 'haiku'] }, w2: { model: ['opus'] } });
+    expect(useSessionFilterStore.getState().filters).toEqual({
+      w1: { model: ['opus', 'haiku'] },
+      w2: { model: ['opus'] },
+    });
     toggle('w1', 'model', 'opus');
     toggle('w1', 'model', 'haiku');
     expect(useSessionFilterStore.getState().filters.w1).toEqual({});

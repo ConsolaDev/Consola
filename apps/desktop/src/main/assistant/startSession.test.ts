@@ -1,11 +1,15 @@
 import { beforeEach, describe, expect, it, vi, type Mock } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { GitProviderDriver } from '../providers/GitProviderDriver';
-import { makeWorkspace } from '../conductor/ConductorTools.test';
-import { startAssistantSession, type AssistantStartDeps, type AssistantStartRequest } from './startSession';
+import { makeWorkspace } from '../conductor/ConductorTools.test-helpers';
+import {
+  startAssistantSession,
+  type AssistantStartDeps,
+  type AssistantStartRequest,
+} from './startSession';
 
 const prItem = { repo: 'sprocket/catalog-portal', number: 4229, type: 'pr' as const };
 let workspace: Workspace;
@@ -29,7 +33,10 @@ beforeEach(() => {
     worktreeInUse: vi.fn(() => false),
     composeEnv: async () => ({}),
     restoreGroup: vi.fn(),
-    launchSession: vi.fn(async (_id: string, fields: { name: string }) => ({ id: 's-1', name: fields.name }) as Session),
+    launchSession: vi.fn(
+      async (_id: string, fields: { name: string }) =>
+        ({ id: 's-1', name: fields.name }) as Session,
+    ),
   };
 });
 
@@ -51,7 +58,7 @@ describe('startAssistantSession', () => {
         scopeId: 'scope-1',
         workItem: { provider: 'github', ...prItem },
         initialPrompt: 'review it',
-      })
+      }),
     );
     expect(launchSession().mock.calls[0][1]).not.toHaveProperty('toolPolicy');
     expect(launchSession().mock.calls[0][1]).not.toHaveProperty('model');
@@ -63,7 +70,7 @@ describe('startAssistantSession', () => {
     expect(mode).toBe('read-only');
     expect(deps.launchSession).toHaveBeenCalledWith(
       'ws-1',
-      expect.objectContaining({ toolPolicy: 'read-only', unattended: true, initialPrompt: 'p' })
+      expect.objectContaining({ toolPolicy: 'read-only', unattended: true, initialPrompt: 'p' }),
     );
   });
 
@@ -100,7 +107,7 @@ describe('startAssistantSession', () => {
     await start({ scopePath: '/repos/parent', cwd: '/repos/parent/web' });
     expect(deps.launchSession).toHaveBeenCalledWith(
       'ws-1',
-      expect.objectContaining({ scopeId: 'scope-2', cwd: '/repos/parent/web' })
+      expect.objectContaining({ scopeId: 'scope-2', cwd: '/repos/parent/web' }),
     );
   });
 
@@ -112,24 +119,34 @@ describe('startAssistantSession', () => {
   });
 
   it('refuses what is outside this workspace', async () => {
-    await expect(start({ scopePath: '/etc' })).rejects.toThrow('/etc is not one of this workspace’s folders.');
-    await expect(start({ scopePath: '/repos/app', cwd: '/repos/other' })).rejects.toThrow('cwd must be inside /repos/app.');
-    await expect(start({ group: 'nope' })).rejects.toThrow('No group "nope" in this workspace.');
-    await expect(start({ workItem: { repo: 'not a repo', number: 1, type: 'pr' } })).rejects.toThrow(
-      /Not a valid pull request or issue/
+    await expect(start({ scopePath: '/etc' })).rejects.toThrow(
+      '/etc is not one of this workspace’s folders.',
     );
+    await expect(start({ scopePath: '/repos/app', cwd: '/repos/other' })).rejects.toThrow(
+      'cwd must be inside /repos/app.',
+    );
+    await expect(start({ group: 'nope' })).rejects.toThrow('No group "nope" in this workspace.');
+    await expect(
+      start({ workItem: { repo: 'not a repo', number: 1, type: 'pr' } }),
+    ).rejects.toThrow(/Not a valid pull request or issue/);
     await expect(start({ workItem: prItem, scopePath: '/repos/app' })).rejects.toThrow(
-      'A work item runs in its own worktree; leave out scope_path and cwd.'
+      'A work item runs in its own worktree; leave out scope_path and cwd.',
     );
     expect(deps.launchSession).not.toHaveBeenCalled();
   });
 
   it('puts it in a group by name or id, restoring an archived one', async () => {
     await start({ group: 'Symbalance-API' });
-    expect(deps.launchSession).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ groupId: 'grp-1' }));
+    expect(deps.launchSession).toHaveBeenLastCalledWith(
+      'ws-1',
+      expect.objectContaining({ groupId: 'grp-1' }),
+    );
     workspace.groups[0].archivedAt = 5;
     await start({ group: 'grp-1' });
-    expect(deps.launchSession).toHaveBeenLastCalledWith('ws-1', expect.objectContaining({ groupId: 'grp-1' }));
+    expect(deps.launchSession).toHaveBeenLastCalledWith(
+      'ws-1',
+      expect.objectContaining({ groupId: 'grp-1' }),
+    );
     expect(deps.restoreGroup).toHaveBeenCalledWith('ws-1', 'grp-1');
   });
 

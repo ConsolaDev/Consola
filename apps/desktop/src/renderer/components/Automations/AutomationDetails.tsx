@@ -1,5 +1,13 @@
 import { useEffect, useId, useState } from 'react';
-import { AlertTriangle, ArrowRight, Bot, CircleDashed, FileCode, Hand, Workflow } from 'lucide-react';
+import {
+  AlertTriangle,
+  ArrowRight,
+  Bot,
+  CircleDashed,
+  FileCode,
+  Hand,
+  Workflow,
+} from 'lucide-react';
 import type { AutomationView, RunListEntry } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
 import { automationsBridge } from '../../services/automationsBridge';
@@ -45,7 +53,9 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   const allRuns = snapshot?.runs ?? NO_RUNS;
   const arrivals = useArrivals(allRuns);
   // A run working counts its duration in seconds; the countdown needs only the minute.
-  const now = useNow(allRuns.some((run) => run.automationId === name && run.status === 'running') ? 1000 : 30_000);
+  const now = useNow(
+    allRuns.some((run) => run.automationId === name && run.status === 'running') ? 1000 : 30_000,
+  );
   const automation = snapshot?.automations.find((candidate) => candidate.name === name);
   const isNew = automation?.addedBy?.isNew ?? false;
 
@@ -58,7 +68,10 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
   }, [workspace.id, name, isNew]);
 
   if (!snapshot) return <p className="automations-hint">Loading…</p>;
-  if (!automation) return <p className="automations-hint">factory.yml no longer has an automation named {name}.</p>;
+  if (!automation)
+    return (
+      <p className="automations-hint">factory.yml no longer has an automation named {name}.</p>
+    );
 
   // What Activity would list for it, so "Open in Activity" shows the same runs.
   const runs = filterRuns(snapshot.runs, { ...NO_RUN_FILTER, automation: name }, now);
@@ -89,7 +102,12 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
       )}
 
       <div className="automations-lead">
-        <LeadState latest={latest} insights={insights} automation={automation} onShowEntry={() => setView('yaml')} />
+        <LeadState
+          latest={latest}
+          insights={insights}
+          automation={automation}
+          onShowEntry={() => setView('yaml')}
+        />
         <div className="automations-lead-actions">
           {waiting && (
             <button
@@ -125,7 +143,11 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
           <h3 id={pipelineHeading} className="automations-section-title">
             Pipeline
           </h3>
-          <div className="automations-segmented automations-view-toggle" role="group" aria-label="Show the pipeline as">
+          <div
+            className="automations-segmented automations-view-toggle"
+            role="group"
+            aria-label="Show the pipeline as"
+          >
             <button
               type="button"
               className={`automations-segment ${view === 'graph' ? 'active' : ''}`}
@@ -147,7 +169,13 @@ export function AutomationDetails({ workspace, name }: { workspace: Workspace; n
           </div>
         </div>
         {view === 'graph' ? (
-          <PipelineGraph automation={automation} runs={runs} now={now} place={place} onOpenRun={openRun} />
+          <PipelineGraph
+            automation={automation}
+            runs={runs}
+            now={now}
+            place={place}
+            onOpenRun={openRun}
+          />
         ) : (
           <EntrySource
             workspaceId={workspace.id}
@@ -238,7 +266,9 @@ function LeadState({
             <>
               <span className={`automations-tone-${latest.tone}`}>{latest.label}</span>
               <span className="automations-lead-when">{latest.detail}</span>
-              {showStreak && <span className="automations-lead-when">· {streak.count} in a row</span>}
+              {showStreak && (
+                <span className="automations-lead-when">· {streak.count} in a row</span>
+              )}
             </>
           ) : (
             <span className="automations-lead-quiet">No recent runs</span>
@@ -270,7 +300,8 @@ function RunsEmpty({ automation, now }: { automation: AutomationView; now: Date 
         : 'Run now runs it right away.';
   let text: string;
   if (automation.problem) text = 'It will not run until the problem above is fixed.';
-  else if (automation.onEvent) text = 'It fires when an Inbox refresh finds something new. Check now looks right away.';
+  else if (automation.onEvent)
+    text = 'It fires when an Inbox refresh finds something new. Check now looks right away.';
   else if (automation.nextRunAt) {
     const countdown = formatCountdown(automation.nextRunAt, now);
     text = `${countdown === 'due now' ? 'Its next run is due now' : `Its next run is ${countdown} (${formatDueAt(automation.nextRunAt, now)})`}. ${runNow}`;

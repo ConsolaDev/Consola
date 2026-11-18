@@ -44,7 +44,8 @@ const listOf = (root: Element, bucket: Bucket) =>
   root.querySelector<HTMLElement>(`.session-list[data-bucket="${bucket}"]`);
 
 /** Working's or Settled's section in the dock; the list at the top has none. */
-const shelfOf = (root: Element, bucket: Bucket) => root.querySelector<HTMLElement>(`[data-shelf="${bucket}"]`);
+const shelfOf = (root: Element, bucket: Bucket) =>
+  root.querySelector<HTMLElement>(`[data-shelf="${bucket}"]`);
 
 const shelfKey = (bucket: Bucket) => `shelf:${bucket}`;
 
@@ -52,11 +53,13 @@ const shelfKey = (bucket: Bucket) => `shelf:${bucket}`;
 function rowsOf(list: HTMLElement | null): HTMLElement[] {
   if (!list) return [];
   return Array.from(list.children).filter(
-    (child): child is HTMLElement => child instanceof HTMLElement && child.dataset.entryKey !== undefined,
+    (child): child is HTMLElement =>
+      child instanceof HTMLElement && child.dataset.entryKey !== undefined,
   );
 }
 
-const rowIn = (list: HTMLElement | null, key: EntryKey) => rowsOf(list).find((row) => row.dataset.entryKey === key);
+const rowIn = (list: HTMLElement | null, key: EntryKey) =>
+  rowsOf(list).find((row) => row.dataset.entryKey === key);
 
 /** How much of an element its scrolling and clipping ancestors leave on screen, from 0 to 1. */
 function visibleFraction(element: HTMLElement, root: HTMLElement): number {
@@ -172,7 +175,11 @@ export class BucketMotion extends Component<BucketMotionProps> {
       return shelf ? [{ bucket, shelf, before: snapshot.was.get(shelfKey(bucket)) }] : [];
     });
     const rows = BUCKETS.flatMap((bucket) =>
-      rowsOf(listOf(root, bucket)).map((row) => ({ bucket, row, before: snapshot.was.get(row.dataset.entryKey!) })),
+      rowsOf(listOf(root, bucket)).map((row) => ({
+        bucket,
+        row,
+        before: snapshot.was.get(row.dataset.entryKey!),
+      })),
     );
     for (const { shelf } of shelves) this.slides.get(shelf)?.cancel();
     for (const { row } of rows) this.slides.get(row)?.cancel();
@@ -183,16 +190,25 @@ export class BucketMotion extends Component<BucketMotionProps> {
       // on a tree's children) does not play under it. Only that one: a
       // spinner cancelled here would never turn again.
       for (const animation of row?.getAnimations({ subtree: true }) ?? []) {
-        if (animation instanceof CSSAnimation && animation.animationName === ROW_ARRIVAL) animation.cancel();
+        if (animation instanceof CSSAnimation && animation.animationName === ROW_ARRIVAL)
+          animation.cancel();
       }
       // A shelf that does not scroll is opened so the row is seen crossing
       // into it. One that scrolls stays clipped, and the row slides in at its edge.
-      const landing = row && list && visibleFraction(row, root) >= 0.5
-        ? { row, list, to: row.getBoundingClientRect(), open: list.scrollHeight <= list.clientHeight + 1 }
-        : null;
+      const landing =
+        row && list && visibleFraction(row, root) >= 0.5
+          ? {
+              row,
+              list,
+              to: row.getBoundingClientRect(),
+              open: list.scrollHeight <= list.clientHeight + 1,
+            }
+          : null;
       return { traveller, landing };
     });
-    const shelfTop = new Map(shelves.map(({ bucket, shelf }) => [bucket, shelf.getBoundingClientRect().top]));
+    const shelfTop = new Map(
+      shelves.map(({ bucket, shelf }) => [bucket, shelf.getBoundingClientRect().top]),
+    );
     const rowTop = new Map(rows.map(({ row }) => [row, row.getBoundingClientRect().top]));
 
     // Everything that stayed where it was slides from where it was drawn, so
@@ -209,7 +225,13 @@ export class BucketMotion extends Component<BucketMotionProps> {
       // A shelf that only now exists (Working, as its first session starts)
       // shows its header fading in above the row on its way there.
       const header = shelf.querySelector<HTMLElement>(':scope > .shelf-header');
-      if (header) this.track(header.animate([{ opacity: 0 }, { opacity: 1 }], { duration: MAKE_ROOM_MS, easing: EASE_OUT }));
+      if (header)
+        this.track(
+          header.animate([{ opacity: 0 }, { opacity: 1 }], {
+            duration: MAKE_ROOM_MS,
+            easing: EASE_OUT,
+          }),
+        );
     }
     const travelling = new Set<string>(snapshot.travellers.map((traveller) => traveller.key));
     for (const { bucket, row, before } of rows) {
@@ -231,10 +253,13 @@ export class BucketMotion extends Component<BucketMotionProps> {
   /** Slides an element by `delta` back to where it is now. Returns the delta it slid, 0 for none. */
   private slide(element: HTMLElement, delta: number): number {
     if (Math.abs(delta) < 1) return 0;
-    const animation = element.animate([{ transform: `translateY(${delta}px)` }, { transform: 'none' }], {
-      duration: MAKE_ROOM_MS,
-      easing: EASE_OUT,
-    });
+    const animation = element.animate(
+      [{ transform: `translateY(${delta}px)` }, { transform: 'none' }],
+      {
+        duration: MAKE_ROOM_MS,
+        easing: EASE_OUT,
+      },
+    );
     this.slides.set(element, animation);
     this.track(animation);
     return delta;
@@ -335,12 +360,18 @@ export class BucketMotion extends Component<BucketMotionProps> {
     if (!count) return;
     for (const animation of count.getAnimations()) animation.cancel();
     this.track(
-      count.animate([{ opacity: 0, transform: 'translateY(-4px)' }, { opacity: 1, transform: 'none' }], {
-        duration: 220,
-        delay: Math.round(duration * 0.55),
-        easing: EASE_OUT,
-        fill: 'backwards',
-      }),
+      count.animate(
+        [
+          { opacity: 0, transform: 'translateY(-4px)' },
+          { opacity: 1, transform: 'none' },
+        ],
+        {
+          duration: 220,
+          delay: Math.round(duration * 0.55),
+          easing: EASE_OUT,
+          fill: 'backwards',
+        },
+      ),
     );
   }
 
@@ -375,5 +406,6 @@ export class BucketMotion extends Component<BucketMotionProps> {
 function merge(into: Snapshot, next: Snapshot) {
   for (const [key, value] of next.was) if (!into.was.has(key)) into.was.set(key, value);
   const known = new Set(into.travellers.map((traveller) => traveller.key));
-  for (const traveller of next.travellers) if (!known.has(traveller.key)) into.travellers.push(traveller);
+  for (const traveller of next.travellers)
+    if (!known.has(traveller.key)) into.travellers.push(traveller);
 }

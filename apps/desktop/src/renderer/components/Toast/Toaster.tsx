@@ -14,7 +14,12 @@ export function Toaster() {
               {toast.action.label}
             </button>
           )}
-          <button type="button" className="toast-dismiss" aria-label="Dismiss" onClick={() => dismissToast(toast.id)}>
+          <button
+            type="button"
+            className="toast-dismiss"
+            aria-label="Dismiss"
+            onClick={() => dismissToast(toast.id)}
+          >
             ×
           </button>
         </div>

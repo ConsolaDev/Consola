@@ -10,7 +10,6 @@ import {
 import { WorkspaceSettingsModal } from '../components/WorkspaceSettings';
 import type { WorkspaceSettingsSectionId } from '../components/WorkspaceSettings/WorkspaceSettingsModal';
 import { useNavigationStore } from '../stores/navigationStore';
-import { windowBridge } from '../services/windowBridge';
 
 interface WorkspaceSettingsContextType {
   /**
@@ -37,12 +36,15 @@ export function WorkspaceSettingsProvider({ children }: { children: ReactNode })
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
 
-  const openWorkspaceSettings = useCallback((workspaceId?: string, section: WorkspaceSettingsSectionId = 'general') => {
-    const target = workspaceId ?? useNavigationStore.getState().activeWorkspaceId;
-    if (!target) return;
-    setInitialSection(section);
-    setOpenForWorkspaceId(target);
-  }, []);
+  const openWorkspaceSettings = useCallback(
+    (workspaceId?: string, section: WorkspaceSettingsSectionId = 'general') => {
+      const target = workspaceId ?? useNavigationStore.getState().activeWorkspaceId;
+      if (!target) return;
+      setInitialSection(section);
+      setOpenForWorkspaceId(target);
+    },
+    [],
+  );
 
   const closeWorkspaceSettings = useCallback(() => setOpenForWorkspaceId(null), []);
 
@@ -50,7 +52,7 @@ export function WorkspaceSettingsProvider({ children }: { children: ReactNode })
     (open: boolean) => {
       if (!open) closeWorkspaceSettings();
     },
-    [closeWorkspaceSettings]
+    [closeWorkspaceSettings],
   );
 
   // A session activating while the modal is open — an OS notification click
@@ -69,13 +71,17 @@ export function WorkspaceSettingsProvider({ children }: { children: ReactNode })
   // palette's context snapshot) do not rebuild on every render here.
   const value = useMemo(
     () => ({ openWorkspaceSettings, closeWorkspaceSettings }),
-    [openWorkspaceSettings, closeWorkspaceSettings]
+    [openWorkspaceSettings, closeWorkspaceSettings],
   );
 
   return (
     <WorkspaceSettingsContext.Provider value={value}>
       {children}
-      <WorkspaceSettingsModal initialSection={initialSection} workspaceId={openForWorkspaceId} onOpenChange={handleOpenChange} />
+      <WorkspaceSettingsModal
+        initialSection={initialSection}
+        workspaceId={openForWorkspaceId}
+        onOpenChange={handleOpenChange}
+      />
     </WorkspaceSettingsContext.Provider>
   );
 }

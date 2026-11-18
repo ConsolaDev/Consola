@@ -1,8 +1,8 @@
 import type {
-    HarnessCapabilitiesResult,
-    HarnessLaunchFields,
-    HarnessProbeResult,
-    SessionNameResult,
+  HarnessCapabilitiesResult,
+  HarnessLaunchFields,
+  HarnessProbeResult,
+  SessionNameResult,
 } from '../../shared/types';
 
 /**
@@ -13,38 +13,38 @@ import type {
  * and report back what the CLI itself says.
  */
 export const harnessBridge = {
-    getSessionModel(sessionId: string, fields: HarnessLaunchFields): Promise<string | null> {
-        return window.harnessAPI.getSessionModel(sessionId, fields);
-    },
+  getSessionModel(sessionId: string, fields: HarnessLaunchFields): Promise<string | null> {
+    return window.harnessAPI.getSessionModel(sessionId, fields);
+  },
 
-    /** Binary availability, version, and signed-in account for a harness. */
-    probe(fields: HarnessLaunchFields): Promise<HarnessProbeResult> {
-        return window.harnessAPI.probe(fields);
-    },
+  /** Binary availability, version, and signed-in account for a harness. */
+  probe(fields: HarnessLaunchFields): Promise<HarnessProbeResult> {
+    return window.harnessAPI.probe(fields);
+  },
 
-    /**
-     * A session's name from its harness's own transcripts, tagged with
-     * whether it is the CLI's settled summary or a stand-in from the opening
-     * prompt.
-     *
-     * Resolves to null both while the transcript is still being written and
-     * for drivers whose transcripts Consola cannot read at all.
-     */
-    getSessionName(
-        sessionId: string,
-        fields: HarnessLaunchFields
-    ): Promise<SessionNameResult | null> {
-        return window.harnessAPI.getSessionName(sessionId, fields);
-    },
+  /**
+   * A session's name from its harness's own transcripts, tagged with
+   * whether it is the CLI's settled summary or a stand-in from the opening
+   * prompt.
+   *
+   * Resolves to null both while the transcript is still being written and
+   * for drivers whose transcripts Consola cannot read at all.
+   */
+  getSessionName(
+    sessionId: string,
+    fields: HarnessLaunchFields,
+  ): Promise<SessionNameResult | null> {
+    return window.harnessAPI.getSessionName(sessionId, fields);
+  },
 
-    /**
-     * The slash commands, agents and models this harness offers.
-     *
-     * Answered from a cache in main, so repeat calls are cheap even though the
-     * first one starts a process. Never rejects: a harness whose CLI is
-     * missing or too old resolves to an unsupported result with a reason.
-     */
-    getCapabilities(fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> {
-        return window.harnessAPI.getCapabilities(fields);
-    },
+  /**
+   * The slash commands, agents and models this harness offers.
+   *
+   * Answered from a cache in main, so repeat calls are cheap even though the
+   * first one starts a process. Never rejects: a harness whose CLI is
+   * missing or too old resolves to an unsupported result with a reason.
+   */
+  getCapabilities(fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> {
+    return window.harnessAPI.getCapabilities(fields);
+  },
 };

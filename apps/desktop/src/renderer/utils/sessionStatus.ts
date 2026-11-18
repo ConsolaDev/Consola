@@ -29,7 +29,7 @@ export function workspaceStatusFor(workspace: Workspace, attention: AttentionMap
 export function anyOtherWorkspaceNeedsAttention(
   workspaces: Workspace[],
   activeWorkspaceId: string | null,
-  attention: AttentionMap
+  attention: AttentionMap,
 ): boolean {
   return workspaces.some((workspace) => {
     if (workspace.id === activeWorkspaceId) return false;

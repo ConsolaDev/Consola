@@ -25,9 +25,14 @@ export interface TreeView {
  * or finished, so its bucket would fold a conductor whose children have
  * simply finished and been seen.
  */
-export function treeView(node: TreeNode, chosen: boolean | undefined, activeKey: EntryKey | null): TreeView {
+export function treeView(
+  node: TreeNode,
+  chosen: boolean | undefined,
+  activeKey: EntryKey | null,
+): TreeView {
   const attention = aggregateAttention(node);
-  const collapsed = chosen === undefined ? attention === 'needs-attention' || attention === 'done' : !chosen;
+  const collapsed =
+    chosen === undefined ? attention === 'needs-attention' || attention === 'done' : !chosen;
   const shown = visibleNodes(node.children, collapsed, activeKey);
   return { collapsed, shown, left: node.children.filter((child) => !shown.includes(child)) };
 }

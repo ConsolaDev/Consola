@@ -58,7 +58,10 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, highlightActive 
       bucket,
       trailing:
         isChild || !badgeWord ? undefined : (
-          <span className={`tree-aggregate tree-aggregate--${worst}`} title={`${worstCount} ${badgeWord}`}>
+          <span
+            className={`tree-aggregate tree-aggregate--${worst}`}
+            title={`${worstCount} ${badgeWord}`}
+          >
             {worstCount} {badgeWord}
           </span>
         ),
@@ -75,11 +78,17 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, highlightActive 
           title={collapsed ? 'Show all children' : 'Show only children that need you'}
           onClick={() => toggle(key, collapsed)}
         >
-          {collapsed ? <ChevronRight size={12} aria-hidden="true" /> : <ChevronDown size={12} aria-hidden="true" />}
+          {collapsed ? (
+            <ChevronRight size={12} aria-hidden="true" />
+          ) : (
+            <ChevronDown size={12} aria-hidden="true" />
+          )}
         </button>
         {row(node, false)}
       </div>
-      {shown.length > 0 && <div className="tree-row-children">{shown.map((child) => row(child, true))}</div>}
+      {shown.length > 0 && (
+        <div className="tree-row-children">{shown.map((child) => row(child, true))}</div>
+      )}
       {left.length > 0 && (
         <button type="button" className="tree-row-more" onClick={() => toggle(key, true)}>
           +{left.length} {leftWord}

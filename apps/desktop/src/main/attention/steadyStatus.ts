@@ -64,7 +64,7 @@ export class SteadyStatus {
       turn(instanceId: string): Turn;
       /** A status worth acting on: called once per change of what is shown. */
       emit(instanceId: string, status: TerminalStatus): void;
-    }
+    },
   ) {}
 
   /** What is currently shown for a terminal, or undefined before it has reported. */
@@ -85,7 +85,11 @@ export class SteadyStatus {
     // A menu answered inside a turn: the turn goes on, and the screen needs a
     // second of output to say so. Shown as the work it is, then held like any
     // other pause, so an answer that ended the turn instead still lands.
-    if (raw === 'ready' && state.shown === 'needs-attention' && this.deps.turn(instanceId) === 'open') {
+    if (
+      raw === 'ready' &&
+      state.shown === 'needs-attention' &&
+      this.deps.turn(instanceId) === 'open'
+    ) {
       this.show(instanceId, state, 'working');
     }
     this.settle(instanceId, state);

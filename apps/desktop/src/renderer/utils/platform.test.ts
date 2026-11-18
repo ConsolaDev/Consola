@@ -8,7 +8,14 @@ async function platformModule(platform: string) {
 }
 
 function key(init: Partial<KeyboardEvent>): KeyboardEvent {
-  return { key: 'j', metaKey: false, ctrlKey: false, shiftKey: false, altKey: false, ...init } as KeyboardEvent;
+  return {
+    key: 'j',
+    metaKey: false,
+    ctrlKey: false,
+    shiftKey: false,
+    altKey: false,
+    ...init,
+  } as KeyboardEvent;
 }
 
 afterEach(() => vi.unstubAllGlobals());

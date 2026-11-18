@@ -15,11 +15,23 @@ const SEENS = [undefined, 150, 250];
 const SETTLES = [undefined, 50, 100, 300];
 
 function record(finishedAt?: number, seenAt?: number, settledAt?: number): AttentionRecord {
-  return { sessionId: 's', workspaceId: 'w', lastActiveAt: LAST_ACTIVE, finishedAt, seenAt, settledAt };
+  return {
+    sessionId: 's',
+    workspaceId: 'w',
+    lastActiveAt: LAST_ACTIVE,
+    finishedAt,
+    seenAt,
+    settledAt,
+  };
 }
 
 /** The same rules, written as the sentence the design gives them rather than as code order. */
-function expected(terminal: TerminalStatus, finishedAt?: number, seenAt?: number, settledAt?: number): Attention {
+function expected(
+  terminal: TerminalStatus,
+  finishedAt?: number,
+  seenAt?: number,
+  settledAt?: number,
+): Attention {
   const settled = settledAt !== undefined && settledAt >= LAST_ACTIVE;
   const unseenFinish = finishedAt !== undefined && (seenAt === undefined || seenAt < finishedAt);
   if (terminal === 'exited') return settled ? 'settled' : unseenFinish ? 'done' : 'exited';
@@ -32,20 +44,25 @@ function expected(terminal: TerminalStatus, finishedAt?: number, seenAt?: number
 describe('deriveAttention', () => {
   const cases = TERMINALS.flatMap((terminal) =>
     FINISHES.flatMap((finished) =>
-      SEENS.flatMap((seen) => SETTLES.map((settled) => [terminal, finished, seen, settled] as const))
-    )
+      SEENS.flatMap((seen) =>
+        SETTLES.map((settled) => [terminal, finished, seen, settled] as const),
+      ),
+    ),
   );
 
-  it.each(cases)('terminal %s, finished %s, seen %s, settled %s', (terminal, finished, seen, settled) => {
-    expect(
-      deriveAttention({
-        terminal,
-        record: record(finished, seen, settled),
-        isViewedInFocusedWindow: false,
-        heldByOpenRun: false,
-      })
-    ).toBe(expected(terminal, finished, seen, settled));
-  });
+  it.each(cases)(
+    'terminal %s, finished %s, seen %s, settled %s',
+    (terminal, finished, seen, settled) => {
+      expect(
+        deriveAttention({
+          terminal,
+          record: record(finished, seen, settled),
+          isViewedInFocusedWindow: false,
+          heldByOpenRun: false,
+        }),
+      ).toBe(expected(terminal, finished, seen, settled));
+    },
+  );
 
   it('is ready, never done, for a session the ledger has not heard of', () => {
     const inputs = { record: undefined, isViewedInFocusedWindow: false, heldByOpenRun: false };
@@ -69,26 +86,46 @@ describe('deriveAttention with hooks', () => {
     heldByOpenRun: false,
     hook,
   });
-  const says: HookInputs = { needsInput: true, holdingBackgroundWork: false, awaitingAgents: false };
-  const quiet: HookInputs = { needsInput: false, holdingBackgroundWork: false, awaitingAgents: false };
-  const awaiting: HookInputs = { needsInput: false, holdingBackgroundWork: true, awaitingAgents: true };
+  const says: HookInputs = {
+    needsInput: true,
+    holdingBackgroundWork: false,
+    awaitingAgents: false,
+  };
+  const quiet: HookInputs = {
+    needsInput: false,
+    holdingBackgroundWork: false,
+    awaitingAgents: false,
+  };
+  const awaiting: HookInputs = {
+    needsInput: false,
+    holdingBackgroundWork: true,
+    awaitingAgents: true,
+  };
 
   it('calls a session working while its agent awaits its own subagents, whatever its quiet screen says', () => {
     expect(deriveAttention(inputs('ready', awaiting))).toBe('working');
     expect(deriveAttention(inputs('working', awaiting))).toBe('working');
     // Not done yet, and not put away: the result is still coming.
     expect(deriveAttention(inputs('ready', awaiting, record(FINISHED)))).toBe('working');
-    expect(deriveAttention(inputs('ready', awaiting, record(undefined, undefined, 300)))).toBe('working');
+    expect(deriveAttention(inputs('ready', awaiting, record(undefined, undefined, 300)))).toBe(
+      'working',
+    );
   });
 
   it('lets a subagent’s question, or the process ending, win over awaiting subagents', () => {
-    expect(deriveAttention(inputs('ready', { ...awaiting, needsInput: true }))).toBe('needs-attention');
+    expect(deriveAttention(inputs('ready', { ...awaiting, needsInput: true }))).toBe(
+      'needs-attention',
+    );
     expect(deriveAttention(inputs('needs-attention', awaiting))).toBe('needs-attention');
     expect(deriveAttention(inputs('exited', awaiting))).toBe('exited');
   });
 
   it('leaves other background work to the screen: a dev server running is not the agent working', () => {
-    const background: HookInputs = { needsInput: false, holdingBackgroundWork: true, awaitingAgents: false };
+    const background: HookInputs = {
+      needsInput: false,
+      holdingBackgroundWork: true,
+      awaitingAgents: false,
+    };
     expect(deriveAttention(inputs('ready', background))).toBe('ready');
   });
 
@@ -116,13 +153,33 @@ describe('deriveAttention for held and finished sessions', () => {
   const base = { isViewedInFocusedWindow: false };
   it('does not settle a session an open run holds', () => {
     const settled = record(undefined, undefined, 300);
-    expect(deriveAttention({ ...base, terminal: 'ready', record: settled, heldByOpenRun: false })).toBe('settled');
-    expect(deriveAttention({ ...base, terminal: 'ready', record: settled, heldByOpenRun: true })).toBe('ready');
-    expect(deriveAttention({ ...base, terminal: 'exited', record: settled, heldByOpenRun: true })).toBe('exited');
+    expect(
+      deriveAttention({ ...base, terminal: 'ready', record: settled, heldByOpenRun: false }),
+    ).toBe('settled');
+    expect(
+      deriveAttention({ ...base, terminal: 'ready', record: settled, heldByOpenRun: true }),
+    ).toBe('ready');
+    expect(
+      deriveAttention({ ...base, terminal: 'exited', record: settled, heldByOpenRun: true }),
+    ).toBe('exited');
   });
 
   it('calls an exited process with an unseen finish done', () => {
-    expect(deriveAttention({ ...base, terminal: 'exited', record: record(FINISHED), heldByOpenRun: false })).toBe('done');
-    expect(deriveAttention({ ...base, terminal: 'exited', record: record(FINISHED, 250), heldByOpenRun: false })).toBe('exited');
+    expect(
+      deriveAttention({
+        ...base,
+        terminal: 'exited',
+        record: record(FINISHED),
+        heldByOpenRun: false,
+      }),
+    ).toBe('done');
+    expect(
+      deriveAttention({
+        ...base,
+        terminal: 'exited',
+        record: record(FINISHED, 250),
+        heldByOpenRun: false,
+      }),
+    ).toBe('exited');
   });
 });

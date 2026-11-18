@@ -16,8 +16,14 @@ export function hasPlatformModifier(event: KeyboardEvent): boolean {
 
 /** Cmd/Ctrl + 1–9 follows the workspace rail's order. */
 export function matchWorkspaceShortcut(event: KeyboardEvent): number | null {
-  if (!hasPlatformModifier(event) || (isMac ? event.ctrlKey : event.metaKey) ||
-      event.altKey || event.shiftKey || event.isComposing) return null;
+  if (
+    !hasPlatformModifier(event) ||
+    (isMac ? event.ctrlKey : event.metaKey) ||
+    event.altKey ||
+    event.shiftKey ||
+    event.isComposing
+  )
+    return null;
   const digit = /^Digit[1-9]$/.test(event.code) ? event.code.slice(5) : event.key;
   return /^[1-9]$/.test(digit) ? Number(digit) - 1 : null;
 }
@@ -119,12 +125,12 @@ export function matchScopeShortcut(event: KeyboardEvent): PaletteScope | null {
 
   const key = event.key.toLowerCase();
   const match = SCOPE_SHORTCUTS.find(
-    (entry) => entry.key === key && entry.shift === event.shiftKey
+    (entry) => entry.key === key && entry.shift === event.shiftKey,
   );
   return match?.scope ?? null;
 }
 
 /** How each scope chord is written, for the palette's section headers. */
 export const SCOPE_SHORTCUT_LABELS: Partial<Record<PaletteScope, string>> = Object.fromEntries(
-  SCOPE_SHORTCUTS.map((entry) => [entry.scope, entry.label])
+  SCOPE_SHORTCUTS.map((entry) => [entry.scope, entry.label]),
 );

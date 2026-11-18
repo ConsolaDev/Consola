@@ -15,7 +15,9 @@ export interface DialogAPI {
 
 export interface FileAPI {
   readFile: (filePath: string) => Promise<string>;
-  listDirectory: (dirPath: string) => Promise<Array<{ name: string; path: string; isDirectory: boolean }>>;
+  listDirectory: (
+    dirPath: string,
+  ) => Promise<Array<{ name: string; path: string; isDirectory: boolean }>>;
 }
 
 export type GitFileStatus = 'staged' | 'modified' | 'untracked' | 'deleted';

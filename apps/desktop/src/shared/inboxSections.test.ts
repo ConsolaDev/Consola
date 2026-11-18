@@ -54,7 +54,9 @@ describe('sectionFor', () => {
   });
 
   it('ready-to-merge: your approved PR whose checks pass or do not exist', () => {
-    expect(sectionFor(pr({ reviewDecision: 'approved', ciStatus: 'passing' }))).toBe('ready-to-merge');
+    expect(sectionFor(pr({ reviewDecision: 'approved', ciStatus: 'passing' }))).toBe(
+      'ready-to-merge',
+    );
     expect(sectionFor(pr({ reviewDecision: 'approved' }))).toBe('ready-to-merge');
   });
 
@@ -69,10 +71,12 @@ describe('sectionFor', () => {
 
   it('first match wins: a review request outranks authorship, drafts and failing CI', () => {
     expect(
-      sectionFor(pr({ roles: ['author', 'review-requested-direct'], isDraft: true, ciStatus: 'failing' }))
+      sectionFor(
+        pr({ roles: ['author', 'review-requested-direct'], isDraft: true, ciStatus: 'failing' }),
+      ),
     ).toBe('needs-your-review');
     expect(sectionFor(pr({ roles: ['author', 'review-requested-team'], isDraft: true }))).toBe(
-      'needs-team-review'
+      'needs-team-review',
     );
   });
 

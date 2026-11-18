@@ -47,14 +47,14 @@ function standInItem(ref: WorkItemRef): InboxItem {
 export function WorkItemPanel({ workspaceId, session }: WorkItemPanelProps) {
   const workItem = session.workItem;
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === workspaceId)
+    state.workspaces.find((candidate) => candidate.id === workspaceId),
   );
   const cached = useInboxStore((state) =>
     workItem
       ? state.snapshots[workspaceId]?.items.find((candidate) =>
-          sameWorkItem(candidate.workItem, workItem)
+          sameWorkItem(candidate.workItem, workItem),
         )
-      : undefined
+      : undefined,
   );
   const setVisible = useNavigationStore((state) => state.setWorkItemPanelVisible);
   const panelRef = useRef<HTMLDivElement>(null);

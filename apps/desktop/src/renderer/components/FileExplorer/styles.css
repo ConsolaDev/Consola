@@ -46,7 +46,9 @@
   font-size: var(--font-size-sm);
   text-align: left;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .file-tree-item:hover {
@@ -141,7 +143,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .file-explorer-view-btn:hover:not(.disabled) {

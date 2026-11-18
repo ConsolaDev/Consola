@@ -1,6 +1,6 @@
 import type { AttentionRecord, AttentionSnapshot } from '../../shared/attention';
 import type { SettleMemento } from '../../shared/preferences';
-import { JsonStateFile } from '../state/JsonStateFile';
+import type { JsonStateFile } from '../state/JsonStateFile';
 
 /**
  * Where each session was last active.
@@ -59,6 +59,10 @@ export interface AttentionLedgerStateFile {
 /** At most one disk write per session in this window. */
 export const WRITE_INTERVAL_MS = 30_000;
 
+/** Whether a record reads as put away: settled no earlier than its last activity, as deriveAttention reads it. */
+const isShelved = (record: AttentionRecord): boolean =>
+  record.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
+
 /** Read a stored row as a record, or null when it is malformed. */
 function normalizeRecord(value: unknown): AttentionRecord | null {
   if (typeof value !== 'object' || value === null) return null;
@@ -70,7 +74,7 @@ function normalizeRecord(value: unknown): AttentionRecord | null {
     workspaceId: row.workspaceId,
     lastActiveAt: row.lastActiveAt,
   };
-  for (const key of ['finishedAt', 'seenAt', 'settledAt', 'settleHoldAt'] as const) {
+  for (const key of ['finishedAt', 'seenAt', 'settledAt', 'settleHoldAt', 'unsettledAt'] as const) {
     const field = row[key];
     if (typeof field === 'number' && Number.isFinite(field)) record[key] = field;
   }
@@ -119,7 +123,13 @@ export class JsonAttentionLedger implements AttentionLedger {
     const current = this.records.get(sessionId);
     // Activity never moves backwards: a late edge must not age a session.
     const lastActiveAt = Math.max(at, current?.lastActiveAt ?? at);
-    this.commit({ ...current, sessionId, workspaceId, lastActiveAt });
+    const next: AttentionRecord = { ...current, sessionId, workspaceId, lastActiveAt };
+    // Activity after a settle is what takes a session off the shelf (see
+    // deriveAttention), so this is the moment it came back. A late edge that
+    // lands before the settle leaves it where it was.
+    if (current && isShelved(current) && lastActiveAt > current.settledAt!)
+      next.unsettledAt = lastActiveAt;
+    this.commit(next);
   }
 
   public markFinished(sessionId: string, workspaceId: string, at: number): void {
@@ -175,7 +185,11 @@ export class JsonAttentionLedger implements AttentionLedger {
     return false;
   }
 
-  public settle(targets: SettleTarget[], at: number, { markSeen }: { markSeen: boolean }): SettleMemento {
+  public settle(
+    targets: SettleTarget[],
+    at: number,
+    { markSeen }: { markSeen: boolean },
+  ): SettleMemento {
     const memento: SettleMemento = {};
     const next: AttentionRecord[] = [];
     for (const { sessionId, workspaceId, activityAt } of targets) {
@@ -205,7 +219,7 @@ export class JsonAttentionLedger implements AttentionLedger {
       if (!current) continue;
       memento[sessionId] = { ...current };
       const { settledAt: _gone, ...rest } = current;
-      next.push({ ...rest, settleHoldAt: at });
+      next.push({ ...rest, settleHoldAt: at, unsettledAt: at });
     }
     this.commitAll(next);
     return memento;

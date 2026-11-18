@@ -38,7 +38,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
   const session = workspace
     ? workspace.sessions.find((candidate) => candidate.id === activeSessionId)
     : undefined;
-  const rootPath = workspace ? checkoutPathForSession(workspace, session) ?? null : null;
+  const rootPath = workspace ? (checkoutPathForSession(workspace, session) ?? null) : null;
 
   // Refresh git status when panel opens
   useEffect(() => {
@@ -76,9 +76,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
         <div className="git-review-empty">
           <GitBranch size={48} strokeWidth={1.5} className="git-review-empty-icon" />
           <h3 className="git-review-empty-title">No workspace selected</h3>
-          <p className="git-review-empty-description">
-            Select a workspace to review changes
-          </p>
+          <p className="git-review-empty-description">Select a workspace to review changes</p>
         </div>
       </div>
     );

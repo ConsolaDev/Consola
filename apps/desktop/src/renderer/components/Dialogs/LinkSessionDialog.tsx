@@ -46,7 +46,7 @@ interface LinkSessionDialogBodyProps {
 
 function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === mode.workspaceId)
+    state.workspaces.find((candidate) => candidate.id === mode.workspaceId),
   );
   const updateSession = useWorkspaceStore((state) => state.updateSession);
   const statuses = useAttentionStore((state) => state.attention);
@@ -108,7 +108,9 @@ function LinkSessionDialogBody({ mode, onClose }: LinkSessionDialogBodyProps) {
             items={rows}
             query={query}
             onQueryChange={setQuery}
-            placeholder={mode.kind === 'pick-session' ? 'Search sessions...' : 'Search inbox items...'}
+            placeholder={
+              mode.kind === 'pick-session' ? 'Search sessions...' : 'Search inbox items...'
+            }
             inputAriaLabel={mode.kind === 'pick-session' ? 'Search sessions' : 'Search inbox items'}
             emptyMessage={emptyMessage}
             activeId={activeId}

@@ -1,11 +1,11 @@
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { activityOf, type Attention } from '../../shared/attention';
 import { DEFAULT_PREFERENCES } from '../../shared/preferences';
 import type { TerminalStatus } from '../../shared/terminalStatus';
-import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test';
+import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import { JsonStateFile } from '../state/JsonStateFile';
 import { PreferencesService } from '../state/PreferencesService';
 import { JsonAttentionLedger, type AttentionLedgerStateFile } from './AttentionLedger';
@@ -25,10 +25,20 @@ let shown: Set<string>;
 let changed: number;
 /** Windows that have said what they are showing; the sweeper waits for the first. */
 let reporters: (() => void)[];
-const reportFromAWindow = () => { for (const listener of [...reporters]) listener(); };
+const reportFromAWindow = () => {
+  for (const listener of [...reporters]) listener();
+};
 
 const old = (id: string, extra = {}) =>
-  makeSession({ id, name: id, instanceId: `inst-${id}`, kind: 'interactive', groupId: undefined, lastActiveAt: NOW - 30 * DAY, ...extra });
+  makeSession({
+    id,
+    name: id,
+    instanceId: `inst-${id}`,
+    kind: 'interactive',
+    groupId: undefined,
+    lastActiveAt: NOW - 30 * DAY,
+    ...extra,
+  });
 
 function settler(sessions: ReturnType<typeof old>[]) {
   const workspace = makeWorkspace({ id: 'w1', sessions });
@@ -39,10 +49,14 @@ function settler(sessions: ReturnType<typeof old>[]) {
     isShown: (instanceId) => shown.has(instanceId),
     ledger,
     preferences,
-    changed: () => { changed++; },
+    changed: () => {
+      changed++;
+    },
     onWindowReport: (listener) => {
       reporters.push(listener);
-      return () => { reporters = reporters.filter((candidate) => candidate !== listener); };
+      return () => {
+        reporters = reporters.filter((candidate) => candidate !== listener);
+      };
     },
     now: () => NOW,
   });
@@ -51,7 +65,9 @@ function settler(sessions: ReturnType<typeof old>[]) {
 beforeEach(() => {
   vi.useFakeTimers();
   dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-autosettle-'));
-  ledger = new JsonAttentionLedger(new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')));
+  ledger = new JsonAttentionLedger(
+    new JsonStateFile<AttentionLedgerStateFile>(path.join(dir, 'l.json')),
+  );
   preferences = new PreferencesService(new JsonStateFile<unknown>(path.join(dir, 'p.json')));
   attention = new Map();
   held = new Set();
@@ -78,11 +94,14 @@ describe('AutoSettler eligibility', () => {
     expect(settler([old('a')]).sweep()).toEqual(['a']);
   });
 
-  it.each<Attention>(['needs-attention', 'done', 'working'])('never settles a session that is %s', (state) => {
-    attention.set('a', state);
-    expect(settler([old('a')]).sweep()).toEqual([]);
-    expect(ledger.get('a')).toBeUndefined();
-  });
+  it.each<Attention>(['needs-attention', 'done', 'working'])(
+    'never settles a session that is %s',
+    (state) => {
+      attention.set('a', state);
+      expect(settler([old('a')]).sweep()).toEqual([]);
+      expect(ledger.get('a')).toBeUndefined();
+    },
+  );
 
   it('never settles a session an open run holds', () => {
     attention.set('a', 'ready');
@@ -137,7 +156,11 @@ describe('AutoSettler eligibility', () => {
 });
 
 describe('AutoSettler trees', () => {
-  const tree = () => [old('root'), old('c1', { parentSessionId: 'root' }), old('c2', { parentSessionId: 'root' })];
+  const tree = () => [
+    old('root'),
+    old('c1', { parentSessionId: 'root' }),
+    old('c2', { parentSessionId: 'root' }),
+  ];
 
   it('settles a tree root and children together when every member is eligible', () => {
     for (const id of ['root', 'c1', 'c2']) attention.set(id, 'ready');
@@ -146,7 +169,7 @@ describe('AutoSettler trees', () => {
   });
 
   it.each([
-    ['working', (s: Set<string>, a: Map<string, Attention>) => a.set('c2', 'working')],
+    ['working', (_s: Set<string>, a: Map<string, Attention>) => a.set('c2', 'working')],
     ['held by a run', (s: Set<string>) => s.add('c1')],
   ])('settles nothing when one member is %s', (_label, block) => {
     for (const id of ['root', 'c1', 'c2']) attention.set(id, 'ready');
@@ -169,7 +192,9 @@ describe('AutoSettler trees', () => {
     for (const id of ['root', 'c1', 'c2']) attention.set(id, 'ready');
     const write = vi.spyOn(JsonStateFile.prototype, 'write');
     settler(tree()).sweep();
-    expect(write.mock.calls.filter(([value]) => (value as { records?: unknown }).records !== undefined)).toHaveLength(1);
+    expect(
+      write.mock.calls.filter(([value]) => (value as { records?: unknown }).records !== undefined),
+    ).toHaveLength(1);
     write.mockRestore();
   });
 });
@@ -262,7 +287,10 @@ describe('the first-run explanation', () => {
     expect(preferences.get().pendingAutoSettle.sort()).toEqual(['a', 'b']);
 
     preferences.acknowledgeAutoSettle();
-    expect(preferences.get()).toMatchObject({ hasExplainedAutoSettle: true, pendingAutoSettle: [] });
+    expect(preferences.get()).toMatchObject({
+      hasExplainedAutoSettle: true,
+      pendingAutoSettle: [],
+    });
 
     attention.set('c', 'ready');
     settler([old('c')]).sweep();
@@ -295,7 +323,11 @@ describe('settling by hand and undoing it', () => {
     ledger.markFinished('k', 'w1', NOW - 40 * DAY);
     settleSession(workspace, 'p', ledger, NOW);
     expect(ledger.get('p')).toMatchObject({ settledAt: NOW, seenAt: NOW });
-    expect(ledger.get('k')).toMatchObject({ settledAt: NOW, seenAt: NOW, finishedAt: NOW - 40 * DAY });
+    expect(ledger.get('k')).toMatchObject({
+      settledAt: NOW,
+      seenAt: NOW,
+      finishedAt: NOW - 40 * DAY,
+    });
     expect(ledger.get('other')).toBeUndefined();
   });
 
@@ -304,7 +336,8 @@ describe('settling by hand and undoing it', () => {
     ledger.touch('k', 'w1', NOW - 3 * DAY);
     ledger.markFinished('k', 'w1', NOW - 3 * DAY);
     const before = { p: ledger.get('p'), k: { ...ledger.get('k')! } };
-    const slot = (id: string) => activityOf(workspace.sessions.find((s) => s.id === id)!, ledger.get(id));
+    const slot = (id: string) =>
+      activityOf(workspace.sessions.find((s) => s.id === id)!, ledger.get(id));
     const slots = { p: slot('p'), k: slot('k') };
 
     const memento = settleSession(workspace, 'p', ledger, NOW);

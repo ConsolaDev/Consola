@@ -22,7 +22,10 @@ describe('placementOf', () => {
 
 describe('departures', () => {
   it('travels a row leaving the list for Working or Settled', () => {
-    const moved = departures(at({ a: 'waiting', b: 'waiting', c: 'waiting' }), at({ a: 'working', b: 'settled', c: 'waiting' }));
+    const moved = departures(
+      at({ a: 'waiting', b: 'waiting', c: 'waiting' }),
+      at({ a: 'working', b: 'settled', c: 'waiting' }),
+    );
     expect(moved).toEqual([
       { key: keyOf('a'), from: 'waiting', to: 'working' },
       { key: keyOf('b'), from: 'waiting', to: 'settled' },
@@ -30,11 +33,15 @@ describe('departures', () => {
   });
 
   it('does not travel a row coming back up to the list', () => {
-    expect(departures(at({ a: 'working', b: 'settled' }), at({ a: 'waiting', b: 'waiting' }))).toEqual([]);
+    expect(
+      departures(at({ a: 'working', b: 'settled' }), at({ a: 'waiting', b: 'waiting' })),
+    ).toEqual([]);
   });
 
   it('does not travel a row moving between the two shelves', () => {
-    expect(departures(at({ a: 'working', b: 'settled' }), at({ a: 'settled', b: 'working' }))).toEqual([]);
+    expect(
+      departures(at({ a: 'working', b: 'settled' }), at({ a: 'settled', b: 'working' })),
+    ).toEqual([]);
   });
 
   it('does not travel a row that appeared or vanished', () => {

@@ -157,7 +157,9 @@
   background: transparent;
   color: var(--color-text-tertiary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .harness-icon-button:hover:not(:disabled) {
@@ -209,7 +211,7 @@
 }
 
 .harness-toggle-track::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 2px;
   left: 2px;
@@ -217,7 +219,9 @@
   height: 13px;
   background: var(--color-text-tertiary);
   border-radius: var(--radius-full);
-  transition: transform var(--transition-fast), background var(--transition-fast);
+  transition:
+    transform var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .harness-toggle input:checked + .harness-toggle-track {
@@ -318,7 +322,9 @@
   border-radius: var(--radius-md);
   text-align: left;
   cursor: pointer;
-  transition: border-color var(--transition-fast), background var(--transition-fast);
+  transition:
+    border-color var(--transition-fast),
+    background var(--transition-fast);
 }
 
 .harness-driver-option:hover:not(:disabled) {
@@ -386,7 +392,9 @@
   border: 2px solid transparent;
   border-radius: var(--radius-full);
   cursor: pointer;
-  transition: transform var(--transition-fast), border-color var(--transition-fast);
+  transition:
+    transform var(--transition-fast),
+    border-color var(--transition-fast);
 }
 
 .harness-color-swatch:hover {
@@ -396,4 +404,3 @@
 .harness-color-swatch.selected {
   border-color: var(--color-text-primary);
 }
-

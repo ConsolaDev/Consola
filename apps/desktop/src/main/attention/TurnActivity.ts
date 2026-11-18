@@ -15,8 +15,10 @@ export class TurnActivity {
   constructor(
     private readonly ledger: Pick<AttentionLedger, 'touch'>,
     /** The ledger is keyed by session, a terminal by its per-launch instance. */
-    private readonly resolve: (instanceId: string) => { sessionId: string; workspaceId: string } | undefined,
-    private readonly now: () => number = Date.now
+    private readonly resolve: (
+      instanceId: string,
+    ) => { sessionId: string; workspaceId: string } | undefined,
+    private readonly now: () => number = Date.now,
   ) {}
 
   public statusChanged(instanceId: string, status: TerminalStatus): void {

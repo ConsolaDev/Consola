@@ -5,7 +5,7 @@
  * declares background #ffffff, foreground #111111 and accent #00C2FF, derived
  * onwards exactly as the dark theme is. See dark.css for the derivation.
  */
-[data-theme='light'] {
+[data-theme="light"] {
   /* Background colors -- background(), then surface_1/2/3 */
   --color-bg-primary: #ffffff;
   --color-bg-secondary: #e7e7e7;
@@ -57,10 +57,10 @@
   --color-merged: rgb(130, 80, 223);
 
   /* Git status colors */
-  --color-git-staged: rgb(68, 131, 97);      /* Green for staged */
-  --color-git-modified: rgb(203, 145, 47);   /* Yellow for unstaged modified */
-  --color-git-untracked: rgb(50, 140, 150);  /* Teal/cyan for untracked */
-  --color-git-deleted: rgb(212, 76, 71);     /* Red for deleted */
+  --color-git-staged: rgb(68, 131, 97); /* Green for staged */
+  --color-git-modified: rgb(203, 145, 47); /* Yellow for unstaged modified */
+  --color-git-untracked: rgb(50, 140, 150); /* Teal/cyan for untracked */
+  --color-git-deleted: rgb(212, 76, 71); /* Red for deleted */
 
   /* Scrollbar */
   --color-scrollbar-track: transparent;

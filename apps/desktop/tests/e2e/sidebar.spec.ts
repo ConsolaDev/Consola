@@ -1,8 +1,8 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { commandPaletteChord, createProfileDir, launchElectron } from './helpers/electron';
 import { createBuiltInHarness } from '../../src/shared/harness';
 
@@ -115,16 +115,27 @@ function seedScopes(profileDir: string, scopeDir: string): void {
   fs.mkdirSync(effective, { recursive: true });
   const now = Date.now();
   const builtIn = { ...createBuiltInHarness(), configDir: path.join(scopeDir, 'claude-profile') };
-  fs.writeFileSync(path.join(effective, 'harnesses.json'), JSON.stringify({
-    version: 1,
-    harnesses: [builtIn, {
-      ...builtIn, id: 'codex-test', driverId: 'codex', name: 'Codex archived',
-      isBuiltIn: false, archived: true, configDir: path.join(scopeDir, 'codex-profile'),
-      // The offline fixture, not whatever codex is installed: a real one keeps
-      // writing its profile after the app closes, racing the teardown.
-      binaryPath: path.resolve('tests/fixtures/codex.cjs'),
-    }],
-  }));
+  fs.writeFileSync(
+    path.join(effective, 'harnesses.json'),
+    JSON.stringify({
+      version: 1,
+      harnesses: [
+        builtIn,
+        {
+          ...builtIn,
+          id: 'codex-test',
+          driverId: 'codex',
+          name: 'Codex archived',
+          isBuiltIn: false,
+          archived: true,
+          configDir: path.join(scopeDir, 'codex-profile'),
+          // The offline fixture, not whatever codex is installed: a real one keeps
+          // writing its profile after the app closes, racing the teardown.
+          binaryPath: path.resolve('tests/fixtures/codex.cjs'),
+        },
+      ],
+    }),
+  );
   const session = (id: string, name: string, scopeId: string, groupId?: string) => ({
     id,
     name,
@@ -150,8 +161,20 @@ function seedScopes(profileDir: string, scopeDir: string): void {
           name: WORKSPACE_NAME,
           defaultHarnessId: 'default',
           scopes: [
-            { id: 'scope-app', name: 'catalog-portal', path: scopeDir, isGitRepo: false, createdAt: now },
-            { id: 'scope-lib', name: 'shared-lib', path: scopeDir, isGitRepo: false, createdAt: now },
+            {
+              id: 'scope-app',
+              name: 'catalog-portal',
+              path: scopeDir,
+              isGitRepo: false,
+              createdAt: now,
+            },
+            {
+              id: 'scope-lib',
+              name: 'shared-lib',
+              path: scopeDir,
+              isGitRepo: false,
+              createdAt: now,
+            },
           ],
           groups: [{ id: 'group-fanout', name: 'Fan out', createdAt: now }],
           actions: [],
@@ -167,13 +190,15 @@ function seedScopes(profileDir: string, scopeDir: string): void {
         },
       ],
     }),
-    'utf8'
+    'utf8',
   );
 }
 
 /** Hold the seeded workspace through its rail button. */
 async function holdWorkspace(target: Page): Promise<void> {
-  const button = target.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: WORKSPACE_NAME, exact: true });
+  const button = target
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: WORKSPACE_NAME, exact: true });
   await button.click();
   await expect(button).toHaveAttribute('aria-current', 'true');
 }
@@ -207,8 +232,11 @@ test.describe('Home scopes and groups', () => {
   /** The labels an actions-menu write left on a session, read back from main. */
   const labelsOf = (target: Page, sessionId: string) =>
     target.evaluate(
-      async (id) => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find((candidate) => candidate.id === id)!.labelIds,
-      sessionId
+      async (id) =>
+        (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.find(
+          (candidate) => candidate.id === id,
+        )!.labelIds,
+      sessionId,
     );
   /** Open a row's actions menu and its Labels submenu. */
   const openLabelsMenu = async (target: Page, name: string) => {
@@ -265,16 +293,25 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
     // Said the way a person says it, on the line with the harness; the id is the tooltip.
     await expect(page.locator('.session-nav-item-model').first()).toHaveText('Opus 4.6');
-    await expect(page.locator('.session-nav-item-model').first()).toHaveAttribute('title', 'claude-opus-4-6');
+    await expect(page.locator('.session-nav-item-model').first()).toHaveAttribute(
+      'title',
+      'claude-opus-4-6',
+    );
     await expect(page.locator('.session-row-meta .session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.sidebar [data-harness-type="claude"]')).toHaveCount(3);
     await chooseScope(page, 'shared-lib');
     await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveCount(1);
-    await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveAttribute('title', 'Codex · Codex archived');
+    await expect(page.locator('.sidebar [data-harness-type="codex"]')).toHaveAttribute(
+      'title',
+      'Codex · Codex archived',
+    );
     // With more than one harness, each row wears its harness's initials in
     // the harness's accent colour, so two profiles of one CLI read apart.
     await expect(page.locator('.session-harness-initials')).toHaveText('CA');
-    await expect(page.locator('.session-harness-mark').first()).toHaveAttribute('style', /--harness-accent/);
+    await expect(page.locator('.session-harness-mark').first()).toHaveAttribute(
+      'style',
+      /--harness-accent/,
+    );
     await chooseScope(page, 'catalog-portal');
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
     const toggle = page.getByRole('menuitemcheckbox', { name: 'Model', exact: true });
@@ -295,7 +332,9 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.session-nav-item-model')).toHaveCount(0);
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
     await page.getByRole('button', { name: 'Navigation settings', exact: true }).click();
-    await expect(page.getByRole('menuitemcheckbox', { name: 'Model', exact: true })).not.toBeChecked();
+    await expect(
+      page.getByRole('menuitemcheckbox', { name: 'Model', exact: true }),
+    ).not.toBeChecked();
     await page.getByRole('menuitemcheckbox', { name: 'Model', exact: true }).click();
     await expect(page.locator('.session-nav-item-model')).toHaveCount(2);
     await expect(page.locator('.session-nav-item-harness')).toHaveCount(0);
@@ -306,19 +345,35 @@ test.describe('Home scopes and groups', () => {
   test('the row follows runtime model changes without replacing the pinned launch model', async () => {
     const transcript = path.join(scopeDir, 'claude-profile', 'projects', 'repo', 'claude-s1.jsonl');
     fs.mkdirSync(path.dirname(transcript), { recursive: true });
-    fs.writeFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-4-6' } }) + '\n');
+    fs.writeFileSync(
+      transcript,
+      JSON.stringify({ type: 'assistant', message: { model: 'claude-sonnet-4-6' } }) + '\n',
+    );
     const row = page.locator('.session-nav-item').filter({ hasText: 'Controller boot' });
-    await expect(row.locator('.session-nav-item-model')).toHaveText('Sonnet 4.6', { timeout: 10_000 });
-    fs.appendFileSync(transcript, JSON.stringify({ type: 'assistant', message: { model: 'claude-opus-4-6' } }) + '\n');
-    await expect(row.locator('.session-nav-item-model')).toHaveText('Opus 4.6', { timeout: 10_000 });
-    const stored = JSON.parse(fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'));
-    expect(stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model).toBe('claude-opus-4-6');
+    await expect(row.locator('.session-nav-item-model')).toHaveText('Sonnet 4.6', {
+      timeout: 10_000,
+    });
+    fs.appendFileSync(
+      transcript,
+      JSON.stringify({ type: 'assistant', message: { model: 'claude-opus-4-6' } }) + '\n',
+    );
+    await expect(row.locator('.session-nav-item-model')).toHaveText('Opus 4.6', {
+      timeout: 10_000,
+    });
+    const stored = JSON.parse(
+      fs.readFileSync(path.join(`${userDataDir} Test`, 'workspaces.json'), 'utf8'),
+    );
+    expect(
+      stored.workspaces[0].sessions.find((session: { id: string }) => session.id === 's1').model,
+    ).toBe('claude-opus-4-6');
   });
 
   test('scope selection filters the list, and Clear filters brings every scope back', async () => {
     // All scopes by default: every session, each naming the scope it runs in.
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
-    await expect(rowFor(page, 'Bump deps').locator('.session-nav-item-scope')).toContainText('shared-lib');
+    await expect(rowFor(page, 'Bump deps').locator('.session-nav-item-scope')).toContainText(
+      'shared-lib',
+    );
     await chooseScope(page, 'shared-lib');
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(1);
     await expect(topList(page)).toContainText('Bump deps');
@@ -331,7 +386,11 @@ test.describe('Home scopes and groups', () => {
     await expect(page.locator('.sidebar-scope-filter')).toContainText('All scopes');
     await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
-    await expect(page.getByRole('navigation', { name: 'Workspace settings sections' }).getByRole('button', { name: 'Scopes', exact: true })).toHaveAttribute('aria-current', 'true');
+    await expect(
+      page
+        .getByRole('navigation', { name: 'Workspace settings sections' })
+        .getByRole('button', { name: 'Scopes', exact: true }),
+    ).toHaveAttribute('aria-current', 'true');
   });
 
   test('a label filter and a scope narrow together, and one Clear filters resets both', async () => {
@@ -375,7 +434,9 @@ test.describe('Home scopes and groups', () => {
   });
 
   test('the scope row sits under the Assistant on Home only, never in the title bar', async () => {
-    await expect(page.locator('.app-header').getByRole('button', { name: 'Filter sessions' })).toHaveCount(0);
+    await expect(
+      page.locator('.app-header').getByRole('button', { name: 'Filter sessions' }),
+    ).toHaveCount(0);
     await expect(page.locator('.sidebar-scope-divider')).toHaveCount(1);
     await expect(page.locator('.sidebar-scope-filter')).toHaveCount(1);
     await page.getByRole('button', { name: 'Inbox', exact: true }).click();
@@ -391,7 +452,9 @@ test.describe('Home scopes and groups', () => {
     const file = path.join(`${userDataDir} Test`, 'workspaces.json');
     const data = JSON.parse(fs.readFileSync(file, 'utf8'));
     const workspace = data.workspaces[0];
-    workspace.scopes = workspace.scopes.filter((candidate: { id: string }) => candidate.id === 'scope-app');
+    workspace.scopes = workspace.scopes.filter(
+      (candidate: { id: string }) => candidate.id === 'scope-app',
+    );
     for (const session of workspace.sessions) session.scopeId = 'scope-app';
     fs.writeFileSync(file, JSON.stringify(data), 'utf8');
     ({ app, page } = await launchElectron({ userDataDir }));
@@ -409,10 +472,17 @@ test.describe('Home scopes and groups', () => {
 
   test('session options share the selected scope without creating a session early', async () => {
     await chooseScope(page, 'shared-lib');
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN');
-    await expect(page.getByLabel('Scope', { exact: true }).locator('.session-option-name')).toHaveText('shared-lib');
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+Shift+KeyN' : 'Control+Shift+KeyN',
+    );
+    await expect(
+      page.getByLabel('Scope', { exact: true }).locator('.session-option-name'),
+    ).toHaveText('shared-lib');
     await expect(page.getByLabel('Group', { exact: true })).toContainText('Ungrouped');
-    const count = () => page.evaluate(async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length);
+    const count = () =>
+      page.evaluate(
+        async () => (await window.workspaceAPI.getSnapshot()).workspaces[0].sessions.length,
+      );
     expect(await count()).toBe(4);
     await page.getByLabel('Scope', { exact: true }).click();
     await page.getByRole('option', { name: 'catalog-portal', exact: true }).click();
@@ -434,10 +504,16 @@ test.describe('Home scopes and groups', () => {
     await page.mouse.move(500, 300);
     await page.emulateMedia({ colorScheme: 'light' });
     await expect(page.locator('.radix-themes')).toHaveClass(/light/);
-    await page.screenshot({ path: 'test-results/home-sidebar-all-light.png', animations: 'disabled' });
+    await page.screenshot({
+      path: 'test-results/home-sidebar-all-light.png',
+      animations: 'disabled',
+    });
     await page.emulateMedia({ colorScheme: 'dark' });
     await expect(page.locator('.radix-themes')).toHaveClass(/dark/);
-    await page.screenshot({ path: 'test-results/home-sidebar-all-dark.png', animations: 'disabled' });
+    await page.screenshot({
+      path: 'test-results/home-sidebar-all-dark.png',
+      animations: 'disabled',
+    });
   });
 
   test('the pane names the scope the open session runs in', async () => {
@@ -445,7 +521,7 @@ test.describe('Home scopes and groups', () => {
     const title = page.locator('.workspace-view-header .workspace-view-title');
     await expect(title).toHaveText(/^shared-lib\s*\/\s*Bump deps$/);
     // Production's breadcrumb: the scope in primary text, never dimmed.
-    const colors = await title.evaluate(element => ({
+    const colors = await title.evaluate((element) => ({
       title: getComputedStyle(element).color,
       scope: getComputedStyle(element.firstElementChild!).color,
     }));
@@ -463,7 +539,11 @@ test.describe('Home scopes and groups', () => {
     expect(row.x).toBeCloseTo(sidebar.x + sidebar.width, 0);
     expect(strip.x + strip.width).toBeCloseTo(row.x, 0);
     // Its blank space drags the window, as the strip beside it does.
-    expect(await header.evaluate(element => getComputedStyle(element).getPropertyValue('-webkit-app-region'))).toBe('drag');
+    expect(
+      await header.evaluate((element) =>
+        getComputedStyle(element).getPropertyValue('-webkit-app-region'),
+      ),
+    ).toBe('drag');
   });
 
   test('renaming a row that names its scope replaces the whole text column', async () => {
@@ -477,7 +557,9 @@ test.describe('Home scopes and groups', () => {
     // Anchored on the field, not on the name: `rowFor` matches by text, and the
     // name becomes an input VALUE the moment renaming starts, so the row
     // locator stops matching its own row.
-    const renaming = page.locator('.session-nav-item').filter({ has: page.locator('.session-rename-input') });
+    const renaming = page
+      .locator('.session-nav-item')
+      .filter({ has: page.locator('.session-rename-input') });
 
     // The field takes the column whole: the meta line it replaces must not
     // survive beside it, or the row reads as two rows while it is being typed.
@@ -517,7 +599,8 @@ test.describe('Home scopes and groups', () => {
     // Settle everything, then make the window short enough that the dock's
     // cap is smaller than the shelf.
     await page.evaluate(async () => {
-      for (const id of ['s1', 's2', 's3', 's4']) await window.attentionAPI.settle('ws-folding-e2e', id);
+      for (const id of ['s1', 's2', 's3', 's4'])
+        await window.attentionAPI.settle('ws-folding-e2e', id);
     });
     const header = page.getByRole('button', { name: /^Settled/ });
     await expect(header.locator('.shelf-header-count')).toHaveText('4');
@@ -526,12 +609,21 @@ test.describe('Home scopes and groups', () => {
     // The top of the list says there is nothing waiting rather than going blank.
     await expect(page.locator('.sidebar-all-clear')).toHaveText('Nothing is waiting on you.');
 
-    const rows = page.getByRole('navigation', { name: 'Settled sessions' }).locator('.session-nav-item');
+    const rows = page
+      .getByRole('navigation', { name: 'Settled sessions' })
+      .locator('.session-nav-item');
     await expect(rows).toHaveCount(4);
-    const boxes = await rows.evaluateAll((elements) => elements.map((element) => {
-      const box = element.getBoundingClientRect();
-      return { top: box.top, bottom: box.bottom, height: box.height, content: element.scrollHeight };
-    }));
+    const boxes = await rows.evaluateAll((elements) =>
+      elements.map((element) => {
+        const box = element.getBoundingClientRect();
+        return {
+          top: box.top,
+          bottom: box.bottom,
+          height: box.height,
+          content: element.scrollHeight,
+        };
+      }),
+    );
     for (const [index, box] of boxes.entries()) {
       // Every row is as tall as what it says, and one line of it: a put-away
       // row is its name and its age.
@@ -542,7 +634,9 @@ test.describe('Home scopes and groups', () => {
     }
     // The shelf scrolls instead.
     const list = page.getByRole('navigation', { name: 'Settled sessions' });
-    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+    expect(await list.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(
+      true,
+    );
     await expect(rows.locator('.session-nav-item-harness, .session-nav-item-model')).toHaveCount(0);
   });
 
@@ -553,7 +647,7 @@ test.describe('Home scopes and groups', () => {
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
-  test('the actions menu\'s New label… creates a label and gives it to the session in one step', async () => {
+  test("the actions menu's New label… creates a label and gives it to the session in one step", async () => {
     expect(await labelsOf(page, 's1')).toBeUndefined();
     await openLabelsMenu(page, 'Controller boot');
     await page.getByRole('menuitem', { name: 'New label…', exact: true }).click();
@@ -565,7 +659,10 @@ test.describe('Home scopes and groups', () => {
     await expect(dialog).toBeHidden();
     const snapshot = await page.evaluate(async () => {
       const workspace = (await window.workspaceAPI.getSnapshot()).workspaces[0];
-      return { labels: workspace.labels.map((label) => ({ id: label.id, name: label.name })), groups: workspace.groups.length };
+      return {
+        labels: workspace.labels.map((label) => ({ id: label.id, name: label.name })),
+        groups: workspace.groups.length,
+      };
     });
     expect(snapshot.labels.map((label) => label.name)).toEqual(['Fan out', 'PR reviews']);
     await expect.poll(() => labelsOf(page, 's1')).toEqual([snapshot.labels[1].id]);
@@ -597,7 +694,9 @@ test.describe('Home scopes and groups', () => {
     await expect.poll(() => labelsOf(page, 's1')).toEqual(['group-fanout']);
     await expect(toast).toHaveCount(0);
     await page.getByRole('button', { name: 'Filter sessions', exact: true }).click();
-    await expect(page.getByRole('button', { name: 'Delete label Fan out', exact: true })).toBeVisible();
+    await expect(
+      page.getByRole('button', { name: 'Delete label Fan out', exact: true }),
+    ).toBeVisible();
   });
 
   test('the actions menu ticks and unticks a label on a session', async () => {
@@ -636,7 +735,8 @@ test.describe('Home scopes and groups', () => {
     const settledHeader = page.getByRole('button', { name: /^Settled/ });
     const row = rowFor(page, 'Controller boot');
     const settle = row.getByRole('button', { name: 'Settle session Controller boot', exact: true });
-    const confirmation = 'Delete session "Controller boot"? This will remove the session and its chat history.';
+    const confirmation =
+      'Delete session "Controller boot"? This will remove the session and its chat history.';
     // Stub the native dialog so both cancellation and acceptance are exercised
     // without relying on platform-specific Electron dialog automation.
     await page.evaluate(() => {
@@ -658,7 +758,10 @@ test.describe('Home scopes and groups', () => {
     // is open here; settling the row the window is showing is covered at the
     // end of this test.
     const quiet = rowFor(page, 'Fix flaky test');
-    const settleQuiet = quiet.getByRole('button', { name: 'Settle session Fix flaky test', exact: true });
+    const settleQuiet = quiet.getByRole('button', {
+      name: 'Settle session Fix flaky test',
+      exact: true,
+    });
     const activeBefore = await page.locator('.session-nav-item.active').allTextContents();
     const shelf = page.getByRole('navigation', { name: 'Settled sessions' });
     // Nothing is put away yet, so the shelf is empty and every row is at the top.
@@ -681,7 +784,9 @@ test.describe('Home scopes and groups', () => {
     await expect(shelved.locator('.session-nav-item-harness')).toHaveCount(0);
     await expect(topList(page).locator('.session-nav-item-harness')).toHaveCount(3);
     await shelved.hover();
-    await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
+    await shelved
+      .getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true })
+      .click();
     await expect(settledHeader).toHaveText(/0/);
     await expect(shelf.locator('.session-nav-item')).toHaveCount(0);
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
@@ -706,7 +811,9 @@ test.describe('Home scopes and groups', () => {
     await expect(page.getByRole('menuitem', { name: 'Rename', exact: true })).toBeVisible();
     await page.keyboard.press('Escape');
     await expect(elsewhere).toBeFocused();
-    expect(await row.evaluate((element) => element.matches(':focus-visible, :has(:focus-visible)'))).toBe(false);
+    expect(
+      await row.evaluate((element) => element.matches(':focus-visible, :has(:focus-visible)')),
+    ).toBe(false);
 
     // The row the window is showing is offered Settle like any other, and goes
     // under the fold like any other: a folded shelf does not show it as though
@@ -726,10 +833,14 @@ test.describe('Home scopes and groups', () => {
     await settledHeader.click();
     await expect(shelved).toHaveCount(1);
     await shelved.hover();
-    await shelved.getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true }).click();
+    await shelved
+      .getByRole('button', { name: 'Move Fix flaky test back to the list', exact: true })
+      .click();
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
 
-    await page.evaluate(() => { window.confirm = () => true; });
+    await page.evaluate(() => {
+      window.confirm = () => true;
+    });
     await row.hover();
     await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
@@ -740,16 +851,18 @@ test.describe('Home scopes and groups', () => {
   test('a settled row slides into the dock and leaves nothing behind; under reduced motion it simply moves', async () => {
     const settledHeader = page.getByRole('button', { name: /^Settled/ });
     /** Records whether a copy of a row was seen on its way into the folded shelf. */
-    const watchForTravel = () => page.evaluate(() => {
-      (window as any).__travelled = false;
-      new MutationObserver((_, observer) => {
-        if (!document.querySelector('.sidebar-ghost')) return;
-        (window as any).__travelled = true;
-        observer.disconnect();
-      }).observe(document.body, { subtree: true, childList: true });
-    });
+    const watchForTravel = () =>
+      page.evaluate(() => {
+        (window as any).__travelled = false;
+        new MutationObserver((_, observer) => {
+          if (!document.querySelector('.sidebar-ghost')) return;
+          (window as any).__travelled = true;
+          observer.disconnect();
+        }).observe(document.body, { subtree: true, childList: true });
+      });
     const travelled = () => page.evaluate(() => (window as any).__travelled as boolean);
-    const settle = (id: string) => page.evaluate((sessionId) => window.attentionAPI.settle('ws-folding-e2e', sessionId), id);
+    const settle = (id: string) =>
+      page.evaluate((sessionId) => window.attentionAPI.settle('ws-folding-e2e', sessionId), id);
 
     // Settled starts folded, so the row has no slot to land in: a copy of it
     // slides under the dock's edge, and is gone once it has.
@@ -758,7 +871,9 @@ test.describe('Home scopes and groups', () => {
     await expect(settledHeader).toHaveText(/1/);
     await expect.poll(travelled).toBe(true);
     await expect(page.locator('.sidebar-ghost-clip')).toHaveCount(0);
-    await expect(page.locator('[data-travelling], [data-landed], [data-travel-open]')).toHaveCount(0);
+    await expect(page.locator('[data-travelling], [data-landed], [data-travel-open]')).toHaveCount(
+      0,
+    );
 
     // Reduced motion keeps the move and drops the travel.
     await page.emulateMedia({ reducedMotion: 'reduce' });
@@ -798,8 +913,201 @@ while [ "$i" -lt 600 ]; do printf 'step %s\\r\\n' "$i"; i=$((i + 1)); sleep 0.1;
 exec sleep 300
 `;
 
+/**
+ * Like TURN_STUB, but each turn ends: two and a half seconds of output on
+ * every Enter, then the prompt again.
+ */
+const FINISHING_STUB = `#!/bin/sh
+case " $* " in *" --session-id "*|*" --resume "*) ;; *) exit 0 ;; esac
+printf 'Stub ready\\r\\n> '
+while IFS= read -r _; do
+  i=0
+  while [ "$i" -lt 25 ]; do printf 'step %s\\r\\n' "$i"; i=$((i + 1)); sleep 0.1; done
+  printf '> '
+done
+exec sleep 300
+`;
+
 test.describe('the Working section', () => {
   let root: string;
+
+  /**
+   * A workspace whose sessions run `script`, made in the order given, so the
+   * last is the newest. Returns once the workspace is on screen.
+   */
+  async function sessionsRunning(script: string, sessions: [name: string, instanceId: string][]) {
+    const stub = path.join(root, 'agent.sh');
+    fs.writeFileSync(stub, script, { mode: 0o755 });
+    await page.evaluate(
+      async ({ root, stub, sessions }) => {
+        await window.harnessStateAPI.addHarness({
+          id: 'turn-stub',
+          driverId: 'claude',
+          name: 'Stub',
+          binaryPath: stub,
+          accentColor: '#555555',
+        });
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Working test',
+          root,
+          false,
+          'turn-stub',
+        );
+        for (const [name, instanceId] of sessions) {
+          await window.workspaceAPI.createSession(workspace.id, {
+            name,
+            nameIsUserSet: true,
+            workspaceId: workspace.id,
+            instanceId,
+            harnessId: 'turn-stub',
+            scopeId: workspace.scopes[0].id,
+          });
+          // Distinct creation times, so the newest is unambiguous.
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      },
+      { root, stub, sessions },
+    );
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Working test/ })
+      .click();
+  }
+
+  /** The names at the top of the list, in order. */
+  const topOfList = () =>
+    page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          '.sidebar-bucket--waiting .session-list > [data-entry-key] .session-nav-item-name',
+        ),
+      ].map((name) => name.textContent),
+    );
+
+  const statusOf = (instanceId: string) =>
+    page.evaluate(async (id) => {
+      const status = (await window.terminalAPI.getStatusSnapshot())[id];
+      if (!status) return 'none';
+      if (status.hasExited) return 'exited';
+      return status.isBusy ? 'working' : 'ready';
+    }, instanceId);
+
+  /** Open a row and wait for main to have its terminal, so input has somewhere to go. */
+  async function open(name: string, instanceId: string) {
+    await page
+      .getByRole('complementary', { name: 'Home sidebar' })
+      .locator('.session-nav-item')
+      .filter({ hasText: name })
+      .click();
+    await expect.poll(() => statusOf(instanceId)).not.toBe('none');
+  }
+
+  const startTurn = (instanceId: string) =>
+    page.evaluate((id) => window.terminalAPI.sendInput(id, '\r'), instanceId);
+
+  test('a session that stops waits a moment in Working, then comes back to the top of the list', async () => {
+    test.setTimeout(90_000);
+    await sessionsRunning(FINISHING_STUB, [
+      ['Session A', 'finish-a'],
+      ['Session B', 'finish-b'],
+      ['Session C', 'finish-c'],
+    ]);
+    const working = page.getByRole('region', { name: 'Working', exact: true });
+    const inWorking = working.locator('.session-nav-item').filter({ hasText: 'Session A' });
+
+    // Newest first: A, made first, is at the bottom.
+    await expect.poll(topOfList).toEqual(['Session C', 'Session B', 'Session A']);
+    await open('Session A', 'finish-a');
+    await startTurn('finish-a');
+    await expect(inWorking).toBeVisible({ timeout: 15_000 });
+    await expect.poll(topOfList).toEqual(['Session C', 'Session B']);
+
+    // The turn ends. The row stays in Working for a moment rather than
+    // leaving the instant the output stops...
+    await expect
+      .poll(() => statusOf('finish-a'), { timeout: 15_000, intervals: [50] })
+      .toBe('ready');
+    const stoppedAt = Date.now();
+    await page.waitForTimeout(500);
+    await expect(inWorking).toBeVisible();
+    // ...then comes back above everything that has been sitting there.
+    await expect
+      .poll(topOfList, { timeout: 10_000, intervals: [50] })
+      .toEqual(['Session A', 'Session C', 'Session B']);
+    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1_000);
+    await expect(working).toHaveCount(0);
+  });
+
+  test('without a Working section, a running session keeps its place in the list', async () => {
+    test.setTimeout(90_000);
+    await sessionsRunning(FINISHING_STUB, [
+      ['Session A', 'still-a'],
+      ['Session B', 'still-b'],
+      ['Session C', 'still-c'],
+    ]);
+    await page.getByRole('button', { name: 'Navigation settings' }).click();
+    const toggle = page.getByRole('menuitemcheckbox', { name: 'Working section' });
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+
+    const order = ['Session C', 'Session B', 'Session A'];
+    await expect.poll(topOfList).toEqual(order);
+    await open('Session B', 'still-b');
+    await startTurn('still-b');
+    await expect.poll(() => statusOf('still-b'), { timeout: 15_000 }).toBe('working');
+    await expect(page.getByRole('region', { name: 'Working', exact: true })).toHaveCount(0);
+    expect(await topOfList()).toEqual(order);
+
+    await expect.poll(() => statusOf('still-b'), { timeout: 15_000 }).toBe('ready');
+    await page.waitForTimeout(2_500);
+    expect(await topOfList()).toEqual(order);
+  });
+
+  test('a click on a row the list just slid under the pointer is dropped, and one a moment later opens it', async () => {
+    test.setTimeout(90_000);
+    await sessionsRunning(TURN_STUB, [
+      ['Session A', 'slide-a'],
+      ['Session B', 'slide-b'],
+    ]);
+    await expect.poll(topOfList).toEqual(['Session B', 'Session A']);
+    await open('Session B', 'slide-b');
+
+    // B leaving for Working slides A up into B's place. A press landing on A
+    // in that instant was aimed at B: it must not open A. Pressed from the
+    // page, in the same task the list moved, so no clock can make it late.
+    const opened = await page.evaluate(
+      (id) =>
+        new Promise<boolean>((resolve) => {
+          const list = document.querySelector('.sidebar-sessions')!;
+          const observer = new MutationObserver(() => {
+            const first = list.querySelector<HTMLElement>(
+              '.sidebar-bucket--waiting .session-list > [data-entry-key]',
+            );
+            if (!first?.textContent?.includes('Session A')) return;
+            observer.disconnect();
+            const at = first.getBoundingClientRect();
+            const point = { bubbles: true, cancelable: true, clientX: at.x + 8, clientY: at.y + 8 };
+            first.dispatchEvent(new PointerEvent('pointerdown', { ...point, pointerId: 1 }));
+            first.dispatchEvent(new PointerEvent('pointerup', { ...point, pointerId: 1 }));
+            first.dispatchEvent(new PointerEvent('click', { ...point, pointerId: 1, detail: 1 }));
+            setTimeout(() => resolve(first.classList.contains('active')), 200);
+          });
+          observer.observe(list, { childList: true, subtree: true });
+          window.terminalAPI.sendInput(id, '\r');
+        }),
+      'slide-b',
+    );
+    expect(opened).toBe(false);
+
+    await page.waitForTimeout(600);
+    const rowA = page
+      .locator('.sidebar-bucket--waiting .session-nav-item')
+      .filter({ hasText: 'Session A' });
+    await rowA.click();
+    await expect(rowA).toHaveClass(/\bactive\b/);
+  });
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-working-'));
@@ -815,28 +1123,61 @@ test.describe('the Working section', () => {
     test.setTimeout(90_000);
     const stub = path.join(root, 'agent.sh');
     fs.writeFileSync(stub, TURN_STUB, { mode: 0o755 });
-    await page.evaluate(async ({ root, stub }) => {
-      await window.harnessStateAPI.addHarness({ id: 'turn-stub', driverId: 'claude', name: 'Stub', binaryPath: stub, accentColor: '#555555' });
-      const workspace = await window.workspaceAPI.createWorkspace('Working test', root, false, 'turn-stub');
-      for (const [name, instanceId] of [['Session A', 'turn-a'], ['Session B', 'turn-b']]) {
-        await window.workspaceAPI.createSession(workspace.id, {
-          name, nameIsUserSet: true, workspaceId: workspace.id,
-          instanceId, harnessId: 'turn-stub', scopeId: workspace.scopes[0].id,
+    await page.evaluate(
+      async ({ root, stub }) => {
+        await window.harnessStateAPI.addHarness({
+          id: 'turn-stub',
+          driverId: 'claude',
+          name: 'Stub',
+          binaryPath: stub,
+          accentColor: '#555555',
         });
-      }
-    }, { root, stub });
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Working test/ }).click();
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Working test',
+          root,
+          false,
+          'turn-stub',
+        );
+        for (const [name, instanceId] of [
+          ['Session A', 'turn-a'],
+          ['Session B', 'turn-b'],
+        ]) {
+          await window.workspaceAPI.createSession(workspace.id, {
+            name,
+            nameIsUserSet: true,
+            workspaceId: workspace.id,
+            instanceId,
+            harnessId: 'turn-stub',
+            scopeId: workspace.scopes[0].id,
+          });
+        }
+      },
+      { root, stub },
+    );
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Working test/ })
+      .click();
 
     const sidebar = page.getByRole('complementary', { name: 'Home sidebar' });
     const working = page.getByRole('region', { name: 'Working', exact: true });
     const workingHeader = working.getByRole('button', { name: /^Working/ });
-    const rowIn = (where: Locator, name: string) => where.locator('.session-nav-item').filter({ hasText: name });
+    const rowIn = (where: Locator, name: string) =>
+      where.locator('.session-nav-item').filter({ hasText: name });
     /** Open a row and wait for main to have its terminal, so input has somewhere to go. */
     const open = async (name: string, instanceId: string) => {
       await rowIn(sidebar, name).click();
-      await expect.poll(() => page.evaluate(async (id) => id in await window.terminalAPI.getStatusSnapshot(), instanceId)).toBe(true);
+      await expect
+        .poll(() =>
+          page.evaluate(
+            async (id) => id in (await window.terminalAPI.getStatusSnapshot()),
+            instanceId,
+          ),
+        )
+        .toBe(true);
     };
-    const startTurn = (instanceId: string) => page.evaluate((id) => window.terminalAPI.sendInput(id, '\r'), instanceId);
+    const startTurn = (instanceId: string) =>
+      page.evaluate((id) => window.terminalAPI.sendInput(id, '\r'), instanceId);
 
     // Nothing is running yet, so there is no Working section to show.
     await expect(rowIn(page.locator('.sidebar-bucket--waiting'), 'Session A')).toBeVisible();
@@ -850,19 +1191,29 @@ test.describe('the Working section', () => {
     await expect(rowIn(working, 'Session A')).toBeVisible({ timeout: 15_000 });
     await expect(workingHeader).toHaveAttribute('aria-expanded', 'true');
     await expect(page.locator('.sidebar-sessions .sidebar-bucket--working')).toHaveCount(0);
-    await expect.poll(() => page.evaluate(() =>
-      [...document.querySelectorAll('.sidebar-dock > section')].map((section) => section.getAttribute('aria-label'))
-    )).toEqual(['Working', 'Settled']);
+    await expect
+      .poll(() =>
+        page.evaluate(() =>
+          [...document.querySelectorAll('.sidebar-dock > section')].map((section) =>
+            section.getAttribute('aria-label'),
+          ),
+        ),
+      )
+      .toEqual(['Working', 'Settled']);
     const panelBox = (await page.locator('.sidebar-sessions').boundingBox())!;
     const workingBox = (await working.boundingBox())!;
-    const settledBox = (await page.getByRole('region', { name: 'Settled', exact: true }).boundingBox())!;
+    const settledBox = (await page
+      .getByRole('region', { name: 'Settled', exact: true })
+      .boundingBox())!;
     expect(panelBox.y + panelBox.height).toBeLessThanOrEqual(workingBox.y);
     expect(workingBox.y + workingBox.height).toBeLessThanOrEqual(settledBox.y);
 
     // The chord folds it. Folded, it keeps only the open session, so once B
     // is opened A runs on behind the fold and only the count says so.
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.keyboard.press(process.platform === 'darwin' ? 'Meta+Shift+KeyB' : 'Control+Shift+KeyB');
+    await page.keyboard.press(
+      process.platform === 'darwin' ? 'Meta+Shift+KeyB' : 'Control+Shift+KeyB',
+    );
     await expect(workingHeader).toHaveAttribute('aria-expanded', 'false');
     await open('Session B', 'turn-b');
     await expect(rowIn(working, 'Session A')).toHaveCount(0);

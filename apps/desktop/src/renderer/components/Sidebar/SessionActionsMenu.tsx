@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Archive,
   ArchiveRestore,
+  ArrowLeftRight,
   Check,
   Link2,
   Pencil,
@@ -15,6 +16,7 @@ import type { Label, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
+import { SwitchHarnessDialog } from '../Dialogs/SwitchHarnessDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
 import type { SettleOffer } from '../../sidebar/settleRules';
 
@@ -45,7 +47,7 @@ interface SessionActionsMenuProps {
 
 /**
  * A sidebar row's actions menu, opened from the row (right-click or the menu
- * key): rename, regroup, link or unlink, delete.
+ * key): rename, regroup, switch harness, link or unlink, delete.
  *
  * Link and Unlink are the sidebar door into the session-item relation.
  * Linking is metadata only — the session keeps its folder and gets no
@@ -57,15 +59,29 @@ interface SessionActionsMenuProps {
  * new one and have it applied at once. There is no "move to group" — groups are
  * not shown anywhere, so a move into one would change nothing on screen.
  */
-export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, open, onOpenChange, at, returnFocus, settle }: SessionActionsMenuProps) {
+export function SessionActionsMenu({
+  session,
+  workspaceId,
+  onRename,
+  onDelete,
+  open,
+  onOpenChange,
+  at,
+  returnFocus,
+  settle,
+}: SessionActionsMenuProps) {
   const bound = useWorkspaceStore((state) =>
-    Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider)
+    Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider),
   );
   const updateSession = useWorkspaceStore((state) => state.updateSession);
-  const labels = useWorkspaceStore((state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels) ?? EMPTY_LABELS;
+  const labels =
+    useWorkspaceStore(
+      (state) => state.workspaces.find((candidate) => candidate.id === workspaceId)?.labels,
+    ) ?? EMPTY_LABELS;
   const assignLabel = useWorkspaceStore((state) => state.assignLabel);
   const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
   const [creatingLabel, setCreatingLabel] = useState(false);
+  const [switchingHarness, setSwitchingHarness] = useState(false);
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
@@ -103,6 +119,11 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
   const handleNewLabel = () => {
     openingDialog.current = true;
     setCreatingLabel(true);
+  };
+
+  const handleSwitchHarness = () => {
+    openingDialog.current = true;
+    setSwitchingHarness(true);
   };
 
   const canLink = bound && session.kind !== 'conductor';
@@ -150,7 +171,11 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             const row = anchorRef.current?.closest<HTMLElement>('.session-nav-item');
             if (!row) return;
             event.preventDefault();
-            if (previous instanceof HTMLElement && previous !== document.body && previous.isConnected) {
+            if (
+              previous instanceof HTMLElement &&
+              previous !== document.body &&
+              previous.isConnected
+            ) {
               previous.focus({ preventScroll: true });
             } else if (!at) {
               // Opened from the keyboard, with nothing to return to: the row,
@@ -164,47 +189,63 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             <span>Rename</span>
           </DropdownMenu.Item>
           <DropdownMenu.Sub>
-              <DropdownMenu.SubTrigger className="dropdown-item">
-                <Tag size={14} />
-                <span>Labels</span>
-              </DropdownMenu.SubTrigger>
-              <DropdownMenu.Portal>
-                <DropdownMenu.SubContent className="dropdown-content" sideOffset={4}>
-                  {labels.map((label) => {
-                    const on = session.labelIds?.includes(label.id) ?? false;
-                    return (
-                      <DropdownMenu.Item
-                        key={label.id}
-                        className="dropdown-item"
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          const write = on ? unassignLabel : assignLabel;
-                          void write(workspaceId, session.id, label.id).catch((error) => {
-                            console.error('Failed to change session label', error);
-                          });
-                        }}
-                      >
-                        {on ? <Check size={14} /> : <Tag size={14} />}
-                        <span>{label.emoji ? `${label.emoji} ` : ''}{label.name}</span>
-                      </DropdownMenu.Item>
-                    );
-                  })}
-                  {labels.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
-                  <DropdownMenu.Item className="dropdown-item" onSelect={handleNewLabel}>
-                    <Plus size={14} />
-                    <span>New label…</span>
-                  </DropdownMenu.Item>
-                </DropdownMenu.SubContent>
-              </DropdownMenu.Portal>
-            </DropdownMenu.Sub>
+            <DropdownMenu.SubTrigger className="dropdown-item">
+              <Tag size={14} />
+              <span>Labels</span>
+            </DropdownMenu.SubTrigger>
+            <DropdownMenu.Portal>
+              <DropdownMenu.SubContent className="dropdown-content" sideOffset={4}>
+                {labels.map((label) => {
+                  const on = session.labelIds?.includes(label.id) ?? false;
+                  return (
+                    <DropdownMenu.Item
+                      key={label.id}
+                      className="dropdown-item"
+                      onSelect={(event) => {
+                        event.preventDefault();
+                        const write = on ? unassignLabel : assignLabel;
+                        void write(workspaceId, session.id, label.id).catch((error) => {
+                          console.error('Failed to change session label', error);
+                        });
+                      }}
+                    >
+                      {on ? <Check size={14} /> : <Tag size={14} />}
+                      <span>
+                        {label.emoji ? `${label.emoji} ` : ''}
+                        {label.name}
+                      </span>
+                    </DropdownMenu.Item>
+                  );
+                })}
+                {labels.length > 0 && <DropdownMenu.Separator className="dropdown-separator" />}
+                <DropdownMenu.Item className="dropdown-item" onSelect={handleNewLabel}>
+                  <Plus size={14} />
+                  <span>New label…</span>
+                </DropdownMenu.Item>
+              </DropdownMenu.SubContent>
+            </DropdownMenu.Portal>
+          </DropdownMenu.Sub>
+          {/* Conductors and the Assistant stay on their harness; main refuses them too. */}
+          {session.kind === 'interactive' && (
+            <DropdownMenu.Item className="dropdown-item" onSelect={handleSwitchHarness}>
+              <ArrowLeftRight size={14} />
+              <span>Switch harness…</span>
+            </DropdownMenu.Item>
+          )}
           {settle?.kind === 'unsettle' && (
-            <DropdownMenu.Item className="dropdown-item" onSelect={() => void unsettleWithUndo(workspaceId, session.id, session.name)}>
+            <DropdownMenu.Item
+              className="dropdown-item"
+              onSelect={() => void unsettleWithUndo(workspaceId, session.id, session.name)}
+            >
               <ArchiveRestore size={14} />
               <span>Move back to list</span>
             </DropdownMenu.Item>
           )}
           {settle?.kind === 'settle' && (
-            <DropdownMenu.Item className="dropdown-item" onSelect={() => void settleWithUndo(workspaceId, session.id, session.name)}>
+            <DropdownMenu.Item
+              className="dropdown-item"
+              onSelect={() => void settleWithUndo(workspaceId, session.id, session.name)}
+            >
               <Archive size={14} />
               <span>Settle</span>
             </DropdownMenu.Item>
@@ -220,13 +261,17 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
             className="dropdown-item"
             checked={session.autoSettle === 'never'}
             onCheckedChange={(keep) => {
-              void updateSession(workspaceId, session.id, { autoSettle: keep ? 'never' : undefined }).catch((error) => {
+              void updateSession(workspaceId, session.id, {
+                autoSettle: keep ? 'never' : undefined,
+              }).catch((error) => {
                 console.error('Failed to change auto-settle', error);
               });
             }}
           >
             <span className="navigation-settings-check">
-              <DropdownMenu.ItemIndicator><Check size={14} /></DropdownMenu.ItemIndicator>
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
             </span>
             <span>Never auto-settle</span>
           </DropdownMenu.CheckboxItem>
@@ -263,6 +308,13 @@ export function SessionActionsMenu({ session, workspaceId, onRename, onDelete, o
           workspaceId={workspaceId}
           onClose={() => setCreatingLabel(false)}
           onCreated={(label) => assignLabel(workspaceId, session.id, label.id)}
+        />
+      )}
+      {switchingHarness && (
+        <SwitchHarnessDialog
+          workspaceId={workspaceId}
+          session={session}
+          onClose={() => setSwitchingHarness(false)}
         />
       )}
     </DropdownMenu.Root>

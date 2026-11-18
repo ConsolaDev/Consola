@@ -121,9 +121,9 @@ describe('isStoredWindow', () => {
   });
 
   it('rejects bounds whose sides are not numbers', () => {
-    expect(isStoredWindow({ workspaceId: null, bounds: { x: '0', y: 0, width: 1, height: 1 } })).toBe(
-      false
-    );
+    expect(
+      isStoredWindow({ workspaceId: null, bounds: { x: '0', y: 0, width: 1, height: 1 } }),
+    ).toBe(false);
     expect(isStoredWindow({ workspaceId: null, bounds: { x: 0, y: 0, width: 1 } })).toBe(false);
   });
 

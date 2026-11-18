@@ -1,5 +1,5 @@
-import * as fs from 'fs';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import type { RunRecord } from '@consola/factory-spec';
 import type { RunHistory } from './RunStore';
 
@@ -20,148 +20,153 @@ const COMPACTION_SLACK = 50;
  * skipped, and the next compaction drops it.
  */
 export class RunHistoryFiles implements RunHistory {
-    /** Lines each log holds, so an append can tell when to compact without rereading. */
-    private readonly lines = new Map<string, number>();
+  /** Lines each log holds, so an append can tell when to compact without rereading. */
+  private readonly lines = new Map<string, number>();
 
-    /**
-     * Logs whose whole content this process has seen (loaded, rewritten or
-     * created). Only these are compacted on append: `live` holds only what
-     * the store knows, and rewriting any other log from it would delete runs.
-     */
-    private readonly owned = new Set<string>();
+  /**
+   * Logs whose whole content this process has seen (loaded, rewritten or
+   * created). Only these are compacted on append: `live` holds only what
+   * the store knows, and rewriting any other log from it would delete runs.
+   */
+  private readonly owned = new Set<string>();
 
-    constructor(private readonly dir: string) {}
+  constructor(private readonly dir: string) {}
 
-    public load(): Map<string, RunRecord[]> {
-        const result = new Map<string, RunRecord[]>();
-        let names: string[];
+  public load(): Map<string, RunRecord[]> {
+    const result = new Map<string, RunRecord[]>();
+    let names: string[];
+    try {
+      names = fs.readdirSync(this.dir);
+    } catch (error) {
+      if (isMissing(error)) return result;
+      throw error;
+    }
+    for (const name of names) {
+      if (!name.endsWith('.jsonl')) continue;
+      const workspaceId = name.slice(0, -'.jsonl'.length);
+      if (!WORKSPACE_ID.test(workspaceId)) continue;
+      let text: string;
+      try {
+        text = fs.readFileSync(path.join(this.dir, name), 'utf8');
+      } catch (error) {
+        // One unreadable log must not hide the others, and it is never compacted from a partial view.
+        console.error(`Could not read run history ${name}; skipping it.`, error);
+        continue;
+      }
+      const lines = text.split('\n').filter((line) => line !== '');
+      const latest = new Map<string, RunRecord>();
+      let damaged = text !== '' && !text.endsWith('\n');
+      for (const line of lines) {
+        const run = parseRun(line);
+        if (!run) {
+          damaged = true;
+          continue;
+        }
+        // Setting an existing id keeps its first position: creation order.
+        latest.set(run.id, run);
+      }
+      const runs = [...latest.values()];
+      if (runs.length > 0) result.set(workspaceId, runs);
+      if (damaged || lines.length > compactionThreshold(runs.length)) {
         try {
-            names = fs.readdirSync(this.dir);
+          this.rewrite(workspaceId, runs);
         } catch (error) {
-            if (isMissing(error)) return result;
-            throw error;
+          // Its runs are still good; leave the file as it was.
+          console.error(`Could not compact run history ${name}.`, error);
         }
-        for (const name of names) {
-            if (!name.endsWith('.jsonl')) continue;
-            const workspaceId = name.slice(0, -'.jsonl'.length);
-            if (!WORKSPACE_ID.test(workspaceId)) continue;
-            let text: string;
-            try {
-                text = fs.readFileSync(path.join(this.dir, name), 'utf8');
-            } catch (error) {
-                // One unreadable log must not hide the others, and it is never compacted from a partial view.
-                console.error(`Could not read run history ${name}; skipping it.`, error);
-                continue;
-            }
-            const lines = text.split('\n').filter((line) => line !== '');
-            const latest = new Map<string, RunRecord>();
-            let damaged = text !== '' && !text.endsWith('\n');
-            for (const line of lines) {
-                const run = parseRun(line);
-                if (!run) {
-                    damaged = true;
-                    continue;
-                }
-                // Setting an existing id keeps its first position: creation order.
-                latest.set(run.id, run);
-            }
-            const runs = [...latest.values()];
-            if (runs.length > 0) result.set(workspaceId, runs);
-            if (damaged || lines.length > compactionThreshold(runs.length)) {
-                try {
-                    this.rewrite(workspaceId, runs);
-                } catch (error) {
-                    // Its runs are still good; leave the file as it was.
-                    console.error(`Could not compact run history ${name}.`, error);
-                }
-            } else {
-                this.lines.set(workspaceId, lines.length);
-                this.owned.add(workspaceId);
-            }
-        }
-        return result;
-    }
-
-    public append(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void {
-        const file = this.fileFor(workspaceId);
-        if (!run.attribution?.workspaceId) return;
-        fs.mkdirSync(this.dir, { recursive: true });
-        const count = this.lines.get(workspaceId) ?? this.adopt(file, workspaceId);
-        fs.appendFileSync(file, `${JSON.stringify(run)}\n`);
-        this.lines.set(workspaceId, count + 1);
-        if (!this.owned.has(workspaceId)) return;
-        const runs = live();
-        if (count + 1 > compactionThreshold(runs.length)) this.rewrite(workspaceId, runs);
-    }
-
-    public rewrite(workspaceId: string, runs: RunRecord[]): void {
-        const file = this.fileFor(workspaceId);
-        const persisted = runs.filter((run) => run.attribution?.workspaceId);
-        if (persisted.length === 0) {
-            this.remove(workspaceId);
-            return;
-        }
-        fs.mkdirSync(this.dir, { recursive: true });
-        // Whole, through a temporary file, so a crash leaves the old log or the new one.
-        const temporary = `${file}.${process.pid}.tmp`;
-        fs.writeFileSync(temporary, persisted.map((run) => `${JSON.stringify(run)}\n`).join(''));
-        fs.renameSync(temporary, file);
-        this.lines.set(workspaceId, persisted.length);
+      } else {
+        this.lines.set(workspaceId, lines.length);
         this.owned.add(workspaceId);
+      }
     }
+    return result;
+  }
 
-    public remove(workspaceId: string): void {
-        const file = this.fileFor(workspaceId);
-        this.lines.delete(workspaceId);
-        this.owned.delete(workspaceId);
-        try {
-            fs.unlinkSync(file);
-        } catch (error) {
-            if (!isMissing(error)) throw error;
-        }
-    }
+  public append(workspaceId: string, run: RunRecord, live: () => RunRecord[]): void {
+    const file = this.fileFor(workspaceId);
+    if (!run.attribution?.workspaceId) return;
+    fs.mkdirSync(this.dir, { recursive: true });
+    const count = this.lines.get(workspaceId) ?? this.adopt(file, workspaceId);
+    fs.appendFileSync(file, `${JSON.stringify(run)}\n`);
+    this.lines.set(workspaceId, count + 1);
+    if (!this.owned.has(workspaceId)) return;
+    const runs = live();
+    if (count + 1 > compactionThreshold(runs.length)) this.rewrite(workspaceId, runs);
+  }
 
-    private fileFor(workspaceId: string): string {
-        if (!WORKSPACE_ID.test(workspaceId)) throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
-        return path.join(this.dir, `${workspaceId}.jsonl`);
+  public rewrite(workspaceId: string, runs: RunRecord[]): void {
+    const file = this.fileFor(workspaceId);
+    const persisted = runs.filter((run) => run.attribution?.workspaceId);
+    if (persisted.length === 0) {
+      this.remove(workspaceId);
+      return;
     }
+    fs.mkdirSync(this.dir, { recursive: true });
+    // Whole, through a temporary file, so a crash leaves the old log or the new one.
+    const temporary = `${file}.${process.pid}.tmp`;
+    fs.writeFileSync(temporary, persisted.map((run) => `${JSON.stringify(run)}\n`).join(''));
+    fs.renameSync(temporary, file);
+    this.lines.set(workspaceId, persisted.length);
+    this.owned.add(workspaceId);
+  }
 
-    /** First touch of a log this process did not load: count its lines, and end a torn last one. */
-    private adopt(file: string, workspaceId: string): number {
-        let text: string;
-        try {
-            text = fs.readFileSync(file, 'utf8');
-        } catch (error) {
-            if (isMissing(error)) {
-                // A log this process starts holds only what it writes.
-                this.owned.add(workspaceId);
-                return 0;
-            }
-            throw error;
-        }
-        if (text !== '' && !text.endsWith('\n')) fs.appendFileSync(file, '\n');
-        const count = text.split('\n').filter((line) => line !== '').length;
-        this.lines.set(workspaceId, count);
-        return count;
+  public remove(workspaceId: string): void {
+    const file = this.fileFor(workspaceId);
+    this.lines.delete(workspaceId);
+    this.owned.delete(workspaceId);
+    try {
+      fs.unlinkSync(file);
+    } catch (error) {
+      if (!isMissing(error)) throw error;
     }
+  }
+
+  private fileFor(workspaceId: string): string {
+    if (!WORKSPACE_ID.test(workspaceId))
+      throw new Error(`Not a workspace id: ${JSON.stringify(workspaceId)}.`);
+    return path.join(this.dir, `${workspaceId}.jsonl`);
+  }
+
+  /** First touch of a log this process did not load: count its lines, and end a torn last one. */
+  private adopt(file: string, workspaceId: string): number {
+    let text: string;
+    try {
+      text = fs.readFileSync(file, 'utf8');
+    } catch (error) {
+      if (isMissing(error)) {
+        // A log this process starts holds only what it writes.
+        this.owned.add(workspaceId);
+        return 0;
+      }
+      throw error;
+    }
+    if (text !== '' && !text.endsWith('\n')) fs.appendFileSync(file, '\n');
+    const count = text.split('\n').filter((line) => line !== '').length;
+    this.lines.set(workspaceId, count);
+    return count;
+  }
 }
 
 function compactionThreshold(liveRuns: number): number {
-    return 2 * liveRuns + COMPACTION_SLACK;
+  return 2 * liveRuns + COMPACTION_SLACK;
 }
 
 function parseRun(line: string): RunRecord | null {
-    try {
-        const value: unknown = JSON.parse(line);
-        if (typeof value === 'object' && value !== null && typeof (value as { id?: unknown }).id === 'string') {
-            return value as RunRecord;
-        }
-    } catch {
-        // A torn line.
+  try {
+    const value: unknown = JSON.parse(line);
+    if (
+      typeof value === 'object' &&
+      value !== null &&
+      typeof (value as { id?: unknown }).id === 'string'
+    ) {
+      return value as RunRecord;
     }
-    return null;
+  } catch {
+    // A torn line.
+  }
+  return null;
 }
 
 function isMissing(error: unknown): boolean {
-    return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
+  return (error as NodeJS.ErrnoException)?.code === 'ENOENT';
 }

@@ -31,7 +31,9 @@ export function buildForest(entries: Entry[]): TreeNode[] {
     return current;
   };
 
-  const nodes = new Map<EntryKey, TreeNode>(entries.map((entry) => [entry.key, { entry, children: [] }]));
+  const nodes = new Map<EntryKey, TreeNode>(
+    entries.map((entry) => [entry.key, { entry, children: [] }]),
+  );
   const roots: TreeNode[] = [];
   for (const entry of entries) {
     const top = topOf(entry);
@@ -44,7 +46,10 @@ export function buildForest(entries: Entry[]): TreeNode[] {
 
 /** The most urgent attention in a node's tree. Never empty: the node counts itself. */
 export function aggregateAttention(node: TreeNode): Attention {
-  const worst = worstStatus([node.entry.attention, ...node.children.map((child) => child.entry.attention)]);
+  const worst = worstStatus([
+    node.entry.attention,
+    ...node.children.map((child) => child.entry.attention),
+  ]);
   if (worst === undefined) throw new Error('A tree node always has its own attention');
   return worst;
 }

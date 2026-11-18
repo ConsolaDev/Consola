@@ -25,7 +25,7 @@ describe('sanitizeInboxFilters', () => {
 
   it('keeps a well-formed entry as is', () => {
     expect(
-      sanitizeInboxFilters({ 'ws-1': { repos: ['sprocket/forum-admin'], updated: 'week' } })
+      sanitizeInboxFilters({ 'ws-1': { repos: ['sprocket/forum-admin'], updated: 'week' } }),
     ).toEqual({ 'ws-1': { repos: ['sprocket/forum-admin'], updated: 'week' } });
   });
 
@@ -37,7 +37,7 @@ describe('sanitizeInboxFilters', () => {
 
   it('drops non-string repos and an Updated value it does not know', () => {
     expect(
-      sanitizeInboxFilters({ 'ws-1': { repos: ['a/b', 3, null, 'c/d'], updated: 'decade' } })
+      sanitizeInboxFilters({ 'ws-1': { repos: ['a/b', 3, null, 'c/d'], updated: 'decade' } }),
     ).toEqual({ 'ws-1': { repos: ['a/b', 'c/d'], updated: 'month' } });
   });
 
@@ -63,7 +63,10 @@ describe('inbox filter actions', () => {
       repos: ['sprocket/forum-admin'],
       updated: 'month',
     });
-    expect(useSettingsStore.getState().inboxFilterFor('ws-2')).toEqual({ repos: [], updated: 'any' });
+    expect(useSettingsStore.getState().inboxFilterFor('ws-2')).toEqual({
+      repos: [],
+      updated: 'any',
+    });
   });
 
   it('replaces the repo list wholesale and leaves Updated alone', () => {
@@ -112,7 +115,10 @@ describe('sidebar shelves', () => {
   });
 
   it('keeps only booleans from a persisted blob', () => {
-    expect(sanitizeShelfOpen({ working: true, a: 'yes', b: 1, c: false })).toEqual({ working: true, c: false });
+    expect(sanitizeShelfOpen({ working: true, a: 'yes', b: 1, c: false })).toEqual({
+      working: true,
+      c: false,
+    });
     expect(sanitizeShelfOpen(null)).toEqual({});
     expect(sanitizeShelfOpen([true])).toEqual({});
   });

@@ -39,7 +39,7 @@
 }
 
 /* Listed, greyed, and not a target: the hint in the context slot says why. */
-.searchable-list-row[aria-disabled='true'] {
+.searchable-list-row[aria-disabled="true"] {
   opacity: 0.45;
   cursor: default;
 }

@@ -25,7 +25,7 @@ export function NewMenu() {
   const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
   const activeSessionId = useNavigationStore((state) => state.activeSessionId);
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId)
+    state.workspaces.find((candidate) => candidate.id === activeWorkspaceId),
   );
   const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
   const [openDialog, setOpenDialog] = useState<'label' | 'fan-out' | 'orchestration' | null>(null);
@@ -35,12 +35,22 @@ export function NewMenu() {
   // a workspace with none has nowhere to put one.
   const scopeCount = workspace?.scopes.length ?? 0;
   const target = workspace && newSessionScope(workspace, filterId, activeSessionId);
-  const plusTitle = target && workspace ? `New session in ${scopeTrail(workspace.scopes, target).label}` : 'New session';
+  const plusTitle =
+    target && workspace
+      ? `New session in ${scopeTrail(workspace.scopes, target).label}`
+      : 'New session';
 
   return (
     <>
       <div className="new-menu-buttons">
-        <button className="new-menu-trigger" aria-label="New session" title={plusTitle} onClick={() => void createQuickSession(activeWorkspaceId)}><Plus size={14} /></button>
+        <button
+          className="new-menu-trigger"
+          aria-label="New session"
+          title={plusTitle}
+          onClick={() => void createQuickSession(activeWorkspaceId)}
+        >
+          <Plus size={14} />
+        </button>
         <DropdownMenu.Root>
           <DropdownMenu.Trigger asChild>
             <button className="new-menu-trigger new-menu-more" aria-label="New">
@@ -57,42 +67,64 @@ export function NewMenu() {
               align="end"
               onCloseAutoFocus={(event) => event.preventDefault()}
             >
-              {workspace && hasScopeChoice(workspace) && <>
-                <DropdownMenu.Label className="navigation-settings-label">New session in</DropdownMenu.Label>
-                {workspace.scopes.map((scope) => {
-                  const trail = scopeTrail(workspace.scopes, scope);
-                  return (
-                    <DropdownMenu.Item
-                      key={scope.id}
-                      className="dropdown-item"
-                      title={scope.path}
-                      onSelect={() => void createQuickSession(activeWorkspaceId, { scopeId: scope.id })}
-                    >
-                      {scope.isGitRepo ? <GitBranch size={14} aria-hidden="true" /> : <Folder size={14} aria-hidden="true" />}
-                      <span className="new-menu-scope">
-                        {trail.parent && <span className="new-menu-scope-parent">{trail.parent} / </span>}
-                        {trail.label}
-                      </span>
-                    </DropdownMenu.Item>
-                  );
-                })}
-                <DropdownMenu.Separator className="dropdown-separator" />
-              </>}
+              {workspace && hasScopeChoice(workspace) && (
+                <>
+                  <DropdownMenu.Label className="navigation-settings-label">
+                    New session in
+                  </DropdownMenu.Label>
+                  {workspace.scopes.map((scope) => {
+                    const trail = scopeTrail(workspace.scopes, scope);
+                    return (
+                      <DropdownMenu.Item
+                        key={scope.id}
+                        className="dropdown-item"
+                        title={scope.path}
+                        onSelect={() =>
+                          void createQuickSession(activeWorkspaceId, { scopeId: scope.id })
+                        }
+                      >
+                        {scope.isGitRepo ? (
+                          <GitBranch size={14} aria-hidden="true" />
+                        ) : (
+                          <Folder size={14} aria-hidden="true" />
+                        )}
+                        <span className="new-menu-scope">
+                          {trail.parent && (
+                            <span className="new-menu-scope-parent">{trail.parent} / </span>
+                          )}
+                          {trail.label}
+                        </span>
+                      </DropdownMenu.Item>
+                    );
+                  })}
+                  <DropdownMenu.Separator className="dropdown-separator" />
+                </>
+              )}
               <DropdownMenu.Item
                 className="dropdown-item"
                 onSelect={() => void createQuickSession(activeWorkspaceId)}
               >
                 <span>New session</span>
-                <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>{isMac ? '⌘N' : 'Ctrl+N'}</span>
+                <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>
+                  {isMac ? '⌘N' : 'Ctrl+N'}
+                </span>
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="dropdown-item" onSelect={() => openNewSessionDialog(activeWorkspaceId)}>
+              <DropdownMenu.Item
+                className="dropdown-item"
+                onSelect={() => openNewSessionDialog(activeWorkspaceId)}
+              >
                 <span>New session with options…</span>
-                <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>{isMac ? '⇧⌘N' : 'Ctrl+Shift+N'}</span>
+                <span style={{ marginLeft: 'auto', opacity: 0.5, fontSize: 11 }}>
+                  {isMac ? '⇧⌘N' : 'Ctrl+Shift+N'}
+                </span>
               </DropdownMenu.Item>
               <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('label')}>
                 <span>New label</span>
               </DropdownMenu.Item>
-              <DropdownMenu.Item className="dropdown-item" onSelect={() => setOpenDialog('fan-out')}>
+              <DropdownMenu.Item
+                className="dropdown-item"
+                onSelect={() => setOpenDialog('fan-out')}
+              >
                 <span>Fan-out…</span>
               </DropdownMenu.Item>
               {scopeCount === 0 ? (

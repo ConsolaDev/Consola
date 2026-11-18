@@ -63,7 +63,7 @@ export interface HookInputs {
 }
 
 interface State {
-  needsInput: false | AttentionSignal & { kind: 'needs-input' };
+  needsInput: false | (AttentionSignal & { kind: 'needs-input' });
   holdingBackgroundWork: boolean;
   awaitingAgents: boolean;
   turn?: 'open' | 'over';
@@ -197,7 +197,8 @@ export class HookSignals {
       before?.holdingBackgroundWork === after?.holdingBackgroundWork &&
       before?.awaitingAgents === after?.awaitingAgents &&
       before?.turn === after?.turn
-    ) return;
+    )
+      return;
     this.notify(instanceId);
   }
 

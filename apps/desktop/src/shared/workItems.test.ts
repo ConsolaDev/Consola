@@ -9,7 +9,12 @@ import {
   type WorkItemRef,
 } from './workItems';
 
-const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
+const pr51: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/catalog-portal',
+  type: 'pr',
+  number: 51,
+};
 
 describe('sameWorkItem', () => {
   it('matches identical refs', () => {
@@ -50,7 +55,7 @@ describe('workItemUrl', () => {
 
   it('builds the issues URL for issues', () => {
     expect(workItemUrl({ ...pr51, type: 'issue', number: 87 })).toBe(
-      'https://github.com/sprocket/catalog-portal/issues/87'
+      'https://github.com/sprocket/catalog-portal/issues/87',
     );
   });
 });
@@ -113,8 +118,10 @@ describe('workItemActionKey', () => {
 
   it('keys a custom prompt by its trimmed body, so a retyped prompt coalesces', () => {
     expect(workItemActionKey({ customPrompt: '  /security-review \n' })).toBe(
-      'custom:/security-review'
+      'custom:/security-review',
     );
-    expect(workItemActionKey({ customPrompt: 'a' })).not.toBe(workItemActionKey({ customPrompt: 'b' }));
+    expect(workItemActionKey({ customPrompt: 'a' })).not.toBe(
+      workItemActionKey({ customPrompt: 'b' }),
+    );
   });
 });

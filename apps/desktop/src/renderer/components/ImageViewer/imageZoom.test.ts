@@ -31,7 +31,9 @@ describe('fitScale', () => {
   });
 
   it('stays positive when the stage is smaller than its padding', () => {
-    expect(fitScale({ width: 100, height: 100 }, { width: 50, height: 50 }, { x: 40, y: 40 })).toBeGreaterThan(0);
+    expect(
+      fitScale({ width: 100, height: 100 }, { width: 50, height: 50 }, { x: 40, y: 40 }),
+    ).toBeGreaterThan(0);
   });
 });
 

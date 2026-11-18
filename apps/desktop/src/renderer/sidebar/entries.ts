@@ -28,7 +28,7 @@ export const idOfKey = (key: EntryKey): string => key.slice(key.indexOf(':') + 1
 export function sessionEntries(
   sessions: readonly Session[],
   snapshot: Pick<AttentionState, 'records' | 'attention'>,
-  labels: readonly Label[]
+  labels: readonly Label[],
 ): Entry[] {
   const liveLabels = new Set(labels.map((label) => label.id));
   return sessions.map((session) => {
@@ -44,10 +44,8 @@ export function sessionEntries(
       key: sessionKey(session.id),
       kind: 'session',
       attention: attentionOf(snapshot.attention, session.id),
-      // The ledger keeps no per-edge timestamp, so the last real activity is
-      // the nearest honest answer to "since when": a waiting session stopped
-      // being active when it began to wait.
-      since: record?.finishedAt ?? activityAt,
+      createdAt: session.createdAt,
+      ...(record?.unsettledAt !== undefined ? { unsettledAt: record.unsettledAt } : {}),
       activityAt,
       ...(record?.finishedAt !== undefined ? { finishedAt: record.finishedAt } : {}),
       ...(session.parentSessionId ? { parent: sessionKey(session.parentSessionId) } : {}),
@@ -62,7 +60,10 @@ export function sessionEntries(
  * The selection `applyFilter` takes, from the two places the choices live:
  * the scope (`homeStore`) and the facets and labels (`sessionFilterStore`).
  */
-export function filterSelection(scopeId: string | undefined, facets: SessionFilters): FilterSelection {
+export function filterSelection(
+  scopeId: string | undefined,
+  facets: SessionFilters,
+): FilterSelection {
   const { label, ...rest } = facets;
   const chosen: Record<string, string[]> = {};
   for (const [key, values] of Object.entries(rest)) if (values?.length) chosen[key] = values;
@@ -79,7 +80,7 @@ export function filterSelection(scopeId: string | undefined, facets: SessionFilt
  */
 export function runEntries(
   runs: readonly RunListEntry[],
-  snapshot: Pick<AttentionState, 'attention'>
+  snapshot: Pick<AttentionState, 'attention'>,
 ): Entry[] {
   const entries: Entry[] = [];
   for (const run of runs) {
@@ -89,7 +90,7 @@ export function runEntries(
       key: runKey(run.id),
       kind: 'run',
       attention,
-      since: Date.parse(run.createdAt),
+      createdAt: Date.parse(run.createdAt),
       activityAt: Date.parse(run.updatedAt),
       labels: [],
       facets: { automation: run.automationId },
@@ -105,7 +106,7 @@ export function runEntries(
 /** The runs main says are waiting for the person: what the Automations surfaces list, so they agree with the sidebar. */
 export function waitingRuns<T extends { id: string }>(
   runs: readonly T[],
-  snapshot: Pick<AttentionState, 'attention'>
+  snapshot: Pick<AttentionState, 'attention'>,
 ): T[] {
   return runs.filter((run) => snapshot.attention[runKey(run.id)] === 'needs-attention');
 }

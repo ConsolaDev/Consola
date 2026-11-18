@@ -56,7 +56,12 @@ export function RowStatus({ status, since }: RowStatusProps) {
   return (
     <span className={`session-row-status session-row-status--${status}`}>
       {status === 'done' ? (
-        <Check className="session-row-status-check" size={11} strokeWidth={2.75} aria-hidden="true" />
+        <Check
+          className="session-row-status-check"
+          size={11}
+          strokeWidth={2.75}
+          aria-hidden="true"
+        />
       ) : (
         <span className="session-row-status-mark" aria-hidden="true" />
       )}

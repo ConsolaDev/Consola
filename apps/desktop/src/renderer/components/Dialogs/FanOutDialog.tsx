@@ -19,11 +19,13 @@ interface FanOutDialogProps {
  */
 export function FanOutDialog({ workspaceId, onClose }: FanOutDialogProps) {
   const workspace = useWorkspaceStore((state) =>
-    state.workspaces.find((candidate) => candidate.id === workspaceId)
+    state.workspaces.find((candidate) => candidate.id === workspaceId),
   );
   const scopes = workspace?.scopes ?? [];
 
-  const [scopeId, setScopeId] = useState<string | undefined>(() => defaultSessionScopeId(workspaceId));
+  const [scopeId, setScopeId] = useState<string | undefined>(() =>
+    defaultSessionScopeId(workspaceId),
+  );
   const [repos, setRepos] = useState<ScopeRepo[]>([]);
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [groupName, setGroupName] = useState('');

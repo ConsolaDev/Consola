@@ -1,8 +1,8 @@
-import { execFile, execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
-import { promisify } from 'util';
+import { execFile, execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
+import { promisify } from 'node:util';
 import type { GitProviderId } from '../shared/providers';
 import type { WorkItemRef } from '../shared/workItems';
 import type { Workspace } from '../shared/workspace';
@@ -71,7 +71,7 @@ export class WorktreeService {
   constructor(
     private readonly root: string = process.env.CONSOLA_WORKTREES_DIR ??
       path.join(os.homedir(), '.consola', 'worktrees'),
-    private readonly resolveDriver: (id: GitProviderId) => GitProviderDriver = getProviderDriver
+    private readonly resolveDriver: (id: GitProviderId) => GitProviderDriver = getProviderDriver,
   ) {}
 
   public invalidate(): void {
@@ -152,7 +152,7 @@ export class WorktreeService {
       'git',
       dir,
       ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-      env
+      env,
     );
     return out.trim();
   }
@@ -168,7 +168,7 @@ export class WorktreeService {
     dir: string,
     clonePath: string,
     workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<void> {
     const [existingCommonDir, expectedCommonDir] = await Promise.all([
       this.gitCommonDir(dir, env),
@@ -181,7 +181,7 @@ export class WorktreeService {
         `Refusing to hand it to ${workItem.repo} ${workItem.type} #${workItem.number} — ` +
         `two repositories share the worktree name "${worktreeDirName(workItem)}" here. ` +
         `Remove the stale worktree, or clone one of them somewhere the collision cannot happen, ` +
-        `before retrying.`
+        `before retrying.`,
     );
   }
 
@@ -212,7 +212,7 @@ export class WorktreeService {
   public async ensureWorktree(
     clonePath: string,
     workItem: WorkItemRef,
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<string> {
     const dir = path.join(this.root, worktreeDirName(workItem));
     if (fs.existsSync(path.join(dir, '.git'))) {
@@ -244,10 +244,8 @@ export class WorktreeService {
       await this.run(
         'git',
         clonePath,
-        existing.trim()
-          ? ['worktree', 'add', dir, branch]
-          : ['worktree', 'add', '-b', branch, dir],
-        env
+        existing.trim() ? ['worktree', 'add', dir, branch] : ['worktree', 'add', '-b', branch, dir],
+        env,
       );
       // No step follows the add on this path today, so there is nothing to
       // unwind — but if one is added later, wrap it the same way as above.
@@ -283,7 +281,11 @@ export class WorktreeService {
    * Only a clean worktree is touched: anything uncommitted in it is someone's
    * work, and a refresh must never be what loses it. Returns whether it ran.
    */
-  public async refreshPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<boolean> {
+  public async refreshPullRequest(
+    dir: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv,
+  ): Promise<boolean> {
     if (workItem.type !== 'pr') return false;
     const status = await this.run('git', dir, ['status', '--porcelain'], env);
     if (status.trim()) return false;
@@ -303,7 +305,11 @@ export class WorktreeService {
    * the PR, and the checkout runs again told to reset it. A commit nobody
    * pushed is someone's work: then the error stands, and says why.
    */
-  private async checkoutPullRequest(dir: string, workItem: WorkItemRef, env: NodeJS.ProcessEnv): Promise<void> {
+  private async checkoutPullRequest(
+    dir: string,
+    workItem: WorkItemRef,
+    env: NodeJS.ProcessEnv,
+  ): Promise<void> {
     const driver = this.resolveDriver(workItem.provider);
     try {
       await driver.checkout(dir, workItem, env);
@@ -314,7 +320,7 @@ export class WorktreeService {
       if (!(await this.holdsOnlyFetchedCommits(dir, env))) {
         const message = error instanceof Error ? error.message : String(error);
         throw new Error(
-          `${message}\n\nConsola left the local branch ${branch.stdout.trim()} as it is: it has commits that were never pushed.`
+          `${message}\n\nConsola left the local branch ${branch.stdout.trim()} as it is: it has commits that were never pushed.`,
         );
       }
       await driver.checkout(dir, workItem, env, { resetBranch: true });
@@ -330,14 +336,16 @@ export class WorktreeService {
     const upstream = await this.git(dir, ['rev-parse', '--symbolic-full-name', '@{upstream}'], env);
     const formerHeads =
       upstream.code === 0
-        ? (await this.git(dir, ['reflog', 'show', '--format=%H', upstream.stdout.trim()], env)).stdout
+        ? (
+            await this.git(dir, ['reflog', 'show', '--format=%H', upstream.stdout.trim()], env)
+          ).stdout
             .split('\n')
             .filter(Boolean)
         : [];
     const unfetched = await this.git(
       dir,
       ['rev-list', '--count', 'HEAD', '--not', '--remotes', ...new Set(formerHeads)],
-      env
+      env,
     );
     return unfetched.code === 0 && Number(unfetched.stdout.trim()) === 0;
   }
@@ -352,7 +360,7 @@ export class WorktreeService {
     const status = await this.run('git', worktreePath, ['status', '--porcelain'], process.env);
     if (status.trim()) {
       throw new Error(
-        `Refusing to prune ${worktreePath}: it has uncommitted changes. Commit or discard them first.`
+        `Refusing to prune ${worktreePath}: it has uncommitted changes. Commit or discard them first.`,
       );
     }
     const commonDir = (
@@ -360,7 +368,7 @@ export class WorktreeService {
         'git',
         worktreePath,
         ['rev-parse', '--path-format=absolute', '--git-common-dir'],
-        process.env
+        process.env,
       )
     ).trim();
     const mainRoot = path.dirname(commonDir);
@@ -438,7 +446,7 @@ export class WorktreeService {
   public async commitsArePublished(
     inspection: WorktreeInspection,
     options: { knownHead?: string; fetchRef?: string },
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<PublishedVerdict> {
     const cwd = inspection.toplevel;
     const { knownHead, fetchRef } = options;
@@ -455,11 +463,22 @@ export class WorktreeService {
         present = await hasCommit();
       }
       if (!present) return 'unverifiable';
-      const ancestor = await this.git(cwd, ['merge-base', '--is-ancestor', inspection.head, knownHead]);
+      const ancestor = await this.git(cwd, [
+        'merge-base',
+        '--is-ancestor',
+        inspection.head,
+        knownHead,
+      ]);
       if (ancestor.code === 0) return 'published';
       return ancestor.code === 1 ? 'local-commits' : 'unverifiable';
     }
-    const unpublished = await this.git(cwd, ['rev-list', '--count', inspection.head, '--not', '--remotes']);
+    const unpublished = await this.git(cwd, [
+      'rev-list',
+      '--count',
+      inspection.head,
+      '--not',
+      '--remotes',
+    ]);
     if (unpublished.code !== 0) return 'unverifiable';
     return Number(unpublished.stdout.trim()) === 0 ? 'published' : 'local-commits';
   }
@@ -473,9 +492,15 @@ export class WorktreeService {
     if (!inspection.isLinkedWorktree || !this.isManagedPath(inspection.toplevel)) {
       throw new Error(`Refusing to remove ${inspection.toplevel}: it is not a Consola worktree.`);
     }
-    const removed = await this.git(inspection.mainRepo, ['worktree', 'remove', inspection.toplevel]);
+    const removed = await this.git(inspection.mainRepo, [
+      'worktree',
+      'remove',
+      inspection.toplevel,
+    ]);
     if (removed.code !== 0) {
-      throw new Error(removed.stderr.trim() || `git worktree remove ${inspection.toplevel} failed.`);
+      throw new Error(
+        removed.stderr.trim() || `git worktree remove ${inspection.toplevel} failed.`,
+      );
     }
   }
 
@@ -489,10 +514,15 @@ export class WorktreeService {
   public async deleteBranchAt(
     mainRepo: string,
     branch: string,
-    expectedHead: string
+    expectedHead: string,
   ): Promise<{ deleted: true } | { deleted: false; reason: string }> {
     if (PROTECTED_BRANCHES.has(branch)) return { deleted: false, reason: `${branch} is protected` };
-    const defaultRef = await this.git(mainRepo, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD']);
+    const defaultRef = await this.git(mainRepo, [
+      'symbolic-ref',
+      '--quiet',
+      '--short',
+      'refs/remotes/origin/HEAD',
+    ]);
     if (defaultRef.code === 0 && defaultRef.stdout.trim().replace(/^[^/]+\//, '') === branch) {
       return { deleted: false, reason: `${branch} is the default branch` };
     }
@@ -501,9 +531,17 @@ export class WorktreeService {
     if (worktrees.stdout.split('\n').includes(`branch refs/heads/${branch}`)) {
       return { deleted: false, reason: `${branch} is checked out in another worktree` };
     }
-    const deleted = await this.git(mainRepo, ['update-ref', '-d', `refs/heads/${branch}`, expectedHead]);
+    const deleted = await this.git(mainRepo, [
+      'update-ref',
+      '-d',
+      `refs/heads/${branch}`,
+      expectedHead,
+    ]);
     if (deleted.code !== 0) {
-      return { deleted: false, reason: `${branch} no longer points at ${expectedHead.slice(0, 7)}` };
+      return {
+        deleted: false,
+        reason: `${branch} no longer points at ${expectedHead.slice(0, 7)}`,
+      };
     }
     // update-ref leaves the tracking config behind; harmless, so best-effort.
     await this.git(mainRepo, ['config', '--remove-section', `branch.${branch}`]);
@@ -514,7 +552,7 @@ export class WorktreeService {
   private async git(
     cwd: string,
     args: string[],
-    env: NodeJS.ProcessEnv = process.env
+    env: NodeJS.ProcessEnv = process.env,
   ): Promise<{ code: number; stdout: string; stderr: string }> {
     try {
       const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -538,7 +576,7 @@ export class WorktreeService {
     binary: string,
     cwd: string,
     args: string[],
-    env: NodeJS.ProcessEnv
+    env: NodeJS.ProcessEnv,
   ): Promise<string> {
     try {
       const { stdout } = await execFileAsync(binary, args, {

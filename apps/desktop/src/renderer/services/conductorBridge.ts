@@ -9,7 +9,7 @@ import type { Group } from '../../shared/workspace';
  * ordinary workspace-changed broadcast.
  */
 export const conductorBridge = {
-    create(request: ConductorCreateRequest): Promise<Group> {
-        return window.conductorAPI.create(request);
-    },
+  create(request: ConductorCreateRequest): Promise<Group> {
+    return window.conductorAPI.create(request);
+  },
 };

@@ -52,6 +52,13 @@ interface SettingsState {
   /** Name the worktree a session runs in, under its row. */
   showSidebarWorktree: boolean;
   setShowSidebarWorktree: (show: boolean) => void;
+  /**
+   * Whether running sessions move to their own Working section. Off, they stay
+   * where they are in the list, which then moves only when a session is added
+   * or woken from Settled (`bucketize`).
+   */
+  sidebarWorkingSection: boolean;
+  setSidebarWorkingSection: (show: boolean) => void;
   /** The Inbox's repository and Updated filters, per workspace id. */
   inboxFilters: Record<string, InboxFilterState>;
   /**
@@ -106,7 +113,9 @@ export function sanitizeInboxFilters(raw: unknown): Record<string, InboxFilterSt
 export function sanitizeShelfOpen(raw: unknown): Record<string, boolean> {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {};
   return Object.fromEntries(
-    Object.entries(raw as Record<string, unknown>).filter((entry): entry is [string, boolean] => typeof entry[1] === 'boolean')
+    Object.entries(raw as Record<string, unknown>).filter(
+      (entry): entry is [string, boolean] => typeof entry[1] === 'boolean',
+    ),
   );
 }
 
@@ -122,11 +131,16 @@ export const useSettingsStore = create<SettingsState>()(
       setShowSidebarHarness: (showSidebarHarness) => set({ showSidebarHarness }),
       showSidebarWorktree: true,
       setShowSidebarWorktree: (showSidebarWorktree) => set({ showSidebarWorktree }),
+      sidebarWorkingSection: true,
+      setSidebarWorkingSection: (sidebarWorkingSection) => set({ sidebarWorkingSection }),
       inboxFilters: {},
       sidebarShelfOpen: {},
       toggleSidebarShelf: (id, open) =>
         set((state) => ({
-          sidebarShelfOpen: { ...state.sidebarShelfOpen, [id]: open ?? !isShelfOpen(state.sidebarShelfOpen, id) },
+          sidebarShelfOpen: {
+            ...state.sidebarShelfOpen,
+            [id]: open ?? !isShelfOpen(state.sidebarShelfOpen, id),
+          },
         })),
       setTheme: (theme) => set({ theme }),
       // Lives in the store so the keyboard shortcut and the command palette
@@ -163,6 +177,7 @@ export const useSettingsStore = create<SettingsState>()(
         showSidebarModel: state.showSidebarModel,
         showSidebarHarness: state.showSidebarHarness,
         showSidebarWorktree: state.showSidebarWorktree,
+        sidebarWorkingSection: state.sidebarWorkingSection,
         terminalFontSize: state.terminalFontSize,
         inboxFilters: state.inboxFilters,
         sidebarShelfOpen: state.sidebarShelfOpen,
@@ -175,16 +190,21 @@ export const useSettingsStore = create<SettingsState>()(
         return {
           ...current,
           ...saved,
-          showSidebarModel: typeof saved?.showSidebarModel === 'boolean' ? saved.showSidebarModel : true,
-          showSidebarHarness: typeof saved?.showSidebarHarness === 'boolean' ? saved.showSidebarHarness : true,
-          showSidebarWorktree: typeof saved?.showSidebarWorktree === 'boolean' ? saved.showSidebarWorktree : true,
+          showSidebarModel:
+            typeof saved?.showSidebarModel === 'boolean' ? saved.showSidebarModel : true,
+          showSidebarHarness:
+            typeof saved?.showSidebarHarness === 'boolean' ? saved.showSidebarHarness : true,
+          showSidebarWorktree:
+            typeof saved?.showSidebarWorktree === 'boolean' ? saved.showSidebarWorktree : true,
+          sidebarWorkingSection:
+            typeof saved?.sidebarWorkingSection === 'boolean' ? saved.sidebarWorkingSection : true,
           terminalFontSize: clampTerminalFontSize(
-            saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT
+            saved?.terminalFontSize ?? TERMINAL_FONT_SIZE_DEFAULT,
           ),
           inboxFilters: sanitizeInboxFilters(saved?.inboxFilters),
           sidebarShelfOpen: sanitizeShelfOpen(saved?.sidebarShelfOpen),
         };
       },
-    }
-  )
+    },
+  ),
 );

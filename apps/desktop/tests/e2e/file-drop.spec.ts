@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import path from 'path';
+import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /**
@@ -41,7 +41,7 @@ test.describe('Dropped file paths', () => {
     // What `readDroppedPaths` filters on: an image dragged out of a browser
     // has no path to hand Claude, and the user gets the notice instead.
     const resolved = await page.evaluate(() =>
-      window.terminalAPI.pathForFile(new File(['x'], 'x.txt', { type: 'text/plain' }))
+      window.terminalAPI.pathForFile(new File(['x'], 'x.txt', { type: 'text/plain' })),
     );
 
     expect(resolved).toBe('');

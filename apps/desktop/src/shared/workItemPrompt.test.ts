@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { PROVIDER_META } from './providers';
 import type { InboxItem, WorkItemRef } from './workItems';
-import { fallbackWorkItemTitle, renderActionPrompt, renderSeedHeader, substitutePlaceholders } from './workItemPrompt';
+import {
+  fallbackWorkItemTitle,
+  renderActionPrompt,
+  renderSeedHeader,
+  substitutePlaceholders,
+} from './workItemPrompt';
 
-const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
-const issue87: WorkItemRef = { provider: 'github', repo: 'sprocket/media-upload-api', type: 'issue', number: 87 };
+const pr51: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/catalog-portal',
+  type: 'pr',
+  number: 51,
+};
+const issue87: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/media-upload-api',
+  type: 'issue',
+  number: 87,
+};
 
 const item51: InboxItem = {
   workItem: pr51,
@@ -30,15 +45,19 @@ describe('fallbackWorkItemTitle', () => {
 describe('substitutePlaceholders', () => {
   it('fills every placeholder from the cached item', () => {
     expect(
-      substitutePlaceholders('{{type}} {{number}} in {{repo}}: "{{title}}" ({{url}})', pr51, item51)
+      substitutePlaceholders(
+        '{{type}} {{number}} in {{repo}}: "{{title}}" ({{url}})',
+        pr51,
+        item51,
+      ),
     ).toBe(
-      'pull request 51 in sprocket/catalog-portal: "Extract billing client" (https://github.com/sprocket/catalog-portal/pull/51)'
+      'pull request 51 in sprocket/catalog-portal: "Extract billing client" (https://github.com/sprocket/catalog-portal/pull/51)',
     );
   });
 
   it('falls back to a plain title and the canonical URL when the inbox has no item', () => {
     expect(substitutePlaceholders('{{title}} at {{url}}', issue87)).toBe(
-      'Issue #87 at https://github.com/sprocket/media-upload-api/issues/87'
+      'Issue #87 at https://github.com/sprocket/media-upload-api/issues/87',
     );
   });
 
@@ -64,18 +83,23 @@ describe('renderSeedHeader', () => {
     expect(renderSeedHeader(PROVIDER_META.github.seedHeaderTemplate, pr51, item51)).toBe(
       'This session is for pull request #51 ("Extract billing client") in sprocket/catalog-portal. ' +
         "You are in a dedicated git worktree for it, so the user's own checkout stays untouched. " +
-        'Start with `gh pr view 51` to read it.'
+        'Start with `gh pr view 51` to read it.',
     );
     expect(renderSeedHeader(PROVIDER_META.github.seedHeaderTemplate, issue87)).toBe(
       'This session is for issue #87 ("Issue #87") in sprocket/media-upload-api. ' +
         "You are in a dedicated git worktree for it, so the user's own checkout stays untouched. " +
-        'Start with `gh issue view 87` to read it.'
+        'Start with `gh issue view 87` to read it.',
     );
   });
 });
 
 describe('renderActionPrompt', () => {
-  const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
+  const pr51: WorkItemRef = {
+    provider: 'github',
+    repo: 'sprocket/catalog-portal',
+    type: 'pr',
+    number: 51,
+  };
   const item51: InboxItem = {
     workItem: pr51,
     title: 'Extract billing client',
@@ -101,7 +125,7 @@ describe('renderActionPrompt', () => {
       header,
       '{{number}} | {{repo}} | {{title}} | {{url}} | {{type}}',
       pr51,
-      item51
+      item51,
     );
     expect(result).toEqual({
       ok: true,

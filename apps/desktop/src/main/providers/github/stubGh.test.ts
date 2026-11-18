@@ -1,8 +1,8 @@
 // src/main/providers/github/stubGh.test.ts
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const STUB = path.resolve(__dirname, '../../../../tests/fixtures/stub-gh/gh');
@@ -21,13 +21,19 @@ describe('stub gh fixture', () => {
 
   it('prints a token derived from the requested account', () => {
     expect(runStub(['auth', 'token', '--user', 'JaviDev']).trim()).toBe(
-      'gho_stub_token_for_JaviDev'
+      'gho_stub_token_for_JaviDev',
     );
   });
 
   it('answers api graphql with the five-alias canned inbox payload', () => {
     const payload = JSON.parse(runStub(['api', 'graphql', '-f', 'query=whatever']));
-    expect(Object.keys(payload.data)).toEqual(['direct', 'team', 'authored', 'assigned', 'involved']);
+    expect(Object.keys(payload.data)).toEqual([
+      'direct',
+      'team',
+      'authored',
+      'assigned',
+      'involved',
+    ]);
     expect(payload.data.direct.nodes.length).toBeGreaterThan(0);
   });
 
@@ -56,10 +62,13 @@ describe('stub gh fixture', () => {
     const log = path.join(dir, 'calls.log');
 
     runStub(['--version'], { STUB_GH_LOG: log, GH_TOKEN: 'gho_a' });
-    runStub(['api', 'graphql', '-f', 'query=line one\nline two'], { STUB_GH_LOG: log, GH_TOKEN: 'gho_b' });
+    runStub(['api', 'graphql', '-f', 'query=line one\nline two'], {
+      STUB_GH_LOG: log,
+      GH_TOKEN: 'gho_b',
+    });
 
     expect(fs.readFileSync(log, 'utf8')).toBe(
-      '--version GH_TOKEN=gho_a\napi graphql -f query=line one line two GH_TOKEN=gho_b\n'
+      '--version GH_TOKEN=gho_a\napi graphql -f query=line one line two GH_TOKEN=gho_b\n',
     );
     fs.rmSync(dir, { recursive: true, force: true });
   });

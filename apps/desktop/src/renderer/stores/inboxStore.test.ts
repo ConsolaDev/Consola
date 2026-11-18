@@ -73,10 +73,10 @@ describe('keys', () => {
   it('scopes a launch key by workspace, item and action; an item key by workspace and item', () => {
     expect(itemKey('ws-1', item51)).toBe('ws-1:github:sprocket/catalog-portal:pr:51');
     expect(launchKey('ws-1', item51, review)).toBe(
-      'ws-1:github:sprocket/catalog-portal:pr:51:action:a-review'
+      'ws-1:github:sprocket/catalog-portal:pr:51:action:a-review',
     );
     expect(launchKey('ws-1', item51, { customPrompt: ' /x ' })).toBe(
-      'ws-1:github:sprocket/catalog-portal:pr:51:custom:/x'
+      'ws-1:github:sprocket/catalog-portal:pr:51:custom:/x',
     );
   });
 });
@@ -140,14 +140,14 @@ describe('launch', () => {
     vi.mocked(providerBridge.launchWorkItem).mockReturnValue(
       new Promise((resolve) => {
         resolveLaunch = resolve as never;
-      })
+      }),
     );
 
     const pending = useInboxStore.getState().launch('ws-1', item51, review);
 
     expect(useInboxStore.getState().launching[launchKey('ws-1', item51, review)]).toBe(true);
     expect(
-      useInboxStore.getState().launching[launchKey('ws-1', item51, { id: 'a-fixci' })]
+      useInboxStore.getState().launching[launchKey('ws-1', item51, { id: 'a-fixci' })],
     ).toBeUndefined();
 
     resolveLaunch({ ok: false, reason: 'error', message: 'x' } as never);
@@ -182,7 +182,7 @@ describe('launch', () => {
     await useInboxStore.getState().launch('ws-1', item51, review);
 
     expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51, review)]).toBe(
-      'main process crashed'
+      'main process crashed',
     );
   });
 
@@ -192,19 +192,26 @@ describe('launch', () => {
     await useInboxStore.getState().launch('ws-1', item51, review);
 
     expect(useInboxStore.getState().launchErrors[launchKey('ws-1', item51, review)]).toBe(
-      'Could not reach the main process to launch this item.'
+      'Could not reach the main process to launch this item.',
     );
   });
 });
 
 describe('cloneRepo', () => {
   it('clones, records the resolved path, closes the prompt, and does not launch', async () => {
-    vi.mocked(providerBridge.cloneRepo).mockResolvedValue({ ok: true, path: '/repos/catalog-portal' });
+    vi.mocked(providerBridge.cloneRepo).mockResolvedValue({
+      ok: true,
+      path: '/repos/catalog-portal',
+    });
     useInboxStore.setState({ clonePrompt: { workspaceId: 'ws-1', item: item51 } });
 
     await useInboxStore.getState().cloneRepo('ws-1', item51, '/repos');
 
-    expect(providerBridge.cloneRepo).toHaveBeenCalledWith('ws-1', 'sprocket/catalog-portal', '/repos');
+    expect(providerBridge.cloneRepo).toHaveBeenCalledWith(
+      'ws-1',
+      'sprocket/catalog-portal',
+      '/repos',
+    );
     expect(useInboxStore.getState().resolvedRepos['ws-1']).toEqual({
       'sprocket/catalog-portal': '/repos/catalog-portal',
     });
@@ -228,6 +235,8 @@ describe('cloneRepo', () => {
 
     await useInboxStore.getState().cloneRepo('ws-1', item51, '/repos');
 
-    expect(useInboxStore.getState().launchErrors[itemKey('ws-1', item51)]).toBe('main process crashed');
+    expect(useInboxStore.getState().launchErrors[itemKey('ws-1', item51)]).toBe(
+      'main process crashed',
+    );
   });
 });

@@ -7,28 +7,28 @@
  * SessionMcpHost on the other end of the socket; keeping this dumb
  * means the security boundary has exactly one implementation.
  */
-import * as net from 'net';
+import * as net from 'node:net';
 
 const socketPath = process.env.CONSOLA_CONDUCTOR_SOCKET;
 const token = process.env.CONSOLA_CONDUCTOR_TOKEN;
 
 if (!socketPath || !token) {
-    process.stderr.write('consola conductor shim: missing CONSOLA_CONDUCTOR_SOCKET or _TOKEN\n');
-    process.exit(1);
+  process.stderr.write('consola conductor shim: missing CONSOLA_CONDUCTOR_SOCKET or _TOKEN\n');
+  process.exit(1);
 }
 
 const socket = net.connect(socketPath);
 
 socket.once('connect', () => {
-    // Handshake first; everything after is the CLI's own JSON-RPC.
-    socket.write(JSON.stringify({ token }) + '\n');
-    process.stdin.pipe(socket);
-    socket.pipe(process.stdout);
+  // Handshake first; everything after is the CLI's own JSON-RPC.
+  socket.write(JSON.stringify({ token }) + '\n');
+  process.stdin.pipe(socket);
+  socket.pipe(process.stdout);
 });
 
 socket.on('close', () => process.exit(0));
 socket.on('error', (error) => {
-    process.stderr.write(`consola conductor shim: ${error.message}\n`);
-    process.exit(1);
+  process.stderr.write(`consola conductor shim: ${error.message}\n`);
+  process.exit(1);
 });
 process.stdin.on('end', () => process.exit(0));

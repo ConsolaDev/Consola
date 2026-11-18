@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test';
 import type { ElectronApplication, Locator, Page } from '@playwright/test';
-import { execFileSync } from 'child_process';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { createProfileDir, launchElectron } from './helpers/electron';
 
 const STUB_GH_DIR = path.resolve(__dirname, '../fixtures/stub-gh');
@@ -28,7 +28,11 @@ function initClone(dir: string): void {
   execFileSync('git', ['-C', dir, 'add', '.']);
   execFileSync('git', ['-C', dir, 'commit', '-q', '-m', 'init']);
   execFileSync('git', [
-    '-C', dir, 'remote', 'add', 'origin',
+    '-C',
+    dir,
+    'remote',
+    'add',
+    'origin',
     'https://github.com/sprocket/catalog-portal.git',
   ]);
 }
@@ -68,7 +72,7 @@ function pr(
   title: string,
   author: string,
   ageDays: number,
-  extra: Record<string, unknown> = {}
+  extra: Record<string, unknown> = {},
 ) {
   return {
     __typename: 'PullRequest',
@@ -89,7 +93,14 @@ function pr(
   };
 }
 
-function issue(repo: string, number: number, title: string, author: string, ageDays: number, comments: number) {
+function issue(
+  repo: string,
+  number: number,
+  title: string,
+  author: string,
+  ageDays: number,
+  comments: number,
+) {
   return {
     __typename: 'Issue',
     title,
@@ -115,26 +126,58 @@ function buildInboxFixture(): unknown {
     deletions: 88,
     ...rollup('FAILURE', [checkRun('SUCCESS'), checkRun('FAILURE'), statusContext('SUCCESS')]),
   });
-  const pr60 = pr('forum-admin', 60, 'Migrate forum-admin to the shared auth client', 'mateo-sprocket', 3);
+  const pr60 = pr(
+    'forum-admin',
+    60,
+    'Migrate forum-admin to the shared auth client',
+    'mateo-sprocket',
+    3,
+  );
   const pr70 = pr('forum-admin', 70, 'WIP: auto-scale the operating capacity axis', 'JaviDev', 3, {
     isDraft: true,
     reviewDecision: null,
     ...rollup(null, []),
   });
-  const pr80 = pr('forum-admin', 80, 'Explain the one year cap on custom invoice date ranges', 'JaviDev', 3, {
-    reviewDecision: 'CHANGES_REQUESTED',
-    comments: { totalCount: 2 },
-  });
+  const pr80 = pr(
+    'forum-admin',
+    80,
+    'Explain the one year cap on custom invoice date ranges',
+    'JaviDev',
+    3,
+    {
+      reviewDecision: 'CHANGES_REQUESTED',
+      comments: { totalCount: 2 },
+    },
+  );
   const pr90 = pr('forum-admin', 90, 'Add release notes generator', 'JaviDev', 3, {
     reviewDecision: 'APPROVED',
-    ...rollup('SUCCESS', [checkRun('SUCCESS'), checkRun('SUCCESS'), checkRun('SUCCESS'), checkRun('SUCCESS')]),
+    ...rollup('SUCCESS', [
+      checkRun('SUCCESS'),
+      checkRun('SUCCESS'),
+      checkRun('SUCCESS'),
+      checkRun('SUCCESS'),
+    ]),
   });
-  const pr100 = pr('forum-admin', 100, 'Filter AllocationScheduleUpdated by allocationProvider', 'JaviDev', 3, {
-    ...rollup('PENDING', [statusContext('PENDING'), checkRun(null, 'IN_PROGRESS')]),
-  });
+  const pr100 = pr(
+    'forum-admin',
+    100,
+    'Filter AllocationScheduleUpdated by allocationProvider',
+    'JaviDev',
+    3,
+    {
+      ...rollup('PENDING', [statusContext('PENDING'), checkRun(null, 'IN_PROGRESS')]),
+    },
+  );
   const issue12 = issue('media-upload-api', 12, 'Rate limit returns 500', 'ellen-sprocket', 3, 3);
   const pr200 = pr('other-repo', 200, 'Bump shared tooling to node 22', 'renovate[bot]', 1);
-  const issue300 = issue('old-repo', 300, 'Legacy exporter drops trailing rows', 'someone-else', 200, 7);
+  const issue300 = issue(
+    'old-repo',
+    300,
+    'Legacy exporter drops trailing rows',
+    'someone-else',
+    200,
+    7,
+  );
   return {
     data: {
       direct: { nodes: [pr51] },
@@ -230,8 +273,8 @@ function seedWorkspaceState(userDataDir: string, repoDir: string): string {
         ],
       },
       null,
-      2
-    )
+      2,
+    ),
   );
   return workspaceId;
 }
@@ -269,7 +312,10 @@ const sessionsOn51 = (stateFile: string) =>
 
 /** Open the Inbox from the sidebar, select PR #51's row, and hand back the pane. */
 async function openPaneFor51(page: Page): Promise<Locator> {
-  await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^Inbox/ }).click();
+  await page
+    .getByRole('navigation', { name: 'Main navigation' })
+    .getByRole('button', { name: /^Inbox/ })
+    .click();
   const row = page.locator(`[data-work-item-key="${PR51_KEY}"]`);
   await expect(row).toBeVisible({ timeout: 15_000 });
   await row.click();
@@ -289,7 +335,7 @@ async function startAction(pane: Locator, actionId: string): Promise<void> {
   const confirm = pane.getByRole('button', { name: /Start anyway/ });
   const asked = await confirm.waitFor({ state: 'visible', timeout: 1_500 }).then(
     () => true,
-    () => false
+    () => false,
   );
   if (asked) await confirm.click();
 }
@@ -325,32 +371,50 @@ test('sections, views and filters render; actions, links and renames flow throug
     // "Bind" is a seeded bound workspace, held through the real switcher UI
     // (windows.spec.ts precedent: a raw IPC call would not update what the
     // window renders).
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Sprocket/ })
+      .click();
 
-    const inboxRow = page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: /^Inbox/ });
+    const inboxRow = page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('button', { name: /^Inbox/ });
     await expect(inboxRow).toBeVisible({ timeout: 10_000 });
     await inboxRow.click();
 
     // --- Sections, with the default "Last month" filter: seven sectioned
     // items, one per section; PR #200 has no section, issue #300 is too old.
-    const tabCount = (id: string) => page.locator(`[data-testid="inbox-tab-${id}"] .inbox-view-tab-count`);
+    const tabCount = (id: string) =>
+      page.locator(`[data-testid="inbox-tab-${id}"] .inbox-view-tab-count`);
     await expect(tabCount('inbox')).toHaveText('7', { timeout: 15_000 });
     for (const section of SECTIONS) {
       await expect(
-        page.locator(`[data-testid="inbox-section-${section}"] .inbox-section-count`)
+        page.locator(`[data-testid="inbox-section-${section}"] .inbox-section-count`),
       ).toHaveText('1');
     }
     await expect(page.locator(`[data-work-item-key="${PR51_KEY}"]`)).toBeVisible();
-    await expect(page.locator('[data-work-item-key="github:sprocket/other-repo:pr:200"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/other-repo:pr:200"]'),
+    ).toHaveCount(0);
     // The sidebar badge is the sectioned count too.
     await expect(page.locator('.app-navigation-badge')).toHaveText('7');
 
     // Collapsed by default: the team-review section shows its count, not its row.
-    await expect(page.locator('[data-work-item-key="github:sprocket/forum-admin:pr:60"]')).toHaveCount(0);
-    await page.locator('[data-testid="inbox-section-needs-team-review"] .inbox-section-toggle').click();
-    await expect(page.locator('[data-work-item-key="github:sprocket/forum-admin:pr:60"]')).toBeVisible();
-    await page.locator('[data-testid="inbox-section-needs-team-review"] .inbox-section-toggle').click();
-    await expect(page.locator('[data-work-item-key="github:sprocket/forum-admin:pr:60"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/forum-admin:pr:60"]'),
+    ).toHaveCount(0);
+    await page
+      .locator('[data-testid="inbox-section-needs-team-review"] .inbox-section-toggle')
+      .click();
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/forum-admin:pr:60"]'),
+    ).toBeVisible();
+    await page
+      .locator('[data-testid="inbox-section-needs-team-review"] .inbox-section-toggle')
+      .click();
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/forum-admin:pr:60"]'),
+    ).toHaveCount(0);
 
     // --- Ruling 1 (Phase C preserved): the un-cloned repo's issue offers
     // only the clone path in the pane -- no [data-action-id] at all. The
@@ -358,7 +422,9 @@ test('sections, views and filters render; actions, links and renames flow throug
     const uncloned = page.locator('.inbox-row', { hasText: 'Rate limit returns 500' });
     await uncloned.click();
     const unclonedPane = page.locator('.inbox-pane-slot');
-    await expect(unclonedPane.locator('.inbox-pane-clone', { hasText: 'Clone into scope' })).toBeVisible({
+    await expect(
+      unclonedPane.locator('.inbox-pane-clone', { hasText: 'Clone into scope' }),
+    ).toBeVisible({
       timeout: 10_000,
     });
     await expect(unclonedPane.locator('[data-action-id]')).toHaveCount(0);
@@ -378,15 +444,21 @@ test('sections, views and filters render; actions, links and renames flow throug
     // --- Views: Involves me is everything in the window, sections or not.
     await page.locator('[data-testid="inbox-tab-involved"]').click();
     await expect(tabCount('involved')).toHaveText('8');
-    await expect(page.locator('[data-work-item-key="github:sprocket/other-repo:pr:200"]')).toBeVisible();
-    await expect(page.locator('[data-work-item-key="github:sprocket/old-repo:issue:300"]')).toHaveCount(0);
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/other-repo:pr:200"]'),
+    ).toBeVisible();
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/old-repo:issue:300"]'),
+    ).toHaveCount(0);
 
     // --- Updated filter: "Any time" lets the six-month-old issue through.
     await page.locator('.inbox-updated-filter-trigger').click();
     await page.getByRole('menuitemradio', { name: 'Any time' }).click();
     await expect(page.locator('.inbox-updated-filter-trigger')).toContainText('Any time');
     await expect(tabCount('involved')).toHaveText('9');
-    await expect(page.locator('[data-work-item-key="github:sprocket/old-repo:issue:300"]')).toBeVisible();
+    await expect(
+      page.locator('[data-work-item-key="github:sprocket/old-repo:issue:300"]'),
+    ).toBeVisible();
     // The old issue has no section, so the Inbox tab is unchanged by it.
     await page.locator('[data-testid="inbox-tab-inbox"]').click();
     await expect(tabCount('inbox')).toHaveText('7');
@@ -421,7 +493,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     expect(
       execFileSync('git', ['-C', worktree, 'rev-parse', '--abbrev-ref', 'HEAD'], {
         encoding: 'utf8',
-      }).trim()
+      }).trim(),
     ).toBe('stub-pr-51'); // the stub's `gh pr checkout` branch
 
     await expect.poll(() => sessionsIn(stateFile).length, { timeout: 20_000 }).toBe(1);
@@ -441,9 +513,9 @@ test('sections, views and filters render; actions, links and renames flow throug
     // pane lists the one session and the row hints at it.
     const paneAfterFirst = await openPaneFor51(page);
     await expect(paneAfterFirst.locator('.inbox-pane-session-row')).toHaveCount(1);
-    await expect(page.locator(`[data-work-item-key="${PR51_KEY}"] .inbox-row-sessions`)).toContainText(
-      '1 session'
-    );
+    await expect(
+      page.locator(`[data-work-item-key="${PR51_KEY}"] .inbox-row-sessions`),
+    ).toContainText('1 session');
 
     // --- A second action on the same item mints a second session in the
     // same worktree -- one worktree per item, shared (ruling 1: same cwd,
@@ -454,23 +526,30 @@ test('sections, views and filters render; actions, links and renames flow throug
     expect(a.id).not.toBe(b.id);
     expect(a.cwd).toBe(worktree);
     expect(b.cwd).toBe(worktree);
-    expect(sessionsIn(stateFile).map((session) => session.workItemAction).sort()).toEqual([
-      'Fix CI',
-      'Review',
-    ]);
+    expect(
+      sessionsIn(stateFile)
+        .map((session) => session.workItemAction)
+        .sort(),
+    ).toEqual(['Fix CI', 'Review']);
 
     const paneAfterSecond = await openPaneFor51(page);
     await expect(paneAfterSecond.locator('.inbox-pane-session-row')).toHaveCount(2);
-    await expect(page.locator(`[data-work-item-key="${PR51_KEY}"] .inbox-row-sessions`)).toContainText(
-      '2 sessions'
-    );
+    await expect(
+      page.locator(`[data-work-item-key="${PR51_KEY}"] .inbox-row-sessions`),
+    ).toContainText('2 sessions');
 
     // Home owns the scoped quick-session controls; Inbox hides that sidebar.
-    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
-    await page.locator('.sidebar-search').getByRole('button', { name: 'New session', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('button', { name: 'Home', exact: true })
+      .click();
+    await page
+      .locator('.sidebar-search')
+      .getByRole('button', { name: 'New session', exact: true })
+      .click();
     const plainRow = page.locator('.session-nav-item', { hasText: 'New Session' });
     await expect(plainRow).toBeVisible({ timeout: 10_000 });
-    const plainCwd = sessionsIn(stateFile).find(session => !session.workItem)?.cwd;
+    const plainCwd = sessionsIn(stateFile).find((session) => !session.workItem)?.cwd;
     await plainRow.hover();
     await plainRow.click({ button: 'right' });
     // Ruling 1: the menu item renders three literal dots, not an ellipsis.
@@ -489,18 +568,21 @@ test('sections, views and filters render; actions, links and renames flow throug
 
     const paneAfterLink = await openPaneFor51(page);
     await expect(paneAfterLink.locator('.inbox-pane-session-row')).toHaveCount(3);
-    await expect(paneAfterLink.locator('.inbox-pane-session-row', { hasText: 'New Session' })).toHaveCount(1);
+    await expect(
+      paneAfterLink.locator('.inbox-pane-session-row', { hasText: 'New Session' }),
+    ).toHaveCount(1);
 
     // --- Ruling 1 (Phase C preserved): the sidebar row now reads the linked
     // glyph, and Unlink is metadata-only -- the record loses the relation.
-    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Home', exact: true }).click();
+    await page
+      .getByRole('navigation', { name: 'Main navigation' })
+      .getByRole('button', { name: 'Home', exact: true })
+      .click();
     await expect(plainRow.locator('.session-nav-item-name')).toHaveText(/^⑂ /);
     await plainRow.hover();
     await plainRow.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Unlink' }).click();
-    await expect
-      .poll(() => sessionsOn51(stateFile).length, { timeout: 10_000 })
-      .toBe(2);
+    await expect.poll(() => sessionsOn51(stateFile).length, { timeout: 10_000 }).toBe(2);
     const unlinked = sessionsIn(stateFile).find((session) => session.name === 'New Session');
     expect(unlinked?.workItem).toBeUndefined();
     expect(unlinked?.workItemAction).toBeUndefined();
@@ -532,20 +614,21 @@ test('sections, views and filters render; actions, links and renames flow throug
     await expect(paneAfterRename.locator('[data-action-id="review"]')).toContainText('Deep review');
     // The contrast: the live list says Deep review, the first session still says Review.
     await expect(
-      paneAfterRename.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Review' })
+      paneAfterRename.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Review' }),
     ).toHaveCount(1);
     await expect(
-      paneAfterRename.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Fix CI' })
+      paneAfterRename.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Fix CI' }),
     ).toHaveCount(1);
     await expect(
-      paneAfterRename.locator('.inbox-pane-session-row', { hasText: 'Deep review' })
+      paneAfterRename.locator('.inbox-pane-session-row', { hasText: 'Deep review' }),
     ).toHaveCount(0);
     // The linked session was unlinked above, so only the two launched
     // sessions still carry a workItem on #51.
-    expect(sessionsOn51(stateFile).map((session) => session.workItemAction).sort()).toEqual([
-      'Fix CI',
-      'Review',
-    ]);
+    expect(
+      sessionsOn51(stateFile)
+        .map((session) => session.workItemAction)
+        .sort(),
+    ).toEqual(['Fix CI', 'Review']);
 
     // Escape closes the pane and nothing else.
     await page.keyboard.press('Escape');
@@ -588,15 +671,24 @@ test('an item reads as one stream, and a review is written and sent without leav
   seedWorkspaceState(userDataDir, fixtureDir);
   let app: ElectronApplication | undefined;
   try {
-    const launched = await launchElectron({ userDataDir, env: {
-      CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'), GRAPHQL_INBOX_FIXTURE: fixturePath,
-      STUB_GH_LOG: logPath, STUB_GH_MUTATION_FAILURE_FILE: failurePath,
-      STUB_GH_DETAILS_DIR: detailsDir, STUB_GH_STATE_DIR: stateDir,
-    } });
+    const launched = await launchElectron({
+      userDataDir,
+      env: {
+        CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
+        GRAPHQL_INBOX_FIXTURE: fixturePath,
+        STUB_GH_LOG: logPath,
+        STUB_GH_MUTATION_FAILURE_FILE: failurePath,
+        STUB_GH_DETAILS_DIR: detailsDir,
+        STUB_GH_STATE_DIR: stateDir,
+      },
+    });
     app = launched.app;
     const { page } = launched;
     const calls = () => fs.readFileSync(logPath, 'utf8');
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Sprocket/ })
+      .click();
     const pane = await openPaneFor51(page);
     const remote = pane.getByRole('region', { name: 'Remote item details' });
     await expect(remote.getByText('regression coverage', { exact: true })).toBeVisible();
@@ -604,17 +696,26 @@ test('an item reads as one stream, and a review is written and sent without leav
     const strip = pane.locator('.inbox-pane-detail-head');
     await expect(strip.getByText(/as JaviDev/)).toHaveCount(0);
     await expect(pane.locator('.inbox-pane-meta')).not.toContainText('simon-sprocket');
-    await expect(strip.locator('.inbox-detail-branches code')).toHaveText(['main', 'extract-billing-client-and-add-regression-coverage']);
+    await expect(strip.locator('.inbox-detail-branches code')).toHaveText([
+      'main',
+      'extract-billing-client-and-add-regression-coverage',
+    ]);
     await expect(pane.getByText('No sessions on this item yet.')).toBeVisible();
     await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
     // In a pane wide enough for both names and more, the branches stay
     // together: the spare width goes past the head branch, not between them.
     const [width, height] = await page.evaluate(() => [window.innerWidth, window.innerHeight]);
     await page.setViewportSize({ width: 2400, height });
-    const branchLayout = () => strip.locator('.inbox-detail-branches').evaluate((row) => {
-      const [base, head] = [...row.querySelectorAll('code')].map((chip) => chip.getBoundingClientRect());
-      return { spare: row.getBoundingClientRect().right - head.right, gap: head.left - base.right };
-    });
+    const branchLayout = () =>
+      strip.locator('.inbox-detail-branches').evaluate((row) => {
+        const [base, head] = [...row.querySelectorAll('code')].map((chip) =>
+          chip.getBoundingClientRect(),
+        );
+        return {
+          spare: row.getBoundingClientRect().right - head.right,
+          gap: head.left - base.right,
+        };
+      });
     await expect.poll(async () => (await branchLayout()).spare).toBeGreaterThan(100);
     expect((await branchLayout()).gap).toBeLessThan(30);
     // A branch cut short by a narrow pane names itself in full on hover; one that fits stays quiet.
@@ -622,7 +723,9 @@ test('an item reads as one stream, and a review is written and sent without leav
     const branches = pane.locator('.inbox-detail-branches');
     await expect(branches.locator('[title]')).toHaveCount(0); // a native tooltip would show beside this one
     await branches.locator('code', { hasText: 'extract-billing' }).hover();
-    await expect(page.getByRole('tooltip')).toHaveText('extract-billing-client-and-add-regression-coverage');
+    await expect(page.getByRole('tooltip')).toHaveText(
+      'extract-billing-client-and-add-regression-coverage',
+    );
     // In steps, like a real pointer: Radix keeps a tooltip open while the
     // pointer may be heading for it, and closes on the next move that is not.
     await page.mouse.move(450, height - 40, { steps: 10 });
@@ -634,11 +737,15 @@ test('an item reads as one stream, and a review is written and sent without leav
     await expect(page.getByRole('tooltip')).toHaveCount(0);
     // Nothing scrolls the pane sideways at its narrowest.
     const slot = page.locator('.inbox-pane-slot');
-    await expect.poll(() => slot.evaluate((el) => el.scrollWidth - el.clientWidth)).toBeLessThanOrEqual(0);
+    await expect
+      .poll(() => slot.evaluate((el) => el.scrollWidth - el.clientWidth))
+      .toBeLessThanOrEqual(0);
     await page.setViewportSize({ width, height });
 
     // --- One stream: description, the whole history, the merge card, the comment box.
-    await expect(remote.getByRole('tablist', { name: 'Item details' }).getByRole('tab')).toHaveText([/^Conversation\s*5$/, /^Files changed\s*2$/]);
+    await expect(remote.getByRole('tablist', { name: 'Item details' }).getByRole('tab')).toHaveText(
+      [/^Conversation\s*5$/, /^Files changed\s*2$/],
+    );
     await expect(remote.locator('.inbox-detail-tabs-stat')).toHaveText('+10−4');
     const stream = remote.locator('.inbox-detail-stream');
     const description = stream.getByRole('article', { name: 'simon-sprocket opened this' });
@@ -646,24 +753,36 @@ test('an item reads as one stream, and a review is written and sent without leav
     await expect(remote.getByRole('list', { name: 'Labels' })).toContainText('enhancement');
     await expect(remote.getByRole('list', { name: 'Reviewers' })).toContainText('ellen-sprocket');
     await expect(stream).toContainText('changed the title Billing client Extract billing client');
-    await expect(stream).toContainText('force-pushed extract-billing-client-and-add-regression-coverage from 1e50c34 to f978427');
-    await expect(stream.getByRole('list', { name: 'Commits' }).first()).toContainText('Add regression coverage');
+    await expect(stream).toContainText(
+      'force-pushed extract-billing-client-and-add-regression-coverage from 1e50c34 to f978427',
+    );
+    await expect(stream.getByRole('list', { name: 'Commits' }).first()).toContainText(
+      'Add regression coverage',
+    );
     await expect(stream.getByText('This comment was marked as outdated.')).toBeVisible();
     const review = stream.getByRole('article', { name: 'ellen-sprocket requested changes' });
     await expect(review).toContainText('Needs validation.');
     const thread = review.getByRole('region', { name: 'Thread on billing.ts:7' });
-    await expect(thread.getByRole('group', { name: 'Code for src/billing.ts' })).toContainText('Number.isFinite');
+    await expect(thread.getByRole('group', { name: 'Code for src/billing.ts' })).toContainText(
+      'Number.isFinite',
+    );
     await expect(thread).toContainText('Handle empty input here.');
     // A review that only replied has no card: its reply is in the thread.
     await expect(thread).toContainText('Agreed');
     await expect(stream.getByRole('article', { name: /^mateo-sprocket/ })).toHaveCount(0);
-    await expect(review.getByRole('button', { name: /ellen-sprocket’s thread on billing\.ts:4 — resolved/ })).toBeVisible();
-    await expect(review.getByRole('region', { name: 'Thread on legacy.ts:7' })).toContainText('Outdated');
+    await expect(
+      review.getByRole('button', { name: /ellen-sprocket’s thread on billing\.ts:4 — resolved/ }),
+    ).toBeVisible();
+    await expect(review.getByRole('region', { name: 'Thread on legacy.ts:7' })).toContainText(
+      'Outdated',
+    );
     const merge = remote.getByRole('region', { name: 'Merge' });
     await expect(merge).toContainText('Changes requested');
     await expect(merge).toContainText('Some checks were not successful');
     await expect(merge.getByRole('link', { name: 'Unit tests' })).toBeVisible(); // a failure opens the list
-    await expect(merge.getByRole('button', { name: 'Fix failing checks in a session' })).toBeVisible();
+    await expect(
+      merge.getByRole('button', { name: 'Fix failing checks in a session' }),
+    ).toBeVisible();
     await expect(merge).toContainText('This branch is behind main');
     const composer = remote.getByRole('region', { name: 'Add a comment' });
     await expect(composer).toBeVisible();
@@ -675,7 +794,9 @@ test('an item reads as one stream, and a review is written and sent without leav
     await expect(thread.getByText('Reply posted.', { exact: true })).toBeVisible();
     await thread.getByRole('button', { name: 'Resolve conversation' }).click();
     await expect(thread.getByText('Conversation resolved.', { exact: true })).toBeVisible();
-    expect(calls()).toContain('-f threadId=PRRT_1 -f body=Added a guard. GH_TOKEN=gho_stub_token_for_JaviDev');
+    expect(calls()).toContain(
+      '-f threadId=PRRT_1 -f body=Added a guard. GH_TOKEN=gho_stub_token_for_JaviDev',
+    );
     expect(calls()).toMatch(/mutation ConsolaResolveThread.* -f threadId=PRRT_1 /);
 
     // --- The comment box: a refusal keeps the text; typed text rides along on Close.
@@ -727,32 +848,45 @@ test('an item reads as one stream, and a review is written and sent without leav
     await remote.locator('summary[title="Modified · src/billing.ts"]').click();
     const diff = remote.getByRole('group', { name: 'Diff for src/billing.ts' });
     await expect(diff).toContainText('createClient');
-    await expect(diff.getByRole('region', { name: 'Thread on billing.ts:7' })).toContainText('Handle empty input here.');
+    await expect(diff.getByRole('region', { name: 'Thread on billing.ts:7' })).toContainText(
+      'Handle empty input here.',
+    );
     await diff.getByRole('button', { name: 'Comment on line +8' }).click();
     const single = diff.getByRole('group', { name: 'Commenting on line +8' });
     await single.getByRole('textbox', { name: 'Line comment' }).fill('Guard the refund too.');
     await single.getByRole('button', { name: 'Add single comment' }).click();
     await expect(diff.getByText('Comment posted.', { exact: true })).toBeVisible();
-    expect(calls()).toContain('pulls/51/comments --method POST -f body=Guard the refund too. -f commit_id=1234567890123456789012345678901234567890 -f path=src/billing.ts -F line=8 -f side=RIGHT GH_TOKEN');
+    expect(calls()).toContain(
+      'pulls/51/comments --method POST -f body=Guard the refund too. -f commit_id=1234567890123456789012345678901234567890 -f path=src/billing.ts -F line=8 -f side=RIGHT GH_TOKEN',
+    );
 
     // --- A range (Shift-click), held in a review that this starts.
     await diff.getByRole('button', { name: 'Comment on line +11' }).click();
     await diff.getByRole('button', { name: 'Comment on line +12' }).click({ modifiers: ['Shift'] });
     const ranged = diff.getByRole('group', { name: 'Commenting on lines +11 to +12' });
-    await ranged.getByRole('textbox', { name: 'Line comment' }).fill('Refunds need the same check.');
+    await ranged
+      .getByRole('textbox', { name: 'Line comment' })
+      .fill('Refunds need the same check.');
     await ranged.getByRole('button', { name: 'Start a review' }).click();
     await expect(diff.getByText(/^Review started/)).toBeVisible();
     expect(calls()).toContain('-f commit=1234567890123456789012345678901234567890');
-    expect(calls()).toContain('-f reviewId=PRR_pending1 -f body=Refunds need the same check. -f path=src/billing.ts -F line=12 -f side=RIGHT -F startLine=11 -f startSide=RIGHT');
+    expect(calls()).toContain(
+      '-f reviewId=PRR_pending1 -f body=Refunds need the same check. -f path=src/billing.ts -F line=12 -f side=RIGHT -F startLine=11 -f startSide=RIGHT',
+    );
     // Pending from here on: marked in the diff, counted on the button, and
     // the next line comment can only join the review.
     const submit = remote.getByRole('button', { name: /^Submit review/ });
     await expect(submit).toContainText('1');
-    await expect(diff.locator('.inbox-detail-thread-comment[data-pending]')).toContainText('Pending');
+    await expect(diff.locator('.inbox-detail-thread-comment[data-pending]')).toContainText(
+      'Pending',
+    );
     await diff.getByRole('button', { name: 'Comment on line +4' }).click();
     await expect(diff.getByRole('button', { name: 'Add review comment' })).toBeVisible();
     await expect(diff.getByRole('button', { name: 'Add single comment' })).toHaveCount(0);
-    await diff.getByRole('group', { name: 'Commenting on line +4' }).getByRole('button', { name: 'Cancel' }).click();
+    await diff
+      .getByRole('group', { name: 'Commenting on line +4' })
+      .getByRole('button', { name: 'Cancel' })
+      .click();
     // From the keyboard the diff is one tab stop: arrows pick a line (from
     // the one last commented on, +4), Enter comments on it, Esc gives focus
     // back to the diff.
@@ -775,13 +909,21 @@ test('an item reads as one stream, and a review is written and sent without leav
     await popover.getByRole('button', { name: 'Submit review' }).click();
     await expect(popover).toHaveCount(0);
     await expect(remote.getByText('Review submitted.', { exact: true })).toBeVisible();
-    expect(calls()).toContain('-f id=PRR_pending1 -f event=REQUEST_CHANGES -f body=Please guard refunds.');
+    expect(calls()).toContain(
+      '-f id=PRR_pending1 -f event=REQUEST_CHANGES -f body=Please guard refunds.',
+    );
     await expect(submit).not.toContainText('1');
 
     await expect(pane.getByRole('button', { name: 'Refresh details' })).toBeEnabled();
-    expect(calls()).toContain('pr comment 51 --repo github.com/sprocket/catalog-portal --body Test comment from Consola GH_TOKEN=gho_stub_token_for_JaviDev');
-    expect(calls()).toContain('pr update-branch 51 --repo github.com/sprocket/catalog-portal GH_TOKEN=gho_stub_token_for_JaviDev');
-    expect(calls()).toContain('--rebase --match-head-commit 1234567890123456789012345678901234567890 --auto');
+    expect(calls()).toContain(
+      'pr comment 51 --repo github.com/sprocket/catalog-portal --body Test comment from Consola GH_TOKEN=gho_stub_token_for_JaviDev',
+    );
+    expect(calls()).toContain(
+      'pr update-branch 51 --repo github.com/sprocket/catalog-portal GH_TOKEN=gho_stub_token_for_JaviDev',
+    );
+    expect(calls()).toContain(
+      '--rebase --match-head-commit 1234567890123456789012345678901234567890 --auto',
+    );
     await remote.getByRole('tab', { name: /Conversation/ }).click();
     await page.screenshot({ path: path.join(test.info().outputDir, 'github-details.png') });
   } finally {
@@ -811,7 +953,7 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
       'stty raw -echo 2>/dev/null',
       `exec cat >> "${pastedPath}"`,
     ].join('\n'),
-    { mode: 0o755 }
+    { mode: 0o755 },
   );
   fs.writeFileSync(fixturePath, JSON.stringify(buildInboxFixture()));
   // A real clone, so the pane offers actions rather than "Clone into scope".
@@ -820,17 +962,31 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
   const workspaceId = seedWorkspaceState(userDataDir, repoDir);
   let app: ElectronApplication | undefined;
   try {
-    const launched = await launchElectron({ userDataDir, env: {
-      CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'), GRAPHQL_INBOX_FIXTURE: fixturePath,
-    } });
+    const launched = await launchElectron({
+      userDataDir,
+      env: {
+        CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
+        GRAPHQL_INBOX_FIXTURE: fixturePath,
+      },
+    });
     app = launched.app;
     const { page } = launched;
     await page.evaluate(
       async ({ workspaceId, binaryPath }) => {
-        await window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#555555', binaryPath });
+        await window.harnessStateAPI.addHarness({
+          id: 'stub',
+          driverId: 'claude',
+          name: 'Stub',
+          accentColor: '#555555',
+          binaryPath,
+        });
         const link = (number: number, workItemAction: string, instanceId: string) =>
           window.workspaceAPI.createSession(workspaceId, {
-            name: 'New Session', workspaceId, instanceId, harnessId: 'stub', scopeId: 'scope-controller',
+            name: 'New Session',
+            workspaceId,
+            instanceId,
+            harnessId: 'stub',
+            scopeId: 'scope-controller',
             workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number },
             workItemAction,
           });
@@ -838,9 +994,12 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
         // #52 is not in the Inbox: merged, closed, or out of its window.
         await link(52, 'Review', 'details-e2e-unlisted');
       },
-      { workspaceId, binaryPath: agent }
+      { workspaceId, binaryPath: agent },
     );
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Sprocket/ })
+      .click();
     await page.locator('.session-nav-item', { hasText: 'PR #51 · Fix CI' }).click();
     // The agent is up, in raw mode, and listening.
     await expect.poll(() => fs.existsSync(pastedPath), { timeout: 15_000 }).toBe(true);
@@ -860,8 +1019,12 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     const pane = panel.getByRole('complementary', { name: 'Work item details' });
     await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible();
     const remote = pane.getByRole('region', { name: 'Remote item details' });
-    await expect(remote.getByText('regression coverage', { exact: true })).toBeVisible({ timeout: 15_000 });
-    await expect(pane.locator('.inbox-pane-detail-head').getByRole('button', { name: 'Refresh details' })).toBeVisible();
+    await expect(remote.getByText('regression coverage', { exact: true })).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(
+      pane.locator('.inbox-pane-detail-head').getByRole('button', { name: 'Refresh details' }),
+    ).toBeVisible();
     await expect(pane.locator('.inbox-pane-count')).toHaveText('1');
     const thisRow = pane.locator('.inbox-pane-session-row', { hasText: 'PR #51 · Fix CI' });
     await expect(thisRow).toContainText('This session');
@@ -871,20 +1034,28 @@ test('a linked session shows its item pane beside the terminal, and Fix pastes i
     // A Fix goes to the session on screen, not to a new one: pasted into its
     // composer and left for the person to send.
     const merge = remote.getByRole('region', { name: 'Merge' });
-    await expect(merge.getByRole('button', { name: 'Fix failing checks in a session' })).toHaveCount(0);
+    await expect(
+      merge.getByRole('button', { name: 'Fix failing checks in a session' }),
+    ).toHaveCount(0);
     await merge.getByRole('button', { name: 'Fix failing checks in this session' }).click();
     await expect
       .poll(() => fs.readFileSync(pastedPath, 'utf8'), { timeout: 10_000 })
-      .toContain('\x1b[200~Investigate and fix the failing CI checks for https://github.com/sprocket/catalog-portal/pull/51.');
+      .toContain(
+        '\x1b[200~Investigate and fix the failing CI checks for https://github.com/sprocket/catalog-portal/pull/51.',
+      );
     await expect(page.locator('.terminal-panel .terminal-surface textarea')).toBeFocused();
     await expect(pane.getByRole('textbox', { name: 'Custom prompt' })).toHaveCount(0);
-    await page.screenshot({ path: path.join(test.info().outputDir, 'session-work-item-panel.png') });
+    await page.screenshot({
+      path: path.join(test.info().outputDir, 'session-work-item-panel.png'),
+    });
 
     // The panel is a preference: the next linked session shows it too. Its
     // item is not in the Inbox, so the pane names it from a fresh read.
     await page.locator('.session-nav-item', { hasText: 'PR #52 · Review' }).click();
     await expect(pane.locator('.inbox-pane-meta')).toContainText('sprocket/catalog-portal#52');
-    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({ timeout: 15_000 });
+    await expect(pane.getByRole('heading', { name: 'Extract billing client' })).toBeVisible({
+      timeout: 15_000,
+    });
     await expect(pane.locator('.inbox-pane-meta .inbox-detail-state')).toHaveText('Open');
 
     await pane.getByRole('button', { name: 'Close details' }).click();
@@ -919,7 +1090,7 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
       'stty raw -echo 2>/dev/null',
       `exec cat >> "${inputPath}"`,
     ].join('\n'),
-    { mode: 0o755 }
+    { mode: 0o755 },
   );
   fs.writeFileSync(fixturePath, JSON.stringify(buildInboxFixture()));
   const repoDir = path.join(fixtureDir, 'catalog-portal');
@@ -927,32 +1098,51 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
   const workspaceId = seedWorkspaceState(userDataDir, repoDir);
   const stateFile = path.join(`${userDataDir} Test`, 'workspaces.json');
   const record = () =>
-    (JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].sessions as Array<{
-      id: string;
-      claudeSessionId: string;
-      workItem?: { number: number };
-    }>).filter((session) => session.workItem?.number === 51);
+    (
+      JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].sessions as Array<{
+        id: string;
+        claudeSessionId: string;
+        workItem?: { number: number };
+      }>
+    ).filter((session) => session.workItem?.number === 51);
   const read = (file: string) => (fs.existsSync(file) ? fs.readFileSync(file, 'utf8') : '');
 
   let app: ElectronApplication | undefined;
   try {
-    const launched = await launchElectron({ userDataDir, env: {
-      CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'), GRAPHQL_INBOX_FIXTURE: fixturePath,
-    } });
+    const launched = await launchElectron({
+      userDataDir,
+      env: {
+        CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
+        GRAPHQL_INBOX_FIXTURE: fixturePath,
+      },
+    });
     app = launched.app;
     const { page } = launched;
     await page.evaluate(
       async ({ workspaceId, binaryPath }) => {
-        await window.harnessStateAPI.addHarness({ id: 'stub', driverId: 'claude', name: 'Stub', accentColor: '#555555', binaryPath });
+        await window.harnessStateAPI.addHarness({
+          id: 'stub',
+          driverId: 'claude',
+          name: 'Stub',
+          accentColor: '#555555',
+          binaryPath,
+        });
         await window.workspaceAPI.createSession(workspaceId, {
-          name: 'New Session', workspaceId, instanceId: 'run-in-session-e2e', harnessId: 'stub', scopeId: 'scope-controller',
+          name: 'New Session',
+          workspaceId,
+          instanceId: 'run-in-session-e2e',
+          harnessId: 'stub',
+          scopeId: 'scope-controller',
           workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
           workItemAction: 'Review',
         });
       },
-      { workspaceId, binaryPath: agent }
+      { workspaceId, binaryPath: agent },
     );
-    await page.getByRole('navigation', { name: 'Workspaces', exact: true }).getByRole('button', { name: /Sprocket/ }).click();
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Sprocket/ })
+      .click();
 
     // A follow-up action that starts fresh, made in the action editor.
     await page.getByRole('button', { name: / workspace menu$/ }).click();
@@ -965,14 +1155,22 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await actionsPanel
       .getByLabel('What running this action in an existing session does to its conversation')
       .selectOption('fresh');
-    await actionsPanel.getByLabel('Action prompt').fill('Pull the latest and check #{{number}} again.');
+    await actionsPanel
+      .getByLabel('Action prompt')
+      .fill('Pull the latest and check #{{number}} again.');
     await actionsPanel.getByRole('button', { name: 'Save', exact: true }).click();
-    await expect(actionsPanel.locator('.ws-action-row', { hasText: 'Re-review' })).toContainText('Fresh');
+    await expect(actionsPanel.locator('.ws-action-row', { hasText: 'Re-review' })).toContainText(
+      'Fresh',
+    );
     await expect
-      .poll(() => readState(stateFile).actions.find((action) => action.name === 'Re-review'), { timeout: 10_000 })
+      .poll(() => readState(stateFile).actions.find((action) => action.name === 'Re-review'), {
+        timeout: 10_000,
+      })
       .toMatchObject({ conversation: 'fresh', appliesTo: ['pr'] });
     // An action left on the default stores no setting at all.
-    expect(readState(stateFile).actions.find((action) => action.name === 'Review')).not.toHaveProperty('conversation');
+    expect(
+      readState(stateFile).actions.find((action) => action.name === 'Review'),
+    ).not.toHaveProperty('conversation');
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
 
     // Open the session: its first launch creates the recorded conversation.
@@ -985,7 +1183,9 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await strip.getByRole('button', { name: /^Run an action in / }).click();
     const menu = page.getByTestId('run-action-menu');
     await expect(menu.getByText('Run in this session')).toBeVisible();
-    await expect(menu.locator('[data-action-id="review"]')).toContainText('Continues this conversation');
+    await expect(menu.locator('[data-action-id="review"]')).toContainText(
+      'Continues this conversation',
+    );
     await expect(menu.locator('[data-action-id="implement"]')).toHaveCount(0);
     const reReview = menu.locator('.run-action-item', { hasText: 'Re-review' });
     await expect(reReview).toContainText('Starts a fresh conversation');
@@ -996,7 +1196,9 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     await expect(menu).toHaveCount(0);
     await expect
       .poll(() => read(inputPath), { timeout: 10_000 })
-      .toContain('\x1b[200~Review the changes and summarise your findings before writing any review comments.\x1b[201~\r');
+      .toContain(
+        '\x1b[200~Review the changes and summarise your findings before writing any review comments.\x1b[201~\r',
+      );
     expect(read(inputPath)).not.toContain('This session is for pull request #51');
     expect(record()).toEqual([expect.objectContaining({ id: sessionId, claudeSessionId: first })]);
 
@@ -1008,11 +1210,15 @@ test('an action runs again in its own session: Continue types into it, Fresh sta
     const [{ id: sameId, claudeSessionId: second }] = record();
     expect(sameId).toBe(sessionId);
     expect(record()).toHaveLength(1);
-    await expect.poll(() => read(argsPath), { timeout: 15_000 }).toContain(`--session-id ${second}`);
+    await expect
+      .poll(() => read(argsPath), { timeout: 15_000 })
+      .toContain(`--session-id ${second}`);
     expect(read(argsPath)).not.toContain(`--resume ${second}`);
     await expect
       .poll(() => read(inputPath), { timeout: 10_000 })
-      .toMatch(/\x1b\[200~This session is for pull request #51 \("Extract billing client"\)[^\x1b]*\n\nPull the latest and check #51 again\.\x1b\[201~/);
+      .toMatch(
+        /\x1b\[200~This session is for pull request #51 \("Extract billing client"\)[^\x1b]*\n\nPull the latest and check #51 again\.\x1b\[201~/,
+      );
     // The pane is live on the new conversation, not offering a restart.
     await expect(page.locator('.terminal-restart-button')).toHaveCount(0);
 

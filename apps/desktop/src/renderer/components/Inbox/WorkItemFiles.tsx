@@ -1,4 +1,15 @@
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from 'react';
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent,
+  type ReactNode,
+} from 'react';
 import * as Popover from '@radix-ui/react-popover';
 import {
   ChevronDown,
@@ -88,12 +99,22 @@ const DiffLine = memo(function DiffLine({
       data-commentable={anchor ? '' : undefined}
       onMouseEnter={anchor ? () => onExtend(index) : undefined}
     >
-      <span className="diff-num" aria-hidden="true" onMouseDown={begin}>{row.oldLine || ''}</span>
-      <span className="diff-num" aria-hidden="true" onMouseDown={begin}>{row.newLine || ''}</span>
+      <span className="diff-num" aria-hidden="true" onMouseDown={begin}>
+        {row.oldLine || ''}
+      </span>
+      <span className="diff-num" aria-hidden="true" onMouseDown={begin}>
+        {row.newLine || ''}
+      </span>
       {commentable && (
         <span className="diff-gutter">
           {anchor && (
-            <button type="button" tabIndex={-1} className="diff-add" aria-label={`Comment on line ${sign(row)}`} onMouseDown={begin}>
+            <button
+              type="button"
+              tabIndex={-1}
+              className="diff-add"
+              aria-label={`Comment on line ${sign(row)}`}
+              onMouseDown={begin}
+            >
               <Plus size={12} strokeWidth={2.5} aria-hidden="true" />
             </button>
           )}
@@ -125,9 +146,21 @@ function LineCommentForm({
   const submit = async (mode: 'single' | 'review') => {
     if (busy || !draft.trim() || !details.headOid) return;
     const ok = await perform(
-      { kind: 'line-comment', mode, ...(mode === 'review' && pending ? { pendingReviewId: pending.id } : {}), headOid: details.headOid, path, ...range, body: draft },
-      mode === 'single' ? 'Comment posted.' : pending ? 'Added to your review.' : 'Review started: your comment is pending until you submit it.',
-      at
+      {
+        kind: 'line-comment',
+        mode,
+        ...(mode === 'review' && pending ? { pendingReviewId: pending.id } : {}),
+        headOid: details.headOid,
+        path,
+        ...range,
+        body: draft,
+      },
+      mode === 'single'
+        ? 'Comment posted.'
+        : pending
+          ? 'Added to your review.'
+          : 'Review started: your comment is pending until you submit it.',
+      at,
     );
     if (ok) onClose(true);
   };
@@ -149,19 +182,44 @@ function LineCommentForm({
         onCancel={() => onClose(false)}
       />
       <div className="inbox-detail-form-foot">
-        <span className="inbox-detail-kbd-hint" aria-hidden="true"><kbd>{MOD_KEY}</kbd><kbd>↵</kbd> {pending ? 'add' : 'comment'} · <kbd>Esc</kbd> cancel</span>
-        <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={() => onClose(false)}>Cancel</button>
+        <span className="inbox-detail-kbd-hint" aria-hidden="true">
+          <kbd>{MOD_KEY}</kbd>
+          <kbd>↵</kbd> {pending ? 'add' : 'comment'} · <kbd>Esc</kbd> cancel
+        </span>
+        <button
+          type="button"
+          className="inbox-detail-btn inbox-detail-btn--quiet"
+          disabled={busy}
+          onClick={() => onClose(false)}
+        >
+          Cancel
+        </button>
         {pending ? (
-          <button type="button" className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" disabled={busy || !draft.trim()} onClick={() => void submit('review')}>
+          <button
+            type="button"
+            className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
+            disabled={busy || !draft.trim()}
+            onClick={() => void submit('review')}
+          >
             Add review comment
           </button>
         ) : (
           <>
             {/* GitHub keeps one pending review per person, and a single comment cannot be posted beside one. */}
-            <button type="button" className="inbox-detail-btn" disabled={busy || !draft.trim()} onClick={() => void submit('single')}>
+            <button
+              type="button"
+              className="inbox-detail-btn"
+              disabled={busy || !draft.trim()}
+              onClick={() => void submit('single')}
+            >
               Add single comment
             </button>
-            <button type="button" className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" disabled={busy || !draft.trim()} onClick={() => void submit('review')}>
+            <button
+              type="button"
+              className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
+              disabled={busy || !draft.trim()}
+              onClick={() => void submit('review')}
+            >
               Start a review
             </button>
           </>
@@ -179,7 +237,15 @@ function LineCommentForm({
  * diff is one tab stop: arrows move between lines, Shift extends, Enter (or
  * C) comments, Esc lets go.
  */
-function DiffView({ file, threads, commentable }: { file: DetailFile; threads: WorkItemThread[]; commentable: boolean }) {
+function DiffView({
+  file,
+  threads,
+  commentable,
+}: {
+  file: DetailFile;
+  threads: WorkItemThread[];
+  commentable: boolean;
+}) {
   const rows = useMemo(() => parsePatch(file.patch ?? ''), [file.patch]);
   const hunks = useMemo(() => hunkOf(rows), [rows]);
   const placed = useMemo(() => {
@@ -202,30 +268,45 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
   const container = useRef<HTMLDivElement>(null);
   const uid = useId();
   const rowId = (index: number) => `${uid}-row-${index}`;
-  const lineable = useCallback((index: number) => commentable && !!rows[index] && rowAnchor(rows[index]) !== null, [commentable, rows]);
+  const lineable = useCallback(
+    (index: number) => commentable && !!rows[index] && rowAnchor(rows[index]) !== null,
+    [commentable, rows],
+  );
 
-  const onBegin = useCallback((index: number, event: MouseEvent) => {
-    if (event.button !== 0 || !lineable(index)) return;
-    event.preventDefault();
-    const current = selectionRef.current;
-    setSelection(event.shiftKey && current && hunks[current.anchor] === hunks[index] ? { anchor: current.anchor, focus: index } : { anchor: index, focus: index });
-    setActive(index);
-    dragging.current = true;
-    const end = () => {
-      dragging.current = false;
-      setFormOpen(true);
-      window.removeEventListener('mouseup', end);
-    };
-    window.addEventListener('mouseup', end);
-  }, [hunks, lineable]);
+  const onBegin = useCallback(
+    (index: number, event: MouseEvent) => {
+      if (event.button !== 0 || !lineable(index)) return;
+      event.preventDefault();
+      const current = selectionRef.current;
+      setSelection(
+        event.shiftKey && current && hunks[current.anchor] === hunks[index]
+          ? { anchor: current.anchor, focus: index }
+          : { anchor: index, focus: index },
+      );
+      setActive(index);
+      dragging.current = true;
+      const end = () => {
+        dragging.current = false;
+        setFormOpen(true);
+        window.removeEventListener('mouseup', end);
+      };
+      window.addEventListener('mouseup', end);
+    },
+    [hunks, lineable],
+  );
 
-  const onExtend = useCallback((index: number) => {
-    const current = selectionRef.current;
-    if (!dragging.current || !current || hunks[index] !== hunks[current.anchor]) return;
-    setSelection({ anchor: current.anchor, focus: index });
-  }, [hunks]);
+  const onExtend = useCallback(
+    (index: number) => {
+      const current = selectionRef.current;
+      if (!dragging.current || !current || hunks[index] !== hunks[current.anchor]) return;
+      setSelection({ anchor: current.anchor, focus: index });
+    },
+    [hunks],
+  );
 
-  const [lo, hi] = selection ? [Math.min(selection.anchor, selection.focus), Math.max(selection.anchor, selection.focus)] : [-1, -1];
+  const [lo, hi] = selection
+    ? [Math.min(selection.anchor, selection.focus), Math.max(selection.anchor, selection.focus)]
+    : [-1, -1];
   const range = selection ? selectionRange(rows, selection.anchor, selection.focus) : null;
   useEffect(() => {
     if (formOpen && range) setFormRow(hi);
@@ -253,7 +334,11 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
       // Each run of lines scrolls on its own; from the keyboard they move together.
       event.preventDefault();
       const by = event.key === 'ArrowRight' ? 48 : -48;
-      event.currentTarget.querySelectorAll<HTMLElement>('.inbox-detail-diff-lines').forEach((run) => { run.scrollLeft += by; });
+      event.currentTarget
+        .querySelectorAll<HTMLElement>('.inbox-detail-diff-lines')
+        .forEach((run) => {
+          run.scrollLeft += by;
+        });
       return;
     }
     if (!commentable) return;
@@ -269,7 +354,11 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
         setSelection(null);
       }
       document.getElementById(rowId(next))?.scrollIntoView({ block: 'nearest' });
-    } else if ((event.key === 'Enter' || event.key === 'c') && (selection || active !== null) && !isSubmitChord(event)) {
+    } else if (
+      (event.key === 'Enter' || event.key === 'c') &&
+      (selection || active !== null) &&
+      !isSubmitChord(event)
+    ) {
       event.preventDefault();
       if (!selection && active !== null) setSelection({ anchor: active, focus: active });
       setFormOpen(true);
@@ -288,7 +377,7 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
       blocks.push(
         <div key={`lines-${key}`} className="inbox-detail-diff-lines">
           <div className="inbox-detail-diff-rows">{lines}</div>
-        </div>
+        </div>,
       );
     }
     lines = [];
@@ -305,7 +394,7 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
         active={index === active}
         onBegin={onBegin}
         onExtend={onExtend}
-      />
+      />,
     );
     const here = placed.get(index);
     const form = formOpen && range && index === hi;
@@ -314,7 +403,9 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
       flush(String(index));
       blocks.push(
         <div key={`inline-${index}`} className="inbox-detail-diff-inline">
-          {here?.map((thread) => <ReviewThread key={thread.id} thread={thread} placement="diff" />)}
+          {here?.map((thread) => (
+            <ReviewThread key={thread.id} thread={thread} placement="diff" />
+          ))}
           {form && (
             <LineCommentForm
               path={file.path}
@@ -326,7 +417,7 @@ function DiffView({ file, threads, commentable }: { file: DetailFile; threads: W
             />
           )}
           {said && <Messages at={`line:${file.path}`} />}
-        </div>
+        </div>,
       );
     }
   });
@@ -372,17 +463,29 @@ function ChangedFile({
   const Icon = FILE_ICONS[file.status] ?? FileDiff;
   const conversations = threads.filter((thread) => !thread.isResolved).length;
   return (
-    <details className="inbox-detail-file" open={open} onToggle={(event) => onToggle(event.currentTarget.open)}>
+    <details
+      className="inbox-detail-file"
+      open={open}
+      onToggle={(event) => onToggle(event.currentTarget.open)}
+    >
       <summary title={`${status.label} · ${file.path}`}>
         <ChevronRight size={14} className="inbox-detail-file-chevron" aria-hidden="true" />
-        <Icon size={14} className="inbox-detail-tone-icon" data-tone={status.tone} aria-hidden="true" />
+        <Icon
+          size={14}
+          className="inbox-detail-tone-icon"
+          data-tone={status.tone}
+          aria-hidden="true"
+        />
         <span className="sr-only">{status.label}: </span>
         <span className="inbox-detail-file-path">
           <span className="inbox-detail-file-dir">{dir}</span>
           <span className="inbox-detail-file-name">{name}</span>
         </span>
         {conversations > 0 && (
-          <span className="inbox-detail-file-threads" title={`${plural(conversations, 'open conversation')}`}>
+          <span
+            className="inbox-detail-file-threads"
+            title={`${plural(conversations, 'open conversation')}`}
+          >
             <MessageSquare size={12} aria-hidden="true" />
             {conversations}
             <span className="sr-only"> open conversation{conversations === 1 ? '' : 's'}</span>
@@ -405,14 +508,38 @@ function ChangedFile({
   );
 }
 
-const EVENTS: Array<{ event: ReviewEvent; label: string; description: string; verdict: boolean }> = [
-  { event: 'comment', label: 'Comment', description: 'Submit general feedback without explicit approval.', verdict: false },
-  { event: 'approve', label: 'Approve', description: 'Give your approval to merge these changes.', verdict: true },
-  { event: 'request-changes', label: 'Request changes', description: 'Submit feedback that must be addressed before merging.', verdict: true },
-];
+const EVENTS: Array<{ event: ReviewEvent; label: string; description: string; verdict: boolean }> =
+  [
+    {
+      event: 'comment',
+      label: 'Comment',
+      description: 'Submit general feedback without explicit approval.',
+      verdict: false,
+    },
+    {
+      event: 'approve',
+      label: 'Approve',
+      description: 'Give your approval to merge these changes.',
+      verdict: true,
+    },
+    {
+      event: 'request-changes',
+      label: 'Request changes',
+      description: 'Submit feedback that must be addressed before merging.',
+      verdict: true,
+    },
+  ];
 
 /** GitHub's "Finish your review": a summary, a verdict, and the pending comments it sends. */
-function SubmitReview({ open, onOpenChange, boundary }: { open: boolean; onOpenChange: (open: boolean) => void; boundary: HTMLElement | null }) {
+function SubmitReview({
+  open,
+  onOpenChange,
+  boundary,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  boundary: HTMLElement | null;
+}) {
   const { details, ownItem, busy, perform } = useWorkItemDetail();
   const pending = details.pendingReview;
   const pendingCount = pending?.commentCount ?? 0;
@@ -423,11 +550,18 @@ function SubmitReview({ open, onOpenChange, boundary }: { open: boolean; onOpenC
   const uid = useId();
   const blocked = ownItem && event !== 'comment';
   // Approving needs nothing more; anything else says something or sends comments.
-  const canSubmit = !busy && !blocked && (event === 'approve' || body.trim().length > 0 || pendingCount > 0);
+  const canSubmit =
+    !busy && !blocked && (event === 'approve' || body.trim().length > 0 || pendingCount > 0);
 
   const submit = async () => {
     if (!canSubmit) return;
-    if (await perform({ kind: 'review', event, body, ...(pending ? { pendingReviewId: pending.id } : {}) }, 'Review submitted.', 'review')) {
+    if (
+      await perform(
+        { kind: 'review', event, body, ...(pending ? { pendingReviewId: pending.id } : {}) },
+        'Review submitted.',
+        'review',
+      )
+    ) {
       setBody('');
       setEvent('comment');
       onOpenChange(false);
@@ -435,14 +569,22 @@ function SubmitReview({ open, onOpenChange, boundary }: { open: boolean; onOpenC
   };
   const discard = async () => {
     if (!pending || busy) return;
-    if (await perform({ kind: 'discard-review', reviewId: pending.id }, 'Review discarded.', 'review')) {
+    if (
+      await perform({ kind: 'discard-review', reviewId: pending.id }, 'Review discarded.', 'review')
+    ) {
       setDiscarding(false);
       onOpenChange(false);
     }
   };
 
   return (
-    <Popover.Root open={open} onOpenChange={(next) => { onOpenChange(next); if (!next) setDiscarding(false); }}>
+    <Popover.Root
+      open={open}
+      onOpenChange={(next) => {
+        onOpenChange(next);
+        if (!next) setDiscarding(false);
+      }}
+    >
       <Popover.Trigger asChild>
         <button
           type="button"
@@ -470,7 +612,9 @@ function SubmitReview({ open, onOpenChange, boundary }: { open: boolean; onOpenC
             summaryField.current?.focus();
           }}
         >
-          <h3 id={`${uid}-title`} className="inbox-detail-review-title">Finish your review</h3>
+          <h3 id={`${uid}-title`} className="inbox-detail-review-title">
+            Finish your review
+          </h3>
           <textarea
             ref={summaryField}
             aria-label="Review summary"
@@ -492,7 +636,11 @@ function SubmitReview({ open, onOpenChange, boundary }: { open: boolean; onOpenC
             {EVENTS.map((option) => {
               const unavailable = option.verdict && ownItem;
               return (
-                <label key={option.event} className="inbox-detail-review-event" data-disabled={unavailable || undefined}>
+                <label
+                  key={option.event}
+                  className="inbox-detail-review-event"
+                  data-disabled={unavailable || undefined}
+                >
                   <input
                     type="radio"
                     name={`${uid}-event`}
@@ -509,28 +657,65 @@ function SubmitReview({ open, onOpenChange, boundary }: { open: boolean; onOpenC
               );
             })}
           </fieldset>
-          {ownItem && <p className="inbox-detail-hint">You can’t approve or request changes on your own pull request.</p>}
+          {ownItem && (
+            <p className="inbox-detail-hint">
+              You can’t approve or request changes on your own pull request.
+            </p>
+          )}
           {discarding ? (
-            <div className="inbox-detail-confirm" data-tone="error" role="group" aria-label="Confirm discard">
+            <div
+              className="inbox-detail-confirm"
+              data-tone="error"
+              role="group"
+              aria-label="Confirm discard"
+            >
               <p className="inbox-detail-confirm-title">
-                Discard your pending review{pendingCount ? ` and its ${plural(pendingCount, 'comment')}` : ''}?
+                Discard your pending review
+                {pendingCount ? ` and its ${plural(pendingCount, 'comment')}` : ''}?
               </p>
               <div className="inbox-detail-form-foot">
-                <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={() => setDiscarding(false)}>Keep review</button>
-                <button type="button" autoFocus className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--danger-solid" disabled={busy} onClick={() => void discard()}>
+                <button
+                  type="button"
+                  className="inbox-detail-btn inbox-detail-btn--quiet"
+                  disabled={busy}
+                  onClick={() => setDiscarding(false)}
+                >
+                  Keep review
+                </button>
+                <button
+                  type="button"
+                  autoFocus
+                  className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--danger-solid"
+                  disabled={busy}
+                  onClick={() => void discard()}
+                >
                   Discard review
                 </button>
               </div>
             </div>
           ) : (
             <div className="inbox-detail-form-foot">
-              {pendingCount > 0 && <span className="inbox-detail-kbd-hint">Sends {plural(pendingCount, 'pending comment')}</span>}
+              {pendingCount > 0 && (
+                <span className="inbox-detail-kbd-hint">
+                  Sends {plural(pendingCount, 'pending comment')}
+                </span>
+              )}
               {pending && (
-                <button type="button" className="inbox-detail-btn inbox-detail-btn--quiet" disabled={busy} onClick={() => setDiscarding(true)}>
+                <button
+                  type="button"
+                  className="inbox-detail-btn inbox-detail-btn--quiet"
+                  disabled={busy}
+                  onClick={() => setDiscarding(true)}
+                >
                   Discard review
                 </button>
               )}
-              <button type="button" className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent" disabled={!canSubmit} onClick={() => void submit()}>
+              <button
+                type="button"
+                className="inbox-detail-btn inbox-detail-btn--solid inbox-detail-btn--accent"
+                disabled={!canSubmit}
+                onClick={() => void submit()}
+              >
                 {busy ? 'Submitting…' : 'Submit review'}
               </button>
             </div>
@@ -593,11 +778,17 @@ export function FilesChanged({
             className="inbox-detail-btn inbox-detail-btn--small inbox-detail-btn--quiet"
             onClick={() => setOpened(allOpen ? new Set() : new Set(files.map((file) => file.path)))}
           >
-            {allOpen ? <ChevronsDownUp size={13} aria-hidden="true" /> : <ChevronsUpDown size={13} aria-hidden="true" />}
+            {allOpen ? (
+              <ChevronsDownUp size={13} aria-hidden="true" />
+            ) : (
+              <ChevronsUpDown size={13} aria-hidden="true" />
+            )}
             {allOpen ? 'Collapse all' : 'Expand all'}
           </button>
         )}
-        {open && <SubmitReview open={reviewOpen} onOpenChange={onReviewOpenChange} boundary={boundary} />}
+        {open && (
+          <SubmitReview open={reviewOpen} onOpenChange={onReviewOpenChange} boundary={boundary} />
+        )}
       </div>
       {!reviewOpen && <Messages at="review" />}
       {files.length === 0 ? (

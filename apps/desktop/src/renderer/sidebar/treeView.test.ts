@@ -3,9 +3,16 @@ import { entry, ids, keyOf, node } from './entryFixtures';
 import { treeView } from './treeView';
 
 /** A conductor with one child that needs the person: aggregate `needs-attention`. */
-const conductor = () => node(entry('p', 'ready'), entry('a', 'needs-attention'), entry('b', 'working'), entry('c', 'working'));
+const conductor = () =>
+  node(
+    entry('p', 'ready'),
+    entry('a', 'needs-attention'),
+    entry('b', 'working'),
+    entry('c', 'working'),
+  );
 /** The same tree once the child is answered: aggregate `working`. */
-const answered = () => node(entry('p', 'ready'), entry('a', 'working'), entry('b', 'working'), entry('c', 'working'));
+const answered = () =>
+  node(entry('p', 'ready'), entry('a', 'working'), entry('b', 'working'), entry('c', 'working'));
 
 describe('treeView', () => {
   it('with a child that needs the person, shows only the pinned children and counts the rest', () => {
@@ -16,7 +23,10 @@ describe('treeView', () => {
   });
 
   it('with an unread result, folds the same way', () => {
-    expect(treeView(node(entry('p', 'ready'), entry('a', 'done'), entry('b', 'ready')), undefined, null).collapsed).toBe(true);
+    expect(
+      treeView(node(entry('p', 'ready'), entry('a', 'done'), entry('b', 'ready')), undefined, null)
+        .collapsed,
+    ).toBe(true);
   });
 
   it('elsewhere, shows everyone: the person never asked for less', () => {
@@ -32,7 +42,11 @@ describe('treeView', () => {
    * and folding on the bucket would hide every one of them behind a chip.
    */
   it('shows everyone in a tree that has merely stopped, though it sits in Done', () => {
-    const view = treeView(node(entry('p', 'ready'), entry('a', 'ready'), entry('b', 'exited')), undefined, null);
+    const view = treeView(
+      node(entry('p', 'ready'), entry('a', 'ready'), entry('b', 'exited')),
+      undefined,
+      null,
+    );
     expect(view.collapsed).toBe(false);
     expect(ids(view.shown)).toEqual(['a', 'b']);
   });

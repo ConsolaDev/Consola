@@ -61,6 +61,7 @@ src/shared/         → Shared types and IPC channel constants
 - `drivers/` - One driver per agent CLI: binary resolution, argv, env, health probe
 - `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
 - `HarnessCapabilitiesCache.ts` - Remembers what each harness said it can offer
+- `harnessSwitch/` - Moves a session onto another harness: plan, handoff documents, `HarnessSwitcher`
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -154,10 +155,12 @@ check, Claude is the authority.
 A session's conversation can be replaced without replacing the session. An
 action set to start fresh (`WorkItemAction.conversation`), run in a session
 that already exists, gives that tab a new `claudeSessionId` through
-`WorkspaceService.replaceConversation` — the only writer of the field, which
-is why it is absent from `allowedSessionUpdates` — and
+`WorkspaceService.replaceConversation` — one of the field's two writers,
+which is why it is absent from `allowedSessionUpdates` — and
 `TerminalService.startFreshConversation` moves the live terminal onto it.
-Tab, harness, model, tool policy, checkout and linked item all stay. Do not
+Tab, harness, model, tool policy, checkout and linked item all stay. The
+other writer is a harness switch (`WorkspaceService.switchHarness`), which
+replaces the conversation and the harness together. Do not
 reach for typing `/clear` instead: the Claude driver does not follow a
 conversation change made inside the CLI, so the record would keep naming
 the old conversation and the next relaunch would resume it.
@@ -174,7 +177,8 @@ The agent can also move itself: Claude's `EnterWorktree` moves the whole
 process into a worktree Consola never made. While a session works, its
 terminal asks the driver where the process is (`readWorkingDirectory`,
 Claude's own `<config>/sessions/<pid>.json`), and main records a difference
-as `Session.agentCwd` (`WorkspaceService.recordAgentCwd`, its only writer).
+as `Session.agentCwd` (`WorkspaceService.recordAgentCwd`, its only writer; a
+harness switch only clears it, since the new process reports for itself).
 `checkoutPathForSession` prefers it, so every git view follows the agent.
 Launching never does: spawns still start in `cwd`, and the CLI reports again
 from there.
@@ -190,6 +194,9 @@ Queued prompts are delivered only when the emulated screen shows an *empty*
 composer and no confirmation markers (`CONFIRMATION_MARKERS`). Claude shows a
 workspace trust gate on first launch in an unfamiliar folder, and typing into
 it would answer it. Any future automated input must respect the same guard.
+A harness switch's handoff prompt does: it is queued like any first prompt
+(or passed as an argument to a CLI that takes one), so a target harness that
+has never trusted the folder asks first, and the person answers.
 
 An automation's session never needs that guard for its first turn: it runs
 non-interactively (Claude's print mode), with its prompt as an argument, so
@@ -249,21 +256,84 @@ Supporting another CLI means adding a driver and registering it; nothing in
 
 Two invariants are load-bearing:
 
-- **A session's harness is fixed for its lifetime.** The transcript is written
-  inside that harness's config directory, and `--resume` only finds it there.
-  A session's model is fixed the same way and for the same kind of reason: it
-  is replayed on every relaunch, so a later edit would move a conversation onto
-  a different model part-way through. Both are kept immutable by being absent
-  from `allowedSessionUpdates`, not by validation. So is a session's
-  `toolPolicy` (`read-only` for every session an automation starts): main
-  replays it from the record on every launch, `TERMINAL_CREATE` included,
-  and each driver enforces it with its CLI's own flags or refuses to launch.
+- **A session's harness is fixed for its conversation.** The transcript is
+  written inside that harness's config directory, and `--resume` only finds it
+  there. A session's model is fixed the same way and for the same kind of
+  reason: it is replayed on every relaunch, so a later edit would move a
+  conversation onto a different model part-way through. Both are kept immutable
+  by being absent from `allowedSessionUpdates`, not by validation. So is a
+  session's `toolPolicy` (`read-only` for every session an automation
+  starts): main replays it from the record on every launch, `TERMINAL_CREATE`
+  included, and each driver enforces it with its CLI's own flags or refuses to
+  launch. The one way the harness and model change is a harness switch (see
+  below), which gives the session a new conversation on the new harness in
+  the same move; the tool policy survives a switch unchanged.
 - **Deleting a harness archives it.** The record has to outlive removal, or
   every conversation started under it would resume against the wrong profile.
 
 A harness that pins nothing resolves exactly as Consola did before harnesses
 existed, ambient `CLAUDE_CONFIG_DIR` included. Keep that true: it is what the
 built-in harness and every migrated session rely on.
+
+### Switching a Session's Harness
+
+A session can carry on with another harness in the same tab — a harness
+that hit its usage limit, another CLI taking over (`harnessSwitch/`). The
+conversation travels the best way the two drivers allow, and
+`planHarnessSwitch` is the only place that decides, from which optional
+driver methods exist — never from a driver id:
+
+- **Native**, between harnesses of one driver whose CLI can fork:
+  `transplantConversation` makes the conversation findable under the target
+  (Claude copies the transcript and its sibling folder into the target's
+  identically named project folder, never overwriting), then the target
+  launches with `forkFrom`. Nothing is lost. The copy is verified before
+  anything changes, since a fork of a missing file fails. A driver offering
+  transplant must honour `forkFrom` (contract test in `toolPolicy.test.ts`).
+- **Handoff**, across CLIs or within one that cannot fork: the source
+  driver's `readConversation` is rendered to a markdown document under
+  `<userData>/handoffs/<session id>/` (removed with the session, since later
+  handoffs point back at earlier ones), and the target starts a fresh
+  conversation whose opening prompt says to read it. Tool output is not
+  carried, and the prompt says so.
+
+A conversation that is there with nothing in it carries nothing, and the
+target simply starts fresh. One whose transcript cannot be found is refused,
+never taken for empty: a session that ran somewhere its harness record does
+not point would otherwise come back blank, as if its history were lost. The
+renderer and main translate a harness into launch fields with the one
+`launchFieldsFor` (`shared/harness.ts`) for the same reason — a built-in
+harness given its own config folder keeps its conversations there, and every
+reader has to look there too.
+
+`WorkspaceService.switchHarness` is the one writer of `harnessId`; the record
+it leaves is `switchedSession`'s. It moves `claudeSessionId` with the harness,
+drops `model` (a selector belongs to its harness) and `agentCwd` (the old
+process's report), keeps `toolPolicy` — a target that cannot enforce it is
+refused — and records what was left in `priorConversations`, each link naming
+the conversation that took over (`continuedAs`). A handoff pins the name,
+because a summary of the new conversation would describe the handoff.
+`TerminalService.switchHarness` moves a live terminal in place, like
+`startFreshConversation`: the instance, its pane and listeners stay, while
+what attention knew of the old process is forgotten — a CLI without hooks
+would never clear a held turn. The switch is refused mid-turn, but not at a
+menu: a usage-limit notice is where it is wanted, and the switch stops that
+process rather than answering anything. The Assistant and conductors stay
+on their harness.
+
+Claude writes a forked conversation only once its first message is sent, so
+a switch nobody has spoken after yet leaves a conversation that is not there
+to resume. Resuming still asks Claude first; when the resume fails, the
+fallback that would start blank instead opens the conversation the way the
+switch began it — the same fork, or the same handoff prompt
+(`switchOpening`/`openingFor`, passed as `TerminalServiceOptions.opening` by
+every launch path).
+
+`HarnessSwitcher` orders it so the record never names a conversation nothing
+started: everything that can refuse, or only writes artifacts nothing names
+yet, comes first; then a live terminal is checked and moved right after the
+record is written, while a session with no terminal is started on the target
+first and its record written after.
 
 ### Hooks Add to the Screen, They Do Not Replace It
 
@@ -300,9 +370,10 @@ is on; without hooks only the drop is held. `needs-attention` and `exited`
 are never delayed, and prompt delivery, the Assistant and the renderer's
 terminal status still read the terminal's own.
 
-The sidebar adds no smoothing of its own. A row sits in the section its
-attention says, the open row included: pinning a stopped row under Working
-made the section state something false.
+A row sits in the section its attention says, the open row included: pinning
+a stopped row under Working made the section state something false. The
+sidebar's own softening is the same for every row (`workingExits`, the shift
+guard).
 
 A menu is looked for when output pauses, and again shortly after the person
 types into one (`ANSWER_RECHECK_MS`): a turn that goes on after its answer
@@ -335,6 +406,9 @@ empty result would read as "this harness has no commands".
 probing each project directory for `<sessionId>.jsonl`; the directory-name
 encoding is lossy and cannot be derived from a working directory. The
 transcript is authoritative and `sessions-index.json` is a cache that lags.
+The one write is `copyConversation`, for a harness switch: into another
+config directory, under the source's own project-folder name, never over
+anything already there.
 
 ### IPC Channels
 

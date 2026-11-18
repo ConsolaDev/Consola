@@ -14,11 +14,13 @@ export interface Entry {
   kind: string;
   /** Already derived by main; never computed in the renderer. */
   attention: Attention;
-  /** When it entered this attention value. */
-  since: number;
-  /** When it was last genuinely active. The sort key within a shelf. */
+  /** When it first appeared. */
+  createdAt: number;
+  /** When it last came back from Settled, if it ever has. */
+  unsettledAt?: number;
+  /** When it was last genuinely active: a turn starting or finishing. */
   activityAt: number;
-  /** When it last finished, if it has. Orders the Done bucket. */
+  /** When it last finished, if it has. */
   finishedAt?: number;
   /** The conductor this entry belongs to. */
   parent?: EntryKey;
@@ -44,7 +46,10 @@ export interface Entry {
  * The facets a session answers for. One it has no value for — a session with
  * no automation — is still hidden by that facet.
  */
-export const SESSION_FACET_DOMAIN: readonly string[] = ['scope', ...FACET_KEYS.filter((key) => key !== 'label')];
+export const SESSION_FACET_DOMAIN: readonly string[] = [
+  'scope',
+  ...FACET_KEYS.filter((key) => key !== 'label'),
+];
 
 /** The facets a run answers for. A run belongs to an automation, not a scope. */
 export const RUN_FACET_DOMAIN: readonly string[] = ['automation'];

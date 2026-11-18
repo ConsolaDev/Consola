@@ -42,7 +42,8 @@ export function departures(before: Placement, after: Placement): Departure[] {
   const moved: Departure[] = [];
   for (const [key, to] of after) {
     const from = before.get(key);
-    if (from !== undefined && from !== to && TRAVELS[from]?.includes(to)) moved.push({ key, from, to });
+    if (from !== undefined && from !== to && TRAVELS[from]?.includes(to))
+      moved.push({ key, from, to });
   }
   return moved;
 }

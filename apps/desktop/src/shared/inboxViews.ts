@@ -44,7 +44,7 @@ export function itemsForView(items: InboxItem[], view: InboxViewId): InboxItem[]
         .filter(
           (item) =>
             item.roles.includes('review-requested-direct') ||
-            item.roles.includes('review-requested-team')
+            item.roles.includes('review-requested-team'),
         )
         .sort(byUpdatedDesc);
   }

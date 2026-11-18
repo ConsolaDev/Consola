@@ -3,7 +3,11 @@ import { leafCount, visibleNodes } from './fold';
 import { entry, ids, keyOf, node } from './entryFixtures';
 
 describe('visibleNodes', () => {
-  const nodes = [node(entry('a', 'working')), node(entry('b', 'working')), node(entry('c', 'ready'))];
+  const nodes = [
+    node(entry('a', 'working')),
+    node(entry('b', 'working')),
+    node(entry('c', 'ready')),
+  ];
 
   it('shows everything when expanded', () => {
     expect(ids(visibleNodes(nodes, false, null))).toEqual(['a', 'b', 'c']);
@@ -28,7 +32,10 @@ describe('visibleNodes', () => {
   });
 
   it('keeps a tree visible when the active session is a descendant', () => {
-    const list = [node(entry('p', 'working'), entry('kid', 'working')), node(entry('other', 'working'))];
+    const list = [
+      node(entry('p', 'working'), entry('kid', 'working')),
+      node(entry('other', 'working')),
+    ];
     expect(ids(visibleNodes(list, true, keyOf('kid')))).toEqual(['p']);
   });
 
@@ -44,8 +51,12 @@ describe('visibleNodes', () => {
     expect(visibleNodes(nodes, true, keyOf('elsewhere'))).toEqual([]);
   });
 
-  it('serves a conductor\'s children: a needs-attention child stays, a working one folds', () => {
-    const conductor = node(entry('p', 'working'), entry('quiet', 'working'), entry('asks', 'needs-attention'));
+  it("serves a conductor's children: a needs-attention child stays, a working one folds", () => {
+    const conductor = node(
+      entry('p', 'working'),
+      entry('quiet', 'working'),
+      entry('asks', 'needs-attention'),
+    );
     expect(ids(visibleNodes(conductor.children, true, null))).toEqual(['asks']);
   });
 
@@ -58,11 +69,15 @@ describe('visibleNodes', () => {
 
 describe('leafCount', () => {
   it('counts a conductor beside its children, not the tree as one', () => {
-    expect(leafCount([node(entry('p', 'working'), entry('a', 'ready'), entry('b', 'ready'))])).toBe(3);
+    expect(leafCount([node(entry('p', 'working'), entry('a', 'ready'), entry('b', 'ready'))])).toBe(
+      3,
+    );
   });
 
   it('sums plain rows and trees', () => {
-    expect(leafCount([node(entry('x', 'ready')), node(entry('p', 'ready'), entry('a', 'ready'))])).toBe(3);
+    expect(
+      leafCount([node(entry('x', 'ready')), node(entry('p', 'ready'), entry('a', 'ready'))]),
+    ).toBe(3);
   });
 
   it('is zero for an empty shelf', () => {

@@ -6,7 +6,7 @@ function setup() {
   const activity = new TurnActivity(
     { touch: (sessionId, workspaceId, at) => touches.push([sessionId, workspaceId, at]) },
     (instanceId) => (instanceId === 'inst-1' ? { sessionId: 's1', workspaceId: 'w1' } : undefined),
-    () => 1000
+    () => 1000,
   );
   return { activity, touches };
 }

@@ -7,7 +7,10 @@ import { DROP_HOLD_MS, SteadyStatus, UNTURNED_WORK_MS } from './steadyStatus';
 function setup() {
   const seen: TerminalStatus[] = [];
   const turn: { now: HookInputs['turn'] } = { now: undefined };
-  const steady = new SteadyStatus({ turn: () => turn.now, emit: (_id, status) => seen.push(status) });
+  const steady = new SteadyStatus({
+    turn: () => turn.now,
+    emit: (_id, status) => seen.push(status),
+  });
   return { seen, turn, steady, say: (status: TerminalStatus) => steady.observe('t', status) };
 }
 
@@ -169,8 +172,11 @@ describe('a recorded session with a background agent', () => {
   beforeEach(() => vi.useFakeTimers());
   afterEach(() => vi.useRealTimers());
 
-  const stop = (backgroundWork: number, backgroundAgents: number): AttentionSignal =>
-    ({ kind: 'turn-ended', backgroundWork, backgroundAgents });
+  const stop = (backgroundWork: number, backgroundAgents: number): AttentionSignal => ({
+    kind: 'turn-ended',
+    backgroundWork,
+    backgroundAgents,
+  });
   const subagentCall: AttentionSignal = { kind: 'resumed', tool: 'Bash:{}', agent: true };
   const recording: Array<[number, TerminalStatus | AttentionSignal]> = [
     [8_814, { kind: 'resumed' }],
@@ -179,10 +185,13 @@ describe('a recorded session with a background agent', () => {
     [12_361, stop(1, 1)],
     [13_644, 'ready'],
     // The agent works; its panel and tool calls paint in bursts.
-    [21_824, 'working'], [22_324, 'ready'],
-    [25_828, 'working'], [26_810, 'ready'],
+    [21_824, 'working'],
+    [22_324, 'ready'],
+    [25_828, 'working'],
+    [26_810, 'ready'],
     [29_395, subagentCall],
-    [30_185, 'working'], [30_685, 'ready'],
+    [30_185, 'working'],
+    [30_685, 'ready'],
     // It hands back, which wakes the session for a short turn.
     [33_659, { kind: 'resumed' }],
     [34_681, 'working'],
@@ -200,12 +209,19 @@ describe('a recorded session with a background agent', () => {
   it('is working while the agent works and stopped once, not eight times', () => {
     const hooks = new HookSignals();
     const told: TerminalStatus[] = [];
-    const steady = new SteadyStatus({ turn: (id) => hooks.get(id)?.turn, emit: (_id, status) => told.push(status) });
+    const steady = new SteadyStatus({
+      turn: (id) => hooks.get(id)?.turn,
+      emit: (_id, status) => told.push(status),
+    });
     hooks.subscribe((id) => steady.hookChanged(id));
     const attention: Array<[number, string]> = [];
     const read = (at: number) => {
       const now = deriveAttention({
-        terminal: steady.get('t')!, record: undefined, isViewedInFocusedWindow: false, heldByOpenRun: false, hook: hooks.get('t'),
+        terminal: steady.get('t')!,
+        record: undefined,
+        isViewedInFocusedWindow: false,
+        heldByOpenRun: false,
+        hook: hooks.get('t'),
       });
       if (attention.at(-1)?.[1] !== now) attention.push([at, now]);
     };

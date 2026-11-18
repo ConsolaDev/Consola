@@ -43,9 +43,10 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
     setIsLoading(true);
     setError(null);
 
-    fileBridge.listDirectory(rootPath)
+    fileBridge
+      .listDirectory(rootPath)
       .then(setRootChildren)
-      .catch(err => setError(err.message))
+      .catch((err) => setError(err.message))
       .finally(() => setIsLoading(false));
 
     // Refresh git status when root path changes
@@ -131,7 +132,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
       {renderHeader()}
       {viewMode === 'files' ? (
         <div ref={treeRef} tabIndex={0} className="file-tree">
-          {rootChildren.map(node => (
+          {rootChildren.map((node) => (
             <FileTreeItem
               key={node.path}
               node={node}
@@ -142,10 +143,7 @@ export function FileExplorer({ rootPath, selectedPath, onSelectFile }: FileExplo
           ))}
         </div>
       ) : (
-        <GitChangesPanel
-          rootPath={rootPath}
-          selectedPath={selectedPath}
-        />
+        <GitChangesPanel rootPath={rootPath} selectedPath={selectedPath} />
       )}
     </div>
   );

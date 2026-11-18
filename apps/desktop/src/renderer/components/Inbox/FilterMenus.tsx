@@ -100,7 +100,9 @@ export function UpdatedFilterMenu({ value, onChange }: UpdatedFilterMenuProps) {
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
         <button className="inbox-filter-trigger inbox-updated-filter-trigger">
-          <span className="inbox-filter-trigger-label">Updated: {UPDATED_FILTER_LABELS[value]}</span>
+          <span className="inbox-filter-trigger-label">
+            Updated: {UPDATED_FILTER_LABELS[value]}
+          </span>
           <ChevronDown size={12} />
         </button>
       </DropdownMenu.Trigger>

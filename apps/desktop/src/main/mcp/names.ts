@@ -12,7 +12,7 @@ export const CONSOLA_MCP_SERVER = 'consola';
 
 /** A registry tool's name as the session sees it: `list_sessions` → `consola_list_sessions`. */
 export function mcpToolName(tool: string): string {
-    return `consola_${tool}`;
+  return `consola_${tool}`;
 }
 
 /**

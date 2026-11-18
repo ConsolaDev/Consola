@@ -40,7 +40,10 @@ describe('HookSignals', () => {
 
   it.each([
     ['idle', { kind: 'idle' } as AttentionSignal],
-    ['a turn ending', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 } as AttentionSignal],
+    [
+      'a turn ending',
+      { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 } as AttentionSignal,
+    ],
   ])('ends on %s', (_name, signal) => {
     const hooks = signals('ready');
     hooks.apply('i', menu);
@@ -81,7 +84,8 @@ describe('HookSignals', () => {
     // again, over and over, and is no new turn: the next one reports at its stop.
     const hooks = signals('working');
     hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
-    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const) hooks.statusChanged('i', status);
+    for (const status of ['ready', 'working', 'ready', 'working', 'ready'] as const)
+      hooks.statusChanged('i', status);
     expect(hooks.get('i')).toMatchObject({ holdingBackgroundWork: true, awaitingAgents: true });
   });
 
@@ -91,7 +95,12 @@ describe('HookSignals', () => {
     hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
     hooks.apply('i', menu);
     hooks.statusChanged('i', 'exited');
-    expect(hooks.get('i')).toEqual({ needsInput: false, holdingBackgroundWork: false, awaitingAgents: false, turn: undefined });
+    expect(hooks.get('i')).toEqual({
+      needsInput: false,
+      holdingBackgroundWork: false,
+      awaitingAgents: false,
+      turn: undefined,
+    });
     hooks.forget('i');
     expect(hooks.get('i')).toBeUndefined();
   });

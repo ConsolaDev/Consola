@@ -49,7 +49,7 @@ const COMMAND_REGEX = /(?<![a-zA-Z0-9:])\/([a-zA-Z][a-zA-Z0-9_:-]*)/g;
 export function findCommandReferences(
   text: string,
   knownCommands?: Set<string>,
-  commandTypes?: Map<string, 'skill' | 'command'>
+  commandTypes?: Map<string, 'skill' | 'command'>,
 ): CommandMatch[] {
   const matches: CommandMatch[] = [];
   let match: RegExpExecArray | null;
@@ -57,6 +57,7 @@ export function findCommandReferences(
   // Reset regex state
   COMMAND_REGEX.lastIndex = 0;
 
+  // biome-ignore lint/suspicious/noAssignInExpressions: walks each match of the global regex in turn
   while ((match = COMMAND_REGEX.exec(text)) !== null) {
     const fullMatch = match[0];
     const commandName = match[1];
@@ -96,7 +97,7 @@ export function findCommandReferences(
 export function parseTextWithCommands(
   text: string,
   knownCommands?: Set<string>,
-  commandTypes?: Map<string, 'skill' | 'command'>
+  commandTypes?: Map<string, 'skill' | 'command'>,
 ): TextSegment[] {
   if (!text) {
     return [];
@@ -162,7 +163,7 @@ export function hasCommandReferences(text: string): boolean {
  */
 export function buildCommandLookups(
   skills: string[] = [],
-  commands: string[] = []
+  commands: string[] = [],
 ): {
   knownCommands: Set<string>;
   commandTypes: Map<string, 'skill' | 'command'>;

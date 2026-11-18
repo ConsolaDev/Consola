@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
+import * as fs from 'node:fs';
+import * as os from 'node:os';
+import * as path from 'node:path';
 import { JsonStateFile } from './JsonStateFile';
 import {
   EMPTY_VIEW,
@@ -61,7 +61,9 @@ describe('resolveRememberedView', () => {
   it('keeps the automations overlay while dropping a dangling session', () => {
     const workspace = { sessions: [session('s1')] } as Workspace;
 
-    expect(resolveRememberedView({ activeSessionId: 'gone', overlay: 'automations' }, workspace)).toEqual({
+    expect(
+      resolveRememberedView({ activeSessionId: 'gone', overlay: 'automations' }, workspace),
+    ).toEqual({
       activeSessionId: null,
       overlay: 'automations',
     });
@@ -88,16 +90,17 @@ describe('resolveRememberedView', () => {
     // answer here.
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
-    expect(resolveRememberedView({ activeSessionId: 'gone', overlay: null }, workspace)).toEqual(
-      { activeSessionId: null, overlay: null }
-    );
+    expect(resolveRememberedView({ activeSessionId: 'gone', overlay: null }, workspace)).toEqual({
+      activeSessionId: null,
+      overlay: null,
+    });
   });
 
   it('treats a remembered composer as a real answer, not as nothing remembered', () => {
     const workspace = makeWorkspace({ sessions: [session('s1')] });
 
     expect(resolveRememberedView({ activeSessionId: null, overlay: null }, workspace)).toEqual(
-      EMPTY_VIEW
+      EMPTY_VIEW,
     );
   });
 
@@ -125,14 +128,29 @@ describe('resolveRememberedView', () => {
 
 describe('normalizeView', () => {
   it('accepts every shape we write', () => {
-    expect(normalizeView({ activeSessionId: 's1', overlay: 'inbox' })).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
-    expect(normalizeView({ activeSessionId: 's1', overlay: 'automations' })).toEqual({ activeSessionId: 's1', overlay: 'automations' });
-    expect(normalizeView({ activeSessionId: null, overlay: null })).toEqual({ activeSessionId: null, overlay: null });
+    expect(normalizeView({ activeSessionId: 's1', overlay: 'inbox' })).toEqual({
+      activeSessionId: 's1',
+      overlay: 'inbox',
+    });
+    expect(normalizeView({ activeSessionId: 's1', overlay: 'automations' })).toEqual({
+      activeSessionId: 's1',
+      overlay: 'automations',
+    });
+    expect(normalizeView({ activeSessionId: null, overlay: null })).toEqual({
+      activeSessionId: null,
+      overlay: null,
+    });
   });
 
   it('reads the legacy inbox flag as an overlay', () => {
-    expect(normalizeView({ activeSessionId: 's1', isInboxOpen: true })).toEqual({ activeSessionId: 's1', overlay: 'inbox' });
-    expect(normalizeView({ activeSessionId: null, isInboxOpen: false })).toEqual({ activeSessionId: null, overlay: null });
+    expect(normalizeView({ activeSessionId: 's1', isInboxOpen: true })).toEqual({
+      activeSessionId: 's1',
+      overlay: 'inbox',
+    });
+    expect(normalizeView({ activeSessionId: null, isInboxOpen: false })).toEqual({
+      activeSessionId: null,
+      overlay: null,
+    });
   });
 
   it('rejects anything that is not an object', () => {
@@ -164,7 +182,7 @@ describe('ViewMemoryService', () => {
           w1: { activeSessionId: 's1', isInboxOpen: true },
           w2: { activeSessionId: null, isInboxOpen: false },
         },
-      })
+      }),
     );
 
     const rebuilt = build();
@@ -250,7 +268,7 @@ describe('ViewMemoryService', () => {
           w1: { activeSessionId: 's1', overlay: null },
           w2: { activeSessionId: 7, overlay: null },
         },
-      })
+      }),
     );
 
     const rebuilt = build();
