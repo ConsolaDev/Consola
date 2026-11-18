@@ -62,6 +62,7 @@ src/shared/         → Shared types and IPC channel constants
 - `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
 - `HarnessCapabilitiesCache.ts` - Remembers what each harness said it can offer
 - `harnessSwitch/` - Moves a session onto another harness: plan, handoff documents, `HarnessSwitcher`
+- `sessionTitles/` - Names sessions automatically: `SessionNamer`, title text and prompts
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -86,7 +87,7 @@ const result = await window.dialogAPI.selectFolder();
 
 Bridge services are in `src/renderer/services/`:
 - `terminalBridge.ts` - Session terminals
-- `harnessBridge.ts` - Harness health probes and session names
+- `harnessBridge.ts` - Harness health probes and capabilities
 - `dialogBridge.ts` - Native dialogs
 - `fileBridge.ts` - File system reads
 - `gitBridge.ts` - Git status
@@ -164,6 +165,27 @@ replaces the conversation and the harness together. Do not
 reach for typing `/clear` instead: the Claude driver does not follow a
 conversation change made inside the CLI, so the record would keep naming
 the old conversation and the next relaunch would resume it.
+
+### Session Names
+
+Only a session still called `NEW_SESSION_NAME` is named automatically: not one
+with `nameIsUserSet`, and not the Assistant. Everything Consola names itself is
+born with another name, so a name anyone chose is never a candidate.
+
+Main's `SessionNamer` is the only automatic writer. It writes a stand-in from
+the first message (`readFirstPrompt`), then a generated title, each by
+compare-and-set through `updateSession`, so any rename in between wins. A
+generated name never sets `nameIsUserSet`; only Regenerate replaces a typed
+name. A name given inside the CLI is adopted as user-set (`readCliNameSince`),
+but only a change after a baseline counts, so a fork's copied title is not
+taken for a rename.
+
+The title call is one throwaway non-interactive call (`generateText`) from the
+home directory, with no tools, no hooks and no persistence. It is never a
+session, and nothing is typed into a terminal to obtain a name. While a
+session's inline rename field is open its sidebar row stays where it is: a row
+that changes list remounts and would lose the field (`renamingStore`, `pinHold`
+in `renderer/sidebar/openRowHold.ts`).
 
 ### Git State Belongs to the Checkout
 
@@ -392,7 +414,7 @@ anything already there.
 
 All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `terminal:*` - Session terminal lifecycle and events
-- `harness:*` - Harness health probes and session names, dispatched by driver
+- `harness:*` - Harness health probes and capabilities, dispatched by driver
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
