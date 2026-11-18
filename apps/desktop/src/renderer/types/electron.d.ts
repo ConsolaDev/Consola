@@ -1,3 +1,11 @@
+import type {
+  CleanupHistoryEntry,
+  CleanupPreview,
+  CleanupPreviewRequest,
+  CleanupReport,
+  SessionDeleteOutcome,
+  WorktreeCleanupRules,
+} from '../../shared/worktreeCleanup';
 import type { AppUpdateAPI } from '../../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type { Preferences, SettleMemento, SettleResult } from '../../shared/preferences';
@@ -63,8 +71,18 @@ export interface AttentionAPI {
   restore: (memento: SettleMemento) => Promise<void>;
 }
 
+export interface WorktreeCleanupAPI {
+  preview: (request: CleanupPreviewRequest) => Promise<CleanupPreview>;
+  run: (workspaceId?: string) => Promise<CleanupReport>;
+  history: (workspaceId?: string) => Promise<CleanupHistoryEntry[]>;
+  isManaged: (dir: string) => Promise<boolean>;
+  onDeleted: (callback: (outcome: SessionDeleteOutcome) => void) => () => void;
+  onChanged: (callback: () => void) => () => void;
+}
+
 export interface PreferencesAPI {
   get: () => Promise<Preferences>;
+  setWorktreeCleanup: (rules: WorktreeCleanupRules) => Promise<void>;
   setAutoSettleDays: (days: number) => Promise<void>;
   acknowledgeAutoSettle: () => Promise<void>;
   onChanged: (callback: (preferences: Preferences) => void) => () => void;
@@ -88,6 +106,7 @@ declare global {
     fileAPI: FileAPI;
     attentionAPI: AttentionAPI;
     preferencesAPI: PreferencesAPI;
+    worktreeCleanupAPI: WorktreeCleanupAPI;
     gitAPI: GitAPI;
   }
 }

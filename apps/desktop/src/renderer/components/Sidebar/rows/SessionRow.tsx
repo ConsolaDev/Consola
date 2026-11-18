@@ -1,8 +1,9 @@
 import { useEffect, useState, useRef } from 'react';
-import { Check, FolderGit2, Lock, Undo2 } from 'lucide-react';
+import { Check, FolderGit2, FolderSync, Lock, Undo2 } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
 import { checkoutPathForSession } from '../../../../shared/workspace';
+import { tildePath } from '../../../utils/displayPath';
 import { useCheckout } from '../../../stores/checkoutStore';
 import { useSettingsStore } from '../../../stores/settingsStore';
 import { useSessionModel } from '../../../hooks/useSessionModel';
@@ -11,9 +12,10 @@ import { RowStatus, isLive } from './RowStatus';
 import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore';
 import { SessionActionsMenu } from '../SessionActionsMenu';
 import { startSessionDrag } from '../sessionDrag';
-import { deleteSessionCompletely, renameSession } from '../../../utils/sessionActions';
+import { renameSession } from '../../../utils/sessionActions';
 import { SessionNameEditor } from '../../SessionName/SessionNameEditor';
 import { markRenaming } from '../../../stores/renamingStore';
+import { requestSessionDelete } from '../../Dialogs/DeleteSessionDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../../utils/settleActions';
 import type { Attention } from '../../../../shared/attention';
 import { useSessionAttention } from '../../../stores/attentionStore';
@@ -108,6 +110,10 @@ function SessionRowBody({
   const worktreeRef =
     showWorktreeLine && checkout?.kind === 'worktree' ? checkoutRef(checkout) : undefined;
   const shownModel = showModel && !compact ? model : undefined;
+  // A state, not decoration: shown on every row, settled ones included,
+  // whatever the worktree setting says — a rule removed the folder, and
+  // opening the session is what brings it back.
+  const removedWorktree = session.removedWorktree;
   // The stored list, resolved in render: a selector building an array would
   // hand React a fresh snapshot on every read. Ids naming a deleted label
   // simply find nothing.
@@ -178,21 +184,15 @@ function SessionRowBody({
     readOnly && 'read-only',
     STATUS_LABELS[displayStatus],
     age && `last active ${age}`,
-    worktreeRef && `worktree ${worktreeRef}`,
+    removedWorktree
+      ? 'worktree removed, rebuilt when opened'
+      : worktreeRef && `worktree ${worktreeRef}`,
     shownModel,
   ]
     .filter(Boolean)
     .join(' — ');
 
-  const handleDelete = () => {
-    if (
-      window.confirm(
-        `Delete session "${label}"? This will remove the session and its chat history.`,
-      )
-    ) {
-      void deleteSessionCompletely(workspaceId, session);
-    }
-  };
+  const handleDelete = () => requestSessionDelete(workspaceId, session, label);
 
   // Double-click, F2 and the actions menu's Rename all open the one field.
   const startRename = (fromKeyboard: boolean) => {
@@ -337,6 +337,16 @@ function SessionRowBody({
               <Lock size={10} aria-hidden="true" />
             </span>
           )}
+          {/* One line on the shelf, so the removed worktree is a mark beside
+              the lock, with its sentence in the tooltip. */}
+          {removedWorktree && (
+            <span
+              className="session-nav-item-worktree-removed-mark"
+              title="Worktree removed · rebuilt when opened"
+            >
+              <FolderSync size={10} aria-hidden="true" />
+            </span>
+          )}
           {age && <span className="session-row-age">{age}</span>}
         </span>
       ) : (
@@ -403,13 +413,25 @@ function SessionRowBody({
           <span className="session-nav-item-title">
             <span className="session-nav-item-name">{label}</span>
           </span>
-          {(worktreeRef || labelNames.length > 0) && (
+          {(worktreeRef || removedWorktree || labelNames.length > 0) && (
             <span className="session-nav-item-meta">
-              {worktreeRef && (
-                <span className="session-nav-item-worktree" title={`Worktree · ${worktreeRef}`}>
-                  <FolderGit2 size={11} aria-hidden="true" />
-                  <span className="session-nav-item-worktree-ref">{worktreeRef}</span>
+              {removedWorktree ? (
+                <span
+                  className="session-nav-item-worktree session-nav-item-worktree-removed"
+                  title={`Its worktree was removed. Opening this session rebuilds it at ${tildePath(removedWorktree.path)}, on ${removedWorktree.branch ?? removedWorktree.commit.slice(0, 7)}.`}
+                >
+                  <FolderSync size={11} aria-hidden="true" />
+                  <span className="session-nav-item-worktree-ref">
+                    Worktree removed · rebuilt when opened
+                  </span>
                 </span>
+              ) : (
+                worktreeRef && (
+                  <span className="session-nav-item-worktree" title={`Worktree · ${worktreeRef}`}>
+                    <FolderGit2 size={11} aria-hidden="true" />
+                    <span className="session-nav-item-worktree-ref">{worktreeRef}</span>
+                  </span>
+                )
               )}
               {labelNames.map((item) => (
                 <span key={item.id} className="session-nav-item-label">

@@ -11,8 +11,11 @@ import {
   readyGroup,
   scopeIdForPath,
 } from '../providers/launchWorkItem';
+import { withoutGitHooks } from '../gitHooks';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import type { AgentLaunchRequest } from './AutomationService';
+
+export { withoutGitHooks };
 
 export interface AgentLaunchDeps {
   getWorkspace(id: string): Workspace | undefined;
@@ -39,21 +42,6 @@ export class StartedByHandError extends Error {
     super(`Already started by hand: “${sessionName}”.`);
     this.name = 'StartedByHandError';
   }
-}
-
-/**
- * `env` with git's hooks turned off for every git it reaches — including the
- * ones `gh` starts — by a command-line-level config entry that beats any
- * repository or user setting. Appends to entries already in `env`.
- */
-export function withoutGitHooks(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  const count = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10) || 0;
-  return {
-    ...env,
-    GIT_CONFIG_COUNT: String(count + 1),
-    [`GIT_CONFIG_KEY_${count}`]: 'core.hooksPath',
-    [`GIT_CONFIG_VALUE_${count}`]: '/dev/null',
-  };
 }
 
 /**

@@ -738,21 +738,16 @@ test.describe('Home scopes and groups', () => {
     const settle = row.getByRole('button', { name: 'Settle session Controller boot', exact: true });
     const confirmation =
       'Delete session "Controller boot"? This will remove the session and its chat history.';
-    // Stub the native dialog so both cancellation and acceptance are exercised
-    // without relying on platform-specific Electron dialog automation.
-    await page.evaluate(() => {
-      window.confirm = (message) => {
-        (window as any).__deleteConfirmation = message;
-        return false;
-      };
-    });
 
     // The row's one-click slot is the reversible move; destroying a session and
     // its history is behind the row's right-click menu, where a mis-aimed click
-    // cannot reach it.
+    // cannot reach it — and then behind a question, which Cancel answers.
     await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
-    expect(await page.evaluate(() => (window as any).__deleteConfirmation)).toBe(confirmation);
+    const asked = page.getByRole('dialog', { name: 'Delete session' });
+    await expect(asked).toContainText(confirmation);
+    await asked.getByRole('button', { name: 'Cancel', exact: true }).click();
+    await expect(asked).toBeHidden();
     await expect(row).toHaveCount(1);
 
     // Settling acts in place and must not activate the row it acts on. No row
@@ -839,12 +834,13 @@ test.describe('Home scopes and groups', () => {
       .click();
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
 
-    await page.evaluate(() => {
-      window.confirm = () => true;
-    });
     await row.hover();
     await row.click({ button: 'right' });
     await page.getByRole('menuitem', { name: 'Delete', exact: true }).click();
+    await page
+      .getByRole('dialog', { name: 'Delete session' })
+      .getByRole('button', { name: 'Delete', exact: true })
+      .click();
     await expect(row).toHaveCount(0);
     await expect(page.locator('.session-nav-item')).toHaveCount(3);
   });

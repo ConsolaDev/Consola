@@ -1,3 +1,4 @@
+import type { SessionDeleteOutcome, SessionDeletePreview } from './worktreeCleanup';
 import type { WorkItemDetails, WorkItemMutation } from './workItemDetails';
 import type { SessionCheckout, CheckoutContext } from './sessionCheckout';
 import type {
@@ -389,7 +390,12 @@ export interface WorkspaceAPI {
     checkout?: SessionCheckout,
   ) => Promise<Session | undefined>;
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
-  deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+  /** What deleting a session would do to its worktree, before the person confirms. */
+  previewSessionDelete: (workspaceId: string, sessionId: string) => Promise<SessionDeletePreview>;
+  deleteSession: (
+    workspaceId: string,
+    sessionId: string,
+  ) => Promise<SessionDeleteOutcome | undefined>;
   /** A new session of the person's own that continues this read-only one's conversation. */
   forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
   /** What switching this session to each harness it could move to would do. */

@@ -76,6 +76,14 @@ export const IPC_CHANNELS = {
   PREFERENCES_SET_AUTO_SETTLE_DAYS: 'preferences:set-auto-settle-days',
   PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE: 'preferences:acknowledge-auto-settle',
   PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
+  PREFERENCES_SET_WORKTREE_CLEANUP: 'preferences:set-worktree-cleanup',
+  WORKTREE_CLEANUP_PREVIEW: 'worktree-cleanup:preview', // renderer -> main: what the rules would remove now, and why the rest stays
+  WORKTREE_CLEANUP_RUN: 'worktree-cleanup:run', // renderer -> main: "Clean up now"; answers the report
+  WORKTREE_CLEANUP_HISTORY: 'worktree-cleanup:history', // renderer -> main: what was removed and rebuilt, newest first
+  WORKTREE_CLEANUP_CHANGED: 'worktree-cleanup:changed', // main -> renderer: the history changed
+  WORKTREE_CLEANUP_IS_MANAGED: 'worktree-cleanup:is-managed', // renderer -> main: whether a folder is one of Consola's own worktrees
+  WORKTREE_CLEANUP_DELETED: 'worktree-cleanup:deleted', // main -> renderer: how a deleted session's worktree removal ended
+  WORKSPACE_SESSION_DELETE_PREVIEW: 'workspace:session-delete-preview', // renderer -> main: what deleting a session does to its worktree
 
   // Fleet creation (renderer -> main)
   SESSION_FAN_OUT: 'session:fan-out', // N sessions into a fresh group

@@ -10,6 +10,7 @@ import { forgetSessionLocally } from './forgetSession';
 import { ipcErrorMessage } from './ipcErrorMessage';
 import { NEW_SESSION_NAME, generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
+import type { SessionDeleteOutcome } from '../../shared/worktreeCleanup';
 import {
   useNewSessionDialogStore,
   type NewSessionDestination,
@@ -245,20 +246,23 @@ export async function createQuickSession(
 export async function deleteSessionCompletely(
   workspaceId: string,
   session: Session,
-): Promise<void> {
+): Promise<SessionDeleteOutcome | undefined> {
   // Main deletes the record first and stops the PTY only once that reached
-  // disk, so a failed delete leaves the session running and listed.
+  // disk, so a failed delete leaves the session running and listed. What it
+  // did to the session's worktree, if anything, comes back for a toast.
+  let outcome: SessionDeleteOutcome | undefined;
   try {
-    await useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
+    outcome = await useWorkspaceStore.getState().deleteSession(workspaceId, session.id);
   } catch (error) {
     // The session stays in the list. That is the signal — there is no error
     // surface in this app yet, and a session that visibly did not disappear is
     // better than one that vanished from the UI but not from disk.
     console.error('Failed to delete session record; leaving it in place', error);
-    return;
+    return undefined;
   }
 
   forgetSessionLocally(session);
+  return outcome;
 }
 
 /**

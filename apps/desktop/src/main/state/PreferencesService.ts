@@ -1,4 +1,5 @@
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
+import { normalizeRules, type WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 import type { JsonStateFile } from './JsonStateFile';
 
 /** Read stored preferences, falling back per field so one bad value costs only itself. */
@@ -15,6 +16,7 @@ export function normalizePreferences(value: unknown): Preferences {
     pendingAutoSettle: Array.isArray(pending)
       ? pending.filter((id): id is string => typeof id === 'string')
       : [],
+    worktreeCleanup: normalizeRules(row.worktreeCleanup),
   };
 }
 
@@ -27,7 +29,7 @@ export function normalizePreferences(value: unknown): Preferences {
  * one-time explanation would simply be given again.
  */
 export class PreferencesService {
-  private preferences: Preferences = { ...DEFAULT_PREFERENCES };
+  private preferences: Preferences = normalizePreferences({});
   private readonly listeners = new Set<(preferences: Preferences) => void>();
 
   constructor(private readonly file: JsonStateFile<unknown>) {}
@@ -37,12 +39,23 @@ export class PreferencesService {
       this.preferences = normalizePreferences(this.file.read());
     } catch (error) {
       console.error('Could not read preferences; using defaults.', error);
-      this.preferences = { ...DEFAULT_PREFERENCES };
+      this.preferences = normalizePreferences({});
     }
   }
 
   public get(): Preferences {
-    return { ...this.preferences, pendingAutoSettle: [...this.preferences.pendingAutoSettle] };
+    const { worktreeCleanup } = this.preferences;
+    return {
+      ...this.preferences,
+      pendingAutoSettle: [...this.preferences.pendingAutoSettle],
+      worktreeCleanup: { ...worktreeCleanup, runFinished: { ...worktreeCleanup.runFinished } },
+    };
+  }
+
+  /** The person's worktree cleanup rules, rebuilt from known keys. */
+  public setWorktreeCleanup(rules: unknown): void {
+    const next: WorktreeCleanupRules = normalizeRules(rules, this.preferences.worktreeCleanup);
+    this.update({ worktreeCleanup: next });
   }
 
   /** Apply a change from the person. Only the fields they can set. */

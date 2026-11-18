@@ -2,6 +2,15 @@ import type { WorkItemMutation } from '../shared/workItemDetails';
 import { UPDATE_CHANNELS, type AppUpdateAPI } from '../shared/appUpdates';
 import type { AttentionChange, AttentionState } from '../shared/attention';
 import type { Preferences, SettleMemento, SettleResult } from '../shared/preferences';
+import type {
+  CleanupHistoryEntry,
+  CleanupPreview,
+  CleanupPreviewRequest,
+  CleanupReport,
+  SessionDeleteOutcome,
+  SessionDeletePreview,
+  WorktreeCleanupRules,
+} from '../shared/worktreeCleanup';
 import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
@@ -242,7 +251,12 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
 
-  deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
+  previewSessionDelete: (workspaceId: string, sessionId: string): Promise<SessionDeletePreview> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW, workspaceId, sessionId),
+  deleteSession: (
+    workspaceId: string,
+    sessionId: string,
+  ): Promise<SessionDeleteOutcome | undefined> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
 
   forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
@@ -462,8 +476,32 @@ contextBridge.exposeInMainWorld('attentionAPI', {
   },
 });
 
+contextBridge.exposeInMainWorld('worktreeCleanupAPI', {
+  preview: (request: CleanupPreviewRequest): Promise<CleanupPreview> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW, request),
+  run: (workspaceId?: string): Promise<CleanupReport> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_RUN, workspaceId),
+  history: (workspaceId?: string): Promise<CleanupHistoryEntry[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY, workspaceId),
+  isManaged: (dir: string): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED, dir),
+  onDeleted: (callback: (outcome: SessionDeleteOutcome) => void): (() => void) => {
+    const listener = (_event: Electron.IpcRendererEvent, outcome: SessionDeleteOutcome) =>
+      callback(outcome);
+    ipcRenderer.on(IPC_CHANNELS.WORKTREE_CLEANUP_DELETED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WORKTREE_CLEANUP_DELETED, listener);
+  },
+  onChanged: (callback: () => void): (() => void) => {
+    const listener = () => callback();
+    ipcRenderer.on(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED, listener);
+  },
+});
+
 contextBridge.exposeInMainWorld('preferencesAPI', {
   get: (): Promise<Preferences> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_GET),
+  setWorktreeCleanup: (rules: WorktreeCleanupRules): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, rules),
   setAutoSettleDays: (days: number): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
   acknowledgeAutoSettle: (): Promise<void> =>

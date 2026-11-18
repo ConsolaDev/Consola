@@ -1,3 +1,4 @@
+import { requestSessionDelete } from '../Dialogs/DeleteSessionDialog';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { ChevronLeft, Search, SearchX } from 'lucide-react';
@@ -7,7 +8,6 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import {
   activateSessionAnywhere,
-  deleteSessionCompletely,
   createQuickSession,
   renameSession,
   restartSession,
@@ -189,12 +189,8 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
 
       if (purpose === 'delete') {
-        const confirmed = window.confirm(
-          `Delete session "${session.name}"? This will remove the session and its chat history.`,
-        );
-        // Staying in the picker on cancel means a misfire costs one keystroke.
-        if (!confirmed) return;
-        void deleteSessionCompletely(workspace.id, session);
+        // The question outlives the palette: it closes, and the dialog asks.
+        requestSessionDelete(workspace.id, session);
         close();
         return;
       }

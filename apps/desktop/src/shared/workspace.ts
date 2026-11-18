@@ -1,4 +1,5 @@
 import type { WorkspaceIconValue } from './workspaceIcons';
+import type { RemovedWorktree, WorkspaceWorktreeCleanup } from './worktreeCleanup';
 import { BUILT_IN_HARNESS_ID } from './constants';
 import { generateId } from './ids';
 import type { InboxSection } from './inboxSections';
@@ -78,9 +79,17 @@ export interface Session {
   // and a child settles and waits with its conductor — without the clear, a
   // mis-parented session could only be escaped by deleting it.
   parentSessionId?: string;
-  // Opts the session out of settling on its own. Only the value is defined
-  // here; nothing reads or writes it yet.
+  // Opts the session out of settling on its own (the auto-settle sweep).
   autoSettle?: 'never';
+  // Opts the session's worktree out of every automatic removal rule.
+  autoRemoveWorktree?: 'never';
+  // Set while a cleanup rule has removed this session's worktree and the
+  // session stayed: opening it rebuilds the folder at `cwd`, on the recorded
+  // commit (`WorktreeRebuilder`). `cwd` itself is never rewritten. Written
+  // only by `WorkspaceService.recordWorktreesRemoved` and cleared by
+  // `clearWorktreeRemoved`, which is why it is absent from
+  // `allowedSessionUpdates`.
+  removedWorktree?: RemovedWorktree;
   // What drives this session: a person, or a conductor orchestrating others.
   kind: 'interactive' | 'conductor';
   // The remote item this session is about. Mutable since v7: a hand-made
@@ -271,6 +280,9 @@ export interface Workspace {
   // Which action the Inbox pane highlights per section, by action id.
   sectionDefaults: Partial<Record<InboxSection, string>>;
   sessions: Session[];
+  // How this workspace's worktrees are cleaned up: its own rules, off, or —
+  // absent — the global rules in Preferences. Optional, so no migration.
+  worktreeCleanup?: WorkspaceWorktreeCleanup;
   createdAt: number;
   updatedAt: number;
 }
@@ -459,6 +471,7 @@ export type SessionUpdates = Partial<
     | 'workItem'
     | 'labelIds'
     | 'autoSettle'
+    | 'autoRemoveWorktree'
   >
 > & {
   /**
@@ -470,7 +483,7 @@ export type SessionUpdates = Partial<
 
 /** The workspace fields a window may change; the filter in main enforces it. */
 export type WorkspaceUpdates = Partial<
-  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'sessionTitles'>
+  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'sessionTitles' | 'worktreeCleanup'>
 >;
 
 /**
@@ -500,12 +513,16 @@ export function scopeForSession(
  * worktree Consola made), else its scope's. Git state is read from here,
  * never from the scope: a worktree has its own branch, index and changes, so
  * the scope's path would describe a different checkout than the one the agent
- * is editing.
+ * is editing. Undefined while a cleanup rule has the session's worktree removed.
  */
 export function checkoutPathForSession(
   workspace: Workspace,
-  session: Pick<Session, 'scopeId' | 'cwd' | 'agentCwd'> | undefined,
+  session: Pick<Session, 'scopeId' | 'cwd' | 'agentCwd' | 'removedWorktree'> | undefined,
 ): string | undefined {
+  // A worktree a cleanup rule removed has no git state to read until the
+  // session is opened and it is rebuilt: undefined, rather than a folder
+  // every git view would fail on.
+  if (session?.removedWorktree) return undefined;
   return session?.agentCwd ?? session?.cwd ?? scopeForSession(workspace, session)?.path;
 }
 

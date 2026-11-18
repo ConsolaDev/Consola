@@ -6,8 +6,10 @@ import type { ShellOptions } from '../shared/shell';
 import {
   checkoutPathForSession,
   scopeForSession,
+  type Session,
   type WorkspaceUpdates,
 } from '../shared/workspace';
+import { describeError } from './describeError';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import {
@@ -53,6 +55,24 @@ import { openingFor } from './harnessSwitch/handoff';
 import { HandoffStore } from './harnessSwitch/HandoffStore';
 import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
+import { WorktreeCleanupService } from './worktreeCleanup';
+import { WorktreeRebuilder } from './worktreeCleanup/WorktreeRebuilder';
+import { CleanupHistory } from './worktreeCleanup/CleanupHistory';
+import {
+  RUN_ENDED_DEBOUNCE_MS,
+  WorktreeCleanupSweeper,
+} from './worktreeCleanup/WorktreeCleanupSweeper';
+import {
+  type CleanupPreviewRequest,
+  describeTrigger,
+  effectiveWorktreeCleanup,
+  normalizeRules,
+  normalizeWorkspaceOverride,
+  type WorktreeCleanupRules,
+} from '../shared/worktreeCleanup';
+import { TERMINAL_RUN_STATUSES } from '@consola/factory-spec';
+import { worktreePathLock } from './worktreeCleanup/PathLock';
+import { ProcessCwdIndex } from './worktreeCleanup/ProcessCwdIndex';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
@@ -138,7 +158,7 @@ import { AutoSettler } from './attention/AutoSettler';
 import { settleAndVerify, unsettleSession } from './attention/settling';
 import { PreferencesService } from './state/PreferencesService';
 import type { SettleMemento, SettleResult } from '../shared/preferences';
-import type { AttentionState } from '../shared/attention';
+import { activityOf, type AttentionState } from '../shared/attention';
 import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 
 // One terminal per session tab, kept alive while the session is open
@@ -149,6 +169,8 @@ let shellManager: ShellManager | null = null;
 let viewMemoryService: ViewMemoryService | null = null;
 let attentionLedgerService: JsonAttentionLedger | null = null;
 let autoSettler: AutoSettler | null = null;
+let worktreeSweeper: WorktreeCleanupSweeper | null = null;
+let worktreeCleanupService: WorktreeCleanupService | null = null;
 
 // The single writer for workspaces and sessions, shared by every window
 let workspaceService: WorkspaceService | null = null;
@@ -301,6 +323,18 @@ export function setupIpcHandlers(): boolean {
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
     removeHandoffs: (sessionId) => handoffs.removeAll(sessionId),
+    releaseRemovedWorktree: ({ removedWorktree: removed }) => {
+      if (!removed) return;
+      const stillNamed = workspaces
+        .getAll()
+        .some((workspace) =>
+          workspace.sessions.some((session) => session.removedWorktree?.path === removed.path),
+        );
+      if (stillNamed) return;
+      void worktrees
+        .deleteKeepRef(removed.mainRepo, removed.keepRef)
+        .catch((error) => console.error(`Could not delete ${removed.keepRef}:`, error));
+    },
   });
 
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
@@ -373,15 +407,36 @@ export function setupIpcHandlers(): boolean {
 
   ipcMain.handle(
     IPC_CHANNELS.WORKSPACE_SESSION_DELETE,
-    (_event, workspaceId: string, sessionId: string) => {
-      const session = workspaces
-        .getAll()
-        .find((w) => w.id === workspaceId)
-        ?.sessions.find((s) => s.id === sessionId);
+    async (event, workspaceId: string, sessionId: string) => {
+      const workspace = workspaces.getAll().find((w) => w.id === workspaceId);
+      const session = workspace?.sessions.find((s) => s.id === sessionId);
+      if (!workspace || !session) {
+        workspaces.deleteSession(workspaceId, sessionId);
+        return undefined;
+      }
       // Record first, then the PTY, shell and MCP endpoint — in main,
-      // so the delete is whole even when no renderer sends the rest.
-      if (session) sessionRemover.remove(workspaceId, session);
-      else workspaces.deleteSession(workspaceId, sessionId);
+      // so the delete is whole even when no renderer sends the rest. With
+      // the "you delete the session" rule on, its worktree follows.
+      return worktreeCleanupService!.deleteForPerson(
+        workspace,
+        session,
+        () => sessionRemover.remove(workspaceId, session),
+        (outcome) => {
+          if (!event.sender.isDestroyed()) {
+            event.sender.send(IPC_CHANNELS.WORKTREE_CLEANUP_DELETED, outcome);
+          }
+        },
+      );
+    },
+  );
+
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW,
+    async (_event, workspaceId: string, sessionId: string) => {
+      const workspace = workspaces.getAll().find((w) => w.id === workspaceId);
+      const session = workspace?.sessions.find((s) => s.id === sessionId);
+      if (!workspace || !session || !worktreeCleanupService) return { worktree: null };
+      return worktreeCleanupService.previewDelete(workspace, session);
     },
   );
 
@@ -597,6 +652,64 @@ export function setupIpcHandlers(): boolean {
   // The remote->path map is only as fresh as the scope list that feeds it.
   workspaces.onChange(() => worktrees.invalidate());
 
+  // A worktree a cleanup rule removed comes back, at its path and commit,
+  // when its session opens — and only through here: an Inbox click or an
+  // automation run that lands on that folder hands it over first.
+  // What cleanup removed and what was rebuilt. Never fatal, like view memory.
+  const cleanupHistory = new CleanupHistory(
+    new JsonStateFile(path.join(app.getPath('userData'), 'worktree-cleanup-log.json')),
+  );
+  cleanupHistory.load();
+  cleanupHistory.onChange(() => {
+    for (const window of BrowserWindow.getAllWindows()) {
+      if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED);
+    }
+  });
+  const sessionNamesAt = (worktreePath: string) => {
+    const named = workspaces
+      .getAll()
+      .flatMap((workspace) => workspace.sessions.map((session) => ({ workspace, session })))
+      .filter(
+        ({ session }) =>
+          session.cwd === worktreePath || session.removedWorktree?.path === worktreePath,
+      );
+    return {
+      sessionNames: named.map(({ session }) => session.name),
+      workspaceIds: [...new Set(named.map(({ workspace }) => workspace.id))],
+    };
+  };
+
+  const rebuilder = new WorktreeRebuilder({
+    lock: worktreePathLock,
+    getWorkspaces: () => workspaces.getAll(),
+    worktrees,
+    clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    rebuilt: (removed, result) =>
+      cleanupHistory.append({
+        action: 'rebuilt',
+        tree: removed.path,
+        ...sessionNamesAt(removed.path),
+        trigger: removed.trigger,
+        detail:
+          result.kind === 'existed'
+            ? 'Found in place when its session opened.'
+            : `Rebuilt when its session opened${result.branch ? `, on ${result.branch}` : ', detached'}.`,
+      }),
+  });
+  worktrees.restoreRemoved = (dir) => rebuilder.restoreAt(dir);
+  /** Rebuild a removed checkout before a spawn; a failure becomes the pane's notice. */
+  const rebuildForLaunch = async (
+    workspace: Workspace,
+    session: Session,
+  ): Promise<string | undefined> => {
+    if (!session.removedWorktree) return undefined;
+    try {
+      return (await rebuilder.ensureCheckout(workspace, session)).notice;
+    } catch (error) {
+      return describeError(error);
+    }
+  };
+
   const inbox = new InboxService({
     getWorkspace: (id) => workspaces.getAll().find((workspace) => workspace.id === id),
     getBoundWorkspaceIds: () =>
@@ -761,20 +874,27 @@ export function setupIpcHandlers(): boolean {
   const manager = terminalManager;
   shellManager = new ShellManager();
   const shells = shellManager;
-  const shellCwd = (instanceId: string): string => {
-    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+  const shellCwd = async (instanceId: string): Promise<string> => {
+    let located = findSessionByInstanceId(workspaces.getAll(), instanceId);
     if (!located) throw new Error('Session no longer exists.');
+    // A shell opened beside a session whose worktree was removed puts it
+    // back first, as opening the session does.
+    if (located.session.removedWorktree) {
+      await rebuilder.ensureCheckout(located.workspace, located.session);
+      located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+      if (!located) throw new Error('Session no longer exists.');
+    }
     // Beside the agent, in whichever checkout it works — one it moved
     // itself into included — rather than where it was launched.
     const cwd = checkoutPathForSession(located.workspace, located.session);
     if (!cwd) throw new Error('Session has no working directory.');
     return cwd;
   };
-  ipcMain.handle(IPC_CHANNELS.SHELL_ATTACH, (event, options: ShellOptions) =>
-    shells.attach(options, shellCwd(options.instanceId), event.sender),
+  ipcMain.handle(IPC_CHANNELS.SHELL_ATTACH, async (event, options: ShellOptions) =>
+    shells.attach(options, await shellCwd(options.instanceId), event.sender),
   );
-  ipcMain.handle(IPC_CHANNELS.SHELL_RESTART, (event, options: ShellOptions) =>
-    shells.restart(options, shellCwd(options.instanceId), event.sender),
+  ipcMain.handle(IPC_CHANNELS.SHELL_RESTART, async (event, options: ShellOptions) =>
+    shells.restart(options, await shellCwd(options.instanceId), event.sender),
   );
   ipcMain.on(IPC_CHANNELS.SHELL_INPUT, (event, id: string, data: string) =>
     shells.input(id, data, event.sender),
@@ -871,6 +991,12 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE, () =>
     preferences.acknowledgeAutoSettle(),
   );
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, (_event, rules: unknown) =>
+    preferences.setWorktreeCleanup(rules),
+  );
+  /** The cleanup rules that apply in a workspace now: its own, none, or the global ones. */
+  const cleanupRulesFor = (workspace: Workspace) =>
+    effectiveWorktreeCleanup(preferences.get().worktreeCleanup, workspace.worktreeCleanup);
 
   const withWorkspace =
     <T>(empty: T, run: (workspace: Workspace, sessionId: string) => T) =>
@@ -1036,6 +1162,8 @@ export function setupIpcHandlers(): boolean {
     });
     // Work that completed is a result nobody has looked at: the session is done, not merely exited.
     if (ended?.completed) attentionSessions.runCompleted(instanceId);
+    // "Its automation run ended" may now apply; a little later, once it has settled.
+    worktreeSweeper?.kick(RUN_ENDED_DEBOUNCE_MS);
   });
 
   // An agent can move itself into another checkout (Claude's EnterWorktree)
@@ -1055,6 +1183,7 @@ export function setupIpcHandlers(): boolean {
 
   // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
   const launcher = new SessionLauncher(workspaces, harnesses, manager);
+  launcher.prepareCheckout = (workspace, session) => rebuilder.ensureCheckout(workspace, session);
 
   // An action run in a work-item session that already exists — a follow-up
   // pass on the same job, in the same tab. Coalesced per session and
@@ -1106,6 +1235,147 @@ export function setupIpcHandlers(): boolean {
     getStatus: sessionStatus,
   });
 
+  // Removing Consola's worktrees: one decision and one executor behind the
+  // cleanup tools, the sweep and the delete dialog.
+  const worktreeCleanup = new WorktreeCleanupService({
+    getWorkspaces: () => workspaces.getAll(),
+    status: sessionStatus,
+    isShown: (instanceId) => viewing.isShown(instanceId),
+    heldSessionIds: () => new Set(attention.holds().keys()),
+    lastActiveAt: (session) => activityOf(session, attentionLedger.get(session.id)),
+    ownProcessIds: (sessions) => {
+      const agents = new Set<number>();
+      const shellPids = new Set<number>();
+      for (const session of sessions) {
+        const agent = manager.get(session.instanceId)?.pid();
+        const shell = shells.pid(session.instanceId);
+        if (agent !== undefined) agents.add(agent);
+        if (shell !== undefined) shellPids.add(shell);
+      }
+      return { agents, shells: shellPids };
+    },
+    worktrees,
+    processes: new ProcessCwdIndex(),
+    lock: worktreePathLock,
+    stop: (session) => sessionRemover.stop(session),
+    recordRemoved: (entries) => workspaces.recordWorktreesRemoved(entries),
+    clearRemoved: (worktreePath) => workspaces.clearWorktreeRemoved(worktreePath),
+    rules: {
+      rulesFor: cleanupRulesFor,
+      // The shelf's own clock: when it went there, if it reads settled now.
+      settledAt: (session) =>
+        attention.get(session.id) === 'settled'
+          ? (attentionLedger.get(session.id)?.settledAt ?? null)
+          : null,
+      runEndedAt: (session) => {
+        const run = session.automation && runStore.get(session.automation.runId);
+        if (!run) return undefined;
+        if (!TERMINAL_RUN_STATUSES.includes(run.status)) return null;
+        const ended = Date.parse(run.finishedAt ?? run.updatedAt);
+        return Number.isFinite(ended) ? ended : null;
+      },
+    },
+    pullRequests: {
+      driverFor: (workspace) => {
+        if (!workspace.provider) return null;
+        try {
+          return getProviderDriver(workspace.provider.id);
+        } catch {
+          return null;
+        }
+      },
+      composeEnv: (workspace) =>
+        composeProviderEnv(
+          getProviderDriver(workspace.provider!.id),
+          workspace.provider!.accountLogin,
+        ),
+    },
+    removed: (execution) =>
+      cleanupHistory.append({
+        action: 'removed',
+        tree: execution.verdict.tree,
+        ...sessionNamesAt(execution.verdict.tree),
+        trigger: execution.verdict.trigger,
+        branch: execution.branch,
+        detail: `${describeTrigger(execution.verdict.trigger)}.${
+          execution.branch === 'deleted'
+            ? ` Branch ${execution.inspection.branch} deleted.`
+            : execution.branch === 'kept'
+              ? ` Branch ${execution.inspection.branch} kept.`
+              : ''
+        }`,
+      }),
+    now: () => Date.now(),
+  });
+
+  worktreeCleanupService = worktreeCleanup;
+
+  // The rules run on their own: every five minutes, when one changes, and
+  // shortly after an automation run ends. Nothing at all while all are off.
+  const sweeper = new WorktreeCleanupSweeper({
+    sweep: (options) => worktreeCleanup.sweep(options),
+    anyRuleOn: () => worktreeCleanup.anySweepRuleOn(cleanupRulesFor),
+    onWindowReport: (listener) => viewing.onReport(listener),
+  });
+  worktreeSweeper = sweeper;
+  let sweptRules = JSON.stringify(preferences.get().worktreeCleanup);
+  preferences.onChange((next) => {
+    const rules = JSON.stringify(next.worktreeCleanup);
+    if (rules === sweptRules) return;
+    sweptRules = rules;
+    sweeper.kick();
+  });
+  const overridesOf = (all: Workspace[]) =>
+    JSON.stringify(all.map((workspace) => [workspace.id, workspace.worktreeCleanup ?? null]));
+  let sweptOverrides = overridesOf(workspaces.getAll());
+  workspaces.onChange((all) => {
+    const overrides = overridesOf(all);
+    if (overrides === sweptOverrides) return;
+    sweptOverrides = overrides;
+    sweeper.kick();
+  });
+
+  /** The rules a preview is asked to judge by: the stored ones, or the ones about to be chosen. */
+  const proposedRules = (request: CleanupPreviewRequest | undefined) => {
+    if (!request?.global && !request?.override) return undefined;
+    const global: WorktreeCleanupRules = request.global
+      ? normalizeRules(request.global)
+      : preferences.get().worktreeCleanup;
+    const override = request.override;
+    const overrideValue =
+      override && override.value !== null ? normalizeWorkspaceOverride(override.value) : undefined;
+    return (workspace: Workspace) =>
+      effectiveWorktreeCleanup(
+        global,
+        override && workspace.id === override.workspaceId
+          ? overrideValue
+          : workspace.worktreeCleanup,
+      );
+  };
+  ipcMain.handle(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW, (_event, request: unknown) => {
+    const asked = (
+      typeof request === 'object' && request !== null ? request : {}
+    ) as CleanupPreviewRequest;
+    const rulesFor = proposedRules(asked);
+    return worktreeCleanup.scan({
+      ...(typeof asked.workspaceId === 'string' ? { workspaceId: asked.workspaceId } : {}),
+      ...(rulesFor ? { rulesFor } : {}),
+    });
+  });
+  ipcMain.handle(IPC_CHANNELS.WORKTREE_CLEANUP_RUN, (_event, workspaceId: unknown) =>
+    worktreeCleanup.sweep({
+      refreshPullRequests: true,
+      ...(typeof workspaceId === 'string' ? { workspaceId } : {}),
+    }),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED,
+    (_event, dir: unknown) => typeof dir === 'string' && worktrees.managedTreeOf(dir) !== null,
+  );
+  ipcMain.handle(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY, (_event, workspaceId: unknown) =>
+    cleanupHistory.list(typeof workspaceId === 'string' ? workspaceId : undefined),
+  );
+
   // Finished-PR cleanup and single deletes: one service behind the MCP
   // tools, automations and Settings alike.
   const sessionCleanup = new SessionCleanupService({
@@ -1126,6 +1396,7 @@ export function setupIpcHandlers(): boolean {
         workspace.provider!.accountLogin,
       ),
     worktrees,
+    cleanup: worktreeCleanup,
     remover: sessionRemover,
   });
 
@@ -1469,7 +1740,17 @@ export function setupIpcHandlers(): boolean {
       .flatMap((candidate) => candidate.sessions)
       .find((session) => session.instanceId === instanceId);
     const mcpConfigPath = record ? await mcpConfigForSession(record, mcpHost) : undefined;
-    // The await above is a window: a session deleted during it must not
+    // A worktree a cleanup rule removed is rebuilt before the spawn, at the
+    // folder the session launches in (never `agentCwd`), and the pane says
+    // so. A rebuild that fails is said instead, and the spawn then fails on
+    // the missing folder the way it always has.
+    let launchCwd = cwd;
+    let launchNotice: string | undefined;
+    if (record?.removedWorktree && workspace) {
+      launchNotice = await rebuildForLaunch(workspace, record);
+      launchCwd = record.cwd ?? scopeForSession(workspace, record)?.path ?? cwd;
+    }
+    // The awaits above are a window: a session deleted during them must not
     // get a PTY that nothing can name again.
     if (
       record &&
@@ -1483,7 +1764,8 @@ export function setupIpcHandlers(): boolean {
     return manager.ensure(
       instanceId,
       {
-        cwd,
+        cwd: launchCwd,
+        launchNotice,
         claudeSessionId,
         // Resume whenever this tab has run before. Claude is the authority
         // on whether the conversation still exists, and TerminalService
@@ -1531,10 +1813,16 @@ export function setupIpcHandlers(): boolean {
   );
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_RESTART, (_event, instanceId: string) => {
-    const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
-    const cwd =
-      located && (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
-    manager.get(instanceId)?.restartClaude(cwd ?? undefined);
+    void (async () => {
+      const located = findSessionByInstanceId(workspaces.getAll(), instanceId);
+      const notice = located
+        ? await rebuildForLaunch(located.workspace, located.session)
+        : undefined;
+      const cwd =
+        located &&
+        (located.session.cwd ?? scopeForSession(located.workspace, located.session)?.path);
+      manager.get(instanceId)?.restartClaude(cwd ?? undefined, notice);
+    })();
   });
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
@@ -1847,6 +2135,7 @@ ${truncatedDiff}`;
   // itself waits for a window to say what it is showing, so a session a
   // restoring window is about to open is not settled out from under it.
   autoSettler?.start();
+  worktreeSweeper?.start();
 
   return true;
 }
@@ -1900,6 +2189,15 @@ export function cleanupIpcHandlers(): void {
   attentionLedgerService = null;
   autoSettler?.stop();
   autoSettler = null;
+  worktreeSweeper?.stop();
+  worktreeSweeper = null;
+  worktreeCleanupService = null;
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE_PREVIEW);
+  ipcMain.removeHandler(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_PREVIEW);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_RUN);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_HISTORY);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKTREE_CLEANUP_IS_MANAGED);
   ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_SETTLE);
   ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_UNSETTLE);
   ipcMain.removeHandler(IPC_CHANNELS.ATTENTION_RESTORE);

@@ -45,6 +45,10 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // carries a cwd override (worktrees, from Phase 1 on).
   const scope = workspace ? scopeForSession(workspace, session) : undefined;
   const cwd = (workspace && checkoutPathForSession(workspace, session)) ?? '';
+  // While a cleanup rule has its worktree removed there is no checkout to
+  // show, but the terminal still launches where the session belongs: main
+  // rebuilds the worktree there before it spawns.
+  const terminalCwd = cwd || (session?.removedWorktree ? (session.cwd ?? scope?.path ?? '') : '');
   // Details are read as the workspace's account, so a workspace without one
   // has nothing to show even when the session still names an item.
   const showWorkItemPanel =
@@ -141,7 +145,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
                     ? { startedBy: session.automation?.name }
                     : undefined
                 }
-                cwd={cwd}
+                cwd={terminalCwd}
                 claudeSessionId={session.claudeSessionId}
                 resume={session.hasStarted}
                 harness={launchFields}
