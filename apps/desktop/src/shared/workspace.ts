@@ -243,7 +243,25 @@ export const ASSISTANT_ITEM_MODES: readonly AssistantItemMode[] = [
 /** The Assistant's fixed row label; its record is user-named so nothing renames it. */
 export const ASSISTANT_SESSION_NAME = 'Assistant';
 
+/** Name a session carries until something better is known. */
+export const NEW_SESSION_NAME = 'New Session';
+
+/** Which harness writes a workspace's session titles, and how. */
+export interface SessionTitleSettings {
+  source: 'off' | 'default-harness' | 'pinned';
+  /** Only for `pinned`. */
+  harnessId?: string;
+  /** Only for `pinned`; otherwise the harness driver's default title model. */
+  model?: string;
+  /** Absent means the default effort; `'default'` means send no effort flag. */
+  effort?: string;
+  fast?: boolean;
+  instructions?: string;
+}
+
 export interface Workspace {
+  /** Absent means `{ source: 'default-harness' }`; no migration needed. */
+  sessionTitles?: SessionTitleSettings;
   /** Absent means 'full-tools' (see assistantItemMode); no migration needed. */
   assistantItemMode?: AssistantItemMode;
   /** Absent uses the neutral workspace icon, including on older records. */
@@ -477,7 +495,7 @@ export function listedSessions(workspace: Workspace): Session[] {
 
 /** The workspace fields a window may change; the filter in main enforces it. */
 export type WorkspaceUpdates = Partial<
-  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'assistantItemMode'>
+  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'assistantItemMode' | 'sessionTitles'>
 >;
 
 /**

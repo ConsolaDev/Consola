@@ -227,6 +227,13 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
    * `probeCapabilities`.
    */
   supportsCapabilities: boolean;
+  /**
+   * Model this CLI uses to write session titles when the workspace follows
+   * its default harness. Absent means the CLI cannot write titles.
+   */
+  defaultTitleModel?: string;
+  /** Whether this CLI's transcripts can be read back (title regeneration). */
+  supportsConversationReading: boolean;
 }> = [
   {
     id: 'claude',
@@ -238,6 +245,8 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     defaultConfigDir: '~/.claude',
     supportsSessionNaming: true,
     supportsCapabilities: true,
+    defaultTitleModel: 'haiku',
+    supportsConversationReading: true,
   },
   {
     id: 'codex',
@@ -249,6 +258,7 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     defaultConfigDir: '~/.codex',
     supportsSessionNaming: true,
     supportsCapabilities: true,
+    supportsConversationReading: true,
   },
 ];
 
@@ -267,4 +277,16 @@ export function driverSupportsSessionNaming(id: HarnessDriverId | undefined): bo
 export function driverSupportsCapabilities(id: HarnessDriverId | undefined): boolean {
   if (!id) return true; // Built-in harness runs the Claude driver.
   return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsCapabilities ?? false;
+}
+
+/** The model a driver writes session titles with, if it can write them. */
+export function driverDefaultTitleModel(id: HarnessDriverId | undefined): string | undefined {
+  if (!id) return HARNESS_DRIVERS[0].defaultTitleModel; // Built-in harness runs the Claude driver.
+  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.defaultTitleModel;
+}
+
+/** Whether a driver can read its own conversations back. */
+export function driverReadsConversations(id: HarnessDriverId | undefined): boolean {
+  if (!id) return true; // Built-in harness runs the Claude driver.
+  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsConversationReading ?? false;
 }

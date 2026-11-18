@@ -7,6 +7,7 @@ import {
   type WorkspaceUpdates,
 } from '../../shared/workspace';
 import { isWorkspaceIconId, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
+import { sanitizeTitleSettings } from '../../shared/sessionTitles';
 import type { HarnessUpdates } from '../../shared/harness';
 
 // The one definition lives in shared/workspace.ts; re-exported so the
@@ -37,6 +38,9 @@ export function allowedWorkspaceUpdates(updates: WorkspaceUpdates): WorkspaceUpd
       throw new Error('Choose a valid Assistant mode.');
     }
     allowed.assistantItemMode = updates.assistantItemMode;
+  }
+  if ('sessionTitles' in updates) {
+    allowed.sessionTitles = sanitizeTitleSettings(updates.sessionTitles);
   }
   // Presence distinguishes resetting the icon from leaving it unchanged.
   if ('icon' in updates) {
