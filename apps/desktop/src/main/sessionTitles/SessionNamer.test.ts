@@ -667,12 +667,43 @@ describe('SessionNamer', () => {
       expect(driver.cliFrom).toEqual([0, 0]);
     });
 
-    it("takes a fork's copied title as the baseline, then adopts a later rename", async () => {
+    it('adopts a first /rename in a named session whose conversation had no transcript yet', async () => {
+      // A work-item launch or a fresh-conversation action: named, but begun here.
+      edit('s1', { name: 'Review PR 12' });
+      driver.cliNames = [null, { name: 'My rename', next: 120 }];
+
+      namer.statusChanged('inst-1', 'ready');
+      await namer.idle();
+      namer.statusChanged('inst-1', 'working');
+      await namer.idle();
+
+      expect(updates).toEqual([{ name: 'My rename', nameIsUserSet: true }]);
+      expect(driver.cliFrom).toEqual([0, 0]);
+    });
+
+    it('takes a title already there at first read of an existing conversation as the baseline', async () => {
+      edit('s1', { name: 'Named' });
+      driver.cliNames = [
+        { name: 'Given before', next: 100 },
+        { name: 'Given now', next: 140 },
+      ];
+
+      namer.statusChanged('inst-1', 'ready');
+      await namer.idle();
+      expect(updates).toEqual([]);
+
+      namer.statusChanged('inst-1', 'ready');
+      await namer.idle();
+      expect(updates).toEqual([{ name: 'Given now', nameIsUserSet: true }]);
+    });
+
+    it("never adopts a fork's copied title, then adopts a later rename", async () => {
       edit('s1', { name: 'Review PR 12 (full tools)' });
+      // The reader leaves out the title the fork copied (`forkedFrom`).
       driver.cliNames = [
         null,
-        { name: 'Source title', next: 900 },
-        { name: 'Source title', next: 950 },
+        { name: null, next: 900 },
+        { name: null, next: 950 },
         { name: 'Fork rename', next: 990 },
       ];
 
@@ -855,6 +886,22 @@ describe('SessionNamer', () => {
       expect(error).toHaveBeenCalledTimes(1);
     });
 
+    it('logs a conversation read that throws, and rejects in words for the person', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      driver.readConversation = async () => {
+        throw new Error('EACCES: permission denied, open /config/claude-a/projects/x/conv-1.jsonl');
+      };
+
+      await expect(namer.regenerate('ws', 's1')).rejects.toThrow(
+        /^Could not read this session’s conversation\.$/,
+      );
+
+      expect(error).toHaveBeenCalledTimes(1);
+      expect(String(error.mock.calls[0][1])).toContain('EACCES');
+      expect(driver.generated).toEqual([]);
+      expect(updates).toEqual([]);
+    });
+
     it('never retries and never falls back to another harness', async () => {
       editWorkspace({ sessionTitles: { source: 'pinned', harnessId: 'claude-b' } });
       editHarness('claude-b', { archived: true });
@@ -865,10 +912,11 @@ describe('SessionNamer', () => {
       expect(delays).toEqual([]);
     });
 
-    it.each([
+    it.each<[string, string, number, () => void]>([
       [
         'off',
         'Titles are off for this workspace.',
+        0,
         () => {
           editWorkspace({ sessionTitles: { source: 'off' } });
         },
@@ -876,6 +924,7 @@ describe('SessionNamer', () => {
       [
         'disabled harness',
         'Claude A is turned off.',
+        0,
         () => {
           editHarness('claude-a', { enabled: false });
         },
@@ -883,6 +932,7 @@ describe('SessionNamer', () => {
       [
         'no conversation',
         'This session has no conversation to title yet.',
+        0,
         () => {
           driver.conversation = null;
         },
@@ -890,6 +940,7 @@ describe('SessionNamer', () => {
       [
         'an empty conversation',
         'This session has no conversation to title yet.',
+        0,
         () => {
           driver.conversation = { entries: [], truncated: false };
         },
@@ -897,6 +948,7 @@ describe('SessionNamer', () => {
       [
         'no conversation reader',
         'This session has no conversation to title yet.',
+        0,
         () => {
           delete driver.readConversation;
         },
@@ -904,6 +956,7 @@ describe('SessionNamer', () => {
       [
         'CLI failure',
         'Not logged in',
+        1,
         () => {
           driver.generateError = new Error('Not logged in');
         },
@@ -911,6 +964,7 @@ describe('SessionNamer', () => {
       [
         'no generateText',
         'Claude A can’t write titles.',
+        0,
         () => {
           delete driver.generateText;
         },
@@ -918,25 +972,27 @@ describe('SessionNamer', () => {
       [
         'an empty title',
         'The title model returned no title.',
+        1,
         () => {
           driver.answer = { title: '' };
         },
       ],
-      ['a missing session', 'This session no longer exists.', () => removeSession()],
+      ['a missing session', 'This session no longer exists.', 0, () => removeSession()],
       [
         'the Assistant',
         'The Assistant’s name is fixed.',
+        0,
         () => {
           edit('s1', { kind: 'assistant' });
         },
       ],
-    ])('fails with a message when %s', async (_case, message, arrange) => {
+    ])('fails with a message when %s', async (_case, message, calls, arrange) => {
       arrange();
 
       await expect(namer.regenerate('ws', 's1')).rejects.toThrow(message);
 
       expect(updates).toEqual([]);
-      expect(driver.generated.length).toBeLessThanOrEqual(1);
+      expect(driver.generated).toHaveLength(calls);
     });
   });
 });

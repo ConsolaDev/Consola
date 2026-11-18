@@ -16,8 +16,7 @@ import {
 /**
  * Exercised through a real on-disk config directory: the module reads
  * Claude's own storage, so the fixture is the storage format itself. Each
- * test gets a fresh directory, which also keeps the module's mtime-keyed
- * index cache from ever seeing the same path twice.
+ * test gets a fresh directory.
  */
 
 const SESSION_ID = '11111111-1111-4111-8111-111111111111';
@@ -168,6 +167,18 @@ describe('readCustomTitleSince', () => {
 
   it('is null with no transcript', async () => {
     expect(await readCustomTitleSince(SESSION_ID, configDir, 0)).toBeNull();
+  });
+
+  it('ignores a title a fork copied from the conversation it forked', async () => {
+    const copied = {
+      ...title('Copied'),
+      forkedFrom: { sessionId: '22222222-2222-4222-8222-222222222222', messageUuid: 'm1' },
+    };
+    write(copied, user('x'));
+    const first = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    expect(first.name).toBeNull();
+    append(title('Mine'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, first.next))!.name).toBe('Mine');
   });
 });
 

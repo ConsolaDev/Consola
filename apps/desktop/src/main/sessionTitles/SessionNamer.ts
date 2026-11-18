@@ -1,3 +1,4 @@
+import type { ConversationRecord } from '../../shared/conversation';
 import { launchFieldsFor, type Harness } from '../../shared/harness';
 import { resolveTitleSource, titleCallOptions, type TitleSource } from '../../shared/sessionTitles';
 import type { TerminalStatus } from '../../shared/terminalStatus';
@@ -61,7 +62,11 @@ interface Tracker {
   cliPosition: number;
   /** The CLI name last seen; undefined until there is a baseline. */
   lastCliName: string | null | undefined;
-  /** Set on the first check: the conversation began here, unnamed, so any CLI name in it is a rename. */
+  /**
+   * Decided at first sight: the conversation began here (its session still
+   * awaited a name, or it had no transcript yet), so any CLI name in it is a
+   * rename rather than a baseline.
+   */
   fresh?: boolean;
   /** First-prompt retries are pending. */
   retryScheduled: boolean;
@@ -124,9 +129,15 @@ export class SessionNamer {
     }
 
     const { driver, config } = this.driverFor(session, harnesses);
-    const record = driver.readConversation
-      ? await driver.readConversation(config, session.claudeSessionId)
-      : null;
+    let record: ConversationRecord | null = null;
+    if (driver.readConversation) {
+      try {
+        record = await driver.readConversation(config, session.claudeSessionId);
+      } catch (error) {
+        console.error(`Could not read session ${sessionId}'s conversation.`, error);
+        throw new Error('Could not read this session’s conversation.');
+      }
+    }
     const conversation = record ? formatConversationForTitle(record) : '';
     if (!conversation) throw new Error('This session has no conversation to title yet.');
 
@@ -223,9 +234,12 @@ export class SessionNamer {
 
   /**
    * Adopts a name given inside the CLI (`/rename`) as the person's own. A name
-   * already there when Consola first reads a conversation it did not see
-   * begin — a fork's copied title, a rename made before — is a baseline, not
-   * a rename.
+   * already in a transcript when Consola first reads it — a rename made
+   * before — is a baseline, not a rename. A brand-new conversation has no
+   * baseline: one whose session still awaits a name, or that had no
+   * transcript yet when first read (a work-item launch, a fresh start, a
+   * fork). A fork's copied title names the original, and the driver leaves
+   * it out.
    */
   private async adoptCliName(
     session: Session,
@@ -234,8 +248,9 @@ export class SessionNamer {
     config: HarnessConfig,
   ): Promise<void> {
     if (!driver.readCliNameSince) return;
-    tracker.fresh ??= isAwaitingName(session);
+    if (tracker.fresh === undefined && isAwaitingName(session)) tracker.fresh = true;
     const read = await driver.readCliNameSince(config, tracker.conversationId, tracker.cliPosition);
+    tracker.fresh ??= read === null;
     if (!read) return;
     tracker.cliPosition = read.next;
 

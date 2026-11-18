@@ -48,8 +48,10 @@ export function resolveTitleSource(workspace: Workspace, harnesses: Harness[]): 
   if (harness.archived) return { kind: 'unavailable', reason: `${harness.name} is archived.` };
   if (!harness.enabled) return { kind: 'unavailable', reason: `${harness.name} is turned off.` };
 
-  const model = (pinned ? settings.model : undefined) ?? driverDefaultTitleModel(harness.driverId);
-  if (!model) return { kind: 'unavailable', reason: `${harness.name} can’t write titles.` };
+  // A driver with no title model cannot write titles at all, whatever model is pinned.
+  const defaultModel = driverDefaultTitleModel(harness.driverId);
+  if (!defaultModel) return { kind: 'unavailable', reason: `${harness.name} can’t write titles.` };
+  const model = (pinned ? settings.model : undefined) ?? defaultModel;
 
   const effort = settings.effort ?? TITLE_EFFORT_DEFAULT;
   const instructions = settings.instructions?.trim();

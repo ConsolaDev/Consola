@@ -537,29 +537,13 @@ export class ClaudeDriver implements HarnessDriver {
       );
       child.on('close', (code) =>
         settle(() => {
-          if (code !== 0) {
-            const lastLine = stderr
-              .split('\n')
-              .map((line) => line.trim())
-              .filter(Boolean)
-              .pop();
-            reject(
-              new Error(
-                lastLine ??
-                  describeSpawnFailure(
-                    resolvedBinary,
-                    new Error(`claude exited with code ${code}.`),
-                  ),
-              ),
-            );
-            return;
-          }
+          // A refused call (not logged in, unknown model) still answers on
+          // stdout, and exits 1: its reason is there, not on stderr.
           let parsed: { is_error?: unknown; result?: unknown; structured_output?: unknown } | null;
           try {
             parsed = JSON.parse(stdout);
           } catch {
-            reject(new Error('The title call returned no answer.'));
-            return;
+            parsed = null;
           }
           if (parsed?.is_error === true) {
             reject(
@@ -569,6 +553,15 @@ export class ClaudeDriver implements HarnessDriver {
                   : 'The title call failed.',
               ),
             );
+          } else if (code !== 0) {
+            // The process ran, so this is no longer a question of where the
+            // binary is: say what it said, or how it ended.
+            const lastLine = stderr
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .pop();
+            reject(new Error(lastLine ?? `claude exited with code ${code}.`));
           } else if (parsed?.structured_output && typeof parsed.structured_output === 'object') {
             resolve(parsed.structured_output);
           } else {

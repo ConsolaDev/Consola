@@ -111,6 +111,14 @@ describe('resolveTitleSource', () => {
         .kind,
     ).toBe('unavailable');
   });
+  it('is unavailable when pinned with a model to a harness whose driver cannot write titles', () => {
+    expect(
+      resolveTitleSource(
+        ws({ sessionTitles: { source: 'pinned', harnessId: 'codex', model: 'gpt-5-mini' } }),
+        [codex],
+      ),
+    ).toEqual({ kind: 'unavailable', reason: 'Codex can’t write titles.' });
+  });
 });
 describe('titleCallOptions', () => {
   it('sends effort and fast only when the model supports them', () => {

@@ -256,6 +256,27 @@ process.stdin.on('end', () => {
     await expect(call(bin)).rejects.toThrow('boom');
   });
 
+  it("rejects with the CLI's own reason when it exits non-zero with an error answer", async () => {
+    const bin = script(
+      'refused.js',
+      `process.stdin.resume();\nprocess.stdout.write('{"is_error":true,"result":"Not logged in"}');\nprocess.stderr.write('noise\\n');\nprocess.exit(1);`,
+    );
+    await expect(call(bin)).rejects.toThrow(/^Not logged in$/);
+  });
+
+  it('rejects with a generic reason for an error answer with no text', async () => {
+    const bin = script(
+      'blank.js',
+      `process.stdin.resume();\nprocess.stdout.write('{"is_error":true,"result":"  "}');\nprocess.exit(1);`,
+    );
+    await expect(call(bin)).rejects.toThrow(/^The title call failed\.$/);
+  });
+
+  it('names the exit code when a failed run says nothing', async () => {
+    const bin = script('silent.js', `process.stdin.resume();\nprocess.exit(3);`);
+    await expect(call(bin)).rejects.toThrow(/^claude exited with code 3\.$/);
+  });
+
   it('rejects a pinned binary that is not executable', async () => {
     const file = path.join(dir, 'plain.js');
     fs.writeFileSync(file, '');
