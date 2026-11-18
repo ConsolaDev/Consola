@@ -44,10 +44,8 @@ export function sessionEntries(
       key: sessionKey(session.id),
       kind: 'session',
       attention: attentionOf(snapshot.attention, session.id),
-      // The ledger keeps no per-edge timestamp, so the last real activity is
-      // the nearest honest answer to "since when": a waiting session stopped
-      // being active when it began to wait.
-      since: record?.finishedAt ?? activityAt,
+      createdAt: session.createdAt,
+      ...(record?.unsettledAt !== undefined ? { unsettledAt: record.unsettledAt } : {}),
       activityAt,
       ...(record?.finishedAt !== undefined ? { finishedAt: record.finishedAt } : {}),
       ...(session.parentSessionId ? { parent: sessionKey(session.parentSessionId) } : {}),
@@ -92,7 +90,7 @@ export function runEntries(
       key: runKey(run.id),
       kind: 'run',
       attention,
-      since: Date.parse(run.createdAt),
+      createdAt: Date.parse(run.createdAt),
       activityAt: Date.parse(run.updatedAt),
       labels: [],
       facets: { automation: run.automationId },

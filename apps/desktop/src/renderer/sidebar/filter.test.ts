@@ -61,7 +61,7 @@ describe('applyFilter', () => {
       key: `run:${id}`,
       kind: 'run',
       attention: 'needs-attention',
-      since: 0,
+      createdAt: 0,
       activityAt: 0,
       labels: [],
       facets: { automation: 'nightly' },
