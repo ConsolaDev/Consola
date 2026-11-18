@@ -844,6 +844,17 @@ describe('SessionNamer', () => {
       expect(updates).toEqual([]);
     });
 
+    it('rejects with the error of a write that throws', async () => {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      failWrites = true;
+
+      await expect(namer.regenerate('ws', 's1')).rejects.toThrow('The disk is full.');
+
+      expect(updates).toEqual([]);
+      expect(session()).toMatchObject({ name: 'Mine', nameIsUserSet: true });
+      expect(error).toHaveBeenCalledTimes(1);
+    });
+
     it('never retries and never falls back to another harness', async () => {
       editWorkspace({ sessionTitles: { source: 'pinned', harnessId: 'claude-b' } });
       editHarness('claude-b', { archived: true });

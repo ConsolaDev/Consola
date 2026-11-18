@@ -148,9 +148,10 @@ export class SessionNamer {
     const title = sanitizeTitle(titleOf(answer));
     if (!title) throw new Error('The title model returned no title.');
 
-    // A rename during the call wins; the person sees their own name.
+    // A rename during the call wins; the person sees their own name. A failed
+    // write is theirs to see: they asked, and nothing changed.
     const current = this.unchanged(sessionId, previous.name, previous.nameIsUserSet);
-    if (current) this.write(current, { name: title });
+    if (current) this.save(current, { name: title });
   }
 
   /** Resolves once nothing is in flight (tests). */
@@ -375,13 +376,22 @@ export class SessionNamer {
       : null;
   }
 
-  /** Writes through `updateSession`, which may throw; false when it did. */
-  private write({ workspace, session }: Located, updates: NameUpdates): boolean {
+  /** Writes through `updateSession`; a throw is logged and rethrown. */
+  private save({ workspace, session }: Located, updates: NameUpdates): void {
     try {
       this.deps.updateSession(workspace.id, session.id, updates);
-      return true;
     } catch (error) {
       console.error(`Could not rename session ${session.id}.`, error);
+      throw error;
+    }
+  }
+
+  /** `save` for background work, which nobody is waiting on: false instead of a throw. */
+  private write(located: Located, updates: NameUpdates): boolean {
+    try {
+      this.save(located, updates);
+      return true;
+    } catch {
       return false;
     }
   }
