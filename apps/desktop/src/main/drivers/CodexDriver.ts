@@ -13,7 +13,7 @@ import { findCodexRollout, readSessionModel } from './sessionModel';
 import { createCodexThread } from './codexAppServer';
 import { readCodexRollout } from './codexConversation';
 import { listCodexModels } from './codexModels';
-import { readCodexSessionName } from './codexSessionName';
+import { readCodexFirstPrompt } from './codexFirstPrompt';
 
 interface CodexMapping {
   threadId: string;
@@ -112,16 +112,10 @@ export class CodexDriver implements HarnessDriver {
 
   private readonly rolloutFiles = new Map<string, string>();
 
-  public async getSessionDisplayName(config: HarnessConfig, sessionId: string) {
+  public async readFirstPrompt(config: HarnessConfig, conversationId: string) {
     try {
-      const thread = await this.locateThread(config, sessionId, { followPending: true });
-      if (!thread) return null;
-      return await readCodexSessionName(
-        path.join(thread.home, 'session_index.jsonl'),
-        thread.threadId,
-        sessionId,
-        thread.rollout,
-      );
+      const thread = await this.locateThread(config, conversationId, { followPending: true });
+      return thread?.rollout ? await readCodexFirstPrompt(thread.rollout) : null;
     } catch {
       return null;
     }
