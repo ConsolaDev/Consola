@@ -14,6 +14,7 @@ export type WorkspaceSectionId =
   | 'provider'
   | 'actions'
   | 'labels'
+  | 'worktrees'
   | 'danger';
 
 export type SettingsSection = AppSectionId | WorkspaceSectionId;
@@ -33,6 +34,7 @@ export const WORKSPACE_GROUP: readonly WorkspaceSectionId[] = [
   'provider',
   'actions',
   'labels',
+  'worktrees',
   'danger',
 ];
 

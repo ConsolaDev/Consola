@@ -5,6 +5,7 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import { promisify } from 'node:util';
 import type { CheckoutContext, CheckoutWorktree, SessionCheckout } from '../shared/sessionCheckout';
+import { type PathLock, worktreePathLock } from './worktreeCleanup/PathLock';
 
 const exec = promisify(execFile);
 
@@ -22,6 +23,7 @@ export class SessionCheckoutService {
   constructor(
     private readonly root = process.env.CONSOLA_WORKTREES_DIR ??
       path.join(os.homedir(), '.consola', 'worktrees'),
+    private readonly lock: PathLock = worktreePathLock,
   ) {}
 
   async list(repo: string): Promise<CheckoutContext> {
@@ -75,13 +77,20 @@ export class SessionCheckoutService {
       const tree = context.worktrees.find((candidate) => candidate.path === requestedPath);
       if (!tree || tree.unavailable)
         throw new Error('This worktree is no longer available. Refresh and choose another.');
-      // Revalidate membership, including a directory replaced after listing.
-      const [actual, expected] = await Promise.all([
-        git(tree.path, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
-        git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
-      ]);
-      if (actual !== expected) throw new Error('This worktree belongs to a different repository.');
-      return tree.path;
+      // Under the folder's lock, so a cleanup cannot remove it between this
+      // check and the session that will run there being recorded.
+      return this.prepared(tree.path, async () => {
+        if (!(await fs.stat(tree.path).catch(() => null)))
+          throw new Error('This worktree is no longer available. Refresh and choose another.');
+        // Revalidate membership, including a directory replaced after listing.
+        const [actual, expected] = await Promise.all([
+          git(tree.path, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+          git(repo, ['rev-parse', '--path-format=absolute', '--git-common-dir']),
+        ]);
+        if (actual !== expected)
+          throw new Error('This worktree belongs to a different repository.');
+        return tree.path;
+      });
     }
     if (checkout.mode !== 'new') throw new Error('Invalid checkout mode.');
     if (
@@ -109,12 +118,21 @@ export class SessionCheckoutService {
     }
     const dir = path.join(this.root, `${path.basename(repo)}-session-${suffix}`);
     await fs.mkdir(this.root, { recursive: true });
-    await git(
-      repo,
-      checkout.useExistingBranch
-        ? ['worktree', 'add', '--', dir, branch]
-        : ['worktree', 'add', '-b', branch, '--', dir, commit],
-    );
-    return fs.realpath(dir);
+    return this.prepared(dir, async () => {
+      await git(
+        repo,
+        checkout.useExistingBranch
+          ? ['worktree', 'add', '--', dir, branch]
+          : ['worktree', 'add', '-b', branch, '--', dir, commit],
+      );
+      return fs.realpath(dir);
+    });
+  }
+
+  /** Run under the folder's lock, and stamp it as just handed out. */
+  private async prepared(dir: string, work: () => Promise<string>): Promise<string> {
+    const ready = await this.lock.run(dir, work);
+    this.lock.markPrepared(ready);
+    return ready;
   }
 }

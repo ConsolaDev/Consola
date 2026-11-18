@@ -1023,6 +1023,59 @@ describe('WorkspaceService', () => {
     ).toThrow(/Only your own sessions/);
   });
 
+  it('records removed worktrees in one write, and clears them by path for every session', () => {
+    const workspace = service.createWorkspace('app', '/code/app', true);
+    const fields = (name: string, cwd: string) => ({
+      name,
+      workspaceId: workspace.id,
+      instanceId: `instance-${name}`,
+      harnessId: 'default',
+      scopeId: workspace.scopes[0].id,
+      cwd,
+    });
+    const review = service.createSession(workspace.id, fields('review', '/wt/app-pr-1'))!;
+    const fixer = service.createSession(workspace.id, fields('fixer', '/wt/app-pr-1'))!;
+    const other = service.createSession(workspace.id, fields('other', '/wt/app-pr-2'))!;
+    const removed = {
+      path: '/wt/app-pr-1',
+      mainRepo: '/code/app',
+      commit: 'a'.repeat(40),
+      branch: 'feature',
+      keepRef: 'refs/consola/worktrees/app-pr-1',
+      trigger: 'settled' as const,
+      removedAt: 5,
+    };
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    service.recordWorktreesRemoved([
+      { sessionId: review.id, removed },
+      { sessionId: fixer.id, removed },
+    ]);
+    expect(listener).toHaveBeenCalledTimes(1);
+    const stored = build().getAll()[0].sessions;
+    expect(stored.map((session) => session.removedWorktree)).toEqual([removed, removed, undefined]);
+    // The folder the session runs in is never rewritten.
+    expect(stored.map((session) => session.cwd)).toEqual([
+      '/wt/app-pr-1',
+      '/wt/app-pr-1',
+      '/wt/app-pr-2',
+    ]);
+
+    service.clearWorktreeRemoved('/wt/app-pr-1');
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(
+      build()
+        .getAll()[0]
+        .sessions.every((session) => !('removedWorktree' in session)),
+    ).toBe(true);
+    // Nothing named it any more: nothing to write.
+    service.clearWorktreeRemoved('/wt/app-pr-1');
+    service.recordWorktreesRemoved([]);
+    expect(listener).toHaveBeenCalledTimes(2);
+    expect(other.removedWorktree).toBeUndefined();
+  });
+
   it('recordAgentCwd follows an agent into another checkout and back, writing only changes', () => {
     const repo = fs.realpathSync(dir);
     const tree = path.join(repo, '.claude', 'worktrees', 'assistant');

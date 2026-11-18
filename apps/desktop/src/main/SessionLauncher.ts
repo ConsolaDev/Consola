@@ -80,8 +80,18 @@ export type LaunchSessionFields = NewSessionFields & {
 /** What one spawn of a recorded session is asked to do. */
 export type SpawnFields = Pick<
   TerminalServiceOptions,
-  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom'
+  'resume' | 'initialPrompt' | 'unattended' | 'forkFrom' | 'launchNotice'
 >;
+
+/**
+ * Makes a session's checkout exist before it spawns: a worktree a cleanup
+ * rule removed is rebuilt (`WorktreeRebuilder.ensureCheckout`). Returns a
+ * line for the pane, and throws with one when it cannot.
+ */
+export type PrepareCheckout = (
+  workspace: Workspace,
+  session: Session,
+) => Promise<{ notice?: string }>;
 
 /** A harness record's launch fields; shared with the renderer so both resolve one config directory. */
 export { launchFieldsFor };
@@ -92,6 +102,9 @@ export class SessionLauncher {
    * (ipc-handlers). Optional so unit tests and early boot need no MCP.
    */
   public mcpHost?: { register(session: Pick<Session, 'id'>): Promise<string> };
+
+  /** Set at wiring time; optional so unit tests need no rebuilder. */
+  public prepareCheckout?: PrepareCheckout;
 
   constructor(
     private readonly workspaces: SessionRecordStore,
@@ -177,15 +190,13 @@ export class SessionLauncher {
         throw new Error('You opened its session before Consola could resume it.');
     };
     opened();
-    const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
-      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    const { cwd, notice } = await this.resolveFolder(workspace, session);
     // Checked again after the await inside: a pane may have mounted meanwhile.
     await this.spawnRecorded(
       workspace,
       session,
       cwd,
-      { resume: true, initialPrompt: prompt, unattended: true },
+      { resume: true, initialPrompt: prompt, unattended: true, launchNotice: notice },
       opened,
     );
   }
@@ -215,9 +226,7 @@ export class SessionLauncher {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
     if (!workspace || !session) throw new Error('That session no longer exists.');
-    const cwd = workingFolder(workspace, session);
-    if (!cwd || !fs.existsSync(cwd))
-      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    const { cwd, notice } = await this.resolveFolder(workspace, session);
 
     const live = this.terminals.get(session.instanceId);
     if (live?.runningUnattended()) {
@@ -230,13 +239,17 @@ export class SessionLauncher {
       if (live) {
         // An exited CLI resumes, and the queue holds the prompt until
         // its composer is back.
-        if (live.hasClaudeExited()) live.restartClaude(cwd);
+        if (live.hasClaudeExited()) {
+          if (notice) live.restartClaude(cwd, notice);
+          else live.restartClaude(cwd);
+        }
         live.queuePrompt(prompt);
         return;
       }
       await this.spawnRecorded(workspace, session, cwd, {
         resume: session.hasStarted,
         initialPrompt: prompt,
+        launchNotice: notice,
       });
       if (!session.hasStarted)
         this.workspaces.updateSession(workspaceId, session.id, { hasStarted: true });
@@ -253,7 +266,11 @@ export class SessionLauncher {
       return;
     }
     const replaced = this.workspaces.replaceConversation(workspaceId, session.id);
-    await this.spawnRecorded(workspace, replaced, cwd, { resume: false, initialPrompt: prompt });
+    await this.spawnRecorded(workspace, replaced, cwd, {
+      resume: false,
+      initialPrompt: prompt,
+      launchNotice: notice,
+    });
   }
 
   /**
@@ -273,6 +290,9 @@ export class SessionLauncher {
       ?.sessions.find((candidate) => candidate.id === sessionId);
     if (!source) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
     if (!source.hasStarted) throw new Error('There is no conversation to continue yet.');
+    // The fork runs in the source's folder, which a cleanup rule may have removed.
+    const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    if (workspace && source.removedWorktree) await this.prepareCheckout?.(workspace, source);
     return this.launchSession(workspaceId, {
       name: `${source.name} (full tools)`,
       workspaceId,
@@ -304,10 +324,33 @@ export class SessionLauncher {
   ): Promise<void> {
     const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     if (!workspace) throw new Error(`No workspace ${workspaceId}.`);
+    const { cwd, notice } = await this.resolveFolder(workspace, session);
+    await this.spawnRecorded(
+      workspace,
+      session,
+      cwd,
+      notice ? { ...launch, launchNotice: notice } : launch,
+      beforeStart,
+    );
+  }
+
+  /**
+   * Where a recorded session runs, made to exist first: a worktree a cleanup
+   * rule removed is rebuilt here, before any spawn looks for it. Throws when
+   * the folder is gone and cannot come back.
+   */
+  private async resolveFolder(
+    workspace: Workspace,
+    session: Session,
+  ): Promise<{ cwd: string; notice?: string }> {
+    const notice =
+      session.removedWorktree && this.prepareCheckout
+        ? (await this.prepareCheckout(workspace, session)).notice
+        : undefined;
     const cwd = workingFolder(workspace, session);
     if (!cwd || !fs.existsSync(cwd))
       throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
-    await this.spawnRecorded(workspace, session, cwd, launch, beforeStart);
+    return { cwd, ...(notice ? { notice } : {}) };
   }
 
   /**

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { HarnessUpdates } from '../../shared/harness';
-import type { Label } from '../../shared/workspace';
+import type { Label, WorkspaceUpdates } from '../../shared/workspace';
 import {
   allowedGroupUpdates,
   allowedHarnessUpdates,
@@ -188,6 +188,53 @@ describe('allowedLabelRecord', () => {
     const payload = { id: 'l1', name: 'Flaky', emoji: 5, color: {} } as unknown as Label;
 
     expect(allowedLabelRecord(payload)).toEqual({ id: 'l1', name: 'Flaky' });
+  });
+});
+
+describe('worktree cleanup fields', () => {
+  it('takes a workspace override rebuilt from known keys, and undefined as Inherit', () => {
+    expect(allowedWorkspaceUpdates({ worktreeCleanup: { mode: 'off' } })).toEqual({
+      worktreeCleanup: { mode: 'off' },
+    });
+    const custom = allowedWorkspaceUpdates({
+      worktreeCleanup: {
+        mode: 'custom',
+        rules: { prFinished: true, stray: 1 },
+      } as unknown as WorkspaceUpdates['worktreeCleanup'],
+    });
+    expect(custom).toEqual({
+      worktreeCleanup: {
+        mode: 'custom',
+        rules: {
+          prFinished: true,
+          sessionDeleted: false,
+          settledDays: 0,
+          runFinished: { enabled: false, afterMinutes: 60 },
+        },
+      },
+    });
+    const inherit = allowedWorkspaceUpdates({ worktreeCleanup: undefined });
+    expect('worktreeCleanup' in inherit && inherit.worktreeCleanup === undefined).toBe(true);
+    expect(allowedWorkspaceUpdates({ name: 'x' })).not.toHaveProperty('worktreeCleanup');
+    expect(() =>
+      allowedWorkspaceUpdates({
+        worktreeCleanup: { mode: 'sometimes' } as unknown as WorkspaceUpdates['worktreeCleanup'],
+      }),
+    ).toThrow(/Inherit, Off or Custom/);
+  });
+
+  it('takes the session opt-out, and never the removed-worktree record', () => {
+    expect(allowedSessionUpdates({ autoRemoveWorktree: 'never' })).toEqual({
+      autoRemoveWorktree: 'never',
+    });
+    expect(() =>
+      allowedSessionUpdates({ autoRemoveWorktree: 'sometimes' } as unknown as SessionUpdates),
+    ).toThrow();
+    const smuggled = {
+      name: 'x',
+      removedWorktree: { path: '/wt/a' },
+    } as unknown as SessionUpdates;
+    expect(allowedSessionUpdates(smuggled)).toEqual({ name: 'x' });
   });
 });
 

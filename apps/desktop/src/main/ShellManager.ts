@@ -18,6 +18,11 @@ interface Shell {
 export class ShellManager {
   private shells = new Map<string, Shell>();
 
+  /** The session's shell process id while it runs. */
+  pid(instanceId: string): number | undefined {
+    return this.shells.get(instanceId)?.process?.pid;
+  }
+
   async attach(options: ShellOptions, cwd: string, owner: WebContents): Promise<ShellSnapshot> {
     const { instanceId, cols, rows } = options;
     this.validateSize(cols, rows);

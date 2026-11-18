@@ -11,6 +11,7 @@ import {
   Keyboard,
   Boxes,
   Folder,
+  FolderGit2,
   Info,
   Minus,
   Plug,
@@ -32,6 +33,8 @@ import { useTheme } from '../../hooks/useTheme';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
+import { WorktreeCleanupControl } from '../WorktreeCleanup/WorktreeCleanupControl';
+import { WorktreeCleanupPanel } from '../WorktreeCleanup/WorktreeCleanupPanel';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from '../WorkspaceSettings/ManifestHeader';
 import { HarnessPanel } from '../WorkspaceSettings/HarnessPanel';
@@ -71,6 +74,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: 'Actions', icon: Sparkles },
   labels: { label: 'Labels', icon: Tag },
+  worktrees: { label: 'Worktrees', icon: FolderGit2 },
   danger: { label: 'Danger zone', icon: Trash2, danger: true },
 };
 
@@ -240,6 +244,7 @@ function WorkspaceSection({
       )}
       {section === 'actions' && <ActionsPanel workspace={workspace} />}
       {section === 'labels' && <LabelsPanel workspace={workspace} />}
+      {section === 'worktrees' && <WorktreeCleanupPanel workspace={workspace} />}
       {section === 'danger' && <DangerZonePanel workspace={workspace} />}
     </div>
   );
@@ -325,6 +330,18 @@ function SessionsSection() {
           </span>
         </div>
         <AutoSettleControl />
+      </div>
+      <div className="settings-modal-option">
+        <div className="settings-modal-option-info">
+          <span className="settings-modal-option-label">Remove a session’s worktree when</span>
+          <span className="settings-modal-option-description">
+            Each rule is off until you turn it on. Consola never removes a worktree with changes,
+            unpushed commits, files that exist only there, or anything still running in it. Unless
+            the session was deleted, it stays, and its worktree is rebuilt when you open it. A
+            workspace can set rules of its own under Workspace → Worktrees.
+          </span>
+        </div>
+        <WorktreeCleanupControl />
       </div>
     </div>
   );

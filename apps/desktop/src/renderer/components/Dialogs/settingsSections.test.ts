@@ -20,6 +20,7 @@ describe('the settings list', () => {
       'provider',
       'actions',
       'labels',
+      'worktrees',
       'danger',
     ]);
   });

@@ -1,3 +1,4 @@
+import type { SessionDeleteOutcome } from '../../shared/worktreeCleanup';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import { create } from 'zustand';
 import { workspaceBridge } from '../services/workspaceBridge';
@@ -41,7 +42,10 @@ interface WorkspaceState {
     checkout?: SessionCheckout,
   ) => Promise<Session | undefined>;
   updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates) => Promise<void>;
-  deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
+  deleteSession: (
+    workspaceId: string,
+    sessionId: string,
+  ) => Promise<SessionDeleteOutcome | undefined>;
   getSession: (workspaceId: string, sessionId: string) => Session | undefined;
   getWorkspaceSessions: (workspaceId: string) => Session[];
   addScope: (

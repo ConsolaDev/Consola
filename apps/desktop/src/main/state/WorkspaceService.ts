@@ -35,6 +35,7 @@ import {
   type WorkspaceProvider,
   type WorkspaceUpdates,
 } from '../../shared/workspace';
+import type { RemovedWorktree } from '../../shared/worktreeCleanup';
 
 export interface WorkspaceStateFile {
   version: number;
@@ -703,6 +704,60 @@ export class WorkspaceService {
               updatedAt: Date.now(),
             }
           : candidate,
+      ),
+    );
+  }
+
+  /**
+   * Mark sessions whose worktree a cleanup rule removed while they stayed.
+   * One write for the whole batch: every commit is an fsync of the list and
+   * a broadcast to every window. `cwd` is never rewritten; the rebuild puts
+   * the folder back where it was.
+   *
+   * With `clearWorktreeRemoved`, the one writer of `removedWorktree`, which
+   * is why it is absent from `allowedSessionUpdates`.
+   */
+  public recordWorktreesRemoved(
+    entries: ReadonlyArray<{ sessionId: string; removed: RemovedWorktree }>,
+  ): void {
+    if (entries.length === 0) return;
+    const bySession = new Map(entries.map((entry) => [entry.sessionId, entry.removed]));
+    let changed = false;
+    const next = this.workspaces.map((workspace) => {
+      if (!workspace.sessions.some((session) => bySession.has(session.id))) return workspace;
+      changed = true;
+      return {
+        ...workspace,
+        sessions: workspace.sessions.map((session) => {
+          const removed = bySession.get(session.id);
+          return removed ? { ...session, removedWorktree: { ...removed } } : session;
+        }),
+        updatedAt: Date.now(),
+      };
+    });
+    if (changed) this.commit(next);
+  }
+
+  /**
+   * The folder is back (rebuilt, or it never went): clear the mark from
+   * every session naming it. A no-op writes nothing.
+   */
+  public clearWorktreeRemoved(worktreePath: string): void {
+    const names = (session: Session) => session.removedWorktree?.path === worktreePath;
+    if (!this.workspaces.some((workspace) => workspace.sessions.some(names))) return;
+    this.commit(
+      this.workspaces.map((workspace) =>
+        workspace.sessions.some(names)
+          ? {
+              ...workspace,
+              sessions: workspace.sessions.map((session) => {
+                if (!names(session)) return session;
+                const { removedWorktree: _removed, ...rest } = session;
+                return rest;
+              }),
+              updatedAt: Date.now(),
+            }
+          : workspace,
       ),
     );
   }

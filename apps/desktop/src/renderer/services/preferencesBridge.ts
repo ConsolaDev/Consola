@@ -1,4 +1,5 @@
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
+import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 
 /**
  * Preferences Bridge - Isolates all window.preferencesAPI access to this single file.
@@ -17,6 +18,11 @@ export const preferencesBridge = {
   /** Days idle before a session settles itself; 0 turns it off. */
   setAutoSettleDays: async (days: number): Promise<void> => {
     await getAPI()?.setAutoSettleDays(days);
+  },
+
+  /** The global worktree cleanup rules. */
+  setWorktreeCleanup: async (rules: WorktreeCleanupRules): Promise<void> => {
+    await getAPI()?.setWorktreeCleanup(rules);
   },
 
   /** The person has read the one-time explanation, in whichever window. */

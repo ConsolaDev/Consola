@@ -1,4 +1,4 @@
-import { useRef, useState, type MutableRefObject } from 'react';
+import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Archive,
@@ -18,6 +18,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
 import { SwitchHarnessDialog } from '../Dialogs/SwitchHarnessDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
+import { worktreeCleanupBridge } from '../../services/worktreeCleanupBridge';
 import type { SettleOffer } from '../../sidebar/settleRules';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
@@ -70,6 +71,7 @@ export function SessionActionsMenu({
   returnFocus,
   settle,
 }: SessionActionsMenuProps) {
+  const inManagedWorktree = useManagedWorktree(session, open);
   const bound = useWorkspaceStore((state) =>
     Boolean(state.workspaces.find((candidate) => candidate.id === workspaceId)?.provider),
   );
@@ -275,6 +277,26 @@ export function SessionActionsMenu({
             </span>
             <span>Never auto-settle</span>
           </DropdownMenu.CheckboxItem>
+          {inManagedWorktree && (
+            <DropdownMenu.CheckboxItem
+              className="dropdown-item"
+              checked={session.autoRemoveWorktree === 'never'}
+              onCheckedChange={(keep) => {
+                void updateSession(workspaceId, session.id, {
+                  autoRemoveWorktree: keep ? 'never' : undefined,
+                }).catch((error) => {
+                  console.error('Failed to change worktree cleanup', error);
+                });
+              }}
+            >
+              <span className="navigation-settings-check">
+                <DropdownMenu.ItemIndicator>
+                  <Check size={14} />
+                </DropdownMenu.ItemIndicator>
+              </span>
+              <span>Never remove this worktree</span>
+            </DropdownMenu.CheckboxItem>
+          )}
           {session.parentSessionId && (
             <DropdownMenu.Item className="dropdown-item" onSelect={handleDetach}>
               <Unlink size={14} />
@@ -319,4 +341,26 @@ export function SessionActionsMenu({
       )}
     </DropdownMenu.Root>
   );
+}
+
+/**
+ * Whether the session runs in one of Consola's own worktrees — the only kind
+ * a cleanup rule ever removes, so the only kind the opt-out means anything
+ * for. Asked when the menu opens; a session whose worktree was removed is one.
+ */
+function useManagedWorktree(session: Session, open: boolean): boolean {
+  const [managed, setManaged] = useState(false);
+  const dir = session.cwd;
+  const removed = session.removedWorktree !== undefined;
+  useEffect(() => {
+    if (!open || removed || !dir) return;
+    let live = true;
+    void worktreeCleanupBridge.isManaged(dir).then((answer) => {
+      if (live) setManaged(answer);
+    });
+    return () => {
+      live = false;
+    };
+  }, [open, dir, removed]);
+  return removed || managed;
 }

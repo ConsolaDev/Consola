@@ -404,6 +404,56 @@ describe('SessionLauncher', () => {
     expect(terminals.startHeadless).not.toHaveBeenCalled();
   });
 
+  describe('a session whose worktree a cleanup rule removed', () => {
+    it('rebuilds it before looking for the folder, and the pane says so', async () => {
+      const removedAt = path.join(scopeDir, 'app-session-9');
+      const session = sessionFixture({
+        hasStarted: true,
+        cwd: removedAt,
+        removedWorktree: {
+          path: removedAt,
+          mainRepo: scopeDir,
+          commit: 'a'.repeat(40),
+          branch: null,
+          keepRef: 'refs/consola/worktrees/app-session-9',
+          trigger: 'settled',
+          removedAt: 0,
+        },
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      const order: string[] = [];
+      launcher.prepareCheckout = vi.fn(async () => {
+        order.push('rebuild');
+        fs.mkdirSync(removedAt, { recursive: true });
+        return { notice: 'Consola rebuilt this session’s worktree.' };
+      });
+      terminals.startHeadless.mockImplementation(() => {
+        order.push('spawn');
+      });
+
+      await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+
+      expect(order).toEqual(['rebuild', 'spawn']);
+      expect(terminals.startHeadless).toHaveBeenCalledWith(
+        session.instanceId,
+        expect.objectContaining({
+          cwd: removedAt,
+          launchNotice: 'Consola rebuilt this session’s worktree.',
+        }),
+      );
+    });
+
+    it('never asks for a rebuild for a session that was not removed', async () => {
+      const session = sessionFixture({ hasStarted: true, cwd: targetDir });
+      const { launcher, workspaces } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+      launcher.prepareCheckout = vi.fn(async () => ({}));
+      await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+      expect(launcher.prepareCheckout).not.toHaveBeenCalled();
+    });
+  });
+
   describe('runInSession', () => {
     const linked = () => sessionFixture({ hasStarted: true, cwd: targetDir });
 

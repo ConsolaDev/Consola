@@ -6,10 +6,14 @@ export interface AttentionRecord {
   sessionId: string;
   workspaceId: string;
   lastActiveAt: number;
-  finishedAt?: number; // written from slice 2 — define now, do not write
-  seenAt?: number; // written from slice 2 — define now, do not write
-  settledAt?: number; // written from slice 7 — define now, do not write
-  settleHoldAt?: number; // written from slice 7 — define now, do not write
+  /** When a turn last finished. */
+  finishedAt?: number;
+  /** When the person last saw the session. */
+  seenAt?: number;
+  /** When it went onto the Settled shelf, by hand or by auto-settle. */
+  settledAt?: number;
+  /** An explicit un-settle: holds auto-settle off until new activity. */
+  settleHoldAt?: number;
   /** When it last came back from Settled, by hand or by new activity. Where a woken session lands in the list. */
   unsettledAt?: number;
 }

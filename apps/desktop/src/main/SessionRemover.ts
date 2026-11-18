@@ -13,6 +13,11 @@ export interface SessionRemoverDeps {
    * is — a later handoff points back at an earlier one — and gone with it.
    */
   removeHandoffs(sessionId: string): Promise<void>;
+  /**
+   * A session whose worktree a cleanup rule removed held the keep-ref that
+   * would rebuild it; once no session names that folder, nothing will.
+   */
+  releaseRemovedWorktree?(session: Pick<Session, 'removedWorktree'>): void;
 }
 
 /**
@@ -43,7 +48,10 @@ export class SessionRemover {
    * terminal included — exactly as it was, rather than a live record whose
    * terminal was already killed.
    */
-  public remove(workspaceId: string, session: Pick<Session, 'id' | 'instanceId'>): void {
+  public remove(
+    workspaceId: string,
+    session: Pick<Session, 'id' | 'instanceId' | 'removedWorktree'>,
+  ): void {
     this.deps.deleteRecord(workspaceId, session.id);
     this.discard(session);
   }
@@ -52,8 +60,13 @@ export class SessionRemover {
    * Stop a session whose record is already gone — removed above, or with
    * its whole workspace — and delete what only that record could name.
    */
-  public discard(session: Pick<Session, 'id' | 'instanceId'>): void {
+  public discard(session: Pick<Session, 'id' | 'instanceId' | 'removedWorktree'>): void {
     this.stop(session);
+    try {
+      this.deps.releaseRemovedWorktree?.(session);
+    } catch (error) {
+      console.error(`Could not release the removed worktree of session ${session.id}:`, error);
+    }
     this.deps.removeHandoffs(session.id).catch((error) => {
       console.error(`Could not delete the handoff documents of session ${session.id}:`, error);
     });
