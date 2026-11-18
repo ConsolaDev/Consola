@@ -196,9 +196,8 @@ const TITLE_CHUNK_BYTES = 64 * 1024;
  * among the complete records after `from`. `next` is the position to pass
  * next time: just past the last complete line, so a record still being
  * written is read once it is whole, never half. A `from` beyond the file's
- * size means the file was replaced, so reading starts over at 0. A title a
- * fork copied (`forkedFrom`) names the original, so it is not this
- * conversation's. `null` when there is no transcript.
+ * size means the file was replaced, so reading starts over at 0. `null` when
+ * there is no transcript.
  *
  * Reads in chunks, so a long conversation costs what was appended since, not
  * the whole file.
@@ -244,18 +243,8 @@ export async function readCustomTitleSince(
       for (const line of data.toString('utf8').split('\n')) {
         if (!line.includes('"custom-title"')) continue;
         try {
-          const record = JSON.parse(line) as {
-            type?: string;
-            customTitle?: unknown;
-            forkedFrom?: unknown;
-          };
-          // `--fork-session` marks every record it copies with `forkedFrom`:
-          // such a title was given to the conversation forked from, not this one.
-          if (
-            record?.type === 'custom-title' &&
-            typeof record.customTitle === 'string' &&
-            record.forkedFrom === undefined
-          ) {
+          const record = JSON.parse(line) as { type?: string; customTitle?: unknown };
+          if (record?.type === 'custom-title' && typeof record.customTitle === 'string') {
             name = record.customTitle;
           }
         } catch {

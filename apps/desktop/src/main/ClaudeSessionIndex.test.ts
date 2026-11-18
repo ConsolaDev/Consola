@@ -168,18 +168,6 @@ describe('readCustomTitleSince', () => {
   it('is null with no transcript', async () => {
     expect(await readCustomTitleSince(SESSION_ID, configDir, 0)).toBeNull();
   });
-
-  it('ignores a title a fork copied from the conversation it forked', async () => {
-    const copied = {
-      ...title('Copied'),
-      forkedFrom: { sessionId: '22222222-2222-4222-8222-222222222222', messageUuid: 'm1' },
-    };
-    write(copied, user('x'));
-    const first = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
-    expect(first.name).toBeNull();
-    append(title('Mine'));
-    expect((await readCustomTitleSince(SESSION_ID, configDir, first.next))!.name).toBe('Mine');
-  });
 });
 
 describe('readRecentReplies', () => {

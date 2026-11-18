@@ -62,11 +62,7 @@ interface Tracker {
   cliPosition: number;
   /** The CLI name last seen; undefined until there is a baseline. */
   lastCliName: string | null | undefined;
-  /**
-   * Decided at first sight: the conversation began here (its session still
-   * awaited a name, or it had no transcript yet), so any CLI name in it is a
-   * rename rather than a baseline.
-   */
+  /** Set on the first check: the conversation began here, unnamed, so any CLI name in it is a rename. */
   fresh?: boolean;
   /** First-prompt retries are pending. */
   retryScheduled: boolean;
@@ -234,12 +230,9 @@ export class SessionNamer {
 
   /**
    * Adopts a name given inside the CLI (`/rename`) as the person's own. A name
-   * already in a transcript when Consola first reads it — a rename made
-   * before — is a baseline, not a rename. A brand-new conversation has no
-   * baseline: one whose session still awaits a name, or that had no
-   * transcript yet when first read (a work-item launch, a fresh start, a
-   * fork). A fork's copied title names the original, and the driver leaves
-   * it out.
+   * already there when Consola first reads a conversation it did not see
+   * begin — a fork's copied title, a rename made before — is a baseline, not
+   * a rename.
    */
   private async adoptCliName(
     session: Session,
@@ -248,9 +241,8 @@ export class SessionNamer {
     config: HarnessConfig,
   ): Promise<void> {
     if (!driver.readCliNameSince) return;
-    if (tracker.fresh === undefined && isAwaitingName(session)) tracker.fresh = true;
+    tracker.fresh ??= isAwaitingName(session);
     const read = await driver.readCliNameSince(config, tracker.conversationId, tracker.cliPosition);
-    tracker.fresh ??= read === null;
     if (!read) return;
     tracker.cliPosition = read.next;
 

@@ -177,8 +177,9 @@ the first message (`readFirstPrompt`), then a generated title, each by
 compare-and-set through `updateSession`, so any rename in between wins. A
 generated name never sets `nameIsUserSet`; only Regenerate replaces a typed
 name. A name given inside the CLI is adopted as user-set (`readCliNameSince`),
-but only a change after a baseline counts, so a fork's copied title is not
-taken for a rename.
+but only a change after the first read counts: a fork's inherited title is a
+baseline, never adopted, while a brand-new session still called "New Session"
+starts with an empty baseline.
 
 The title call is one throwaway non-interactive call (`generateText`) from the
 home directory, with no tools, no hooks and no persistence. It is never a

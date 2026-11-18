@@ -667,20 +667,6 @@ describe('SessionNamer', () => {
       expect(driver.cliFrom).toEqual([0, 0]);
     });
 
-    it('adopts a first /rename in a named session whose conversation had no transcript yet', async () => {
-      // A work-item launch or a fresh-conversation action: named, but begun here.
-      edit('s1', { name: 'Review PR 12' });
-      driver.cliNames = [null, { name: 'My rename', next: 120 }];
-
-      namer.statusChanged('inst-1', 'ready');
-      await namer.idle();
-      namer.statusChanged('inst-1', 'working');
-      await namer.idle();
-
-      expect(updates).toEqual([{ name: 'My rename', nameIsUserSet: true }]);
-      expect(driver.cliFrom).toEqual([0, 0]);
-    });
-
     it('takes a title already there at first read of an existing conversation as the baseline', async () => {
       edit('s1', { name: 'Named' });
       driver.cliNames = [
@@ -697,13 +683,12 @@ describe('SessionNamer', () => {
       expect(updates).toEqual([{ name: 'Given now', nameIsUserSet: true }]);
     });
 
-    it("never adopts a fork's copied title, then adopts a later rename", async () => {
+    it("takes a fork's copied title as the baseline, then adopts a later rename", async () => {
       edit('s1', { name: 'Review PR 12 (full tools)' });
-      // The reader leaves out the title the fork copied (`forkedFrom`).
       driver.cliNames = [
         null,
-        { name: null, next: 900 },
-        { name: null, next: 950 },
+        { name: 'Source title', next: 900 },
+        { name: 'Source title', next: 950 },
         { name: 'Fork rename', next: 990 },
       ];
 
@@ -715,6 +700,19 @@ describe('SessionNamer', () => {
       expect(updates).toEqual([{ name: 'Fork rename', nameIsUserSet: true }]);
       expect(driver.cliFrom).toEqual([0, 0, 900, 950]);
       expect(driver.firstPromptCalls).toBe(0);
+    });
+
+    it("never adopts a fork's inherited title, though its file is written only at the first message", async () => {
+      edit('s1', { name: 'Review PR 12 (full tools)' });
+      driver.cliNames = [null, { name: 'Source title (fork)', next: 900 }];
+
+      namer.statusChanged('inst-1', 'working');
+      await namer.idle();
+      namer.statusChanged('inst-1', 'ready');
+      await namer.idle();
+
+      expect(updates).toEqual([]);
+      expect(session().name).toBe('Review PR 12 (full tools)');
     });
 
     it('does not take back a name read with nothing new since', async () => {
