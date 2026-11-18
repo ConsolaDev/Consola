@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import {
   appendAutomationEntry,
   automationVersion,
@@ -679,7 +679,7 @@ automations:
     expect(problems).toEqual({
       'unknown-tool': 'there is no Consola tool named "nope"',
       'read-only': 'consola#peek cannot be run by an automation',
-      'bad-args': expect.stringMatching(/^with: level: Expected number/),
+      'bad-args': expect.stringMatching(/^with: level: Invalid input: expected number/),
       plugin: 'unknown tool namespace "plugin:x"; only consola# tools exist today',
     });
     expect(t.service.list('ws-1').every((view) => view.nextRunAt === null)).toBe(true);

@@ -955,7 +955,7 @@ export function assertOwners(
   repo: string,
   number: number,
 ): void {
-  const reply = strict(z.object({ data: z.record(owner) }), raw, 'reply');
+  const reply = strict(z.object({ data: z.record(z.string(), owner) }), raw, 'reply');
   expected.forEach(({ type }, index) => {
     const node = reply.data[`n${index}`];
     const where = node?.pullRequest

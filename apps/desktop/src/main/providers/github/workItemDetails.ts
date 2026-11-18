@@ -1,4 +1,4 @@
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import type { WorkItemRef } from '../../../shared/workItems';
 import type { WorkItemDetails } from '../GitProviderDriver';
 

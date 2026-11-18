@@ -1,5 +1,5 @@
 import * as path from 'node:path';
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import type { RunRecord } from '@consola/factory-spec';
 import type { AutomationView, SavedAutomation } from '../../shared/automations';
 import type { AutomationCapabilities } from '../automations/capabilities';

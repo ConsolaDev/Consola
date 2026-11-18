@@ -1,6 +1,4 @@
-// 'zod/v3', not 'zod': these shapes are handed to the MCP SDK, whose
-// zod-compat types trip TS2589 on the root import.
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import type { Workspace } from '../../shared/workspace';
 
 /**
