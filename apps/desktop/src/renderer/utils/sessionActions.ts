@@ -5,7 +5,6 @@ import { useTerminalStore } from '../stores/terminalStore';
 import { useWorkspaceStore, type Session } from '../stores/workspaceStore';
 import { providerBridge } from '../services/providerBridge';
 import { terminalBridge } from '../services/terminalBridge';
-import { assistantBridge } from '../services/assistantBridge';
 import { windowBridge } from '../services/windowBridge';
 import { forgetSessionLocally } from './forgetSession';
 import { ipcErrorMessage } from './ipcErrorMessage';
@@ -63,8 +62,8 @@ export function activateSession(workspaceId: string, sessionId: string): void {
  * that scope's sessions: mounting a session launches its CLI, and choosing a
  * filter asked for no such thing. All hides nothing, so it never navigates.
  *
- * The Assistant belongs to no scope, so no filter hides it; the Inbox and
- * Automations cover the pane, so the choice only filters the list behind it.
+ * The Inbox and Automations cover the pane, so the choice only filters the
+ * list behind it.
  */
 export function chooseScope(workspaceId: string, scopeId: string | null): void {
   useHomeStore.getState().setScopeFilter(workspaceId, scopeId);
@@ -74,8 +73,7 @@ export function chooseScope(workspaceId: string, scopeId: string | null): void {
   const open = useWorkspaceStore
     .getState()
     .getSession(workspaceId, navigation.activeSessionId ?? '');
-  if (open && open.kind !== 'assistant' && open.scopeId !== scopeId)
-    navigation.setActiveSession(null);
+  if (open && open.scopeId !== scopeId) navigation.setActiveSession(null);
 }
 
 /**
@@ -93,7 +91,7 @@ export function clearAllFilters(workspaceId: string): void {
 /**
  * Keep a session that just became active in the list: when one scope is
  * picked and the session runs in another (the palette, a notification, the
- * Assistant, the ▾ "New session in" menu), the filter follows it. Under All
+ * ▾ "New session in" menu), the filter follows it. Under All
  * the list already shows it, so clicking a row never narrows the list.
  */
 export function revealSessionScope(workspaceId: string, sessionId: string | null): void {
@@ -103,17 +101,8 @@ export function revealSessionScope(workspaceId: string, sessionId: string | null
     workspace && filteredScope(workspace, useHomeStore.getState().scopeFilters[workspaceId]);
   if (!scope || !sessionId) return;
   const session = useWorkspaceStore.getState().getSession(workspaceId, sessionId);
-  if (!session || session.kind === 'assistant' || session.scopeId === scope.id) return;
+  if (!session || session.scopeId === scope.id) return;
   useHomeStore.getState().setScopeFilter(workspaceId, session.scopeId);
-}
-
-/**
- * Open the workspace's Assistant, making its record the first time. Nothing
- * launches here: the pane does, like any other session.
- */
-export async function openAssistant(workspaceId: string): Promise<void> {
-  const session = await assistantBridge.open(workspaceId);
-  activateSession(workspaceId, session.id);
 }
 
 /**

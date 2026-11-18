@@ -218,14 +218,6 @@ export interface TerminalHarnessSwitch {
   notice: string;
 }
 
-/** What an exited terminal is started again with. */
-export interface RelaunchFields {
-  cwd: string;
-  prompt: string;
-  /** Run it as one non-interactive turn, prompt as argument; otherwise queue it for the composer. */
-  unattended: boolean;
-}
-
 export class TerminalService extends EventEmitter {
   private claudePty: pty.IPty | null = null;
   private dimensions: TerminalDimensions;
@@ -552,29 +544,6 @@ export class TerminalService extends EventEmitter {
     // a menu nobody can answer.
     this.isAwaitingConfirmation = false;
     void this.initClaude(true);
-  }
-
-  /**
-   * Start an exited terminal again, in place, resuming its conversation.
-   *
-   * Interactive, the prompt joins the queue and so waits for an empty
-   * composer with no confirmation menu; never written straight to the PTY.
-   * Unattended, it is the turn's argument.
-   */
-  public relaunch(launch: RelaunchFields): void {
-    if (this.claudePty || this.isLaunching) throw new Error('It is already running.');
-    if (launch.unattended) {
-      this.unattendedPending = true;
-      this.initialPromptArgument = launch.prompt;
-    } else {
-      this.promptQueue.push(launch.prompt);
-    }
-    this.restartClaude(launch.cwd);
-  }
-
-  /** The visible screen, without trailing blank lines; empty with no screen. */
-  public screenText(): string {
-    return (this.screen?.visibleText() ?? '').replace(/\s+$/, '');
   }
 
   public destroy(): void {

@@ -55,9 +55,7 @@ export class SessionSource implements AttentionSource {
 
   constructor(private readonly deps: SessionSourceDeps) {
     this.now = deps.now ?? Date.now;
-    this.settle = new TurnSettle((instanceId, status) => this.finished(instanceId, status), {
-      persistent: true,
-    });
+    this.settle = new TurnSettle((instanceId, status) => this.finished(instanceId, status));
   }
 
   public read(): Map<string, Attention> {

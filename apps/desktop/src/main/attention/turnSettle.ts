@@ -19,28 +19,14 @@ interface Watch {
  * `working` inside that window cancels it. `exited` is final and reports at
  * once.
  *
- * Detection only. What a finish means differs by observer: the Assistant
- * counts it as unseen by the Assistant, the attention ledger as unseen by the
- * person. Those are different facts, so each keeps its own bookkeeping and
- * shares this machine.
- *
- * `persistent: false` watches only keys it was told to (`watch`) and drops one
- * after it reports. `persistent: true` watches every key it sees, and starts
- * over after each report.
+ * Detection only: what a finish means is its observer's bookkeeping (the
+ * attention ledger's "unseen by the person"). Every key it sees is watched,
+ * and each starts over after it reports.
  */
 export class TurnSettle {
   private readonly watches = new Map<string, Watch>();
 
-  constructor(
-    private readonly onFinished: (key: string, status: SettledStatus) => void,
-    private readonly options: { persistent: boolean },
-  ) {}
-
-  /** Start (or restart) watching a key: the next quiet only counts after it has worked. */
-  public watch(key: string): void {
-    this.unwatch(key);
-    this.watches.set(key, { seenWorking: false });
-  }
+  constructor(private readonly onFinished: (key: string, status: SettledStatus) => void) {}
 
   public unwatch(key: string): void {
     const watch = this.watches.get(key);
@@ -51,7 +37,6 @@ export class TurnSettle {
   public observe(key: string, status: TerminalStatus): void {
     let watch = this.watches.get(key);
     if (!watch) {
-      if (!this.options.persistent) return;
       watch = { seenWorking: false };
       this.watches.set(key, watch);
     }
@@ -74,7 +59,7 @@ export class TurnSettle {
 
   private finish(key: string, status: SettledStatus): void {
     this.unwatch(key);
-    if (this.options.persistent) this.watches.set(key, { seenWorking: false });
+    this.watches.set(key, { seenWorking: false });
     this.onFinished(key, status);
   }
 

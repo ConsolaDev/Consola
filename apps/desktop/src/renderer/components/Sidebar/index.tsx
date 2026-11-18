@@ -6,11 +6,9 @@ import { useAttentionStore } from '../../stores/attentionStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { isShelfOpen, useSettingsStore } from '../../stores/settingsStore';
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
-import { listedSessions } from '../../../shared/workspace';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { AttentionState } from '../../../shared/attention';
-import { AssistantNavItem } from './AssistantNavItem';
 import { AutomationsNavItem } from './AutomationsNavItem';
 import { FilterBar } from './FilterBar';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
@@ -86,12 +84,11 @@ export function Sidebar() {
       .getState()
       .workspaces.find((candidate) => candidate.id === activeWorkspaceId);
     const session = current?.sessions.find((candidate) => candidate.id === activeSessionId);
-    // The Assistant belongs to no scope the filter could show.
-    if (!current || !session || session.kind === 'assistant') return;
+    if (!current || !session) return;
     revealSessionScope(current.id, session.id);
     // Facet filters follow an activated session the same way: one that would
     // hide it is cleared rather than leaving the open session out of its list.
-    const listed = listedSessions(current).filter((candidate) => candidate.name.length > 0);
+    const listed = current.sessions.filter((candidate) => candidate.name.length > 0);
     const facets = effectiveFilters(
       current,
       listed,
@@ -108,7 +105,7 @@ export function Sidebar() {
   useSettleOnChange(sessionPanelRef, scope?.id ?? 'all', { rise: 4 });
 
   const allSessions = workspace
-    ? listedSessions(workspace).filter((session) => session.name.length > 0)
+    ? workspace.sessions.filter((session) => session.name.length > 0)
     : [];
   const facets = workspace ? effectiveFilters(workspace, allSessions, facetSelection) : {};
   // Filter -> entries -> narrow -> trees -> buckets. A filter only decides which
@@ -298,7 +295,6 @@ export function Sidebar() {
       )}
       {workspace && !isInbox && (
         <div className="home-navigation">
-          <AssistantNavItem workspace={workspace} />
           <AutomationsNavItem workspace={workspace} />
           {/* Always there, even with one scope: it is also where scopes are added. */}
           <hr className="sidebar-scope-divider" />

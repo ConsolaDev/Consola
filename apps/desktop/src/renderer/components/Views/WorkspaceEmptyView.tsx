@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Folder, FolderPlus, GitFork, Inbox } from 'lucide-react';
-import { listedSessions, type Workspace, type Scope } from '../../../shared/workspace';
+import type { Workspace, Scope } from '../../../shared/workspace';
 import { newSessionScope, useHomeStore } from '../../stores/homeStore';
 import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
@@ -31,7 +31,7 @@ export function WorkspaceEmptyView({ workspace }: { workspace: Workspace }) {
             New session with options…
           </button>
         </div>
-        {listedSessions(workspace).length === 0 && scope && (
+        {workspace.sessions.length === 0 && scope && (
           <FirstSessionTips workspace={workspace} scope={scope} />
         )}
       </div>

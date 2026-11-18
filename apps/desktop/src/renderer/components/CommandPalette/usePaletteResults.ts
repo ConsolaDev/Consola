@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { activityOf } from '../../../shared/attention';
-import { listedSessions } from '../../../shared/workspace';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
@@ -76,7 +75,7 @@ export function usePaletteContext(): PaletteContext {
   // too, and a blank row would be unselectable anyway.
   const allSessions = useMemo(() => {
     const entries = workspaces.flatMap((workspace) =>
-      listedSessions(workspace)
+      workspace.sessions
         .filter((session) => session.name.length > 0)
         .map((session) => ({ session, workspace })),
     );

@@ -6,7 +6,7 @@ import path from 'node:path';
 import { launchElectron } from './helpers/electron';
 
 /**
- * The Automations section, end to end: the sidebar row under the Assistant,
+ * The Automations section, end to end: the sidebar row above the scope picker,
  * the dashboard it opens on the Automations tab, and what Activity shows
  * of a workspace's runs.
  *
@@ -273,11 +273,11 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
   const sprocket = await setUpSprocket();
   const { page } = sprocket;
   try {
-    // Directly under the Assistant, above the scope picker.
+    // First in the sidebar, above the scope picker.
     const row = automationsRow(page);
     await expect(row).toBeVisible();
     await expect(
-      page.locator('.home-navigation > .assistant-nav-item + .automations-nav-item'),
+      page.locator('.home-navigation > .automations-nav-item:first-child + .sidebar-scope-divider'),
     ).toHaveCount(1);
     await expect(row).not.toHaveAttribute('aria-current');
 

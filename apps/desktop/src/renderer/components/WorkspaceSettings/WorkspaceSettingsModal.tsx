@@ -1,16 +1,6 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import {
-  Folder,
-  Info,
-  Plug,
-  Sparkle,
-  Sparkles,
-  Tag,
-  Trash2,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
+import { Folder, Info, Plug, Sparkles, Tag, Trash2, X, type LucideIcon } from 'lucide-react';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
@@ -19,7 +9,6 @@ import { ScopesPanel } from './ScopesPanel';
 import { LabelsPanel } from './LabelsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
 import { ActionsPanel } from './ActionsPanel';
-import { AssistantPanel } from './AssistantPanel';
 import { providerNavLabel } from './navLabels';
 import '../Dialogs/styles.css';
 import './styles.css';
@@ -29,7 +18,6 @@ export type WorkspaceSettingsSectionId =
   | 'scopes'
   | 'provider'
   | 'actions'
-  | 'assistant'
   | 'labels'
   | 'danger';
 
@@ -45,7 +33,6 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'scopes',
   'provider',
   'actions',
-  'assistant',
   'labels',
   'danger',
 ];
@@ -58,7 +45,6 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   scopes: { label: () => 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
-  assistant: { label: () => 'Assistant', icon: Sparkle },
   labels: { label: () => 'Labels', icon: Tag },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
 };
@@ -179,7 +165,6 @@ function WorkspaceSettingsBody({
             </section>
           )}
           {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
-          {activeSection === 'assistant' && <AssistantPanel workspace={workspace} />}
           {activeSection === 'labels' && <LabelsPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}
         </div>

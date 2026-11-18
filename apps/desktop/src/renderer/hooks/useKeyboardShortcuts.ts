@@ -5,7 +5,6 @@ import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
-  isAssistantShortcut,
   isCommandPaletteShortcut,
   isWorkingShelfShortcut,
   matchScopeShortcut,
@@ -20,7 +19,6 @@ interface UseKeyboardShortcutsOptions {
   onOpenSettings?: () => void;
   onTogglePalette?: () => void;
   onOpenScopedPalette?: (scope: PaletteScope) => void;
-  onOpenAssistant?: () => void;
 }
 
 /**
@@ -41,7 +39,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     onOpenSettings,
     onTogglePalette,
     onOpenScopedPalette,
-    onOpenAssistant,
   } = options;
 
   useEffect(() => {
@@ -70,13 +67,6 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
       if (scope) {
         event.preventDefault();
         onOpenScopedPalette?.(scope);
-        return;
-      }
-
-      // Opens rather than toggles: from the Assistant itself it is a no-op.
-      if (isAssistantShortcut(event)) {
-        event.preventDefault();
-        if (!event.repeat) onOpenAssistant?.();
         return;
       }
 
@@ -161,6 +151,5 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     onOpenSettings,
     onTogglePalette,
     onOpenScopedPalette,
-    onOpenAssistant,
   ]);
 }
