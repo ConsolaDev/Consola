@@ -54,6 +54,7 @@ import type {
   WorkspaceUpdates,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
+import type { HarnessSwitchPreview, HarnessSwitchResult } from '../shared/harnessSwitch';
 
 // Subscribe to a main->renderer channel, returning an unsubscribe function so
 // callers never have to re-register their peers to remove one listener.
@@ -255,6 +256,21 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 
   forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_FORK, workspaceId, sessionId),
+
+  previewHarnessSwitch: (workspaceId: string, sessionId: string): Promise<HarnessSwitchPreview[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW, workspaceId, sessionId),
+
+  switchHarness: (
+    workspaceId: string,
+    sessionId: string,
+    harnessId: string,
+  ): Promise<HarnessSwitchResult> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS,
+      workspaceId,
+      sessionId,
+      harnessId,
+    ),
 
   addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),

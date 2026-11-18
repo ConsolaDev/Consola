@@ -29,17 +29,25 @@ export interface Session {
   instanceId: string; // Terminal instance ID
   claudeSessionId: string; // UUID passed to `claude --session-id`
   hasStarted: boolean; // Launched before, so resume instead of create
-  // Harness this conversation runs on. Fixed for the session's lifetime: the
+  // Harness this conversation runs on. Fixed for the conversation: the
   // transcript lives in that harness's config directory, so resuming under a
-  // different one would lose the conversation.
+  // different one would lose it. Only a harness switch changes it, and only
+  // together with `claudeSessionId` (`WorkspaceService.switchHarness`).
   harnessId: string;
   // Model this conversation runs on, as the CLI's own selector value. Fixed
-  // for the session's lifetime like the harness, and replayed on every resume.
+  // for the conversation, like the harness, and replayed on every resume.
   // Absent means no `--model` flag at all, so the CLI picks its own default —
-  // the same "pins nothing" behaviour the built-in harness relies on.
+  // the same "pins nothing" behaviour the built-in harness relies on. A
+  // harness switch clears it: a selector belongs to the harness that offered it.
   model?: string;
+  // The conversations this session ran before a harness switch moved it on,
+  // oldest first, each living on in its own harness's storage. Nothing
+  // resumes them; the last one says how the current conversation began
+  // (`switchOpening`). Written only by `switchHarness`.
+  priorConversations?: ConversationLink[];
   // Where this session belongs: its home in the sidebar and the default
-  // working directory. Fixed for the session's lifetime, like the harness.
+  // working directory. Fixed for the session's lifetime: a harness switch
+  // keeps it, like everything else that says where the session belongs.
   scopeId: string;
   // Where it actually runs, when that differs from the scope's path — a
   // worktree session's cwd is the worktree, its scope is the repo it belongs
@@ -49,7 +57,8 @@ export interface Session {
   // from where Consola launches it — Claude's EnterWorktree moves the whole
   // process into a worktree Consola never made. Written only by main, from
   // the CLI's own report (`WorkspaceService.recordAgentCwd`), and cleared when
-  // the agent comes back. Git state follows it; launching never does: every
+  // the agent comes back, or by a harness switch, whose new process reports
+  // for itself. Git state follows it; launching never does: every
   // spawn still starts in `cwd`, and the CLI reports again from there.
   agentCwd?: string;
   // Why it exists alongside others. Mutable: dragging a session between
@@ -82,8 +91,9 @@ export interface Session {
   workItemAction?: string;
   // What this conversation's agent may do, beyond its CLI's own defaults.
   // Absent means nothing is pinned — every hand-made session. Fixed for the
-  // session's lifetime like the harness and model, and replayed on every
-  // resume: a relaunch must never lift a restriction mid-conversation.
+  // session's lifetime, a harness switch included (a target that cannot
+  // enforce it is refused), and replayed on every resume: a relaunch must
+  // never lift a restriction mid-conversation.
   toolPolicy?: SessionToolPolicy;
   // The automation that started this session, when one did. Fixed: it says
   // where the session came from, not what it is doing now.
@@ -91,6 +101,79 @@ export interface Session {
   createdAt: number;
   /** Creation-time seed only. Real activity lives in the attention ledger; read it through `activityOf`. */
   lastActiveAt: number;
+}
+
+/**
+ * A conversation a session left behind when it switched harness, and how
+ * what it said reached the next one.
+ */
+export interface ConversationLink {
+  harnessId: string;
+  claudeSessionId: string;
+  /** The conversation that took over from it, on the next harness. */
+  continuedAs: string;
+  /** When the session moved on from it. */
+  endedAt: number;
+  /** `native`: the CLI forked it; `handoff`: the next agent read a transcript of it. */
+  carried: 'native' | 'handoff';
+  /** The handoff document, for `handoff`. */
+  handoffPath?: string;
+}
+
+/** How many conversations a session remembers having switched away from. */
+export const MAX_PRIOR_CONVERSATIONS = 8;
+
+/** What a harness switch changes on a session record. */
+export interface HarnessSwitchChange {
+  harnessId: string;
+  claudeSessionId: string;
+  hasStarted: boolean;
+  /** The conversation moved on from, when there was one to carry. */
+  left?: ConversationLink;
+  /** Pin the name: a summary of a conversation that opens with a handoff would describe the handoff. */
+  keepName?: boolean;
+}
+
+/**
+ * The record a harness switch leaves: the harness and the conversation it
+ * names move together, the model goes with the harness that offered it, and
+ * `agentCwd` with the process that reported it. Everything that makes the
+ * session this session stays. Computed here once, so the record written and
+ * the record a switch launches from can never differ.
+ */
+export function switchedSession(session: Session, change: HarnessSwitchChange): Session {
+  const { model: _model, agentCwd: _agentCwd, ...kept } = session;
+  const prior = change.left
+    ? [...(session.priorConversations ?? []), change.left].slice(-MAX_PRIOR_CONVERSATIONS)
+    : session.priorConversations;
+  return {
+    ...kept,
+    harnessId: change.harnessId,
+    claudeSessionId: change.claudeSessionId,
+    hasStarted: change.hasStarted,
+    ...(prior ? { priorConversations: prior } : {}),
+    ...(change.keepName ? { nameIsUserSet: true } : {}),
+  };
+}
+
+/**
+ * How the session's current conversation began, when a harness switch began
+ * it: forked from the one before, or opened with a handoff document. A
+ * launch whose resume finds the conversation missing opens it this way again
+ * rather than blank — Claude writes a forked conversation only once its first
+ * message is sent, so one nobody has spoken in yet is not there to resume.
+ */
+export function switchOpening(
+  session: Session,
+): { forkFrom: string } | { handoffPath: string } | undefined {
+  const links = session.priorConversations ?? [];
+  for (let index = links.length - 1; index >= 0; index--) {
+    const link = links[index];
+    if (link.continuedAs !== session.claudeSessionId) continue;
+    if (link.carried === 'native') return { forkFrom: link.claudeSessionId };
+    return link.handoffPath ? { handoffPath: link.handoffPath } : undefined;
+  }
+  return undefined;
 }
 
 /**
@@ -354,7 +437,8 @@ export function createSessionRecord(fields: NewSessionFields): Session {
  * undefined key means unlink. Everything that fixes a session's identity
  * (`scopeId`, `cwd`, `kind`, `harnessId`, `model`, `toolPolicy`,
  * `automation`) is absent on purpose, and so is `agentCwd`: only the CLI
- * knows where its agent went.
+ * knows where its agent went. `priorConversations` is too: only a harness
+ * switch knows what it left behind.
  */
 export type SessionUpdates = Partial<
   Pick<

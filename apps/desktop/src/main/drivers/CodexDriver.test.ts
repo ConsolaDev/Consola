@@ -94,6 +94,50 @@ describe('Codex harness', () => {
     });
   });
 
+  it('reads a tab’s conversation from its thread’s rollout, and nothing for a tab with no thread', async () => {
+    const codex = new CodexDriver();
+    expect(await codex.readConversation(config(), sessionId)).toBeNull();
+    const [, threadId] = await codex.buildSessionArgs(config(), launch());
+    expect(await codex.readConversation(config(), sessionId)).toBeNull();
+
+    const directory = path.join(configDir, 'sessions', '2026', '11', '12');
+    fs.mkdirSync(directory, { recursive: true });
+    fs.writeFileSync(
+      path.join(directory, `rollout-date-${threadId}.jsonl`),
+      [
+        {
+          timestamp: '2026-11-12T10:00:00Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'user',
+            content: [{ type: 'input_text', text: 'Rename the flag' }],
+          },
+        },
+        {
+          timestamp: '2026-11-12T10:00:01Z',
+          type: 'response_item',
+          payload: {
+            type: 'message',
+            role: 'assistant',
+            content: [{ type: 'output_text', text: 'Renamed.' }],
+          },
+        },
+      ]
+        .map((record) => JSON.stringify(record))
+        .join('\n') + '\n',
+    );
+
+    expect(await codex.readConversation(config(), sessionId)).toEqual({
+      truncated: false,
+      entries: [
+        { kind: 'prompt', text: 'Rename the flag', at: '2026-11-12T10:00:00Z' },
+        { kind: 'text', text: 'Renamed.', at: '2026-11-12T10:00:01Z' },
+      ],
+    });
+    expect(await codex.readConversation(config(), '../invalid')).toBeNull();
+  });
+
   it('retries missing transcripts and follows conversation switches into archived rollouts', async () => {
     const codex = new CodexDriver();
     await codex.buildSessionArgs(config(), launch());

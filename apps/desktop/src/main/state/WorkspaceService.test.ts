@@ -896,6 +896,125 @@ describe('WorkspaceService', () => {
     expect(() => service.replaceConversation(workspace.id, 'nope')).toThrow(/No session nope/);
   });
 
+  it('switchHarness moves harness and conversation together, and keeps what the session is', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Extract billing client',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'claude-personal',
+      model: 'opus',
+      scopeId: workspace.scopes[0].id,
+      cwd: '/code/consola/.worktrees/pr-51',
+      groupId: 'group-1',
+      workItem: { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+      workItemAction: 'Review',
+    })!;
+    service.recordAgentCwd(workspace.id, session.id, '/code/consola/.claude/worktrees/elsewhere');
+    const listener = vi.fn();
+    service.onChange(listener);
+
+    const left = {
+      harnessId: 'claude-personal',
+      claudeSessionId: session.claudeSessionId,
+      continuedAs: 'new-id',
+      endedAt: 1_000,
+      carried: 'native' as const,
+    };
+    const switched = service.switchHarness(workspace.id, session.id, {
+      harnessId: 'claude-work',
+      claudeSessionId: 'new-id',
+      hasStarted: true,
+      left,
+    });
+
+    // The model belonged to the old harness, and where the old process had gone is its news alone.
+    const { model: _model, ...rest } = session;
+    expect(switched).toEqual({
+      ...rest,
+      harnessId: 'claude-work',
+      claudeSessionId: 'new-id',
+      hasStarted: true,
+      priorConversations: [left],
+    });
+    expect(build().getAll()[0].sessions[0]).toEqual(switched);
+    expect(listener).toHaveBeenCalledTimes(1);
+
+    // A handoff pins the name: a summary of the new conversation would describe the handoff.
+    const handed = service.switchHarness(workspace.id, session.id, {
+      harnessId: 'codex',
+      claudeSessionId: 'third-id',
+      hasStarted: true,
+      left: {
+        ...left,
+        harnessId: 'claude-work',
+        claudeSessionId: 'new-id',
+        continuedAs: 'third-id',
+        carried: 'handoff',
+        handoffPath: '/h.md',
+      },
+      keepName: true,
+    });
+    expect(handed.nameIsUserSet).toBe(true);
+    expect(handed.priorConversations?.map((link) => link.claudeSessionId)).toEqual([
+      session.claudeSessionId,
+      'new-id',
+    ]);
+
+    expect(() =>
+      service.switchHarness(workspace.id, 'nope', {
+        harnessId: 'x',
+        claudeSessionId: 'y',
+        hasStarted: true,
+      }),
+    ).toThrow(/No session nope/);
+  });
+
+  it('switchHarness keeps only the last few conversations, and never moves the Assistant', () => {
+    const workspace = service.createWorkspace('consola', '/code/consola', true);
+    const session = service.createSession(workspace.id, {
+      name: 'Long job',
+      workspaceId: workspace.id,
+      instanceId: 'instance-1',
+      harnessId: 'h0',
+      scopeId: workspace.scopes[0].id,
+    })!;
+    for (let index = 1; index <= 10; index++) {
+      service.switchHarness(workspace.id, session.id, {
+        harnessId: `h${index}`,
+        claudeSessionId: `c${index}`,
+        hasStarted: true,
+        left: {
+          harnessId: `h${index - 1}`,
+          claudeSessionId: `c${index - 1}`,
+          continuedAs: `c${index}`,
+          endedAt: index,
+          carried: 'native',
+        },
+      });
+    }
+    const prior = build().getAll()[0].sessions[0].priorConversations!;
+    expect(prior.map((link) => link.claudeSessionId)).toEqual([
+      'c2',
+      'c3',
+      'c4',
+      'c5',
+      'c6',
+      'c7',
+      'c8',
+      'c9',
+    ]);
+
+    const assistant = service.ensureAssistant(workspace.id, { harnessId: 'h0', cwd: '/assistant' });
+    expect(() =>
+      service.switchHarness(workspace.id, assistant.id, {
+        harnessId: 'h1',
+        claudeSessionId: 'x',
+        hasStarted: true,
+      }),
+    ).toThrow(/Only your own sessions/);
+  });
+
   it('recordAgentCwd follows an agent into another checkout and back, writing only changes', () => {
     const repo = fs.realpathSync(dir);
     const tree = path.join(repo, '.claude', 'worktrees', 'assistant');

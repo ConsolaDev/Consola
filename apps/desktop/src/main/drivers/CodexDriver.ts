@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { z } from 'zod';
+import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type { HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
 import { getLoginEnv } from '../LoginEnvironment';
 import { JsonStateFile } from '../state/JsonStateFile';
@@ -10,6 +11,7 @@ import type { SessionToolPolicy } from '../../shared/workspace';
 import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
 import { findCodexRollout, readSessionModel } from './sessionModel';
 import { createCodexThread } from './codexAppServer';
+import { readCodexRollout } from './codexConversation';
 import { listCodexModels } from './codexModels';
 import { readCodexSessionName } from './codexSessionName';
 
@@ -111,35 +113,14 @@ export class CodexDriver implements HarnessDriver {
   private readonly rolloutFiles = new Map<string, string>();
 
   public async getSessionDisplayName(config: HarnessConfig, sessionId: string) {
-    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
-    const home = config.configDir || getLoginEnv().CODEX_HOME || path.join(os.homedir(), '.codex');
     try {
-      const mapping: CodexMapping = JSON.parse(
-        await fs.promises.readFile(
-          path.join(home, 'consola', 'sessions', `${sessionId}.json`),
-          'utf8',
-        ),
-      );
-      const threadId = mapping.pendingThreadPrefix
-        ? /^[0-9a-f-]{29}$/i.test(mapping.pendingThreadPrefix)
-          ? threadForPrefix(home, mapping.pendingThreadPrefix)
-          : undefined
-        : mapping.threadId;
-      if (typeof threadId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(threadId)) return null;
-      const key = path.join(home, threadId);
-      let file = this.rolloutFiles.get(key);
-      if (!file || !fs.existsSync(file)) {
-        file =
-          (await findCodexRollout(path.join(home, 'sessions'), threadId)) ??
-          (await findCodexRollout(path.join(home, 'archived_sessions'), threadId)) ??
-          undefined;
-        if (file) this.rolloutFiles.set(key, file);
-      }
+      const thread = await this.locateThread(config, sessionId, { followPending: true });
+      if (!thread) return null;
       return await readCodexSessionName(
-        path.join(home, 'session_index.jsonl'),
-        threadId,
+        path.join(thread.home, 'session_index.jsonl'),
+        thread.threadId,
         sessionId,
-        file,
+        thread.rollout,
       );
     } catch {
       return null;
@@ -147,30 +128,72 @@ export class CodexDriver implements HarnessDriver {
   }
 
   public async getSessionModel(config: HarnessConfig, sessionId: string): Promise<string | null> {
+    try {
+      const thread = await this.locateThread(config, sessionId, { followPending: false });
+      return thread?.rollout ? readSessionModel(thread.rollout, 'codex') : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * The tab's conversation, read from its thread's rollout file. Null when
+   * the tab has no thread or the thread has no rollout yet; throws when the
+   * rollout is not in a format this driver recognises.
+   */
+  public async readConversation(
+    config: HarnessConfig,
+    conversationId: string,
+    window?: ConversationWindow,
+  ): Promise<ConversationRecord | null> {
+    const thread = await this.locateThread(config, conversationId, { followPending: true });
+    return thread?.rollout ? readCodexRollout(thread.rollout, window) : null;
+  }
+
+  /**
+   * The Codex thread a Consola tab runs, through the tab's mapping file,
+   * and that thread's rollout file when Codex has written one. Null when
+   * the tab has no mapping or names no usable thread.
+   *
+   * `followPending` resolves a thread Codex has switched to but only shown
+   * by a shortened title; without it the last confirmed thread answers.
+   */
+  private async locateThread(
+    config: HarnessConfig,
+    sessionId: string,
+    { followPending }: { followPending: boolean },
+  ): Promise<{ home: string; threadId: string; rollout?: string } | null> {
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
     const home = config.configDir || getLoginEnv().CODEX_HOME || path.join(os.homedir(), '.codex');
+    let mapping: CodexMapping;
     try {
-      const mapping = JSON.parse(
+      mapping = JSON.parse(
         await fs.promises.readFile(
           path.join(home, 'consola', 'sessions', `${sessionId}.json`),
           'utf8',
         ),
       );
-      const threadId = mapping?.threadId;
-      if (typeof threadId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(threadId)) return null;
-      const key = path.join(home, threadId);
-      let file = this.rolloutFiles.get(key);
-      if (!file || !fs.existsSync(file)) {
-        file =
-          (await findCodexRollout(path.join(home, 'sessions'), threadId)) ??
-          (await findCodexRollout(path.join(home, 'archived_sessions'), threadId)) ??
-          undefined;
-        if (file) this.rolloutFiles.set(key, file);
-      }
-      return file ? readSessionModel(file, 'codex') : null;
-    } catch {
-      return null;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+      throw error;
     }
+    const threadId =
+      followPending && mapping?.pendingThreadPrefix
+        ? /^[0-9a-f-]{29}$/i.test(mapping.pendingThreadPrefix)
+          ? threadForPrefix(home, mapping.pendingThreadPrefix)
+          : undefined
+        : mapping?.threadId;
+    if (typeof threadId !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(threadId)) return null;
+    const key = path.join(home, threadId);
+    let rollout = this.rolloutFiles.get(key);
+    if (!rollout || !fs.existsSync(rollout)) {
+      rollout =
+        (await findCodexRollout(path.join(home, 'sessions'), threadId)) ??
+        (await findCodexRollout(path.join(home, 'archived_sessions'), threadId)) ??
+        undefined;
+      if (rollout) this.rolloutFiles.set(key, rollout);
+    }
+    return { home, threadId, ...(rollout ? { rollout } : {}) };
   }
 
   public resolveBinary(config: HarnessConfig): string {

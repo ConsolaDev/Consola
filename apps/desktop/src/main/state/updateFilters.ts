@@ -131,12 +131,14 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
  * The ones that matter most: `harnessId` — and since v6 `scopeId`, `cwd`
  * and `kind` — are deliberately not on the list.
  *
- * A session's harness is fixed for its lifetime — the transcript lives inside
- * that harness's config directory and `--resume` only finds it there — so a
- * rewritten `harnessId` would silently orphan the conversation rather than
- * failing where anyone could see it. The scope, working directory and kind
- * are the session's identity in the same way: where it belongs, where it
- * runs, what drives it. `groupId` and, since v7, `workItem` are mutable —
+ * A session's harness is fixed for its conversation — the transcript lives
+ * inside that harness's config directory and `--resume` only finds it there —
+ * so a rewritten `harnessId` would silently orphan the conversation rather
+ * than failing where anyone could see it. The one way it changes is a harness
+ * switch (`WorkspaceService.switchHarness`), which moves the conversation id
+ * with it and records what it left in `priorConversations`, also off this
+ * list. The scope, working directory and kind are the session's identity in
+ * the same way: where it belongs, where it runs, what drives it. `groupId` and, since v7, `workItem` are mutable —
  * regrouping and linking are acts of organisation and triage, not identity
  * changes — and both clear by presence. `labelIds` (v8) is mutable the same
  * way, and `autoSettle` is a preference. `parentSessionId` is clear-only: a
@@ -146,7 +148,8 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
  * and can be wrong, and a child settles only with its conductor and is drawn
  * into Waiting by any sibling's question — without it, the only way out of a
  * mis-parenting would be deleting the session. `id`, `workspaceId`, `instanceId`
- * and `claudeSessionId` name the session and its terminal; `createdAt` is
+ * and `claudeSessionId` name the session and its terminal — the last changes
+ * only through `replaceConversation` and `switchHarness` — and `createdAt` is
  * history.
  */
 export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {

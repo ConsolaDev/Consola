@@ -5,6 +5,7 @@ import * as path from 'node:path';
 import { getLoginEnv } from '../LoginEnvironment';
 import { readSessionModel } from './sessionModel';
 import {
+  copyConversation,
   findSessionFile,
   getDisplayName,
   readConversation,
@@ -242,6 +243,21 @@ export class ClaudeDriver implements HarnessDriver {
   ): Promise<ConversationRecord | null> {
     if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
     return readConversation(conversationId, resolveConfigDir(config), window);
+  }
+
+  /** Copy the transcript into `to`'s identical project folder; `--fork-session` does the rest. */
+  public async transplantConversation(
+    from: HarnessConfig,
+    to: HarnessConfig,
+    conversationId: string,
+  ): Promise<'carried' | 'missing'> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) throw new Error('Invalid conversation ID.');
+    const copied = await copyConversation(
+      conversationId,
+      resolveConfigDir(from),
+      resolveConfigDir(to),
+    );
+    return copied === 'missing' ? 'missing' : 'carried';
   }
 
   public resolveBinary(config: HarnessConfig): string {

@@ -1,10 +1,11 @@
 import { create } from 'zustand';
 import type { HarnessLaunchFields } from '../../shared/types';
-import type {
-  Harness,
-  HarnessStatus,
-  HarnessUpdates,
-  NewHarnessFields,
+import {
+  launchFieldsFor,
+  type Harness,
+  type HarnessStatus,
+  type HarnessUpdates,
+  type NewHarnessFields,
 } from '../../shared/harness';
 import { harnessBridge } from '../services/harnessBridge';
 import { harnessBridgeState } from '../services/harnessBridgeState';
@@ -65,14 +66,13 @@ export function isSelectableHarness(harness: Harness): boolean {
   return harness.enabled && !harness.archived;
 }
 
-/** The launch fields a harness contributes to a session's spawn. */
+/**
+ * The launch fields a harness contributes to a session's spawn — the same
+ * translation main uses (`launchFieldsFor`), so a pane and a headless launch
+ * of one session always run in, and read from, the same config directory.
+ */
 export function toLaunchFields(harness: Harness): HarnessLaunchFields {
-  return {
-    driverId: harness.driverId,
-    binaryOverride: harness.binaryPath,
-    configDirOverride: harness.configDir,
-    extraArgs: harness.extraArgs,
-  };
+  return launchFieldsFor(harness);
 }
 
 /**

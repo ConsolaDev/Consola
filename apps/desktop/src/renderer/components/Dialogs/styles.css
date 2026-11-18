@@ -564,6 +564,87 @@
   padding-left: 18px;
 }
 
+/* Switch-harness dialog: one row per harness, each saying what a switch there keeps. */
+.switch-harness-dialog {
+  width: 480px;
+  max-width: 90vw;
+}
+
+.switch-harness-status {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0;
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.switch-harness-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.switch-harness-option {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.switch-harness-option:hover {
+  background: var(--color-bg-hover);
+}
+
+.switch-harness-option[data-selected] {
+  border-color: var(--color-accent);
+  background: var(--color-bg-active);
+}
+
+.switch-harness-option[aria-disabled] {
+  cursor: default;
+  background: none;
+}
+
+.switch-harness-option[aria-disabled] .switch-harness-option-name,
+.switch-harness-option[aria-disabled] .harness-driver-icon {
+  opacity: 0.55;
+}
+
+.switch-harness-option input {
+  margin: 3px 0 0;
+  accent-color: var(--color-accent);
+}
+
+.switch-harness-option .harness-driver-icon {
+  margin-top: 1px;
+}
+
+.switch-harness-option-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.switch-harness-option-name {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.switch-harness-option-detail {
+  font-size: var(--font-size-xs);
+  line-height: 1.45;
+  color: var(--color-text-secondary);
+}
+
 /* Link-session dialog: a picker wants a little more room than a confirm. */
 .link-session-dialog {
   max-width: 480px;

@@ -457,6 +457,33 @@ describe('SessionLauncher', () => {
       expect(workspaces.replaceConversation).not.toHaveBeenCalled();
     });
 
+    it('continue: a conversation a harness switch began is resumed knowing how it began', async () => {
+      // Should the resume find it missing — a fork nobody has spoken in yet —
+      // the terminal opens it the same way again rather than blank.
+      const session = sessionFixture({
+        cwd: targetDir,
+        hasStarted: true,
+        priorConversations: [
+          {
+            harnessId: 'personal',
+            claudeSessionId: 'before',
+            continuedAs: '11111111-1111-4111-8111-111111111111',
+            endedAt: 1,
+            carried: 'native',
+          },
+        ],
+      });
+      const { launcher, workspaces, terminals } = buildLauncher(session);
+      workspaces.getAll.mockReturnValue([{ ...workspaceFixture(), sessions: [session] }]);
+
+      await launcher.runInSession('ws-1', 'session-1', 'Check again.', 'continue');
+
+      expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+        resume: true,
+        opening: { forkFrom: 'before' },
+      });
+    });
+
     it('continue: a session that never ran creates its conversation and is marked started', async () => {
       const session = sessionFixture({ hasStarted: false, cwd: targetDir });
       const { launcher, workspaces, terminals } = buildLauncher(session);
@@ -568,6 +595,27 @@ describe('SessionLauncher', () => {
       );
       expect(workspaces.replaceConversation).not.toHaveBeenCalled();
       expect(terminals.startHeadless).not.toHaveBeenCalled();
+    });
+  });
+
+  it('launches on an edited built-in harness with its own settings, as a pane does', async () => {
+    const session = sessionFixture({ harnessId: 'default' });
+    const { launcher, harnesses, terminals } = buildLauncher(session);
+    harnesses.getAll.mockReturnValue([
+      {
+        ...harnessFixture,
+        id: 'default',
+        isBuiltIn: true,
+        configDir: '/Users/me/.claude-personal',
+        extraArgs: [],
+      },
+    ]);
+
+    await launcher.launchSession('ws-1', { ...launchFields, harnessId: 'default' });
+
+    expect(terminals.startHeadless.mock.calls[0][1]).toMatchObject({
+      driverId: 'claude',
+      configDirOverride: '/Users/me/.claude-personal',
     });
   });
 

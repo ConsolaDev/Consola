@@ -9,10 +9,13 @@ import type {
   ConversationWindow,
 } from '../shared/conversation';
 import type { SessionNameResult } from '../shared/types';
+import { capText, ConversationBuilder } from './conversationBuilder';
 import { getLoginEnv } from './LoginEnvironment';
 
 /**
- * Read-only access to Claude Code's own session storage.
+ * Access to Claude Code's own session storage: read-only, except that a
+ * harness switch copies a conversation into another config directory
+ * (`copyConversation`), never overwriting anything there.
  *
  * Claude keeps each conversation as `<config>/projects/<project>/<id>.jsonl`
  * alongside a `sessions-index.json` cache holding a summary it generates
@@ -92,6 +95,59 @@ export function findSessionFile(sessionId: string, configDir?: string): string |
     }
   }
   return null;
+}
+
+/**
+ * Make a conversation stored under one config directory forkable from
+ * another: its transcript, and the folder beside it that holds its
+ * subagents' transcripts and session memory, copied into the same project
+ * folder there. The folder keeps the source's own name rather than one
+ * derived from a working directory, an encoding that is lossy.
+ *
+ * Never overwrites. A conversation the target already holds — two harnesses
+ * sharing a config directory, or a switch back to where it came from — is
+ * left exactly as it is, and reported `present`. `missing` when there is no
+ * transcript to carry: Claude writes one only once a message is sent. The
+ * transcript is copied under a temporary name and moved into place, so a
+ * copy cut short never passes for one. Throws when the copy is not where it
+ * was written: a fork launched against a missing file fails.
+ */
+export async function copyConversation(
+  sessionId: string,
+  fromConfigDir: string | undefined,
+  toConfigDir: string | undefined,
+): Promise<'copied' | 'present' | 'missing'> {
+  const source = findSessionFile(sessionId, fromConfigDir);
+  if (!source) return 'missing';
+
+  const projectDir = path.join(getProjectsDir(toConfigDir), path.basename(path.dirname(source)));
+  const target = path.join(projectDir, `${sessionId}.jsonl`);
+  if (path.resolve(target) === path.resolve(source) || fs.existsSync(target)) return 'present';
+
+  await fsp.mkdir(projectDir, { recursive: true });
+  const partial = path.join(projectDir, `.${sessionId}.jsonl.${process.pid}.partial`);
+  try {
+    await fsp.copyFile(source, partial);
+    // Checked again: the target may have appeared during the copy.
+    if (fs.existsSync(target)) return 'present';
+    await fsp.rename(partial, target);
+  } finally {
+    await fsp.rm(partial, { force: true });
+  }
+
+  const siblings = path.join(path.dirname(source), sessionId);
+  if (fs.existsSync(siblings)) {
+    await fsp.cp(siblings, path.join(projectDir, sessionId), {
+      recursive: true,
+      force: false,
+      errorOnExist: false,
+    });
+  }
+
+  if (!fs.existsSync(target)) {
+    throw new Error(`The conversation could not be copied to ${projectDir}.`);
+  }
+  return 'copied';
 }
 
 function readIndex(file: string): ClaudeSessionEntry[] {
@@ -320,8 +376,7 @@ export async function readRecentReplies(
   }
 }
 
-export const MAX_CONVERSATION_ENTRIES = 2000;
-export const MAX_ENTRY_CHARS = 20_000;
+export { MAX_CONVERSATION_ENTRIES, MAX_ENTRY_CHARS } from './conversationBuilder';
 const MAX_DETAIL_CHARS = 120;
 
 /** Argument names tried, in order, for the one-line detail of a tool call. */
@@ -335,10 +390,6 @@ const DETAIL_KEYS = [
   'description',
   'query',
 ];
-
-function capText(text: string): string {
-  return text.length > MAX_ENTRY_CHARS ? text.slice(0, MAX_ENTRY_CHARS - 1) + '…' : text;
-}
 
 function toolDetail(input: unknown): string | undefined {
   if (!input || typeof input !== 'object') return undefined;
@@ -374,10 +425,7 @@ export async function readConversation(
 
   const since = window.since ? Date.parse(window.since) : NaN;
   const until = window.until ? Date.parse(window.until) : NaN;
-  // The leading prompt(s), then a sliding window of the newest entries.
-  const head: ConversationEntry[] = [];
-  const tail: ConversationEntry[] = [];
-  let truncated = false;
+  const conversation = new ConversationBuilder();
   // Each tool call waits here for its result, which says when it ended and whether it failed.
   const awaitingResult = new Map<string, Extract<ConversationEntry, { kind: 'step' }>>();
 
@@ -441,18 +489,7 @@ export async function readConversation(
         }
       }
 
-      for (const entry of found) {
-        if (tail.length === 0 && entry.kind === 'prompt') {
-          head.push(entry);
-          continue;
-        }
-        tail.push(entry);
-        if (head.length + tail.length > MAX_CONVERSATION_ENTRIES) {
-          // Drop from the middle: the run's prompt and its final answer are what matter.
-          tail.shift();
-          truncated = true;
-        }
-      }
+      for (const entry of found) conversation.add(entry);
     }
   } catch {
     // Unreadable part-way: show what was read.
@@ -460,7 +497,7 @@ export async function readConversation(
     lines.close();
     stream.destroy();
   }
-  return { entries: [...head, ...tail], truncated };
+  return conversation.build();
 }
 
 /**

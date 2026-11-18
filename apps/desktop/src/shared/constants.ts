@@ -44,6 +44,8 @@ export const IPC_CHANNELS = {
   WORKSPACE_SESSION_DELETE: 'workspace:session-delete',
   /** Continue a read-only session as a new one with full tools: a fork of its conversation. */
   WORKSPACE_SESSION_FORK: 'workspace:session-fork',
+  WORKSPACE_SESSION_SWITCH_PREVIEW: 'workspace:session-switch-preview', // What switching to each harness would do
+  WORKSPACE_SESSION_SWITCH_HARNESS: 'workspace:session-switch-harness',
   WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
   WORKSPACE_UPDATE_SCOPE: 'workspace:update-scope',
   WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',

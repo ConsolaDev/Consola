@@ -3,6 +3,7 @@ import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
   Archive,
   ArchiveRestore,
+  ArrowLeftRight,
   Check,
   Link2,
   Pencil,
@@ -15,6 +16,7 @@ import type { Label, Session } from '../../../shared/workspace';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
+import { SwitchHarnessDialog } from '../Dialogs/SwitchHarnessDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
 import type { SettleOffer } from '../../sidebar/settleRules';
 
@@ -45,7 +47,7 @@ interface SessionActionsMenuProps {
 
 /**
  * A sidebar row's actions menu, opened from the row (right-click or the menu
- * key): rename, regroup, link or unlink, delete.
+ * key): rename, regroup, switch harness, link or unlink, delete.
  *
  * Link and Unlink are the sidebar door into the session-item relation.
  * Linking is metadata only — the session keeps its folder and gets no
@@ -79,6 +81,7 @@ export function SessionActionsMenu({
   const assignLabel = useWorkspaceStore((state) => state.assignLabel);
   const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
   const [creatingLabel, setCreatingLabel] = useState(false);
+  const [switchingHarness, setSwitchingHarness] = useState(false);
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
   // its trigger would race the dialog's own focus grab (WorkspaceSwitcher
   // has the same guard for Delete).
@@ -116,6 +119,11 @@ export function SessionActionsMenu({
   const handleNewLabel = () => {
     openingDialog.current = true;
     setCreatingLabel(true);
+  };
+
+  const handleSwitchHarness = () => {
+    openingDialog.current = true;
+    setSwitchingHarness(true);
   };
 
   const canLink = bound && session.kind !== 'conductor';
@@ -217,6 +225,13 @@ export function SessionActionsMenu({
               </DropdownMenu.SubContent>
             </DropdownMenu.Portal>
           </DropdownMenu.Sub>
+          {/* Conductors and the Assistant stay on their harness; main refuses them too. */}
+          {session.kind === 'interactive' && (
+            <DropdownMenu.Item className="dropdown-item" onSelect={handleSwitchHarness}>
+              <ArrowLeftRight size={14} />
+              <span>Switch harness…</span>
+            </DropdownMenu.Item>
+          )}
           {settle?.kind === 'unsettle' && (
             <DropdownMenu.Item
               className="dropdown-item"
@@ -293,6 +308,13 @@ export function SessionActionsMenu({
           workspaceId={workspaceId}
           onClose={() => setCreatingLabel(false)}
           onCreated={(label) => assignLabel(workspaceId, session.id, label.id)}
+        />
+      )}
+      {switchingHarness && (
+        <SwitchHarnessDialog
+          workspaceId={workspaceId}
+          session={session}
+          onClose={() => setSwitchingHarness(false)}
         />
       )}
     </DropdownMenu.Root>

@@ -16,6 +16,7 @@ import type {
   WorkspaceUpdates,
 } from './workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from './harness';
+import type { HarnessSwitchPreview, HarnessSwitchResult } from './harnessSwitch';
 import type { InboxSection } from './inboxSections';
 import type { GitProviderId, ProviderProbeResult } from './providers';
 import type { WorkItemAction } from './workItemActions';
@@ -406,6 +407,14 @@ export interface WorkspaceAPI {
   deleteSession: (workspaceId: string, sessionId: string) => Promise<void>;
   /** A new session of the person's own that continues this read-only one's conversation. */
   forkSession: (workspaceId: string, sessionId: string) => Promise<Session>;
+  /** What switching this session to each harness it could move to would do. */
+  previewHarnessSwitch: (workspaceId: string, sessionId: string) => Promise<HarnessSwitchPreview[]>;
+  /** Carry this session on in another harness, in the same tab. */
+  switchHarness: (
+    workspaceId: string,
+    sessionId: string,
+    harnessId: string,
+  ) => Promise<HarnessSwitchResult>;
   addScope: (workspaceId: string, fields: NewScopeFields) => Promise<Scope>;
   updateScope: (
     workspaceId: string,

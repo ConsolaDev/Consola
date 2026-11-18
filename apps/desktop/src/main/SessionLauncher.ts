@@ -1,6 +1,5 @@
 import * as fs from 'node:fs';
-import type { Harness } from '../shared/harness';
-import type { HarnessLaunchFields } from '../shared/types';
+import { launchFieldsFor, type Harness } from '../shared/harness';
 import type { ActionConversation } from '../shared/workItemActions';
 import {
   generateSessionInstanceId,
@@ -11,6 +10,7 @@ import {
 } from '../shared/workspace';
 import type { AttentionLedger } from './attention/AttentionLedger';
 import { toolPolicyProblem } from './drivers';
+import { openingFor } from './harnessSwitch/handoff';
 import { mcpConfigForSession } from './mcp/SessionMcpHost';
 import type { RelaunchFields, TerminalService, TerminalServiceOptions } from './TerminalService';
 
@@ -84,26 +84,13 @@ export type LaunchSessionFields = NewSessionFields & {
 };
 
 /** What one spawn of a recorded session is asked to do. */
-type SpawnFields = Pick<
+export type SpawnFields = Pick<
   TerminalServiceOptions,
   'resume' | 'initialPrompt' | 'unattended' | 'forkFrom'
 >;
 
-/**
- * How a harness record translates into launch fields.
- *
- * Absent or built-in pins nothing — the empty object resolves exactly the way
- * Consola did before harnesses existed, ambient CLAUDE_CONFIG_DIR included.
- */
-export function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
-  if (!harness || harness.isBuiltIn) return {};
-  return {
-    driverId: harness.driverId,
-    binaryOverride: harness.binaryPath,
-    configDirOverride: harness.configDir,
-    extraArgs: harness.extraArgs,
-  };
-}
+/** A harness record's launch fields; shared with the renderer so both resolve one config directory. */
+export { launchFieldsFor };
 
 export class SessionLauncher {
   /**
@@ -395,6 +382,27 @@ export class SessionLauncher {
   }
 
   /**
+   * Start a session's terminal headless from `session` as given, which
+   * may not be the stored record yet: a harness switch starts the target
+   * before it writes the record that names it, so a write that fails can
+   * stop the terminal and leave nothing behind. `beforeStart` runs after
+   * the last await, just before the spawn, for a check that must hold then.
+   */
+  public async startRecorded(
+    workspaceId: string,
+    session: Session,
+    launch: SpawnFields,
+    beforeStart?: () => void,
+  ): Promise<void> {
+    const workspace = this.workspaces.getAll().find((candidate) => candidate.id === workspaceId);
+    if (!workspace) throw new Error(`No workspace ${workspaceId}.`);
+    const cwd = workingFolder(workspace, session);
+    if (!cwd || !fs.existsSync(cwd))
+      throw new Error(`Its working folder is gone: ${cwd ?? session.scopeId}.`);
+    await this.spawnRecorded(workspace, session, cwd, launch, beforeStart);
+  }
+
+  /**
    * Start an existing record's terminal on its own harness, refusing first
    * if that harness can no longer enforce the session's tool policy — it
    * may have been edited since the session started.
@@ -441,6 +449,7 @@ export class SessionLauncher {
       providerAccountLogin: workspace.provider?.accountLogin,
       mcpConfigPath,
       toolPolicy: session.toolPolicy,
+      opening: openingFor(session),
       ...launchFieldsFor(harness),
     });
   }

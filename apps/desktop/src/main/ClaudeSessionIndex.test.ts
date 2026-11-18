@@ -3,6 +3,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import {
+  copyConversation,
   getDisplayName,
   MAX_CONVERSATION_ENTRIES,
   MAX_ENTRY_CHARS,
@@ -423,5 +424,58 @@ describe('readConversation', () => {
 
   it('is null when there is no transcript', async () => {
     expect(await readConversation(SESSION_ID, configDir)).toBeNull();
+  });
+});
+
+describe('copyConversation', () => {
+  let otherDir: string;
+
+  beforeEach(() => {
+    otherDir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-index-other-'));
+  });
+
+  afterEach(() => {
+    fs.rmSync(otherDir, { recursive: true, force: true });
+  });
+
+  const copied = (file: string) =>
+    path.join(otherDir, 'projects', '-Users-someone-code-repo', file);
+
+  it('copies the transcript and its sibling folder into the same project folder', async () => {
+    writeTranscript(['Fix the login redirect loop']);
+    fs.mkdirSync(path.join(projectDir, SESSION_ID, 'subagents'), { recursive: true });
+    fs.writeFileSync(path.join(projectDir, SESSION_ID, 'subagents', 'agent-1.jsonl'), '{}\n');
+
+    expect(await copyConversation(SESSION_ID, configDir, otherDir)).toBe('copied');
+
+    expect(fs.readFileSync(copied(`${SESSION_ID}.jsonl`), 'utf8')).toBe(
+      fs.readFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), 'utf8'),
+    );
+    expect(fs.existsSync(copied(path.join(SESSION_ID, 'subagents', 'agent-1.jsonl')))).toBe(true);
+    // Nothing half-written is left beside it.
+    expect(
+      fs.readdirSync(path.dirname(copied('x'))).filter((name) => name.endsWith('.partial')),
+    ).toEqual([]);
+    // And the copy is found where Claude will look.
+    expect(getDisplayName(SESSION_ID, otherDir)?.name).toBe('Fix the login redirect loop');
+  });
+
+  it('never overwrites a conversation the target already holds', async () => {
+    writeTranscript(['Fresh text from the source']);
+    fs.mkdirSync(path.dirname(copied('x')), { recursive: true });
+    fs.writeFileSync(copied(`${SESSION_ID}.jsonl`), 'already here\n');
+
+    expect(await copyConversation(SESSION_ID, configDir, otherDir)).toBe('present');
+    expect(fs.readFileSync(copied(`${SESSION_ID}.jsonl`), 'utf8')).toBe('already here\n');
+  });
+
+  it('is a no-op when both harnesses share one config directory', async () => {
+    writeTranscript(['Shared']);
+    expect(await copyConversation(SESSION_ID, configDir, configDir)).toBe('present');
+  });
+
+  it('says so, and writes nothing, when there is no transcript to carry yet', async () => {
+    expect(await copyConversation(SESSION_ID, configDir, otherDir)).toBe('missing');
+    expect(fs.existsSync(path.join(otherDir, 'projects'))).toBe(false);
   });
 });
