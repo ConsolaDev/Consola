@@ -9,7 +9,6 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { rankItem } from './fuzzyMatch';
 import {
   buildActionItems,
@@ -59,7 +58,6 @@ export function usePaletteContext(): PaletteContext {
   const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const { openSettings } = useSettings();
-  const { openWorkspaceSettings } = useWorkspaceSettings();
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
@@ -120,7 +118,6 @@ export function usePaletteContext(): PaletteContext {
       isGitReviewOpen,
       terminalFontSize,
       openSettings,
-      openWorkspaceSettings,
     }),
     [
       workspaces,
@@ -137,7 +134,6 @@ export function usePaletteContext(): PaletteContext {
       isGitReviewOpen,
       terminalFontSize,
       openSettings,
-      openWorkspaceSettings,
     ],
   );
 }

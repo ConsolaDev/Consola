@@ -388,7 +388,7 @@ test.describe('Home scopes and groups', () => {
     await page.getByRole('menuitem', { name: 'Manage scopes…' }).click();
     await expect(
       page
-        .getByRole('navigation', { name: 'Workspace settings sections' })
+        .getByRole('navigation', { name: 'Settings sections' })
         .getByRole('button', { name: 'Scopes', exact: true }),
     ).toHaveAttribute('aria-current', 'true');
   });

@@ -710,42 +710,37 @@
   border: 0;
 }
 
-/* The one-line pointer that stands where the Workspace tab was: reads as a
-   quiet nav row, acts as a door — it closes this modal and opens the
-   workspace's. Disabled carries its reason in the title, like ws-row-action. */
-.settings-modal-nav-pointer {
+/* The list's groups: a quiet heading over the sections it owns. The
+   Workspace heading carries the workspace's name, cut short rather than
+   widening the list. */
+.settings-modal-nav-group {
   display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-normal);
-  color: var(--color-text-tertiary);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    color var(--transition-fast),
-    border-color var(--transition-fast);
-}
-
-.settings-modal-nav-pointer svg {
+  flex-direction: column;
   flex-shrink: 0;
-  margin-top: 2px;
+  margin-top: var(--space-4);
 }
 
-.settings-modal-nav-pointer:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
+.settings-modal-nav-header + .settings-modal-nav-group {
+  margin-top: 0;
 }
 
-.settings-modal-nav-pointer:disabled {
-  opacity: 0.5;
-  cursor: default;
+.settings-modal-nav-group-label {
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Updates stands apart from both groups, at the bottom edge of the list. In
+   a window too short for the whole list it follows the last group and the
+   list scrolls. */
+.settings-modal-nav-footer {
+  flex-shrink: 0;
+  margin-top: auto;
+  padding-top: var(--space-4);
 }
 
 /* The first-run auto-settle explanation, and its threshold control */
