@@ -4,9 +4,10 @@ import {
   type TerminalExitInfo,
   type TerminalServiceOptions,
   type RelaunchFields,
+  type TerminalHarnessSwitch,
 } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
-import type { TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
+import type { HarnessDriverId, TerminalSnapshot, TerminalStatusSnapshot } from '../shared/types';
 import type { TerminalStatus } from '../shared/terminalStatus';
 import type { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { getDriver } from './drivers';
@@ -76,13 +77,15 @@ export class TerminalManager {
     instanceId: string,
     options: TerminalServiceOptions,
   ): TerminalServiceOptions {
-    const hooks = getDriver(options.driverId).attentionHooks;
+    const attentionUrl = this.attentionUrlFor(instanceId, options.driverId);
+    return attentionUrl ? { ...options, attentionUrl } : options;
+  }
+
+  private attentionUrlFor(instanceId: string, driverId: HarnessDriverId | undefined) {
+    const hooks = getDriver(driverId).attentionHooks;
     const endpoint = this.attentionEndpoint;
-    if (!hooks || !endpoint) return options;
-    return {
-      ...options,
-      attentionUrl: () => endpoint.urlFor(instanceId, (body) => hooks.parse(body)),
-    };
+    if (!hooks || !endpoint) return undefined;
+    return () => endpoint.urlFor(instanceId, (body) => hooks.parse(body));
   }
 
   public onWorkingDirectory?: (instanceId: string, cwd: string) => void;
@@ -194,6 +197,23 @@ export class TerminalManager {
     const terminal = this.terminals.get(instanceId);
     if (!terminal) throw new Error(`No terminal for ${instanceId}.`);
     terminal.relaunch(launch);
+  }
+
+  /**
+   * Move a session's terminal onto another harness, in place
+   * (`TerminalService.switchHarness`). The hook URL is the new driver's
+   * business: one with `attentionHooks` gets this instance's, and one
+   * without leaves nothing registered for the old CLI to post to.
+   */
+  public switchHarness(
+    instanceId: string,
+    change: Omit<TerminalHarnessSwitch, 'attentionUrl'>,
+  ): void {
+    const terminal = this.terminals.get(instanceId);
+    if (!terminal) throw new Error(`No terminal for ${instanceId}.`);
+    const attentionUrl = this.attentionUrlFor(instanceId, change.launch.driverId);
+    if (!attentionUrl) this.attentionEndpoint?.unregister(instanceId);
+    terminal.switchHarness({ ...change, attentionUrl });
   }
 
   public destroy(instanceId: string): void {

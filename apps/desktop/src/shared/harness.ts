@@ -1,5 +1,27 @@
 import { BUILT_IN_HARNESS_ID } from './constants';
-import type { HarnessAccount, HarnessDriverId } from './types';
+import type { HarnessAccount, HarnessDriverId, HarnessLaunchFields } from './types';
+
+/**
+ * How a harness record translates into launch fields — the one translation,
+ * shared by the renderer (a pane's launch) and main (headless launches,
+ * conversation reads, harness switches), so both always look in the same
+ * config directory.
+ *
+ * Every harness contributes what it pins, the built-in one included: it can
+ * be given a folder of its own in Settings, and its sessions then live there.
+ * One that pins nothing — the built-in as seeded — leaves every field empty,
+ * which resolves exactly the way Consola did before harnesses existed,
+ * ambient CLAUDE_CONFIG_DIR included. Absent pins nothing at all.
+ */
+export function launchFieldsFor(harness: Harness | undefined): HarnessLaunchFields {
+  if (!harness) return {};
+  return {
+    driverId: harness.driverId,
+    binaryOverride: harness.binaryPath,
+    configDirOverride: harness.configDir,
+    extraArgs: harness.extraArgs,
+  };
+}
 
 export type NewHarnessFields = Pick<Harness, 'id' | 'driverId' | 'name' | 'accentColor'> &
   Partial<Pick<Harness, 'binaryPath' | 'configDir' | 'extraArgs' | 'enabled'>>;

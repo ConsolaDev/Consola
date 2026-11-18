@@ -432,6 +432,256 @@ describe('TerminalService fresh conversation', () => {
   });
 });
 
+describe('TerminalService harness switch', () => {
+  const personal = { driverId: 'claude' as const, configDirOverride: '/Users/me/.claude-personal' };
+  const work = { driverId: 'claude' as const, configDirOverride: '/Users/me/.claude-work' };
+
+  it('moves a running terminal onto the new harness and forks the conversation there', async () => {
+    const old = installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'old-id',
+      resume: true,
+      model: 'opus',
+      ...personal,
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const output: string[] = [];
+    service.on('data', (data) => output.push(data));
+
+    const fresh = installFakePty();
+    service.switchHarness({
+      launch: work,
+      claudeSessionId: 'new-id',
+      opening: { forkFrom: 'old-id' },
+      notice: 'Switched from Personal to Work.',
+    });
+    expect(old.kills()).toBe(1);
+    expect(service.conversationId()).toBe('new-id');
+    await vi.advanceTimersByTimeAsync(0);
+
+    // The new harness, the new conversation forked from the old, and no model.
+    expect(buildArgsMock.mock.calls[1][0]).toEqual(work);
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+      sessionId: 'new-id',
+      resume: false,
+      forkFrom: 'old-id',
+      model: undefined,
+    });
+    // The pane is cleared, then told what happened above whatever the CLI prints.
+    const joined = output.join('');
+    expect(joined.indexOf('\x1b[2J\x1b[3J\x1b[H')).toBeLessThan(
+      joined.indexOf('Switched from Personal to Work.'),
+    );
+
+    // The old process is no longer this terminal's.
+    old.exit(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(spawnMock).toHaveBeenCalledTimes(2);
+
+    // A later restart resumes the fork on the new harness, and says nothing more.
+    fresh.exit(0);
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[2][0]).toEqual(work);
+    expect(buildArgsMock.mock.calls[2][1]).toMatchObject({
+      sessionId: 'new-id',
+      resume: true,
+      forkFrom: undefined,
+    });
+    expect(output.join('').split('Switched from').length).toBe(2);
+    service.destroy();
+  });
+
+  it('opens a handoff with its prompt, as an argument for a driver that takes one', async () => {
+    installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'old-id',
+      resume: true,
+      ...personal,
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+
+    const fresh = installFakePty();
+    service.switchHarness({
+      launch: { driverId: 'codex' },
+      claudeSessionId: 'new-id',
+      opening: { prompt: 'Read the handoff.' },
+      notice: 'Switched.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][0]).toEqual({ driverId: 'codex' });
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
+      sessionId: 'new-id',
+      resume: false,
+      initialPrompt: 'Read the handoff.',
+      forkFrom: undefined,
+    });
+    fresh.feed('› ');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(fresh.writes).toEqual([]);
+    service.destroy();
+  });
+
+  it('a switch onto the built-in harness pins nothing', async () => {
+    installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'old-id',
+      resume: true,
+      extraArgs: ['--verbose'],
+      ...personal,
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    installFakePty();
+    service.switchHarness({
+      launch: {},
+      claudeSessionId: 'new-id',
+      opening: { forkFrom: 'old-id' },
+      notice: 'Switched.',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][0]).toEqual({});
+    service.destroy();
+  });
+
+  it('forks again, rather than starting blank, when a later resume finds the fork missing', async () => {
+    // Claude writes a fork only once its first message is sent: switch, close
+    // before speaking, and the next resume of the new id finds nothing.
+    const switched = installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'old-id',
+      resume: true,
+      ...personal,
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    service.switchHarness({
+      launch: work,
+      claudeSessionId: 'new-id',
+      opening: { forkFrom: 'old-id' },
+      notice: 'x',
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    switched.exit(0);
+
+    const resumed = installFakePty();
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    installFakePty();
+    resumed.exit(1);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(
+      buildArgsMock.mock.calls
+        .slice(1)
+        .map((call) => [call[1].sessionId, call[1].resume, call[1].forkFrom]),
+    ).toEqual([
+      ['new-id', false, 'old-id'],
+      ['new-id', true, undefined],
+      ['new-id', false, 'old-id'],
+    ]);
+    service.destroy();
+  });
+
+  it('opens with the handoff prompt again when a launch from the record finds the conversation missing', async () => {
+    const resumed = installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'new-id',
+      resume: true,
+      ...work,
+      opening: { prompt: 'Read the handoff.' },
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const fresh = installFakePty();
+    resumed.exit(1);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({ sessionId: 'new-id', resume: false });
+    fresh.feed('❯ ');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(fresh.writes).toEqual(pasted('Read the handoff.'));
+    service.destroy();
+  });
+
+  it('a fresh conversation that goes missing starts fresh, however the one before it began', async () => {
+    installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'new-id',
+      resume: true,
+      ...work,
+      opening: { forkFrom: 'old-id' },
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    const fresh = installFakePty();
+    service.startFreshConversation('third-id');
+    await vi.advanceTimersByTimeAsync(0);
+    fresh.exit(0);
+    const resumed = installFakePty();
+    service.restartClaude();
+    await vi.advanceTimersByTimeAsync(0);
+    installFakePty();
+    resumed.exit(1);
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(
+      buildArgsMock.mock.calls
+        .slice(1)
+        .map((call) => [call[1].sessionId, call[1].resume, call[1].forkFrom]),
+    ).toEqual([
+      ['third-id', false, undefined],
+      ['third-id', true, undefined],
+      ['third-id', false, undefined],
+    ]);
+    service.destroy();
+  });
+
+  it('refuses mid-turn and touches nothing, but not at a menu', async () => {
+    const pty = installFakePty();
+    const service = await buildService();
+    await vi.advanceTimersByTimeAsync(0);
+    await animate(pty, 1_500);
+    expect(service.busy()).toBe(true);
+    expect(service.switchRefusal()).toMatch(/middle of a turn/);
+    expect(() =>
+      service.switchHarness({ launch: work, claudeSessionId: 'new-id', notice: 'x' }),
+    ).toThrow(/middle of a turn/);
+    expect(pty.kills()).toBe(0);
+    expect(service.conversationId()).toBe('00000000-0000-4000-8000-000000000000');
+
+    // A usage-limit menu is where a switch is wanted: the switch stops the process, it answers nothing.
+    pty.feed('\x1b[2J\x1b[1;1HYou have hit your limit. Enter to confirm');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(service.awaitingConfirmation()).toBe(true);
+    expect(service.switchRefusal()).toBeNull();
+    service.destroy();
+  });
+
+  it('refuses while an unattended turn runs', async () => {
+    installFakePty();
+    const service = new TerminalService({
+      cwd: os.tmpdir(),
+      claudeSessionId: 'consola-id',
+      resume: false,
+      toolPolicy: 'read-only',
+      unattended: true,
+      initialPrompt: 'review it',
+    });
+    service.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(service.switchRefusal()).toMatch(/automation/);
+    service.destroy();
+  });
+});
+
 describe('TerminalService status event', () => {
   it('emits one status per derived change across a session lifecycle', async () => {
     const pty = installFakePty();

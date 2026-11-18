@@ -22,7 +22,9 @@ import {
   assistantSession,
   migrateWorkspaceState,
   scopeForSession,
+  switchedSession,
   type DeletedLabel,
+  type HarnessSwitchChange,
   type Group,
   type Label,
   type NewLabelFields,
@@ -678,9 +680,10 @@ export class WorkspaceService {
    * record. `claudeSessionId` defaults to a new UUID; a caller that has
    * already handed one to a live terminal passes it, so the two agree.
    *
-   * The one way `claudeSessionId` ever changes, which is why it is a verb
-   * here and absent from `allowedSessionUpdates`: everything that makes the
-   * session *this* session — tab, name, harness, model, tool policy,
+   * The one way `claudeSessionId` changes on the same harness — the other is
+   * `switchHarness`, which moves the harness with it — which is why it is a
+   * verb here and absent from `allowedSessionUpdates`: everything that makes
+   * the session *this* session — tab, name, harness, model, tool policy,
    * checkout, linked item — stays, and only the conversation the next spawn
    * names is replaced. `hasStarted` is set because the caller spawns at once;
    * should it never get that far, the next launch's resume of an id Claude
@@ -711,6 +714,44 @@ export class WorkspaceService {
       ),
     );
     return replaced;
+  }
+
+  /**
+   * Move a session onto another harness, with the conversation it runs
+   * there, and return the updated record.
+   *
+   * The one way `harnessId` ever changes, which is why it is a verb here and
+   * absent from `allowedSessionUpdates`: a transcript lives in its harness's
+   * config directory, so the harness and the conversation it names
+   * (`claudeSessionId`) only ever change together. The record it leaves is
+   * `switchedSession`'s; only the Assistant and conductors are refused.
+   */
+  public switchHarness(
+    workspaceId: string,
+    sessionId: string,
+    change: HarnessSwitchChange,
+  ): Session {
+    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
+    const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+    if (!session) throw new Error(`No session ${sessionId} in workspace ${workspaceId}.`);
+    if (session.kind !== 'interactive')
+      throw new Error('Only your own sessions can switch harness.');
+
+    const switched = switchedSession(session, change);
+    this.commit(
+      this.workspaces.map((candidate) =>
+        candidate.id === workspaceId
+          ? {
+              ...candidate,
+              sessions: candidate.sessions.map((existing) =>
+                existing.id === sessionId ? switched : existing,
+              ),
+              updatedAt: Date.now(),
+            }
+          : candidate,
+      ),
+    );
+    return switched;
   }
 
   public deleteSession(workspaceId: string, sessionId: string): void {

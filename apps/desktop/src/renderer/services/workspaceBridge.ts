@@ -1,3 +1,4 @@
+import type { HarnessSwitchPreview, HarnessSwitchResult } from '../../shared/harnessSwitch';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import type {
   WorkspaceSnapshot,
@@ -75,6 +76,20 @@ export const workspaceBridge = {
   /** Continue a read-only session's conversation in a new session with full tools. */
   forkSession(workspaceId: string, sessionId: string): Promise<Session> {
     return window.workspaceAPI.forkSession(workspaceId, sessionId);
+  },
+
+  /** What switching this session to each harness it could move to would do. */
+  previewHarnessSwitch(workspaceId: string, sessionId: string): Promise<HarnessSwitchPreview[]> {
+    return window.workspaceAPI.previewHarnessSwitch(workspaceId, sessionId);
+  },
+
+  /** Carry this session on in another harness, in the same tab. */
+  switchHarness(
+    workspaceId: string,
+    sessionId: string,
+    harnessId: string,
+  ): Promise<HarnessSwitchResult> {
+    return window.workspaceAPI.switchHarness(workspaceId, sessionId, harnessId);
   },
 
   deleteSession(workspaceId: string, sessionId: string): Promise<void> {

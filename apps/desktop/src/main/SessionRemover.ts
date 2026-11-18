@@ -8,6 +8,11 @@ export interface SessionRemoverDeps {
   destroyShell(instanceId: string): void;
   /** The session's MCP endpoint: socket, config file and live connections. */
   releaseMcp(sessionId: string): void;
+  /**
+   * The handoff documents its harness switches wrote. Kept while the record
+   * is — a later handoff points back at an earlier one — and gone with it.
+   */
+  removeHandoffs(sessionId: string): Promise<void>;
 }
 
 /**
@@ -40,6 +45,17 @@ export class SessionRemover {
    */
   public remove(workspaceId: string, session: Pick<Session, 'id' | 'instanceId'>): void {
     this.deps.deleteRecord(workspaceId, session.id);
+    this.discard(session);
+  }
+
+  /**
+   * Stop a session whose record is already gone — removed above, or with
+   * its whole workspace — and delete what only that record could name.
+   */
+  public discard(session: Pick<Session, 'id' | 'instanceId'>): void {
     this.stop(session);
+    this.deps.removeHandoffs(session.id).catch((error) => {
+      console.error(`Could not delete the handoff documents of session ${session.id}:`, error);
+    });
   }
 }

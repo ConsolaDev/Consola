@@ -48,6 +48,9 @@ import { ConductorTools } from './conductor/ConductorTools';
 import { SessionMcpHost, mcpConfigForSession } from './mcp/SessionMcpHost';
 import { buildSessionServer } from './mcp/buildSessionServer';
 import { SessionRemover } from './SessionRemover';
+import { openingFor } from './harnessSwitch/handoff';
+import { HandoffStore } from './harnessSwitch/HandoffStore';
+import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
 import { AssistantActivity } from './assistant/AssistantActivity';
 import { AssistantRequests } from './assistant/AssistantRequests';
 import { noticeTarget } from './automations/noticeTarget';
@@ -293,20 +296,22 @@ export function setupIpcHandlers(): boolean {
     workspaces.moveWorkspace(id, beforeId);
   });
 
+  // Transcripts a harness switch handed from one agent to the next.
+  const handoffs = new HandoffStore(path.join(app.getPath('userData'), 'handoffs'));
+
   // The one way a session goes away in main. Its collaborators are built
   // further down; the closures only run once setup has finished.
   const sessionRemover = new SessionRemover({
     deleteRecord: (workspaceId, sessionId) => workspaces.deleteSession(workspaceId, sessionId),
     destroyTerminal: (instanceId) => {
       terminalManager?.destroy(instanceId);
-      turnActivity.forget(instanceId);
-      hookSignals.forget(instanceId);
-      attentionSessions.forget(instanceId);
+      forgetTerminalAttention(instanceId);
     },
     destroyShell: (instanceId) => shellManager?.destroy(instanceId),
     // A session's endpoint would otherwise outlive its record as a
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
+    removeHandoffs: (sessionId) => handoffs.removeAll(sessionId),
   });
 
   const assistants = new AssistantService({
@@ -371,7 +376,7 @@ export function setupIpcHandlers(): boolean {
     // and leaves the workspace, and its terminals, intact. destroy() clears
     // the session's attention goes with it, so the PTY and the
     // badge close together; the MCP endpoint goes with them.
-    stranded.forEach((session) => sessionRemover.stop(session));
+    stranded.forEach((session) => sessionRemover.discard(session));
   });
 
   const sessionCheckouts = new SessionCheckoutService();
@@ -468,7 +473,7 @@ export function setupIpcHandlers(): boolean {
       // Stop the deleted sessions only after the entire change reaches disk.
       workspaces
         .removeScope(workspaceId, scopeId)
-        .forEach((session) => sessionRemover.stop(session));
+        .forEach((session) => sessionRemover.discard(session));
     },
   );
 
@@ -991,6 +996,18 @@ export function setupIpcHandlers(): boolean {
   // The person acting on a prompt is output starting again; that ends what a hook said.
   manager.addStatusListener((instanceId, status) => hookSignals.statusChanged(instanceId, status));
 
+  /**
+   * What every attention source knows about a terminal's current process,
+   * dropped when that process is gone for good — the terminal destroyed, or
+   * moved onto another harness, whose CLI says nothing about the last one's
+   * held turns or open menus.
+   */
+  const forgetTerminalAttention = (instanceId: string) => {
+    turnActivity.forget(instanceId);
+    hookSignals.forget(instanceId);
+    attentionSessions.forget(instanceId);
+  };
+
   // The fourth attention altitude: session dot → group count → switcher dot
   // → OS notification. Rings only for a session hitting needs-attention
   // while no Consola window is focused; the Inbox never notifies — only
@@ -1451,6 +1468,27 @@ export function setupIpcHandlers(): boolean {
       launcher.forkWithFullTools(workspaceId, sessionId),
   );
 
+  // A session carried on by another harness, in the same tab. Main decides
+  // what a switch would do, so the renderer never reasons about drivers.
+  const harnessSwitcher = new HarnessSwitcher({
+    workspaces,
+    harnesses,
+    terminals: manager,
+    launcher,
+    handoffs,
+    forgetAttention: forgetTerminalAttention,
+  });
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW,
+    (_event, workspaceId: string, sessionId: string) =>
+      harnessSwitcher.preview(String(workspaceId), String(sessionId)),
+  );
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS,
+    (_event, workspaceId: string, sessionId: string, harnessId: string) =>
+      harnessSwitcher.switch(String(workspaceId), String(sessionId), String(harnessId)),
+  );
+
   ipcMain.handle(IPC_CHANNELS.SCOPE_LIST_REPOS, (_event, workspaceId: string, scopeId: string) => {
     const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const scope = workspace?.scopes.find((candidate) => candidate.id === scopeId);
@@ -1530,6 +1568,9 @@ export function setupIpcHandlers(): boolean {
         // From the record, never the window: a relaunch after a restart
         // comes through here, and must stay as restricted as the launch.
         toolPolicy: record?.toolPolicy,
+        // So a conversation a harness switch began, never yet spoken in,
+        // opens the way it began rather than blank.
+        opening: record && openingFor(record),
       },
       event.sender,
     );
@@ -1559,9 +1600,7 @@ export function setupIpcHandlers(): boolean {
 
   ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
     manager.destroy(instanceId);
-    turnActivity.forget(instanceId);
-    hookSignals.forget(instanceId);
-    attentionSessions.forget(instanceId);
+    forgetTerminalAttention(instanceId);
   });
 
   // Seed a freshly opened window from main's live state. The status channels
@@ -1952,6 +1991,8 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_DELETE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_FORK);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);

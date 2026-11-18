@@ -250,6 +250,20 @@ describe('allowedSessionUpdates', () => {
     expect(result.name).toBe('Legit rename');
   });
 
+  it('drops priorConversations even alongside a legitimate field', () => {
+    // Only a harness switch knows what a session left behind; a renderer
+    // naming conversations here would rewrite where handoffs point back to.
+    const payload = {
+      priorConversations: [{ harnessId: 'x', claudeSessionId: 'y', endedAt: 1, carried: 'native' }],
+      name: 'Legit rename',
+    } as unknown as SessionUpdates;
+
+    const result = allowedSessionUpdates(payload);
+
+    expect(result).not.toHaveProperty('priorConversations');
+    expect(result.name).toBe('Legit rename');
+  });
+
   it('drops model even alongside a legitimate field', () => {
     // Same invariant as harnessId, one layer along: the model is replayed on
     // every relaunch, so a rewritten one would silently move a conversation

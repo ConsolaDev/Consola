@@ -115,6 +115,14 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
   unattended?: boolean;
   /** Start this session as a fork of that conversation. Consumed by the first spawn. */
   forkFrom?: string;
+  /**
+   * How this conversation opens should a resume find it missing, when a
+   * harness switch began it (`openingFor`). Unlike `forkFrom`, never
+   * consumed: Claude writes a fork only once its first message is sent, so
+   * any later launch may find it missing. Absent, a missing conversation
+   * starts fresh.
+   */
+  opening?: ConversationOpening;
   /** Model this session is pinned to, replayed on every relaunch. */
   model?: string;
   /**
@@ -175,6 +183,30 @@ export function bracketedPaste(text: string): string {
   return `\x1b[200~${text.replace(UNSAFE_IN_PASTE, '')}\x1b[201~`;
 }
 
+/**
+ * How a conversation opens when it does not exist yet: forked from another
+ * one, and/or with a first prompt. What a harness switch began a
+ * conversation with, kept for any launch that finds it missing.
+ */
+export interface ConversationOpening {
+  forkFrom?: string;
+  prompt?: string;
+}
+
+/** What `TerminalService.switchHarness` moves a terminal onto. */
+export interface TerminalHarnessSwitch {
+  /** The target harness's launch fields; `{}` is the built-in one. */
+  launch: HarnessLaunchFields;
+  /** Where the target driver's hooks post, when it has any. */
+  attentionUrl?: () => Promise<string | undefined>;
+  /** The conversation the terminal runs from now on. */
+  claudeSessionId: string;
+  /** How it opens: a native switch forks, a handoff prompts; neither for nothing to carry. */
+  opening?: ConversationOpening;
+  /** Printed above the new CLI, once. */
+  notice: string;
+}
+
 /** What an exited terminal is started again with. */
 export interface RelaunchFields {
   cwd: string;
@@ -187,8 +219,11 @@ export class TerminalService extends EventEmitter {
   private claudePty: pty.IPty | null = null;
   private dimensions: TerminalDimensions;
   private readonly options: TerminalServiceOptions;
-  private readonly driver: HarnessDriver;
-  private readonly harness: HarnessConfig;
+  /** Both follow `options`, and change only together, through `switchHarness`. */
+  private driver: HarnessDriver;
+  private harness: HarnessConfig;
+  /** Consola's own line for the next spawn to print above the CLI, once. */
+  private launchNotice: string | undefined;
 
   private screen: ScreenModel | null = null;
   /** Set while output is arriving: from a chunk until IDLE_DEBOUNCE_MS of quiet. */
@@ -350,13 +385,80 @@ export class TerminalService extends EventEmitter {
    */
   public startFreshConversation(claudeSessionId: string, prompt?: string): void {
     if (this.isDestroyed) return;
-    if (this.runningUnattended()) {
-      throw new Error(
-        'An automation is still running its turn in this session. Wait for it to finish.',
-      );
-    }
-    if (this.isLaunching) throw new Error('This session is still starting. Try again in a moment.');
+    const refusal = this.moveRefusal();
+    if (refusal) throw new Error(refusal);
+    // A fresh conversation that goes missing starts fresh again, however the last one began.
+    this.options.opening = undefined;
+    this.moveToConversation(claudeSessionId, { prompt });
+  }
 
+  /**
+   * Why this terminal cannot switch harness right now, or null when it
+   * can. A turn in progress is the person's to finish or stop; what it was
+   * doing would be lost mid-step. A CLI sitting at a menu is no turn — a
+   * usage-limit notice is where a switch is most wanted — and the switch
+   * stops that process rather than answering the menu.
+   */
+  public switchRefusal(): string | null {
+    const refusal = this.moveRefusal();
+    if (refusal) return refusal;
+    if (this.isBusy)
+      return 'This session is in the middle of a turn. Let it finish, or stop it, before switching.';
+    return null;
+  }
+
+  /**
+   * Move this terminal onto another harness, in place, and onto the
+   * conversation it runs there: a fork of the old one (`forkFrom`), or a
+   * fresh one opened with `prompt`.
+   *
+   * The instance stays — a mounted pane, the owner and every listener
+   * keep working — while the process, the screen and everything this
+   * terminal knew from the old CLI go, as `startFreshConversation` does.
+   * The driver and harness are resolved anew from `launch`, and the model
+   * is dropped with the harness that offered it. `notice` is printed above
+   * the new CLI so the switch shows in the pane.
+   */
+  public switchHarness(change: TerminalHarnessSwitch): void {
+    if (this.isDestroyed) return;
+    const refusal = this.switchRefusal();
+    if (refusal) throw new Error(refusal);
+
+    this.options.driverId = change.launch.driverId;
+    this.options.binaryOverride = change.launch.binaryOverride;
+    this.options.configDirOverride = change.launch.configDirOverride;
+    this.options.extraArgs = change.launch.extraArgs;
+    this.options.model = undefined;
+    this.options.attentionUrl = change.attentionUrl;
+    this.driver = getDriver(change.launch.driverId);
+    this.harness = toHarnessConfig(change.launch);
+    // What the old CLI said about where it works says nothing about the new one.
+    this.stopWorkingDirectoryPoll();
+    this.reportedWorkingDirectory = null;
+    this.workingDirectoryUnreadable = false;
+    this.launchNotice = change.notice;
+    this.options.opening = change.opening;
+    this.moveToConversation(change.claudeSessionId, change.opening ?? {});
+  }
+
+  /**
+   * Why the conversation cannot be replaced right now: an unattended turn's
+   * automation run waits on that process's exit, and a launch under way
+   * would spawn under whichever id it read first.
+   */
+  private moveRefusal(): string | null {
+    if (this.runningUnattended())
+      return 'An automation is still running its turn in this session. Wait for it to finish.';
+    if (this.isLaunching) return 'This session is still starting. Try again in a moment.';
+    return null;
+  }
+
+  /**
+   * Stop the running process and launch `claudeSessionId` in its place:
+   * a fork of `forkFrom` when given, otherwise a new conversation opened
+   * with `prompt`. Callers have checked that a move is allowed.
+   */
+  private moveToConversation(claudeSessionId: string, opening: ConversationOpening): void {
     const previous = this.claudePty;
     this.claudePty = null;
     previous?.kill();
@@ -366,14 +468,10 @@ export class TerminalService extends EventEmitter {
     }
 
     this.options.claudeSessionId = claudeSessionId;
-    this.forkPending = undefined;
-    if (this.driver.initialPromptViaArgs) {
-      this.initialPromptArgument = prompt;
-      this.promptQueue = [];
-    } else {
-      this.initialPromptArgument = undefined;
-      this.promptQueue = prompt != null ? [prompt] : [];
-    }
+    // Prompts still queued were written for the context that is gone.
+    this.initialPromptArgument = undefined;
+    this.promptQueue = [];
+    this.open(opening);
 
     // The old conversation's screen goes with it, in every view of it.
     this.disposeScreen();
@@ -390,6 +488,18 @@ export class TerminalService extends EventEmitter {
     this.claudeExited = false;
     this.emitStatus();
     void this.initClaude(false);
+  }
+
+  /**
+   * Have the next spawn open its conversation this way: forking `forkFrom`,
+   * and with `prompt` first — as an argument for a driver that takes one,
+   * otherwise ahead of anything queued for the empty composer.
+   */
+  private open(opening: ConversationOpening): void {
+    this.forkPending = opening.forkFrom;
+    if (opening.prompt == null) return;
+    if (this.driver.initialPromptViaArgs) this.initialPromptArgument = opening.prompt;
+    else this.promptQueue.unshift(opening.prompt);
   }
 
   /** Restart Claude after it exited, resuming the same conversation. */
@@ -445,6 +555,12 @@ export class TerminalService extends EventEmitter {
 
   private async initClaude(resume: boolean): Promise<void> {
     if (this.claudePty || this.isLaunching || this.isDestroyed) return;
+
+    // First, so it sits above the CLI and above any reason it failed to start.
+    if (this.launchNotice) {
+      this.writeNotice(this.launchNotice, formatInfo);
+      this.launchNotice = undefined;
+    }
 
     // Checked before the spawn, not after: a directory Consola cannot enter
     // fails inside the PTY child, where the failure is silent (see
@@ -576,6 +692,10 @@ export class TerminalService extends EventEmitter {
         if (resume && exitCode !== 0 && !turn && this.driver.retryResumeAsFresh !== false) {
           this.disposeScreen();
           this.emit('data', CLEAR_SCREEN);
+          // One a harness switch began opens the way it began — the
+          // fork again, or the handoff — never blank: Claude writes a
+          // fork only once its first message is sent.
+          if (this.options.opening) this.open(this.options.opening);
           void this.initClaude(false);
           return;
         }

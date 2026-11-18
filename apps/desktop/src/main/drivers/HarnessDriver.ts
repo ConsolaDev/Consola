@@ -121,6 +121,28 @@ export interface HarnessDriver {
   ): Promise<ConversationRecord | null>;
 
   /**
+   * Make one of this CLI's conversations, stored under `from`, forkable by
+   * a launch under `to` — another harness of this same driver — with
+   * `SessionLaunch.forkFrom`. How a harness switch carries a conversation
+   * over whole, tool results included.
+   *
+   * Never overwrites what `to` holds, and resolves `carried` only once the
+   * conversation is verifiably there: a fork of something missing fails.
+   * `missing` when `from` holds no transcript for it, which the caller
+   * reports: it cannot tell a conversation never spoken in from one kept
+   * somewhere `from` does not point.
+   *
+   * Optional: a driver whose CLI cannot fork (`buildSessionArgs` refuses
+   * `forkFrom`), or whose storage Consola cannot copy, omits it, and a
+   * switch hands the conversation over as a transcript instead.
+   */
+  transplantConversation?(
+    from: HarnessConfig,
+    to: HarnessConfig,
+    conversationId: string,
+  ): Promise<'carried' | 'missing'>;
+
+  /**
    * The commands, agents and models this CLI offers, asked of the CLI itself.
    *
    * Optional for the same reason as `getSessionDisplayName`: a CLI with no

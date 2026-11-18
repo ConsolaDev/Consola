@@ -156,6 +156,7 @@ class Rig {
       destroyTerminal: (instanceId) => this.stopped.push(instanceId),
       destroyShell: () => {},
       releaseMcp: () => {},
+      removeHandoffs: async () => {},
     });
     return new SessionCleanupService({
       getWorkspaces: () => this.workspaces,
