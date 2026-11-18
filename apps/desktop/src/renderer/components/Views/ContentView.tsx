@@ -1,7 +1,6 @@
 import { SessionTerminalLayout } from '../Terminal/SessionTerminalLayout';
 import { useEffect, useMemo } from 'react';
 import { Group, Panel, Separator, useDefaultLayout } from 'react-resizable-panels';
-import { driverSupportsSessionNaming } from '../../../shared/constants';
 import { checkoutPathForSession, scopeForSession } from '../../../shared/workspace';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -9,7 +8,6 @@ import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
-import { harnessBridge } from '../../services/harnessBridge';
 import { assistantBridge } from '../../services/assistantBridge';
 import { useAssistantStore } from '../../stores/assistantStore';
 import { useAssistantRequests } from '../../hooks/useAssistantRequests';
@@ -27,9 +25,6 @@ interface ContentViewProps {
   workspaceId: string;
   sessionId: string;
 }
-
-/** How often to check whether the CLI has written a summary for the session. */
-const SESSION_NAME_POLL_MS = 5000;
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
@@ -92,8 +87,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     storage: localStorage,
   });
 
-  const nameIsUserSet = session?.nameIsUserSet;
-  const claudeSessionId = session?.claudeSessionId;
   const hasStarted = session?.hasStarted;
   const harnessId = session?.harnessId;
 
@@ -107,7 +100,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     () => getLaunchFields(harnessId),
     [getLaunchFields, harnessId, harnesses],
   );
-  const supportsSessionNaming = driverSupportsSessionNaming(launchFields.driverId);
 
   // Git status follows the checkout the session runs in. A worktree has its
   // own branch, index and changes, so its scope's path would report a
@@ -131,66 +123,6 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
       void updateSession(workspaceId, sessionId, { hasStarted: true });
     }
   }, [hasStarted, sessionId, workspaceId, updateSession]);
-
-  // The CLI writes a summary for a conversation once it has content. Adopt
-  // what it knows as the session's name: a prompt-derived name is a stand-in,
-  // so the poll continues past it and stops only once the CLI's own summary
-  // lands. A name the user typed wins permanently and is never polled over.
-  // Drivers whose transcripts Consola cannot read never produce a name, so
-  // they are skipped outright rather than polled forever. For a work-item
-  // session the sidebar label is derived from the record (sessionLabel), so
-  // this poll never decides what the row reads.
-  useEffect(() => {
-    if (!claudeSessionId) return;
-    if (!supportsSessionNaming) return;
-    if (nameIsUserSet) return;
-
-    let cancelled = false;
-    let timer: ReturnType<typeof setInterval> | undefined;
-
-    const adoptName = () => {
-      harnessBridge
-        .getSessionName(claudeSessionId, launchFields)
-        .then((result) => {
-          if (cancelled || !result) return;
-          // Codex can switch conversations or rename them inside the same TUI.
-          if (
-            result.source === 'summary' &&
-            launchFields.driverId !== 'codex' &&
-            timer !== undefined
-          ) {
-            clearInterval(timer);
-          }
-          // Read the live name rather than depending on it: a dependency
-          // would restart this effect — and its interval — on every adoption,
-          // and the poll must outlive the names it writes.
-          const currentSession = useWorkspaceStore.getState().getSession(workspaceId, sessionId);
-          if (!currentSession || currentSession.nameIsUserSet) return;
-          if (result.name !== currentSession.name) {
-            void updateSession(workspaceId, sessionId, { name: result.name });
-          }
-        })
-        .catch(() => {
-          // Transcript not written yet; the next poll will pick it up.
-        });
-    };
-
-    adoptName();
-    timer = setInterval(adoptName, SESSION_NAME_POLL_MS);
-
-    return () => {
-      cancelled = true;
-      if (timer !== undefined) clearInterval(timer);
-    };
-  }, [
-    claudeSessionId,
-    nameIsUserSet,
-    sessionId,
-    workspaceId,
-    updateSession,
-    launchFields,
-    supportsSessionNaming,
-  ]);
 
   if (!workspace || !session) {
     return (

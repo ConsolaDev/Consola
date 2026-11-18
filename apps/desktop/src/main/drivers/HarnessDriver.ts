@@ -6,7 +6,6 @@ import type {
   HarnessDriverId,
   HarnessLaunchFields,
   HarnessProbeResult,
-  SessionNameResult,
 } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import type { AttentionSignal } from '../attention/hookSignals';
@@ -97,18 +96,6 @@ export interface HarnessDriver {
   probeHealth(config: HarnessConfig): Promise<HarnessProbeResult>;
 
   /**
-   * A display name for a session, read from this CLI's own transcripts.
-   *
-   * Optional: a driver whose transcript format Consola cannot read simply
-   * omits it, and sessions keep whatever name they were given. Callers must
-   * check for its absence rather than polling an answer that never comes.
-   */
-  getSessionDisplayName?(
-    config: HarnessConfig,
-    sessionId: string,
-  ): SessionNameResult | null | Promise<SessionNameResult | null>;
-
-  /**
    * The first real message of a conversation, with only outer whitespace
    * trimmed, read from this CLI's own transcript. `null` when there is no
    * transcript or no real message yet. Optional: a CLI whose transcripts
@@ -189,7 +176,7 @@ export interface HarnessDriver {
   /**
    * The commands, agents and models this CLI offers, asked of the CLI itself.
    *
-   * Optional for the same reason as `getSessionDisplayName`: a CLI with no
+   * Optional: a CLI with no
    * way to enumerate its own features simply omits this, and the composer
    * goes without autocomplete rather than waiting on an answer that never
    * comes.

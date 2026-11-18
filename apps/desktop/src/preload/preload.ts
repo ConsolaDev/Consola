@@ -18,7 +18,6 @@ import type {
   HarnessLaunchFields,
   HarnessCapabilitiesResult,
   HarnessProbeResult,
-  SessionNameResult,
   WorkspaceSnapshot,
   WindowContext,
   WorkspaceView,
@@ -147,13 +146,6 @@ contextBridge.exposeInMainWorld('harnessAPI', {
     return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_PROBE, fields);
   },
 
-  getSessionName: (
-    sessionId: string,
-    fields: HarnessLaunchFields,
-  ): Promise<SessionNameResult | null> => {
-    return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
-  },
-
   getCapabilities: (fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_CAPABILITIES, fields);
   },
@@ -271,6 +263,9 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
       sessionId,
       harnessId,
     ),
+
+  regenerateSessionTitle: (workspaceId: string, sessionId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_REGENERATE_TITLE, workspaceId, sessionId),
 
   addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
     ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),

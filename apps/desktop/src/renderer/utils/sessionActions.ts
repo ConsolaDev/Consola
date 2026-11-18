@@ -9,7 +9,7 @@ import { assistantBridge } from '../services/assistantBridge';
 import { windowBridge } from '../services/windowBridge';
 import { forgetSessionLocally } from './forgetSession';
 import { ipcErrorMessage } from './ipcErrorMessage';
-import { generateSessionInstanceId } from '../../shared/workspace';
+import { NEW_SESSION_NAME, generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import {
   useNewSessionDialogStore,
@@ -203,7 +203,7 @@ export async function createSessionAndOpen(
   const session = await useWorkspaceStore.getState().createSession(
     workspaceId,
     {
-      name: 'New Session',
+      name: NEW_SESSION_NAME,
       workspaceId,
       instanceId: generateSessionInstanceId(workspaceId),
       harnessId: options.harnessId ?? workspace.defaultHarnessId,

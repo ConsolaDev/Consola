@@ -21,9 +21,11 @@ import type { WorkItemRef } from './workItems';
 
 export interface Session {
   id: string;
-  name: string; // From Claude's session summary, or user-provided
-  // A human typed this name, so it wins permanently: the CLI-summary poll
-  // never runs for a session whose name is user-set. Set, never cleared.
+  // Main's SessionNamer is the only automatic writer. A person's typed name
+  // wins over automatic naming; only Regenerate title replaces it.
+  name: string;
+  // A human typed this name, so automatic naming never overwrites it. Set only
+  // for a typed name, never for a generated one.
   nameIsUserSet?: boolean;
   workspaceId: string; // Parent workspace
   instanceId: string; // Terminal instance ID
