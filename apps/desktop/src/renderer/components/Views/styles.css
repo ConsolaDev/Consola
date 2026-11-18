@@ -364,9 +364,29 @@
   font-weight: var(--font-weight-normal);
 }
 
+/* Carved out of the header's drag region, so a double-click on the name
+   reaches the page and renames the session instead of zooming the window. */
 .workspace-view-session {
   color: var(--color-accent);
   font-weight: var(--font-weight-medium);
+  -webkit-app-region: no-drag;
+}
+
+/* The header's rename field, in the title's own type and as wide as its text,
+   so the name is edited where it stood. As tall as the checkout chip beside
+   it, so the header does not grow while it is open. */
+.session-header-rename-input {
+  field-sizing: content;
+  min-width: 8ch;
+  height: 22px;
+  margin: 0;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font: inherit;
+  outline: none;
 }
 
 .workspace-view-path {

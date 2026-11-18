@@ -10,6 +10,7 @@ export type AppSectionId = 'appearance' | 'sessions' | 'harnesses' | 'shortcuts'
 /** Sections that edit the workspace this window is on. */
 export type WorkspaceSectionId =
   | 'general'
+  | 'titles'
   | 'scopes'
   | 'provider'
   | 'actions'
@@ -30,6 +31,7 @@ export const APP_GROUP: readonly AppSectionId[] = [
 /** The Workspace group, in order. Shown only while a workspace is open. */
 export const WORKSPACE_GROUP: readonly WorkspaceSectionId[] = [
   'general',
+  'titles',
   'scopes',
   'provider',
   'actions',

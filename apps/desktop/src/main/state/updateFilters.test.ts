@@ -63,6 +63,17 @@ describe('allowedHarnessUpdates', () => {
 });
 
 describe('allowedWorkspaceUpdates', () => {
+  it('rebuilds title settings from the allow-list and rejects invalid ones', () => {
+    expect(
+      allowedWorkspaceUpdates({
+        sessionTitles: { source: 'pinned', harnessId: 'h', extra: 1 } as never,
+      }),
+    ).toEqual({ sessionTitles: { source: 'pinned', harnessId: 'h' } });
+    expect(() => allowedWorkspaceUpdates({ sessionTitles: { source: 'pinned' } })).toThrow(
+      'Choose valid title settings.',
+    );
+  });
+
   const png =
     'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jRZkAAAAASUVORK5CYII=';
 

@@ -1,8 +1,7 @@
 import { createReadStream } from 'node:fs';
 import { createInterface } from 'node:readline';
-import type { SessionNameResult } from '../../shared/types';
 
-/** Stream rollouts so naming does not load a whole conversation into memory. */
+/** Stream rollouts so reading does not load a whole conversation into memory. */
 async function* records(file: string): AsyncGenerator<any> {
   const input = createReadStream(file, { encoding: 'utf8' });
   const lines = createInterface({ input, crlfDelay: Infinity });
@@ -22,28 +21,11 @@ async function* records(file: string): AsyncGenerator<any> {
   }
 }
 
-function displayName(text: string, source: SessionNameResult['source']): SessionNameResult {
-  const name = text.trim().replace(/\s+/g, ' ');
-  return { name: name.length > 60 ? `${name.slice(0, 59).trimEnd()}…` : name, source };
-}
-
-export async function readCodexSessionName(
-  index: string,
-  threadId: string,
-  sessionId: string,
-  rollout: string | undefined,
-): Promise<SessionNameResult | null> {
-  let title: string | undefined;
-  for await (const record of records(index)) {
-    if (record?.id === threadId && typeof record.thread_name === 'string') {
-      title = record.thread_name.trim();
-    }
-  }
-  // Thread preparation assigns an internal name just to materialize the rollout.
-  if (title && title !== `Consola ${sessionId}` && title !== 'New Session') {
-    return displayName(title, 'summary');
-  }
-  if (!rollout) return null;
+/**
+ * The first real user message in a Codex rollout, outer whitespace trimmed.
+ * Skips AGENTS.md and injected context. Null when there is none yet.
+ */
+export async function readCodexFirstPrompt(rollout: string): Promise<string | null> {
   for await (const record of records(rollout)) {
     const payload = record?.payload;
     let texts: string[] = [];
@@ -68,8 +50,8 @@ export async function readCodexSessionName(
           !text.startsWith('# AGENTS.md') &&
           !text.startsWith('Base directory for this skill:'),
       )
-      .join(' ');
-    if (prompt) return displayName(prompt, 'prompt');
+      .join('\n');
+    if (prompt) return prompt;
   }
   return null;
 }

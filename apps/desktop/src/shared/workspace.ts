@@ -22,9 +22,13 @@ import type { WorkItemRef } from './workItems';
 
 export interface Session {
   id: string;
-  name: string; // From Claude's session summary, or user-provided
-  // A human typed this name, so it wins permanently: the CLI-summary poll
-  // never runs for a session whose name is user-set. Set, never cleared.
+  // Main's SessionNamer is the only automatic writer. A person's typed name
+  // wins over automatic naming; only Regenerate title replaces it.
+  name: string;
+  // A name someone chose: typed, given inside the CLI, or set by a tool, the
+  // Assistant, automation authoring or a harness switch's `keepName`. Never
+  // set by automatic titling, which never overwrites such a name; only
+  // Regenerate title replaces it.
   nameIsUserSet?: boolean;
   workspaceId: string; // Parent workspace
   instanceId: string; // Terminal instance ID
@@ -240,7 +244,25 @@ export interface WorkspaceProvider {
   org?: string; // Scopes the Inbox query; absent = all repos
 }
 
+/** Name a session carries until something better is known. */
+export const NEW_SESSION_NAME = 'New Session';
+
+/** Which harness writes a workspace's session titles, and how. */
+export interface SessionTitleSettings {
+  source: 'off' | 'default-harness' | 'pinned';
+  /** Only for `pinned`. */
+  harnessId?: string;
+  /** Only for `pinned`; otherwise the harness driver's default title model. */
+  model?: string;
+  /** Absent means the default effort; `'default'` means send no effort flag. */
+  effort?: string;
+  fast?: boolean;
+  instructions?: string;
+}
+
 export interface Workspace {
+  /** Absent means `{ source: 'default-harness' }`; no migration needed. */
+  sessionTitles?: SessionTitleSettings;
   /** Absent uses the neutral workspace icon, including on older records. */
   icon?: WorkspaceIconValue;
   id: string;
@@ -461,7 +483,7 @@ export type SessionUpdates = Partial<
 
 /** The workspace fields a window may change; the filter in main enforces it. */
 export type WorkspaceUpdates = Partial<
-  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'worktreeCleanup'>
+  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'sessionTitles' | 'worktreeCleanup'>
 >;
 
 /**

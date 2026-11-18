@@ -12,6 +12,7 @@ import type { AttentionState } from '../../../shared/attention';
 import { AutomationsNavItem } from './AutomationsNavItem';
 import { FilterBar } from './FilterBar';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
+import { useRenamingStore } from '../../stores/renamingStore';
 import { effectiveFilters, hasActiveFilters, matchesFilters } from '../../utils/sessionFilters';
 import { SidebarSearch } from './SidebarSearch';
 import { NavigationSettings } from './NavigationSettings';
@@ -26,7 +27,7 @@ import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
 import { aggregateAttention, buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
-import { holdFor, type Hold } from '../../sidebar/openRowHold';
+import { holdFor, pinHold, type Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
 import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
@@ -58,6 +59,7 @@ export function Sidebar() {
   const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
   const facetSelection = useSessionFilterStore((state) => state.filters[activeWorkspaceId ?? '']);
+  const renamingSessionId = useRenamingStore((state) => state.sessionId);
   const [scopeError, setScopeError] = useState('');
   const inboxCount = useInboxStore((state) =>
     workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0,
@@ -70,6 +72,8 @@ export function Sidebar() {
     workingSection,
     hold: null,
   });
+  // The row being renamed stays exactly where it was when its field opened.
+  const pinned = useRef<{ key: EntryKey | null; pin: Hold | null }>({ key: null, pin: null });
   const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -130,14 +134,23 @@ export function Sidebar() {
 
   if (isSidebarHidden) return null;
 
-  const placed = bucketize(buildForest(shown), { workingSection, observed });
+  const natural = bucketize(buildForest(shown), { workingSection, observed });
 
   const activeKey =
     workspace && activeSessionId && allSessions.some((session) => session.id === activeSessionId)
       ? sessionKey(activeSessionId)
       : null;
   if (held.current.activeKey !== activeKey || held.current.workingSection !== workingSection)
-    held.current = { activeKey, workingSection, hold: holdFor(placed, activeKey) };
+    held.current = { activeKey, workingSection, hold: holdFor(natural, activeKey) };
+  // A row whose name is being edited stays exactly where it was when the field
+  // opened: moving it would remount it and lose the field (see pinHold).
+  const renamingKey =
+    renamingSessionId && allSessions.some((session) => session.id === renamingSessionId)
+      ? sessionKey(renamingSessionId)
+      : null;
+  if (pinned.current.key !== renamingKey)
+    pinned.current = { key: renamingKey, pin: holdFor(natural, renamingKey) };
+  const placed = pinHold(natural, pinned.current.pin);
 
   // Without a Working section, running rows share the top of the list
   // without waiting on anyone.

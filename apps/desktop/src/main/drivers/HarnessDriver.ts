@@ -6,10 +6,25 @@ import type {
   HarnessDriverId,
   HarnessLaunchFields,
   HarnessProbeResult,
-  SessionNameResult,
 } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import type { AttentionSignal } from '../attention/hookSignals';
+
+/** One throwaway, tool-less call to a small model that must answer in `schema`. */
+export interface TextGenerationRequest {
+  prompt: string;
+  schema: Record<string, unknown>;
+  model: string;
+  effort?: string;
+  fast?: boolean;
+  timeoutMs?: number;
+}
+
+/** What `readCliNameSince` found: the name given since, and where to read from next. */
+export interface CliNameRead {
+  name: string | null;
+  next: number;
+}
 
 /**
  * What Consola needs to know about an agent CLI in order to drive it.
@@ -81,16 +96,32 @@ export interface HarnessDriver {
   probeHealth(config: HarnessConfig): Promise<HarnessProbeResult>;
 
   /**
-   * A display name for a session, read from this CLI's own transcripts.
-   *
-   * Optional: a driver whose transcript format Consola cannot read simply
-   * omits it, and sessions keep whatever name they were given. Callers must
-   * check for its absence rather than polling an answer that never comes.
+   * The first real message of a conversation, with only outer whitespace
+   * trimmed, read from this CLI's own transcript. `null` when there is no
+   * transcript or no real message yet. Optional: a CLI whose transcripts
+   * Consola cannot read omits it and its sessions are not named from it.
    */
-  getSessionDisplayName?(
+  readFirstPrompt?(config: HarnessConfig, conversationId: string): Promise<string | null>;
+
+  /**
+   * The latest name the person gave this conversation inside the CLI, among
+   * the complete records after `from`. `from` is the opaque position this
+   * method last returned (`0` for the start); `next` is where to resume.
+   * `null` when there is no transcript. Optional, like `readFirstPrompt`.
+   */
+  readCliNameSince?(
     config: HarnessConfig,
-    sessionId: string,
-  ): SessionNameResult | null | Promise<SessionNameResult | null>;
+    conversationId: string,
+    from: number,
+  ): Promise<CliNameRead | null>;
+
+  /**
+   * Ask a model one question outside any conversation: no tools, no hooks,
+   * nothing persisted. Resolves to the structured answer; rejects with an
+   * `Error` whose message can be shown to the person. Optional: a CLI that
+   * cannot do this omits it.
+   */
+  generateText?(config: HarnessConfig, request: TextGenerationRequest): Promise<unknown>;
 
   /** Latest model reported by this conversation, when a transcript exists. */
   getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
@@ -135,10 +166,9 @@ export interface HarnessDriver {
   /**
    * The commands, agents and models this CLI offers, asked of the CLI itself.
    *
-   * Optional for the same reason as `getSessionDisplayName`: a CLI with no
-   * way to enumerate its own features simply omits this, and the composer
-   * goes without autocomplete rather than waiting on an answer that never
-   * comes.
+   * Optional: a CLI with no way to enumerate its own features simply omits
+   * this, and the composer goes without autocomplete rather than waiting on
+   * an answer that never comes.
    *
    * Unlike the other methods here this one may reject. It talks to a separate
    * process over a pipe, so a missing binary, a hung child and unrecognised

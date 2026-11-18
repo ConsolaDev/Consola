@@ -8,7 +8,7 @@ import { terminalBridge } from '../services/terminalBridge';
 import { windowBridge } from '../services/windowBridge';
 import { forgetSessionLocally } from './forgetSession';
 import { ipcErrorMessage } from './ipcErrorMessage';
-import { generateSessionInstanceId } from '../../shared/workspace';
+import { NEW_SESSION_NAME, generateSessionInstanceId } from '../../shared/workspace';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import type { SessionDeleteOutcome } from '../../shared/worktreeCleanup';
 import {
@@ -193,7 +193,7 @@ export async function createSessionAndOpen(
   const session = await useWorkspaceStore.getState().createSession(
     workspaceId,
     {
-      name: 'New Session',
+      name: NEW_SESSION_NAME,
       workspaceId,
       instanceId: generateSessionInstanceId(workspaceId),
       harnessId: options.harnessId ?? workspace.defaultHarnessId,
@@ -299,17 +299,32 @@ export async function runActionInSession(
   }
 }
 
+/**
+ * What a typed name does to a session called `current`: a blank one is
+ * refused (a session needs a name), one that trims to the current name
+ * changes nothing, and anything else is saved trimmed.
+ */
+export function renameOutcome(
+  current: string,
+  draft: string,
+): { kind: 'refuse' } | { kind: 'unchanged' } | { kind: 'save'; name: string } {
+  const name = draft.trim();
+  if (!name) return { kind: 'refuse' };
+  if (name === current) return { kind: 'unchanged' };
+  return { kind: 'save', name };
+}
+
 /** Rename a session, ignoring a blank or unchanged name. */
 export async function renameSession(
   workspaceId: string,
   session: Session,
   name: string,
 ): Promise<void> {
-  const trimmed = name.trim();
-  if (!trimmed || trimmed === session.name) return;
-  // A typed name is the user's own and wins permanently: the flag stops the
-  // CLI-summary poll from ever overwriting it.
+  const outcome = renameOutcome(session.name, name);
+  if (outcome.kind !== 'save') return;
+  // A typed name is the user's own and wins permanently: the flag stops
+  // automatic naming from ever overwriting it.
   await useWorkspaceStore
     .getState()
-    .updateSession(workspaceId, session.id, { name: trimmed, nameIsUserSet: true });
+    .updateSession(workspaceId, session.id, { name: outcome.name, nameIsUserSet: true });
 }

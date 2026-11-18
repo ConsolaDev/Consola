@@ -1,4 +1,4 @@
-import { execFile } from 'node:child_process';
+import { execFile, spawn } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
@@ -7,26 +7,24 @@ import { readSessionModel } from './sessionModel';
 import {
   copyConversation,
   findSessionFile,
-  getDisplayName,
   readConversation,
+  readCustomTitleSince,
+  readFirstUserPrompt,
 } from '../ClaudeSessionIndex';
 import { probeClaudeCapabilities } from './claudeCapabilities';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
-import type {
-  HarnessAccount,
-  HarnessCapabilities,
-  HarnessProbeResult,
-  SessionNameResult,
-} from '../../shared/types';
+import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
 import {
   looseningProblem,
   namedFlags,
+  type CliNameRead,
   type HarnessConfig,
   type HarnessDriver,
   type SessionLaunch,
+  type TextGenerationRequest,
 } from './HarnessDriver';
 
 /**
@@ -199,6 +197,36 @@ function describeSpawnFailure(resolvedBinary: string, error: Error): string {
     : error.message;
 }
 
+const TEXT_GENERATION_TIMEOUT_MS = 60_000;
+
+/**
+ * Argv for a throwaway structured answer: no tools, no slash commands, no MCP
+ * servers, no hooks, nothing written to disk. `effort` and `fast` are sent
+ * only when asked for; the caller has already checked the model offers them.
+ */
+export function buildTextGenerationArgs(request: TextGenerationRequest): string[] {
+  const { schema, model, effort, fast } = request;
+  return [
+    '-p',
+    '--output-format',
+    'json',
+    '--json-schema',
+    JSON.stringify(schema),
+    '--model',
+    model,
+    ...(effort ? ['--effort', effort] : []),
+    '--tools',
+    '',
+    '--disable-slash-commands',
+    '--strict-mcp-config',
+    '--no-session-persistence',
+    '--permission-mode',
+    'dontAsk',
+    '--settings',
+    JSON.stringify({ disableAllHooks: true, ...(fast ? { fastMode: true } : {}) }),
+  ];
+}
+
 /** Trim `2.1.232 (Claude Code)` down to the version itself. */
 function parseVersion(stdout: string): string | undefined {
   const trimmed = stdout.trim();
@@ -233,6 +261,23 @@ export class ClaudeDriver implements HarnessDriver {
   ): Promise<ConversationRecord | null> {
     if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
     return readConversation(conversationId, resolveConfigDir(config), window);
+  }
+
+  public async readFirstPrompt(
+    config: HarnessConfig,
+    conversationId: string,
+  ): Promise<string | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
+    return readFirstUserPrompt(conversationId, resolveConfigDir(config));
+  }
+
+  public async readCliNameSince(
+    config: HarnessConfig,
+    conversationId: string,
+    from: number,
+  ): Promise<CliNameRead | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
+    return readCustomTitleSince(conversationId, resolveConfigDir(config), from);
   }
 
   /** Copy the transcript into `to`'s identical project folder; `--fork-session` does the rest. */
@@ -385,10 +430,6 @@ export class ClaudeDriver implements HarnessDriver {
     });
   }
 
-  public getSessionDisplayName(config: HarnessConfig, sessionId: string): SessionNameResult | null {
-    return getDisplayName(sessionId, resolveConfigDir(config));
-  }
-
   public readWorkingDirectory(config: HarnessConfig, pid: number): string | null {
     let raw: string;
     try {
@@ -439,6 +480,87 @@ export class ClaudeDriver implements HarnessDriver {
         ),
       );
     }
+  }
+
+  /**
+   * One `claude -p` call from the home directory (like the capabilities probe,
+   * so no repo's settings or hooks load), with the prompt on stdin.
+   * `config.extraArgs` are deliberately not passed: they configure
+   * interactive sessions, and this call must stay tool-less and hook-less.
+   */
+  public async generateText(
+    config: HarnessConfig,
+    request: TextGenerationRequest,
+  ): Promise<unknown> {
+    if (config.binaryPath && !isExecutable(config.binaryPath)) {
+      throw new Error(`Not executable: ${config.binaryPath}`);
+    }
+    const resolvedBinary = this.resolveBinary(config);
+    return new Promise((resolve, reject) => {
+      let settled = false;
+      const settle = (finish: () => void) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        finish();
+      };
+      const child = spawn(resolvedBinary, buildTextGenerationArgs(request), {
+        cwd: os.homedir(),
+        env: this.composeEnv(config, getLoginEnv()),
+      });
+      const timer = setTimeout(() => {
+        child.kill('SIGKILL');
+        settle(() => reject(new Error('The title call timed out.')));
+      }, request.timeoutMs ?? TEXT_GENERATION_TIMEOUT_MS);
+
+      let stdout = '';
+      let stderr = '';
+      child.stdout.setEncoding('utf8');
+      child.stderr.setEncoding('utf8');
+      child.stdout.on('data', (chunk: string) => (stdout += chunk));
+      child.stderr.on('data', (chunk: string) => (stderr += chunk));
+      child.stdin.on('error', () => {
+        // The process may exit before reading its prompt; close/error say why.
+      });
+      child.on('error', (error) =>
+        settle(() => reject(new Error(describeSpawnFailure(resolvedBinary, error)))),
+      );
+      child.on('close', (code) =>
+        settle(() => {
+          // A refused call (not logged in, unknown model) still answers on
+          // stdout, and exits 1: its reason is there, not on stderr.
+          let parsed: { is_error?: unknown; result?: unknown; structured_output?: unknown } | null;
+          try {
+            parsed = JSON.parse(stdout);
+          } catch {
+            parsed = null;
+          }
+          if (parsed?.is_error === true) {
+            reject(
+              new Error(
+                typeof parsed.result === 'string' && parsed.result.trim()
+                  ? parsed.result.trim()
+                  : 'The title call failed.',
+              ),
+            );
+          } else if (code !== 0) {
+            // The process ran, so this is no longer a question of where the
+            // binary is: say what it said, or how it ended.
+            const lastLine = stderr
+              .split('\n')
+              .map((line) => line.trim())
+              .filter(Boolean)
+              .pop();
+            reject(new Error(lastLine ?? `claude exited with code ${code}.`));
+          } else if (parsed?.structured_output && typeof parsed.structured_output === 'object') {
+            resolve(parsed.structured_output);
+          } else {
+            reject(new Error('The title call returned no answer.'));
+          }
+        }),
+      );
+      child.stdin.end(request.prompt);
+    });
   }
 }
 

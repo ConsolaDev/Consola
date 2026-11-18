@@ -93,6 +93,11 @@ export const workspaceBridge = {
     return window.workspaceAPI.switchHarness(workspaceId, sessionId, harnessId);
   },
 
+  /** Write a new title from this session's conversation; rejects with a message for the person. */
+  regenerateSessionTitle(workspaceId: string, sessionId: string): Promise<void> {
+    return window.workspaceAPI.regenerateSessionTitle(workspaceId, sessionId);
+  },
+
   previewSessionDelete(workspaceId: string, sessionId: string): Promise<SessionDeletePreview> {
     return window.workspaceAPI.previewSessionDelete(workspaceId, sessionId);
   },

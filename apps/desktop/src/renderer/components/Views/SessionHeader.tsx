@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   checkoutPathForSession,
   scopeForSession,
@@ -9,6 +10,8 @@ import { useShellStore } from '../../stores/shellStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
+import { renameSession } from '../../utils/sessionActions';
+import { SessionNameEditor } from '../SessionName/SessionNameEditor';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
 import './styles.css';
@@ -32,6 +35,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const cwd = checkoutPathForSession(workspace, session) ?? '';
   const checkout = useCheckout(cwd || null, { fresh: true });
   const scope = scopeForSession(workspace, session);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   return (
     <div className="workspace-view-header">
@@ -43,7 +47,23 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           {session.name && (
             <>
               <span className="workspace-view-separator">/</span>
-              <span className="workspace-view-session">{session.name}</span>
+              {/* Double-click renames, as on the sidebar row. The name is
+                  carved out of the header's drag region for that; a single
+                  click does nothing. */}
+              {isRenaming ? (
+                <SessionNameEditor
+                  initialName={session.name}
+                  className="session-header-rename-input"
+                  ariaLabel="Session name"
+                  onCommit={(name) => renameSession(workspace.id, session, name)}
+                  onClose={() => setIsRenaming(false)}
+                />
+              ) : (
+                // biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut only; keyboard renaming is F2 on the sidebar row and Rename in the ⋯ menu
+                <span className="workspace-view-session" onDoubleClick={() => setIsRenaming(true)}>
+                  {session.name}
+                </span>
+              )}
             </>
           )}
         </h1>

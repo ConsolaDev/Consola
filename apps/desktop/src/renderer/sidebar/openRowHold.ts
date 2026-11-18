@@ -38,3 +38,35 @@ export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null
   }
   return null;
 }
+
+/**
+ * Keeps the tree of a row whose name is being edited exactly where it was
+ * when the field opened, whatever the tree is doing now.
+ *
+ * A row that changes bucket is a new row: React mounts it afresh under the
+ * other list, and the rename field, what was typed in it and its focus go
+ * with the old one. The first click of a double-click opens the session, and
+ * a CLI that starts working as it launches would move the row into Working
+ * from under the field. This is the one place a remembered position is
+ * enforced: it gives way to nothing, not even a tree that needs the person,
+ * and lasts only while the field is open; the tree then goes where its
+ * attention says.
+ */
+export function pinHold(placed: Placed, pin: Hold | null): Placed {
+  if (pin === null) return placed;
+  const from = BUCKETS.find((bucket) =>
+    placed[bucket].some((root) => root.entry.key === pin.rootKey),
+  );
+  if (from === undefined) return placed;
+  const node = placed[from].find((root) => root.entry.key === pin.rootKey)!;
+  if (from === pin.bucket && placed[from].indexOf(node) === pin.index) return placed;
+  return moveTo(placed, from, node, pin);
+}
+
+/** `placed` with `node` taken out of `from` and put back at the hold's place. */
+function moveTo(placed: Placed, from: Bucket, node: TreeNode, hold: Hold): Placed {
+  const rest = placed[from].filter((root) => root !== node);
+  const target = [...(from === hold.bucket ? rest : placed[hold.bucket])];
+  target.splice(Math.min(hold.index, target.length), 0, node);
+  return { ...placed, [from]: rest, [hold.bucket]: target };
+}

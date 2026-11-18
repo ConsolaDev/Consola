@@ -1,5 +1,6 @@
 import type { Group, Label, Scope, SessionUpdates, WorkspaceUpdates } from '../../shared/workspace';
 import { isWorkspaceIconId, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
+import { sanitizeTitleSettings } from '../../shared/sessionTitles';
 import { normalizeWorkspaceOverride } from '../../shared/worktreeCleanup';
 import type { HarnessUpdates } from '../../shared/harness';
 
@@ -26,6 +27,9 @@ export function allowedWorkspaceUpdates(updates: WorkspaceUpdates): WorkspaceUpd
   // never an intent, so absence and explicit-undefined are treated alike.
   if (updates.name !== undefined) allowed.name = updates.name;
   if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
+  if ('sessionTitles' in updates) {
+    allowed.sessionTitles = sanitizeTitleSettings(updates.sessionTitles);
+  }
   // Presence distinguishes resetting the icon from leaving it unchanged.
   if ('icon' in updates) {
     if (

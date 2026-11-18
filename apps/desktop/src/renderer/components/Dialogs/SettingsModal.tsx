@@ -20,6 +20,7 @@ import {
   Sparkles,
   Tag,
   Trash2,
+  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -38,6 +39,7 @@ import { WorktreeCleanupPanel } from '../WorktreeCleanup/WorktreeCleanupPanel';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from '../WorkspaceSettings/ManifestHeader';
 import { HarnessPanel } from '../WorkspaceSettings/HarnessPanel';
+import { SessionTitlesPanel } from '../WorkspaceSettings/SessionTitlesPanel';
 import { ScopesPanel } from '../WorkspaceSettings/ScopesPanel';
 import { LabelsPanel } from '../WorkspaceSettings/LabelsPanel';
 import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
@@ -70,6 +72,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
   updates: { label: 'Updates', icon: Monitor },
   general: { label: 'General', icon: Info },
+  titles: { label: 'Sessions', icon: MessagesSquare },
   scopes: { label: 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: 'Actions', icon: Sparkles },
@@ -236,6 +239,7 @@ function WorkspaceSection({
           <HarnessPanel workspace={workspace} />
         </>
       )}
+      {section === 'titles' && <SessionTitlesPanel workspace={workspace} />}
       {section === 'scopes' && <ScopesPanel workspace={workspace} />}
       {section === 'provider' && (
         <section className="ws-panel">
@@ -362,6 +366,7 @@ function ShortcutsSection() {
     { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: `${mod}${shift}T` },
+    { label: 'Rename session', key: 'F2' },
   ];
 
   return (

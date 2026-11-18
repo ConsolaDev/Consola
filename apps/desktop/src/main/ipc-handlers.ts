@@ -33,6 +33,7 @@ import { listScopeRepos } from './scopeRepos';
 import { runHeadless } from './drivers/ClaudeDriver';
 import { getDriver, toHarnessConfig, toolPolicyProblem } from './drivers';
 import { harnessCapabilitiesCache } from './HarnessCapabilitiesCache';
+import { SessionNamer } from './sessionTitles/SessionNamer';
 import { composeProviderEnv, getProviderDriver } from './providers';
 import { InboxService } from './providers/InboxService';
 import { createLaunchCoalescer, type WorkItemLaunchDeps } from './providers/launchWorkItem';
@@ -1078,6 +1079,28 @@ export function setupIpcHandlers(): boolean {
     steadyStatus.observe(instanceId, status);
   });
 
+  // Names sessions from main, so a title lands whichever pane is on screen.
+  // Every edge is fed in: the namer decides which ones matter.
+  const sessionNamer = new SessionNamer({
+    getWorkspaces: () => workspaces.getAll(),
+    getHarnesses: () => harnesses.getAll(),
+    updateSession: (workspaceId, sessionId, updates) =>
+      workspaces.updateSession(workspaceId, sessionId, updates),
+    getDriver,
+    modelInfo: async (harness, model) => {
+      try {
+        const result = await harnessCapabilitiesCache.get(
+          getDriver(harness.driverId),
+          toHarnessConfig(launchFieldsFor(harness)),
+        );
+        return result.supported ? result.models.find((entry) => entry.value === model) : undefined;
+      } catch {
+        return undefined;
+      }
+    },
+  });
+  manager.addStatusListener((instanceId, status) => sessionNamer.statusChanged(instanceId, status));
+
   /**
    * What every attention source knows about a terminal's current process,
    * dropped when that process is gone for good — the terminal destroyed, or
@@ -1670,6 +1693,12 @@ export function setupIpcHandlers(): boolean {
       harnessSwitcher.switch(String(workspaceId), String(sessionId), String(harnessId)),
   );
 
+  ipcMain.handle(
+    IPC_CHANNELS.WORKSPACE_SESSION_REGENERATE_TITLE,
+    (_event, workspaceId: string, sessionId: string) =>
+      sessionNamer.regenerate(String(workspaceId), String(sessionId)),
+  );
+
   ipcMain.handle(IPC_CHANNELS.SCOPE_LIST_REPOS, (_event, workspaceId: string, scopeId: string) => {
     const workspace = workspaces.getAll().find((candidate) => candidate.id === workspaceId);
     const scope = workspace?.scopes.find((candidate) => candidate.id === scopeId);
@@ -1818,16 +1847,6 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.HARNESS_PROBE, (_event, fields: HarnessLaunchFields) => {
     return getDriver(fields?.driverId).probeHealth(toHarnessConfig(fields));
   });
-
-  // A session's name, read from its own harness's transcripts. Drivers whose
-  // transcript format Consola cannot read simply have no answer.
-  ipcMain.handle(
-    IPC_CHANNELS.HARNESS_SESSION_NAME,
-    (_event, sessionId: string, fields: HarnessLaunchFields) => {
-      const driver = getDriver(fields?.driverId);
-      return driver.getSessionDisplayName?.(toHarnessConfig(fields), sessionId) ?? null;
-    },
-  );
 
   // What this harness's CLI can offer a composer: its slash commands, agents
   // and models. Cached in main, so the probe — which starts a real process
@@ -2201,6 +2220,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_FORK);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_PREVIEW);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_SWITCH_HARNESS);
+  ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_SESSION_REGENERATE_TITLE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_ADD_SCOPE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE);
   ipcMain.removeHandler(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE);
@@ -2287,7 +2307,6 @@ export function cleanupIpcHandlers(): void {
 
   // Remove Claude CLI query handlers
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_PROBE);
-  ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_NAME);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_SESSION_MODEL);
   ipcMain.removeHandler(IPC_CHANNELS.HARNESS_CAPABILITIES);
 

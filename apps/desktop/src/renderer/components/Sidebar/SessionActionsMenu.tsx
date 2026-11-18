@@ -8,11 +8,15 @@ import {
   Link2,
   Pencil,
   Plus,
+  RefreshCw,
   Tag,
   Trash2,
   Unlink,
 } from 'lucide-react';
 import type { Label, Session } from '../../../shared/workspace';
+import { canRegenerateTitle } from '../../../shared/sessionTitles';
+import { useHarnessStore } from '../../stores/harnessStore';
+import { regenerateTitle, useTitleRegenerationStore } from '../../stores/titleRegenerationStore';
 import { useLinkSessionDialogStore } from '../../stores/linkSessionDialogStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { NewLabelDialog } from '../Dialogs/NewLabelDialog';
@@ -82,6 +86,11 @@ export function SessionActionsMenu({
     ) ?? EMPTY_LABELS;
   const assignLabel = useWorkspaceStore((state) => state.assignLabel);
   const unassignLabel = useWorkspaceStore((state) => state.unassignLabel);
+  const workspace = useWorkspaceStore((state) =>
+    state.workspaces.find((candidate) => candidate.id === workspaceId),
+  );
+  const harnesses = useHarnessStore((state) => state.harnesses);
+  const regenerating = useTitleRegenerationStore((state) => state.running[session.id] === true);
   const [creatingLabel, setCreatingLabel] = useState(false);
   const [switchingHarness, setSwitchingHarness] = useState(false);
   // Selecting "Link to work item..." opens a dialog; the menu refocusing
@@ -190,6 +199,16 @@ export function SessionActionsMenu({
             <Pencil size={14} />
             <span>Rename</span>
           </DropdownMenu.Item>
+          {workspace && canRegenerateTitle(workspace, session, harnesses) && (
+            <DropdownMenu.Item
+              className="dropdown-item"
+              disabled={regenerating}
+              onSelect={() => void regenerateTitle(workspaceId, session.id)}
+            >
+              <RefreshCw size={14} />
+              <span>{regenerating ? 'Regenerating…' : 'Regenerate title'}</span>
+            </DropdownMenu.Item>
+          )}
           <DropdownMenu.Sub>
             <DropdownMenu.SubTrigger className="dropdown-item">
               <Tag size={14} />

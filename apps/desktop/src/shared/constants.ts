@@ -27,7 +27,6 @@ export const IPC_CHANNELS = {
 
   // Harness queries (renderer -> main)
   HARNESS_PROBE: 'harness:probe', // Binary, version and signed-in account
-  HARNESS_SESSION_NAME: 'harness:session-name', // Name from the driver's own transcripts
   HARNESS_SESSION_MODEL: 'harness:session-model',
   HARNESS_CAPABILITIES: 'harness:capabilities', // Slash commands, agents and models it offers
 
@@ -46,6 +45,7 @@ export const IPC_CHANNELS = {
   WORKSPACE_SESSION_FORK: 'workspace:session-fork',
   WORKSPACE_SESSION_SWITCH_PREVIEW: 'workspace:session-switch-preview', // What switching to each harness would do
   WORKSPACE_SESSION_SWITCH_HARNESS: 'workspace:session-switch-harness',
+  WORKSPACE_SESSION_REGENERATE_TITLE: 'workspace:session-regenerate-title',
   WORKSPACE_ADD_SCOPE: 'workspace:add-scope',
   WORKSPACE_UPDATE_SCOPE: 'workspace:update-scope',
   WORKSPACE_REMOVE_SCOPE: 'workspace:remove-scope',
@@ -212,22 +212,20 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
   /** Where that CLI keeps its profile when the variable is unset. */
   defaultConfigDir: string;
   /**
-   * Whether this CLI's transcripts can be read to name a session.
-   *
-   * Declared here so the renderer can skip polling for a name that will
-   * never arrive. Must match whether the driver implements
-   * `getSessionDisplayName`.
-   */
-  supportsSessionNaming: boolean;
-  /**
    * Whether this CLI can describe its own commands, agents and models.
    *
-   * Declared here for the same reason as `supportsSessionNaming`: a driver
-   * that cannot answer must not have the composer waiting on a probe that
-   * will never succeed. Must match whether the driver implements
-   * `probeCapabilities`.
+   * Declared here so a driver that cannot answer is not waited on: the
+   * composer must not sit on a probe that will never succeed. Must match
+   * whether the driver implements `probeCapabilities`.
    */
   supportsCapabilities: boolean;
+  /**
+   * Model this CLI uses to write session titles when the workspace follows
+   * its default harness. Absent means the CLI cannot write titles.
+   */
+  defaultTitleModel?: string;
+  /** Whether this CLI's transcripts can be read back (title regeneration). */
+  supportsConversationReading: boolean;
 }> = [
   {
     id: 'claude',
@@ -237,8 +235,9 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'claude',
     configDirEnvVar: 'CLAUDE_CONFIG_DIR',
     defaultConfigDir: '~/.claude',
-    supportsSessionNaming: true,
     supportsCapabilities: true,
+    defaultTitleModel: 'haiku',
+    supportsConversationReading: true,
   },
   {
     id: 'codex',
@@ -248,8 +247,8 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
     binaryName: 'codex',
     configDirEnvVar: 'CODEX_HOME',
     defaultConfigDir: '~/.codex',
-    supportsSessionNaming: true,
     supportsCapabilities: true,
+    supportsConversationReading: true,
   },
 ];
 
@@ -258,14 +257,20 @@ export function getDriverDescriptor(id: HarnessDriverId | undefined) {
   return HARNESS_DRIVERS.find((driver) => driver.id === id) ?? HARNESS_DRIVERS[0];
 }
 
-/** Whether a driver can name sessions from its own transcripts. */
-export function driverSupportsSessionNaming(id: HarnessDriverId | undefined): boolean {
-  if (!id) return true; // Built-in harness runs the Claude driver.
-  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsSessionNaming ?? false;
-}
-
 /** Whether a driver can describe its own commands, agents and models. */
 export function driverSupportsCapabilities(id: HarnessDriverId | undefined): boolean {
   if (!id) return true; // Built-in harness runs the Claude driver.
   return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsCapabilities ?? false;
+}
+
+/** The model a driver writes session titles with, if it can write them. */
+export function driverDefaultTitleModel(id: HarnessDriverId | undefined): string | undefined {
+  if (!id) return HARNESS_DRIVERS[0].defaultTitleModel; // Built-in harness runs the Claude driver.
+  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.defaultTitleModel;
+}
+
+/** Whether a driver can read its own conversations back. */
+export function driverReadsConversations(id: HarnessDriverId | undefined): boolean {
+  if (!id) return true; // Built-in harness runs the Claude driver.
+  return HARNESS_DRIVERS.find((driver) => driver.id === id)?.supportsConversationReading ?? false;
 }

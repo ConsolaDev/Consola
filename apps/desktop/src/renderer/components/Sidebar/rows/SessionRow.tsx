@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Check, FolderGit2, FolderSync, Lock, Undo2 } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
@@ -12,6 +12,9 @@ import { RowStatus, isLive } from './RowStatus';
 import { useWorkspaceStore, type Session } from '../../../stores/workspaceStore';
 import { SessionActionsMenu } from '../SessionActionsMenu';
 import { startSessionDrag } from '../sessionDrag';
+import { renameSession } from '../../../utils/sessionActions';
+import { SessionNameEditor } from '../../SessionName/SessionNameEditor';
+import { markRenaming } from '../../../stores/renamingStore';
 import { requestSessionDelete } from '../../Dialogs/DeleteSessionDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../../utils/settleActions';
 import type { Attention } from '../../../../shared/attention';
@@ -83,8 +86,9 @@ function SessionRowBody({
   /** Where focus was when the actions menu was asked for; it goes back there on close. */
   const menuReturnFocus = useRef<Element | null>(null);
   const [isDragging, setIsDragging] = useState(false);
-  const [newName, setNewName] = useState(session.name);
-  const inputRef = useRef<HTMLInputElement>(null);
+  const rowRef = useRef<HTMLDivElement>(null);
+  /** Whether the open rename field came from the keyboard, so closing it returns focus to the row. */
+  const renameFromKeyboard = useRef(false);
   const showModel = useSettingsStore((state) => state.showSidebarModel);
   const showHarnessSetting = useSettingsStore((state) => state.showSidebarHarness);
   const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
@@ -147,7 +151,6 @@ function SessionRowBody({
   // overlay or an unfocused window is not looking, and its `done` is real.
   const windowFocused = useWindowFocusStore((state) => state.focused);
   const isViewed = useNavigationStore((state) => isSessionViewed(state, session.id, windowFocused));
-  const updateSession = useWorkspaceStore((state) => state.updateSession);
 
   // Whether `done` has been seen is main's call, from what this window reports
   // it is showing and whether it has focus. This does not derive or clear
@@ -189,47 +192,40 @@ function SessionRowBody({
     .filter(Boolean)
     .join(' — ');
 
-  useEffect(() => {
-    if (isRenaming && inputRef.current) {
-      inputRef.current.focus();
-      inputRef.current.select();
-    }
-  }, [isRenaming]);
-
-  const handleRename = async () => {
-    const trimmedName = newName.trim();
-    try {
-      if (trimmedName && trimmedName !== session.name) {
-        // A typed name is the user's own and wins permanently: the flag stops
-        // the CLI-summary poll from ever overwriting it.
-        await updateSession(workspaceId, session.id, {
-          name: trimmedName,
-          nameIsUserSet: true,
-        });
-      } else {
-        setNewName(session.name);
-      }
-    } finally {
-      // The field closes either way. A rename that failed leaves the old name
-      // on screen, which is the truth.
-      setIsRenaming(false);
-    }
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      void handleRename();
-    } else if (e.key === 'Escape') {
-      setNewName(session.name);
-      setIsRenaming(false);
-    }
-  };
-
   const handleDelete = () => requestSessionDelete(workspaceId, session, label);
 
-  const handleStartRename = () => {
-    setNewName(session.name);
+  // Double-click, F2 and the actions menu's Rename all open the one field.
+  const startRename = (fromKeyboard: boolean) => {
+    renameFromKeyboard.current = fromKeyboard;
     setIsRenaming(true);
+  };
+
+  // While the field is open the sidebar keeps this row where it is: a row
+  // that changes bucket is mounted afresh, and the field would close with
+  // the old one.
+  useEffect(() => (isRenaming ? markRenaming(session.id) : undefined), [isRenaming, session.id]);
+
+  // A field opened from the keyboard hands focus back to the row when Enter
+  // or Escape closes it, so F2 can be pressed again. One opened by the
+  // pointer does not: parking focus on a row nobody tabbed to draws its
+  // keyboard ring and holds its Settle pill open.
+  const finishRename = () => {
+    const row = rowRef.current;
+    if (renameFromKeyboard.current && row?.contains(document.activeElement)) row.focus();
+    setIsRenaming(false);
+  };
+
+  // The double-click's first click has already opened the session, so the
+  // field opens while its terminal mounts; SessionNameEditor keeps focus
+  // through that. A double-click in a control of the row is that control's,
+  // and one React bubbles up from a dialog portaled out of the row is not the
+  // row's at all.
+  const handleDoubleClick = (event: React.MouseEvent<HTMLDivElement>) => {
+    if (isRenaming || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey) return;
+    const target = event.target;
+    if (!(target instanceof Element) || !event.currentTarget.contains(target)) return;
+    if (target.closest('button, input, a')) return;
+    startRename(false);
   };
 
   // The row activates the session but also hosts the Settle button, and a
@@ -245,6 +241,9 @@ function SessionRowBody({
     if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       onClick();
+    } else if (e.key === 'F2') {
+      e.preventDefault();
+      startRename(true);
     } else if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       menuReturnFocus.current = e.currentTarget;
@@ -281,11 +280,13 @@ function SessionRowBody({
 
   return (
     <div
+      ref={rowRef}
       role="button"
       tabIndex={0}
       data-entry-key={entry.key}
       className={`session-nav-item ${child ? 'session-nav-item--child' : ''} ${compact ? 'session-nav-item--compact' : ''} ${isActive ? 'active' : ''} ${isDragging ? 'dragging' : ''} ${PAST.has(displayStatus) ? 'session-nav-item--past' : ''}`}
       onClick={isRenaming ? undefined : onClick}
+      onDoubleClick={handleDoubleClick}
       onKeyDown={handleRowKeyDown}
       // A press that is about to open the menu does not move focus onto the
       // row: whatever the person was in (usually the terminal) keeps it, so
@@ -315,15 +316,12 @@ function SessionRowBody({
       aria-label={accessibleName}
     >
       {isRenaming ? (
-        <input
-          ref={inputRef}
-          type="text"
+        <SessionNameEditor
+          initialName={session.name}
           className="session-rename-input"
-          value={newName}
-          onChange={(e) => setNewName(e.target.value)}
-          onBlur={handleRename}
-          onKeyDown={handleKeyDown}
-          onClick={(e) => e.stopPropagation()}
+          ariaLabel="Rename session"
+          onCommit={(name) => renameSession(workspaceId, session, name)}
+          onClose={finishRename}
         />
       ) : compact ? (
         // One line: the name, then the lock where it applies, then the age.
@@ -485,7 +483,8 @@ function SessionRowBody({
           returnFocus={menuReturnFocus}
           session={session}
           workspaceId={workspaceId}
-          onRename={handleStartRename}
+          // A menu opened from the keyboard has no pointer position.
+          onRename={() => startRename(menuAt === null)}
           onDelete={handleDelete}
           settle={settle}
         />

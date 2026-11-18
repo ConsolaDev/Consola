@@ -489,6 +489,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
     const workspaceGroup = modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true });
     await expect(workspaceGroup.locator('.settings-modal-nav-item')).toHaveText([
       'General',
+      'Sessions',
       'Scopes',
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
