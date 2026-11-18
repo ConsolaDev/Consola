@@ -89,12 +89,12 @@ export function SessionTitlesPanel({ workspace }: SessionTitlesPanelProps) {
   return (
     <section className="ws-panel">
       <div className="ws-panel-header">
-        <h3 className="ws-panel-title">Session titles</h3>
+        <h3 className="ws-panel-title">Text generation</h3>
       </div>
       <div className="ws-card">
         <div className="ws-card-row ws-card-row--stacked">
           <div className="ws-card-row-main">
-            <span className="ws-card-label">Title model</span>
+            <span className="ws-card-label">Text generation model</span>
             <div className="ws-card-chips">
               <TitleModelMenu
                 settings={settings}
@@ -108,7 +108,11 @@ export function SessionTitlesPanel({ workspace }: SessionTitlesPanelProps) {
               {info && (supportsEffort || supportsFast) && (
                 <DropdownMenu.Root>
                   <DropdownMenu.Trigger asChild>
-                    <button type="button" className="ws-chip-trigger" aria-label="Title effort">
+                    <button
+                      type="button"
+                      className="ws-chip-trigger"
+                      aria-label="Text generation effort"
+                    >
                       <span className="ws-chip-trigger-label">{effortLabel || 'Default'}</span>
                       <ChevronDown size={12} />
                     </button>
@@ -173,8 +177,8 @@ export function SessionTitlesPanel({ workspace }: SessionTitlesPanelProps) {
             </div>
           </div>
           <p className="ws-panel-hint">
-            Writes titles for new sessions and for Regenerate title. Each new session&apos;s first
-            message (up to 8,000 characters) is sent to it.
+            For session titles and other generated text. Each new session&apos;s first message (up
+            to 8,000 characters) is sent to it.
           </p>
           {skipped && (
             <p className="ws-panel-hint ws-panel-hint--warning" role="status">
@@ -245,7 +249,7 @@ function InstructionsField({
         Appended to the prompt for new and regenerated session titles.
       </p>
       <textarea
-        className="ws-textarea"
+        className="dialog-input ws-textarea ws-textarea--prose"
         rows={3}
         aria-label="Title instructions"
         placeholder="Keep titles to a few words. Lead with the main subject."

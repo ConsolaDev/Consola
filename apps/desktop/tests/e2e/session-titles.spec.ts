@@ -56,16 +56,16 @@ function storedTitleSettings(): Workspace['sessionTitles'] {
   return workspaces.find((workspace) => workspace.id === 'ws-titles-e2e')?.sessionTitles;
 }
 
-/** Opens Settings on this workspace's Session titles panel; returns the modal. */
+/** Opens Settings on this workspace's Sessions panel; returns the modal. */
 async function openSessionsSettings(target: Page) {
   await target.getByRole('button', { name: / workspace menu$/ }).click();
   await target.getByRole('menuitem', { name: 'Workspace settings…' }).click();
   const modal = target.getByRole('dialog', { name: 'Settings', exact: true });
   await modal
     .getByRole('group', { name: `Workspace · ${WORKSPACE_NAME}`, exact: true })
-    .getByRole('button', { name: 'Session titles', exact: true })
+    .getByRole('button', { name: 'Sessions', exact: true })
     .click();
-  await expect(modal.getByRole('heading', { name: 'Session titles' })).toBeVisible();
+  await expect(modal.getByRole('heading', { name: 'Text generation' })).toBeVisible();
   return modal;
 }
 
@@ -343,10 +343,10 @@ test('Regenerate title replaces the name from the whole conversation', async () 
   expect(stdin).toContain('ASSISTANT: The export query filters on status = active.');
 });
 
-test('the Session titles settings show the title model, with Advanced collapsed', async () => {
+test('the Sessions settings show the text generation model, with Advanced collapsed', async () => {
   const modal = await openSessionsSettings(page);
   // Following the default harness: its driver's title model.
-  await expect(modal.getByRole('button', { name: 'Title model' })).toHaveText('haiku');
+  await expect(modal.getByRole('button', { name: 'Text generation model' })).toHaveText('haiku');
   const advanced = modal.getByRole('button', { name: 'Advanced' });
   await expect(advanced).toHaveAttribute('aria-expanded', 'false');
   await expect(modal.getByRole('textbox', { name: 'Title instructions' })).toHaveCount(0);
@@ -354,7 +354,7 @@ test('the Session titles settings show the title model, with Advanced collapsed'
 
 test('turning titles Off hides Regenerate title; pinning the default model brings it back', async () => {
   let modal = await openSessionsSettings(page);
-  const chip = modal.getByRole('button', { name: 'Title model' });
+  const chip = modal.getByRole('button', { name: 'Text generation model' });
   await chip.click();
   await page.getByRole('menuitemradio', { name: 'Off' }).click();
   await expect.poll(storedTitleSettings).toEqual({ source: 'off' });
@@ -364,7 +364,7 @@ test('turning titles Off hides Regenerate title; pinning the default model bring
   expect(await offersRegenerate(page, 'Old name')).toBe(false);
 
   modal = await openSessionsSettings(page);
-  await modal.getByRole('button', { name: 'Title model' }).click();
+  await modal.getByRole('button', { name: 'Text generation model' }).click();
   // The fixture cannot list its models; its default model is still a choice.
   await expect(page.getByText('Models unavailable.')).toBeVisible();
   await page.getByRole('menuitemradio', { name: 'Default (haiku)' }).click();

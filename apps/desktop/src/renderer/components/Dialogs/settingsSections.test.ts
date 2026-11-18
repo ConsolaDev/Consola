@@ -13,7 +13,7 @@ describe('the settings list', () => {
     expect(APP_GROUP).not.toContain('updates');
   });
 
-  it('lists the workspace sections, Session titles right after General', () => {
+  it('lists the workspace sections, Sessions right after General', () => {
     expect(WORKSPACE_GROUP).toEqual([
       'general',
       'titles',

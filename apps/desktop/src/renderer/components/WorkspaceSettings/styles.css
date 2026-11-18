@@ -545,6 +545,12 @@
   line-height: var(--line-height-normal);
 }
 
+/* Instructions written as sentences read in the UI font, not as code. */
+.ws-textarea--prose {
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+}
+
 .ws-chips {
   display: flex;
   flex-wrap: wrap;

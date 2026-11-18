@@ -19,7 +19,7 @@ import {
   Sparkles,
   Tag,
   Trash2,
-  Type,
+  MessagesSquare,
   type LucideIcon,
 } from 'lucide-react';
 import {
@@ -69,7 +69,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
   updates: { label: 'Updates', icon: Monitor },
   general: { label: 'General', icon: Info },
-  titles: { label: 'Session titles', icon: Type },
+  titles: { label: 'Sessions', icon: MessagesSquare },
   scopes: { label: 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: 'Actions', icon: Sparkles },

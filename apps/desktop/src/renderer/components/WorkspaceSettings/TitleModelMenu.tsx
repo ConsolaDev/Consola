@@ -51,7 +51,7 @@ export function TitleModelMenu({
   return (
     <DropdownMenu.Root>
       <DropdownMenu.Trigger asChild>
-        <button type="button" className="ws-chip-trigger" aria-label="Title model">
+        <button type="button" className="ws-chip-trigger" aria-label="Text generation model">
           {!isOff && resolvedHarness && (
             <span
               className="workspace-harness-dot"
