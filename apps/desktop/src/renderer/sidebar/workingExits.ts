@@ -4,9 +4,9 @@ import { aggregateAttention, membersOf, type TreeNode } from './forest';
 
 /**
  * How long a tree that stopped on its own stays in Working. A turn often ends
- * moments before the next one starts (a queued prompt, the Assistant handing
- * it more work, a conductor waking), and a row that leaves Working and comes
- * straight back has moved twice for nothing.
+ * moments before the next one starts (a queued prompt, a conductor waking),
+ * and a row that leaves Working and comes straight back has moved twice for
+ * nothing.
  */
 export const EXIT_GRACE_MS = 2_000;
 

@@ -11,7 +11,6 @@ import {
   Settings,
   X,
 } from 'lucide-react';
-import { listedSessions } from '../../../shared/workspace';
 import { EditLabelDialog } from '../Dialogs/EditLabelDialog';
 import type { Label } from '../../../shared/workspace';
 import type { Workspace } from '../../stores/workspaceStore';
@@ -53,9 +52,9 @@ const FACET_TITLES: Record<Exclude<FacetKey, 'label' | 'readOnly'>, string> = {
  * labels a person made. Scope is one facet among the rest; ScopesPanel is
  * where scopes are managed.
  *
- * It sits under the Assistant, inside the part of the sidebar it filters,
+ * It sits under Automations, inside the part of the sidebar it filters,
  * because a control reads as governing whatever sits under it, and search,
- * Home, Inbox and the Assistant are workspace-wide. Filtering only hides
+ * Home, Inbox and Automations are workspace-wide. Filtering only hides
  * rows: which section a row is in is never this bar's call.
  *
  * With nothing chosen the bar has no fill. A narrowed list tints it and lists
@@ -78,11 +77,11 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
   // The same sessions the list shows for each scope, so a count never
   // promises a row that isn't there.
   const counts = new Map<string, number>();
-  for (const session of listedSessions(workspace)) {
+  for (const session of workspace.sessions) {
     if (session.name.length > 0)
       counts.set(session.scopeId, (counts.get(session.scopeId) ?? 0) + 1);
   }
-  const listed = listedSessions(workspace).filter((session) => session.name.length > 0);
+  const listed = workspace.sessions.filter((session) => session.name.length > 0);
   const facets = deriveFacets(listed);
   const active = effectiveFilters(workspace, listed, chosen);
   const isActive = (key: FacetKey, value: string) => active[key]?.includes(value) ?? false;

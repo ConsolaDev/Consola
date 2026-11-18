@@ -8,7 +8,6 @@ import type { GitProviderDriver } from '../providers/GitProviderDriver';
 import {
   launchAgentRun,
   prepareItemWorktree,
-  refreshIdleWorktree,
   StartedByHandError,
   withoutGitHooks,
   worktreeHeld,
@@ -236,53 +235,6 @@ describe('prepareItemWorktree', () => {
     await expect(
       prepareItemWorktree(deps(), unbound, workItem, { refreshExisting: true }),
     ).rejects.toThrow('This workspace has no provider account bound.');
-  });
-});
-
-describe('refreshIdleWorktree', () => {
-  const dir = () => path.join(root, 'api-pr-123');
-  const session = (overrides: Partial<Session> = {}) =>
-    ({
-      id: 'review',
-      name: 'Review',
-      workItem,
-      cwd: dir(),
-      toolPolicy: 'read-only',
-      ...overrides,
-    }) as unknown as Session;
-
-  it('refreshes an idle PR worktree before a re-run, and leaves a busy one alone', async () => {
-    fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
-    const d = deps();
-    await refreshIdleWorktree(d, workspace(), session());
-    expect(d.refreshWorktree).toHaveBeenCalledWith(
-      dir(),
-      workItem,
-      expect.objectContaining({ GIT_CONFIG_KEY_0: 'core.hooksPath' }),
-    );
-    vi.mocked(d.worktreeInUse).mockReturnValue(true);
-    vi.mocked(d.refreshWorktree).mockClear();
-    await refreshIdleWorktree(d, workspace(), session());
-    expect(d.refreshWorktree).not.toHaveBeenCalled();
-  });
-
-  it('ignores a session that is not on its item’s Consola worktree, or not on a PR', async () => {
-    fs.mkdirSync(path.join(dir(), '.git'), { recursive: true });
-    const d = deps();
-    await refreshIdleWorktree(d, workspace(), session({ cwd: '/code/api' }));
-    await refreshIdleWorktree(
-      d,
-      workspace(),
-      session({ workItem: { ...workItem, type: 'issue' } as Session['workItem'] }),
-    );
-    await refreshIdleWorktree(d, workspace(), session({ workItem: undefined }));
-    expect(d.refreshWorktree).not.toHaveBeenCalled();
-  });
-
-  it('does nothing when the worktree is gone', async () => {
-    const d = deps();
-    await refreshIdleWorktree(d, workspace(), session());
-    expect(d.refreshWorktree).not.toHaveBeenCalled();
   });
 });
 

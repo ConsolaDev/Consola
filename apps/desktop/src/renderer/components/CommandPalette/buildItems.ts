@@ -215,7 +215,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   });
 
   // The explorer and review panels only exist inside a session's content view.
-  if (activeSession && activeSession.kind !== 'assistant') {
+  if (activeSession) {
     items.push({
       kind: 'action',
       section: 'actions',
@@ -290,7 +290,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   if (scope?.isGitRepo && gitRoot) {
     const rootPath = gitRoot;
 
-    if (activeSession && activeSession.kind !== 'assistant') {
+    if (activeSession) {
       items.push({
         kind: 'action',
         section: 'actions',

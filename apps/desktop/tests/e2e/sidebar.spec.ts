@@ -433,7 +433,7 @@ test.describe('Home scopes and groups', () => {
     await expect(topList(page).locator('.session-nav-item')).toHaveCount(4);
   });
 
-  test('the scope row sits under the Assistant on Home only, never in the title bar', async () => {
+  test('the scope row sits under Automations on Home only, never in the title bar', async () => {
     await expect(
       page.locator('.app-header').getByRole('button', { name: 'Filter sessions' }),
     ).toHaveCount(0);

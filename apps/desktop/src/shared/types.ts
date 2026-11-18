@@ -469,26 +469,6 @@ export interface ConductorAPI {
   create: (request: ConductorCreateRequest) => Promise<Group>;
 }
 
-/** What the Assistant has touched in a workspace, and how much finished while unseen. */
-export interface AssistantActivitySnapshot {
-  touchedSessionIds: string[];
-  unseenFinished: number;
-}
-
-/**
- * The workspace Assistant exposed to the renderer. It is an ordinary session
- * once it exists; these calls only make or replace its record.
- */
-export interface AssistantAPI {
-  open: (workspaceId: string) => Promise<Session>;
-  startFresh: (workspaceId: string) => Promise<Session>;
-  getActivity: (workspaceId: string) => Promise<AssistantActivitySnapshot>;
-  markSeen: (workspaceId: string) => Promise<void>;
-  onActivityChanged: (
-    callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void,
-  ) => () => void;
-}
-
 /**
  * Harness state exposed to the renderer. Main owns the records; the renderer
  * sends intents and listens for the result. Separate from `HarnessAPI`, which
@@ -513,7 +493,6 @@ declare global {
     providerAPI: ProviderAPI;
     workspaceAPI: WorkspaceAPI;
     conductorAPI: ConductorAPI;
-    assistantAPI: AssistantAPI;
     harnessStateAPI: HarnessStateAPI;
     windowAPI: WindowAPI;
     automationsAPI: import('./automations').AutomationsAPI;

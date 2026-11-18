@@ -4,7 +4,6 @@ const { created } = vi.hoisted(() => ({
   created: [] as Array<{
     options: unknown;
     queued: string[];
-    relaunched: unknown[];
     fresh: Array<[string, string | undefined]>;
     emit: (event: string, ...args: unknown[]) => boolean;
   }>,
@@ -14,16 +13,12 @@ vi.mock('./TerminalService', async () => {
   const { EventEmitter } = await import('node:events');
   class FakeTerminalService extends EventEmitter {
     public readonly queued: string[] = [];
-    public readonly relaunched: unknown[] = [];
     public readonly fresh: Array<[string, string | undefined]> = [];
     constructor(public readonly options: { claudeSessionId: string }) {
       super();
       created.push(this);
     }
     start() {}
-    relaunch(launch: unknown) {
-      this.relaunched.push(launch);
-    }
     queuePrompt(prompt: string) {
       this.queued.push(prompt);
     }
@@ -129,18 +124,5 @@ describe('TerminalManager listeners', () => {
     created[0].emit('exit', { exitCode: 0 });
     expect(status).not.toHaveBeenCalled();
     expect(exit).not.toHaveBeenCalled();
-  });
-});
-
-describe('TerminalManager.relaunch', () => {
-  it('relaunches the terminal it already has, and refuses an unknown one', () => {
-    created.length = 0;
-    const manager = new TerminalManager(() => []);
-    manager.ensure('inst-1', options, owner);
-    const launch = { cwd: '/tmp', prompt: 'go', unattended: false };
-    manager.relaunch('inst-1', launch);
-    expect(created).toHaveLength(1);
-    expect(created[0].relaunched).toEqual([launch]);
-    expect(() => manager.relaunch('nope', launch)).toThrow('No terminal for nope.');
   });
 });

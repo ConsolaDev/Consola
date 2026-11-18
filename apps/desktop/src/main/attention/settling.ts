@@ -4,11 +4,9 @@ import type { Attention } from '../../shared/attention';
 import type { SettleMemento, SettleResult } from '../../shared/preferences';
 import type { AttentionLedger, SettleTarget } from './AttentionLedger';
 
-/** The sessions a person sees in the list: no Assistant, and nothing still unnamed. */
+/** The sessions a person sees in the list: nothing still unnamed. */
 export function settleable(workspace: Workspace): Session[] {
-  return workspace.sessions.filter(
-    (session) => session.kind !== 'assistant' && session.name.length > 0,
-  );
+  return workspace.sessions.filter((session) => session.name.length > 0);
 }
 
 /**

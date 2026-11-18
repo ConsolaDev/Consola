@@ -460,7 +460,6 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'Scopes',
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
-      'Assistant',
       'Labels',
       'Danger zone',
     ]);
@@ -1069,46 +1068,6 @@ test('label emojis can be searched, cancelled, saved, reloaded and removed', asy
     await expect.poll(() => savedLabel()?.emoji).toBeUndefined();
     await expect(settings.locator('.ws-row-icon .group-emoji svg')).toBeVisible();
   } finally {
-    await cleanup();
-  }
-});
-
-test('the Assistant section saves its mode and keeps it after relaunch', async () => {
-  test.setTimeout(90_000);
-  const { app, page, userDataDir, cleanup } = await launchSeeded();
-  let relaunched: ElectronApplication | undefined;
-  try {
-    await holdWorkspace(page);
-    await page.getByRole('button', { name: / workspace menu$/ }).click();
-    await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
-    await modal.getByRole('button', { name: 'Assistant', exact: true }).click();
-
-    await expect(
-      modal.getByText('Sessions the Assistant runs on pull requests and issues'),
-    ).toBeVisible();
-    await expect(modal.getByRole('radio', { name: /Full tools/ })).toBeChecked();
-    await modal.getByRole('radio', { name: /Read-only, unattended/ }).click();
-    await expect(modal.getByRole('radio', { name: /Read-only, unattended/ })).toBeChecked();
-    await expect(modal.getByText('Applies to the next session it starts.')).toBeVisible();
-
-    await app.close();
-    const again = await launchElectron({
-      userDataDir,
-      env: {
-        CONSOLA_GH_PATH: path.join(STUB_GH_DIR, 'gh'),
-        PATH: `${STUB_GH_DIR}${path.delimiter}${process.env.PATH ?? ''}`,
-      },
-    });
-    relaunched = again.app;
-    await holdWorkspace(again.page);
-    await again.page.getByRole('button', { name: / workspace menu$/ }).click();
-    await again.page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const reopened = again.page.getByRole('dialog', { name: 'Sprocket', exact: true });
-    await reopened.getByRole('button', { name: 'Assistant', exact: true }).click();
-    await expect(reopened.getByRole('radio', { name: /Read-only, unattended/ })).toBeChecked();
-  } finally {
-    await relaunched?.close().catch(() => undefined);
     await cleanup();
   }
 });
