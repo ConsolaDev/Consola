@@ -17,6 +17,7 @@ import {
   Trash2,
 } from 'lucide-react';
 import type { GitFileStatus } from '../../types/electron';
+import type { SettingsSection } from '../Dialogs/settingsSections';
 import type { Harness } from '../../stores/harnessStore';
 import type { Scope, Session, Workspace } from '../../stores/workspaceStore';
 import { checkoutPathForSession, primaryScope, scopeForSession } from '../../../shared/workspace';
@@ -70,8 +71,7 @@ export interface PaletteContext {
   commitMessage: string;
   isGitReviewOpen: boolean;
   terminalFontSize: number;
-  openSettings: () => void;
-  openWorkspaceSettings: (workspaceId?: string) => void;
+  openSettings: (section?: SettingsSection) => void;
 }
 
 /**
@@ -140,9 +140,9 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       label: 'Workspace settings…',
       context: activeWorkspace.name,
       icon: Settings,
-      // Explicit id rather than the context's fallback: the palette's
-      // snapshot names the workspace this row was built for.
-      run: () => ctx.openWorkspaceSettings(activeWorkspace.id),
+      // Straight to the Workspace group, which edits the workspace this
+      // window is on: the one this row names.
+      run: () => ctx.openSettings('general'),
     });
   }
 
