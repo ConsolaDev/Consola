@@ -1,8 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
 import { bucketize, type Bucket } from './bucketize';
-import { buildForest } from './forest';
+import { buildForest, type TreeNode } from './forest';
 import { entry, ids, keyOf, node } from './entryFixtures';
+import type { WorkingObservation } from './workingExits';
+
+/** What the list saw in Working, by session id. */
+function observation({
+  lingering = [],
+  returnedAt = [],
+  workingSince = [],
+}: {
+  lingering?: string[];
+  returnedAt?: [string, number][];
+  workingSince?: [string, number][];
+}): WorkingObservation {
+  return {
+    lingering: new Set(lingering.map(keyOf)),
+    returnedAt: new Map(returnedAt.map(([id, at]) => [keyOf(id), at])),
+    workingSince: new Map(workingSince.map(([id, at]) => [keyOf(id), at])),
+    nextDeadline: null,
+  };
+}
 
 // Everything in play that is not running waits at the top; Settled holds only
 // what was put away. Stopping is not settling.
@@ -30,36 +49,63 @@ describe('bucketize', () => {
     expect(bucketize([])).toEqual({ waiting: [], working: [], settled: [] });
   });
 
-  describe('ordering', () => {
-    it('sorts waiting by since ascending, longest-waiting first', () => {
+  describe('the top of the list', () => {
+    it('puts whatever came back most recently first, whatever it is asking', () => {
       const result = bucketize([
-        node(entry('new', 'needs-attention', { since: 300 })),
-        node(entry('old', 'needs-attention', { since: 100 })),
-        node(entry('mid', 'needs-attention', { since: 200 })),
+        node(entry('idle', 'ready', { activityAt: 400 })),
+        node(entry('asking', 'needs-attention', { activityAt: 100 })),
+        node(entry('unread', 'done', { activityAt: 200, finishedAt: 300 })),
+        node(entry('exited', 'exited', { activityAt: 500 })),
       ]);
-      expect(ids(result.waiting)).toEqual(['old', 'mid', 'new']);
+      expect(ids(result.waiting)).toEqual(['exited', 'idle', 'unread', 'asking']);
     });
 
-    it('sorts unread results by finishedAt descending', () => {
-      const result = bucketize([
-        node(entry('a', 'done', { finishedAt: 100 })),
-        node(entry('c', 'done', { finishedAt: 300 })),
-        node(entry('b', 'done', { finishedAt: 200 })),
+    it('does not move a finished row when it is read', () => {
+      const before = bucketize([
+        node(entry('a', 'done', { activityAt: 300, finishedAt: 300 })),
+        node(entry('b', 'ready', { activityAt: 200 })),
+        node(entry('c', 'done', { activityAt: 100, finishedAt: 100 })),
       ]);
-      expect(ids(result.waiting)).toEqual(['c', 'b', 'a']);
+      const after = bucketize([
+        node(entry('a', 'done', { activityAt: 300, finishedAt: 300 })),
+        node(entry('b', 'ready', { activityAt: 200 })),
+        node(entry('c', 'ready', { activityAt: 100, finishedAt: 100 })),
+      ]);
+      expect(ids(after.waiting)).toEqual(ids(before.waiting));
     });
 
-    it('puts questions first, then unread results, then what is merely idle', () => {
-      // The idle rows are the more recent by every clock there is; the
-      // question and the unread finish still come first, because an arrival
-      // nobody has dealt with must not land in the tail.
+    it('puts a session just made, or just woken from Settled, on top', () => {
       const result = bucketize([
-        node(entry('read', 'ready', { activityAt: 900 })),
-        node(entry('unread', 'done', { finishedAt: 100, activityAt: 100 })),
-        node(entry('older', 'exited', { activityAt: 500 })),
-        node(entry('asking', 'needs-attention', { since: 50, activityAt: 50 })),
+        node(entry('busy', 'ready', { activityAt: 300 })),
+        node(entry('woken', 'ready', { activityAt: 10, unsettledAt: 500 })),
+        node(entry('new', 'ready', { createdAt: 400 })),
       ]);
-      expect(ids(result.waiting)).toEqual(['asking', 'unread', 'read', 'older']);
+      expect(ids(result.waiting)).toEqual(['woken', 'new', 'busy']);
+    });
+
+    it('brings a tree back at the moment the list saw it leave Working', () => {
+      // A question has no time of its own in the ledger: the turn that asked
+      // it started at 100, long before the other row last did anything.
+      const observed = observation({ returnedAt: [['asked', 600]] });
+      const result = bucketize(
+        [
+          node(entry('asked', 'needs-attention', { activityAt: 100 })),
+          node(entry('other', 'ready', { activityAt: 500 })),
+        ],
+        { workingSection: true, observed },
+      );
+      expect(ids(result.waiting)).toEqual(['asked', 'other']);
+    });
+
+    it('sorts a tree by the latest arrival anywhere in it', () => {
+      const result = bucketize([
+        node(entry('solo', 'ready', { activityAt: 200 })),
+        node(
+          entry('conductor', 'ready', { activityAt: 100 }),
+          entry('child', 'done', { activityAt: 150, finishedAt: 300 }),
+        ),
+      ]);
+      expect(ids(result.waiting)).toEqual(['conductor', 'solo']);
     });
 
     it('keeps what someone put away out of the top of the list, whatever its clock says', () => {
@@ -70,26 +116,135 @@ describe('bucketize', () => {
       expect(ids(result.waiting)).toEqual(['idle']);
       expect(ids(result.settled)).toEqual(['shelved']);
     });
+  });
 
-    it('sorts a done row with no finishedAt last rather than failing', () => {
-      const result = bucketize([
-        node(entry('none', 'done')),
-        node(entry('some', 'done', { finishedAt: 5 })),
-      ]);
-      expect(ids(result.waiting)).toEqual(['some', 'none']);
+  describe('Working', () => {
+    it('sorts newest run first, as the list saw each start', () => {
+      const observed = observation({
+        workingSince: [
+          ['a', 100],
+          ['b', 300],
+          ['c', 200],
+        ],
+      });
+      const result = bucketize(
+        [
+          node(entry('a', 'working', { activityAt: 900 })),
+          node(entry('b', 'working')),
+          node(entry('c', 'working')),
+        ],
+        { workingSection: true, observed },
+      );
+      expect(ids(result.working)).toEqual(['b', 'c', 'a']);
     });
 
-    it.each([
-      ['working', 'working'],
-      ['waiting', 'ready'],
-      ['settled', 'settled'],
-    ] as const)('sorts %s by activityAt descending', (bucket, attention) => {
+    it('falls back to the last activity for a run the list did not see start', () => {
       const result = bucketize([
-        node(entry('a', attention, { activityAt: 100 })),
-        node(entry('c', attention, { activityAt: 300 })),
-        node(entry('b', attention, { activityAt: 200 })),
+        node(entry('quiet', 'working', { activityAt: 150 })),
+        node(
+          entry('conductor', 'working', { activityAt: 100 }),
+          entry('busy-child', 'working', { activityAt: 400 }),
+        ),
       ]);
-      expect(ids(result[bucket])).toEqual(['c', 'b', 'a']);
+      expect(ids(result.working)).toEqual(['conductor', 'quiet']);
+    });
+
+    it('keeps a tree that just stopped in Working, in its place, until its grace ends', () => {
+      const observed = observation({
+        lingering: ['stopped'],
+        workingSince: [
+          ['stopped', 200],
+          ['running', 100],
+        ],
+      });
+      const result = bucketize(
+        [
+          node(entry('running', 'working')),
+          node(entry('stopped', 'done', { activityAt: 900, finishedAt: 900 })),
+        ],
+        { workingSection: true, observed },
+      );
+      expect(ids(result.working)).toEqual(['stopped', 'running']);
+      expect(result.waiting).toEqual([]);
+    });
+
+    it('never holds a tree that asks the person, or one put away, in Working', () => {
+      const observed = observation({ lingering: ['asking', 'shelved'] });
+      const result = bucketize(
+        [node(entry('asking', 'needs-attention')), node(entry('shelved', 'settled'))],
+        { workingSection: true, observed },
+      );
+      expect(result.working).toEqual([]);
+      expect(ids(result.waiting)).toEqual(['asking']);
+      expect(ids(result.settled)).toEqual(['shelved']);
+    });
+  });
+
+  describe('without a Working section', () => {
+    const off = (roots: TreeNode[], observed?: WorkingObservation) =>
+      bucketize(roots, { workingSection: false, observed });
+
+    it('keeps running trees in the list', () => {
+      const result = off([node(entry('a', 'working')), node(entry('b', 'ready'))]);
+      expect(result.working).toEqual([]);
+      expect(ids(result.waiting).sort()).toEqual(['a', 'b']);
+    });
+
+    it('moves nothing when a turn starts, finishes or asks', () => {
+      const order = (attention: Attention, activityAt: number) =>
+        ids(
+          off([
+            node(entry('old', attention, { createdAt: 100, activityAt })),
+            node(entry('new', 'ready', { createdAt: 200, activityAt: 200 })),
+          ]).waiting,
+        );
+      expect(order('working', 900)).toEqual(['new', 'old']);
+      expect(order('done', 950)).toEqual(['new', 'old']);
+      expect(order('needs-attention', 990)).toEqual(['new', 'old']);
+    });
+
+    it('puts a session just made, or just woken from Settled, on top', () => {
+      const result = off([
+        node(entry('a', 'ready', { createdAt: 300 })),
+        node(entry('woken', 'ready', { createdAt: 100, unsettledAt: 500 })),
+        node(entry('b', 'ready', { createdAt: 400 })),
+      ]);
+      expect(ids(result.waiting)).toEqual(['woken', 'b', 'a']);
+    });
+
+    it('places a tree by its conductor, not by a child it started', () => {
+      const result = off([
+        node(entry('solo', 'ready', { createdAt: 200 })),
+        node(
+          entry('conductor', 'working', { createdAt: 100 }),
+          entry('child', 'working', { createdAt: 300 }),
+        ),
+      ]);
+      expect(ids(result.waiting)).toEqual(['solo', 'conductor']);
+    });
+
+    it('ignores what the list saw in Working', () => {
+      const observed = observation({ lingering: ['a'], returnedAt: [['b', 999]] });
+      const result = off(
+        [
+          node(entry('a', 'done', { createdAt: 200 })),
+          node(entry('b', 'needs-attention', { createdAt: 100 })),
+        ],
+        observed,
+      );
+      expect(result.working).toEqual([]);
+      expect(ids(result.waiting)).toEqual(['a', 'b']);
+    });
+  });
+
+  describe('ordering', () => {
+    it('sorts settled by activityAt descending', () => {
+      const result = bucketize([
+        node(entry('a', 'settled', { activityAt: 100 })),
+        node(entry('c', 'settled', { activityAt: 300 })),
+        node(entry('b', 'settled', { activityAt: 200 })),
+      ]);
+      expect(ids(result.settled)).toEqual(['c', 'b', 'a']);
     });
 
     it.each([
@@ -119,30 +274,6 @@ describe('bucketize', () => {
       ];
       bucketize(roots);
       expect(ids(roots)).toEqual(['b', 'a']);
-    });
-
-    it('sorts a tree by the latest activity anywhere in it', () => {
-      const result = bucketize([
-        node(entry('quiet', 'working', { activityAt: 150 })),
-        node(
-          entry('conductor', 'working', { activityAt: 100 }),
-          entry('busy-child', 'working', { activityAt: 400 }),
-        ),
-      ]);
-      expect(ids(result.working)).toEqual(['conductor', 'quiet']);
-    });
-
-    it('sorts a waiting tree by its longest-waiting member', () => {
-      const result = bucketize([
-        node(entry('solo', 'needs-attention', { since: 200 })),
-        node(
-          entry('conductor', 'working', { since: 1 }),
-          entry('child', 'needs-attention', { since: 300 }),
-        ),
-        node(entry('early', 'needs-attention', { since: 100 })),
-      ]);
-      // The conductor's own `since` is irrelevant: it is not the one waiting.
-      expect(ids(result.waiting)).toEqual(['early', 'solo', 'conductor']);
     });
   });
 

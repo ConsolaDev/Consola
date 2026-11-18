@@ -913,8 +913,201 @@ while [ "$i" -lt 600 ]; do printf 'step %s\\r\\n' "$i"; i=$((i + 1)); sleep 0.1;
 exec sleep 300
 `;
 
+/**
+ * Like TURN_STUB, but each turn ends: two and a half seconds of output on
+ * every Enter, then the prompt again.
+ */
+const FINISHING_STUB = `#!/bin/sh
+case " $* " in *" --session-id "*|*" --resume "*) ;; *) exit 0 ;; esac
+printf 'Stub ready\\r\\n> '
+while IFS= read -r _; do
+  i=0
+  while [ "$i" -lt 25 ]; do printf 'step %s\\r\\n' "$i"; i=$((i + 1)); sleep 0.1; done
+  printf '> '
+done
+exec sleep 300
+`;
+
 test.describe('the Working section', () => {
   let root: string;
+
+  /**
+   * A workspace whose sessions run `script`, made in the order given, so the
+   * last is the newest. Returns once the workspace is on screen.
+   */
+  async function sessionsRunning(script: string, sessions: [name: string, instanceId: string][]) {
+    const stub = path.join(root, 'agent.sh');
+    fs.writeFileSync(stub, script, { mode: 0o755 });
+    await page.evaluate(
+      async ({ root, stub, sessions }) => {
+        await window.harnessStateAPI.addHarness({
+          id: 'turn-stub',
+          driverId: 'claude',
+          name: 'Stub',
+          binaryPath: stub,
+          accentColor: '#555555',
+        });
+        const workspace = await window.workspaceAPI.createWorkspace(
+          'Working test',
+          root,
+          false,
+          'turn-stub',
+        );
+        for (const [name, instanceId] of sessions) {
+          await window.workspaceAPI.createSession(workspace.id, {
+            name,
+            nameIsUserSet: true,
+            workspaceId: workspace.id,
+            instanceId,
+            harnessId: 'turn-stub',
+            scopeId: workspace.scopes[0].id,
+          });
+          // Distinct creation times, so the newest is unambiguous.
+          await new Promise((resolve) => setTimeout(resolve, 5));
+        }
+      },
+      { root, stub, sessions },
+    );
+    await page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Working test/ })
+      .click();
+  }
+
+  /** The names at the top of the list, in order. */
+  const topOfList = () =>
+    page.evaluate(() =>
+      [
+        ...document.querySelectorAll(
+          '.sidebar-bucket--waiting .session-list > [data-entry-key] .session-nav-item-name',
+        ),
+      ].map((name) => name.textContent),
+    );
+
+  const statusOf = (instanceId: string) =>
+    page.evaluate(async (id) => {
+      const status = (await window.terminalAPI.getStatusSnapshot())[id];
+      if (!status) return 'none';
+      if (status.hasExited) return 'exited';
+      return status.isBusy ? 'working' : 'ready';
+    }, instanceId);
+
+  /** Open a row and wait for main to have its terminal, so input has somewhere to go. */
+  async function open(name: string, instanceId: string) {
+    await page
+      .getByRole('complementary', { name: 'Home sidebar' })
+      .locator('.session-nav-item')
+      .filter({ hasText: name })
+      .click();
+    await expect.poll(() => statusOf(instanceId)).not.toBe('none');
+  }
+
+  const startTurn = (instanceId: string) =>
+    page.evaluate((id) => window.terminalAPI.sendInput(id, '\r'), instanceId);
+
+  test('a session that stops waits a moment in Working, then comes back to the top of the list', async () => {
+    test.setTimeout(90_000);
+    await sessionsRunning(FINISHING_STUB, [
+      ['Session A', 'finish-a'],
+      ['Session B', 'finish-b'],
+      ['Session C', 'finish-c'],
+    ]);
+    const working = page.getByRole('region', { name: 'Working', exact: true });
+    const inWorking = working.locator('.session-nav-item').filter({ hasText: 'Session A' });
+
+    // Newest first: A, made first, is at the bottom.
+    await expect.poll(topOfList).toEqual(['Session C', 'Session B', 'Session A']);
+    await open('Session A', 'finish-a');
+    await startTurn('finish-a');
+    await expect(inWorking).toBeVisible({ timeout: 15_000 });
+    await expect.poll(topOfList).toEqual(['Session C', 'Session B']);
+
+    // The turn ends. The row stays in Working for a moment rather than
+    // leaving the instant the output stops...
+    await expect
+      .poll(() => statusOf('finish-a'), { timeout: 15_000, intervals: [50] })
+      .toBe('ready');
+    const stoppedAt = Date.now();
+    await page.waitForTimeout(500);
+    await expect(inWorking).toBeVisible();
+    // ...then comes back above everything that has been sitting there.
+    await expect
+      .poll(topOfList, { timeout: 10_000, intervals: [50] })
+      .toEqual(['Session A', 'Session C', 'Session B']);
+    expect(Date.now() - stoppedAt).toBeGreaterThanOrEqual(1_000);
+    await expect(working).toHaveCount(0);
+  });
+
+  test('without a Working section, a running session keeps its place in the list', async () => {
+    test.setTimeout(90_000);
+    await sessionsRunning(FINISHING_STUB, [
+      ['Session A', 'still-a'],
+      ['Session B', 'still-b'],
+      ['Session C', 'still-c'],
+    ]);
+    await page.getByRole('button', { name: 'Navigation settings' }).click();
+    const toggle = page.getByRole('menuitemcheckbox', { name: 'Working section' });
+    await expect(toggle).toHaveAttribute('aria-checked', 'true');
+    await toggle.click();
+    await expect(toggle).toHaveAttribute('aria-checked', 'false');
+    await page.keyboard.press('Escape');
+
+    const order = ['Session C', 'Session B', 'Session A'];
+    await expect.poll(topOfList).toEqual(order);
+    await open('Session B', 'still-b');
+    await startTurn('still-b');
+    await expect.poll(() => statusOf('still-b'), { timeout: 15_000 }).toBe('working');
+    await expect(page.getByRole('region', { name: 'Working', exact: true })).toHaveCount(0);
+    expect(await topOfList()).toEqual(order);
+
+    await expect.poll(() => statusOf('still-b'), { timeout: 15_000 }).toBe('ready');
+    await page.waitForTimeout(2_500);
+    expect(await topOfList()).toEqual(order);
+  });
+
+  test('a click on a row the list just slid under the pointer is dropped, and one a moment later opens it', async () => {
+    test.setTimeout(90_000);
+    await sessionsRunning(TURN_STUB, [
+      ['Session A', 'slide-a'],
+      ['Session B', 'slide-b'],
+    ]);
+    await expect.poll(topOfList).toEqual(['Session B', 'Session A']);
+    await open('Session B', 'slide-b');
+
+    // B leaving for Working slides A up into B's place. A press landing on A
+    // in that instant was aimed at B: it must not open A. Pressed from the
+    // page, in the same task the list moved, so no clock can make it late.
+    const opened = await page.evaluate(
+      (id) =>
+        new Promise<boolean>((resolve) => {
+          const list = document.querySelector('.sidebar-sessions')!;
+          const observer = new MutationObserver(() => {
+            const first = list.querySelector<HTMLElement>(
+              '.sidebar-bucket--waiting .session-list > [data-entry-key]',
+            );
+            if (!first?.textContent?.includes('Session A')) return;
+            observer.disconnect();
+            const at = first.getBoundingClientRect();
+            const point = { bubbles: true, cancelable: true, clientX: at.x + 8, clientY: at.y + 8 };
+            first.dispatchEvent(new PointerEvent('pointerdown', { ...point, pointerId: 1 }));
+            first.dispatchEvent(new PointerEvent('pointerup', { ...point, pointerId: 1 }));
+            first.dispatchEvent(new PointerEvent('click', { ...point, pointerId: 1, detail: 1 }));
+            setTimeout(() => resolve(first.classList.contains('active')), 200);
+          });
+          observer.observe(list, { childList: true, subtree: true });
+          window.terminalAPI.sendInput(id, '\r');
+        }),
+      'slide-b',
+    );
+    expect(opened).toBe(false);
+
+    await page.waitForTimeout(600);
+    const rowA = page
+      .locator('.sidebar-bucket--waiting .session-nav-item')
+      .filter({ hasText: 'Session A' });
+    await rowA.click();
+    await expect(rowA).toHaveClass(/\bactive\b/);
+  });
 
   test.beforeEach(async () => {
     root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-working-'));

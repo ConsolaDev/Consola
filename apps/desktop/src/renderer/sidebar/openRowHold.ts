@@ -51,10 +51,17 @@ export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null
  * Settled: otherwise settling the open row would leave it in place under a
  * toast saying it is on the shelf, and moving it back would leave it there.
  *
+ * A tree still in Working on its grace (`lingering`) counts as working: its
+ * own way out is a moment away, and putting it back first would move it twice.
+ *
  * What is left is a tree that has stopped, which is the case the hold exists
  * for.
  */
-export function applyHold(placed: Placed, hold: Hold | null): Placed {
+export function applyHold(
+  placed: Placed,
+  hold: Hold | null,
+  lingering?: ReadonlySet<EntryKey>,
+): Placed {
   if (hold === null) return placed;
   const from = BUCKETS.find((bucket) =>
     placed[bucket].some((root) => root.entry.key === hold.rootKey),
@@ -63,7 +70,7 @@ export function applyHold(placed: Placed, hold: Hold | null): Placed {
   if (from === 'settled' || hold.bucket === 'settled') return placed;
   const node = placed[from].find((root) => root.entry.key === hold.rootKey)!;
   const now = aggregateAttention(node);
-  if (now === 'needs-attention' || now === 'working') return placed;
+  if (now === 'needs-attention' || now === 'working' || lingering?.has(hold.rootKey)) return placed;
   const target = [...placed[hold.bucket]];
   target.splice(Math.min(hold.index, target.length), 0, node);
   return { ...placed, [from]: placed[from].filter((root) => root !== node), [hold.bucket]: target };

@@ -9,6 +9,8 @@ export function NavigationSettings() {
   const setShowHarness = useSettingsStore((state) => state.setShowSidebarHarness);
   const showWorktree = useSettingsStore((state) => state.showSidebarWorktree);
   const setShowWorktree = useSettingsStore((state) => state.setShowSidebarWorktree);
+  const workingSection = useSettingsStore((state) => state.sidebarWorkingSection);
+  const setWorkingSection = useSettingsStore((state) => state.setSidebarWorkingSection);
 
   return (
     <DropdownMenu.Root>
@@ -64,6 +66,21 @@ export function NavigationSettings() {
               </DropdownMenu.ItemIndicator>
             </span>
             Worktree
+          </DropdownMenu.CheckboxItem>
+          {/* Off, a running session keeps its place in the list instead of
+            moving down to Working and back up when it stops. */}
+          <DropdownMenu.CheckboxItem
+            className="dropdown-item"
+            checked={workingSection}
+            onCheckedChange={setWorkingSection}
+            onSelect={(event) => event.preventDefault()}
+          >
+            <span className="navigation-settings-check">
+              <DropdownMenu.ItemIndicator>
+                <Check size={14} />
+              </DropdownMenu.ItemIndicator>
+            </span>
+            Working section
           </DropdownMenu.CheckboxItem>
         </DropdownMenu.Content>
       </DropdownMenu.Portal>

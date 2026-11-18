@@ -8,7 +8,7 @@ export function entry(id: string, attention: Attention, rest: Partial<Entry> = {
     key: `session:${id}`,
     kind: 'session',
     attention,
-    since: 0,
+    createdAt: 0,
     activityAt: 0,
     labels: [],
     facets: {},

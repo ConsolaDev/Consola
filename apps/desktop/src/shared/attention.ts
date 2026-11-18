@@ -10,6 +10,8 @@ export interface AttentionRecord {
   seenAt?: number; // written from slice 2 — define now, do not write
   settledAt?: number; // written from slice 7 — define now, do not write
   settleHoldAt?: number; // written from slice 7 — define now, do not write
+  /** When it last came back from Settled, by hand or by new activity. Where a woken session lands in the list. */
+  unsettledAt?: number;
 }
 
 export type AttentionSnapshot = Record<string /* sessionId */, AttentionRecord>;

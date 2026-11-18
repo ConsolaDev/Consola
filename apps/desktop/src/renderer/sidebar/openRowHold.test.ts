@@ -78,6 +78,24 @@ describe('the open row holds its bucket', () => {
     });
   });
 
+  it('lets an open row that stopped wait out its grace in Working, rather than moving it twice', () => {
+    // Opened from the top, prompted, now finished: putting it back where it
+    // was opened would be one move, and its grace ending a second one.
+    const hold = holdFor(placedOf(entry('a', 'ready'), entry('b', 'ready')), keyOf('a'));
+    const lingering = new Set([keyOf('a')]);
+    const placed = bucketize(forest([entry('a', 'done'), entry('b', 'ready')]), {
+      workingSection: true,
+      observed: {
+        lingering,
+        returnedAt: new Map(),
+        workingSince: new Map(),
+        nextDeadline: 1,
+      },
+    });
+    expect(ids(placed.working)).toEqual(['a']);
+    expect(applyHold(placed, hold, lingering)).toBe(placed);
+  });
+
   it('leaves a tree alone while it is still in the bucket it was held in', () => {
     const placed = placedOf(entry('a', 'done'));
     expect(applyHold(placed, holdFor(placed, keyOf('a')))).toBe(placed);
@@ -86,7 +104,7 @@ describe('the open row holds its bucket', () => {
   it('releases the hold when the open row starts needing the person', () => {
     const hold = holdFor(placedOf(entry('a', 'ready')), keyOf('a'));
 
-    const asked = placedOf(entry('a', 'needs-attention', { since: 7 }));
+    const asked = placedOf(entry('a', 'needs-attention'));
     const held = applyHold(asked, hold);
 
     expect(ids(held.waiting)).toEqual(['a']);
@@ -140,7 +158,7 @@ describe('the open row holds its bucket', () => {
     });
 
     it('releases an answered row out of the top of the list', () => {
-      const hold = holdFor(placedOf(entry('a', 'needs-attention', { since: 2 })), keyOf('a'));
+      const hold = holdFor(placedOf(entry('a', 'needs-attention')), keyOf('a'));
       expect(hold).toMatchObject({ bucket: 'waiting' });
 
       const held = applyHold(placedOf(entry('a', 'working', { activityAt: 9 })), hold);
