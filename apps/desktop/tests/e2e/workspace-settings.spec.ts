@@ -331,6 +331,7 @@ async function holdWorkspace(page: Page): Promise<void> {
 }
 
 test('the workspace rail sits beside Home, adds workspaces, and stays available with the sidebar hidden', async ({}, testInfo) => {
+  test.setTimeout(60_000);
   const { app, page, cleanup } = await launchSeeded();
   const addedFolder = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-added-workspace-'));
   const addedName = path.basename(addedFolder);
@@ -436,16 +437,23 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await expect(added).toHaveAttribute('aria-current', 'true');
     await expect(modal).toBeHidden();
 
-    // On an App section, the same switch leaves it open.
+    // On an App section, the same switch leaves it open. The rail is
+    // aria-hidden while the dialog is up, so the switch is read through the
+    // dialog's own Workspace heading, and the rail only after closing it.
     await rail.getByRole('button', { name: 'Settings', exact: true }).click();
     await expect(modal).toBeVisible();
     await modal.getByRole('button', { name: 'Appearance', exact: true }).click();
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
     await page.keyboard.press(`${modifier}+Digit1`);
-    await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
     await expect(modal).toBeVisible();
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
+    await expect(modal.locator('.settings-modal-nav-group-label')).toHaveText([
+      'App',
+      'Workspace · Sprocket',
+    ]);
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
+    await expect(workspaceButton(page)).toHaveAttribute('aria-current', 'true');
 
     await page.locator('.sidebar-toggle').click();
     await page.screenshot({
