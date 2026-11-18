@@ -27,9 +27,7 @@ describe('sanitizeTitle', () => {
 describe('isAwaitingName', () => {
   it('awaits a name only for a session still called New Session and not user-named', () => {
     expect(isAwaitingName({ name: 'New Session' })).toBe(true);
-    expect(isAwaitingName({ name: 'New Session', nameIsUserSet: true })).toBe(
-      false,
-    );
+    expect(isAwaitingName({ name: 'New Session', nameIsUserSet: true })).toBe(false);
     expect(isAwaitingName({ name: 'PR #12 · Review' })).toBe(false);
   });
 });
