@@ -14,6 +14,7 @@ import { AssistantNavItem } from './AssistantNavItem';
 import { AutomationsNavItem } from './AutomationsNavItem';
 import { FilterBar } from './FilterBar';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
+import { useRenamingStore } from '../../stores/renamingStore';
 import { effectiveFilters, hasActiveFilters, matchesFilters } from '../../utils/sessionFilters';
 import { SidebarSearch } from './SidebarSearch';
 import { NavigationSettings } from './NavigationSettings';
@@ -28,7 +29,7 @@ import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
 import { buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
-import { applyHold, holdFor, type Hold } from '../../sidebar/openRowHold';
+import { applyHold, holdFor, pinHold, type Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
 import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
@@ -57,6 +58,7 @@ export function Sidebar() {
   const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
   const facetSelection = useSessionFilterStore((state) => state.filters[activeWorkspaceId ?? '']);
+  const renamingSessionId = useRenamingStore((state) => state.sessionId);
   const [scopeError, setScopeError] = useState('');
   const inboxCount = useInboxStore((state) =>
     workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0,
@@ -67,6 +69,8 @@ export function Sidebar() {
     activeKey: null,
     hold: null,
   });
+  // The row being renamed stays exactly where it was when its field opened.
+  const pinned = useRef<{ key: EntryKey | null; pin: Hold | null }>({ key: null, pin: null });
   const sidebarRef = useRef<HTMLElement>(null);
 
   useEffect(() => {
@@ -133,7 +137,14 @@ export function Sidebar() {
       : null;
   if (held.current.activeKey !== activeKey)
     held.current = { activeKey, hold: holdFor(natural, activeKey) };
-  const placed = applyHold(natural, held.current.hold);
+  const opened = applyHold(natural, held.current.hold);
+  const renamingKey =
+    renamingSessionId && allSessions.some((session) => session.id === renamingSessionId)
+      ? sessionKey(renamingSessionId)
+      : null;
+  if (pinned.current.key !== renamingKey)
+    pinned.current = { key: renamingKey, pin: holdFor(opened, renamingKey) };
+  const placed = pinHold(opened, pinned.current.pin);
 
   const workingOpen = isShelfOpen(shelves, 'working');
   const settledOpen = isShelfOpen(shelves, 'settled');

@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useEffect, useState, useRef } from 'react';
 import { Check, FolderGit2, Lock, Undo2 } from 'lucide-react';
 import { sessionLabel } from '../../../../shared/sessionLabel';
 import { checkoutRef } from '../../../../shared/sessionCheckout';
@@ -13,6 +13,7 @@ import { SessionActionsMenu } from '../SessionActionsMenu';
 import { startSessionDrag } from '../sessionDrag';
 import { deleteSessionCompletely, renameSession } from '../../../utils/sessionActions';
 import { SessionNameEditor } from '../../SessionName/SessionNameEditor';
+import { markRenaming } from '../../../stores/renamingStore';
 import { settleWithUndo, unsettleWithUndo } from '../../../utils/settleActions';
 import type { Attention } from '../../../../shared/attention';
 import { useSessionAttention } from '../../../stores/attentionStore';
@@ -200,6 +201,11 @@ function SessionRowBody({
     renameFromKeyboard.current = fromKeyboard;
     setIsRenaming(true);
   };
+
+  // While the field is open the sidebar keeps this row where it is: a row
+  // that changes bucket is mounted afresh, and the field would close with
+  // the old one.
+  useEffect(() => (isRenaming ? markRenaming(session.id) : undefined), [isRenaming, session.id]);
 
   // A field opened from the keyboard hands focus back to the row when Enter
   // or Escape closes it, so F2 can be pressed again. One opened by the
