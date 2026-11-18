@@ -3,6 +3,7 @@ import * as Dialog from '@radix-ui/react-dialog';
 import {
   Folder,
   Info,
+  MessagesSquare,
   Plug,
   Sparkle,
   Sparkles,
@@ -14,7 +15,7 @@ import {
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
-import { HarnessPanel } from './HarnessPanel';
+import { SessionsPanel } from './SessionsPanel';
 import { ScopesPanel } from './ScopesPanel';
 import { LabelsPanel } from './LabelsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
@@ -26,6 +27,7 @@ import './styles.css';
 
 export type WorkspaceSettingsSectionId =
   | 'general'
+  | 'sessions'
   | 'scopes'
   | 'provider'
   | 'actions'
@@ -42,6 +44,7 @@ interface WorkspaceSettingsNavMeta {
 
 const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'general',
+  'sessions',
   'scopes',
   'provider',
   'actions',
@@ -55,6 +58,7 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
 // test — npm run typecheck already proves completeness.
 const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   general: { label: () => 'General', icon: Info },
+  sessions: { label: () => 'Sessions', icon: MessagesSquare },
   scopes: { label: () => 'Scopes', icon: Folder },
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
@@ -166,12 +170,8 @@ function WorkspaceSettingsBody({
 
       <div className="settings-modal-body">
         <div className="settings-modal-section">
-          {activeSection === 'general' && (
-            <>
-              <ManifestHeader workspace={workspace} />
-              <HarnessPanel workspace={workspace} />
-            </>
-          )}
+          {activeSection === 'general' && <ManifestHeader workspace={workspace} />}
+          {activeSection === 'sessions' && <SessionsPanel workspace={workspace} />}
           {activeSection === 'scopes' && <ScopesPanel workspace={workspace} />}
           {activeSection === 'provider' && (
             <section className="ws-panel">

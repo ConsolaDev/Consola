@@ -457,6 +457,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await expect(modal).toBeVisible();
     await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
       'General',
+      'Sessions',
       'Scopes',
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
