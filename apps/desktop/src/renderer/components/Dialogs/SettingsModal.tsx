@@ -243,6 +243,7 @@ function ShortcutsSection() {
     { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: `${mod}${shift}T` },
+    { label: 'Rename session', key: 'F2' },
   ];
 
   return (

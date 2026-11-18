@@ -23,6 +23,7 @@ import {
   createSessionAndOpen,
   defaultSessionScopeId,
   openNewSessionDialog,
+  renameOutcome,
   revealCreatedScope,
   revealSessionScope,
 } from './sessionActions';
@@ -429,5 +430,13 @@ describe('revealCreatedScope', () => {
     const { workspace, api } = openSessionSetup({ scope: 'api' });
     revealCreatedScope(workspace.id, api.id);
     expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
+  });
+});
+
+describe('renameOutcome', () => {
+  it('refuses an empty name, ignores an unchanged one, and saves a trimmed one', () => {
+    expect(renameOutcome('Old', '   ')).toEqual({ kind: 'refuse' });
+    expect(renameOutcome('Old', ' Old ')).toEqual({ kind: 'unchanged' });
+    expect(renameOutcome('Old', ' New ')).toEqual({ kind: 'save', name: 'New' });
   });
 });

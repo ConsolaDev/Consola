@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import {
   checkoutPathForSession,
   scopeForSession,
@@ -10,6 +11,8 @@ import { useAssistantStore } from '../../stores/assistantStore';
 import { useCheckout } from '../../stores/checkoutStore';
 import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
+import { renameSession } from '../../utils/sessionActions';
+import { SessionNameEditor } from '../SessionName/SessionNameEditor';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
 import { AssistantHeader } from './AssistantHeader';
@@ -39,6 +42,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const cwd = isAssistant ? '' : (checkoutPathForSession(workspace, session) ?? '');
   const checkout = useCheckout(cwd || null, { fresh: true });
   const scope = isAssistant ? undefined : scopeForSession(workspace, session);
+  const [isRenaming, setIsRenaming] = useState(false);
 
   if (isAssistant) {
     return (
@@ -58,7 +62,22 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           {session.name && (
             <>
               <span className="workspace-view-separator">/</span>
-              <span className="workspace-view-session">{session.name}</span>
+              {/* Double-click renames, as on the sidebar row. The name is
+                  carved out of the header's drag region for that; a single
+                  click does nothing. */}
+              {isRenaming ? (
+                <SessionNameEditor
+                  initialName={session.name}
+                  className="session-header-rename-input"
+                  ariaLabel="Session name"
+                  onCommit={(name) => renameSession(workspace.id, session, name)}
+                  onClose={() => setIsRenaming(false)}
+                />
+              ) : (
+                <span className="workspace-view-session" onDoubleClick={() => setIsRenaming(true)}>
+                  {session.name}
+                </span>
+              )}
             </>
           )}
         </h1>
