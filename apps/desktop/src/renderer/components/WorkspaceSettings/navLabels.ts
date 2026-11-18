@@ -9,8 +9,8 @@ import { PROVIDER_META, isGitProviderId } from '../../../shared/providers';
  * persisted binding must never make the modal itself unrenderable, or the
  * one place that could fix the binding would be the place that crashes.
  */
-export function providerNavLabel(workspace: Workspace): string {
-  const provider = workspace.provider;
+export function providerNavLabel(workspace: Workspace | null): string {
+  const provider = workspace?.provider;
   if (!provider || !isGitProviderId(provider.id)) return 'Provider';
   return PROVIDER_META[provider.id].displayName;
 }

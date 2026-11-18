@@ -25,7 +25,7 @@ import type {
   TemplateView,
 } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { automationsBridge } from '../../services/automationsBridge';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { useHarnessStore } from '../../stores/harnessStore';
@@ -57,7 +57,7 @@ export function TemplateCards({
   const selected = useAutomationsStore((state) =>
     state.panel?.kind === 'template' ? state.panel.id : null,
   );
-  const { openWorkspaceSettings } = useWorkspaceSettings();
+  const { openSettings } = useSettings();
   const { busy, error, add, justAdded } = useTemplateAdd(workspace.id);
   const ready = snapshot.templates.filter(
     (template) => !template.addedAs && !template.missing,
@@ -98,7 +98,7 @@ export function TemplateCards({
               onAdd={() => add(template.id)}
               onCustomize={() => openPanel({ kind: 'new', basis: { template: template.id } })}
               onOpenAutomation={(name) => openPanel({ kind: 'automation', name })}
-              onFix={(section) => openWorkspaceSettings(workspace.id, section)}
+              onFix={(section) => openSettings(section)}
             />
           </li>
         ))}

@@ -301,6 +301,40 @@
   color: var(--color-text-primary);
 }
 
+/* A nav group: its small heading over its items. */
+.settings-modal-nav-group {
+  display: flex;
+  flex-direction: column;
+  margin-bottom: var(--space-2);
+}
+
+.settings-modal-nav-group-label {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-tertiary);
+}
+
+/* The Workspace heading names the workspace being edited; a long name
+   truncates rather than widening the list. */
+.settings-modal-nav-workspace-heading {
+  display: flex;
+  min-width: 0;
+}
+
+.settings-modal-nav-workspace-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Updates sits alone below both groups, pinned to the bottom edge. */
+.settings-modal-nav-footer {
+  margin-top: auto;
+  padding-top: var(--space-2);
+}
+
 .settings-modal-nav-item {
   display: flex;
   align-items: center;
@@ -708,44 +742,6 @@
   clip: rect(0, 0, 0, 0);
   white-space: nowrap;
   border: 0;
-}
-
-/* The one-line pointer that stands where the Workspace tab was: reads as a
-   quiet nav row, acts as a door — it closes this modal and opens the
-   workspace's. Disabled carries its reason in the title, like ws-row-action. */
-.settings-modal-nav-pointer {
-  display: flex;
-  align-items: flex-start;
-  gap: var(--space-2);
-  width: 100%;
-  margin-bottom: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  border: 1px dashed var(--color-border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  font-size: var(--font-size-xs);
-  line-height: var(--line-height-normal);
-  color: var(--color-text-tertiary);
-  text-align: left;
-  cursor: pointer;
-  transition:
-    color var(--transition-fast),
-    border-color var(--transition-fast);
-}
-
-.settings-modal-nav-pointer svg {
-  flex-shrink: 0;
-  margin-top: 2px;
-}
-
-.settings-modal-nav-pointer:hover:not(:disabled) {
-  color: var(--color-text-primary);
-  border-color: var(--color-border-hover);
-}
-
-.settings-modal-nav-pointer:disabled {
-  opacity: 0.5;
-  cursor: default;
 }
 
 /* The first-run auto-settle explanation, and its threshold control */

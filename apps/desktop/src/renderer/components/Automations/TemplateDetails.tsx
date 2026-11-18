@@ -2,7 +2,7 @@ import { useId, useState } from 'react';
 import { ArrowRight, Bot, CircleCheck, FileCode, Plus, Workflow } from 'lucide-react';
 import type { AutomationView, TemplatePreview, TemplateView } from '../../../shared/automations';
 import type { Workspace } from '../../../shared/workspace';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { EntryCode, PipelineGraph } from './AutomationPipeline';
 import { useNow } from './parts';
@@ -20,7 +20,7 @@ const NO_RUNS: never[] = [];
 export function TemplateDetails({ workspace, id }: { workspace: Workspace; id: string }) {
   const snapshot = useAutomationsStore((state) => state.snapshots[workspace.id]);
   const openPanel = useAutomationsStore((state) => state.openPanel);
-  const { openWorkspaceSettings } = useWorkspaceSettings();
+  const { openSettings } = useSettings();
   const { busy, error, add, justAdded } = useTemplateAdd(workspace.id);
   const [view, setView] = useState<'graph' | 'yaml'>('graph');
   const now = useNow(60_000);
@@ -102,7 +102,7 @@ export function TemplateDetails({ workspace, id }: { workspace: Workspace; id: s
         <SetupChecklist
           needs={template.needs}
           detailed
-          onFix={(section) => openWorkspaceSettings(workspace.id, section)}
+          onFix={(section) => openSettings(section)}
         />
       </section>
 

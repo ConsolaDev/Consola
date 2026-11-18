@@ -464,24 +464,6 @@
   color: white;
 }
 
-/* The modal's nav header names the thing being edited. */
-.settings-modal-workspace-title {
-  margin: 0;
-  font-size: var(--font-size-sm);
-  font-weight: var(--font-weight-semibold);
-  color: var(--color-text-primary);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.settings-modal-workspace-subtitle {
-  margin: 0;
-  font-size: var(--font-size-xs);
-  font-weight: var(--font-weight-normal);
-  color: var(--color-text-tertiary);
-}
-
 /* The danger entry raises only its color, like the panel's own title. */
 .settings-modal-nav-item.danger,
 .settings-modal-nav-item.danger:hover,

@@ -31,6 +31,7 @@ import {
 } from '../../stores/settingsStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
+import type { SettingsSection } from '../Dialogs/settingsSections';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
 import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
@@ -70,8 +71,7 @@ export interface PaletteContext {
   commitMessage: string;
   isGitReviewOpen: boolean;
   terminalFontSize: number;
-  openSettings: () => void;
-  openWorkspaceSettings: (workspaceId?: string) => void;
+  openSettings: (section?: SettingsSection) => void;
 }
 
 /**
@@ -140,9 +140,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       label: 'Workspace settings…',
       context: activeWorkspace.name,
       icon: Settings,
-      // Explicit id rather than the context's fallback: the palette's
-      // snapshot names the workspace this row was built for.
-      run: () => ctx.openWorkspaceSettings(activeWorkspace.id),
+      run: () => ctx.openSettings('general'),
     });
   }
 
