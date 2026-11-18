@@ -1,8 +1,15 @@
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
+
+// The real probe runs the user's interactive login shell, which can take seconds.
+vi.mock('../LoginEnvironment', () => ({
+  getLoginEnv: () => process.env,
+  loginEnvProblem: () => null,
+}));
+
 import type { HarnessConfig } from './HarnessDriver';
 
 const driver = new ClaudeDriver();
@@ -262,7 +269,7 @@ process.stdin.on('end', () => {
       'hang.js',
       `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nprocess.stdin.resume();\nsetInterval(() => {}, 1000);`,
     );
-    await expect(call(bin, { timeoutMs: 300 })).rejects.toThrow('The title call timed out.');
+    await expect(call(bin, { timeoutMs: 3000 })).rejects.toThrow('The title call timed out.');
     const pid = Number(fs.readFileSync(pidFile, 'utf8'));
     await new Promise((r) => setTimeout(r, 200));
     expect(() => process.kill(pid, 0)).toThrow();
