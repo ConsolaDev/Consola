@@ -1,5 +1,5 @@
 import { LineCounter, isMap, isSeq, parseDocument } from 'yaml';
-import { formatPath, toIssue, type FactorySpecIssue } from './issues';
+import { formatPath, issuePath, toIssue, type FactorySpecIssue } from './issues';
 import { automationSchema, type Automation } from './schema';
 
 export type AutomationEntryResult =
@@ -68,8 +68,8 @@ export function parseAutomationEntry(yaml: string): AutomationEntryResult {
         ...toIssue(issue, [0], doc, lineOf),
         path: formatPath(
           issue.code === 'unrecognized_keys' && issue.keys.length > 0
-            ? [...issue.path, issue.keys[0]]
-            : issue.path,
+            ? [...issuePath(issue), issue.keys[0]]
+            : issuePath(issue),
         ),
       })),
     };

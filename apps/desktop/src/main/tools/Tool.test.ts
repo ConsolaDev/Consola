@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import { defineTool, ToolRegistry, type ToolContext } from './Tool';
 
 const context: ToolContext = {
@@ -47,7 +47,7 @@ describe('ToolRegistry', () => {
   it('rejects unknown and ill-typed arguments with a readable reason', async () => {
     const { tools, run } = registry();
     await expect(tools.invoke('do_things', { count: 'two' }, context)).rejects.toThrow(
-      /count: Expected number/,
+      /count: Invalid input: expected number/,
     );
     await expect(tools.invoke('do_things', { cuont: 2 }, context)).rejects.toThrow(
       /Unrecognized key/,

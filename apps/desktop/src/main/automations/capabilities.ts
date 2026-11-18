@@ -1,4 +1,5 @@
 import type { AutomationMode } from '@consola/factory-spec';
+import type { z } from 'zod';
 import { CONSOLA_NAMESPACE, type ToolDefinition } from '../tools/Tool';
 import { connectionCatalog, type ConnectionCatalogEntry } from './connections';
 
@@ -146,7 +147,7 @@ export function describeCapabilities(input: CapabilitiesInput): AutomationCapabi
         description: tool.description,
         arguments: Object.entries(tool.input).map(([name, schema]) => ({
           name,
-          description: schema.description ?? '',
+          description: (schema as z.ZodTypeAny).description ?? '',
         })),
       })),
       actions: input.actions.map((action) => ({

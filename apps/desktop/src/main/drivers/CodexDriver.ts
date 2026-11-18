@@ -57,12 +57,13 @@ function isExecutable(candidate: string): boolean {
 
 const mcpSchema = z.object({
   mcpServers: z.record(
+    z.string(),
     z
       .object({
         type: z.literal('stdio').optional(),
         command: z.string(),
         args: z.array(z.string()).optional(),
-        env: z.record(z.string()).optional(),
+        env: z.record(z.string(), z.string()).optional(),
       })
       .strict(),
   ),

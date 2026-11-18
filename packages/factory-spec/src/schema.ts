@@ -69,7 +69,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  */
 const triggerSchema = z.unknown().transform((on, ctx): Trigger => {
   const fail = (message: string, path: string[] = []): never => {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+    ctx.addIssue({ code: 'custom', message, path });
     return z.NEVER;
   };
   if (!isRecord(on)) return fail(`Expected a trigger, ${TRIGGER_EXAMPLE}.`);
@@ -151,7 +151,7 @@ function foldStringRun(entry: unknown): unknown {
 /** `run:` as an object with exactly one of action, prompt or tool. */
 const runSchema = z.unknown().transform((run, ctx): RunTarget => {
   const fail = (message: string, path: string[] = []): never => {
-    ctx.addIssue({ code: z.ZodIssueCode.custom, message, path });
+    ctx.addIssue({ code: 'custom', message, path });
     return z.NEVER;
   };
   if (run instanceof StringRun) {
@@ -208,7 +208,7 @@ const runSchema = z.unknown().transform((run, ctx): RunTarget => {
 
 /** Named rather than left to `strict()`, whose "unrecognized key" would not say why. */
 function explained(message: string) {
-  return z.never({ errorMap: () => ({ message }) }).optional();
+  return z.never({ error: message }).optional();
 }
 
 export function automationSchema() {
@@ -226,7 +226,7 @@ function automationEntrySchema() {
         ),
       on: triggerSchema,
       run: runSchema,
-      filter: z.record(z.unknown()).optional(),
+      filter: z.record(z.string(), z.unknown()).optional(),
       scope: z.string().trim().min(1, 'Name one of the workspace’s scopes.').optional(),
       mode: z.enum(AUTOMATION_MODES).default('confirm'),
       with: explained(
@@ -240,7 +240,7 @@ function automationEntrySchema() {
     .strict()
     .superRefine((entry, ctx) => {
       const issue = (path: string, message: string) =>
-        ctx.addIssue({ code: z.ZodIssueCode.custom, path: [path], message });
+        ctx.addIssue({ code: 'custom', path: [path], message });
       const { on: trigger, run } = entry;
       // A field that failed is already reported, and its value is not one.
       if (!trigger?.kind || !run?.kind) return;
@@ -286,9 +286,7 @@ function automationEntrySchema() {
  */
 export const fileSchema = z
   .object({
-    version: z.literal(1, {
-      errorMap: () => ({ message: 'Expected `version: 1` at the top of the file.' }),
-    }),
+    version: z.literal(1, { error: 'Expected `version: 1` at the top of the file.' }),
     // `automations:` with only comments under it is YAML null, and it is
     // what a file looks like once its last automation is commented out.
     automations: z

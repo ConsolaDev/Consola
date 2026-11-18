@@ -1,5 +1,5 @@
 import type { Document } from 'yaml';
-import type { ZodIssue } from 'zod';
+import type { core } from 'zod';
 
 /**
  * Shared by the whole-file parser and the single-entry parser: turning a zod
@@ -17,12 +17,12 @@ export interface FactorySpecIssue {
 }
 
 export function toIssue(
-  issue: ZodIssue,
+  issue: core.$ZodIssue,
   base: Array<string | number>,
   doc: Document,
   lineOf: (offset: number | undefined) => number | undefined,
 ): FactorySpecIssue {
-  const fullPath = [...base, ...issue.path];
+  const fullPath = [...base, ...issuePath(issue)];
   // A strict object reports unknown keys at the object itself; pointing at
   // the offending key is far more useful.
   const keyPath =
@@ -53,6 +53,11 @@ export function closestNode(doc: Document, path: Array<string | number>): Ranged
     if (node?.range) return node;
   }
   return undefined;
+}
+
+/** An issue's path as document keys: zod allows symbols, which YAML never produces. */
+export function issuePath(issue: core.$ZodIssue): Array<string | number> {
+  return issue.path.map((key) => (typeof key === 'symbol' ? String(key) : key));
 }
 
 export function formatPath(path: Array<string | number>): string {

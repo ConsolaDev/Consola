@@ -1,4 +1,4 @@
-import { z } from 'zod/v3';
+import { z } from 'zod';
 import type { EventTrigger } from '@consola/factory-spec';
 import type { InboxItem } from '../../shared/workItems';
 import { workItemKey } from '../../shared/workItems';
@@ -195,7 +195,7 @@ function githubMatcher(filter: GitHubFilter): (item: InboxItem) => boolean {
 
 const CONNECTIONS: Record<
   string,
-  { events: Record<string, EventDefinition>; filter: z.AnyZodObject; resolve: typeof resolveGitHub }
+  { events: Record<string, EventDefinition>; filter: z.ZodObject; resolve: typeof resolveGitHub }
 > = {
   github: { events: GITHUB_EVENTS, filter: GITHUB_FILTER, resolve: resolveGitHub },
 };
