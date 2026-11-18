@@ -1,12 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import * as Collapsible from '@radix-ui/react-collapsible';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { Check, ChevronDown, ChevronRight } from 'lucide-react';
 import { driverDefaultTitleModel } from '../../../shared/constants';
 import {
-  TITLE_EFFORT_DEFAULT,
   reconcileTitleSettings,
   resolveTitleSource,
+  shownTitleEffort,
   titleHarnesses,
   titleSettingsOf,
 } from '../../../shared/sessionTitles';
@@ -71,7 +71,9 @@ export function SessionsPanel({ workspace }: SessionsPanelProps) {
 
   const supportsEffort = info?.supportsEffort === true;
   const supportsFast = info?.supportsFastMode === true;
-  const effort = settings.effort ?? TITLE_EFFORT_DEFAULT;
+  // Display only: an effort the model does not offer reads, and is checked, as
+  // Default. Nothing is written.
+  const effort = info ? shownTitleEffort(settings, info) : 'default';
   const effortLabel = [
     supportsEffort ? capitalise(effort) : undefined,
     supportsFast && settings.fast ? 'Fast' : undefined,
@@ -114,7 +116,11 @@ export function SessionsPanel({ workspace }: SessionsPanelProps) {
               </button>
             </DropdownMenu.Trigger>
             <DropdownMenu.Portal>
-              <DropdownMenu.Content className="dropdown-content" sideOffset={6} align="end">
+              <DropdownMenu.Content
+                className="dropdown-content ws-settings-menu"
+                sideOffset={6}
+                align="end"
+              >
                 <DropdownMenu.RadioGroup
                   value={workspace.defaultHarnessId}
                   onValueChange={(id) =>
@@ -168,7 +174,11 @@ export function SessionsPanel({ workspace }: SessionsPanelProps) {
                     </button>
                   </DropdownMenu.Trigger>
                   <DropdownMenu.Portal>
-                    <DropdownMenu.Content className="dropdown-content" sideOffset={6} align="end">
+                    <DropdownMenu.Content
+                      className="dropdown-content ws-settings-menu"
+                      sideOffset={6}
+                      align="end"
+                    >
                       {supportsEffort && (
                         <DropdownMenu.RadioGroup
                           value={effort}
@@ -256,20 +266,37 @@ function InstructionsField({
 }) {
   const stored = settings.instructions ?? '';
   const [draft, setDraft] = useState(stored);
+  // The instructions last saved, or last read from the record. A save compares
+  // against this rather than `stored`, which lags until the write comes back,
+  // so the unmount that follows a blur never saves the same draft again.
+  const savedRef = useRef(stored);
   // Follow the record when it changes from elsewhere, e.g. another window.
-  useEffect(() => setDraft(stored), [stored]);
+  useEffect(() => {
+    savedRef.current = stored;
+    setDraft(stored);
+  }, [stored]);
 
+  /** Saves a changed draft, trimmed; an empty one removes the instructions. */
   const commit = () => {
     const trimmed = draft.trim();
-    if (trimmed === stored) {
+    if (trimmed === savedRef.current) {
       setDraft(trimmed);
       return;
     }
+    savedRef.current = trimmed;
     const next = { ...settings };
     if (trimmed) next.instructions = trimmed;
     else delete next.instructions;
     onSave(next);
   };
+
+  // Closing the settings with Escape takes the field away while it has focus,
+  // and no blur comes: what was typed is saved as the field goes.
+  const commitRef = useRef(commit);
+  useLayoutEffect(() => {
+    commitRef.current = commit;
+  });
+  useEffect(() => () => commitRef.current(), []);
 
   return (
     <div className="ws-card-instructions">

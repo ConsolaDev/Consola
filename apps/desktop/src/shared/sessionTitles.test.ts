@@ -5,6 +5,7 @@ import {
   reconcileTitleSettings,
   resolveTitleSource,
   sanitizeTitleSettings,
+  shownTitleEffort,
   titleCallOptions,
   titleHarnesses,
 } from './sessionTitles';
@@ -138,6 +139,26 @@ describe('titleCallOptions', () => {
       ),
     ).toEqual({});
     expect(titleCallOptions({ effort: 'low', fast: true }, undefined)).toEqual({});
+  });
+});
+describe('shownTitleEffort', () => {
+  const levels = (supportedEffortLevels: string[]): HarnessModel => ({
+    ...m,
+    supportsEffort: true,
+    supportedEffortLevels,
+  });
+  it('shows the effort a title call sends, and Default when the model does not offer it', () => {
+    expect(shownTitleEffort({ source: 'default-harness' }, levels(['low', 'high']))).toBe('low');
+    expect(shownTitleEffort({ source: 'default-harness' }, levels(['medium', 'high']))).toBe(
+      'default',
+    );
+    expect(
+      shownTitleEffort({ source: 'default-harness', effort: 'high' }, levels(['medium', 'high'])),
+    ).toBe('high');
+    expect(
+      shownTitleEffort({ source: 'default-harness', effort: 'default' }, levels(['low'])),
+    ).toBe('default');
+    expect(shownTitleEffort({ source: 'default-harness' }, m)).toBe('default');
   });
 });
 describe('titleHarnesses', () => {

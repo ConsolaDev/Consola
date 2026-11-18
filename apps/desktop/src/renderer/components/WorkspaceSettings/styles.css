@@ -824,6 +824,11 @@
   max-width: 180px;
 }
 
+/* A chip's menu opens from inside the settings dialog, so it stacks above it. */
+.dropdown-content.ws-settings-menu {
+  z-index: calc(var(--z-modal) + 1);
+}
+
 .ws-menu-indicator {
   display: inline-flex;
   justify-content: center;

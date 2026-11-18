@@ -64,7 +64,11 @@ export function TitleModelMenu({
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="dropdown-content" sideOffset={6} align="end">
+        <DropdownMenu.Content
+          className="dropdown-content ws-settings-menu"
+          sideOffset={6}
+          align="end"
+        >
           <DropdownMenu.RadioGroup
             value={settings.source === 'pinned' ? '' : settings.source}
             onValueChange={(value) => {

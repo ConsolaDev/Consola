@@ -24,8 +24,8 @@ interface SessionNameEditorProps {
  * double-click on a row opens its session, whose terminal mounts and takes
  * focus a moment after this field opened; saving then would close the field
  * under the person's hands and send what they type next to the agent. So
- * until the person presses a pointer outside the field or presses Tab, a blur
- * takes focus back instead.
+ * until the person presses a pointer outside the field, presses Tab or uses a
+ * shortcut (a key with ⌘ or Ctrl held), a blur takes focus back instead.
  */
 export function SessionNameEditor({
   initialName,
@@ -60,7 +60,10 @@ export function SessionNameEditor({
       if (event.target !== input) personMovedFocusRef.current = true;
     };
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
-      if (event.key === 'Tab') personMovedFocusRef.current = true;
+      // A shortcut (⌘N, ⌘K) may open something that takes focus on purpose.
+      if (event.key === 'Tab' || event.metaKey || event.ctrlKey) {
+        personMovedFocusRef.current = true;
+      }
     };
     document.addEventListener('pointerdown', onPointerDown, true);
     document.addEventListener('keydown', onKeyDown, true);

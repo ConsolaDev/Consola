@@ -85,6 +85,19 @@ export function titleCallOptions(
   return options;
 }
 
+/**
+ * The effort the settings show for a model: what a title call would send, or
+ * `'default'` when none is sent, so an effort the model does not offer reads
+ * as Default instead of a level the menu cannot check.
+ */
+export function shownTitleEffort(settings: SessionTitleSettings, model: HarnessModel): string {
+  const sent = titleCallOptions(
+    { effort: settings.effort ?? TITLE_EFFORT_DEFAULT, fast: false },
+    model,
+  ).effort;
+  return sent ?? 'default';
+}
+
 /** Drops an effort or Fast the model lacks; unchanged while the model is not loaded. */
 export function reconcileTitleSettings(
   settings: SessionTitleSettings,
