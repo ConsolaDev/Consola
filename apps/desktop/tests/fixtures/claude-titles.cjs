@@ -87,7 +87,7 @@ if (args.includes('--version')) {
           sessionId: newConversation,
         })}\n`,
       );
-      work(1500);
+      work(3000);
     }, 300);
   } else if (!newConversation && fixture.resumeWorkMs) {
     // A resumed conversation that starts working as soon as it launches.

@@ -49,6 +49,34 @@ function storedSession(name: string): Session | undefined {
   return workspaces.flatMap((workspace) => workspace.sessions).find((s) => s.name === name);
 }
 
+/** The seeded workspace's title settings, as main last wrote them to disk. */
+function storedTitleSettings(): Workspace['sessionTitles'] {
+  const file = path.join(`${userDataDir} Test`, 'workspaces.json');
+  const { workspaces } = JSON.parse(fs.readFileSync(file, 'utf8')) as { workspaces: Workspace[] };
+  return workspaces.find((workspace) => workspace.id === 'ws-titles-e2e')?.sessionTitles;
+}
+
+/** Opens the workspace's settings on its Sessions panel; returns the modal. */
+async function openSessionsSettings(target: Page) {
+  await target.getByRole('button', { name: / workspace menu$/ }).click();
+  await target.getByRole('menuitem', { name: 'Workspace settings…' }).click();
+  const modal = target.getByRole('dialog', { name: WORKSPACE_NAME, exact: true });
+  await modal.getByRole('button', { name: 'Sessions', exact: true }).click();
+  await expect(modal.getByRole('heading', { name: 'Sessions' })).toBeVisible();
+  return modal;
+}
+
+/** Whether a row's right-click menu offers Regenerate title; leaves the menu closed. */
+async function offersRegenerate(target: Page, name: string): Promise<boolean> {
+  await rowFor(target, name).click({ button: 'right' });
+  const menu = target.getByRole('menu');
+  await expect(menu.getByRole('menuitem').first()).toBeVisible();
+  const offered = (await menu.getByRole('menuitem', { name: 'Regenerate title' }).count()) > 0;
+  await target.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  return offered;
+}
+
 /** A sidebar row, by the name it renders. */
 const rowFor = (target: Page, name: string) =>
   target.locator('.session-nav-item').filter({ hasText: name });
@@ -310,4 +338,61 @@ test('Regenerate title replaces the name from the whole conversation', async () 
   // The whole conversation: what the person asked and what the agent said.
   expect(stdin).toContain('USER: Why does the nightly export skip archived invoices?');
   expect(stdin).toContain('ASSISTANT: The export query filters on status = active.');
+});
+
+test('the Sessions settings show the default harness and the title model, with Advanced collapsed', async () => {
+  const modal = await openSessionsSettings(page);
+  await expect(modal.getByRole('button', { name: 'Default harness' })).toHaveText('Claude fixture');
+  // Following the default harness: its driver's title model.
+  await expect(modal.getByRole('button', { name: 'Title model' })).toHaveText('haiku');
+  const advanced = modal.getByRole('button', { name: 'Advanced' });
+  await expect(advanced).toHaveAttribute('aria-expanded', 'false');
+  await expect(modal.getByRole('textbox', { name: 'Title instructions' })).toHaveCount(0);
+});
+
+test('turning titles Off hides Regenerate title; pinning the default model brings it back', async () => {
+  let modal = await openSessionsSettings(page);
+  const chip = modal.getByRole('button', { name: 'Title model' });
+  await chip.click();
+  await page.getByRole('menuitemradio', { name: 'Off' }).click();
+  await expect.poll(storedTitleSettings).toEqual({ source: 'off' });
+  await expect(chip).toHaveText('Off');
+  await modal.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(modal).toBeHidden();
+  expect(await offersRegenerate(page, 'Old name')).toBe(false);
+
+  modal = await openSessionsSettings(page);
+  await modal.getByRole('button', { name: 'Title model' }).click();
+  // The fixture cannot list its models; its default model is still a choice.
+  await expect(page.getByText('Models unavailable.')).toBeVisible();
+  await page.getByRole('menuitemradio', { name: 'Default (haiku)' }).click();
+  await expect.poll(storedTitleSettings).toEqual({ source: 'pinned', harnessId: 'claude-fixture' });
+  await modal.getByRole('button', { name: 'Close', exact: true }).click();
+  await expect(modal).toBeHidden();
+  expect(await offersRegenerate(page, 'Old name')).toBe(true);
+});
+
+test('title instructions save trimmed on blur, and when the settings close with Escape', async () => {
+  let modal = await openSessionsSettings(page);
+  await modal.getByRole('button', { name: 'Advanced' }).click();
+  let field = modal.getByRole('textbox', { name: 'Title instructions' });
+  await field.fill('   Lead with the ticket number.  ');
+  await field.blur();
+  await expect.poll(() => storedTitleSettings()?.instructions).toBe('Lead with the ticket number.');
+
+  // Escape closes the settings with the field still focused: no blur comes.
+  await field.focus();
+  await field.fill('  Keep it under five words. ');
+  await page.keyboard.press('Escape');
+  await expect(modal).toBeHidden();
+  await expect.poll(() => storedTitleSettings()?.instructions).toBe('Keep it under five words.');
+
+  // Emptying the field removes the instructions.
+  modal = await openSessionsSettings(page);
+  await modal.getByRole('button', { name: 'Advanced' }).click();
+  field = modal.getByRole('textbox', { name: 'Title instructions' });
+  await expect(field).toHaveValue('Keep it under five words.');
+  await field.fill('  ');
+  await field.blur();
+  await expect.poll(storedTitleSettings).toEqual({ source: 'default-harness' });
 });
