@@ -25,12 +25,11 @@ describe('sanitizeTitle', () => {
 });
 
 describe('isAwaitingName', () => {
-  it('awaits a name only for a non-Assistant session still called New Session and not user-named', () => {
-    expect(isAwaitingName({ name: 'New Session', kind: 'interactive' })).toBe(true);
-    expect(isAwaitingName({ name: 'New Session', nameIsUserSet: true, kind: 'interactive' })).toBe(
+  it('awaits a name only for a session still called New Session and not user-named', () => {
+    expect(isAwaitingName({ name: 'New Session' })).toBe(true);
+    expect(isAwaitingName({ name: 'New Session', nameIsUserSet: true })).toBe(
       false,
     );
-    expect(isAwaitingName({ name: 'PR #12 · Review', kind: 'interactive' })).toBe(false);
-    expect(isAwaitingName({ name: 'New Session', kind: 'assistant' })).toBe(false);
+    expect(isAwaitingName({ name: 'PR #12 · Review' })).toBe(false);
   });
 });

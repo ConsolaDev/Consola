@@ -52,24 +52,11 @@ import { SessionRemover } from './SessionRemover';
 import { openingFor } from './harnessSwitch/handoff';
 import { HandoffStore } from './harnessSwitch/HandoffStore';
 import { HarnessSwitcher } from './harnessSwitch/HarnessSwitcher';
-import { AssistantActivity } from './assistant/AssistantActivity';
-import { AssistantRequests } from './assistant/AssistantRequests';
-import { noticeTarget } from './automations/noticeTarget';
-import { AssistantService } from './assistant/AssistantService';
-import { AssistantTools } from './assistant/AssistantTools';
-import { ensureAssistantHome } from './assistant/assistantHome';
-import { recentRepliesFor } from './assistant/recentReplies';
-import { startAssistantSession } from './assistant/startSession';
 import { SessionCleanupService } from './cleanup/SessionCleanupService';
 import { ToolRegistry } from './tools/Tool';
 import { consolaTools } from './tools/consolaTools';
 import { AutomationService } from './automations/AutomationService';
-import {
-  launchAgentRun,
-  refreshIdleWorktree,
-  worktreeHeld,
-  type ItemWorktreeDeps,
-} from './automations/launchAgentRun';
+import { launchAgentRun, worktreeHeld, type ItemWorktreeDeps } from './automations/launchAgentRun';
 import { FactoryFile, workspaceFactoryPath } from './automations/FactoryFile';
 import { readRunConversation } from './automations/runConversation';
 import { startAuthoring } from './automations/authoring';
@@ -145,6 +132,7 @@ import { SessionSource } from './attention/SessionSource';
 import { RunSource } from './automations/RunSource';
 import { AttentionEndpoint } from './attention/AttentionEndpoint';
 import { HookSignals } from './attention/hookSignals';
+import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
 import { settleAndVerify, unsettleSession } from './attention/settling';
@@ -315,53 +303,6 @@ export function setupIpcHandlers(): boolean {
     removeHandoffs: (sessionId) => handoffs.removeAll(sessionId),
   });
 
-  const assistants = new AssistantService({
-    workspaces,
-    ensureHome: ensureAssistantHome,
-    stop: (session) => sessionRemover.stop(session),
-  });
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_OPEN, (_event, workspaceId: string) =>
-    assistants.open(String(workspaceId)),
-  );
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_START_FRESH, (_event, workspaceId: string) =>
-    assistants.startFresh(String(workspaceId)),
-  );
-  // Only a running Assistant is ever told: a stopped one has no terminal to
-  // queue into, and nothing here may start a process.
-  const assistantActivity = new AssistantActivity({
-    getWorkspaces: () => workspaces.getAll(),
-    queuePrompt: (instanceId, prompt) => {
-      const terminal = terminalManager?.get(instanceId);
-      if (!terminal || terminal.hasClaudeExited()) return false;
-      terminal.queuePrompt(prompt);
-      return true;
-    },
-    broadcast: (workspaceId, activity) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (!window.isDestroyed()) {
-          window.webContents.send(IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED, {
-            workspaceId,
-            activity,
-          });
-        }
-      }
-    },
-  });
-  // What the person decided about the Assistant's own requests reaches it
-  // as a notice, however they decided: its tray, Settings, or a supersede.
-  const assistantRequests = new AssistantRequests({
-    getWorkspaces: () => workspaces.getAll(),
-    report: (assistantSessionId, text) => assistantActivity.report(assistantSessionId, text),
-    watch: (assistantSessionId, sessionId) =>
-      assistantActivity.watch(assistantSessionId, sessionId),
-  });
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, (_event, workspaceId: string) =>
-    assistantActivity.snapshot(String(workspaceId)),
-  );
-  ipcMain.handle(IPC_CHANNELS.ASSISTANT_MARK_SEEN, (_event, workspaceId: string) =>
-    assistantActivity.markSeen(String(workspaceId)),
-  );
-
   ipcMain.handle(IPC_CHANNELS.WORKSPACE_DELETE, (_event, id: string) => {
     // Read the sessions while the record still exists. Once it is gone
     // nothing can name these terminals again: their PTYs would run untended
@@ -437,11 +378,6 @@ export function setupIpcHandlers(): boolean {
         .getAll()
         .find((w) => w.id === workspaceId)
         ?.sessions.find((s) => s.id === sessionId);
-      if (session?.kind === 'assistant') {
-        throw new Error(
-          'The Assistant is not deleted; start a fresh conversation from its ⋯ menu.',
-        );
-      }
       // Record first, then the PTY, shell and MCP endpoint — in main,
       // so the delete is whole even when no renderer sends the rest.
       if (session) sessionRemover.remove(workspaceId, session);
@@ -865,7 +801,7 @@ export function setupIpcHandlers(): boolean {
   const attentionSessions = new SessionSource({
     hookInputs: (instanceId) => hookSignals.get(instanceId),
     getWorkspaces: () => workspaces.getAll(),
-    terminalStatus: (instanceId) => sessionStatus(instanceId),
+    terminalStatus: (instanceId) => steadySessionStatus(instanceId),
     ledger: attentionLedger,
     isViewedInFocusedWindow: (instanceId) => viewing.isViewedInFocusedWindow(instanceId),
     // An open automation run keeps the session it uses from being settled.
@@ -969,7 +905,12 @@ export function setupIpcHandlers(): boolean {
     attentionLedger.restore(memento as SettleMemento);
     attentionSessions.refresh();
   });
-  hookSignals.subscribe((instanceId) => attentionSessions.hookChanged(instanceId));
+  // The steady status first: a turn boundary can release a status it was
+  // holding back, and the attention read that follows should see it.
+  hookSignals.subscribe((instanceId) => {
+    steadyStatus.hookChanged(instanceId);
+    attentionSessions.hookChanged(instanceId);
+  });
   workspaces.onChange(() => attentionSessions.refresh());
   attention.onChange((change) => {
     for (const window of BrowserWindow.getAllWindows()) {
@@ -988,14 +929,29 @@ export function setupIpcHandlers(): boolean {
       ? { sessionId: located.session.id, workspaceId: located.workspace.id }
       : undefined;
   });
-  manager.addStatusListener((instanceId, status) => turnActivity.statusChanged(instanceId, status));
-  // Writes `finishedAt`; TurnActivity writes `lastActiveAt`. Two listeners,
-  // because they own different fields and nothing is written twice.
-  manager.addStatusListener((instanceId, status) =>
-    attentionSessions.statusChanged(instanceId, status),
-  );
-  // The person acting on a prompt is output starting again; that ends what a hook said.
-  manager.addStatusListener((instanceId, status) => hookSignals.statusChanged(instanceId, status));
+  // Attention is decided from the steady status, not the terminal's own:
+  // output flow flickers, and each flicker would move a row between
+  // sections and count as activity (see `SteadyStatus`). Writing
+  // `finishedAt` is SessionSource's and `lastActiveAt` TurnActivity's: two
+  // receivers, because they own different fields and nothing is written twice.
+  const steadyStatus = new SteadyStatus({
+    turn: (instanceId) => hookSignals.get(instanceId)?.turn,
+    emit: (instanceId, status) => {
+      turnActivity.statusChanged(instanceId, status);
+      attentionSessions.statusChanged(instanceId, status);
+    },
+  });
+  /** What attention reads for a terminal. A terminal that is gone is exited, whatever was last shown. */
+  const steadySessionStatus = (instanceId: string): TerminalStatus => {
+    const live = sessionStatus(instanceId);
+    return live === 'exited' ? live : (steadyStatus.get(instanceId) ?? live);
+  };
+  // The person acting on a prompt is output starting again; that ends what a
+  // hook said. Before the steady status, which reads what the hooks say.
+  manager.addStatusListener((instanceId, status) => {
+    hookSignals.statusChanged(instanceId, status);
+    steadyStatus.observe(instanceId, status);
+  });
 
   // Names sessions from main, so a title lands whichever pane is on screen.
   // Every edge is fed in: the namer decides which ones matter.
@@ -1028,6 +984,7 @@ export function setupIpcHandlers(): boolean {
   const forgetTerminalAttention = (instanceId: string) => {
     turnActivity.forget(instanceId);
     hookSignals.forget(instanceId);
+    steadyStatus.forget(instanceId);
     attentionSessions.forget(instanceId);
   };
 
@@ -1035,9 +992,6 @@ export function setupIpcHandlers(): boolean {
   // → OS notification. Rings only for a session hitting needs-attention
   // while no Consola window is focused; the Inbox never notifies — only
   // terminals emit status. Clicking lands on the right window and session.
-  manager.addStatusListener((instanceId, status) =>
-    assistantActivity.statusChanged(instanceId, status),
-  );
   // Driven by the attention edge, not the terminal's status: a hook can say a
   // session needs the person when its screen shows nothing recognisable, and
   // that is exactly when the person is likely to be elsewhere.
@@ -1100,7 +1054,7 @@ export function setupIpcHandlers(): boolean {
   };
 
   // Sessions born without a pane: fan-out (and, in Phase 3, conductors).
-  const launcher = new SessionLauncher(workspaces, harnesses, manager, attentionLedger);
+  const launcher = new SessionLauncher(workspaces, harnesses, manager);
 
   // An action run in a work-item session that already exists — a follow-up
   // pass on the same job, in the same tab. Coalesced per session and
@@ -1213,8 +1167,7 @@ export function setupIpcHandlers(): boolean {
   }).forEach((tool) => tools.register(tool));
 
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
-  // tools for all, plus the group tools for conductors and the workspace
-  // tools for the Assistant.
+  // tools for all, plus the group tools for conductors.
   const mcpHost = new SessionMcpHost({
     // In the packaged app the shim must be a real file on disk — the
     // claude CLI, an outside process, spawns it. Hence asarUnpack.
@@ -1228,15 +1181,13 @@ export function setupIpcHandlers(): boolean {
           request: (toolName, args, caller) => automations.requestApproval(toolName, args, caller),
         },
         conductorTools,
-        assistantTools,
         getWorkspaces: () => workspaces.getAll(),
       }),
   });
   launcher.mcpHost = mcpHost;
   app.on('will-quit', () => mcpHost.dispose());
 
-  // What preparing a work item's worktree needs, shared by automations and
-  // the Assistant so both take the same chain and keep git hooks off.
+  // What preparing a work item's worktree needs: one chain per item, git hooks off.
   const itemWorktreeDeps: ItemWorktreeDeps = {
     resolveDriver: getProviderDriver,
     resolveRepo: (workspace, repo) => worktrees.resolveRepo(workspace, repo),
@@ -1252,43 +1203,6 @@ export function setupIpcHandlers(): boolean {
       ),
     composeEnv: composeProviderEnv,
   };
-  // A re-run of a read-only review reads the PR as it is now.
-  launcher.beforeRerun = (workspace, session) =>
-    refreshIdleWorktree(itemWorktreeDeps, workspace, session);
-
-  // The Assistant's workspace tools: prompt, read and start its sessions,
-  // and hear back when each settles. mcpHost's buildServer reads it only
-  // when a session connects, which is after this setup has run.
-  const assistantTools = new AssistantTools({
-    getWorkspaces: () => workspaces.getAll(),
-    status: sessionStatus,
-    deliverPrompt: (workspaceId, sessionId, prompt) =>
-      launcher.deliverPrompt(workspaceId, sessionId, prompt),
-    recentReplies: (session, count) =>
-      recentRepliesFor(
-        harnesses.getAll().find((harness) => harness.id === session.harnessId),
-        session,
-        count,
-      ),
-    // An exited terminal's screen is a stale one.
-    screenText: (instanceId) => {
-      const terminal = manager.get(instanceId);
-      return terminal && !terminal.hasClaudeExited() ? terminal.screenText() : null;
-    },
-    start: (workspace, request) =>
-      startAssistantSession(
-        {
-          ...itemWorktreeDeps,
-          restoreGroup: (id, groupId) => workspaces.restoreGroup(id, groupId),
-          launchSession: (id, fields) => launcher.launchSession(id, fields),
-        },
-        workspace,
-        request,
-      ),
-    watch: (assistantSessionId, targetSessionId) =>
-      assistantActivity.watch(assistantSessionId, targetSessionId),
-  });
-
   const runStore = new RunStore(
     new JsonStateFile<AutomationStateFile>(
       path.join(app.getPath('userData'), 'automation-runs.json'),
@@ -1310,21 +1224,17 @@ export function setupIpcHandlers(): boolean {
     notify: (notice) => {
       if (!Notification.isSupported()) return;
       const notification = new Notification({ title: notice.title, body: notice.body });
-      // Lands on what the notice is about: the session a run started,
-      // the Assistant for what it asked for (its tray holds it), or
-      // else that workspace's Automations dashboard with the run open,
-      // in the window holding it.
+      // Lands on what the notice is about: the session a run started, or
+      // else that workspace's Automations dashboard with the run open, in
+      // the window holding it.
       notification.on('click', () => {
-        const target = noticeTarget(notice, workspaces.getAll());
-        if (target.kind === 'session')
-          focusOrCreate(notice.workspaceId, viewMemoryPort(), target.sessionId);
+        if (notice.sessionId) focusOrCreate(notice.workspaceId, viewMemoryPort(), notice.sessionId);
         else showAutomations(notice.workspaceId, notice.runId, viewMemoryPort());
       });
       notification.show();
     },
     broadcast: (workspaceId, snapshot) => {
       attentionRuns.refresh();
-      assistantRequests.observe(workspaceId, snapshot.runs);
       const change: AutomationsChange = { workspaceId, snapshot };
       for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed())
@@ -2091,10 +2001,6 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
   ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_OPEN);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_START_FRESH);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY);
-  ipcMain.removeHandler(IPC_CHANNELS.ASSISTANT_MARK_SEEN);
   ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);
   ipcMain.removeHandler(IPC_CHANNELS.SCOPE_LIST_REPOS);
 

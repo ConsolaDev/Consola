@@ -36,6 +36,17 @@ const IDLE_DEBOUNCE_MS = 500;
  */
 const TURN_MIN_MS = 1_000;
 
+/**
+ * How long after the person types into a menu the screen is read again.
+ *
+ * A menu is otherwise only looked for when output pauses, and a turn that
+ * goes on after its answer does not pause: recorded against Claude Code
+ * 2.1.327, it paints without a half-second gap until it ends. Long enough
+ * for the CLI to have repainted over the menu, short enough that the session
+ * stops saying it waits on the person about when they stop waiting on it.
+ */
+const ANSWER_RECHECK_MS = 300;
+
 /** How often a working CLI is asked where it works. Never while it is idle. */
 const WORKING_DIRECTORY_POLL_MS = 2_000;
 
@@ -207,14 +218,6 @@ export interface TerminalHarnessSwitch {
   notice: string;
 }
 
-/** What an exited terminal is started again with. */
-export interface RelaunchFields {
-  cwd: string;
-  prompt: string;
-  /** Run it as one non-interactive turn, prompt as argument; otherwise queue it for the composer. */
-  unattended: boolean;
-}
-
 export class TerminalService extends EventEmitter {
   private claudePty: pty.IPty | null = null;
   private dimensions: TerminalDimensions;
@@ -228,6 +231,8 @@ export class TerminalService extends EventEmitter {
   private screen: ScreenModel | null = null;
   /** Set while output is arriving: from a chunk until IDLE_DEBOUNCE_MS of quiet. */
   private idleTimer: NodeJS.Timeout | null = null;
+  /** A look at the screen owed to a key typed into a menu. */
+  private answerRecheck: NodeJS.Timeout | null = null;
   /** When the output now arriving began. */
   private outputStartedAt = 0;
   /** When the view last sent the CLI anything: keys, a paste, a focus or mouse report, a size. */
@@ -333,6 +338,31 @@ export class TerminalService extends EventEmitter {
       this.unattendedStopReason ??= 'you pressed Ctrl+C';
     this.lastInputAt = Date.now();
     this.claudePty?.write(data);
+    if (this.isAwaitingConfirmation) this.recheckAfterAnswer();
+  }
+
+  /**
+   * The person typed into a menu: see whether that answered it, without
+   * waiting for output to pause. Only ever clears the flag. A key that moved
+   * through the menu leaves it on screen and so leaves the flag set, and a
+   * frame caught half-painted is put right by the next pause, which is also
+   * the only place a prompt is delivered — so this cannot let one be typed
+   * into a menu.
+   */
+  private recheckAfterAnswer(): void {
+    if (this.answerRecheck) clearTimeout(this.answerRecheck);
+    this.answerRecheck = setTimeout(() => {
+      this.answerRecheck = null;
+      const screen = this.screen;
+      if (!screen || this.isDestroyed) return;
+      // The emulator parses asynchronously: read it once it has caught up.
+      screen.write('', () => {
+        if (this.isDestroyed || this.screen !== screen || !this.isAwaitingConfirmation) return;
+        this.classifyScreen();
+        this.emitStatus();
+      });
+    }, ANSWER_RECHECK_MS);
+    this.answerRecheck.unref?.();
   }
 
   /**
@@ -516,31 +546,12 @@ export class TerminalService extends EventEmitter {
     void this.initClaude(true);
   }
 
-  /**
-   * Start an exited terminal again, in place, resuming its conversation.
-   *
-   * Interactive, the prompt joins the queue and so waits for an empty
-   * composer with no confirmation menu; never written straight to the PTY.
-   * Unattended, it is the turn's argument.
-   */
-  public relaunch(launch: RelaunchFields): void {
-    if (this.claudePty || this.isLaunching) throw new Error('It is already running.');
-    if (launch.unattended) {
-      this.unattendedPending = true;
-      this.initialPromptArgument = launch.prompt;
-    } else {
-      this.promptQueue.push(launch.prompt);
-    }
-    this.restartClaude(launch.cwd);
-  }
-
-  /** The visible screen, without trailing blank lines; empty with no screen. */
-  public screenText(): string {
-    return (this.screen?.visibleText() ?? '').replace(/\s+$/, '');
-  }
-
   public destroy(): void {
     this.isDestroyed = true;
+    if (this.answerRecheck) {
+      clearTimeout(this.answerRecheck);
+      this.answerRecheck = null;
+    }
     if (this.idleTimer) {
       clearTimeout(this.idleTimer);
       this.idleTimer = null;

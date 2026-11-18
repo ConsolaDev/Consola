@@ -12,11 +12,11 @@ import {
 } from '../../../shared/sessionTitles';
 import type { SessionTitleSettings } from '../../../shared/workspace';
 import { useHarnessCapabilities } from '../../hooks/useHarnessCapabilities';
-import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
+import { useHarnessStore } from '../../stores/harnessStore';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { TitleModelMenu } from './TitleModelMenu';
 
-interface SessionsPanelProps {
+interface SessionTitlesPanelProps {
   workspace: Workspace;
 }
 
@@ -25,15 +25,14 @@ function capitalise(value: string): string {
 }
 
 /**
- * How sessions are started and named here: the default harness, and which
- * model writes titles. A choice that cannot run is kept and explained, never
- * swapped for another harness.
+ * Which model writes this workspace's session titles, and how. A choice that
+ * cannot run is kept and explained, never swapped for another harness. The
+ * default harness it can follow is chosen in General.
  */
-export function SessionsPanel({ workspace }: SessionsPanelProps) {
+export function SessionTitlesPanel({ workspace }: SessionTitlesPanelProps) {
   const updateWorkspace = useWorkspaceStore((state) => state.updateWorkspace);
   const harnesses = useHarnessStore((state) => state.harnesses);
   const statuses = useHarnessStore((state) => state.statuses);
-  const selectable = harnesses.filter(isSelectableHarness);
   const settings = titleSettingsOf(workspace);
   const source = resolveTitleSource(workspace, harnesses);
 
@@ -90,68 +89,9 @@ export function SessionsPanel({ workspace }: SessionsPanelProps) {
   return (
     <section className="ws-panel">
       <div className="ws-panel-header">
-        <h3 className="ws-panel-title">Sessions</h3>
+        <h3 className="ws-panel-title">Session titles</h3>
       </div>
       <div className="ws-card">
-        <div className="ws-card-row">
-          <div className="ws-card-text">
-            <span className="ws-card-label">Default harness</span>
-            <p className="ws-panel-hint">
-              Preselected when starting a conversation in this workspace. Existing sessions keep the
-              harness they started on.
-            </p>
-          </div>
-          <DropdownMenu.Root>
-            <DropdownMenu.Trigger asChild>
-              <button type="button" className="ws-chip-trigger" aria-label="Default harness">
-                {defaultHarness && (
-                  <span
-                    className="workspace-harness-dot"
-                    style={{ background: defaultHarness.accentColor }}
-                    aria-hidden="true"
-                  />
-                )}
-                <span className="ws-chip-trigger-label">{defaultHarness?.name ?? 'Choose'}</span>
-                <ChevronDown size={12} />
-              </button>
-            </DropdownMenu.Trigger>
-            <DropdownMenu.Portal>
-              <DropdownMenu.Content
-                className="dropdown-content ws-settings-menu"
-                sideOffset={6}
-                align="end"
-              >
-                <DropdownMenu.RadioGroup
-                  value={workspace.defaultHarnessId}
-                  onValueChange={(id) =>
-                    void updateWorkspace(workspace.id, { defaultHarnessId: id })
-                  }
-                >
-                  {selectable.map((harness) => (
-                    <DropdownMenu.RadioItem
-                      key={harness.id}
-                      value={harness.id}
-                      className="dropdown-item"
-                    >
-                      <span className="ws-menu-indicator" aria-hidden="true">
-                        <DropdownMenu.ItemIndicator>
-                          <Check size={12} />
-                        </DropdownMenu.ItemIndicator>
-                      </span>
-                      <span
-                        className="workspace-harness-dot"
-                        style={{ background: harness.accentColor }}
-                        aria-hidden="true"
-                      />
-                      <span>{harness.name}</span>
-                    </DropdownMenu.RadioItem>
-                  ))}
-                </DropdownMenu.RadioGroup>
-              </DropdownMenu.Content>
-            </DropdownMenu.Portal>
-          </DropdownMenu.Root>
-        </div>
-
         <div className="ws-card-row ws-card-row--stacked">
           <div className="ws-card-row-main">
             <span className="ws-card-label">Title model</span>

@@ -10,7 +10,6 @@ import {
   readConversation,
   readCustomTitleSince,
   readFirstUserPrompt,
-  readRecentReplies,
 } from '../ClaudeSessionIndex';
 import { probeClaudeCapabilities } from './claudeCapabilities';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
@@ -253,15 +252,6 @@ export class ClaudeDriver implements HarnessDriver {
     if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
     const file = findSessionFile(sessionId, config.configDir);
     return file ? readSessionModel(file, 'claude') : null;
-  }
-
-  public async getRecentReplies(
-    config: HarnessConfig,
-    sessionId: string,
-    count: number,
-  ): Promise<string[] | null> {
-    if (!/^[a-zA-Z0-9_-]+$/.test(sessionId)) return null;
-    return readRecentReplies(sessionId, resolveConfigDir(config), count);
   }
 
   public async readConversation(

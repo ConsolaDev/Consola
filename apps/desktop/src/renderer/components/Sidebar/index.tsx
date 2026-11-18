@@ -6,11 +6,9 @@ import { useAttentionStore } from '../../stores/attentionStore';
 import { useInboxStore } from '../../stores/inboxStore';
 import { isShelfOpen, useSettingsStore } from '../../stores/settingsStore';
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
-import { listedSessions } from '../../../shared/workspace';
 import { itemsForView } from '../../../shared/inboxViews';
 import { PROVIDER_META } from '../../../shared/providers';
 import type { AttentionState } from '../../../shared/attention';
-import { AssistantNavItem } from './AssistantNavItem';
 import { AutomationsNavItem } from './AutomationsNavItem';
 import { FilterBar } from './FilterBar';
 import { useSessionFilterStore } from '../../stores/sessionFilterStore';
@@ -27,15 +25,17 @@ import { bucketize, type Bucket } from '../../sidebar/bucketize';
 import { runEntries, sessionEntries, sessionKey, filterSelection } from '../../sidebar/entries';
 import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
-import { buildForest, type TreeNode } from '../../sidebar/forest';
+import { aggregateAttention, buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
-import { applyHold, holdFor, pinHold, type Hold } from '../../sidebar/openRowHold';
+import { holdFor, pinHold, type Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
 import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
 import { ShelfHeader } from './rows/ShelfHeader';
 import { TreeRow } from './rows/TreeRow';
 import { useRevealWorking } from './useRevealWorking';
+import { useShiftGuard } from './useShiftGuard';
+import { useWorkingObservation } from './useWorkingObservation';
 import { BucketMotion } from './BucketMotion';
 import { placementOf } from '../../sidebar/departures';
 import './styles.css';
@@ -54,6 +54,7 @@ export function Sidebar() {
   const runs =
     useAutomationsStore((state) => state.snapshots[activeWorkspaceId ?? '']?.runs) ?? NO_RUNS;
   const shelves = useSettingsStore((state) => state.sidebarShelfOpen);
+  const workingSection = useSettingsStore((state) => state.sidebarWorkingSection);
   const toggleShelf = useSettingsStore((state) => state.toggleSidebarShelf);
   const workspace = workspaces.find((candidate) => candidate.id === activeWorkspaceId);
   const filterId = useHomeStore((state) => state.scopeFilters[activeWorkspaceId ?? '']);
@@ -64,9 +65,11 @@ export function Sidebar() {
     workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0,
   );
   const providerAccount = workspace?.provider?.accountLogin;
-  // The open row holds the bucket it was opened from until something else is opened.
-  const held = useRef<{ activeKey: EntryKey | null; hold: Hold | null }>({
+  // Where the open row was opened from, until something else is opened or the
+  // sections themselves change.
+  const held = useRef<{ activeKey: EntryKey | null; workingSection: boolean; hold: Hold | null }>({
     activeKey: null,
+    workingSection,
     hold: null,
   });
   // The row being renamed stays exactly where it was when its field opened.
@@ -85,12 +88,11 @@ export function Sidebar() {
       .getState()
       .workspaces.find((candidate) => candidate.id === activeWorkspaceId);
     const session = current?.sessions.find((candidate) => candidate.id === activeSessionId);
-    // The Assistant belongs to no scope the filter could show.
-    if (!current || !session || session.kind === 'assistant') return;
+    if (!current || !session) return;
     revealSessionScope(current.id, session.id);
     // Facet filters follow an activated session the same way: one that would
     // hide it is cleared rather than leaving the open session out of its list.
-    const listed = listedSessions(current).filter((candidate) => candidate.name.length > 0);
+    const listed = current.sessions.filter((candidate) => candidate.name.length > 0);
     const facets = effectiveFilters(
       current,
       listed,
@@ -107,7 +109,7 @@ export function Sidebar() {
   useSettleOnChange(sessionPanelRef, scope?.id ?? 'all', { rise: 4 });
 
   const allSessions = workspace
-    ? listedSessions(workspace).filter((session) => session.name.length > 0)
+    ? workspace.sessions.filter((session) => session.name.length > 0)
     : [];
   const facets = workspace ? effectiveFilters(workspace, allSessions, facetSelection) : {};
   // Filter -> entries -> narrow -> trees -> buckets. A filter only decides which
@@ -119,33 +121,40 @@ export function Sidebar() {
           ...runEntries(runs, { attention }),
         ]
       : [];
+  const everything = entriesAt(derived);
   const { entries: shown, hiddenNeedingYou } = applyFilter(
-    entriesAt(derived),
+    everything,
     filterSelection(scope?.id, facets),
   );
   // Before the early return: a hidden sidebar is the one a starting turn most
-  // needs to bring back.
+  // needs to bring back, and what runs while it is hidden still happened.
   useRevealWorking(derived, shown, entriesAt);
+  const observed = useWorkingObservation(workspace?.id, buildForest(everything));
+  useShiftGuard(sidebarRef);
 
   if (isSidebarHidden) return null;
 
-  const natural = bucketize(buildForest(shown));
+  const natural = bucketize(buildForest(shown), { workingSection, observed });
 
   const activeKey =
     workspace && activeSessionId && allSessions.some((session) => session.id === activeSessionId)
       ? sessionKey(activeSessionId)
       : null;
-  if (held.current.activeKey !== activeKey)
-    held.current = { activeKey, hold: holdFor(natural, activeKey) };
-  const opened = applyHold(natural, held.current.hold);
+  if (held.current.activeKey !== activeKey || held.current.workingSection !== workingSection)
+    held.current = { activeKey, workingSection, hold: holdFor(natural, activeKey) };
+  // A row whose name is being edited stays exactly where it was when the field
+  // opened: moving it would remount it and lose the field (see pinHold).
   const renamingKey =
     renamingSessionId && allSessions.some((session) => session.id === renamingSessionId)
       ? sessionKey(renamingSessionId)
       : null;
   if (pinned.current.key !== renamingKey)
-    pinned.current = { key: renamingKey, pin: holdFor(opened, renamingKey) };
-  const placed = pinHold(opened, pinned.current.pin);
+    pinned.current = { key: renamingKey, pin: holdFor(natural, renamingKey) };
+  const placed = pinHold(natural, pinned.current.pin);
 
+  // Without a Working section, running rows share the top of the list
+  // without waiting on anyone.
+  const waitingOnYou = placed.waiting.some((tree) => aggregateAttention(tree) !== 'working');
   const workingOpen = isShelfOpen(shelves, 'working');
   const settledOpen = isShelfOpen(shelves, 'settled');
   // A folded Settled shelf keeps the open row in sight only when it was opened
@@ -299,7 +308,6 @@ export function Sidebar() {
       )}
       {workspace && !isInbox && (
         <div className="home-navigation">
-          <AssistantNavItem workspace={workspace} />
           <AutomationsNavItem workspace={workspace} />
           {/* Always there, even with one scope: it is also where scopes are added. */}
           <hr className="sidebar-scope-divider" />
@@ -319,7 +327,7 @@ export function Sidebar() {
             {/* Everything is running or put away: the top of the list is the
               answer to "does anything need me?", so it says no in words
               rather than leaving a blank that could be a list still loading. */}
-            {shown.length > 0 && placed.waiting.length === 0 && hiddenNeedingYou === 0 && (
+            {shown.length > 0 && !waitingOnYou && hiddenNeedingYou === 0 && (
               <p className="sidebar-all-clear">
                 <CheckCheck size={13} aria-hidden="true" />
                 <span>Nothing is waiting on you.</span>
@@ -332,8 +340,9 @@ export function Sidebar() {
             )}
             {/* Everything in play that is not running, first and under no
               heading: questions, unread results, idle prompts, exited
-              processes (`bucketize`). Each row says which in a word, and
-              none of them can be folded away. */}
+              processes, newest back first (`bucketize`). Without a Working
+              section, what runs stays here too. Each row says which in a
+              word, and none of them can be folded away. */}
             {placed.waiting.length > 0 && (
               <div className="sidebar-bucket sidebar-bucket--waiting">
                 <nav className="session-list" data-bucket="waiting" aria-label="Sessions">
@@ -347,9 +356,11 @@ export function Sidebar() {
             many are running or were put away. */}
           {shown.length > 0 && (
             <div className="sidebar-dock">
-              {/* Only while something is in it, right above Settled. A session
-              starting work opens it (`useRevealWorking`); collapsed, it keeps
-              only the tree the person has open. */}
+              {/* Only while something is in it, right above Settled, and only
+              when the person keeps a Working section. A session starting work
+              opens it (`useRevealWorking`); collapsed, it keeps only the tree
+              the person has open. A session that stops stays a moment before
+              it leaves (`workingExits`). */}
               {placed.working.length > 0 && (
                 <section
                   className="sidebar-bucket sidebar-bucket--working"

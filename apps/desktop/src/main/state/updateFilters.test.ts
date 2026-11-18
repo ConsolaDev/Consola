@@ -386,17 +386,6 @@ describe('group emoji updates', () => {
   });
 });
 
-describe('allowedWorkspaceUpdates: the Assistant mode', () => {
-  it('passes a known Assistant mode and refuses anything else', () => {
-    expect(allowedWorkspaceUpdates({ assistantItemMode: 'read-only' })).toEqual({
-      assistantItemMode: 'read-only',
-    });
-    expect(() => allowedWorkspaceUpdates({ assistantItemMode: 'yolo' as never })).toThrow(
-      'Choose a valid Assistant mode.',
-    );
-  });
-});
-
 describe('allowedLabelUpdates', () => {
   it('passes name, emoji and colour and drops everything else, the id included', () => {
     const payload = { id: 'x', name: 'Bug', emoji: '🐛', color: '#f00' } as unknown as Parameters<

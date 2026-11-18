@@ -65,7 +65,6 @@ export const IPC_CHANNELS = {
   // Conductor orchestration (renderer -> main; main scaffolds, groups, launches)
   CONDUCTOR_CREATE: 'conductor:create',
 
-  // The workspace Assistant (renderer -> main; main makes or replaces its record)
   ATTENTION_SNAPSHOT: 'attention:snapshot', // Every session's record and derived attention, once
   ATTENTION_VIEWING: 'attention:viewing', // renderer -> main: the session this window is showing, or null
   ATTENTION_FOCUSED: 'attention:focused', // renderer -> main: whether this window has focus
@@ -77,12 +76,6 @@ export const IPC_CHANNELS = {
   PREFERENCES_SET_AUTO_SETTLE_DAYS: 'preferences:set-auto-settle-days',
   PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE: 'preferences:acknowledge-auto-settle',
   PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
-  ASSISTANT_OPEN: 'assistant:open',
-  ASSISTANT_START_FRESH: 'assistant:start-fresh',
-  ASSISTANT_GET_ACTIVITY: 'assistant:get-activity',
-  ASSISTANT_MARK_SEEN: 'assistant:mark-seen',
-  // main -> renderer: sessions the Assistant touched, and what finished unseen
-  ASSISTANT_ACTIVITY_CHANGED: 'assistant:activity-changed',
 
   // Fleet creation (renderer -> main)
   SESSION_FAN_OUT: 'session:fan-out', // N sessions into a fresh group

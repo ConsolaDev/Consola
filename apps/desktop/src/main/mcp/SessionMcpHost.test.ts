@@ -182,11 +182,4 @@ describe('mcpConfigForSession', () => {
       'EACCES',
     );
   });
-
-  it('refuses to launch the Assistant without its tools', async () => {
-    const broken = { register: () => Promise.reject(new Error('EACCES')) };
-    await expect(mcpConfigForSession({ id: 'a', kind: 'assistant' }, broken)).rejects.toThrow(
-      'EACCES',
-    );
-  });
 });

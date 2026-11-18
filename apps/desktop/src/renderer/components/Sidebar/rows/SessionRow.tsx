@@ -195,9 +195,7 @@ function SessionRowBody({
   };
 
   // Double-click, F2 and the actions menu's Rename all open the one field.
-  // Never for the Assistant: its name is fixed.
   const startRename = (fromKeyboard: boolean) => {
-    if (session.kind === 'assistant') return;
     renameFromKeyboard.current = fromKeyboard;
     setIsRenaming(true);
   };

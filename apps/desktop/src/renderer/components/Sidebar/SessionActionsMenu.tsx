@@ -244,7 +244,7 @@ export function SessionActionsMenu({
               </DropdownMenu.SubContent>
             </DropdownMenu.Portal>
           </DropdownMenu.Sub>
-          {/* Conductors and the Assistant stay on their harness; main refuses them too. */}
+          {/* Conductors stay on their harness; main refuses them too. */}
           {session.kind === 'interactive' && (
             <DropdownMenu.Item className="dropdown-item" onSelect={handleSwitchHarness}>
               <ArrowLeftRight size={14} />

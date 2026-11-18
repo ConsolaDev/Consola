@@ -122,7 +122,6 @@ export function canRegenerateTitle(
   session: Session,
   harnesses: Harness[],
 ): boolean {
-  if (session.kind === 'assistant') return false;
   if (titleSettingsOf(workspace).source === 'off') return false;
   const harness = harnesses.find((h) => h.id === session.harnessId);
   return driverReadsConversations(harness?.driverId);

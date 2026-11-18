@@ -1,11 +1,4 @@
-import {
-  ASSISTANT_ITEM_MODES,
-  type Group,
-  type Label,
-  type Scope,
-  type SessionUpdates,
-  type WorkspaceUpdates,
-} from '../../shared/workspace';
+import type { Group, Label, Scope, SessionUpdates, WorkspaceUpdates } from '../../shared/workspace';
 import { isWorkspaceIconId, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
 import { sanitizeTitleSettings } from '../../shared/sessionTitles';
 import type { HarnessUpdates } from '../../shared/harness';
@@ -33,12 +26,6 @@ export function allowedWorkspaceUpdates(updates: WorkspaceUpdates): WorkspaceUpd
   // never an intent, so absence and explicit-undefined are treated alike.
   if (updates.name !== undefined) allowed.name = updates.name;
   if (updates.defaultHarnessId !== undefined) allowed.defaultHarnessId = updates.defaultHarnessId;
-  if (updates.assistantItemMode !== undefined) {
-    if (!ASSISTANT_ITEM_MODES.includes(updates.assistantItemMode)) {
-      throw new Error('Choose a valid Assistant mode.');
-    }
-    allowed.assistantItemMode = updates.assistantItemMode;
-  }
   if ('sessionTitles' in updates) {
     allowed.sessionTitles = sanitizeTitleSettings(updates.sessionTitles);
   }

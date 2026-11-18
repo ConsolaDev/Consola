@@ -24,9 +24,10 @@ export type AttentionSignal =
    * The agent got an answer and moved on: the person submitted a prompt, or
    * (with `tool`) one tool call completed. A completion ends only the prompt
    * for that same call; parallel calls and subagents complete all the time
-   * while a menu is still up.
+   * while a menu is still up. `agent` marks one that came from a subagent,
+   * which says nothing about whether the session's own turn is running.
    */
-  | { kind: 'resumed'; tool?: string }
+  | { kind: 'resumed'; tool?: string; agent?: true }
   /** The agent has been idle, waiting for the person to type. Whatever it was asking is over. */
   | { kind: 'idle' }
   /** A subagent finished. */
@@ -50,12 +51,22 @@ export interface HookInputs {
    * screen shows in the meantime.
    */
   awaitingAgents: boolean;
+  /**
+   * Where the session's own turn stands, once a hook has said: `open` from a
+   * submitted prompt (or a tool call of its own completing) until the stop
+   * that ends it, `over` from then on. Undefined until a hook speaks, and
+   * `open` outlives an interrupted turn, which reports no stop — so `open`
+   * never proves work is happening. `over` is the one that says something:
+   * no turn has begun since the last one ended.
+   */
+  turn?: 'open' | 'over';
 }
 
 interface State {
   needsInput: false | (AttentionSignal & { kind: 'needs-input' });
   holdingBackgroundWork: boolean;
   awaitingAgents: boolean;
+  turn?: 'open' | 'over';
   status?: TerminalStatus;
 }
 
@@ -83,6 +94,7 @@ export class HookSignals {
       needsInput: state.needsInput !== false,
       holdingBackgroundWork: state.holdingBackgroundWork,
       awaitingAgents: state.awaitingAgents,
+      turn: state.turn,
     };
   }
 
@@ -98,6 +110,8 @@ export class HookSignals {
         state.needsInput = signal;
         break;
       case 'resumed': {
+        // Only the session's own turn submits prompts and completes its calls.
+        if (!signal.agent) state.turn = 'open';
         const pending = state.needsInput;
         if (!pending) break;
         // A completed call ends a prompt only when it is shown to be that
@@ -121,6 +135,7 @@ export class HookSignals {
         break;
       case 'turn-ended':
         state.needsInput = false;
+        state.turn = 'over';
         // Every turn ends with its own report, so each stop replaces the last
         // one's hold outright; nothing else ends it but the process exiting.
         state.holdingBackgroundWork = signal.backgroundWork > 0;
@@ -148,6 +163,7 @@ export class HookSignals {
       state.needsInput = false;
       state.holdingBackgroundWork = false;
       state.awaitingAgents = false;
+      state.turn = undefined;
     }
     this.notifyIfChanged(instanceId, before);
   }
@@ -179,7 +195,8 @@ export class HookSignals {
     if (
       before?.needsInput === after?.needsInput &&
       before?.holdingBackgroundWork === after?.holdingBackgroundWork &&
-      before?.awaitingAgents === after?.awaitingAgents
+      before?.awaitingAgents === after?.awaitingAgents &&
+      before?.turn === after?.turn
     )
       return;
     this.notify(instanceId);

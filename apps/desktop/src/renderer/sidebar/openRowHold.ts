@@ -1,10 +1,24 @@
 import type { Bucket } from './bucketize';
 import type { EntryKey } from './entry';
-import { aggregateAttention, membersOf, type TreeNode } from './forest';
+import { membersOf, type TreeNode } from './forest';
 
 type Placed = Record<Bucket, TreeNode[]>;
 
-/** Where the open entry's tree sat when it was opened. */
+/**
+ * Where the open entry's tree sat when it was opened.
+ *
+ * Remembered, never enforced: every row sits in the bucket its attention says,
+ * open or not. An open row used to be kept where it was opened once it
+ * stopped, so that a turn finishing under the cursor did not move the row
+ * being read. That left a stopped session listed under Working, beside
+ * nothing that says it is working, for as long as it stayed open — the
+ * section then states something false, which costs more than a row that
+ * moves when its turn ends. Leaving Working is softened where every row's
+ * is: the short grace in `workingExits`, and the shift guard for a press
+ * aimed at a row that moved. What is still read from here is only where the
+ * row was opened from (a folded Settled shelf keeps showing a row opened
+ * from it).
+ */
 export interface Hold {
   rootKey: EntryKey;
   bucket: Bucket;
@@ -26,48 +40,6 @@ export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null
 }
 
 /**
- * Keeps the open entry's tree in the bucket it was opened from, but only while
- * that tree has come to rest.
- *
- * A turn finishing in the row the person is reading would move it out of
- * Working and up to the top of the list, so the row they are looking at would
- * jump away from under their cursor. The hold is
- * renderer-only and lasts exactly as long as the open row does: the caller
- * drops it when the person opens something else, and the entry then lands
- * where its attention says. A tree that no longer exists (deleted, filtered
- * out) is simply not there to hold.
- *
- * A hold never outranks what a tree is *doing*. One that needs the person is
- * released at once, so it rises to the top of the list even while open — that
- * is bucketize's guarantee (a row that needs the person is never in a foldable
- * shelf) and a hold must not break it. One that is working is released for the
- * same reason read the other way round: a row starts working because the
- * person just prompted it, and pinning their own move out of Working would
- * leave the list saying a session has stopped while the row beside it counts
- * the seconds of the turn they are watching.
- *
- * Settling is the person's own move too (or the AutoSettler's, which skips
- * what a window is showing), so a hold never pins a row into or out of
- * Settled: otherwise settling the open row would leave it in place under a
- * toast saying it is on the shelf, and moving it back would leave it there.
- *
- * What is left is a tree that has stopped, which is the case the hold exists
- * for.
- */
-export function applyHold(placed: Placed, hold: Hold | null): Placed {
-  if (hold === null) return placed;
-  const from = BUCKETS.find((bucket) =>
-    placed[bucket].some((root) => root.entry.key === hold.rootKey),
-  );
-  if (from === undefined || from === hold.bucket) return placed;
-  if (from === 'settled' || hold.bucket === 'settled') return placed;
-  const node = placed[from].find((root) => root.entry.key === hold.rootKey)!;
-  const now = aggregateAttention(node);
-  if (now === 'needs-attention' || now === 'working') return placed;
-  return moveTo(placed, from, node, hold);
-}
-
-/**
  * Keeps the tree of a row whose name is being edited exactly where it was
  * when the field opened, whatever the tree is doing now.
  *
@@ -75,9 +47,10 @@ export function applyHold(placed: Placed, hold: Hold | null): Placed {
  * other list, and the rename field, what was typed in it and its focus go
  * with the old one. The first click of a double-click opens the session, and
  * a CLI that starts working as it launches would move the row into Working
- * from under the field. So unlike the open row's hold, this one gives way to
- * nothing, not even a tree that needs the person. It lasts only while the
- * field is open; the tree then goes where its attention says.
+ * from under the field. This is the one place a remembered position is
+ * enforced: it gives way to nothing, not even a tree that needs the person,
+ * and lasts only while the field is open; the tree then goes where its
+ * attention says.
  */
 export function pinHold(placed: Placed, pin: Hold | null): Placed {
   if (pin === null) return placed;

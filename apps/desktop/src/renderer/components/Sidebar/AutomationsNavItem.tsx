@@ -8,7 +8,7 @@ import { useAutomationsStore, WINDOW_LOADED_AT } from '../../stores/automationsS
 import { useNavigationStore } from '../../stores/navigationStore';
 
 /**
- * The workspace's Automations, pinned under the Assistant: every workspace
+ * The workspace's Automations, pinned above the scope picker: every workspace
  * has one, with or without a factory.yml. It reads like a session row and
  * says only the most urgent thing — runs waiting for the person, failures
  * since they last looked at Activity, or agents running.

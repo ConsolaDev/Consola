@@ -74,6 +74,6 @@ export function sanitizeTitle(raw: unknown): string | null {
  * True while a session still waits for a generated name: it is not the
  * Assistant, the person has not named it, and it still carries the placeholder.
  */
-export function isAwaitingName(session: Pick<Session, 'name' | 'nameIsUserSet' | 'kind'>): boolean {
-  return session.kind !== 'assistant' && !session.nameIsUserSet && isPlaceholder(session.name);
+export function isAwaitingName(session: Pick<Session, 'name' | 'nameIsUserSet'>): boolean {
+  return !session.nameIsUserSet && isPlaceholder(session.name);
 }

@@ -333,8 +333,7 @@ export class HarnessSwitcher {
 
   /** Why this session cannot switch to any harness right now, or null. */
   private sessionRefusal(session: Session): string | null {
-    if (session.kind !== 'interactive')
-      return 'The Assistant and conductor sessions stay on their harness.';
+    if (session.kind !== 'interactive') return 'Conductor sessions stay on their harness.';
     return this.deps.terminals.get(session.instanceId)?.switchRefusal() ?? null;
   }
 

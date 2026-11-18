@@ -209,11 +209,6 @@ describe('HarnessSwitcher.preview', () => {
       reason: expect.stringMatching(/cannot be made read-only/),
     });
   });
-
-  it('never offers to move the Assistant', () => {
-    const { switcher } = setup({ session: { kind: 'assistant' } });
-    expect(switcher.preview('w', 'session-1').every((preview) => !preview.ok)).toBe(true);
-  });
 });
 
 describe('HarnessSwitcher.switch', () => {

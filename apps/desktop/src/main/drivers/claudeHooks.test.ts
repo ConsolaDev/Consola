@@ -60,6 +60,16 @@ describe('parseClaudeHookEvent', () => {
       { hook_event_name: 'PostToolUse' },
       { kind: 'resumed', tool: 'unknown-call' },
     ],
+    [
+      'PostToolUse from a subagent says so',
+      {
+        hook_event_name: 'PostToolUse',
+        agent_id: 'ae6d',
+        tool_name: 'Bash',
+        tool_input: { command: 'ls' },
+      },
+      { kind: 'resumed', tool: 'Bash:{"command":"ls"}', agent: true },
+    ],
     ['an unrelated event', { hook_event_name: 'PreToolUse' }, null],
     ['not an object', 'Notification', null],
     ['null', null, null],

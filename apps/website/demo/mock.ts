@@ -635,20 +635,6 @@ export function installMock() {
       return window.workspaceAPI.createGroup(request.workspaceId, { name: request.name });
     },
   };
-  window.assistantAPI = {
-    open: async (workspaceId) =>
-      structuredClone(
-        workspace(workspaceId).sessions.find((s) => s.kind === 'assistant') ??
-          createSession(workspaceId, { name: 'Assistant', nameIsUserSet: true, kind: 'assistant' }),
-      ),
-    startFresh: async (workspaceId) => {
-      notify('Fresh conversations run in the desktop app.');
-      return window.assistantAPI.open(workspaceId);
-    },
-    getActivity: async () => ({ touchedSessionIds: [], unseenFinished: 0 }),
-    markSeen: async () => {},
-    onActivityChanged: noSubscription,
-  };
   const automationsUnavailable = async (): Promise<never> => {
     throw new Error('Automations run in the desktop app.');
   };

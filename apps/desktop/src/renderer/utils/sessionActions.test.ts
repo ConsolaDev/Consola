@@ -178,28 +178,6 @@ describe('session creation', () => {
     );
   });
 
-  it('under All with the Assistant open, + starts in the primary scope', async () => {
-    const { workspace, secondary, create } = setup();
-    const assistant = createSessionRecord({
-      name: 'Assistant',
-      workspaceId: workspace.id,
-      instanceId: 'assistant',
-      harnessId: 'default-agent',
-      model: undefined,
-      scopeId: secondary.id,
-      kind: 'assistant',
-    });
-    workspace.sessions.push(assistant);
-    useHomeStore.getState().setScopeFilter(workspace.id, null);
-    useNavigationStore.setState({ activeSessionId: assistant.id, overlay: null });
-    await createQuickSession(workspace.id);
-    expect(create).toHaveBeenCalledWith(
-      workspace.id,
-      expect.objectContaining({ scopeId: workspace.scopes[0].id }),
-      undefined,
-    );
-  });
-
   it('does not create or steal a workspace held by another window', async () => {
     const { workspace, create } = setup();
     useNavigationStore.setState({ activeWorkspaceId: 'other-workspace' });
@@ -295,7 +273,7 @@ describe('activateSessionAnywhere', () => {
 });
 
 // A workspace with two scopes and one open session, filtered to that session's scope.
-function openSessionSetup(open: { scope: 'root' | 'api'; kind?: 'interactive' | 'assistant' }) {
+function openSessionSetup(open: { scope: 'root' | 'api' }) {
   const workspace = createWorkspaceRecord('App', '/app', false, 'default-agent');
   const root = workspace.scopes[0];
   const api = createScopeRecord({ name: 'API', path: '/api', isGitRepo: false });
@@ -307,7 +285,6 @@ function openSessionSetup(open: { scope: 'root' | 'api'; kind?: 'interactive' | 
     harnessId: 'default-agent',
     model: undefined,
     scopeId: open.scope === 'root' ? root.id : api.id,
-    kind: open.kind,
   });
   workspace.sessions.push(session);
   useWorkspaceStore.setState({ workspaces: [workspace] });
@@ -342,13 +319,6 @@ describe('chooseScope', () => {
     expect(windowBridge.setView).not.toHaveBeenCalled();
   });
 
-  it('keeps the Assistant open: it belongs to no scope, so no scope contradicts it', () => {
-    const { workspace, api, session } = setup({ scope: 'root', kind: 'assistant' });
-    chooseScope(workspace.id, api.id);
-    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(api.id);
-    expect(useNavigationStore.getState().activeSessionId).toBe(session.id);
-  });
-
   it('only filters while the Inbox covers the pane', () => {
     const { workspace, api, session } = setup({ scope: 'root' });
     useNavigationStore.setState({ overlay: 'inbox' });
@@ -380,13 +350,6 @@ describe('revealSessionScope', () => {
     useHomeStore.getState().setScopeFilter(workspace.id, null);
     revealSessionScope(workspace.id, session.id);
     expect(workspace.id in useHomeStore.getState().scopeFilters).toBe(false);
-  });
-
-  it("never filters to the Assistant's scope", () => {
-    const { workspace, root, session } = openSessionSetup({ scope: 'api', kind: 'assistant' });
-    useHomeStore.getState().setScopeFilter(workspace.id, root.id);
-    revealSessionScope(workspace.id, session.id);
-    expect(useHomeStore.getState().scopeFilters[workspace.id]).toBe(root.id);
   });
 
   it('treats a filter whose scope was removed as All, so a click never narrows the list', () => {

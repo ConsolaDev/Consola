@@ -2,12 +2,7 @@ import { activityOf, type AttentionSnapshot } from '../../../shared/attention';
 import { sessionLabel } from '../../../shared/sessionLabel';
 import type { InboxItem, WorkItemRef } from '../../../shared/workItems';
 import { sameWorkItem, workItemKey } from '../../../shared/workItems';
-import {
-  checkoutPathForSession,
-  listedSessions,
-  type Session,
-  type Workspace,
-} from '../../../shared/workspace';
+import { checkoutPathForSession, type Session, type Workspace } from '../../../shared/workspace';
 import { basename } from '../../utils/fileUtils';
 import type { Attention } from '../../../shared/attention';
 import type { AttentionMap } from '../../utils/sessionStatus';
@@ -38,7 +33,7 @@ export function sessionRowsFor(
   now: number = Date.now(),
 ): LinkRow[] {
   const activity = (session: Session) => activityOf(session, attention[session.id]);
-  return listedSessions(workspace)
+  return workspace.sessions
     .filter((session) => session.kind !== 'conductor')
     .sort((a, b) => activity(b) - activity(a))
     .map((session) => {

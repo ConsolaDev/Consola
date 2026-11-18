@@ -103,7 +103,7 @@ export class SessionNamer {
 
   statusChanged(instanceId: string, status: TerminalStatus): void {
     const found = findSessionByInstanceId(this.deps.getWorkspaces(), instanceId);
-    if (!found || found.session.kind === 'assistant') return;
+    if (!found) return;
     void this.request(found.session, status === 'working');
   }
 
@@ -112,7 +112,6 @@ export class SessionNamer {
     const workspace = this.deps.getWorkspaces().find((w) => w.id === workspaceId);
     const session = workspace?.sessions.find((s) => s.id === sessionId);
     if (!workspace || !session) throw new Error('This session no longer exists.');
-    if (session.kind === 'assistant') throw new Error('The Assistant’s name is fixed.');
     const previous = { name: session.name, nameIsUserSet: session.nameIsUserSet === true };
 
     const harnesses = this.deps.getHarnesses();

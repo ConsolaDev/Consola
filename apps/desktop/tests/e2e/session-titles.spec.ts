@@ -56,13 +56,16 @@ function storedTitleSettings(): Workspace['sessionTitles'] {
   return workspaces.find((workspace) => workspace.id === 'ws-titles-e2e')?.sessionTitles;
 }
 
-/** Opens the workspace's settings on its Sessions panel; returns the modal. */
+/** Opens Settings on this workspace's Session titles panel; returns the modal. */
 async function openSessionsSettings(target: Page) {
   await target.getByRole('button', { name: / workspace menu$/ }).click();
   await target.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-  const modal = target.getByRole('dialog', { name: WORKSPACE_NAME, exact: true });
-  await modal.getByRole('button', { name: 'Sessions', exact: true }).click();
-  await expect(modal.getByRole('heading', { name: 'Sessions' })).toBeVisible();
+  const modal = target.getByRole('dialog', { name: 'Settings', exact: true });
+  await modal
+    .getByRole('group', { name: `Workspace · ${WORKSPACE_NAME}`, exact: true })
+    .getByRole('button', { name: 'Session titles', exact: true })
+    .click();
+  await expect(modal.getByRole('heading', { name: 'Session titles' })).toBeVisible();
   return modal;
 }
 
@@ -340,9 +343,8 @@ test('Regenerate title replaces the name from the whole conversation', async () 
   expect(stdin).toContain('ASSISTANT: The export query filters on status = active.');
 });
 
-test('the Sessions settings show the default harness and the title model, with Advanced collapsed', async () => {
+test('the Session titles settings show the title model, with Advanced collapsed', async () => {
   const modal = await openSessionsSettings(page);
-  await expect(modal.getByRole('button', { name: 'Default harness' })).toHaveText('Claude fixture');
   // Following the default harness: its driver's title model.
   await expect(modal.getByRole('button', { name: 'Title model' })).toHaveText('haiku');
   const advanced = modal.getByRole('button', { name: 'Advanced' });

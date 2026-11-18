@@ -159,7 +159,7 @@ function ConnectedInbox({ workspace }: InboxViewProps) {
 
   // Esc closes the pane. The Inbox defers to ANY open dialog, without
   // requiring dialogs to opt in: CloneDialog and LinkSessionDialog also
-  // stopPropagation on their own Esc, but WorkspaceSettingsModal and its
+  // stopPropagation on their own Esc, but SettingsModal and its
   // ConfirmDialog can sit above the Inbox too and never wired that up, so
   // this listener checks for an open Radix dialog itself rather than
   // trusting every future dialog to remember the contract.

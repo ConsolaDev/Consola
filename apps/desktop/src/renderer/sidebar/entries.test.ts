@@ -55,14 +55,28 @@ describe('sessionEntries', () => {
     expect(Object.keys(entry).sort()).toEqual([
       'activityAt',
       'attention',
+      'createdAt',
       'facetDomain',
       'facets',
       'finishedAt',
       'key',
       'kind',
       'labels',
-      'since',
     ]);
+  });
+
+  it('carries when the session was made, and when it last came back from Settled', () => {
+    const [plain, woken] = sessionEntries(
+      [session('a', { createdAt: 50 }), session('b', { createdAt: 60 })],
+      {
+        records: { b: { sessionId: 'b', workspaceId: 'w', lastActiveAt: 500, unsettledAt: 400 } },
+        attention: {},
+      },
+      [],
+    );
+    expect(plain.createdAt).toBe(50);
+    expect('unsettledAt' in plain).toBe(false);
+    expect(woken).toMatchObject({ createdAt: 60, unsettledAt: 400 });
   });
 
   it('reads a session main said nothing about as ready, active at its creation seed', () => {
@@ -177,7 +191,7 @@ describe('runEntries', () => {
       key: 'run:1',
       kind: 'run',
       attention: 'needs-attention',
-      since: Date.parse('2026-01-01T00:00:00.000Z'),
+      createdAt: Date.parse('2026-01-01T00:00:00.000Z'),
       activityAt: Date.parse('2026-01-01T00:01:00.000Z'),
       facets: { automation: 'review' },
     });

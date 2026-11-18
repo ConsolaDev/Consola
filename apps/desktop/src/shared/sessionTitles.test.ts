@@ -184,10 +184,9 @@ describe('reconcileTitleSettings', () => {
   });
 });
 describe('canRegenerateTitle', () => {
-  it('is hidden for the Assistant, when titles are off, and for a driver that cannot read conversations', () => {
+  it('is hidden when titles are off, and for a driver that cannot read conversations', () => {
     const unreadable = harness({ id: 'x', driverId: 'unknown' as never });
     const harnesses = [claudeA, codex, unreadable];
-    expect(canRegenerateTitle(ws({}), session({ kind: 'assistant' }), harnesses)).toBe(false);
     expect(
       canRegenerateTitle(ws({ sessionTitles: { source: 'off' } }), session({}), harnesses),
     ).toBe(false);

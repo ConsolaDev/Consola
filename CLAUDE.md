@@ -169,7 +169,7 @@ the old conversation and the next relaunch would resume it.
 ### Session Names
 
 Only a session still called `NEW_SESSION_NAME` is named automatically: not one
-with `nameIsUserSet`, and not the Assistant. Everything Consola names itself is
+with `nameIsUserSet`. Everything Consola names itself is
 born with another name, so a name anyone chose is never a candidate.
 
 Main's `SessionNamer` is the only automatic writer. It writes a stand-in from
@@ -238,33 +238,12 @@ session. And whatever `save_automation` writes or replaces gives up the
 entry's acceptance, so it asks once before its next unattended run — even
 when only its schedule changed, which a hand edit would not ask about.
 
-### The Assistant
-
-Each workspace has one `kind: 'assistant'` session: a conversation that sees
-every scope and runs the others. It is created on first open, and it lives in
-its own folder beside `factory.yml` (not a repo, so no git, explorer or review
-panels). `listedSessions` hides it from the renderer's session lists and pickers
-(`consola_list_sessions` deliberately lists it). A session needs a
-scope, so `removeScope` moves it to a remaining one, or drops it with the last.
-
-It adds three tools to the generic MCP endpoint: `consola_prompt_session`,
-`consola_read_session` and `consola_start_session` (the last replaces the
-generic one, which would start work inside the Assistant's own folder). The
-workspace is resolved from the endpoint on every call, never from an argument,
-so it cannot reach across workspaces or address itself.
-
-It wakes a session through `SessionLauncher.deliverPrompt`, which relaunches an
-exited terminal in place: the pane another window is showing keeps streaming.
-It hears back through `AssistantActivity`, which listens on `TerminalManager`'s
-status listener set and tells it when the sessions it touched settle.
-
-An Assistant start on a work item refreshes an existing worktree to the PR's
-latest head only for a read-only session. Claude trusts a folder per path, so
-refreshing one the person already trusted would load the author's newly pushed
-settings and hooks into a full-tools session with no trust prompt. The worktree
-is one per item, so the same holds for every read-only refresh (automation
-runs, Assistant starts and re-runs): it is skipped while any full-tools session
-was launched there, running or not (`worktreeHeld`).
+An automation's run on a work item refreshes an existing worktree to the PR's
+latest head only because its session is read-only. Claude trusts a folder per
+path, so refreshing one the person already trusted would load the author's
+newly pushed settings and hooks into a full-tools session with no trust
+prompt. The worktree is one per item, so the refresh is skipped while any
+full-tools session was launched there, running or not (`worktreeHeld`).
 
 ### Harnesses Are Launch Descriptions
 
@@ -341,8 +320,7 @@ because a summary of the new conversation would describe the handoff.
 what attention knew of the old process is forgotten — a CLI without hooks
 would never clear a held turn. The switch is refused mid-turn, but not at a
 menu: a usage-limit notice is where it is wanted, and the switch stops that
-process rather than answering anything. The Assistant and conductors stay
-on their harness.
+process rather than answering anything. Conductors stay on their harness.
 
 Claude writes a forked conversation only once its first message is sent, so
 a switch nobody has spoken after yet leaves a conversation that is not there
@@ -379,6 +357,28 @@ and takes a turn on each result, so the session reads `working` until a later
 a `working` edge: while Claude waits, its spinner stops but the agents panel
 repaints about once a second, which the screen reads as turns. The OS notification follows the derived attention, not terminal status. Hooks use HTTP, not `mcp_tool`: a
 Notification hook does not wait for an MCP server still connecting.
+
+### Attention Reads a Steadied Status
+
+`TerminalService` infers `working` from output flow: right for delivering a
+prompt, too twitchy to file a row by. Everything that decides attention
+(`SessionSource`, `TurnActivity`) hears `SteadyStatus` instead, which holds
+back the two changes that are usually noise: a `ready` inside a turn
+(`DROP_HOLD_MS`) and a `working` after the CLI said the turn was over
+(`UNTURNED_WORK_MS` — a background agent's tool calls paint in bursts the
+screen reads as turns). `HookInputs.turn` says which side of a turn a change
+is on; without hooks only the drop is held. `needs-attention` and `exited`
+are never delayed, and prompt delivery and the renderer's terminal status
+still read the terminal's own.
+
+A row sits in the section its attention says, the open row included: pinning
+a stopped row under Working made the section state something false. The
+sidebar's own softening is the same for every row (`workingExits`, the shift
+guard).
+
+A menu is looked for when output pauses, and again shortly after the person
+types into one (`ANSWER_RECHECK_MS`): a turn that goes on after its answer
+never pauses, so without that it read as waiting on the person to its end.
 
 ### Ask the CLI What It Can Do
 

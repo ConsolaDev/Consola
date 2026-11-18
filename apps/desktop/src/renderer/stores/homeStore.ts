@@ -33,8 +33,7 @@ export function filteredScope(workspace: Workspace, filterId?: string): Scope | 
 
 /**
  * Where a new session starts: the preferred scope (an explicit destination or
- * the filter), else the open session's scope, else the primary scope. The
- * Assistant runs no scope, so it never lends its record's scopeId.
+ * the filter), else the open session's scope, else the primary scope.
  */
 export function newSessionScope(
   workspace: Workspace,
@@ -44,9 +43,7 @@ export function newSessionScope(
   const open = workspace.sessions.find((session) => session.id === activeSessionId);
   return (
     workspace.scopes.find((scope) => scope.id === preferredScopeId) ??
-    (open && open.kind !== 'assistant'
-      ? workspace.scopes.find((scope) => scope.id === open.scopeId)
-      : undefined) ??
+    (open ? workspace.scopes.find((scope) => scope.id === open.scopeId) : undefined) ??
     primaryScope(workspace)
   );
 }

@@ -3,7 +3,6 @@ import {
   TerminalService,
   type TerminalExitInfo,
   type TerminalServiceOptions,
-  type RelaunchFields,
   type TerminalHarnessSwitch,
 } from './TerminalService';
 import { IPC_CHANNELS } from '../shared/constants';
@@ -35,7 +34,7 @@ export class TerminalManager {
 
   /**
    * Hear every status transition, after the broadcast. Many listeners may
-   * subscribe (OS notifications, the Assistant), so none displaces another.
+   * subscribe (OS notifications, attention), so none displaces another.
    * Returns the unsubscribe.
    */
   public addStatusListener(
@@ -186,17 +185,6 @@ export class TerminalManager {
       };
     }
     return snapshot;
-  }
-
-  /**
-   * Start an exited terminal again, in place, resuming its conversation.
-   * The instance stays, so a window showing it keeps streaming and its
-   * "exited" overlay clears when the status moves.
-   */
-  public relaunch(instanceId: string, launch: RelaunchFields): void {
-    const terminal = this.terminals.get(instanceId);
-    if (!terminal) throw new Error(`No terminal for ${instanceId}.`);
-    terminal.relaunch(launch);
   }
 
   /**

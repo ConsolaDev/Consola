@@ -127,16 +127,6 @@ export interface HarnessDriver {
   getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
 
   /**
-   * What the agent last said, one entry per turn, oldest first, read from the
-   * CLI's own transcript. `null` when there is no transcript.
-   */
-  getRecentReplies?(
-    config: HarnessConfig,
-    sessionId: string,
-    count: number,
-  ): Promise<string[] | null>;
-
-  /**
    * A conversation's prompts, tool calls and replies, read from the CLI's
    * own transcript — never by resuming it. Serves the Automations side
    * panel and any future "read a session" tool alike. `window` keeps only

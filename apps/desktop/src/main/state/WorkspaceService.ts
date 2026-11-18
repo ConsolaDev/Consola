@@ -16,10 +16,7 @@ import {
   createScopeRecord,
   createSessionRecord,
   createWorkspaceRecord,
-  generateSessionInstanceId,
   generateUuid,
-  ASSISTANT_SESSION_NAME,
-  assistantSession,
   migrateWorkspaceState,
   scopeForSession,
   switchedSession,
@@ -204,21 +201,12 @@ export class WorkspaceService {
   /**
    * Remove a scope and its sessions in one write, keeping workspace groups,
    * and return the sessions that went so the caller can stop their processes.
-   *
-   * The Assistant belongs to the workspace, not the scope it happens to sit
-   * on, so it moves to a remaining scope instead of going. This is the one
-   * place a session's `scopeId` changes; its `cwd` and conversation do not.
    */
   public removeScope(workspaceId: string, scopeId: string): Session[] {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace?.scopes.some((scope) => scope.id === scopeId)) return [];
 
-    const nextHome = workspace.scopes.find((scope) => scope.id !== scopeId);
-    const assistant = assistantSession(workspace);
-    const assistantStays = assistant?.scopeId === scopeId && nextHome !== undefined;
-    const removed = workspace.sessions.filter(
-      (session) => session.scopeId === scopeId && !(assistantStays && session.id === assistant?.id),
-    );
+    const removed = workspace.sessions.filter((session) => session.scopeId === scopeId);
     const removedSessionIds = new Set(removed.map((session) => session.id));
     this.commit(
       this.workspaces.map((candidate) =>
@@ -226,13 +214,7 @@ export class WorkspaceService {
           ? {
               ...candidate,
               scopes: candidate.scopes.filter((scope) => scope.id !== scopeId),
-              sessions: candidate.sessions
-                .filter((session) => !removedSessionIds.has(session.id))
-                .map((session) =>
-                  assistantStays && session.id === assistant?.id
-                    ? { ...session, scopeId: nextHome.id }
-                    : session,
-                ),
+              sessions: candidate.sessions.filter((session) => !removedSessionIds.has(session.id)),
               groups: candidate.groups.map((group) => {
                 if (!group.conductorSessionId || !removedSessionIds.has(group.conductorSessionId))
                   return group;
@@ -509,9 +491,6 @@ export class WorkspaceService {
   }
 
   public createSession(workspaceId: string, fields: NewSessionFields): Session | undefined {
-    // Only ensureAssistant and replaceAssistant mint the Assistant, so a
-    // window cannot create a second one by passing the kind through.
-    if (fields.kind === 'assistant') return undefined;
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     if (!workspace) return undefined;
     // A session pointing at a scope that does not exist would render nowhere
@@ -533,76 +512,6 @@ export class WorkspaceService {
     return session;
   }
 
-  /** The workspace's Assistant, created on its first scope if it has none yet. */
-  public ensureAssistant(workspaceId: string, fields: { harnessId: string; cwd: string }): Session {
-    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
-    if (!workspace) throw new Error('Workspace not found.');
-    const existing = assistantSession(workspace);
-    if (existing) return existing;
-
-    const assistant = this.newAssistantRecord(workspace, fields);
-    this.commit(
-      this.workspaces.map((candidate) =>
-        candidate.id === workspaceId
-          ? {
-              ...candidate,
-              sessions: [...candidate.sessions, assistant],
-              updatedAt: assistant.createdAt,
-            }
-          : candidate,
-      ),
-    );
-    return assistant;
-  }
-
-  /**
-   * Swap the Assistant for a fresh record in one write, so "start a fresh
-   * conversation" never leaves a window seeing none or two. The caller stops
-   * `previous`'s process after this returns.
-   */
-  public replaceAssistant(
-    workspaceId: string,
-    fields: { harnessId: string; cwd: string },
-  ): { previous?: Session; next: Session } {
-    const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
-    if (!workspace) throw new Error('Workspace not found.');
-    const previous = assistantSession(workspace);
-    const next = this.newAssistantRecord(workspace, fields);
-    this.commit(
-      this.workspaces.map((candidate) =>
-        candidate.id === workspaceId
-          ? {
-              ...candidate,
-              sessions: [
-                ...candidate.sessions.filter((session) => session.kind !== 'assistant'),
-                next,
-              ],
-              updatedAt: next.createdAt,
-            }
-          : candidate,
-      ),
-    );
-    return { previous, next };
-  }
-
-  private newAssistantRecord(
-    workspace: Workspace,
-    fields: { harnessId: string; cwd: string },
-  ): Session {
-    const scope = workspace.scopes[0];
-    if (!scope) throw new Error('Add a scope to use the Assistant.');
-    return createSessionRecord({
-      name: ASSISTANT_SESSION_NAME,
-      nameIsUserSet: true,
-      kind: 'assistant',
-      workspaceId: workspace.id,
-      instanceId: generateSessionInstanceId(workspace.id),
-      harnessId: fields.harnessId,
-      scopeId: scope.id,
-      cwd: fields.cwd,
-    });
-  }
-
   /**
    * Apply an already-filtered update (see allowedSessionUpdates).
    *
@@ -622,14 +531,6 @@ export class WorkspaceService {
   public updateSession(workspaceId: string, sessionId: string, updates: SessionUpdates): void {
     const workspace = this.workspaces.find((candidate) => candidate.id === workspaceId);
     const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
-
-    // The Assistant's name and place are fixed; only activity is recorded.
-    if (
-      session?.kind === 'assistant' &&
-      (['name', 'nameIsUserSet', 'groupId', 'workItem'] as const).some((key) => key in updates)
-    ) {
-      throw new Error('The Assistant cannot be renamed, grouped or linked.');
-    }
 
     const applied: SessionUpdates = { ...updates };
     if (session && updates.workItem !== undefined) {
@@ -724,7 +625,7 @@ export class WorkspaceService {
    * absent from `allowedSessionUpdates`: a transcript lives in its harness's
    * config directory, so the harness and the conversation it names
    * (`claudeSessionId`) only ever change together. The record it leaves is
-   * `switchedSession`'s; only the Assistant and conductors are refused.
+   * `switchedSession`'s; only conductors are refused.
    */
   public switchHarness(
     workspaceId: string,

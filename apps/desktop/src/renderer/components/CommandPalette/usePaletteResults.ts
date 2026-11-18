@@ -1,6 +1,5 @@
 import { useMemo } from 'react';
 import { activityOf } from '../../../shared/attention';
-import { listedSessions } from '../../../shared/workspace';
 import { useAttentionStore } from '../../stores/attentionStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
@@ -10,7 +9,6 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { useSettings } from '../../contexts/SettingsContext';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { rankItem } from './fuzzyMatch';
 import {
   buildActionItems,
@@ -60,7 +58,6 @@ export function usePaletteContext(): PaletteContext {
   const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const { openSettings } = useSettings();
-  const { openWorkspaceSettings } = useWorkspaceSettings();
 
   const activeWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === activeWorkspaceId) ?? null,
@@ -76,7 +73,7 @@ export function usePaletteContext(): PaletteContext {
   // too, and a blank row would be unselectable anyway.
   const allSessions = useMemo(() => {
     const entries = workspaces.flatMap((workspace) =>
-      listedSessions(workspace)
+      workspace.sessions
         .filter((session) => session.name.length > 0)
         .map((session) => ({ session, workspace })),
     );
@@ -121,7 +118,6 @@ export function usePaletteContext(): PaletteContext {
       isGitReviewOpen,
       terminalFontSize,
       openSettings,
-      openWorkspaceSettings,
     }),
     [
       workspaces,
@@ -138,7 +134,6 @@ export function usePaletteContext(): PaletteContext {
       isGitReviewOpen,
       terminalFontSize,
       openSettings,
-      openWorkspaceSettings,
     ],
   );
 }

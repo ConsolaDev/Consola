@@ -705,6 +705,43 @@ describe('TerminalService status event', () => {
     service.destroy();
   });
 
+  // Recorded live (2.1.327): after a question is answered the CLI paints
+  // without a half-second pause until the turn ends, 35 s later in that run.
+  // The menu used to be re-read only at such a pause, so the session said it
+  // was waiting on the person for the rest of a turn they had just unblocked.
+  it('stops saying it needs the person once they answer a menu, though output never pauses', async () => {
+    const pty = installFakePty();
+    const service = await buildService();
+    const statuses: string[] = [];
+    service.on('status', (status: string) => statuses.push(status));
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+    expect(statuses).toEqual(['needs-attention']);
+
+    service.write('\r');
+    pty.feed('\x1b[2J\x1b[3J\x1b[H✻ Working…');
+    await animate(pty, 3_000);
+
+    expect(statuses).toEqual(['needs-attention', 'ready', 'working']);
+    service.destroy();
+  });
+
+  it('keeps saying it needs the person while keys only move through the menu', async () => {
+    const pty = installFakePty();
+    const service = await buildService();
+    const statuses: string[] = [];
+    service.on('status', (status: string) => statuses.push(status));
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed?');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    service.write('\x1b[B');
+    pty.feed('\x1b[2J\x1b[3J\x1b[HDo you want to proceed? (2)');
+    await vi.advanceTimersByTimeAsync(SETTLE_MS);
+
+    expect(statuses).toEqual(['needs-attention']);
+    service.destroy();
+  });
+
   it('does not ring needs-attention when a restart follows a menu on screen', async () => {
     const pty = installFakePty();
     const service = await buildService();
@@ -1169,119 +1206,6 @@ describe('bracketedPaste', () => {
     service.paste('review\x1b[201~\r');
     expect(pty.writes).toEqual(['\x1b[200~review[201~\r\x1b[201~']);
     service.destroy();
-  });
-});
-
-describe('TerminalService relaunch', () => {
-  const SESSION = '00000000-0000-4000-8000-000000000000';
-
-  it('relaunches an exited terminal in place, resuming, with the prompt queued for the composer', async () => {
-    const pty = installFakePty();
-    const service = await buildService();
-    await vi.advanceTimersByTimeAsync(0);
-    pty.exit(0);
-
-    const next = installFakePty();
-    service.relaunch({ cwd: os.tmpdir(), prompt: 'pull latest', unattended: false });
-    await vi.advanceTimersByTimeAsync(0);
-    expect(spawnMock).toHaveBeenCalledTimes(2);
-    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
-      resume: true,
-      sessionId: SESSION,
-      unattended: false,
-    });
-    expect(buildArgsMock.mock.calls[1][1].initialPrompt).toBeUndefined();
-
-    // Nothing is typed until the composer is empty.
-    expect(next.writes).toEqual([]);
-    next.feed('❯ ');
-    await vi.advanceTimersByTimeAsync(SETTLE_MS);
-    expect(next.writes).toEqual(pasted('pull latest'));
-    service.destroy();
-  });
-
-  it('never types an interactive relaunch prompt into a confirmation menu', async () => {
-    const pty = installFakePty();
-    const service = await buildService();
-    await vi.advanceTimersByTimeAsync(0);
-    pty.exit(0);
-
-    const next = installFakePty();
-    service.relaunch({ cwd: os.tmpdir(), prompt: 'pull latest', unattended: false });
-    await vi.advanceTimersByTimeAsync(0);
-    next.feed('Do you trust the files in this folder?\r\n❯ 1. Yes, proceed\r\n  2. No, exit\r\n');
-    await vi.advanceTimersByTimeAsync(SETTLE_MS);
-    expect(next.writes).toEqual([]);
-    service.destroy();
-  });
-
-  it('relaunches an exited read-only terminal as an unattended turn with the prompt as its argument', async () => {
-    const pty = installFakePty();
-    const service = new TerminalService({
-      cwd: os.tmpdir(),
-      claudeSessionId: SESSION,
-      resume: false,
-      toolPolicy: 'read-only',
-    });
-    service.start();
-    await vi.advanceTimersByTimeAsync(0);
-    pty.exit(0);
-    expect(service.runningUnattended()).toBe(false);
-
-    const next = installFakePty();
-    service.relaunch({ cwd: os.tmpdir(), prompt: 'review it', unattended: true });
-    expect(service.runningUnattended()).toBe(true);
-    await vi.advanceTimersByTimeAsync(0);
-    expect(buildArgsMock.mock.calls[1][1]).toMatchObject({
-      resume: true,
-      unattended: true,
-      initialPrompt: 'review it',
-      toolPolicy: 'read-only',
-    });
-    expect(service.runningUnattended()).toBe(true);
-    next.feed('❯ ');
-    await vi.advanceTimersByTimeAsync(SETTLE_MS);
-    expect(next.writes).toEqual([]);
-
-    next.exit(0);
-    expect(service.runningUnattended()).toBe(false);
-    service.destroy();
-  });
-
-  it('refuses to relaunch a running terminal', async () => {
-    installFakePty();
-    const service = await buildService();
-    await vi.advanceTimersByTimeAsync(0);
-    expect(() => service.relaunch({ cwd: os.tmpdir(), prompt: 'x', unattended: false })).toThrow(
-      'It is already running.',
-    );
-    service.destroy();
-  });
-
-  it('refuses to relaunch while a launch is still starting', async () => {
-    installFakePty();
-    const service = await buildService();
-    expect(() => service.relaunch({ cwd: os.tmpdir(), prompt: 'x', unattended: false })).toThrow(
-      'It is already running.',
-    );
-    service.destroy();
-  });
-});
-
-describe('TerminalService screenText', () => {
-  it('reports the screen without trailing blank lines', async () => {
-    const pty = installFakePty();
-    const service = await buildService();
-    await vi.advanceTimersByTimeAsync(0);
-    pty.feed('hello\r\n\r\n\r\n');
-    await vi.advanceTimersByTimeAsync(SETTLE_MS);
-    expect(service.screenText()).toBe('hello');
-    service.destroy();
-  });
-
-  it('is empty when there is no screen', () => {
-    const service = new TerminalService({ cwd: os.tmpdir(), claudeSessionId: 'x', resume: false });
-    expect(service.screenText()).toBe('');
   });
 });
 

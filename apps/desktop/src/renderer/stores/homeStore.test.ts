@@ -19,18 +19,8 @@ function setup() {
     model: undefined,
     scopeId: api.id,
   });
-  // The Assistant's record still carries a scope, but it runs none of them.
-  const assistant = createSessionRecord({
-    name: 'Assistant',
-    workspaceId: workspace.id,
-    instanceId: 'assistant',
-    harnessId: 'default-agent',
-    model: undefined,
-    scopeId: api.id,
-    kind: 'assistant',
-  });
-  workspace.sessions.push(inApi, assistant);
-  return { workspace, root, api, inApi, assistant };
+  workspace.sessions.push(inApi);
+  return { workspace, root, api, inApi };
 }
 
 beforeEach(() => {
@@ -73,11 +63,6 @@ describe('newSessionScope', () => {
   it('follows the open session when the preferred scope was removed', () => {
     const { workspace, api, inApi } = setup();
     expect(newSessionScope(workspace, 'removed', inApi.id)).toBe(api);
-  });
-
-  it("never inherits the Assistant's scope", () => {
-    const { workspace, root, assistant } = setup();
-    expect(newSessionScope(workspace, undefined, assistant.id)).toBe(root);
   });
 
   it('falls back to the primary scope with nothing open', () => {

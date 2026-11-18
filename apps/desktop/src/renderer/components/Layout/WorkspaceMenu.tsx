@@ -1,12 +1,11 @@
 import { useRef, useState } from 'react';
-import { listedSessions } from '../../../shared/workspace';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { windowBridge } from '../../services/windowBridge';
-import type { WorkspaceSettingsSectionId } from '../WorkspaceSettings/WorkspaceSettingsModal';
+import type { WorkspaceSectionId } from '../Dialogs/settingsSections';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
 import { WorkspaceIcon } from '../WorkspaceIcon';
 import { MenuHint } from './MenuHint';
@@ -17,16 +16,16 @@ export function WorkspaceMenu() {
   const workspace = useWorkspaceStore((state) =>
     state.workspaces.find((item) => item.id === activeWorkspaceId),
   );
-  const { openWorkspaceSettings } = useWorkspaceSettings();
+  const { openSettings } = useSettings();
   const openingSettings = useRef(false);
   const [isOpen, setOpen] = useState(false);
 
   if (!workspace) return <span className="workspace-menu-placeholder">Select workspace</span>;
-  const sessionCount = listedSessions(workspace).length;
+  const sessionCount = workspace.sessions.length;
 
-  const openSection = (section: WorkspaceSettingsSectionId) => {
+  const openSection = (section: WorkspaceSectionId) => {
     openingSettings.current = true;
-    openWorkspaceSettings(workspace.id, section);
+    openSettings(section);
   };
 
   return (

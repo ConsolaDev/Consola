@@ -81,9 +81,8 @@ export interface Session {
   // Opts the session out of settling on its own. Only the value is defined
   // here; nothing reads or writes it yet.
   autoSettle?: 'never';
-  // What drives this session: a person, a conductor orchestrating others, or
-  // the workspace's one Assistant (created only by WorkspaceService).
-  kind: 'interactive' | 'conductor' | 'assistant';
+  // What drives this session: a person, or a conductor orchestrating others.
+  kind: 'interactive' | 'conductor';
   // The remote item this session is about. Mutable since v7: a hand-made
   // session can be linked to an item after the fact, or unlinked — the
   // relation says why the session exists, never where it runs.
@@ -236,17 +235,6 @@ export interface WorkspaceProvider {
   org?: string; // Scopes the Inbox query; absent = all repos
 }
 
-/** What the Assistant may do in the sessions it starts on pull requests and issues. */
-export type AssistantItemMode = 'full-tools' | 'read-only' | 'assistant-picks';
-export const ASSISTANT_ITEM_MODES: readonly AssistantItemMode[] = [
-  'full-tools',
-  'read-only',
-  'assistant-picks',
-];
-
-/** The Assistant's fixed row label; its record is user-named so nothing renames it. */
-export const ASSISTANT_SESSION_NAME = 'Assistant';
-
 /** Name a session carries until something better is known. */
 export const NEW_SESSION_NAME = 'New Session';
 
@@ -266,8 +254,6 @@ export interface SessionTitleSettings {
 export interface Workspace {
   /** Absent means `{ source: 'default-harness' }`; no migration needed. */
   sessionTitles?: SessionTitleSettings;
-  /** Absent means 'full-tools' (see assistantItemMode); no migration needed. */
-  assistantItemMode?: AssistantItemMode;
   /** Absent uses the neutral workspace icon, including on older records. */
   icon?: WorkspaceIconValue;
   id: string;
@@ -482,24 +468,9 @@ export type SessionUpdates = Partial<
   parentSessionId?: undefined;
 };
 
-/** How the Assistant's sessions on work items run; full tools unless the workspace says otherwise. */
-export function assistantItemMode(workspace: Workspace): AssistantItemMode {
-  return workspace.assistantItemMode ?? 'full-tools';
-}
-
-/** The workspace's Assistant, if it has been created. */
-export function assistantSession(workspace: Workspace): Session | undefined {
-  return workspace.sessions.find((session) => session.kind === 'assistant');
-}
-
-/** Every session but the Assistant: what lists, counts and groups show. */
-export function listedSessions(workspace: Workspace): Session[] {
-  return workspace.sessions.filter((session) => session.kind !== 'assistant');
-}
-
 /** The workspace fields a window may change; the filter in main enforces it. */
 export type WorkspaceUpdates = Partial<
-  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'assistantItemMode' | 'sessionTitles'>
+  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'sessionTitles'>
 >;
 
 /**
@@ -774,7 +745,6 @@ function groupsToLabels(ws: any): any {
       conductorId &&
       sessionIds.has(conductorId) &&
       session.id !== conductorId &&
-      session.kind !== 'assistant' &&
       next.parentSessionId === undefined
     ) {
       next.parentSessionId = conductorId;

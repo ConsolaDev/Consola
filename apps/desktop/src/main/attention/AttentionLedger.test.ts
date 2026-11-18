@@ -190,3 +190,42 @@ describe('JsonAttentionLedger', () => {
     expect(ledger.get('ghost')).toBeUndefined();
   });
 });
+
+describe('JsonAttentionLedger.unsettledAt', () => {
+  const settle = (ledger: JsonAttentionLedger, at: number) =>
+    ledger.settle([{ sessionId: 's1', workspaceId: 'w1', activityAt: 0 }], at, {
+      markSeen: false,
+    });
+
+  it('marks the moment new activity takes a session off the shelf, and survives a reload', () => {
+    const ledger = build();
+    ledger.touch('s1', 'w1', 10);
+    settle(ledger, 20);
+    expect(ledger.get('s1')?.unsettledAt).toBeUndefined();
+
+    ledger.touch('s1', 'w1', 30);
+    expect(ledger.get('s1')?.unsettledAt).toBe(30);
+    ledger.flush();
+    expect(build().get('s1')?.unsettledAt).toBe(30);
+  });
+
+  it('is not moved by later activity, nor by a late edge from before the settle', () => {
+    const ledger = build();
+    ledger.touch('s1', 'w1', 10);
+    settle(ledger, 20);
+    ledger.touch('s1', 'w1', 15);
+    expect(ledger.get('s1')?.unsettledAt).toBeUndefined();
+
+    ledger.touch('s1', 'w1', 30);
+    ledger.touch('s1', 'w1', 40);
+    expect(ledger.get('s1')?.unsettledAt).toBe(30);
+  });
+
+  it('marks a session moved back by hand', () => {
+    const ledger = build();
+    ledger.touch('s1', 'w1', 10);
+    settle(ledger, 20);
+    ledger.unsettle(['s1'], 25);
+    expect(ledger.get('s1')).toMatchObject({ unsettledAt: 25, settleHoldAt: 25 });
+  });
+});

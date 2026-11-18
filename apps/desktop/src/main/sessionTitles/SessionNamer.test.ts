@@ -225,9 +225,6 @@ describe('SessionNamer', () => {
           .find((w) => w.id === workspaceId)
           ?.sessions.find((s) => s.id === sessionId);
         if (!target) throw new Error(`No session ${sessionId}`);
-        if (target.kind === 'assistant') {
-          throw new Error('The Assistant cannot be renamed, grouped or linked.');
-        }
         if (failWrites) throw new Error('The disk is full.');
         updates.push(applied);
         edit(sessionId, applied);
@@ -272,7 +269,7 @@ describe('SessionNamer', () => {
     expect(modelInfoCalls).toEqual([['claude-a', 'haiku']]);
   });
 
-  it('never reads a first prompt for a named, user-named or Assistant session', async () => {
+  it('never reads a first prompt for a named or user-named session', async () => {
     workspaces = [
       makeWorkspace([
         makeSession({ id: 's2', instanceId: 'inst-2', claudeSessionId: 'conv-2', name: 'Named' }),
@@ -282,24 +279,18 @@ describe('SessionNamer', () => {
           claudeSessionId: 'conv-3',
           nameIsUserSet: true,
         }),
-        makeSession({
-          id: 'assistant',
-          instanceId: 'inst-a',
-          claudeSessionId: 'conv-a',
-          kind: 'assistant',
-        }),
       ]),
     ];
     driver.firstPrompt = 'Hello there';
 
-    for (const instanceId of ['inst-2', 'inst-3', 'inst-a']) {
+    for (const instanceId of ['inst-2', 'inst-3']) {
       namer.statusChanged(instanceId, 'working');
     }
     await namer.idle();
 
     expect(driver.firstPromptCalls).toBe(0);
     expect(updates).toEqual([]);
-    // CLI renames are still read for every live session but the Assistant.
+    // CLI renames are still read for every live session.
     expect(driver.cliConversations).toEqual(['conv-2', 'conv-3']);
   });
 
@@ -976,14 +967,6 @@ describe('SessionNamer', () => {
         },
       ],
       ['a missing session', 'This session no longer exists.', 0, () => removeSession()],
-      [
-        'the Assistant',
-        'The Assistant’s name is fixed.',
-        0,
-        () => {
-          edit('s1', { kind: 'assistant' });
-        },
-      ],
     ])('fails with a message when %s', async (_case, message, calls, arrange) => {
       arrange();
 

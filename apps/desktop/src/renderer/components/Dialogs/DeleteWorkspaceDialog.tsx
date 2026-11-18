@@ -1,4 +1,3 @@
-import { listedSessions } from '../../../shared/workspace';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ConfirmDialog } from './ConfirmDialog';
 
@@ -22,7 +21,7 @@ export function DeleteWorkspaceDialog({
   onOpenChange,
 }: DeleteWorkspaceDialogProps) {
   const deleteWorkspace = useWorkspaceStore((state) => state.deleteWorkspace);
-  const sessionCount = listedSessions(workspace).length;
+  const sessionCount = workspace.sessions.length;
 
   return (
     <ConfirmDialog

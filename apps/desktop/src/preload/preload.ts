@@ -13,7 +13,6 @@ import type {
   TerminalAwaitingConfirmationMessage,
   TerminalExitMessage,
   TerminalStatusMessage,
-  AssistantActivitySnapshot,
   TerminalStatusSnapshot,
   HarnessLaunchFields,
   HarnessCapabilitiesResult,
@@ -353,26 +352,6 @@ contextBridge.exposeInMainWorld('workspaceAPI', {
 contextBridge.exposeInMainWorld('conductorAPI', {
   create: (request: ConductorCreateRequest): Promise<Group> =>
     ipcRenderer.invoke(IPC_CHANNELS.CONDUCTOR_CREATE, request),
-});
-
-// The workspace Assistant: its record is made or replaced in main; the
-// session itself rides the terminal and workspace APIs above.
-contextBridge.exposeInMainWorld('assistantAPI', {
-  open: (workspaceId: string): Promise<Session> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_OPEN, workspaceId),
-  startFresh: (workspaceId: string): Promise<Session> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_START_FRESH, workspaceId),
-  getActivity: (workspaceId: string): Promise<AssistantActivitySnapshot> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, workspaceId),
-  markSeen: (workspaceId: string): Promise<void> =>
-    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_MARK_SEEN, workspaceId),
-  onActivityChanged: (
-    callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void,
-  ) =>
-    subscribe<{ workspaceId: string; activity: AssistantActivitySnapshot }>(
-      IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED,
-      callback,
-    ),
 });
 
 // Expose harness state to the renderer. Main owns the records; the renderer
