@@ -11,6 +11,16 @@ import type {
 import type { SessionToolPolicy } from '../../shared/workspace';
 import type { AttentionSignal } from '../attention/hookSignals';
 
+/** One throwaway, tool-less call to a small model that must answer in `schema`. */
+export interface TextGenerationRequest {
+  prompt: string;
+  schema: Record<string, unknown>;
+  model: string;
+  effort?: string;
+  fast?: boolean;
+  timeoutMs?: number;
+}
+
 /** What `readCliNameSince` found: the name given since, and where to read from next. */
 export interface CliNameRead {
   name: string | null;
@@ -117,6 +127,14 @@ export interface HarnessDriver {
     conversationId: string,
     from: number,
   ): Promise<CliNameRead | null>;
+
+  /**
+   * Ask a model one question outside any conversation: no tools, no hooks,
+   * nothing persisted. Resolves to the structured answer; rejects with an
+   * `Error` whose message can be shown to the person. Optional: a CLI that
+   * cannot do this omits it.
+   */
+  generateText?(config: HarnessConfig, request: TextGenerationRequest): Promise<unknown>;
 
   /** Latest model reported by this conversation, when a transcript exists. */
   getSessionModel?(config: HarnessConfig, sessionId: string): Promise<string | null>;
