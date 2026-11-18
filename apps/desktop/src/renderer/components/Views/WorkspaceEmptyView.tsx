@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Folder, FolderPlus, GitFork, Inbox } from 'lucide-react';
 import type { Workspace, Scope } from '../../../shared/workspace';
 import { newSessionScope, useHomeStore } from '../../stores/homeStore';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import './styles.css';
@@ -45,7 +45,7 @@ export function WorkspaceEmptyView({ workspace }: { workspace: Workspace }) {
  * itself once there is a session, which is exactly when it stops being news.
  */
 function FirstSessionTips({ workspace, scope }: { workspace: Workspace; scope: Scope }) {
-  const { openWorkspaceSettings } = useWorkspaceSettings();
+  const { openSettings } = useSettings();
   const [error, setError] = useState('');
   const addScope = async () => {
     setError('');
@@ -93,7 +93,7 @@ function FirstSessionTips({ workspace, scope }: { workspace: Workspace; scope: S
             <button
               type="button"
               className="first-session-link"
-              onClick={() => openWorkspaceSettings(workspace.id, 'provider')}
+              onClick={() => openSettings('provider')}
             >
               Connect GitHub
             </button>{' '}

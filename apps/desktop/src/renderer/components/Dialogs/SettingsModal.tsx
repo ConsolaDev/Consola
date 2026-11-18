@@ -1,3 +1,4 @@
+import { useId, type ReactNode } from 'react';
 import { AppUpdatesSection } from '../AppUpdates';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Dialog from '@radix-ui/react-dialog';
@@ -10,9 +11,15 @@ import {
   Keyboard,
   Boxes,
   Folder,
+  Info,
   Minus,
+  Plug,
   Plus,
   ListChecks,
+  Sparkles,
+  Tag,
+  Trash2,
+  type LucideIcon,
 } from 'lucide-react';
 import {
   useSettingsStore,
@@ -20,32 +27,52 @@ import {
   TERMINAL_FONT_SIZE_MAX,
   type ThemeMode,
 } from '../../stores/settingsStore';
-import { useNavigationStore } from '../../stores/navigationStore';
+import type { Workspace } from '../../stores/workspaceStore';
 import { useTheme } from '../../hooks/useTheme';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
+import { ProviderBindingPanel } from '../Provider';
+import { ManifestHeader } from '../WorkspaceSettings/ManifestHeader';
+import { HarnessPanel } from '../WorkspaceSettings/HarnessPanel';
+import { ScopesPanel } from '../WorkspaceSettings/ScopesPanel';
+import { LabelsPanel } from '../WorkspaceSettings/LabelsPanel';
+import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
+import { ActionsPanel } from '../WorkspaceSettings/ActionsPanel';
+import { providerNavLabel } from '../WorkspaceSettings/navLabels';
+import {
+  APP_GROUP,
+  WORKSPACE_GROUP,
+  isWorkspaceSection,
+  type SettingsSection,
+  type WorkspaceSectionId,
+} from './settingsSections';
 import './styles.css';
+// The workspace panels' own rules (ws-*) live with the panels.
+import '../WorkspaceSettings/styles.css';
 
-export type SettingsSection = 'appearance' | 'sessions' | 'harnesses' | 'shortcuts' | 'updates';
-
-interface SettingsSectionConfig {
-  id: SettingsSection;
-  label: string;
-  icon: typeof Palette;
+interface SettingsNavMeta {
+  /** A function for the Provider entry, which is named by what is bound. */
+  label: string | ((workspace: Workspace) => string);
+  icon: LucideIcon;
+  danger?: boolean;
 }
 
-// Only what is global lives here. Everything that belongs to one workspace —
-// name, harness, scopes, provider, actions, groups, deletion — has a modal of
-// its own, opened from the workspace menu.
-const sections: SettingsSectionConfig[] = [
-  { id: 'updates', label: 'Updates', icon: Monitor },
-  { id: 'appearance', label: 'Appearance', icon: Palette },
-  { id: 'sessions', label: 'Sessions', icon: ListChecks },
-  { id: 'harnesses', label: 'Harnesses', icon: Boxes },
-  { id: 'shortcuts', label: 'Keyboard Shortcuts', icon: Keyboard },
-];
+// A Record, not a second array: TypeScript itself rejects a missing section
+// id here, so typecheck proves every section has a label and an icon.
+const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
+  appearance: { label: 'Appearance', icon: Palette },
+  sessions: { label: 'Sessions', icon: ListChecks },
+  harnesses: { label: 'Harnesses', icon: Boxes },
+  shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
+  updates: { label: 'Updates', icon: Monitor },
+  general: { label: 'General', icon: Info },
+  scopes: { label: 'Scopes', icon: Folder },
+  provider: { label: providerNavLabel, icon: Plug },
+  actions: { label: 'Actions', icon: Sparkles },
+  labels: { label: 'Labels', icon: Tag },
+  danger: { label: 'Danger zone', icon: Trash2, danger: true },
+};
 
 const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
   { value: 'light', label: 'Light', icon: Sun },
@@ -54,66 +81,87 @@ const themeOptions: { value: ThemeMode; label: string; icon: typeof Sun }[] = [
 ];
 
 interface SettingsModalProps {
-  activeSection: SettingsSection;
-  onSectionChange: (section: SettingsSection) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  section: SettingsSection;
+  onSectionChange: (section: SettingsSection) => void;
+  /** The workspace this window is on. Null leaves the Workspace group out. */
+  workspace: Workspace | null;
 }
 
+/**
+ * Every setting, in one dialog. The list says whose each one is: the App
+ * group is the same in every workspace, the Workspace group edits the one
+ * this window is on and names it, and Updates sits apart at the bottom
+ * because it is about the app itself rather than a preference.
+ */
 export function SettingsModal({
   open,
   onOpenChange,
-  activeSection,
+  section,
   onSectionChange,
+  workspace,
 }: SettingsModalProps) {
   const { theme, setTheme, terminalFontSize, setTerminalFontSize } = useSettingsStore();
-  const activeWorkspaceId = useNavigationStore((state) => state.activeWorkspaceId);
-  const { openWorkspaceSettings } = useWorkspaceSettings();
   useTheme();
+
+  const navItem = (id: SettingsSection) => {
+    const { label, icon: Icon, danger } = NAV_META[id];
+    const isActive = section === id;
+    // A label that needs the workspace is only ever rendered inside the
+    // Workspace group, which is not there without one.
+    const text = typeof label === 'string' ? label : workspace ? label(workspace) : '';
+    return (
+      <button
+        key={id}
+        type="button"
+        className={['settings-modal-nav-item', isActive && 'active', danger && 'danger']
+          .filter(Boolean)
+          .join(' ')}
+        aria-current={isActive ? 'true' : undefined}
+        onClick={() => onSectionChange(id)}
+      >
+        <Icon size={16} />
+        <span>{text}</span>
+      </button>
+    );
+  };
 
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
         <Dialog.Overlay className="dialog-overlay settings-modal-overlay" />
-        <Dialog.Content className="settings-modal-content">
+        <Dialog.Content
+          className="settings-modal-content"
+          // Focus starts on the section being shown, not on the top of the
+          // list: a door that opens Scopes should not leave the keyboard on
+          // Appearance, one Enter away from leaving it.
+          onOpenAutoFocus={(event) => {
+            const current = event.currentTarget;
+            if (!(current instanceof HTMLElement)) return;
+            const active = current.querySelector<HTMLElement>(
+              '.settings-modal-nav-item[aria-current="true"]',
+            );
+            if (!active) return;
+            event.preventDefault();
+            active.focus();
+          }}
+        >
           <Dialog.Title className="sr-only">Settings</Dialog.Title>
 
           <nav className="settings-modal-nav" aria-label="Settings sections">
             <div className="settings-modal-nav-header">Settings</div>
-            {/* Stands where the Workspace tab was, so muscle memory has
-                somewhere to land for this release. Dialog.Close composes its
-                own onClick after ours: two independent state updates — open
-                the workspace modal, close this one — in a single commit. */}
-            <Dialog.Close asChild>
-              <button
-                type="button"
-                className="settings-modal-nav-pointer"
-                onClick={() => openWorkspaceSettings()}
-                disabled={activeWorkspaceId === null}
-                title={
-                  activeWorkspaceId === null ? 'Open a workspace to manage it here.' : undefined
-                }
-              >
-                <Folder size={14} />
-                <span>Workspace settings are in the workspace menu</span>
-              </button>
-            </Dialog.Close>
-            {sections.map(({ id, label, icon: Icon }) => (
-              <button
-                key={id}
-                type="button"
-                className={`settings-modal-nav-item ${activeSection === id ? 'active' : ''}`}
-                aria-current={activeSection === id ? 'true' : undefined}
-                onClick={() => onSectionChange(id)}
-              >
-                <Icon size={16} />
-                <span>{label}</span>
-              </button>
-            ))}
+            <NavGroup label="App">{APP_GROUP.map(navItem)}</NavGroup>
+            {workspace && (
+              <NavGroup label="Workspace" name={workspace.name}>
+                {WORKSPACE_GROUP.map(navItem)}
+              </NavGroup>
+            )}
+            <div className="settings-modal-nav-footer">{navItem('updates')}</div>
           </nav>
 
           <div className="settings-modal-body">
-            {activeSection === 'appearance' && (
+            {section === 'appearance' && (
               <AppearanceSection
                 theme={theme}
                 setTheme={setTheme}
@@ -121,10 +169,15 @@ export function SettingsModal({
                 setTerminalFontSize={setTerminalFontSize}
               />
             )}
-            {activeSection === 'sessions' && <SessionsSection />}
-            {activeSection === 'harnesses' && <HarnessesSection />}
-            {activeSection === 'shortcuts' && <ShortcutsSection />}
-            {activeSection === 'updates' && <AppUpdatesSection />}
+            {section === 'sessions' && <SessionsSection />}
+            {section === 'harnesses' && <HarnessesSection />}
+            {section === 'shortcuts' && <ShortcutsSection />}
+            {section === 'updates' && <AppUpdatesSection />}
+            {/* Keyed by workspace: no draft, open rename or pending
+                confirmation survives into another workspace's record. */}
+            {workspace && isWorkspaceSection(section) && (
+              <WorkspaceSection key={workspace.id} workspace={workspace} section={section} />
+            )}
           </div>
 
           <Dialog.Close asChild>
@@ -135,6 +188,60 @@ export function SettingsModal({
         </Dialog.Content>
       </Dialog.Portal>
     </Dialog.Root>
+  );
+}
+
+/**
+ * One heading and the sections under it. The Workspace group's heading
+ * carries the workspace's name, so what belongs to this workspace never
+ * reads as an app-wide setting.
+ */
+function NavGroup({
+  label,
+  name,
+  children,
+}: {
+  label: string;
+  name?: string;
+  children: ReactNode;
+}) {
+  const headingId = useId();
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: a fieldset is for form controls; these are navigation buttons.
+    <div className="settings-modal-nav-group" role="group" aria-labelledby={headingId}>
+      <div id={headingId} className="settings-modal-nav-group-label" title={name}>
+        {name ? `${label} · ${name}` : label}
+      </div>
+      {children}
+    </div>
+  );
+}
+
+function WorkspaceSection({
+  workspace,
+  section,
+}: {
+  workspace: Workspace;
+  section: WorkspaceSectionId;
+}) {
+  return (
+    <div className="settings-modal-section">
+      {section === 'general' && (
+        <>
+          <ManifestHeader workspace={workspace} />
+          <HarnessPanel workspace={workspace} />
+        </>
+      )}
+      {section === 'scopes' && <ScopesPanel workspace={workspace} />}
+      {section === 'provider' && (
+        <section className="ws-panel">
+          <ProviderBindingPanel workspace={workspace} />
+        </section>
+      )}
+      {section === 'actions' && <ActionsPanel workspace={workspace} />}
+      {section === 'labels' && <LabelsPanel workspace={workspace} />}
+      {section === 'danger' && <DangerZonePanel workspace={workspace} />}
+    </div>
   );
 }
 
@@ -242,7 +349,7 @@ function ShortcutsSection() {
 
   return (
     <div className="settings-modal-section">
-      <h2 className="settings-modal-section-title">Keyboard Shortcuts</h2>
+      <h2 className="settings-modal-section-title">Keyboard shortcuts</h2>
       <div className="settings-modal-shortcuts">
         {shortcuts.map(({ label, key }) => (
           <div key={label} className="settings-modal-shortcut">

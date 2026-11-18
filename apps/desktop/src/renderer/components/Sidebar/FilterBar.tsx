@@ -23,7 +23,7 @@ import {
   type FacetValue,
 } from '../../utils/sessionFilters';
 import { filteredScope, useHomeStore } from '../../stores/homeStore';
-import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
+import { useSettings } from '../../contexts/SettingsContext';
 import { addScopeViaDialog } from '../../utils/scopeActions';
 import { chooseScope, clearAllFilters } from '../../utils/sessionActions';
 import { isSessionDrag, leftDropTarget } from './sessionDrag';
@@ -64,7 +64,7 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
   const filterId = useHomeStore((state) => state.scopeFilters[workspace.id]);
   const scope = filteredScope(workspace, filterId);
   const trail = scope ? scopeTrail(workspace.scopes, scope) : undefined;
-  const { openWorkspaceSettings } = useWorkspaceSettings();
+  const { openSettings } = useSettings();
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
   const [newLabel, setNewLabel] = useState('');
@@ -361,10 +361,7 @@ export function FilterBar({ workspace }: { workspace: Workspace }) {
                 <Plus size={14} aria-hidden="true" />
                 Add scope
               </DropdownMenu.Item>
-              <DropdownMenu.Item
-                className="dropdown-item"
-                onSelect={() => openWorkspaceSettings(workspace.id, 'scopes')}
-              >
+              <DropdownMenu.Item className="dropdown-item" onSelect={() => openSettings('scopes')}>
                 <Settings size={14} aria-hidden="true" />
                 Manage scopes…
               </DropdownMenu.Item>

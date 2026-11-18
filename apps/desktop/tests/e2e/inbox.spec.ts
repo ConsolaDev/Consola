@@ -435,7 +435,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     // and closing it leaves the Inbox exactly where it was (Phase A: the
     // sidebar row stays the active one).
     await page.locator('.inbox-settings-button').click();
-    const settingsFromGear = page.getByRole('dialog', { name: 'Sprocket' });
+    const settingsFromGear = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(settingsFromGear).toBeVisible();
     await settingsFromGear.getByRole('button', { name: 'Close' }).click();
     await expect(settingsFromGear).toBeHidden();
@@ -592,7 +592,7 @@ test('sections, views and filters render; actions, links and renames flow throug
     // it was started under, because workItemAction is a snapshot.
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const settings = page.getByRole('dialog', { name: 'Sprocket' });
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(settings).toBeVisible();
     await settings.getByRole('button', { name: 'Actions' }).click();
     // Ruling 1: the shipped master/detail editor -- Edit opens the row,

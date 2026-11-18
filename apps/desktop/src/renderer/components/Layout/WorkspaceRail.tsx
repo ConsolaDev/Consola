@@ -146,7 +146,7 @@ export function WorkspaceRail() {
             className="workspace-rail-settings"
             aria-label="Settings"
             title="Settings"
-            onClick={openSettings}
+            onClick={() => openSettings()}
           >
             <Settings size={22} />
           </button>

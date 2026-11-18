@@ -368,7 +368,12 @@ test('templates add through the runner, and say what is missing', async () => {
     await expect(review.getByRole('button', { name: 'Add', exact: true })).toBeDisabled();
     await expect(review.getByRole('button', { name: 'Customize…' })).toBeDisabled();
     // What it lacks is a way to get it: straight to that part of Workspace settings.
-    await expect(review.getByRole('button', { name: 'Connect a GitHub account' })).toBeEnabled();
+    await review.getByRole('button', { name: 'Connect a GitHub account' }).click();
+    const settings = page.getByRole('dialog', { name: 'Settings', exact: true });
+    // Nothing is bound yet, so the section still reads generically.
+    await expect(settings.locator('.settings-modal-nav-item.active')).toHaveText('Provider');
+    await settings.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(settings).toBeHidden();
 
     // The cleanup is never dimmed, and needs nothing.
     const cleanup = dashboard

@@ -136,7 +136,11 @@ function AgentCheck() {
           >
             Check again
           </button>
-          <button type="button" className="home-link-button" onClick={openSettings}>
+          <button
+            type="button"
+            className="home-link-button"
+            onClick={() => openSettings('harnesses')}
+          >
             Agent settings
           </button>
         </span>

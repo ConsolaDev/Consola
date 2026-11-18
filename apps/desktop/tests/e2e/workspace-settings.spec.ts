@@ -151,7 +151,7 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
       .poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces[0].icon)
       .toBe('emoji-rocket');
     await page
-      .getByRole('dialog', { name: 'Sprocket', exact: true })
+      .getByRole('dialog', { name: 'Settings', exact: true })
       .getByRole('button', { name: 'Close', exact: true })
       .click();
     await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute(
@@ -194,10 +194,10 @@ test('workspace icons can be searched, selected, reloaded and reset', async ({},
     await page.getByRole('button', { name: 'Change workspace icon' }).click();
     await picker.getByRole('searchbox').press('Escape');
     await expect(picker).toBeHidden();
-    await expect(page.getByRole('dialog', { name: 'Sprocket', exact: true })).toBeVisible();
+    await expect(page.getByRole('dialog', { name: 'Settings', exact: true })).toBeVisible();
     await expect(page.getByRole('button', { name: 'Change workspace icon' })).toBeFocused();
     await page
-      .getByRole('dialog', { name: 'Sprocket', exact: true })
+      .getByRole('dialog', { name: 'Settings', exact: true })
       .getByRole('button', { name: 'Close', exact: true })
       .click();
     await expect(workspaceButton(page).locator('[data-workspace-icon]')).toHaveAttribute(
@@ -415,11 +415,30 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
     await page.getByRole('menuitem', { name: 'Tools', exact: true }).focus();
     await page.keyboard.press('ArrowRight');
     await page.getByRole('menuitem', { name: 'Actions…', exact: true }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Actions');
     await expect
       .poll(() => modal.evaluate((element) => element.contains(document.activeElement)))
       .toBe(true);
+
+    // A workspace section never outlives the window's move to another
+    // workspace: the dialog closes rather than edit the one just left.
+    await page.keyboard.press(`${modifier}+Digit2`);
+    await expect(modal).toBeHidden();
+    await expect(added).toHaveAttribute('aria-current', 'true');
+
+    // An app-wide section has nothing to protect, so it stays open across the
+    // same move, and the Workspace group follows the window.
+    await page.keyboard.press(settingsChord());
+    await modal.getByRole('button', { name: 'Appearance', exact: true }).click();
+    await expect(
+      modal.getByRole('group', { name: `Workspace · ${addedName}`, exact: true }),
+    ).toBeVisible();
+    await page.keyboard.press(`${modifier}+Digit1`);
+    await expect(
+      modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true }),
+    ).toBeVisible();
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
 
     await page.locator('.sidebar-toggle').click();
@@ -443,19 +462,32 @@ test('the workspace rail sits beside Home, adds workspaces, and stays available 
   }
 });
 
-test('the workspace menu opens a modal titled by the workspace; the global modal only points at it', async () => {
+test('one Settings dialog lists the app, the workspace and Updates, whichever door opened it', async ({}, testInfo) => {
   test.setTimeout(60_000);
   const { page, cleanup } = await launchSeeded();
   try {
     await holdWorkspace(page);
 
-    // The front door: the workspace menu.
+    // The workspace menu is a door straight to the workspace's own sections.
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(modal).toBeVisible();
-    await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('General');
+    // The keyboard starts on the section the door opened, not the top of the list.
+    await expect(modal.getByRole('button', { name: 'General', exact: true })).toBeFocused();
+
+    // Each group says whose settings these are; the workspace's names it.
+    const appGroup = modal.getByRole('group', { name: 'App', exact: true });
+    await expect(appGroup.locator('.settings-modal-nav-item')).toHaveText([
+      'Appearance',
+      'Sessions',
+      'Harnesses',
+      'Keyboard shortcuts',
+    ]);
+    const workspaceGroup = modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true });
+    await expect(workspaceGroup.locator('.settings-modal-nav-item')).toHaveText([
       'General',
       'Scopes',
       'GitHub', // providerNavLabel: the bound provider's display name
@@ -463,6 +495,28 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'Labels',
       'Danger zone',
     ]);
+
+    // Updates belongs to neither group: it is the last entry, alone at the
+    // bottom edge of the list.
+    const nav = modal.getByRole('navigation', { name: 'Settings sections', exact: true });
+    await expect(nav.locator('.settings-modal-nav-item').last()).toHaveText('Updates');
+    await expect(nav.locator('.settings-modal-nav-item')).toHaveCount(11);
+    const navBox = (await nav.boundingBox())!;
+    const updatesBox = (await nav
+      .getByRole('button', { name: 'Updates', exact: true })
+      .boundingBox())!;
+    const dangerBox = (await nav
+      .getByRole('button', { name: 'Danger zone', exact: true })
+      .boundingBox())!;
+    expect(updatesBox.y).toBeGreaterThan(dangerBox.y + dangerBox.height);
+    expect(navBox.y + navBox.height - (updatesBox.y + updatesBox.height)).toBeLessThan(24);
+
+    // Nothing sends the person to another dialog any more.
+    await expect(modal.getByText('Workspace settings are in the workspace menu')).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath('settings-workspace-general.png'),
+      animations: 'disabled',
+    });
 
     // General lands first: the manifest with the name editable in place.
     await expect(modal.getByLabel('Workspace name')).toHaveValue('Sprocket');
@@ -473,28 +527,23 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
     await modal.getByRole('button', { name: 'Danger zone', exact: true }).click();
     await expect(modal.getByRole('button', { name: 'Delete workspace…' })).toBeVisible();
 
+    // An app-wide section is one click away in the same list.
+    await modal.getByRole('button', { name: 'Harnesses', exact: true }).click();
+    await expect(modal.getByRole('heading', { name: 'Harnesses', exact: true })).toBeVisible();
+    await expect(modal.getByRole('button', { name: 'Delete workspace…' })).toHaveCount(0);
+    await page.screenshot({
+      path: testInfo.outputPath('settings-app-harnesses.png'),
+      animations: 'disabled',
+    });
+
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
 
-    // The chord still opens the global modal, which no longer lists Workspace.
+    // The chord reopens the same dialog where this window left it.
     await page.keyboard.press(settingsChord());
-    const global = page.getByRole('dialog', { name: 'Settings', exact: true });
-    await expect(global).toBeVisible();
-    await expect(global.locator('.settings-modal-nav-item')).toHaveText([
-      'Updates',
-      'Appearance',
-      'Sessions',
-      'Harnesses',
-      'Keyboard Shortcuts',
-    ]);
-
-    // The pointer row is a door: it closes this modal and opens the other.
-    await global
-      .getByRole('button', { name: 'Workspace settings are in the workspace menu' })
-      .click();
-    await expect(global).toBeHidden();
     await expect(modal).toBeVisible();
-    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('General');
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Harnesses');
+    await expect(workspaceGroup).toBeVisible();
 
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
@@ -503,35 +552,44 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
   }
 });
 
-test('the workspace rail gear opens the global modal; the workspace modal commits a rename, shows the Actions panel, and Cancel on delete leaves Danger zone active', async () => {
+test('the rail gear opens Settings on Appearance with no Workspace group until a workspace is open; a rename shows in the group heading, the Actions panel edits, and deleting the workspace closes the dialog', async () => {
   test.setTimeout(60_000);
   const { page, stateFile, cleanup } = await launchSeeded();
   try {
-    // The workspace rail footer gear is the other door into Settings, and it opens
-    // the global modal (not a workspace one), landing on Appearance.
+    // The workspace rail footer gear is the other door into Settings, landing
+    // on Appearance. No workspace is held yet, so there is nothing for a
+    // Workspace group to edit and the list leaves it out.
     await page.getByRole('button', { name: /^Settings/ }).click();
-    const global = page.getByRole('dialog', { name: 'Settings', exact: true });
-    await expect(global).toBeVisible();
-    await expect(global.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
-    await global.getByRole('button', { name: 'Close', exact: true }).click();
-    await expect(global).toBeHidden();
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
+    await expect(modal).toBeVisible();
+    await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Appearance');
+    await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
+      'Appearance',
+      'Sessions',
+      'Harnesses',
+      'Keyboard shortcuts',
+      'Updates',
+    ]);
+    await expect(modal.getByRole('group', { name: /^Workspace/ })).toHaveCount(0);
+    await modal.getByRole('button', { name: 'Close', exact: true }).click();
+    await expect(modal).toBeHidden();
 
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
 
-    // Named generically from here: General's rename changes the dialog's own
-    // accessible name, so a locator pinned to the old name would stop
-    // matching once the rename commits.
-    const modal = page.getByRole('dialog');
     await expect(modal).toBeVisible();
-    await expect(modal).toHaveAccessibleName('Sprocket');
+    await expect(
+      modal.getByRole('group', { name: 'Workspace · Sprocket', exact: true }),
+    ).toBeVisible();
 
     // General: Enter commits the draft, same as ManifestHeader's own
-    // keydown handler, and the dialog title follows immediately.
+    // keydown handler, and the group heading follows immediately.
     await modal.getByLabel('Workspace name').fill('Sprocket Renamed');
     await modal.getByLabel('Workspace name').press('Enter');
-    await expect(modal).toHaveAccessibleName('Sprocket Renamed');
+    await expect(
+      modal.getByRole('group', { name: 'Workspace · Sprocket Renamed', exact: true }),
+    ).toBeVisible();
 
     // The switcher trigger picks up the new name too — checked with the
     // modal closed, since Radix hides the rest of the page from the
@@ -575,8 +633,8 @@ test('the workspace rail gear opens the global modal; the workspace modal commit
     await expect(actionsPanel.getByText('An action needs a prompt.')).toBeVisible();
     await expect(actionsPanel.getByLabel('Action name')).toBeVisible();
 
-    // Danger zone: Cancel on the confirmation leaves the workspace modal
-    // open with Danger zone still the active section.
+    // Danger zone: Cancel on the confirmation leaves the dialog open with
+    // Danger zone still the active section.
     await modal.getByRole('button', { name: 'Danger zone', exact: true }).click();
     await modal.getByRole('button', { name: 'Delete workspace…' }).click();
     const confirm = page.getByRole('dialog', { name: 'Delete “Sprocket Renamed”?', exact: true });
@@ -585,6 +643,15 @@ test('the workspace rail gear opens the global modal; the workspace modal commit
     await expect(confirm).toBeHidden();
     await expect(modal).toBeVisible();
     await expect(modal.locator('.settings-modal-nav-item.active')).toHaveText('Danger zone');
+
+    // Confirming takes the workspace away, and the dialog with it: its
+    // sections have nothing left to edit.
+    await modal.getByRole('button', { name: 'Delete workspace…' }).click();
+    await confirm.getByRole('button', { name: 'Delete workspace', exact: true }).click();
+    await expect(modal).toBeHidden();
+    await expect
+      .poll(() => JSON.parse(fs.readFileSync(stateFile, 'utf8')).workspaces.length)
+      .toBe(0);
   } finally {
     await cleanup();
   }
@@ -720,7 +787,7 @@ test('the command palette offers Workspace settings… for the held workspace', 
     await palette.getByRole('option', { name: 'Workspace settings…' }).click();
 
     await expect(palette).toBeHidden();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await expect(modal).toBeVisible();
     await modal.getByRole('button', { name: 'Close', exact: true }).click();
     await expect(modal).toBeHidden();
@@ -815,7 +882,7 @@ test('scope deletion requires typing delete, stops its sessions and preserves wo
     await page.locator('.session-nav-item').filter({ hasText: 'Ungrouped session' }).click();
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await modal.getByRole('button', { name: 'Scopes', exact: true }).click();
     await expect(modal.getByText(/Close or delete its/)).toHaveCount(0);
     const remove = modal.getByRole('button', { name: 'Delete scope catalog-portal' });
@@ -954,7 +1021,7 @@ test('scope editing saves name and location together, supports cancel, and expos
     await holdWorkspace(page);
     await page.getByRole('button', { name: / workspace menu$/ }).click();
     await page.getByRole('menuitem', { name: 'Workspace settings…' }).click();
-    const modal = page.getByRole('dialog', { name: 'Sprocket', exact: true });
+    const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await modal.getByRole('button', { name: 'Scopes', exact: true }).click();
     await expect(modal.getByRole('button', { name: 'Delete scope catalog-portal' })).toBeEnabled();
     await expect(modal.getByText('Add another scope before removing this one.')).toHaveCount(0);
