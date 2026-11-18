@@ -176,10 +176,9 @@ export interface HarnessDriver {
   /**
    * The commands, agents and models this CLI offers, asked of the CLI itself.
    *
-   * Optional: a CLI with no
-   * way to enumerate its own features simply omits this, and the composer
-   * goes without autocomplete rather than waiting on an answer that never
-   * comes.
+   * Optional: a CLI with no way to enumerate its own features simply omits
+   * this, and the composer goes without autocomplete rather than waiting on
+   * an answer that never comes.
    *
    * Unlike the other methods here this one may reject. It talks to a separate
    * process over a pipe, so a missing binary, a hung child and unrecognised

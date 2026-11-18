@@ -214,8 +214,8 @@ export const HARNESS_DRIVERS: ReadonlyArray<{
    * Whether this CLI can describe its own commands, agents and models.
    *
    * Declared here so a driver that cannot answer is not waited on: the
-   * composer must not sit on a probe that will never succeed. Must match whether the driver implements
-   * `probeCapabilities`.
+   * composer must not sit on a probe that will never succeed. Must match
+   * whether the driver implements `probeCapabilities`.
    */
   supportsCapabilities: boolean;
   /**

@@ -316,6 +316,8 @@ export function installMock() {
       Object.assign(workspace(id).sessions.find((s) => s.id === sessionId)!, updates);
       publish();
     },
+    // The demo has no model to write a title with; the name stays as it is.
+    regenerateSessionTitle: async () => {},
     deleteSession: async (id, sessionId) => {
       const w = workspace(id);
       w.sessions = w.sessions.filter((s) => s.id !== sessionId);
@@ -443,7 +445,6 @@ export function installMock() {
       version: 'Demo',
       resolvedBinary: fields.driverId || 'claude',
     }),
-    getSessionName: async () => null,
     getSessionModel: async () => null,
     getCapabilities: async () => ({
       supported: false,

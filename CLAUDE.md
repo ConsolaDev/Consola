@@ -59,7 +59,7 @@ src/shared/         → Shared types and IPC channel constants
 - `ScreenModel.ts` - Headless xterm mirroring what a PTY displays
 - `LoginEnvironment.ts` - The ambient login-shell environment, shared by every driver
 - `drivers/` - One driver per agent CLI: binary resolution, argv, env, health probe
-- `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
+- `ClaudeSessionIndex.ts` - Reads Claude's own transcripts
 - `HarnessCapabilitiesCache.ts` - Remembers what each harness said it can offer
 - `harnessSwitch/` - Moves a session onto another harness: plan, handoff documents, `HarnessSwitcher`
 - `sessionTitles/` - Names sessions automatically: `SessionNamer`, title text and prompts

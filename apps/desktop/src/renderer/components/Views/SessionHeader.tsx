@@ -74,6 +74,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
                   onClose={() => setIsRenaming(false)}
                 />
               ) : (
+                // biome-ignore lint/a11y/noStaticElementInteractions: a pointer shortcut only; keyboard renaming is F2 on the sidebar row and Rename in the ⋯ menu
                 <span className="workspace-view-session" onDoubleClick={() => setIsRenaming(true)}>
                   {session.name}
                 </span>

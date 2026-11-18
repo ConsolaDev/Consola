@@ -24,8 +24,10 @@ export interface Session {
   // Main's SessionNamer is the only automatic writer. A person's typed name
   // wins over automatic naming; only Regenerate title replaces it.
   name: string;
-  // A human typed this name, so automatic naming never overwrites it. Set only
-  // for a typed name, never for a generated one.
+  // A name someone chose: typed, given inside the CLI, or set by a tool, the
+  // Assistant, automation authoring or a harness switch's `keepName`. Never
+  // set by automatic titling, which never overwrites such a name; only
+  // Regenerate title replaces it.
   nameIsUserSet?: boolean;
   workspaceId: string; // Parent workspace
   instanceId: string; // Terminal instance ID
