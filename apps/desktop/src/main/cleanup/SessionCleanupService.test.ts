@@ -10,6 +10,9 @@ import type { PullRequestQuery, PullRequestState } from '../providers/pullReques
 import { SessionRemover } from '../SessionRemover';
 import { WorktreeService } from '../WorktreeService';
 import type { ToolScope } from '../tools/Tool';
+import { WorktreeCleanupService } from '../worktreeCleanup';
+import { PathLock } from '../worktreeCleanup/PathLock';
+import type { ProcessSnapshot } from '../worktreeCleanup/ProcessCwdIndex';
 import { SessionCleanupService } from './SessionCleanupService';
 
 /**
@@ -56,6 +59,10 @@ class Rig {
   readonly prs = new Map<string, PullRequestState[]>();
   readonly stopped: string[] = [];
   lookupError: Error | null = null;
+  readonly shown = new Set<string>();
+  readonly held = new Set<string>();
+  readonly activity = new Map<string, number>();
+  processes: ProcessSnapshot = { kind: 'ok', entries: [] };
   workspaces: Workspace[];
   private sequence = 0;
 
@@ -158,12 +165,32 @@ class Rig {
       releaseMcp: () => {},
       removeHandoffs: async () => {},
     });
+    const status = (instanceId: string) => this.statuses.get(instanceId) ?? 'exited';
+    const cleanup = new WorktreeCleanupService({
+      getWorkspaces: () => this.workspaces,
+      status,
+      isShown: (instanceId) => this.shown.has(instanceId),
+      heldSessionIds: () => this.held,
+      lastActiveAt: (session) => this.activity.get(session.id) ?? session.lastActiveAt,
+      ownProcessIds: () => ({ agents: new Set(), shells: new Set() }),
+      worktrees: this.worktrees,
+      processes: { snapshot: async () => this.processes },
+      lock: new PathLock(),
+      stop: (session) => remover.stop(session),
+      recordRemoved: () => {
+        throw new Error('The cleanup tools delete sessions; they never leave a removed record.');
+      },
+      clearRemoved: () => {},
+      now: () => Date.now(),
+      sleep: async () => {},
+    });
     return new SessionCleanupService({
       getWorkspaces: () => this.workspaces,
-      status: (instanceId) => this.statuses.get(instanceId) ?? 'exited',
+      status,
       driverFor: (workspace) => (workspace.provider ? driver : null),
       composeEnv: async () => process.env,
       worktrees: this.worktrees,
+      cleanup,
       remover,
     });
   }
@@ -404,6 +431,63 @@ describe('cleanupStale', () => {
       .cleanupStale(ALL, { prStates: ['merged'], sessionIds: [approved.id] });
     expect(result.removed.map((outcome) => outcome.sessionId)).toEqual([approved.id]);
     expect(fs.existsSync(later.dir)).toBe(true);
+  });
+});
+
+describe('the shared safety rules', () => {
+  it('keeps a worktree an agent moved into from another session', async () => {
+    const { dir, head } = rig.worktree('consola/session-cccc');
+    const done = rig.session({ name: 'Done', cwd: dir });
+    // Launched in the scope folder; its agent entered this worktree since.
+    const visitor = rig.session({ name: 'Visitor', cwd: rig.clone, agentCwd: dir });
+    rig.pr('head:consola/session-cccc', 4, 'merged', head);
+
+    const result = await rig.service().cleanupStale(ALL, { prStates: ['merged'] });
+    expect(result.removed).toEqual([
+      expect.objectContaining({ sessionId: done.id, worktree: 'kept' }),
+    ]);
+    expect(result.removed[0].notes[0]).toMatch(/"Visitor" still uses it/);
+    expect(rig.sessionIds()).toEqual([visitor.id]);
+    expect(fs.existsSync(dir)).toBe(true);
+  });
+
+  it('keeps sessions the new guards protect, under the reasons the tools already report', async () => {
+    const shown = rig.worktree('shown');
+    const recent = rig.worktree('recent');
+    const ignored = rig.worktree('ignored');
+    const running = rig.worktree('running');
+    fs.writeFileSync(path.join(rig.clone, '.git', 'info', 'exclude'), '.env\n');
+    fs.writeFileSync(path.join(ignored.dir, '.env'), 'SECRET=only-here');
+    const sessions = {
+      shown: rig.session({ name: 'shown', cwd: shown.dir }),
+      recent: rig.session({ name: 'recent', cwd: recent.dir }),
+      ignored: rig.session({ name: 'ignored', cwd: ignored.dir }),
+      running: rig.session({ name: 'running', cwd: running.dir }),
+    };
+    for (const [name, tree] of Object.entries({ shown, recent, ignored, running })) {
+      rig.pr(`head:${name}`, 1, 'merged', tree.head);
+    }
+    rig.shown.add(sessions.shown.instanceId);
+    rig.activity.set(sessions.recent.id, Date.now() - 60_000);
+    rig.processes = {
+      kind: 'ok',
+      entries: [{ pid: 99999, command: 'vite', cwd: running.dir }],
+    };
+
+    const result = await rig.service().cleanupStale(ALL, { prStates: ['merged'] });
+    const kept = Object.fromEntries(
+      result.skipped.map((verdict) => [verdict.sessionName, [verdict.reason, verdict.detail]]),
+    );
+    expect(kept).toEqual({
+      shown: ['busy', '"shown" is open in a window'],
+      ignored: ['dirty', '.env exists only here, ignored by git'],
+      running: ['busy', 'Vite is still running in it'],
+    });
+    for (const tree of [shown, ignored, running]) expect(fs.existsSync(tree.dir)).toBe(true);
+    // The quiet period is the sweep's: a cleanup someone asked for acts on a
+    // session used a minute ago, as it always has.
+    expect(result.removed.map((outcome) => outcome.sessionName)).toEqual(['recent']);
+    expect(fs.existsSync(recent.dir)).toBe(false);
   });
 });
 

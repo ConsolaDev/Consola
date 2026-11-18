@@ -1,3 +1,4 @@
+import type { SessionDeleteOutcome, SessionDeletePreview } from '../../shared/worktreeCleanup';
 import type { HarnessSwitchPreview, HarnessSwitchResult } from '../../shared/harnessSwitch';
 import type { SessionCheckout } from '../../shared/sessionCheckout';
 import type {
@@ -92,7 +93,11 @@ export const workspaceBridge = {
     return window.workspaceAPI.switchHarness(workspaceId, sessionId, harnessId);
   },
 
-  deleteSession(workspaceId: string, sessionId: string): Promise<void> {
+  previewSessionDelete(workspaceId: string, sessionId: string): Promise<SessionDeletePreview> {
+    return window.workspaceAPI.previewSessionDelete(workspaceId, sessionId);
+  },
+
+  deleteSession(workspaceId: string, sessionId: string): Promise<SessionDeleteOutcome | undefined> {
     return window.workspaceAPI.deleteSession(workspaceId, sessionId);
   },
 

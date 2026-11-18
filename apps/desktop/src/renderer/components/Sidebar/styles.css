@@ -329,6 +329,13 @@
   flex-shrink: 0;
 }
 
+/* The folder is gone until the session opens: same place, quieter ink. */
+.session-nav-item-worktree-removed,
+.session-nav-item-worktree-removed .session-nav-item-worktree-ref {
+  color: var(--color-text-secondary);
+  font-family: inherit;
+}
+
 .session-nav-item-worktree-ref {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -867,16 +874,29 @@
 }
 
 /* The trailing lock belongs to the corner Restore takes over on hover, so it
-   steps aside with the age rather than peeking out beside the pill. */
-.session-nav-item--compact .session-nav-item-read-only {
+   steps aside with the age rather than peeking out beside the pill. The
+   removed-worktree mark sits with it and steps aside with it. */
+.session-nav-item--compact .session-nav-item-read-only,
+.session-nav-item-worktree-removed-mark {
   transition:
     color var(--transition-fast),
     opacity 120ms var(--ease-out-quart);
 }
 
+.session-nav-item-worktree-removed-mark {
+  display: inline-flex;
+  align-items: center;
+  flex-shrink: 0;
+  color: var(--color-text-tertiary);
+}
+
 .session-nav-item--compact:has(.session-settle-action):hover .session-nav-item-read-only,
 .session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
-  .session-nav-item-read-only {
+  .session-nav-item-read-only,
+.session-nav-item--compact:has(.session-settle-action):hover
+  .session-nav-item-worktree-removed-mark,
+.session-nav-item--compact:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-nav-item-worktree-removed-mark {
   opacity: 0;
 }
 

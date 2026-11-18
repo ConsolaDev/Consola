@@ -1,6 +1,16 @@
 import { useEffect, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
-import { Folder, Info, Plug, Sparkles, Tag, Trash2, X, type LucideIcon } from 'lucide-react';
+import {
+  Folder,
+  FolderGit2,
+  Info,
+  Plug,
+  Sparkles,
+  Tag,
+  Trash2,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
 import { useWorkspaceStore, type Workspace } from '../../stores/workspaceStore';
 import { ProviderBindingPanel } from '../Provider';
 import { ManifestHeader } from './ManifestHeader';
@@ -10,6 +20,7 @@ import { LabelsPanel } from './LabelsPanel';
 import { DangerZonePanel } from './DangerZonePanel';
 import { ActionsPanel } from './ActionsPanel';
 import { providerNavLabel } from './navLabels';
+import { WorktreeCleanupPanel } from '../WorktreeCleanup/WorktreeCleanupPanel';
 import '../Dialogs/styles.css';
 import './styles.css';
 
@@ -19,6 +30,7 @@ export type WorkspaceSettingsSectionId =
   | 'provider'
   | 'actions'
   | 'labels'
+  | 'worktrees'
   | 'danger';
 
 interface WorkspaceSettingsNavMeta {
@@ -34,6 +46,7 @@ const NAV_ORDER: WorkspaceSettingsSectionId[] = [
   'provider',
   'actions',
   'labels',
+  'worktrees',
   'danger',
 ];
 
@@ -46,6 +59,7 @@ const NAV_META: Record<WorkspaceSettingsSectionId, WorkspaceSettingsNavMeta> = {
   provider: { label: providerNavLabel, icon: Plug },
   actions: { label: () => 'Actions', icon: Sparkles },
   labels: { label: () => 'Labels', icon: Tag },
+  worktrees: { label: () => 'Worktrees', icon: FolderGit2 },
   danger: { label: () => 'Danger zone', icon: Trash2, danger: true },
 };
 
@@ -166,6 +180,7 @@ function WorkspaceSettingsBody({
           )}
           {activeSection === 'actions' && <ActionsPanel workspace={workspace} />}
           {activeSection === 'labels' && <LabelsPanel workspace={workspace} />}
+          {activeSection === 'worktrees' && <WorktreeCleanupPanel workspace={workspace} />}
           {activeSection === 'danger' && <DangerZonePanel workspace={workspace} />}
         </div>
       </div>

@@ -137,6 +137,12 @@ export interface TerminalServiceOptions extends HarnessLaunchFields {
   /** Model this session is pinned to, replayed on every relaunch. */
   model?: string;
   /**
+   * Consola's own line for the first spawn to print above the CLI — that a
+   * worktree was rebuilt, say. Written to the screen, never typed into the
+   * PTY, so it is in the snapshot a remounted pane repaints from.
+   */
+  launchNotice?: string;
+  /**
    * MCP config file registered with the CLI on every launch of this
    * session. Set by main for conductor sessions only; opaque here — which
    * flag it becomes is the driver's business.
@@ -283,6 +289,7 @@ export class TerminalService extends EventEmitter {
     this.harness = toHarnessConfig(options);
     this.unattendedPending = options.unattended === true;
     this.forkPending = options.forkFrom;
+    this.launchNotice = options.launchNotice;
     // An unattended turn takes its prompt as its argument: there is no
     // composer to type it into.
     if (this.driver.initialPromptViaArgs || this.unattendedPending) {
@@ -533,9 +540,15 @@ export class TerminalService extends EventEmitter {
   }
 
   /** Restart Claude after it exited, resuming the same conversation. */
-  public restartClaude(cwd?: string): void {
+  /** The agent CLI's process id while it runs. */
+  public pid(): number | undefined {
+    return this.claudePty?.pid;
+  }
+
+  public restartClaude(cwd?: string, notice?: string): void {
     if (this.claudePty || this.isLaunching) return;
     if (cwd !== undefined) this.options.cwd = cwd;
+    if (notice) this.launchNotice = notice;
     this.disposeScreen();
     // The screen the flag described is gone with it. Only classifyScreen()
     // ever clears this, and it does not run until the new PTY paints

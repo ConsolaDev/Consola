@@ -1,4 +1,5 @@
 import type { AttentionRecord } from './attention';
+import { DEFAULT_WORKTREE_CLEANUP_RULES, type WorktreeCleanupRules } from './worktreeCleanup';
 
 /**
  * Preferences main itself has to read. The renderer's settings live in
@@ -15,6 +16,8 @@ export interface Preferences {
    * is open (or the app quits first) is still given on the next look.
    */
   pendingAutoSettle: string[];
+  /** When a session's worktree is removed on its own. Every rule is off by default. */
+  worktreeCleanup: WorktreeCleanupRules;
 }
 
 /** On by default: old work leaves the list by itself, and says so the first time. */
@@ -27,6 +30,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   autoSettleDays: DEFAULT_AUTO_SETTLE_DAYS,
   hasExplainedAutoSettle: false,
   pendingAutoSettle: [],
+  worktreeCleanup: DEFAULT_WORKTREE_CLEANUP_RULES,
 };
 
 /**

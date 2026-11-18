@@ -1,3 +1,4 @@
+import { DeleteSessionDialog } from './components/Dialogs/DeleteSessionDialog';
 import { createHashRouter } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { LinkSessionDialog } from './components/Dialogs/LinkSessionDialog';
@@ -18,6 +19,7 @@ function LayoutWithProviders() {
           {/* Mounted here, not in the Sidebar: the sidebar unmounts when
               hidden, and the dialog is opened from three unrelated trees. */}
           <LinkSessionDialog />
+          <DeleteSessionDialog />
         </CommandPaletteProvider>
       </SettingsProvider>
     </WorkspaceSettingsProvider>

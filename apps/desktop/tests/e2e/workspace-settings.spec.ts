@@ -461,6 +461,7 @@ test('the workspace menu opens a modal titled by the workspace; the global modal
       'GitHub', // providerNavLabel: the bound provider's display name
       'Actions',
       'Labels',
+      'Worktrees',
       'Danger zone',
     ]);
 

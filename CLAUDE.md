@@ -62,6 +62,7 @@ src/shared/         → Shared types and IPC channel constants
 - `ClaudeSessionIndex.ts` - Reads Claude's own transcripts and session index
 - `HarnessCapabilitiesCache.ts` - Remembers what each harness said it can offer
 - `harnessSwitch/` - Moves a session onto another harness: plan, handoff documents, `HarnessSwitcher`
+- `worktreeCleanup/` - Removes Consola's worktrees when their work is done, and rebuilds them: `policy.judge`, `WorktreeExecutor`, `WorktreeRebuilder`, the sweep
 
 ### Renderer Organization
 - `components/` - React components with co-located `styles.css`
@@ -187,6 +188,67 @@ Whether a folder *is* a worktree is asked of git (`readCheckout`, cached per
 folder in `checkoutStore`), not inferred from the record: a scope can itself
 be a worktree. The header's checkout chip and the sidebar's worktree line read
 that one answer, so they cannot name different branches for one session.
+
+### Worktrees Are Removed, Sessions Stay
+
+Consola removes its own worktrees (direct children of
+`~/.consola/worktrees`, `isManagedPath`) when their work is done, by rules
+the person turns on: a finished pull request, a session settled for N days,
+an automation run that ended, or deleting the session. Every rule is off by
+default, globally (`Preferences.worktreeCleanup`) and per workspace
+(`Workspace.worktreeCleanup`: absent inherits, `off`, or `custom`). Agents
+reach the same removal through `consola_cleanup_stale_sessions` and
+`consola_delete_session` (`SessionCleanupService`), which keep their contract
+and always delete the session.
+
+- **One decision function.** `worktreeCleanup/policy.ts` `judge` decides
+  every removal, for every caller — the sweep, Preview, the delete dialog,
+  "Clean up now", the MCP tools — from facts `FactGatherer` reads. It does no
+  IO, and any fact that is missing or unreadable keeps the worktree. Only
+  `WorktreeExecutor` touches disk, and it judges again, from fresh facts,
+  under the folder's lock first. Never `--force`: git's refusal of a dirty
+  tree is the last guard. Main writes every sentence a verdict carries; the
+  renderer shows them and never interprets a reason.
+- **What keeps a worktree** is listed once, in `treeBlockers` and
+  `userBlockers`: anything uncommitted, unpushed, hidden from `git status`
+  (skip-worktree, assume-unchanged), ignored with no identical copy in the
+  main checkout (rebuildable folders like `node_modules` excepted), a nested
+  repository, a lock, a process still running in it (`lsof`; unreadable is
+  unknown), a session on it that is working, waiting, held by a run, open in
+  a window or active within the hour, and any other session still using it
+  through `cwd` or `agentCwd`.
+- **The session stays.** For the sweep's rules the session keeps its
+  record and `cwd`; the executor writes `Session.removedWorktree` on every
+  session of the tree (`WorkspaceService.recordWorktreesRemoved`, its one
+  writer with `clearWorktreeRemoved`) and a keep-ref,
+  `refs/consola/worktrees/<folder>`, at HEAD in the clone — record before
+  removal, so a crash leaves a record over a folder that still exists, which
+  the rebuild reads as "exists". The keep-ref is what keeps the commit: a
+  pull request's checkout can be detached, or its branch reset by a later
+  checkout, and gc drops what nothing references. It goes after a rebuild,
+  and when the last session naming the folder is deleted.
+- **A rebuild uses the same path and the recorded commit**
+  (`WorktreeRebuilder`, `WorktreeService.restore`), with git hooks off. Never
+  `ensureWorktree`, `refreshPullRequest` or the provider's checkout: those
+  move to a pull request's latest head, and Claude trusts a folder per path,
+  so a full-tools session rebuilt onto commits it never saw would load their
+  hooks and settings with no trust prompt. Every spawn of a recorded session
+  rebuilds first (`TERMINAL_CREATE`, `TERMINAL_RESTART`, the shells,
+  `SessionLauncher.resolveFolder`), and the pane says so (`launchNotice`).
+  `checkoutPathForSession` answers `undefined` while a worktree is removed.
+- **Only the rebuilder recreates a folder a record names.** `ensureWorktree`
+  hands such a path to it (`restoreRemoved`) before anything else, so an
+  Inbox click or an automation run lands on the recorded commit rather than
+  recreating the folder at the latest head under an already-trusted path.
+- **One lock per folder** (`PathLock`, keyed by real path): removal, rebuild,
+  `ensureWorktree`, `refreshPullRequest` and a new session's checkout all take
+  it — a per-item chain outside, the path lock inside. A folder just handed
+  out counts as in use for ten minutes (`recentlyPrepared`), covering the gap
+  before the session that will use it is recorded.
+- **Branches.** A rule that keeps the session keeps the branch, so the
+  session can be rebuilt. Deleting a session deletes only a `consola/*`
+  branch or one whose pull request is finished, compare-and-swap at the
+  commit that was checked.
 
 ### Never Type Into a Confirmation Menu
 
@@ -396,6 +458,7 @@ All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation
 - `dialog:*` - Native dialogs
+- `worktree-cleanup:*` - Cleanup preview, "Clean up now", history, and a deleted session's outcome
 
 Every terminal message carries `instanceId`; there is one terminal per session.
 

@@ -22,6 +22,12 @@ describe('PreferencesService', () => {
       autoSettleDays: 7,
       hasExplainedAutoSettle: false,
       pendingAutoSettle: [],
+      worktreeCleanup: {
+        prFinished: false,
+        sessionDeleted: false,
+        settledDays: 0,
+        runFinished: { enabled: false, afterMinutes: 60 },
+      },
     });
   });
 
@@ -50,7 +56,60 @@ describe('PreferencesService', () => {
       autoSettleDays: 7,
       hasExplainedAutoSettle: true,
       pendingAutoSettle: ['a'],
+      worktreeCleanup: {
+        prFinished: false,
+        sessionDeleted: false,
+        settledDays: 0,
+        runFinished: { enabled: false, afterMinutes: 60 },
+      },
     });
+  });
+
+  it('reads worktree cleanup rules field by field, every one off by default', () => {
+    fs.writeFileSync(
+      file(),
+      JSON.stringify({
+        worktreeCleanup: {
+          prFinished: true,
+          sessionDeleted: 'yes',
+          settledDays: -3,
+          runFinished: { enabled: true, afterMinutes: 'later' },
+          extra: 'dropped',
+        },
+      }),
+    );
+    const service = build();
+    service.load();
+    expect(service.get().worktreeCleanup).toEqual({
+      prFinished: true,
+      sessionDeleted: false,
+      settledDays: 0,
+      runFinished: { enabled: true, afterMinutes: 60 },
+    });
+  });
+
+  it('sets the rules from known keys and hands out copies', () => {
+    const service = build();
+    service.load();
+    const listener = vi.fn();
+    service.onChange(listener);
+    service.setWorktreeCleanup({
+      settledDays: 7,
+      runFinished: { enabled: true, afterMinutes: 15 },
+    });
+    const rules = service.get().worktreeCleanup;
+    expect(rules).toEqual({
+      prFinished: false,
+      sessionDeleted: false,
+      settledDays: 7,
+      runFinished: { enabled: true, afterMinutes: 15 },
+    });
+    rules.runFinished.afterMinutes = 999;
+    expect(service.get().worktreeCleanup.runFinished.afterMinutes).toBe(15);
+    expect(listener).toHaveBeenCalledTimes(1);
+    const reloaded = build();
+    reloaded.load();
+    expect(reloaded.get().worktreeCleanup.settledDays).toBe(7);
   });
 
   it('persists a changed threshold, and 0 means off', () => {

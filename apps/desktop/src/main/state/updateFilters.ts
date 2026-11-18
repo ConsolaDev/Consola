@@ -1,5 +1,6 @@
 import type { Group, Label, Scope, SessionUpdates, WorkspaceUpdates } from '../../shared/workspace';
 import { isWorkspaceIconId, isWorkspaceImageIcon } from '../../shared/workspaceIcons';
+import { normalizeWorkspaceOverride } from '../../shared/worktreeCleanup';
 import type { HarnessUpdates } from '../../shared/harness';
 
 // The one definition lives in shared/workspace.ts; re-exported so the
@@ -37,6 +38,14 @@ export function allowedWorkspaceUpdates(updates: WorkspaceUpdates): WorkspaceUpd
     allowed.icon = isWorkspaceImageIcon(updates.icon)
       ? { type: 'image', dataUrl: updates.icon.dataUrl }
       : updates.icon;
+  }
+  // Presence again: `undefined` goes back to the global rules (Inherit).
+  // Rebuilt from known keys, never spread, so nothing else rides along.
+  if ('worktreeCleanup' in updates) {
+    allowed.worktreeCleanup =
+      updates.worktreeCleanup === undefined
+        ? undefined
+        : normalizeWorkspaceOverride(updates.worktreeCleanup);
   }
   return allowed;
 }
@@ -128,7 +137,9 @@ export function allowedHarnessUpdates(updates: HarnessUpdates): HarnessUpdates {
  * the same way: where it belongs, where it runs, what drives it. `groupId` and, since v7, `workItem` are mutable —
  * regrouping and linking are acts of organisation and triage, not identity
  * changes — and both clear by presence. `labelIds` (v8) is mutable the same
- * way, and `autoSettle` is a preference. `parentSessionId` is clear-only: a
+ * way, and `autoSettle` and `autoRemoveWorktree` are preferences.
+ * `removedWorktree` is off the list: only a cleanup and the rebuild write it.
+ * `parentSessionId` is clear-only: a
  * renderer can detach a session from its conductor but never name one, so
  * the field stays written at creation and by the v8 migration alone. The
  * clear exists because that migration infers the link from a shared group
@@ -173,6 +184,12 @@ export function allowedSessionUpdates(updates: SessionUpdates): SessionUpdates {
       throw new Error('Choose a valid auto-settle value.');
     }
     allowed.autoSettle = updates.autoSettle;
+  }
+  if ('autoRemoveWorktree' in updates) {
+    if (updates.autoRemoveWorktree !== undefined && updates.autoRemoveWorktree !== 'never') {
+      throw new Error('Choose a valid worktree cleanup value.');
+    }
+    allowed.autoRemoveWorktree = updates.autoRemoveWorktree;
   }
   return allowed;
 }

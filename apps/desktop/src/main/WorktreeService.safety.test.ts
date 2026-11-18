@@ -115,6 +115,7 @@ describe('inspect', () => {
       remoteBranch: 'feat-1',
       originUrl: r.origin,
       dirty: false,
+      dirtyFiles: 0,
     });
   });
 

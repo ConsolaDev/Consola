@@ -26,6 +26,7 @@ import { useWorkspaceSettings } from '../../contexts/WorkspaceSettingsContext';
 import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
+import { WorktreeCleanupControl } from '../WorktreeCleanup/WorktreeCleanupControl';
 import './styles.css';
 
 export type SettingsSection = 'appearance' | 'sessions' | 'harnesses' | 'shortcuts' | 'updates';
@@ -218,6 +219,18 @@ function SessionsSection() {
           </span>
         </div>
         <AutoSettleControl />
+      </div>
+      <div className="settings-modal-option">
+        <div className="settings-modal-option-info">
+          <span className="settings-modal-option-label">Remove a session’s worktree when</span>
+          <span className="settings-modal-option-description">
+            Each rule is off until you turn it on. Consola never removes a worktree with changes,
+            unpushed commits, files that exist only there, or anything still running in it. Unless
+            the session was deleted, it stays, and its worktree is rebuilt when you open it. A
+            workspace can set rules of its own in its settings.
+          </span>
+        </div>
+        <WorktreeCleanupControl />
       </div>
     </div>
   );
