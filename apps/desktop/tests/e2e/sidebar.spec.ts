@@ -626,8 +626,9 @@ test.describe('Home scopes and groups', () => {
     );
     for (const [index, box] of boxes.entries()) {
       // Every row is as tall as what it says, and one line of it: a put-away
-      // row is its name and its age.
-      expect(box.height).toBeGreaterThanOrEqual(box.content);
+      // row is its name and its age. Half a pixel of slack, as below: a row at
+      // a fractional offset can measure a float's rounding under its height.
+      expect(box.height).toBeGreaterThanOrEqual(box.content - 0.5);
       expect(box.height).toBeLessThan(36);
       // No row is painted over the one before it.
       if (index > 0) expect(box.top).toBeGreaterThanOrEqual(boxes[index - 1].bottom - 0.5);
