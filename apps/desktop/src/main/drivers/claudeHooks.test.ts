@@ -28,6 +28,7 @@ describe('parseClaudeHookEvent', () => {
     ['a PermissionRequest naming an agent is a subagent’s', { hook_event_name: 'PermissionRequest', tool_name: 'Read', tool_input: {}, agent_id: 'a1' }, { kind: 'needs-input', origin: 'subagent', tool: 'Read:{}' }],
     ['PostToolUse names the call that completed', { hook_event_name: 'PostToolUse', tool_name: 'Bash', tool_input: { command: 'ls' } }, { kind: 'resumed', tool: 'Bash:{"command":"ls"}' }],
     ['PostToolUse with no tool_name ties to no prompt', { hook_event_name: 'PostToolUse' }, { kind: 'resumed', tool: 'unknown-call' }],
+    ['PostToolUse from a subagent says so', { hook_event_name: 'PostToolUse', agent_id: 'ae6d', tool_name: 'Bash', tool_input: { command: 'ls' } }, { kind: 'resumed', tool: 'Bash:{"command":"ls"}', agent: true }],
     ['an unrelated event', { hook_event_name: 'PreToolUse' }, null],
     ['not an object', 'Notification', null],
     ['null', null, null],

@@ -28,7 +28,7 @@ import type { EntryKey } from '../../sidebar/entry';
 import { applyFilter } from '../../sidebar/filter';
 import { buildForest, type TreeNode } from '../../sidebar/forest';
 import { leafCount, visibleNodes } from '../../sidebar/fold';
-import { applyHold, holdFor, type Hold } from '../../sidebar/openRowHold';
+import { holdFor, type Hold } from '../../sidebar/openRowHold';
 import { settleOffer } from '../../sidebar/settleRules';
 import { entryRow } from '../../sidebar/rowRegistry';
 import { useAutomationsStore } from '../../stores/automationsStore';
@@ -59,7 +59,7 @@ export function Sidebar() {
   const [scopeError, setScopeError] = useState('');
   const inboxCount = useInboxStore(state => workspace ? itemsForView(state.snapshots[workspace.id]?.items ?? [], 'inbox').length : 0);
   const providerAccount = workspace?.provider?.accountLogin;
-  // The open row holds the bucket it was opened from until something else is opened.
+  // Where the open row was opened from, until something else is opened.
   const held = useRef<{ activeKey: EntryKey | null; hold: Hold | null }>({ activeKey: null, hold: null });
   const sidebarRef = useRef<HTMLElement>(null);
 
@@ -103,12 +103,11 @@ export function Sidebar() {
 
   if (isSidebarHidden) return null;
 
-  const natural = bucketize(buildForest(shown));
+  const placed = bucketize(buildForest(shown));
 
   const activeKey = workspace && activeSessionId && allSessions.some(session => session.id === activeSessionId)
     ? sessionKey(activeSessionId) : null;
-  if (held.current.activeKey !== activeKey) held.current = { activeKey, hold: holdFor(natural, activeKey) };
-  const placed = applyHold(natural, held.current.hold);
+  if (held.current.activeKey !== activeKey) held.current = { activeKey, hold: holdFor(placed, activeKey) };
 
   const workingOpen = isShelfOpen(shelves, 'working');
   const settledOpen = isShelfOpen(shelves, 'settled');

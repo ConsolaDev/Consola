@@ -84,7 +84,13 @@ export function parseClaudeHookEvent(body: unknown): AttentionSignal | null {
             // of the call it was for carry the same tool_name and tool_input,
             // and the former has no tool_use_id to match on. Without a key the
             // completion cannot be tied to any prompt and clears none.
-            return { kind: 'resumed', tool: toolCallKey(event) ?? 'unknown-call' };
+            // A subagent's calls carry its `agent_id` (observed live, 2.1.327)
+            // and keep completing after the session's own turn has ended.
+            return {
+                kind: 'resumed',
+                tool: toolCallKey(event) ?? 'unknown-call',
+                ...(typeof event.agent_id === 'string' && event.agent_id ? { agent: true as const } : {}),
+            };
         case 'UserPromptSubmit':
             return { kind: 'resumed' };
         case 'Stop': {

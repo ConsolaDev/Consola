@@ -91,7 +91,7 @@ describe('HookSignals', () => {
     hooks.apply('i', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 2 });
     hooks.apply('i', menu);
     hooks.statusChanged('i', 'exited');
-    expect(hooks.get('i')).toEqual({ needsInput: false, holdingBackgroundWork: false, awaitingAgents: false });
+    expect(hooks.get('i')).toEqual({ needsInput: false, holdingBackgroundWork: false, awaitingAgents: false, turn: undefined });
     hooks.forget('i');
     expect(hooks.get('i')).toBeUndefined();
   });
@@ -160,6 +160,50 @@ describe('HookSignals', () => {
       hooks.apply('i', subagent);
       hooks.apply('i', { kind: 'resumed' });
       expect(hooks.get('i')?.needsInput).toBe(true);
+    });
+  });
+
+  describe('where the turn stands', () => {
+    it('says nothing until a hook speaks', () => {
+      const hooks = signals('working');
+      expect(hooks.get('i')?.turn).toBeUndefined();
+    });
+
+    it('opens on a submitted prompt and is over at the stop', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', { kind: 'resumed' });
+      expect(hooks.get('i')?.turn).toBe('open');
+      hooks.apply('i', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
+      expect(hooks.get('i')?.turn).toBe('over');
+    });
+
+    it('opens on a call of the session’s own completing: not every turn starts with a prompt', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
+      hooks.apply('i', { kind: 'resumed', tool: 'Bash:{}' });
+      expect(hooks.get('i')?.turn).toBe('open');
+    });
+
+    // Recorded live (2.1.327): a background agent's calls complete for as
+    // long as it runs, after the session's own turn has stopped.
+    it('stays over while only a subagent’s calls complete', () => {
+      const hooks = signals('ready');
+      hooks.apply('i', { kind: 'turn-ended', backgroundWork: 1, backgroundAgents: 1 });
+      hooks.apply('i', { kind: 'resumed', tool: 'Bash:{}', agent: true });
+      expect(hooks.get('i')?.turn).toBe('over');
+    });
+
+    it('tells subscribers when it moves, and is forgotten at exit', () => {
+      const hooks = signals('ready');
+      const heard = vi.fn();
+      hooks.subscribe(heard);
+      hooks.apply('i', { kind: 'resumed' });
+      hooks.apply('i', { kind: 'resumed' });
+      expect(heard).toHaveBeenCalledTimes(1);
+      hooks.apply('i', { kind: 'turn-ended', backgroundWork: 0, backgroundAgents: 0 });
+      expect(heard).toHaveBeenCalledTimes(2);
+      hooks.statusChanged('i', 'exited');
+      expect(hooks.get('i')?.turn).toBeUndefined();
     });
   });
 });
