@@ -8,43 +8,22 @@ import type {
   ConversationRecord,
   ConversationWindow,
 } from '../shared/conversation';
-import type { SessionNameResult } from '../shared/types';
 import { capText, ConversationBuilder } from './conversationBuilder';
 import { getLoginEnv } from './LoginEnvironment';
+import type { CliNameRead } from './drivers/HarnessDriver';
 
 /**
  * Access to Claude Code's own session storage: read-only, except that a
  * harness switch copies a conversation into another config directory
  * (`copyConversation`), never overwriting anything there.
  *
- * Claude keeps each conversation as `<config>/projects/<project>/<id>.jsonl`
- * alongside a `sessions-index.json` cache holding a summary it generates
- * itself. Consola assigns each tab's session ID, so it can look its sessions up
- * here instead of tracking conversation state separately.
+ * Claude keeps each conversation as `<config>/projects/<project>/<id>.jsonl`.
+ * Consola assigns each tab's session ID, so it can look its sessions up here
+ * instead of tracking conversation state separately.
  *
- * The transcript is authoritative; the index is a cache that can lag behind or
- * be missing entirely, so every lookup falls back to the transcript.
+ * The transcript is the only source. Claude's `sessions-index.json` is a cache
+ * that lags and holds summaries Claude generates itself, and is never read.
  */
-
-export interface ClaudeSessionEntry {
-  sessionId: string;
-  fullPath: string;
-  firstPrompt: string;
-  summary: string;
-  messageCount: number;
-  created: string;
-  modified: string;
-  gitBranch: string;
-  projectPath: string;
-}
-
-interface SessionsIndexFile {
-  version: number;
-  entries: ClaudeSessionEntry[];
-}
-
-// Parsed indexes keyed by file path, invalidated on mtime change.
-const indexCache = new Map<string, { mtimeMs: number; entries: ClaudeSessionEntry[] }>();
 
 /**
  * Where Claude keeps its projects.
@@ -72,12 +51,6 @@ function listProjectDirs(configDir?: string): string[] {
     // No projects directory yet — Claude has never run.
     return [];
   }
-}
-
-function listIndexFiles(configDir?: string): string[] {
-  return listProjectDirs(configDir)
-    .map((dir) => path.join(dir, 'sessions-index.json'))
-    .filter((file) => fs.existsSync(file));
 }
 
 /**
@@ -150,110 +123,141 @@ export async function copyConversation(
   return 'copied';
 }
 
-function readIndex(file: string): ClaudeSessionEntry[] {
-  try {
-    const { mtimeMs } = fs.statSync(file);
-    const cached = indexCache.get(file);
-    if (cached && cached.mtimeMs === mtimeMs) {
-      return cached.entries;
-    }
-
-    const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as SessionsIndexFile;
-    const entries = Array.isArray(parsed.entries) ? parsed.entries : [];
-    indexCache.set(file, { mtimeMs, entries });
-    return entries;
-  } catch {
-    // A partially written or malformed index is not worth failing over.
-    return [];
-  }
-}
-
 /**
- * Find a session's index entry by ID.
+ * The first message the person actually wrote, read straight from the
+ * transcript. `null` when there is no transcript or no real message yet.
  *
- * Scans every project index rather than deriving the directory name from the
- * working directory: that encoding is lossy (a single project directory can
- * hold sessions whose `projectPath` is a subdirectory), whereas session IDs are
- * unique. The whole index set is a few tens of kilobytes.
+ * Streams line by line and stops at the first qualifying record. A line that
+ * does not parse — a record caught mid-write — is skipped, never taken for a
+ * message. Records that are not the person's own words are skipped: meta and
+ * sidechain records, images and tool results (no text), built-in commands and
+ * their output, bash lines, task notifications, `#` memory lines and injected
+ * skill text. A skill command's own words are its `<command-args>`.
  */
-export function findEntry(sessionId: string, configDir?: string): ClaudeSessionEntry | null {
-  for (const file of listIndexFiles(configDir)) {
-    const match = readIndex(file).find((entry) => entry.sessionId === sessionId);
-    if (match) return match;
-  }
-  return null;
-}
-
-/** Whether Claude still holds a conversation for this session. */
-export function sessionExists(sessionId: string, configDir?: string): boolean {
-  return findSessionFile(sessionId, configDir) !== null;
-}
-
-/**
- * The opening user message, read straight from the transcript.
- *
- * The transcript exists as soon as the conversation has a turn, well before the
- * index cache catches up, so this is what names a session in practice.
- */
-function readFirstPrompt(sessionId: string, configDir?: string): string | null {
+export async function readFirstUserPrompt(
+  sessionId: string,
+  configDir: string | undefined,
+): Promise<string | null> {
   const file = findSessionFile(sessionId, configDir);
   if (!file) return null;
 
+  const stream = fs.createReadStream(file, { encoding: 'utf8' });
+  const lines = readline.createInterface({ input: stream, crlfDelay: Infinity });
   try {
-    for (const line of fs.readFileSync(file, 'utf8').split('\n')) {
+    for await (const line of lines) {
       if (!line.trim()) continue;
 
-      let record: { type?: string; message?: { content?: unknown } };
+      let record: {
+        type?: string;
+        isSidechain?: boolean;
+        isMeta?: boolean;
+        message?: { content?: unknown };
+      };
       try {
         record = JSON.parse(line);
       } catch {
         continue;
       }
-      if (record.type !== 'user') continue;
+      if (!record || record.type !== 'user') continue;
+      if (record.isMeta === true || record.isSidechain === true) continue;
 
       const content = record.message?.content;
-      const text =
-        typeof content === 'string'
-          ? content
-          : Array.isArray(content)
-            ? content
-                .filter(
-                  (block): block is { type: string; text: string } =>
-                    typeof block === 'object' &&
-                    block !== null &&
-                    (block as { type?: string }).type === 'text',
-                )
-                .map((block) => block.text)
-                .join(' ')
-            : '';
+      const text = (typeof content === 'string' ? content : textBlocks(content).join(' ')).trim();
+      if (!text) continue;
 
-      const trimmed = text.trim();
-      if (!trimmed) continue;
-
-      // A slash-command expansion carries the user's own words after an
-      // ARGUMENTS: marker — prefer them over anything the skill injected.
-      const argumentsIndex = trimmed.indexOf('ARGUMENTS:');
-      if (argumentsIndex !== -1) {
-        const args = trimmed.slice(argumentsIndex + 'ARGUMENTS:'.length).trim();
+      if (text.startsWith('<command-message>')) {
+        const args = /<command-args>([\s\S]*?)<\/command-args>/.exec(text)?.[1]?.trim();
         if (args) return args;
+        continue;
       }
-
-      // Skip command wrappers, tool results, and injected skill content
-      // (markdown headings, skill preambles) to reach real prose.
       if (
-        trimmed.startsWith('<') ||
-        trimmed.startsWith('#') ||
-        trimmed.startsWith('Base directory for this skill:')
+        text.startsWith('<') ||
+        text.startsWith('#') ||
+        text.startsWith('Base directory for this skill:')
       ) {
         continue;
       }
-
-      return trimmed;
+      return text;
     }
   } catch {
-    // Transcript unreadable or mid-write.
+    // Unreadable part-way: no message found yet.
+  } finally {
+    lines.close();
+    stream.destroy();
   }
   return null;
+}
+
+/** Bytes read from a transcript at a time when following renames. */
+const TITLE_CHUNK_BYTES = 64 * 1024;
+
+/**
+ * The name the person last gave a conversation inside the CLI (`/rename`),
+ * among the complete records after `from`. `next` is the position to pass
+ * next time: just past the last complete line, so a record still being
+ * written is read once it is whole, never half. A `from` beyond the file's
+ * size means the file was replaced, so reading starts over at 0. `null` when
+ * there is no transcript.
+ *
+ * Reads in chunks, so a long conversation costs what was appended since, not
+ * the whole file.
+ */
+export async function readCustomTitleSince(
+  sessionId: string,
+  configDir: string | undefined,
+  from: number,
+): Promise<CliNameRead | null> {
+  const file = findSessionFile(sessionId, configDir);
+  if (!file) return null;
+
+  let handle: fsp.FileHandle;
+  try {
+    handle = await fsp.open(file, 'r');
+  } catch {
+    return null;
+  }
+  try {
+    const { size } = await handle.stat();
+    let position = from > size || from < 0 ? 0 : from;
+    let name: string | null = null;
+    let next = position;
+    // Bytes of an unfinished line carried into the next chunk.
+    let carry: Buffer = Buffer.alloc(0);
+    const chunk = Buffer.alloc(TITLE_CHUNK_BYTES);
+
+    while (position < size) {
+      const { bytesRead } = await handle.read(chunk, 0, chunk.length, position);
+      if (bytesRead === 0) break;
+      position += bytesRead;
+
+      let data = Buffer.concat([carry, chunk.subarray(0, bytesRead)]);
+      const lastNewline = data.lastIndexOf(0x0a);
+      if (lastNewline === -1) {
+        carry = data;
+        continue;
+      }
+      carry = Buffer.from(data.subarray(lastNewline + 1));
+      data = data.subarray(0, lastNewline + 1);
+      next = position - carry.length;
+
+      for (const line of data.toString('utf8').split('\n')) {
+        if (!line.includes('"custom-title"')) continue;
+        try {
+          const record = JSON.parse(line) as { type?: string; customTitle?: unknown };
+          if (record?.type === 'custom-title' && typeof record.customTitle === 'string') {
+            name = record.customTitle;
+          }
+        } catch {
+          // Not a record: leave the name as it was.
+        }
+      }
+    }
+    return { name, next };
+  } catch {
+    return null;
+  } finally {
+    await handle.close();
+  }
 }
 
 /** Longest reply handed out; the tail is kept, since a reply's conclusion is its end. */
@@ -522,27 +526,4 @@ function settleSteps(
     if (at) step.endedAt = at;
     if (block.is_error === true) step.failed = true;
   }
-}
-
-/**
- * The best available display name for a session.
- *
- * Prefers the summary Claude writes itself, then the opening prompt from the
- * index, then the opening prompt read from the transcript — the last of which
- * is available immediately, while the index can lag by a long time.
- */
-export function getDisplayName(
-  sessionId: string,
-  configDir?: string,
-  maxLength = 60,
-): SessionNameResult | null {
-  const entry = findEntry(sessionId, configDir);
-  const summary = entry?.summary?.trim();
-  const raw = summary || (entry?.firstPrompt || readFirstPrompt(sessionId, configDir) || '').trim();
-  if (!raw) return null;
-
-  const collapsed = raw.replace(/\s+/g, ' ');
-  const name =
-    collapsed.length > maxLength ? `${collapsed.slice(0, maxLength - 1).trimEnd()}…` : collapsed;
-  return { name, source: summary ? 'summary' : 'prompt' };
 }

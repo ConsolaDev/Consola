@@ -4,11 +4,12 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import {
   copyConversation,
-  getDisplayName,
   MAX_CONVERSATION_ENTRIES,
   MAX_ENTRY_CHARS,
   MAX_REPLY_CHARS,
   readConversation,
+  readCustomTitleSince,
+  readFirstUserPrompt,
   readRecentReplies,
 } from './ClaudeSessionIndex';
 
@@ -41,106 +42,132 @@ function writeTranscript(userMessages: string[]): void {
   fs.writeFileSync(path.join(projectDir, `${SESSION_ID}.jsonl`), lines.join('\n') + '\n');
 }
 
-describe('getDisplayName from the transcript', () => {
-  it('names a session from its opening prompt, marked as a prompt-derived name', () => {
-    writeTranscript(['Fix the login redirect loop']);
+const file = () => path.join(projectDir, `${SESSION_ID}.jsonl`);
+const write = (...records: unknown[]) =>
+  fs.writeFileSync(file(), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+const append = (...records: unknown[]) =>
+  fs.appendFileSync(file(), records.map((r) => JSON.stringify(r)).join('\n') + '\n');
+const user = (content: unknown) => ({ type: 'user', message: { role: 'user', content } });
+const meta = (content: unknown) => ({ ...user(content), isMeta: true });
+const side = (content: unknown) => ({ ...user(content), isSidechain: true });
+const title = (customTitle: string) => ({
+  type: 'custom-title',
+  customTitle,
+  sessionId: SESSION_ID,
+});
+const assistant = () => ({
+  type: 'assistant',
+  message: { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+});
 
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'Fix the login redirect loop',
-      source: 'prompt',
-    });
+describe('readFirstUserPrompt', () => {
+  const read = () => readFirstUserPrompt(SESSION_ID, configDir);
+
+  it('returns the first prompt the person typed', async () => {
+    write(user('  Design the session sidebar \n'));
+    expect(await read()).toBe('Design the session sidebar');
   });
 
-  it('skips <-wrapped command messages to reach real prose', () => {
-    writeTranscript([
-      '<command-message>brainstorm</command-message><command-name>/brainstorm</command-name>',
-      'Design the session sidebar',
-    ]);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('Design the session sidebar');
+  it('joins text blocks with a space', async () => {
+    write(
+      user([
+        { type: 'text', text: 'Look at' },
+        { type: 'image', source: {} },
+        { type: 'text', text: 'this' },
+      ]),
+    );
+    expect(await read()).toBe('Look at this');
   });
 
-  it('skips a message that opens with a markdown heading', () => {
-    writeTranscript(['# Brainstorming\n\nYou MUST follow this process.', 'Rework the status dots']);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('Rework the status dots');
+  it('uses a skill command’s arguments, and skips a command without any', async () => {
+    const cmd = (args: string) =>
+      user(
+        `<command-message>fix-bug</command-message>\n<command-name>/fix-bug</command-name>\n<command-args>${args}</command-args>`,
+      );
+    write(cmd(''), cmd('the login crash'));
+    expect(await read()).toBe('the login crash');
   });
 
-  it('skips a skill preamble message', () => {
-    writeTranscript([
-      'Base directory for this skill: /home/user/.claude/skills/tdd\n\nWrite the test first.',
-      'Add retry to the uploader',
-    ]);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('Add retry to the uploader');
+  it('skips built-in commands, their output, meta, sidechains, images, tool results, bash and memory lines', async () => {
+    write(
+      user(
+        '<command-name>/rename</command-name>\n<command-message>rename</command-message>\n<command-args>Mine</command-args>',
+      ),
+      user('<local-command-stdout>Renamed</local-command-stdout>'),
+      meta('# Skill text'),
+      side('subagent ask'),
+      user([{ type: 'image', source: {} }]),
+      user([{ type: 'tool_result', content: 'x' }]),
+      user('<bash-input>ls</bash-input>'),
+      user('<task-notification>done</task-notification>'),
+      user('Base directory for this skill: /x'),
+      user('# remember this'),
+      assistant(),
+      user('The real question'),
+    );
+    expect(await read()).toBe('The real question');
   });
 
-  it("prefers the text after ARGUMENTS: — the user's own words in a slash-command session", () => {
-    writeTranscript([
-      '# Some Skill\n\nInstructions the user never typed.\n\nARGUMENTS: make the sidebar readable at a glance',
-    ]);
-
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'make the sidebar readable at a glance',
-      source: 'prompt',
-    });
+  it('is null with no transcript, and with only a partial last line', async () => {
+    expect(await read()).toBeNull();
+    fs.writeFileSync(file(), '{"type":"user","message":{"content":"Half');
+    expect(await read()).toBeNull();
   });
 
-  it('falls past an ARGUMENTS: marker with nothing after it', () => {
-    writeTranscript(['# Some Skill\n\nARGUMENTS:', 'The real question']);
-
-    expect(getDisplayName(SESSION_ID, configDir)?.name).toBe('The real question');
-  });
-
-  it('is null when every user message is preamble', () => {
-    writeTranscript(['<command-name>/foo</command-name>', '# Heading only']);
-
-    expect(getDisplayName(SESSION_ID, configDir)).toBeNull();
-  });
-
-  it('collapses whitespace and truncates long names', () => {
-    writeTranscript([`Please   ${'x'.repeat(80)}`]);
-
-    const result = getDisplayName(SESSION_ID, configDir);
-    expect(result?.name.length).toBeLessThanOrEqual(60);
-    expect(result?.name.endsWith('…')).toBe(true);
-    expect(result?.name.startsWith('Please x')).toBe(true);
+  it('skips an unparsable line and a partial last line, and uses the next complete message', async () => {
+    fs.writeFileSync(
+      file(),
+      `not json\n${JSON.stringify(user('Whole one'))}\n{"type":"user","message":{"content":"Half`,
+    );
+    expect(await read()).toBe('Whole one');
   });
 });
 
-describe('getDisplayName from the index', () => {
-  it("prefers the CLI's own summary and marks it as such", () => {
-    writeTranscript(['Fix the login redirect loop']);
-    fs.writeFileSync(
-      path.join(projectDir, 'sessions-index.json'),
-      JSON.stringify({
-        version: 1,
-        entries: [{ sessionId: SESSION_ID, summary: 'Login redirect fix' }],
-      }),
-    );
-
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'Login redirect fix',
-      source: 'summary',
-    });
+describe('readCustomTitleSince', () => {
+  it('returns the latest custom title and a position past the last complete line', async () => {
+    write(title('A'), user('x'), title('B'));
+    const first = await readCustomTitleSince(SESSION_ID, configDir, 0);
+    expect(first).toEqual({ name: 'B', next: fs.statSync(file()).size });
   });
 
-  it('an index entry with no summary yet still yields a prompt-sourced name', () => {
-    writeTranscript(['Fix the login redirect loop']);
-    fs.writeFileSync(
-      path.join(projectDir, 'sessions-index.json'),
-      JSON.stringify({
-        version: 1,
-        entries: [
-          { sessionId: SESSION_ID, summary: '', firstPrompt: 'Fix the login redirect loop' },
-        ],
-      }),
-    );
+  it('reads only what was appended since, and reports no name when nothing new names one', async () => {
+    write(title('A'));
+    const { next } = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    append(user('y'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, next))!.name).toBeNull();
+    append(title('C'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, next))!.name).toBe('C');
+  });
 
-    expect(getDisplayName(SESSION_ID, configDir)).toEqual({
-      name: 'Fix the login redirect loop',
-      source: 'prompt',
-    });
+  it('does not consume a partial last line', async () => {
+    write(user('x'));
+    fs.appendFileSync(file(), '{"type":"custom-title","customTitle":"Hal');
+    const r = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    expect(r.name).toBeNull();
+    expect(r.next).toBeLessThan(fs.statSync(file()).size);
+  });
+
+  it('completes the line once the rest is written', async () => {
+    write(user('x'));
+    fs.appendFileSync(file(), '{"type":"custom-title","customTitle":"Hal');
+    const { next } = (await readCustomTitleSince(SESSION_ID, configDir, 0))!;
+    fs.appendFileSync(file(), 'f"}\n');
+    expect((await readCustomTitleSince(SESSION_ID, configDir, next))!.name).toBe('Half');
+  });
+
+  it('restarts from 0 when the position is past the end', async () => {
+    write(title('Fresh'));
+    const r = await readCustomTitleSince(SESSION_ID, configDir, 10_000);
+    expect(r).toEqual({ name: 'Fresh', next: fs.statSync(file()).size });
+  });
+
+  it('finds a title in a file larger than one read chunk', async () => {
+    write(user('x'.repeat(200_000)), title('Late'));
+    expect((await readCustomTitleSince(SESSION_ID, configDir, 0))!.name).toBe('Late');
+  });
+
+  it('is null with no transcript', async () => {
+    expect(await readCustomTitleSince(SESSION_ID, configDir, 0)).toBeNull();
   });
 });
 
@@ -457,7 +484,7 @@ describe('copyConversation', () => {
       fs.readdirSync(path.dirname(copied('x'))).filter((name) => name.endsWith('.partial')),
     ).toEqual([]);
     // And the copy is found where Claude will look.
-    expect(getDisplayName(SESSION_ID, otherDir)?.name).toBe('Fix the login redirect loop');
+    expect(await readFirstUserPrompt(SESSION_ID, otherDir)).toBe('Fix the login redirect loop');
   });
 
   it('never overwrites a conversation the target already holds', async () => {

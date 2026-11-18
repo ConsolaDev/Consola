@@ -126,3 +126,32 @@ describe('readWorkingDirectory', () => {
     expect(driver.readWorkingDirectory(harness(), 4242)).toBeNull();
   });
 });
+
+describe('transcript readers for session titles', () => {
+  const id = '33333333-3333-4333-8333-333333333333';
+  let dir: string;
+  beforeEach(() => {
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-driver-titles-'));
+    const project = path.join(dir, 'projects', '-Users-someone-repo');
+    fs.mkdirSync(project, { recursive: true });
+    fs.writeFileSync(
+      path.join(project, `${id}.jsonl`),
+      [
+        JSON.stringify({ type: 'user', message: { role: 'user', content: 'Name me' } }),
+        JSON.stringify({ type: 'custom-title', customTitle: 'Mine' }),
+      ].join('\n') + '\n',
+    );
+  });
+  afterEach(() => fs.rmSync(dir, { recursive: true, force: true }));
+
+  it('refuse an id that could escape the projects directory', async () => {
+    expect(await driver.readFirstPrompt(config, '../etc/passwd')).toBeNull();
+    expect(await driver.readCliNameSince(config, '../etc/passwd', 0)).toBeNull();
+  });
+
+  it('read under the harness config directory', async () => {
+    const harness: HarnessConfig = { ...config, configDir: dir };
+    expect(await driver.readFirstPrompt(harness, id)).toBe('Name me');
+    expect((await driver.readCliNameSince(harness, id, 0))?.name).toBe('Mine');
+  });
+});

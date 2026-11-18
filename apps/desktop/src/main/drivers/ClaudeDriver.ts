@@ -7,24 +7,21 @@ import { readSessionModel } from './sessionModel';
 import {
   copyConversation,
   findSessionFile,
-  getDisplayName,
   readConversation,
+  readCustomTitleSince,
+  readFirstUserPrompt,
   readRecentReplies,
 } from '../ClaudeSessionIndex';
 import { probeClaudeCapabilities } from './claudeCapabilities';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
-import type {
-  HarnessAccount,
-  HarnessCapabilities,
-  HarnessProbeResult,
-  SessionNameResult,
-} from '../../shared/types';
+import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
 import {
   looseningProblem,
   namedFlags,
+  type CliNameRead,
   type HarnessConfig,
   type HarnessDriver,
   type SessionLaunch,
@@ -245,6 +242,23 @@ export class ClaudeDriver implements HarnessDriver {
     return readConversation(conversationId, resolveConfigDir(config), window);
   }
 
+  public async readFirstPrompt(
+    config: HarnessConfig,
+    conversationId: string,
+  ): Promise<string | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
+    return readFirstUserPrompt(conversationId, resolveConfigDir(config));
+  }
+
+  public async readCliNameSince(
+    config: HarnessConfig,
+    conversationId: string,
+    from: number,
+  ): Promise<CliNameRead | null> {
+    if (!/^[a-zA-Z0-9_-]+$/.test(conversationId)) return null;
+    return readCustomTitleSince(conversationId, resolveConfigDir(config), from);
+  }
+
   /** Copy the transcript into `to`'s identical project folder; `--fork-session` does the rest. */
   public async transplantConversation(
     from: HarnessConfig,
@@ -393,10 +407,6 @@ export class ClaudeDriver implements HarnessDriver {
         },
       );
     });
-  }
-
-  public getSessionDisplayName(config: HarnessConfig, sessionId: string): SessionNameResult | null {
-    return getDisplayName(sessionId, resolveConfigDir(config));
   }
 
   public readWorkingDirectory(config: HarnessConfig, pid: number): string | null {
