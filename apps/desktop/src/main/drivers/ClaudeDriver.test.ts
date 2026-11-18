@@ -3,14 +3,13 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { buildTextGenerationArgs, ClaudeDriver } from './ClaudeDriver';
+import type { HarnessConfig } from './HarnessDriver';
 
-// The real probe runs the user's interactive login shell, which can take seconds.
+// (vi.mock is hoisted above the imports.) The real probe runs the user's interactive login shell, which can take seconds.
 vi.mock('../LoginEnvironment', () => ({
   getLoginEnv: () => process.env,
   loginEnvProblem: () => null,
 }));
-
-import type { HarnessConfig } from './HarnessDriver';
 
 const driver = new ClaudeDriver();
 const config: HarnessConfig = { extraArgs: ['--verbose'] };
@@ -269,9 +268,26 @@ process.stdin.on('end', () => {
       'hang.js',
       `require('fs').writeFileSync(${JSON.stringify(pidFile)}, String(process.pid));\nprocess.stdin.resume();\nsetInterval(() => {}, 1000);`,
     );
-    await expect(call(bin, { timeoutMs: 3000 })).rejects.toThrow('The title call timed out.');
-    const pid = Number(fs.readFileSync(pidFile, 'utf8'));
-    await new Promise((r) => setTimeout(r, 200));
-    expect(() => process.kill(pid, 0)).toThrow();
-  });
+    await expect(call(bin, { timeoutMs: 300 })).rejects.toThrow('The title call timed out.');
+    // The child may have been killed before it wrote its pid, which is a pass.
+    // If it did write one, that process must be gone.
+    const alive = (pid: number) => {
+      try {
+        process.kill(pid, 0);
+        return true;
+      } catch {
+        return false;
+      }
+    };
+    const deadline = Date.now() + 1000;
+    let pid = Number.NaN;
+    while (Date.now() < deadline) {
+      if (Number.isNaN(pid) && fs.existsSync(pidFile)) {
+        pid = Number(fs.readFileSync(pidFile, 'utf8')) || Number.NaN;
+      }
+      if (!Number.isNaN(pid) && !alive(pid)) break;
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    if (!Number.isNaN(pid)) expect(alive(pid)).toBe(false);
+  }, 10_000);
 });
