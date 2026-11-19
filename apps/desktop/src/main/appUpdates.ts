@@ -1,4 +1,5 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog } from 'electron';
+import { guardedIpc as ipcMain } from './guardedIpc';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { autoUpdater } from 'electron-updater';

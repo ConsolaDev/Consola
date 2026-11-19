@@ -12,16 +12,8 @@ import {
 import { describeError } from './describeError';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
-import {
-  ipcMain,
-  BrowserWindow,
-  dialog,
-  app,
-  Notification,
-  powerMonitor,
-  protocol,
-  shell,
-} from 'electron';
+import { guardedIpc as ipcMain } from './guardedIpc';
+import { BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
