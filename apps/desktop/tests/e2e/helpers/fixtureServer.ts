@@ -109,6 +109,14 @@ export async function startFixtureServer(): Promise<FixtureServer> {
           'www-authenticate': 'Basic realm="Fixture area"',
         });
       }
+      case '/fetch-secret.html':
+        // Asks for the protected page in the background, which must never prompt.
+        return send(
+          200,
+          `<!doctype html><html><head><title>fetching</title></head><body><script>
+            fetch('/secret.html').then((r) => { document.title = 'fetched:' + r.status; });
+          </script></body></html>`,
+        );
       case '/set-cookie.html':
         return send(200, page('Cookie set', 'rgb(255,255,0)'), {
           'set-cookie': 'fixture=signed-in; Path=/; Max-Age=3600',

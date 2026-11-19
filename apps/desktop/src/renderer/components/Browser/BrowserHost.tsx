@@ -9,11 +9,16 @@ import {
 } from 'react';
 import { browserPartitionFor, type BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
+import {
+  dropAuthRequest,
+  putAuthRequest,
+  useBrowserAuthStore,
+} from '../../stores/browserAuthStore';
 import { useBrowserSlotStore } from '../../stores/browserSlotStore';
 import { forgetBrowser, loadBrowser, useBrowserStore } from '../../stores/browserStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
-import { BrowserAuthDialog } from './BrowserAuthDialog';
+import { BrowserAuthPrompt } from './BrowserAuthPrompt';
 import { BrowserError, useShownError } from './BrowserError';
 import {
   autoRetryUrl,
@@ -122,6 +127,7 @@ export function BrowserHost() {
   const visible = visibleTabId(slotSessionId, snapshots);
   useReportVisible(slotSessionId, visible);
   useDragGuard(hostRef);
+  useAuthRequests();
 
   return (
     <div ref={hostRef} className="browser-host">
@@ -139,9 +145,20 @@ export function BrowserHost() {
           />
         );
       })}
-      <BrowserAuthDialog />
     </div>
   );
+}
+
+/** Follows main's sign-in requests into the store the pages draw them from. */
+function useAuthRequests(): void {
+  useEffect(() => {
+    const offRequest = browserBridge.onAuthRequest(putAuthRequest);
+    const offCancelled = browserBridge.onAuthCancelled(({ id }) => dropAuthRequest(id));
+    return () => {
+      offRequest();
+      offCancelled();
+    };
+  }, []);
 }
 
 interface BrowserPageProps {
@@ -162,6 +179,11 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
   const tabId = tab.id;
   useBindToTab(webviewRef, tabId, sessionId, onRefused);
 
+  // Held until the person is looking at this tab: a hidden page's sign-in
+  // waits (main gives up after a while) instead of covering anything.
+  const authRequest = useBrowserAuthStore((state) =>
+    state.requests.find((request) => request.tabId === tabId),
+  );
   const shownError = useShownError(tab);
   const retryUrl = autoRetryUrl(shownError);
   useAutoRetry(tabId, shownError, presence === 'shown' && !tab.loading ? retryUrl : null);
@@ -188,6 +210,7 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
         {...({ allowpopups: 'true' } as object)}
       />
       {tab.loading && <div className="browser-page-loading" aria-hidden="true" />}
+      {authRequest && presence === 'shown' && <BrowserAuthPrompt request={authRequest} />}
       {shownError && (
         <BrowserError
           error={shownError}

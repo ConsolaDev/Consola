@@ -118,7 +118,11 @@ export class BrowserService {
   public readonly certificates: CertificateTrust;
   /** Sign-in requests waiting for the person. */
   public readonly auth = new AuthPrompts({
-    send: (window, channel, payload) => window.webContents.send(channel, payload),
+    send: (window, channel, payload) => {
+      // A window can be gone between a request and its message.
+      if (window.isDestroyed?.() || window.webContents?.isDestroyed?.()) return;
+      window.webContents.send(channel, payload);
+    },
   });
   private readonly now: () => number;
   private readonly newId: () => string;
@@ -321,6 +325,8 @@ export class BrowserService {
         guest.removeListener(event as 'destroyed', listener);
     };
     this.guests.set(tabId, entry);
+    // A sign-in this page raised while it was still unbound now has a tab.
+    this.auth.bindTab(entry.guestId, tabId);
 
     // What happened before this bind: the first load may be under way, have
     // redirected, or have failed already.
@@ -605,7 +611,7 @@ export class BrowserService {
     guestId: number,
   ): void {
     this.certificates.guard(guest, workspaceId, guestId);
-    this.auth.guard(guest, host, guestId);
+    this.auth.guard(guest, host, guestId, () => this.tabIdForGuest(guestId));
   }
 
   /**

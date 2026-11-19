@@ -75,7 +75,7 @@ interface SettingsNavMeta {
 const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   appearance: { label: 'Appearance', icon: Palette },
   sessions: { label: 'Sessions', icon: ListChecks },
-  appBrowser: { label: 'Browser', icon: Globe },
+  appBrowser: { label: 'Browser links', icon: Globe },
   harnesses: { label: 'Harnesses', icon: Boxes },
   shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
   updates: { label: 'Updates', icon: Monitor },
@@ -365,7 +365,7 @@ function SessionsSection() {
 function AppBrowserSection() {
   return (
     <div className="settings-modal-section">
-      <h2 className="settings-modal-section-title">Browser</h2>
+      <h2 className="settings-modal-section-title">Browser links</h2>
       <div className="settings-modal-option">
         <div className="settings-modal-option-info">
           <span className="settings-modal-option-label">Links in the terminal</span>

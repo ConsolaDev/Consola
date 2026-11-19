@@ -530,3 +530,36 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
 }
+
+/* --- Sign-in asked by a page (over the page, like an error; never takes focus) --- */
+
+.browser-auth {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+  background: var(--color-bg-primary);
+}
+
+.browser-auth-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  width: min(100%, 360px);
+}
+
+.browser-auth-title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+  overflow-wrap: anywhere;
+}
+
+.browser-auth-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}

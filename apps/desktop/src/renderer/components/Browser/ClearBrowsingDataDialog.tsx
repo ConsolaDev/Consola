@@ -7,7 +7,7 @@ interface ClearBrowsingDataDialogProps {
 }
 
 /**
- * Confirms, then wipes the window's workspace's browsing data. The names what
+ * Confirms, then wipes the window's workspace's browsing data. Names what
  * goes and what stays, since signing out of every site is not undoable.
  * A failure is shown in the dialog (`ConfirmDialog` keeps it open on a
  * rejection) rather than leaving the person to think it worked.

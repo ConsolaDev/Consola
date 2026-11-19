@@ -143,6 +143,11 @@ export interface BrowserFoundMessage {
 export interface BrowserAuthRequestMessage {
   /** Names the request when the window answers; main checks the answer came from this window. */
   id: string;
+  /**
+   * The tab asking; null while its page is not bound to one yet. The window
+   * draws the prompt over that tab's page, and only while the tab is shown.
+   */
+  tabId: string | null;
   /** The page's own origin: the dialog says who is asking. */
   origin: string;
   /** The server's name for what is protected; page-controlled text, shown as such. */

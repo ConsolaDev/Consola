@@ -154,37 +154,82 @@ test.describe('in-app browser safety', () => {
     await expect(page.locator('.browser-error')).toContainText('is not trusted');
   });
 
-  test('a page that asks for a sign-in shows a dialog and loads with the credentials', async () => {
-    await typeAddress(page, `${fixtures.host}/secret.html`);
+  const prompt = (page: Page) => page.getByTestId('browser-auth');
 
-    const dialog = page.getByRole('dialog');
-    await expect(dialog.getByRole('heading')).toHaveText(`Sign in to ${fixtures.url('')}`);
-    await expect(dialog).toContainText('Fixture area');
-    await dialog.getByLabel('Username').fill('ada');
-    await dialog.getByLabel('Password').fill('lovelace');
-    await dialog.getByRole('button', { name: 'Sign in' }).click();
+  test('a page that navigates to a sign-in shows a prompt in its tab, without taking focus, and loads with the credentials', async () => {
+    await address(page).click();
+    await expect(address(page)).toBeFocused();
+    await address(page).fill(`${fixtures.host}/secret.html`);
+    await address(page).press('Enter');
+
+    const form = prompt(page);
+    await expect(form.getByRole('heading')).toHaveText(`Sign in to ${fixtures.url('')}`);
+    await expect(form).toContainText('Fixture area');
+    // Keystrokes the person was typing elsewhere do not land in the prompt.
+    await expect(form.getByLabel('Username')).not.toBeFocused();
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await form.getByLabel('Username').click();
+    await expect(form.getByLabel('Username')).toBeFocused();
+    await form.getByLabel('Username').fill('ada');
+    await form.getByLabel('Password').fill('lovelace');
+    await form.getByRole('button', { name: 'Sign in' }).click();
 
     await expect.poll(() => guestTitles(app)).toEqual(['Secret']);
+    await expect(prompt(page)).toHaveCount(0);
+  });
+
+  test('a 401 the page fetches in the background raises no prompt', async () => {
+    await typeAddress(page, `${fixtures.host}/fetch-secret.html`);
+    await expect.poll(() => guestTitles(app)).toEqual(['fetched:401']);
+    await expect(prompt(page)).toHaveCount(0);
     await expect(page.getByRole('dialog')).toHaveCount(0);
   });
 
   test('cancelling the sign-in leaves the page as the server answered it', async () => {
     await typeAddress(page, `${fixtures.host}/secret.html`);
-    const dialog = page.getByRole('dialog');
-    await expect(dialog).toBeVisible();
-    await dialog.getByRole('button', { name: 'Cancel' }).click();
+    await expect(prompt(page)).toBeVisible();
+    await prompt(page).getByRole('button', { name: 'Cancel' }).click();
     await expect.poll(() => guestTitles(app)).toEqual(['Unauthorized']);
-    await expect(page.getByRole('dialog')).toHaveCount(0);
+    await expect(prompt(page)).toHaveCount(0);
   });
 
-  test('closing the tab takes the sign-in dialog away', async () => {
+  test('closing the tab takes the sign-in prompt away', async () => {
     await typeAddress(page, `${fixtures.host}/secret.html`);
-    await expect(page.getByRole('dialog')).toBeVisible();
-    // The dialog is modal, so the tab is closed the way main would be told.
+    await expect(prompt(page)).toBeVisible();
     const tabId = await page.locator('.browser-page').first().getAttribute('data-tab-id');
     await page.evaluate((id) => window.browserAPI.close(id as string), tabId);
-    // Main cancels the request with its page, and the window drops the dialog.
+    await expect(prompt(page)).toHaveCount(0);
+  });
+
+  test('a sign-in waits for its tab to be the one shown', async () => {
+    await typeAddress(page, `${fixtures.host}/secret.html`);
+    await expect(prompt(page)).toBeVisible();
+    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await expect(prompt(page)).toHaveCount(0);
+    await page.getByRole('tab').first().click();
+    await expect(prompt(page)).toBeVisible();
+  });
+
+  test('clearing browsing data forgets the sign-in, so the page asks again', async () => {
+    await typeAddress(page, `${fixtures.host}/secret.html`);
+    await prompt(page).getByLabel('Username').fill('ada');
+    await prompt(page).getByLabel('Password').fill('lovelace');
+    await prompt(page).getByRole('button', { name: 'Sign in' }).click();
+    await expect.poll(() => guestTitles(app)).toEqual(['Secret']);
+
+    // Remembered: the same site loads without asking.
+    await typeAddress(page, `${fixtures.host}/secret.html?again=1`);
+    await expect(prompt(page)).toHaveCount(0);
+    await expect.poll(() => guestTitles(app)).toEqual(['Secret']);
+
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Clear browsing data' }).click();
+    await page.getByRole('button', { name: 'Clear browsing data', exact: true }).click();
     await expect(page.getByRole('dialog')).toHaveCount(0);
+
+    await typeAddress(page, `${fixtures.host}/secret.html?after=1`);
+    await expect(prompt(page)).toBeVisible();
   });
 
   test('clearing browsing data removes a cookie, from the More menu', async () => {
@@ -205,7 +250,11 @@ test.describe('in-app browser safety', () => {
 
     await page.keyboard.press(settingsChord());
     const modal = page.getByRole('dialog', { name: /Settings/ });
-    await modal.getByRole('button', { name: 'Browser', exact: true }).click();
+    // The app has its own "Browser links" entry; this is the workspace's.
+    await modal
+      .getByRole('group', { name: /^Workspace/ })
+      .getByRole('button', { name: 'Browser', exact: true })
+      .click();
     await modal.getByRole('button', { name: /Clear browsing data/ }).click();
     // The confirmation is a second dialog over the settings.
     await page

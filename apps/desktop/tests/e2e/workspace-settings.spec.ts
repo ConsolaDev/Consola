@@ -483,7 +483,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
     await expect(appGroup.locator('.settings-modal-nav-item')).toHaveText([
       'Appearance',
       'Sessions',
-      'Browser',
+      'Browser links',
       'Harnesses',
       'Keyboard shortcuts',
     ]);
@@ -570,7 +570,7 @@ test('the rail gear opens Settings on Appearance with no Workspace group until a
     await expect(modal.locator('.settings-modal-nav-item')).toHaveText([
       'Appearance',
       'Sessions',
-      'Browser',
+      'Browser links',
       'Harnesses',
       'Keyboard shortcuts',
       'Updates',

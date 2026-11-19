@@ -1105,84 +1105,74 @@ describe('sign-in', () => {
     };
   }
   const info = { isProxy: false, realm: 'Staging' };
+  const URL_S = 'https://staging.example.com/admin';
+  const navigate = (guest: FakeGuest, url = URL_S) =>
+    guest.emit('did-start-navigation', { url, isMainFrame: true, isSameDocument: false });
 
-  function ask(guest: FakeGuest, url: string, authInfo = info) {
+  function ask(guest: FakeGuest, url: string, isRequestForNavigation = true, authInfo = info) {
     const event = { preventDefault: vi.fn() };
     const callback = vi.fn();
-    guest.emit('login', event, { url }, authInfo, callback);
+    guest.emit('login', event, { url, isRequestForNavigation }, authInfo, callback);
     return { event, callback };
   }
 
-  it('asks for the page’s own origin, even before the guest is bound, and answers the page', () => {
+  it('asks for the page’s own navigation, even before the guest is bound, and answers the page', () => {
     const { send, window } = host();
     const guest = new FakeGuest(41);
-    guest.url = 'https://staging.example.com/admin';
     service.guardGuest(guest.asWebContents(), window, 'w1', 41);
-    const { event, callback } = ask(guest, 'https://staging.example.com/admin');
-    expect(event.preventDefault).toHaveBeenCalled();
+    navigate(guest);
+    const { callback } = ask(guest, URL_S);
     const request = send.mock.calls[0];
     expect(request[0]).toBe(IPC_CHANNELS.BROWSER_AUTH_REQUEST);
-    expect(request[1]).toMatchObject({ origin: 'https://staging.example.com', realm: 'Staging' });
+    expect(request[1]).toMatchObject({
+      tabId: null,
+      origin: 'https://staging.example.com',
+      realm: 'Staging',
+    });
     expect(service.auth.answer(window, request[1].id, { username: 'u', password: 'p' })).toBe(true);
     expect(callback).toHaveBeenCalledWith('u', 'p');
   });
 
-  it('asks while a first load is still waiting on the sign-in: nothing is committed yet', () => {
+  it('names the tab once the guest binds', () => {
     const { send, window } = host();
-    const guest = new FakeGuest(46);
-    guest.url = '';
-    service.guardGuest(guest.asWebContents(), window, 'w1', 46);
-    guest.emit('did-start-navigation', {
-      url: 'https://staging.example.com/admin',
-      isMainFrame: true,
-      isSameDocument: false,
-    });
-    const { event } = ask(guest, 'https://staging.example.com/admin');
-    expect(event.preventDefault).toHaveBeenCalled();
-    expect(send).toHaveBeenCalledTimes(1);
+    service.openTab('s1', URL_S, 'person');
+    const guest = new FakeGuest(48);
+    service.guardGuest(guest.asWebContents(), window, 'w1', 48);
+    navigate(guest);
+    ask(guest, URL_S);
+    service.bindGuest('tab1', guest.asWebContents(), window);
+    const requests = send.mock.calls.filter((c) => c[0] === IPC_CHANNELS.BROWSER_AUTH_REQUEST);
+    expect(requests.at(-1)?.[1]).toMatchObject({ tabId: 'tab1' });
   });
 
-  it('follows a redirect, and a subframe’s navigation is not the page', () => {
-    const { send, window } = host();
-    const guest = new FakeGuest(47);
-    service.guardGuest(guest.asWebContents(), window, 'w1', 47);
-    guest.emit('did-start-navigation', { url: 'https://a.example.com/', isMainFrame: true });
-    guest.emit('did-redirect-navigation', { url: 'https://b.example.com/', isMainFrame: true });
-    guest.emit('did-start-navigation', { url: 'https://c.example.com/', isMainFrame: false });
-    expect(ask(guest, 'https://c.example.com/').event.preventDefault).not.toHaveBeenCalled();
-    expect(ask(guest, 'https://a.example.com/').event.preventDefault).not.toHaveBeenCalled();
-    expect(ask(guest, 'https://b.example.com/').event.preventDefault).toHaveBeenCalled();
-    expect(send).toHaveBeenCalledTimes(1);
-  });
-
-  it('leaves another origin, and a proxy, to Electron’s cancel', () => {
+  it('cancels a background request, another origin and a proxy', () => {
     const { send, window } = host();
     const guest = new FakeGuest(42);
-    guest.url = 'https://staging.example.com/';
     service.guardGuest(guest.asWebContents(), window, 'w1', 42);
-    const other = ask(guest, 'https://tracker.example.net/pixel');
-    const proxy = ask(guest, 'https://staging.example.com/', { isProxy: true, realm: '' });
-    expect(other.event.preventDefault).not.toHaveBeenCalled();
-    expect(proxy.event.preventDefault).not.toHaveBeenCalled();
+    navigate(guest);
+    expect(ask(guest, URL_S, false).callback).toHaveBeenCalledWith();
+    expect(ask(guest, 'https://tracker.example.net/pixel').callback).toHaveBeenCalledWith();
+    const proxy = ask(guest, URL_S, true, { isProxy: true, realm: '' });
+    expect(proxy.callback).toHaveBeenCalledWith();
     expect(send).not.toHaveBeenCalled();
   });
 
   it('cancels when the tab is closed, and when the guest is destroyed', () => {
     const { send, window } = host();
-    service.openTab('s1', 'https://staging.example.com/', 'person');
+    service.openTab('s1', URL_S, 'person');
     const guest = new FakeGuest(43);
-    guest.url = 'https://staging.example.com/';
     service.guardGuest(guest.asWebContents(), window, 'w1', 43);
     service.bindGuest('tab1', guest.asWebContents(), window);
-    const closing = ask(guest, 'https://staging.example.com/');
+    navigate(guest);
+    const closing = ask(guest, URL_S);
     service.closeTab('tab1');
     expect(closing.callback).toHaveBeenCalledWith();
     expect(send.mock.calls.some((c) => c[0] === IPC_CHANNELS.BROWSER_AUTH_CANCELLED)).toBe(true);
 
     const second = new FakeGuest(44);
-    second.url = 'https://staging.example.com/';
     service.guardGuest(second.asWebContents(), window, 'w1', 44);
-    const dying = ask(second, 'https://staging.example.com/');
+    navigate(second);
+    const dying = ask(second, URL_S);
     second.emit('destroyed');
     expect(dying.callback).toHaveBeenCalledWith();
   });
@@ -1190,9 +1180,9 @@ describe('sign-in', () => {
   it('cancels when the window is detached', () => {
     const { window } = host();
     const guest = new FakeGuest(45);
-    guest.url = 'https://staging.example.com/';
     service.guardGuest(guest.asWebContents(), window, 'w1', 45);
-    const waiting = ask(guest, 'https://staging.example.com/');
+    navigate(guest);
+    const waiting = ask(guest, URL_S);
     service.detachWindow(window);
     expect(waiting.callback).toHaveBeenCalledWith();
   });

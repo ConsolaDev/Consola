@@ -180,7 +180,7 @@ test.describe('terminal links and the session browser', () => {
     const modal = page.getByRole('dialog', { name: 'Settings', exact: true });
     await modal
       .getByRole('group', { name: 'App', exact: true })
-      .getByRole('button', { name: 'Browser', exact: true })
+      .getByRole('button', { name: 'Browser links', exact: true })
       .click();
     await expect(modal.getByText('Hold Shift while you click', { exact: false })).toBeVisible();
     const rules = modal.getByRole('radiogroup', { name: 'Terminal links' });

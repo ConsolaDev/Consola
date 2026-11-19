@@ -298,6 +298,9 @@ export function setupIpcHandlers(): boolean {
         // An open connection was set up under a certificate the person may have
         // approved; reusing it would skip the check that approval no longer passes.
         await target.closeAllConnections();
+        // Signed-in-by-basic-auth lives in its own cache, which neither of the
+        // above empties; a deleted workspace goes through here too.
+        await target.clearAuthCache();
       } catch (error) {
         console.error(`Could not clear the browser data of workspace ${workspaceId}:`, error);
         throw error;

@@ -16,27 +16,49 @@ const MAX_CREDENTIAL_LENGTH = 1024;
 
 /**
  * Whether a page's request for a username and password is shown to the
- * person: only when it is the page's own origin asking (never a proxy, never
- * another site's resource embedded in it), so the dialog can say plainly who
- * is asking and a page cannot make Consola ask on behalf of another origin.
+ * person. Only a navigation the person can see happening is: a `fetch`, an
+ * image or any other background request is refused outright, since a page
+ * could otherwise raise a prompt whenever it liked, from a hidden tab, in a
+ * loop. The navigation must also be the main frame's own pending one, to the
+ * same origin (never a proxy, never another site's resource), so the prompt
+ * can say plainly who is asking.
  */
 export function decideLogin(request: {
+  isRequestForNavigation: boolean;
   requestUrl: string;
-  pageUrl: string;
+  /** Where the main frame is navigating to right now; null when it is not navigating. */
+  pendingNavigationUrl: string | null;
   isProxy: boolean;
 }): boolean {
-  if (request.isProxy) return false;
-  if (!isAllowedPageUrl(request.requestUrl) || !isAllowedPageUrl(request.pageUrl)) return false;
+  if (!request.isRequestForNavigation || request.isProxy) return false;
+  const pending = request.pendingNavigationUrl;
+  if (pending === null) return false;
+  if (!isAllowedPageUrl(request.requestUrl) || !isAllowedPageUrl(pending)) return false;
   try {
-    return new URL(request.requestUrl).origin === new URL(request.pageUrl).origin;
+    return new URL(request.requestUrl).origin === new URL(pending).origin;
   } catch {
     return false;
   }
 }
 
+/**
+ * The server names the area ("realm"), so it is the page's text: control and
+ * bidirectional-formatting characters go (they can reorder or hide what the
+ * person reads), and it is cut short.
+ */
+export function cleanRealm(realm: unknown): string {
+  return String(realm ?? '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '')
+    .slice(0, 200);
+}
+
 interface Pending {
   guestId: number;
   host: BrowserWindow;
+  origin: string;
+  realm: string;
+  /** The tab the guest is bound to; null until it binds. The window shows the prompt only for a tab. */
+  tabId: string | null;
   callback: (username?: string, password?: string) => void;
   timer: ReturnType<typeof setTimeout>;
 }
@@ -73,6 +95,8 @@ function credentialsOf(value: unknown): BrowserCredentials | null {
  */
 export class AuthPrompts {
   private readonly pending = new Map<string, Pending>();
+  /** `guestId|origin` of prompts the person cancelled; not asked again until the page navigates. */
+  private readonly declined = new Set<string>();
   private readonly newId: () => string;
 
   constructor(private readonly deps: AuthPromptsDeps) {
@@ -85,23 +109,52 @@ export class AuthPrompts {
     host: BrowserWindow;
     origin: string;
     realm: string;
+    tabId: string | null;
     callback: (username?: string, password?: string) => void;
   }): void {
     this.cancelGuest(options.guestId);
+    // A window that is gone cannot be asked.
+    if (!alive(options.host)) {
+      options.callback();
+      return;
+    }
     const id = this.newId();
     const timer = setTimeout(() => this.cancel(id), AUTH_TIMEOUT_MS);
     timer.unref?.();
     this.pending.set(id, {
       guestId: options.guestId,
       host: options.host,
+      origin: options.origin,
+      realm: options.realm,
+      tabId: options.tabId,
       callback: options.callback,
       timer,
     });
-    this.deps.send(options.host, IPC_CHANNELS.BROWSER_AUTH_REQUEST, {
+    this.tell(id);
+  }
+
+  private tell(id: string): void {
+    const entry = this.pending.get(id);
+    if (!entry || !alive(entry.host)) return;
+    this.deps.send(entry.host, IPC_CHANNELS.BROWSER_AUTH_REQUEST, {
       id,
-      origin: options.origin,
-      realm: options.realm,
+      tabId: entry.tabId,
+      origin: entry.origin,
+      realm: entry.realm,
     });
+  }
+
+  /**
+   * The guest has bound to a tab: its waiting prompt is told which one (the
+   * window draws a prompt over its own tab's page and holds it until that tab
+   * is the one on screen). Sent again under the same id.
+   */
+  public bindTab(guestId: number, tabId: string): void {
+    for (const [id, entry] of this.pending) {
+      if (entry.guestId !== guestId || entry.tabId === tabId) continue;
+      entry.tabId = tabId;
+      this.tell(id);
+    }
   }
 
   /**
@@ -115,8 +168,13 @@ export class AuthPrompts {
     clearTimeout(entry.timer);
     this.pending.delete(id);
     const checked = credentialsOf(credentials);
-    if (checked) entry.callback(checked.username, checked.password);
-    else entry.callback();
+    if (checked) {
+      entry.callback(checked.username, checked.password);
+    } else {
+      // The person said no: asking again for the same page would only nag.
+      this.declined.add(`${entry.guestId}|${entry.origin}`);
+      entry.callback();
+    }
     return true;
   }
 
@@ -139,50 +197,88 @@ export class AuthPrompts {
     this.pending.delete(id);
     entry.callback();
     // A window that is closing cannot be told, and needs no telling.
-    const { host } = entry;
-    if (host.isDestroyed?.() || host.webContents?.isDestroyed?.()) return;
-    this.deps.send(host, IPC_CHANNELS.BROWSER_AUTH_CANCELLED, { id });
+    if (!alive(entry.host)) return;
+    this.deps.send(entry.host, IPC_CHANNELS.BROWSER_AUTH_CANCELLED, { id });
   }
 
   /**
    * Follows a guest's `login` events from the moment it attaches (the first
-   * page often asks before the guest is bound to a tab). The page's address
-   * is where its main frame last navigated to, which is also the answer while
-   * a first load is still waiting on the sign-in: the guest has committed
-   * nothing yet, so `getURL()` alone would call every such request foreign. A
-   * request that is not `decideLogin`'s to show is left unanswered, which
-   * Electron treats as a cancel.
+   * page often asks before the guest is bound to a tab).
+   *
+   * What the main frame is navigating to is tracked here, from its start to
+   * its end: a navigation that finishes without committing (stopped, a 204, a
+   * download, a failure) leaves nothing pending, so a later request cannot
+   * borrow its origin. A new navigation also withdraws a prompt still waiting
+   * for the old one, and lets a cancelled prompt be asked again. A request
+   * that is not `decideLogin`'s to show is cancelled at once.
    */
-  public guard(guest: WebContents, host: BrowserWindow, guestId: number): void {
-    let mainFrameUrl = '';
-    const follow = (details: { url: string; isMainFrame: boolean; isSameDocument?: boolean }) => {
-      if (details.isMainFrame && !details.isSameDocument) mainFrameUrl = details.url;
+  public guard(
+    guest: WebContents,
+    host: BrowserWindow,
+    guestId: number,
+    tabIdOf: () => string | null,
+  ): void {
+    let pendingUrl: string | null = null;
+    const start = (details: { url: string; isMainFrame: boolean; isSameDocument?: boolean }) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      pendingUrl = details.url;
+      this.cancelGuest(guestId);
+      for (const key of [...this.declined]) {
+        if (key.startsWith(`${guestId}|`)) this.declined.delete(key);
+      }
     };
-    guest.on('did-start-navigation', follow);
-    guest.on('did-redirect-navigation', follow);
+    const redirect = (details: { url: string; isMainFrame: boolean }) => {
+      if (details.isMainFrame) pendingUrl = details.url;
+    };
+    const end = () => {
+      pendingUrl = null;
+    };
+    guest.on('did-start-navigation', start);
+    guest.on('did-redirect-navigation', redirect);
+    guest.on('did-navigate', end);
+    guest.on('did-stop-loading', end);
+    guest.on('did-fail-load', (_event, _code, _description, _url, isMainFrame) => {
+      if (isMainFrame) end();
+    });
     guest.on('login', (event, details, authInfo, callback) => {
+      // Cancelled unless this passes: the page never waits on a prompt that
+      // was not meant to be shown.
+      event.preventDefault();
       let origin: string;
       try {
         origin = new URL(details.url).origin;
       } catch {
+        callback();
         return;
       }
       const allowed = decideLogin({
+        isRequestForNavigation: details.isRequestForNavigation === true,
         requestUrl: details.url,
-        pageUrl: mainFrameUrl || guest.getURL(),
+        pendingNavigationUrl: pendingUrl,
         isProxy: authInfo.isProxy,
       });
-      if (!allowed) return;
-      // Without this Electron cancels at once; with it the page waits for the person.
-      event.preventDefault();
+      if (!allowed || !alive(host) || this.declined.has(`${guestId}|${origin}`)) {
+        callback();
+        return;
+      }
       this.request({
         guestId,
         host,
         origin,
-        realm: String(authInfo.realm ?? '').slice(0, 200),
+        realm: cleanRealm(authInfo.realm),
+        tabId: tabIdOf(),
         callback,
       });
     });
-    guest.once('destroyed', () => this.cancelGuest(guestId));
+    guest.once('destroyed', () => {
+      this.cancelGuest(guestId);
+      for (const key of [...this.declined]) {
+        if (key.startsWith(`${guestId}|`)) this.declined.delete(key);
+      }
+    });
   }
+}
+
+function alive(window: BrowserWindow): boolean {
+  return !window.isDestroyed?.() && !window.webContents?.isDestroyed?.();
 }
