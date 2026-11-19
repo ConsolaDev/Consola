@@ -100,6 +100,8 @@ contextBridge.exposeInMainWorld('browserAPI', {
   stop: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_STOP, tabId),
   attach: (tabId, webContentsId) =>
     ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ATTACH, tabId, webContentsId),
+  setVisible: (sessionId, tabId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_SET_VISIBLE, sessionId, tabId),
   onSnapshot: (callback) => subscribe(IPC_CHANNELS.BROWSER_SNAPSHOT, callback),
   onShortcut: (callback) => subscribe(IPC_CHANNELS.BROWSER_SHORTCUT, callback),
 } satisfies BrowserAPI);

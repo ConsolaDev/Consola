@@ -12,6 +12,7 @@ import {
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserStateStore } from './BrowserStateStore';
+import { LivePages } from './LivePages';
 import { PopupRegistry } from './popupWindows';
 
 /** A guest whose renderer dies is reloaded at most this often before the person decides. */
@@ -31,6 +32,17 @@ export interface BrowserServiceDeps {
   clearPartition(workspaceId: string): Promise<void> | void;
   now?(): number;
   newId?(): string;
+  /** Calls `fn` every `ms` until the returned function is called. Defaults to an unref'd interval. */
+  every?(ms: number, fn: () => void): () => void;
+}
+
+/** How often the live-page rule is applied when nothing else prompts it. */
+export const LIVE_CHECK_MS = 60_000;
+
+function everyMinute(ms: number, fn: () => void): () => void {
+  const timer = setInterval(fn, ms);
+  timer.unref?.();
+  return () => clearInterval(timer);
 }
 
 /** How long an attached guest is remembered while nothing claims it. */
@@ -82,8 +94,11 @@ const IDLE: LiveFields = { loading: false, canGoBack: false, canGoForward: false
  * (`tabBelongsToWorkspace`), then call in. Every change pushes a fresh
  * snapshot of that one session to the one window holding its workspace.
  *
- * Tool-call bookkeeping (`agentActive`) and the live-page policy belong on
- * top of this and are not here yet; `snapshotFor` reports them as idle.
+ * Which tabs have a page is main's decision (`LivePages`, `decideLive`): a
+ * window mounts a page for each tab a snapshot calls `live`, and removes the
+ * element of one that no longer is. Tool-call bookkeeping (`agentActive`) is
+ * not here yet; `holdForToolCall` is what it will call, and `snapshotFor`
+ * reports `agentActive` as idle until then.
  */
 export class BrowserService {
   private readonly guests = new Map<string, LiveGuest>();
@@ -94,10 +109,14 @@ export class BrowserService {
   public readonly popups = new PopupRegistry();
   private readonly now: () => number;
   private readonly newId: () => string;
+  private readonly pages: LivePages;
+  private readonly stopTimer: () => void;
 
   constructor(private readonly deps: BrowserServiceDeps) {
     this.now = deps.now ?? Date.now;
     this.newId = deps.newId ?? randomUUID;
+    this.pages = new LivePages(this.now);
+    this.stopTimer = (deps.every ?? everyMinute)(LIVE_CHECK_MS, () => this.applyLiveRule());
   }
 
   // --- Tabs ---
@@ -140,6 +159,7 @@ export class BrowserService {
         : session.activeTabId;
     this.destroyGuest(tabId);
     this.live.delete(tabId);
+    this.pages.drop(tabId);
     this.deps.store.setSession(sessionId, { tabs, activeTabId });
     this.pushSnapshot(sessionId);
   }
@@ -257,7 +277,10 @@ export class BrowserService {
       if (url) this.recordCommit(tabId, url, guest.getTitle());
     }
     this.setLive(tabId, { ...this.readNavigationState(guest), loading, error }, false);
-    this.pushSnapshot(found.sessionId);
+    // A page that was mounted is wanted, even if the rule let go of it while
+    // its element was attaching: the element exists, so the set must say so.
+    this.pages.add(tabId, host);
+    this.applyLiveRule([found.sessionId]);
     return true;
   }
 
@@ -267,11 +290,66 @@ export class BrowserService {
     if (!entry) return;
     entry.unsubscribe();
     this.guests.delete(tabId);
+    // The guest is gone (destroyed, or its window let go): no page to keep.
+    this.pages.drop(tabId);
     const found = this.find(tabId);
     // A late event for a tab already removed must not bring its entry back.
     if (found) this.live.set(tabId, { ...IDLE });
     else this.live.delete(tabId);
     if (found && push) this.pushSnapshot(found.sessionId);
+  }
+
+  // --- Which pages are live ---
+
+  /**
+   * A window says which tab the person is looking at, or none: the panel
+   * closed, an overlay covers it, the window moved to another workspace.
+   * The tab becomes live if it was not (its page mounts at the stored
+   * address), and the one it replaces starts counting toward its unload.
+   * An unknown tab, or one of another session, is taken as none.
+   */
+  public setVisible(window: BrowserWindow, sessionId: string | null, tabId: string | null): void {
+    const shown = tabId && sessionId && this.find(tabId)?.sessionId === sessionId ? tabId : null;
+    this.pages.setVisible(window, shown);
+    const added = shown !== null && this.pages.add(shown, window);
+    this.applyLiveRule(added && sessionId ? [sessionId] : []);
+  }
+
+  /**
+   * An agent's tool call is running on this tab: its page is kept live
+   * (made live if it was not) and never unloaded until `release` is called,
+   * which counts as use. Overlapping calls on a tab each need their release.
+   */
+  public holdForToolCall(tabId: string): (() => void) | null {
+    const found = this.find(tabId);
+    if (!found) return null;
+    const window = this.pageWindowFor(found.sessionId);
+    const { added, release } = this.pages.hold(tabId, window);
+    this.applyLiveRule(added ? [found.sessionId] : []);
+    return release;
+  }
+
+  /**
+   * Applies the live-page rule and pushes every session it changed, plus
+   * `changed` (sessions the caller already altered). An unloaded tab's page
+   * is blanked here so it stops running before its element is removed; its
+   * address stays, and the blanking is never a commit or a visit, because the
+   * guest is let go of before it is navigated.
+   */
+  private applyLiveRule(changed: readonly string[] = []): void {
+    const sessions = new Set(changed);
+    for (const tabId of this.pages.evaluate((id) => this.find(id) !== undefined)) {
+      const found = this.find(tabId);
+      this.destroyGuest(tabId);
+      this.live.set(tabId, { ...IDLE });
+      if (found) sessions.add(found.sessionId);
+    }
+    for (const sessionId of sessions) this.pushSnapshot(sessionId);
+  }
+
+  private pageWindowFor(sessionId: string): BrowserWindow | undefined {
+    const workspaceId = this.deps.workspaceIdForSession(sessionId);
+    return workspaceId ? this.deps.findWindowForWorkspace(workspaceId) : undefined;
   }
 
   // --- Snapshots ---
@@ -284,7 +362,7 @@ export class BrowserService {
         ...tab,
         ...IDLE,
         ...this.live.get(tab.id),
-        live: this.guests.has(tab.id),
+        live: this.pages.has(tab.id),
         agentActive: false,
       })),
       activeTabId: session.activeTabId,
@@ -301,7 +379,10 @@ export class BrowserService {
     this.popups.closeWhere((owner) => owner.sessionId === sessionId);
     const session = this.deps.store.getSession(sessionId);
     if (!session) return;
-    for (const tab of session.tabs) this.live.delete(tab.id);
+    for (const tab of session.tabs) {
+      this.live.delete(tab.id);
+      this.pages.drop(tab.id);
+    }
     this.deps.store.deleteSession(sessionId);
   }
 
@@ -339,12 +420,16 @@ export class BrowserService {
     for (const [tabId, entry] of [...this.guests]) {
       if (entry.host === window) this.unbindGuest(tabId, false);
     }
+    // Tabs whose element had not bound yet have no guest to let go of.
+    this.pages.dropWindow(window);
     this.popups.closeWhere((owner) => owner.host === window);
   }
 
   /** App quit: the guests die with their windows, so only the state needs saving. */
   public destroyAll(): void {
+    this.stopTimer();
     for (const tabId of [...this.guests.keys()]) this.destroyGuest(tabId);
+    this.pages.clear();
     this.popups.closeAll();
     this.live.clear();
     this.deps.store.flush();
@@ -394,6 +479,7 @@ export class BrowserService {
       if (!match(entry)) continue;
       this.destroyGuest(tabId);
       this.live.delete(tabId);
+      this.pages.drop(tabId);
     }
   }
 

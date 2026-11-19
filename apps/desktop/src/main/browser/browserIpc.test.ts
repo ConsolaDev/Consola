@@ -49,6 +49,7 @@ beforeEach(() => {
     stop: vi.fn(),
     bindGuest: vi.fn(() => true),
     detachWindow: vi.fn(),
+    setVisible: vi.fn(),
   };
   deps = {
     ipc: {
@@ -118,6 +119,37 @@ describe('tab-scoped handlers', () => {
   it('navigate answers false when refused', () => {
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-foreign', 'https://a.com')).toBe(false);
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-mine', 'https://a.com')).toBe(true);
+  });
+});
+
+describe('set visible', () => {
+  it('reports the tab of the sender workspace for this window', () => {
+    call(IPC_CHANNELS.BROWSER_SET_VISIBLE, 's-mine', 't-mine');
+    expect(service.setVisible).toHaveBeenCalledWith(window, 's-mine', 't-mine');
+  });
+
+  it('takes none as nothing shown', () => {
+    call(IPC_CHANNELS.BROWSER_SET_VISIBLE, null, null);
+    expect(service.setVisible).toHaveBeenCalledWith(window, null, null);
+  });
+
+  it.each([
+    ['a foreign session', 's-foreign', 't-mine'],
+    ['a foreign tab', 's-mine', 't-foreign'],
+    ['junk', 5, {}],
+  ])('takes %s as nothing shown', (_label, sessionId, tabId) => {
+    call(IPC_CHANNELS.BROWSER_SET_VISIBLE, sessionId, tabId);
+    expect(service.setVisible).toHaveBeenCalledWith(window, null, null);
+  });
+
+  it('shows nothing for a window with no workspace, and is ignored without a window', () => {
+    workspace = undefined;
+    call(IPC_CHANNELS.BROWSER_SET_VISIBLE, 's-mine', 't-mine');
+    expect(service.setVisible).toHaveBeenCalledWith(window, null, null);
+    window = undefined;
+    service.setVisible.mockClear();
+    call(IPC_CHANNELS.BROWSER_SET_VISIBLE, 's-mine', 't-mine');
+    expect(service.setVisible).not.toHaveBeenCalled();
   });
 });
 

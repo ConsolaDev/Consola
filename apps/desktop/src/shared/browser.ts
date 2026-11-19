@@ -72,7 +72,10 @@ export interface BrowserTabLive {
   /** Absent while the page is fine. */
   error?: BrowserTabError | null;
   favicon?: string;
-  /** Whether a guest exists for this tab; hidden tabs unload to save memory. */
+  /**
+   * Whether the window should have a page for this tab. Main decides: a tab
+   * is live once shown, and unloaded after a while hidden or past the cap.
+   */
   live: boolean;
   /** An agent is driving this tab right now. */
   agentActive: boolean;
@@ -125,6 +128,8 @@ export interface BrowserAPI {
   stop(tabId: string): Promise<void>;
   /** Binds a mounted, attached `<webview>` (by its `getWebContentsId()`) to its tab. */
   attach(tabId: string, webContentsId: number): Promise<boolean>;
+  /** Tells main which tab this window shows, or none (null both). Main decides which pages stay live. */
+  setVisible(sessionId: string | null, tabId: string | null): Promise<void>;
   onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void;
   onShortcut(callback: (message: BrowserShortcutMessage) => void): () => void;
 }

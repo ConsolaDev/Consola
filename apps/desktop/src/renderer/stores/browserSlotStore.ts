@@ -11,13 +11,10 @@ import { create } from 'zustand';
 interface BrowserSlotState {
   /** The session whose browser panel is on screen, if any. */
   sessionId: string | null;
-  /** Every session whose panel has been on screen since the window loaded, first shown first. */
-  shownSessionIds: string[];
 }
 
 export const useBrowserSlotStore = create<BrowserSlotState>(() => ({
   sessionId: null,
-  shownSessionIds: [],
 }));
 
 /**
@@ -25,27 +22,10 @@ export const useBrowserSlotStore = create<BrowserSlotState>(() => ({
  * which clears the slot only if no other panel has taken it since.
  */
 export function showBrowserSlot(sessionId: string): () => void {
-  useBrowserSlotStore.setState((state) => ({
-    sessionId,
-    shownSessionIds: state.shownSessionIds.includes(sessionId)
-      ? state.shownSessionIds
-      : [...state.shownSessionIds, sessionId],
-  }));
+  useBrowserSlotStore.setState({ sessionId });
   return () => {
     useBrowserSlotStore.setState((state) =>
       state.sessionId === sessionId ? { sessionId: null } : state,
     );
   };
-}
-
-/**
- * Forget the sessions shown here that are not in `keep`: those of a workspace
- * the window left, or deleted. Coming back, a session's page returns only
- * once its panel is on screen again and its tabs have been read afresh.
- */
-export function keepShownSessions(keep: ReadonlySet<string>): void {
-  useBrowserSlotStore.setState((state) => {
-    const shownSessionIds = state.shownSessionIds.filter((id) => keep.has(id));
-    return shownSessionIds.length === state.shownSessionIds.length ? state : { shownSessionIds };
-  });
 }

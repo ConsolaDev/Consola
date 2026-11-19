@@ -9,7 +9,7 @@ import {
 } from 'react';
 import { browserPartitionFor, type BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
-import { keepShownSessions, useBrowserSlotStore } from '../../stores/browserSlotStore';
+import { useBrowserSlotStore } from '../../stores/browserSlotStore';
 import { forgetBrowser, loadBrowser, useBrowserStore } from '../../stores/browserStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
@@ -72,7 +72,6 @@ export function BrowserHost() {
   );
   const snapshots = useBrowserStore((state) => state.snapshots);
   const slotSessionId = useBrowserSlotStore((state) => state.sessionId);
-  const shownSessionIds = useBrowserSlotStore((state) => state.shownSessionIds);
   const hostRef = useRef<HTMLDivElement>(null);
 
   const sessionIds = useMemo(
@@ -97,9 +96,7 @@ export function BrowserHost() {
     [workspaceId],
   );
 
-  const live = liveTabs(shownSessionIds, sessionIds, snapshots).filter(
-    (hosted) => !refusedHere.has(hosted.tab.id),
-  );
+  const live = liveTabs(sessionIds, snapshots).filter((hosted) => !refusedHere.has(hosted.tab.id));
   const tabs = new Map(live.map((hosted) => [hosted.tab.id, hosted]));
 
   // Main pushes a session's changes only to the window holding its
@@ -111,7 +108,6 @@ export function BrowserHost() {
     for (const sessionId of Object.keys(snapshots)) {
       if (!sessionIds.has(sessionId)) forgetBrowser(sessionId);
     }
-    keepShownSessions(sessionIds);
   }, [sessionIds, snapshots]);
 
   const [order, setOrder] = useState<string[]>([]);
@@ -122,6 +118,7 @@ export function BrowserHost() {
   if (nextOrder !== order) setOrder(nextOrder);
 
   const visible = visibleTabId(slotSessionId, snapshots);
+  useReportVisible(slotSessionId, visible);
   useDragGuard(hostRef);
 
   return (
@@ -278,6 +275,19 @@ function useAutoRetry(
     // `shownError` is a new object for every failed attempt, which is what
     // schedules the next one.
   }, [tabId, shownError, retryUrl]);
+}
+
+/**
+ * Tells main which tab the person is looking at, whenever that changes: a
+ * page stays live while shown and is unloaded by main's rule once hidden for
+ * long, so main has to know. Nothing (null) when the panel is closed, an
+ * overlay covers it. (A window that moves to another workspace is let go of
+ * by main itself.)
+ */
+function useReportVisible(sessionId: string | null, tabId: string | null): void {
+  useEffect(() => {
+    noteFailure(browserBridge.setVisible(tabId ? sessionId : null, tabId));
+  }, [sessionId, tabId]);
 }
 
 /**

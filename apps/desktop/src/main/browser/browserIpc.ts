@@ -29,6 +29,7 @@ const CHANNELS = [
   IPC_CHANNELS.BROWSER_RELOAD,
   IPC_CHANNELS.BROWSER_STOP,
   IPC_CHANNELS.BROWSER_ATTACH,
+  IPC_CHANNELS.BROWSER_SET_VISIBLE,
 ];
 
 const EMPTY: BrowserSessionSnapshot = { tabs: [], activeTabId: null };
@@ -115,6 +116,22 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
         window.once('closed', () => service.detachWindow(window));
       }
       return service.bindGuest(tabId, guest, window);
+    },
+  );
+
+  ipc.handle(
+    IPC_CHANNELS.BROWSER_SET_VISIBLE,
+    (event, sessionId: string | null, tabId: string | null) => {
+      const window = deps.windowForSender(event.sender);
+      if (!window) return;
+      // A session or tab that is not this window's workspace's is taken as
+      // "nothing shown": the window is not showing a page it cannot own.
+      const mine =
+        typeof sessionId === 'string' &&
+        typeof tabId === 'string' &&
+        ownedSession(event, sessionId) &&
+        ownedTab(event, tabId);
+      service.setVisible(window, mine ? sessionId : null, mine ? tabId : null);
     },
   );
 

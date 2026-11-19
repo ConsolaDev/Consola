@@ -45,27 +45,23 @@ const unreachable = (url: string): BrowserTabError => ({
 
 describe('liveTabs', () => {
   const snapshots = {
-    a: snapshot([tab('a1'), tab('a2')], 'a2'),
-    b: snapshot([tab('b1')], 'b1'),
+    a: snapshot([tab('a1', { live: true }), tab('a2'), tab('a3', { live: true })], 'a2'),
+    b: snapshot([tab('b1', { live: true })], 'b1'),
     c: snapshot([tab('c1')], null),
   };
 
-  it('keeps the active tab of each shown session of this workspace, and only that tab', () => {
-    const live = liveTabs(['a', 'b'], new Set(['a', 'b']), snapshots);
+  it('keeps every tab main calls live, active or not, and no other', () => {
+    const live = liveTabs(new Set(['a', 'b', 'c']), snapshots);
     expect(live.map((hosted) => [hosted.sessionId, hosted.tab.id])).toEqual([
-      ['a', 'a2'],
+      ['a', 'a1'],
+      ['a', 'a3'],
       ['b', 'b1'],
     ]);
   });
 
-  it('leaves out a session never shown, one of another workspace, and one with no active tab', () => {
-    expect(liveTabs(['a'], new Set(['a', 'b']), snapshots).map((h) => h.tab.id)).toEqual(['a2']);
-    expect(liveTabs(['a', 'b'], new Set(['b']), snapshots).map((h) => h.tab.id)).toEqual(['b1']);
-    expect(liveTabs(['c'], new Set(['c']), snapshots)).toEqual([]);
-  });
-
-  it('leaves out a shown session whose tabs are not known yet', () => {
-    expect(liveTabs(['unknown'], new Set(['unknown']), snapshots)).toEqual([]);
+  it('leaves out a session of another workspace', () => {
+    expect(liveTabs(new Set(['b']), snapshots).map((h) => h.tab.id)).toEqual(['b1']);
+    expect(liveTabs(new Set(), snapshots)).toEqual([]);
   });
 });
 

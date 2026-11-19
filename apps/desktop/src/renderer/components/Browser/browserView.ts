@@ -18,25 +18,19 @@ export interface HostedTab {
 }
 
 /**
- * Which tabs have a page in this window: the active tab of every session of
- * this workspace whose browser panel has been on screen since the window
- * loaded. A session switched away from keeps its page, so coming back does
- * not reload it.
- *
- * This is the whole liveness rule, in one place, so a policy that also
- * unloads pages hidden for long replaces this function and nothing else.
+ * Which tabs have a page in this window: those of this workspace's sessions
+ * that main calls `live`. Main decides (it shows a tab, keeps one an agent
+ * is using, and unloads the rest by `decideLive`); the window only mounts
+ * what it is told and removes the element of a tab that stops being live.
  */
 export function liveTabs(
-  shownSessionIds: readonly string[],
   workspaceSessionIds: ReadonlySet<string>,
   snapshots: Readonly<Record<string, BrowserSessionSnapshot>>,
 ): HostedTab[] {
   const hosted: HostedTab[] = [];
-  for (const sessionId of shownSessionIds) {
+  for (const [sessionId, snapshot] of Object.entries(snapshots)) {
     if (!workspaceSessionIds.has(sessionId)) continue;
-    const snapshot = snapshots[sessionId];
-    const tab = snapshot?.tabs.find((candidate) => candidate.id === snapshot.activeTabId);
-    if (tab) hosted.push({ sessionId, tab });
+    for (const tab of snapshot.tabs) if (tab.live) hosted.push({ sessionId, tab });
   }
   return hosted;
 }

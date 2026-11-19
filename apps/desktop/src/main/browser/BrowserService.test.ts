@@ -579,3 +579,177 @@ describe('lifecycle', () => {
     expect(service.guestFor('tab1')).toBeUndefined();
   });
 });
+
+describe('live pages', () => {
+  const MIN = 60_000;
+  let tick: (() => void) | undefined;
+  let stopped: boolean;
+
+  beforeEach(() => {
+    stopped = false;
+    tick = undefined;
+    service = new BrowserService({
+      store,
+      workspaceIdForSession: (id) => sessionWorkspace[id],
+      findWindowForWorkspace: (w) => (w === 'w1' ? winA : w === 'w2' ? winB : undefined),
+      send: (window, channel, payload) =>
+        sent.push({ window: (window as unknown as { name: string }).name, channel, payload }),
+      clearPartition,
+      now: () => now,
+      newId: () => `tab${++ids}`,
+      every: (_ms, fn) => {
+        tick = fn;
+        return () => {
+          stopped = true;
+        };
+      },
+    });
+  });
+
+  const liveIds = (sessionId: string) =>
+    service
+      .snapshotFor(sessionId)
+      .tabs.filter((t) => t.live)
+      .map((t) => t.id);
+
+  it('a tab is live only once shown, and opening one does not make it live by itself', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    expect(liveIds('s1')).toEqual([]);
+    service.setVisible(winA, 's1', 'tab1');
+    expect(liveIds('s1')).toEqual(['tab1']);
+    expect(last().payload.snapshot.tabs[0].live).toBe(true);
+  });
+
+  it('keeps the page of a tab that stops being visible, until the rule unloads it', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.openTab('s1', 'https://b.com', 'person');
+    service.setVisible(winA, 's1', 'tab1');
+    const g1 = new FakeGuest(11);
+    service.bindGuest('tab1', g1.asWebContents(), winA);
+    service.setVisible(winA, 's1', 'tab2');
+    expect(liveIds('s1')).toEqual(['tab1', 'tab2']);
+    left(g1);
+
+    now += 14 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab1', 'tab2']);
+
+    now += 1 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab2']);
+    blanked(g1);
+    // Its address stays, and blanking is no commit or visit.
+    expect(service.listFor('s1')[0].url).toBe('https://a.com');
+    expect(store.getHistory('w1').map((h) => h.url)).not.toContain('about:blank');
+    expect(service.guestFor('tab1')).toBeUndefined();
+    expect(last().payload.snapshot.tabs[0].live).toBe(false);
+  });
+
+  it('never unloads the visible tab, however long it has been shown', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.setVisible(winA, 's1', 'tab1');
+    now += 60 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab1']);
+    // Hidden at last, it counts from then, not from when it was first shown.
+    service.setVisible(winA, null, null);
+    now += 14 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab1']);
+    now += 1 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual([]);
+  });
+
+  it('shows an unloaded tab live again at its stored address', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.setVisible(winA, 's1', 'tab1');
+    service.setVisible(winA, null, null);
+    now += 20 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual([]);
+    service.setVisible(winA, 's1', 'tab1');
+    expect(liveIds('s1')).toEqual(['tab1']);
+    expect(service.listFor('s1')[0].url).toBe('https://a.com');
+  });
+
+  it('holds the cap, least recently shown first out', () => {
+    for (let i = 0; i < 10; i++) {
+      service.openTab(i < 5 ? 's1' : 's2', `https://e.com/${i}`, 'person');
+    }
+    for (let i = 1; i <= 10; i++) {
+      now += 1000;
+      service.setVisible(winA, i <= 5 ? 's1' : 's2', `tab${i}`);
+    }
+    const all = [...liveIds('s1'), ...liveIds('s2')];
+    expect(all).toHaveLength(8);
+    // tab1 and tab2 were shown first.
+    expect(all).not.toContain('tab1');
+    expect(all).not.toContain('tab2');
+    expect(all).toContain('tab10');
+  });
+
+  it('a tool call in flight keeps a hidden tab live, and its end counts as use', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.setVisible(winA, 's1', 'tab1');
+    service.setVisible(winA, null, null);
+    const release = service.holdForToolCall('tab1');
+    expect(release).not.toBeNull();
+    now += 60 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab1']);
+    release?.();
+    now += 14 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab1']);
+    now += 1 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual([]);
+  });
+
+  it('a tool call makes an unloaded tab live, and overlapping calls each need releasing', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    const first = service.holdForToolCall('tab1');
+    const second = service.holdForToolCall('tab1');
+    expect(liveIds('s1')).toEqual(['tab1']);
+    first?.();
+    first?.();
+    now += 60 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual(['tab1']);
+    second?.();
+    now += 60 * MIN;
+    tick?.();
+    expect(liveIds('s1')).toEqual([]);
+    expect(service.holdForToolCall('nope')).toBeNull();
+  });
+
+  it('takes a tab of another session, or an unknown one, as nothing shown', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.setVisible(winA, 's2', 'tab1');
+    service.setVisible(winA, 's1', 'ghost');
+    expect(liveIds('s1')).toEqual([]);
+  });
+
+  it('closing a tab and a window let go of liveness', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.openTab('s1', 'https://b.com', 'person');
+    service.setVisible(winA, 's1', 'tab1');
+    service.setVisible(winA, 's1', 'tab2');
+    service.closeTab('tab2');
+    expect(liveIds('s1')).toEqual(['tab1']);
+    service.detachWindow(winA);
+    expect(liveIds('s1')).toEqual([]);
+  });
+
+  it('a guest binding for a tab not in the set makes it live rather than leaving it half-bound', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.bindGuest('tab1', new FakeGuest(11).asWebContents(), winA);
+    expect(liveIds('s1')).toEqual(['tab1']);
+  });
+
+  it('stops its timer when destroyed', () => {
+    service.destroyAll();
+    expect(stopped).toBe(true);
+  });
+});

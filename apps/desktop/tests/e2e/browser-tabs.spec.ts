@@ -153,6 +153,35 @@ async function inGuest(
   );
 }
 
+/** The id of the guest at `urlPrefix`, from main: the same id means the same page. */
+function guestIdAt(app: ElectronApplication, urlPrefix: string): Promise<number | null> {
+  return app.evaluate(
+    ({ webContents }, prefix) =>
+      webContents
+        .getAllWebContents()
+        .find((c) => c.getType() === 'webview' && c.getURL().startsWith(prefix))?.id ?? null,
+    urlPrefix,
+  );
+}
+
+/** A script's result in the guest at `urlPrefix`, from main. */
+function readInGuest(
+  app: ElectronApplication,
+  urlPrefix: string,
+  script: string,
+): Promise<unknown> {
+  return app.evaluate(
+    ({ webContents }, args) => {
+      const guest = webContents
+        .getAllWebContents()
+        .find((c) => c.getType() === 'webview' && c.getURL().startsWith(args.prefix));
+      if (!guest) throw new Error(`no guest at ${args.prefix}`);
+      return guest.executeJavaScript(args.script, true);
+    },
+    { prefix: urlPrefix, script },
+  );
+}
+
 /** The title of the guest at `urlPrefix`, from main. */
 function titleOf(app: ElectronApplication, urlPrefix: string): Promise<string> {
   return app.evaluate(
@@ -258,7 +287,11 @@ test.describe('in-app browser tabs', () => {
 
     await tabs(page).nth(0).click();
     await expect(tabs(page).nth(0)).toHaveAttribute('aria-selected', 'true');
-    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    // The page of the tab left behind stays alive: main unloads by time and
+    // count, not by which tab is active.
+    await expect
+      .poll(() => guestUrls(app))
+      .toEqual(expect.arrayContaining([fixtures.url('/a.html'), fixtures.url('/b.html')]));
 
     // Middle-click closes, and the neighbour shows.
     await tabs(page).nth(0).click({ button: 'middle' });
@@ -282,6 +315,39 @@ test.describe('in-app browser tabs', () => {
     await expect(newTab(page)).toBeEnabled();
   });
 
+  test('switching between two tabs keeps both pages alive, not reloaded', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    const firstId = await guestIdAt(app, fixtures.url('/a.html'));
+    // State only this load of the page has.
+    await readInGuest(app, fixtures.url('/a.html'), `window.__kept = 'still here'`);
+    const loads = fixtures.hits('/a.html');
+
+    await newTab(page).click();
+    await typeAddress(page, `${fixtures.host}/b.html`);
+    await expect(tabs(page).nth(1)).toContainText('Page B');
+    await expect
+      .poll(() => guestUrls(app))
+      .toEqual(expect.arrayContaining([fixtures.url('/a.html'), fixtures.url('/b.html')]));
+    const secondId = await guestIdAt(app, fixtures.url('/b.html'));
+
+    // Back and forth, each time landing on the page that was left running.
+    for (const index of [0, 1, 0]) {
+      await tabs(page).nth(index).click();
+      await expect(tabs(page).nth(index)).toHaveAttribute('aria-selected', 'true');
+    }
+    await page.waitForTimeout(500);
+
+    expect(await guestIdAt(app, fixtures.url('/a.html'))).toBe(firstId);
+    expect(await guestIdAt(app, fixtures.url('/b.html'))).toBe(secondId);
+    expect(await readInGuest(app, fixtures.url('/a.html'), `window.__kept`)).toBe('still here');
+    expect(fixtures.hits('/a.html')).toBe(loads);
+    const snapshot = await tabsOf(page, ids.alpha.sessionId);
+    expect(snapshot.tabs.map((t) => t.live)).toEqual([true, true]);
+  });
+
   test('a target=_blank link opens a second tab in the same session', async () => {
     await openSession(page, 'Alpha');
     await showBrowser(page);
@@ -299,7 +365,9 @@ test.describe('in-app browser tabs', () => {
       .toEqual([fixtures.url('/opener.html'), fixtures.url('/b.html')]);
     await expect(tabs(page)).toHaveCount(2);
     await expect(tabs(page).nth(1)).toHaveAttribute('aria-selected', 'true');
-    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/b.html')]);
+    await expect
+      .poll(() => guestUrls(app))
+      .toEqual(expect.arrayContaining([fixtures.url('/b.html')]));
     // No window of any kind opened for it.
     expect(await popups(app, fixtures.url('/b.html'))).toEqual([]);
 
@@ -370,9 +438,12 @@ test.describe('in-app browser tabs', () => {
       for (let i = 0; i < 11; i += 1) await window.browserAPI.open(sessionId, '');
     }, ids.alpha.sessionId);
     await expect(tabs(page)).toHaveCount(12);
-    // The opener's page was replaced by the newest blank tab; show it again.
+    // Twelve pages would be over the live cap, so the opener's was unloaded
+    // for the newer ones; showing it again reloads it.
     await tabs(page).nth(0).click();
-    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/opener.html')]);
+    await expect
+      .poll(() => guestUrls(app))
+      .toEqual(expect.arrayContaining([fixtures.url('/opener.html')]));
 
     await inGuest(
       app,

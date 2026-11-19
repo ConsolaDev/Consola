@@ -180,6 +180,7 @@ export const IPC_CHANNELS = {
   BROWSER_RELOAD: 'browser:reload',
   BROWSER_STOP: 'browser:stop',
   BROWSER_ATTACH: 'browser:attach', // Bind a mounted <webview> to its tab once it attaches
+  BROWSER_SET_VISIBLE: 'browser:set-visible', // Which tab the person is looking at, or none
 
   // In-app browser (main -> renderer)
   BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot

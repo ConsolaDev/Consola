@@ -64,6 +64,15 @@ export const browserBridge = {
     return window.browserAPI.attach(tabId, webContentsId);
   },
 
+  /**
+   * Tell main which tab the person is looking at, or none (null both): the
+   * panel is closed, an overlay covers it, or the window left the workspace.
+   * Main keeps that page live and may unload the others.
+   */
+  setVisible(sessionId: string | null, tabId: string | null): Promise<void> {
+    return window.browserAPI.setVisible(sessionId, tabId);
+  },
+
   /** A session's snapshot changed. Returns the unsubscribe. */
   onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void {
     return window.browserAPI.onSnapshot(callback);
