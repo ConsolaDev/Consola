@@ -31,6 +31,7 @@ export class TerminalManager {
     (instanceId: string, status: TerminalStatus) => void
   >();
   private readonly exitListeners = new Set<(instanceId: string, info: TerminalExitInfo) => void>();
+  private readonly limitNoticeListeners = new Set<(instanceId: string, showing: boolean) => void>();
 
   /**
    * Hear every status transition, after the broadcast. Many listeners may
@@ -57,6 +58,19 @@ export class TerminalManager {
     this.exitListeners.add(listener);
     return () => {
       this.exitListeners.delete(listener);
+    };
+  }
+
+  /**
+   * Hear a session's screen start or stop showing its CLI's usage-limit
+   * notice, as its driver recognises it. Returns the unsubscribe.
+   */
+  public addLimitNoticeListener(
+    listener: (instanceId: string, showing: boolean) => void,
+  ): () => void {
+    this.limitNoticeListeners.add(listener);
+    return () => {
+      this.limitNoticeListeners.delete(listener);
     };
   }
 
@@ -267,6 +281,10 @@ export class TerminalManager {
 
     terminal.on('awaiting-confirmation', (awaiting: boolean) => {
       this.broadcast(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, { instanceId, awaiting });
+    });
+
+    terminal.on('limit-notice', (showing: boolean) => {
+      this.notify(this.limitNoticeListeners, (listener) => listener(instanceId, showing));
     });
 
     terminal.on('exit', (info: TerminalExitInfo) => {

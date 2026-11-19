@@ -25,7 +25,7 @@ export interface Hold {
   index: number;
 }
 
-const BUCKETS: Bucket[] = ['waiting', 'working', 'settled'];
+const BUCKETS: Bucket[] = ['waiting', 'working', 'snoozed', 'settled'];
 
 /** The bucket and index of the tree holding `activeKey`, or null when no tree holds it. */
 export function holdFor(placed: Placed, activeKey: EntryKey | null): Hold | null {

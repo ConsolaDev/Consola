@@ -222,6 +222,7 @@ describe('a recorded session with a background agent', () => {
         isViewedInFocusedWindow: false,
         heldByOpenRun: false,
         hook: hooks.get('t'),
+        now: at,
       });
       if (attention.at(-1)?.[1] !== now) attention.push([at, now]);
     };

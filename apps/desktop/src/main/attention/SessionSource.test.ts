@@ -333,3 +333,51 @@ describe('SessionSource while the agent awaits its own subagents', () => {
     expect(source.read().get('a')).toBe('done');
   });
 });
+
+describe('SessionSource question edges', () => {
+  function withHands() {
+    const raised: string[] = [];
+    const lowered: string[] = [];
+    const workspace = makeWorkspace({
+      id: 'w1',
+      sessions: [makeSession({ id: 'a', instanceId: 'inst-a' })],
+    });
+    const edges = new SessionSource({
+      getWorkspaces: () => [workspace],
+      terminalStatus: (instanceId) => terminals.get(instanceId) ?? 'exited',
+      ledger,
+      hookInputs: (instanceId) => hooks.get(instanceId),
+      hands: { raised: (id) => raised.push(id), lowered: (id) => lowered.push(id) },
+      now: () => clock,
+    });
+    hooks.subscribe((instanceId) => edges.hookChanged(instanceId));
+    const report = (next: TerminalStatus) => {
+      terminals.set('inst-a', next);
+      edges.statusChanged('inst-a', next);
+      hooks.statusChanged('inst-a', next);
+    };
+    return { edges, raised, lowered, report };
+  }
+
+  it('fires once per entry and once per exit, through the screen or a hook', () => {
+    const { raised, lowered, report } = withHands();
+    report('ready');
+    report('needs-attention');
+    report('needs-attention');
+    hooks.apply('inst-a', { kind: 'needs-input', origin: 'menu' });
+    expect(raised).toEqual(['inst-a']);
+    report('working');
+    expect(lowered).toEqual(['inst-a']);
+    hooks.apply('inst-a', { kind: 'needs-input', origin: 'question' });
+    expect(raised).toEqual(['inst-a', 'inst-a']);
+  });
+
+  it('counts a first status as an entry, and forgets on forget', () => {
+    const { edges, raised, report } = withHands();
+    report('needs-attention');
+    expect(raised).toEqual(['inst-a']);
+    edges.forget('inst-a');
+    report('needs-attention');
+    expect(raised).toEqual(['inst-a', 'inst-a']);
+  });
+});

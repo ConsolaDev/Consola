@@ -8,6 +8,7 @@ import { hydrateHarnessStore } from './stores/harnessStore';
 import { hydrateTerminalStatus } from './stores/terminalStore';
 import { hydrateAttention, subscribeToAttention } from './stores/attentionStore';
 import { hydratePreferences, subscribeToPreferences } from './stores/preferencesStore';
+import { hydrateUsageLimits, subscribeToUsageLimits } from './stores/usageLimitsStore';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import './styles/themes/index.css';
@@ -43,6 +44,7 @@ async function bootstrap() {
   // The window never closes this: it lives as long as the page does.
   subscribeToAttention();
   subscribeToPreferences();
+  subscribeToUsageLimits();
 
   try {
     // Records live in the main process now, so they have to arrive before the
@@ -56,6 +58,7 @@ async function bootstrap() {
       hydrateTerminalStatus(),
       hydrateAttention(),
       hydratePreferences(),
+      hydrateUsageLimits(),
     ]);
   } catch (error) {
     // A blank window is the one outcome worse than an error message: it looks

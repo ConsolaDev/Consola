@@ -1,11 +1,11 @@
-import type { Attention } from '../../shared/attention';
+import type { Attention, SnoozeView } from '../../shared/attention';
 import type { TerminalStatus } from '../../shared/terminalStatus';
 import type { Workspace } from '../../shared/workspace';
 import { findSessionByInstanceId } from '../attention';
 import type { AttentionLedger } from './AttentionLedger';
 import type { HookInputs } from './hookSignals';
 import type { AttentionSource } from './AttentionSource';
-import { deriveAttention } from './deriveAttention';
+import { deriveAttention, effectiveStatus } from './deriveAttention';
 import { TurnSettle, type SettledStatus } from './turnSettle';
 
 export interface SessionSourceDeps {
@@ -19,6 +19,12 @@ export interface SessionSourceDeps {
   hookInputs?(instanceId: string): HookInputs | undefined;
   /** Sessions an open automation run is using. Asked once per read. */
   heldSessionIds?(): ReadonlySet<string>;
+  /**
+   * Hear a terminal start and stop asking the person something. Called before
+   * anything derives from the change, so a snooze ended by a new question is
+   * already ended when the question is first read.
+   */
+  hands?: { raised(instanceId: string): void; lowered(instanceId: string): void };
   now?: () => number;
 }
 
@@ -52,6 +58,8 @@ export class SessionSource implements AttentionSource {
   private readonly now: () => number;
   /** The last status each terminal reported, to tell a launch from a change within one. */
   private readonly lastStatus = new Map<string, TerminalStatus>();
+  /** Whether each terminal was last asking the person something, screen and hooks combined. */
+  private readonly asking = new Map<string, boolean>();
 
   constructor(private readonly deps: SessionSourceDeps) {
     this.now = deps.now ?? Date.now;
@@ -61,6 +69,7 @@ export class SessionSource implements AttentionSource {
   public read(): Map<string, Attention> {
     const entries = new Map<string, Attention>();
     const held = this.deps.heldSessionIds?.();
+    const now = this.now();
     for (const workspace of this.deps.getWorkspaces()) {
       for (const session of workspace.sessions) {
         entries.set(
@@ -72,11 +81,48 @@ export class SessionSource implements AttentionSource {
               this.deps.isViewedInFocusedWindow?.(session.instanceId) ?? false,
             heldByOpenRun: held?.has(session.id) ?? false,
             hook: this.deps.hookInputs?.(session.instanceId),
+            now,
           }),
         );
       }
     }
     return entries;
+  }
+
+  /**
+   * Each session's snooze as a window draws it: the countdown while one runs,
+   * and the Woke mark until the person looks. Only the Snoozer writes the
+   * mark, and only on a tree's root, so this needs no tree logic of its own.
+   * A mark is shown only while the session is back in play: one that went
+   * onto a shelf again is not news.
+   */
+  public snoozes(attention: ReadonlyMap<string, Attention> = this.read()): Map<string, SnoozeView> {
+    const views = new Map<string, SnoozeView>();
+    const now = this.now();
+    for (const workspace of this.deps.getWorkspaces()) {
+      for (const session of workspace.sessions) {
+        const record = this.deps.ledger.get(session.id);
+        if (!record) continue;
+        const view: SnoozeView = {};
+        if (record.snoozedUntil !== undefined && record.snoozedUntil > now) {
+          view.until = record.snoozedUntil;
+          if (record.snoozeReason) view.reason = record.snoozeReason;
+        }
+        const derived = attention.get(session.id);
+        const parked = derived === 'snoozed' || derived === 'settled';
+        if (
+          record.wokeAt !== undefined &&
+          record.wakeCause !== undefined &&
+          !parked &&
+          (record.seenAt === undefined || record.seenAt < record.wokeAt)
+        ) {
+          view.wokeAt = record.wokeAt;
+          if (record.wakeCause) view.wakeCause = record.wakeCause;
+        }
+        if (view.until !== undefined || view.wokeAt !== undefined) views.set(session.id, view);
+      }
+    }
+    return views;
   }
 
   public subscribe(cb: () => void): () => void {
@@ -92,6 +138,7 @@ export class SessionSource implements AttentionSource {
     if (status !== 'ready') this.cancelDeferred(instanceId);
     const before = this.lastStatus.get(instanceId);
     this.lastStatus.set(instanceId, status);
+    this.noticeHand(instanceId, status);
     if (status !== 'exited' && (before === undefined || before === 'exited'))
       this.launched(instanceId);
     this.settle.observe(instanceId, status);
@@ -107,6 +154,7 @@ export class SessionSource implements AttentionSource {
   /** A destroyed terminal's next life starts from nothing. */
   public forget(instanceId: string): void {
     this.lastStatus.delete(instanceId);
+    this.asking.delete(instanceId);
     this.cancelDeferred(instanceId);
     this.settle.unwatch(instanceId);
     this.refresh();
@@ -149,6 +197,8 @@ export class SessionSource implements AttentionSource {
 
   /** What hooks say about a terminal changed: a turn waiting on background work may now be over. */
   public hookChanged(instanceId: string): void {
+    const status = this.lastStatus.get(instanceId);
+    if (status !== undefined) this.noticeHand(instanceId, status);
     if (this.deferred.has(instanceId)) {
       if (!this.deps.hookInputs?.(instanceId)?.holdingBackgroundWork) {
         this.cancelDeferred(instanceId);
@@ -159,6 +209,26 @@ export class SessionSource implements AttentionSource {
       }
     }
     this.refresh();
+  }
+
+  /**
+   * Tell the hands listener when a terminal starts or stops asking. The first
+   * status a terminal reports counts: a launch that opens on a question is a
+   * new question. One already open stays open through anything that does not
+   * change it, which is what lets a snooze taken at a question hold.
+   */
+  private noticeHand(instanceId: string, screen: TerminalStatus): void {
+    const asking =
+      effectiveStatus(screen, this.deps.hookInputs?.(instanceId)) === 'needs-attention';
+    const before = this.asking.get(instanceId);
+    this.asking.set(instanceId, asking);
+    if (asking && before !== true) this.deps.hands?.raised(instanceId);
+    else if (!asking && before === true) this.deps.hands?.lowered(instanceId);
+  }
+
+  /** Whether this terminal is asking the person something right now, screen and hooks combined. */
+  public isAsking(instanceId: string): boolean {
+    return this.asking.get(instanceId) ?? false;
   }
 
   /** Hold a settled turn's finish: while the agent awaits its own subagents, else for BACKGROUND_HOLD_MS. */

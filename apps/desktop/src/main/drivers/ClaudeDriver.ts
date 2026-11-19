@@ -11,9 +11,11 @@ import {
   readCustomTitleSince,
   readFirstUserPrompt,
 } from '../ClaudeSessionIndex';
-import { probeClaudeCapabilities } from './claudeCapabilities';
+import { probeClaudeCapabilities, requestUsage } from './claudeCapabilities';
+import { mapClaudeUsage, showsClaudeLimitNotice } from './claudeUsage';
 import type { ConversationRecord, ConversationWindow } from '../../shared/conversation';
 import type { HarnessAccount, HarnessCapabilities, HarnessProbeResult } from '../../shared/types';
+import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import { CONSOLA_MCP_SERVER, mcpToolName, READ_ONLY_CONSOLA_TOOLS } from '../mcp/names';
 import { claudeAttentionHooks, claudeHookSettings } from './claudeHooks';
@@ -25,6 +27,7 @@ import {
   type HarnessDriver,
   type SessionLaunch,
   type TextGenerationRequest,
+  type UsageLimitReporting,
 } from './HarnessDriver';
 
 /**
@@ -238,6 +241,10 @@ export class ClaudeDriver implements HarnessDriver {
   public readonly id = 'claude' as const;
   public readonly configDirEnvVar = 'CLAUDE_CONFIG_DIR';
   public readonly attentionHooks = claudeAttentionHooks;
+  public readonly usageLimits: UsageLimitReporting = {
+    read: (config) => this.readUsageLimits(config),
+    showsLimitNotice: showsClaudeLimitNotice,
+  };
 
   /**
    * Absolute path to the `claude` binary.
@@ -561,6 +568,34 @@ export class ClaudeDriver implements HarnessDriver {
       );
       child.stdin.end(request.prompt);
     });
+  }
+
+  /**
+   * Ask this harness's CLI for its usage limits, from the home directory for
+   * the same reason as `probeCapabilities`: the answer belongs to the profile,
+   * not to any folder.
+   */
+  private async readUsageLimits(config: HarnessConfig): Promise<HarnessLimits> {
+    if (config.binaryPath && !isExecutable(config.binaryPath)) {
+      throw new Error(`Not executable: ${config.binaryPath}`);
+    }
+    const resolvedBinary = this.resolveBinary(config);
+    let answer: unknown;
+    try {
+      answer = await requestUsage(
+        resolvedBinary,
+        os.homedir(),
+        this.composeEnv(config, getLoginEnv()),
+      );
+    } catch (error) {
+      throw new Error(
+        describeSpawnFailure(
+          resolvedBinary,
+          error instanceof Error ? error : new Error(String(error)),
+        ),
+      );
+    }
+    return mapClaudeUsage(answer, Date.now());
   }
 }
 

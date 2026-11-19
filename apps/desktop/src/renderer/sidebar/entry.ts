@@ -1,4 +1,4 @@
-import type { Attention } from '../../shared/attention';
+import type { Attention, WakeCause } from '../../shared/attention';
 import { FACET_KEYS } from '../utils/sessionFilters';
 
 export type EntryKey = `session:${string}` | `run:${string}` | `gate:${string}`;
@@ -22,6 +22,12 @@ export interface Entry {
   activityAt: number;
   /** When it last finished, if it has. */
   finishedAt?: number;
+  /** While snoozed: when it comes back. Orders the Snoozed shelf, soonest first. */
+  snoozedUntil?: number;
+  /** When it last came back from a snooze, by itself or by hand: where it lands in the list. */
+  wokeAt?: number;
+  /** It came back by itself and nobody has looked yet: the Woke mark, and why. */
+  wakeMark?: WakeCause;
   /** The conductor this entry belongs to. */
   parent?: EntryKey;
   labels: string[];

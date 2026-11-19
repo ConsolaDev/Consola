@@ -1,7 +1,7 @@
 import type { InboxItem } from '../../../shared/workItems';
 import { workItemKey } from '../../../shared/workItems';
 import type { Session } from '../../../shared/workspace';
-import { worstStatus, type Attention } from '../../../shared/attention';
+import { isParked, worstStatus, type Attention } from '../../../shared/attention';
 import type { AttentionMap } from '../../utils/sessionStatus';
 import { relativeSince } from '../../utils/relativeSince';
 
@@ -120,7 +120,14 @@ export function groupSessionsByWorkItem(sessions: Session[]): Map<string, Sessio
 
 /** The one dot a row shows for its sessions: the most urgent of them. */
 export function worstStatusForItem(linked: Session[], attention: AttentionMap): Attention {
-  return worstStatus(linked.map((session) => attention[session.id] ?? 'ready')) ?? 'ready';
+  // A snoozed or settled session is put away: it says nothing about the item.
+  return (
+    worstStatus(
+      linked
+        .map((session) => attention[session.id] ?? 'ready')
+        .filter((status) => !isParked(status)),
+    ) ?? 'ready'
+  );
 }
 
 /** The platform's modifier, as its keycap reads. */

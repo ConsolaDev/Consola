@@ -1,4 +1,4 @@
-import type { Attention } from '../../shared/attention';
+import type { Attention, SnoozeView } from '../../shared/attention';
 
 /**
  * Something that has entries worth the person's attention. Sessions are the
@@ -10,6 +10,8 @@ export interface AttentionSource {
   read(): Map<string /* EntryKey */, Attention>;
   /** What this source says holds a session: sessionId to the entries holding it. */
   holds?(): Map<string /* sessionId */, string[] /* EntryKey[] */>;
+  /** Snooze views by session id, for a source whose entries can be snoozed. Given this read's attention. */
+  snoozes?(attention: ReadonlyMap<string, Attention>): Map<string /* sessionId */, SnoozeView>;
   /** Hear that `read()` may now answer differently. Returns the unsubscribe. */
   subscribe(cb: () => void): () => void;
 }

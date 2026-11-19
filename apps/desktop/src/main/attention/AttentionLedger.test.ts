@@ -229,3 +229,106 @@ describe('JsonAttentionLedger.unsettledAt', () => {
     expect(ledger.get('s1')).toMatchObject({ unsettledAt: 25, settleHoldAt: 25 });
   });
 });
+
+describe('JsonAttentionLedger snoozing', () => {
+  const target = (sessionId: string, until: number) => ({
+    sessionId,
+    workspaceId: 'w1',
+    activityAt: 5,
+    until,
+  });
+
+  it('writes a snooze, clears settled and an earlier wake, and lists soonest first', () => {
+    const ledger = build();
+    ledger.touch('s1', 'w1', 10);
+    ledger.settle([{ sessionId: 's1', workspaceId: 'w1', activityAt: 10 }], 20, { markSeen: true });
+    ledger.wake(['s1'], 21, { marks: { s1: 'time' } });
+    ledger.snooze([target('s1', 500), target('s2', 300)], 30, 'usage-limit');
+    expect(ledger.get('s1')).toEqual({
+      sessionId: 's1',
+      workspaceId: 'w1',
+      lastActiveAt: 10,
+      seenAt: 20,
+      snoozedUntil: 500,
+      snoozedAt: 30,
+      snoozeReason: 'usage-limit',
+    });
+    expect(ledger.get('s2')?.lastActiveAt).toBe(5);
+    expect(ledger.snoozed().map((record) => record.sessionId)).toEqual(['s2', 's1']);
+  });
+
+  it('wakes, marking only the sessions named, and holding auto-settle for the person', () => {
+    const ledger = build();
+    ledger.snooze([target('s1', 500), target('s2', 500)], 30);
+    ledger.wake(['s1', 's2'], 40, { marks: { s1: 'question' } });
+    expect(ledger.get('s1')).toMatchObject({ wokeAt: 40, wakeCause: 'question' });
+    expect(ledger.get('s2')).toMatchObject({ wokeAt: 40 });
+    expect(ledger.get('s2')?.wakeCause).toBeUndefined();
+    expect(ledger.snoozed()).toEqual([]);
+    ledger.snooze([target('s1', 500)], 50);
+    ledger.wake(['s1'], 60, { hold: true });
+    expect(ledger.get('s1')?.settleHoldAt).toBe(60);
+  });
+
+  it('undoing a snooze keeps a finish and activity written in between', () => {
+    const ledger = build();
+    ledger.touch('s1', 'w1', 10);
+    const memento = ledger.snooze([target('s1', 500)], 30);
+    ledger.touch('s1', 'w1', 40);
+    ledger.markFinished('s1', 'w1', 45);
+    ledger.restore(memento);
+    expect(ledger.get('s1')).toEqual({
+      sessionId: 's1',
+      workspaceId: 'w1',
+      lastActiveAt: 40,
+      finishedAt: 45,
+    });
+  });
+
+  it('undoing a snooze that created the record drops it, unless it gained activity since', () => {
+    const ledger = build();
+    const quiet = ledger.snooze([target('s1', 500)], 30);
+    ledger.restore(quiet);
+    expect(ledger.get('s1')).toBeUndefined();
+    const busy = ledger.snooze([target('s2', 500)], 30);
+    ledger.markFinished('s2', 'w1', 40);
+    ledger.restore(busy);
+    expect(ledger.get('s2')).toEqual({
+      sessionId: 's2',
+      workspaceId: 'w1',
+      lastActiveAt: 5,
+      finishedAt: 40,
+    });
+  });
+
+  it('drops half a snooze, and unknown reasons or causes, when loading', () => {
+    fs.writeFileSync(
+      filePath(),
+      JSON.stringify({
+        records: {
+          a: { sessionId: 'a', workspaceId: 'w', lastActiveAt: 1, snoozedUntil: 9 },
+          b: {
+            sessionId: 'b',
+            workspaceId: 'w',
+            lastActiveAt: 1,
+            snoozedUntil: 9,
+            snoozedAt: 2,
+            snoozeReason: 'bored',
+            wokeAt: 3,
+            wakeCause: 'whim',
+          },
+        },
+      }),
+    );
+    const ledger = build();
+    expect(ledger.get('a')).toEqual({ sessionId: 'a', workspaceId: 'w', lastActiveAt: 1 });
+    expect(ledger.get('b')).toEqual({
+      sessionId: 'b',
+      workspaceId: 'w',
+      lastActiveAt: 1,
+      snoozedUntil: 9,
+      snoozedAt: 2,
+      wokeAt: 3,
+    });
+  });
+});

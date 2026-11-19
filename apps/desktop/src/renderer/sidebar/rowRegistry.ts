@@ -6,6 +6,7 @@ import { SessionRow } from '../components/Sidebar/rows/SessionRow';
 import { activateSession } from '../utils/sessionActions';
 import { idOfKey } from './entries';
 import type { SettleOffer } from './settleRules';
+import type { SnoozeOffer } from './snoozeRules';
 
 /** What every row gets. Rows look their own record up by `entry.key`; the entry carries none. */
 export interface RowProps {
@@ -21,6 +22,8 @@ export interface RowProps {
   trailing?: ReactNode;
   /** What the row may do about the Settled shelf. Decided from the tree, which a row cannot see. */
   settle?: SettleOffer;
+  /** What the row may do about the Snoozed shelf. Decided from the tree too. */
+  snooze?: SnoozeOffer;
   /** The section the row is drawn in, which a row cannot see either. */
   bucket?: Bucket;
 }
@@ -53,6 +56,7 @@ export function entryRow(
     child?: boolean;
     trailing?: ReactNode;
     settle?: SettleOffer;
+    snooze?: SnoozeOffer;
     bucket?: Bucket;
   },
 ): ReactElement | null {

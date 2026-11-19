@@ -7,8 +7,11 @@ export type SettleOffer =
   /** Not available, and why: a menu can show the reason, a hover slot just stays out of the way. */
   | { kind: 'blocked'; reason: string };
 
-/** `done` is idle too: settling it marks it seen and puts it on the shelf — putting a looked-at result away is the gesture. */
-const IDLE = new Set(['ready', 'exited', 'settled', 'done']);
+/**
+ * `done` is idle too: settling it marks it seen and puts it on the shelf — putting a looked-at result away is the gesture.
+ * So is `snoozed`, which can hide a turn still running: main verifies the settle and refuses one that would not stay.
+ */
+const IDLE = new Set(['ready', 'exited', 'settled', 'done', 'snoozed']);
 
 /**
  * Whether settling this row puts it on the shelf, which is the only honest

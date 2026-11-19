@@ -11,6 +11,7 @@ describe('placementOf', () => {
     const placement = placementOf({
       waiting: [node(entry('lead', 'done'), entry('child', 'done'))],
       working: [node(entry('busy', 'working'))],
+      snoozed: [],
       settled: [],
     });
     expect([...placement]).toEqual([

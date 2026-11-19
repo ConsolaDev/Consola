@@ -18,7 +18,14 @@ export type HarnessSwitchMode = 'native' | 'handoff' | 'unstarted';
  * for the person choosing.
  */
 export type HarnessSwitchPreview =
-  | { harnessId: string; ok: true; mode: HarnessSwitchMode; summary: string }
+  | {
+      harnessId: string;
+      ok: true;
+      mode: HarnessSwitchMode;
+      summary: string;
+      /** The harness is at its usage limit for every model until this time, as its CLI said. */
+      limitedUntil?: number;
+    }
   | { harnessId: string; ok: false; reason: string };
 
 /**

@@ -19,6 +19,27 @@ export interface AttentionInputs {
    * the person wins over a screen that shows nothing recognisable.
    */
   hook?: HookInputs;
+  /** The time it is. A snooze holds only until its own time. */
+  now: number;
+}
+
+/**
+ * What the session's process is doing, screen and hooks combined: the status
+ * every other rule starts from. Exported because the edge into (and out of) a
+ * question is what wakes a snooze, and that edge must be this one.
+ */
+export function effectiveStatus(
+  screen: TerminalStatus,
+  hook: HookInputs | undefined,
+): TerminalStatus {
+  // An exited process is asking nothing, whatever its last hook said. One
+  // awaiting its own subagents is still working: its spinner stops while it
+  // waits, and only their panel repaints.
+  return hook?.needsInput && screen !== 'exited'
+    ? 'needs-attention'
+    : hook?.awaitingAgents && screen === 'ready'
+      ? 'working'
+      : screen;
 }
 
 /**
@@ -31,16 +52,15 @@ export function deriveAttention({
   record,
   hook,
   heldByOpenRun,
+  now,
 }: AttentionInputs): Attention {
-  // An exited process is asking nothing, whatever its last hook said. One
-  // awaiting its own subagents is still working: its spinner stops while it
-  // waits, and only their panel repaints.
-  const terminal: TerminalStatus =
-    hook?.needsInput && screen !== 'exited'
-      ? 'needs-attention'
-      : hook?.awaitingAgents && screen === 'ready'
-        ? 'working'
-        : screen;
+  const terminal = effectiveStatus(screen, hook);
+  // Parked until its time, whatever it is doing: finishing work does not bring
+  // it back. A new question cannot hide here, because entering one ends the
+  // snooze before anything derives. An open run suspends the snooze, as it
+  // prevents settling: the run's result is the person's to see.
+  if (!heldByOpenRun && record?.snoozedUntil !== undefined && record.snoozedUntil > now)
+    return 'snoozed';
   const settled =
     !heldByOpenRun && record?.settledAt !== undefined && record.settledAt >= record.lastActiveAt;
   // A finish nobody has looked at. It always belongs to the current lifetime:

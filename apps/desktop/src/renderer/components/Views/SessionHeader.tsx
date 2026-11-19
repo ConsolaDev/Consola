@@ -14,6 +14,7 @@ import { renameSession } from '../../utils/sessionActions';
 import { SessionNameEditor } from '../SessionName/SessionNameEditor';
 import { PathDisplay } from './PathDisplay';
 import { CheckoutChip } from './CheckoutChip';
+import { SnoozeChip } from '../Snooze/SnoozeChip';
 import './styles.css';
 
 /**
@@ -69,6 +70,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
         </h1>
       )}
       <CheckoutChip checkout={checkout} />
+      <SnoozeChip workspaceId={workspace.id} session={session} />
       {cwd && (
         <PathDisplay
           path={cwd}

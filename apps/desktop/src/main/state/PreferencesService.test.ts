@@ -2,6 +2,7 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { DEFAULT_SNOOZE_PRESETS } from '../../shared/snooze';
 import { JsonStateFile } from './JsonStateFile';
 import { PreferencesService } from './PreferencesService';
 
@@ -28,6 +29,8 @@ describe('PreferencesService', () => {
         settledDays: 0,
         runFinished: { enabled: false, afterMinutes: 60 },
       },
+      snoozePresets: DEFAULT_SNOOZE_PRESETS,
+      snoozeAtUsageLimit: false,
     });
   });
 
@@ -48,6 +51,11 @@ describe('PreferencesService', () => {
         autoSettleDays: 'soon',
         hasExplainedAutoSettle: true,
         pendingAutoSettle: ['a', 3],
+        snoozePresets: [
+          { kind: 'after', minutes: 30 },
+          { kind: 'after', minutes: -1 },
+        ],
+        snoozeAtUsageLimit: 'yes',
       }),
     );
     const service = build();
@@ -62,6 +70,8 @@ describe('PreferencesService', () => {
         settledDays: 0,
         runFinished: { enabled: false, afterMinutes: 60 },
       },
+      snoozePresets: [{ kind: 'after', minutes: 30 }],
+      snoozeAtUsageLimit: false,
     });
   });
 
