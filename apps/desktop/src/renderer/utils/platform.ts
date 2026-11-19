@@ -51,7 +51,7 @@ export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
 }
 
 export function isSidebarShortcut(event: KeyboardEvent): boolean {
-  return isSidebar(chordOf(event), PLATFORM);
+  return isSidebar(chordOf(event));
 }
 
 /** Shows or hides the browser panel. */

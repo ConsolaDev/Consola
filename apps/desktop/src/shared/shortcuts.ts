@@ -96,9 +96,15 @@ export function scopeShortcutLabels(
   return Object.fromEntries(SCOPE_SHORTCUTS[platform].map((entry) => [entry.scope, entry.label]));
 }
 
-/** Cmd/Ctrl + \ shows or hides the sidebar. */
-export function isSidebarShortcut(chord: KeyChord, platform: ShortcutPlatform): boolean {
-  return hasPrimary(chord, platform) && !chord.alt && chord.key === '\\';
+/**
+ * Cmd/Ctrl + \ shows or hides the sidebar.
+ *
+ * Deliberately loose, as it always was: either modifier on any platform, and
+ * no check on Alt or Shift, because a layout that types backslash with Option
+ * or AltGr (Spanish, for one) reports `key === '\'` with those held.
+ */
+export function isSidebarShortcut(chord: KeyChord): boolean {
+  return (chord.meta || chord.ctrl) && chord.key === '\\';
 }
 
 /** Ctrl+` shows or hides the session's terminal, on every platform. */
@@ -193,7 +199,7 @@ export function forwardedShortcutFor(
   if (isCommandPaletteShortcut(chord, platform)) return { kind: 'command-palette' };
   const scope = matchScopeShortcut(chord, platform);
   if (scope) return { kind: 'scoped-palette', scope };
-  if (isSidebarShortcut(chord, platform)) return { kind: 'sidebar' };
+  if (isSidebarShortcut(chord)) return { kind: 'sidebar' };
   if (isShellShortcut(chord)) return { kind: 'terminal' };
   if (isBrowserShortcut(chord, platform)) return { kind: 'browser' };
   const action = matchBrowserFocusedShortcut(chord, platform);

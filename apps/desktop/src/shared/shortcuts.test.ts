@@ -58,9 +58,23 @@ describe('palette chords', () => {
 
 describe('sidebar and terminal chords', () => {
   it('toggles the sidebar on the platform modifier plus backslash', () => {
-    expect(isSidebarShortcut(cmd('\\'), 'mac')).toBe(true);
-    expect(isSidebarShortcut(ctrl('\\'), 'other')).toBe(true);
-    expect(isSidebarShortcut(ctrl('\\'), 'mac')).toBe(false);
+    expect(isSidebarShortcut(cmd('\\'))).toBe(true);
+    expect(isSidebarShortcut(ctrl('\\'))).toBe(true);
+  });
+
+  it('accepts either modifier on either platform, as it always did', () => {
+    expect(isSidebarShortcut(ctrl('\\'))).toBe(true); // Ctrl+\ on macOS
+    expect(isSidebarShortcut(cmd('\\'))).toBe(true); // Cmd+\ elsewhere
+  });
+
+  it('accepts layouts that type backslash with Option or AltGr', () => {
+    expect(isSidebarShortcut(cmd('\\', { alt: true }))).toBe(true);
+    expect(isSidebarShortcut(ctrl('\\', { alt: true }))).toBe(true);
+  });
+
+  it('needs a modifier and the backslash', () => {
+    expect(isSidebarShortcut(chord('\\'))).toBe(false);
+    expect(isSidebarShortcut(cmd('/'))).toBe(false);
   });
 
   it('toggles the terminal on a bare Ctrl+backtick, by key or physical key', () => {
