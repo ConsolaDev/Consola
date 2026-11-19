@@ -262,14 +262,11 @@ export class BrowserService {
 
   /**
    * The workspace is gone: every tab of its sessions, its history and its
-   * logins. Call it while the workspace is still known, since the sessions
-   * are found through it.
+   * logins. The caller names the sessions it read before deleting the record,
+   * so this runs only once the delete has succeeded.
    */
-  public destroyWorkspace(workspaceId: string): void {
-    for (const sessionId of this.deps.store.sessionIds()) {
-      if (this.deps.workspaceIdForSession(sessionId) === workspaceId)
-        this.destroySession(sessionId);
-    }
+  public destroyWorkspace(workspaceId: string, sessionIds: readonly string[]): void {
+    for (const sessionId of sessionIds) this.destroySession(sessionId);
     this.deps.store.deleteHistory(workspaceId);
     void Promise.resolve(this.deps.clearPartition(workspaceId)).catch(() => {});
   }

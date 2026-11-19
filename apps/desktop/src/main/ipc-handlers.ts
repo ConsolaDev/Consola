@@ -404,9 +404,6 @@ export function setupIpcHandlers(): boolean {
     const doomed = workspaces.getAll().find((workspace) => workspace.id === id);
     const stranded = doomed?.sessions ?? [];
 
-    // Before the record goes: the browser finds this workspace's sessions
-    // through it, and its logins and history are wiped with it.
-    browser.destroyWorkspace(id);
     workspaces.deleteWorkspace(id);
 
     // Only once the delete has reached disk — a failed write throws above
@@ -414,6 +411,12 @@ export function setupIpcHandlers(): boolean {
     // the session's attention goes with it, so the PTY and the
     // badge close together; the MCP endpoint goes with them.
     stranded.forEach((session) => sessionRemover.discard(session));
+    // Its tabs, history and logins go the same way: not before the delete
+    // has succeeded, or a failed write would leave a workspace without them.
+    browser.destroyWorkspace(
+      id,
+      stranded.map((session) => session.id),
+    );
   });
 
   const sessionCheckouts = new SessionCheckoutService();

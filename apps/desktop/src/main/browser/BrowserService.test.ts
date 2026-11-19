@@ -384,7 +384,7 @@ describe('lifecycle', () => {
     service.recordCommit('tab1', 'https://a.com/x', 'x');
     const guest = new FakeGuest(11);
     service.bindGuest('tab2', guest.asWebContents(), winA);
-    service.destroyWorkspace('w1');
+    service.destroyWorkspace('w1', ['s1', 's2']);
     expect(guest.close).toHaveBeenCalled();
     expect(service.listFor('s1')).toEqual([]);
     expect(service.listFor('s2')).toEqual([]);
