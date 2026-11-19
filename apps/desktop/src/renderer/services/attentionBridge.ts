@@ -1,5 +1,13 @@
 import type { AttentionChange, AttentionState } from '../../shared/attention';
-import type { SettleMemento, SettleResult } from '../../shared/preferences';
+import type {
+  BatchResult,
+  SettleMemento,
+  SettleResult,
+  SnoozeBatchResult,
+} from '../../shared/preferences';
+import type { SnoozeWhen } from '../../shared/snooze';
+
+const EMPTY_BATCH: BatchResult = { applied: [], refused: [], memento: {} };
 
 /**
  * Attention Bridge - Isolates all window.attentionAPI access to this single file.
@@ -17,7 +25,7 @@ export const attentionBridge = {
   getSnapshot: async (): Promise<AttentionState> => {
     const api = getAPI();
     if (!api) {
-      return { records: {}, attention: {} };
+      return { records: {}, attention: {}, snoozes: {} };
     }
     return api.getSnapshot();
   },
@@ -49,4 +57,24 @@ export const attentionBridge = {
   restore: async (memento: SettleMemento): Promise<void> => {
     await getAPI()?.restore(memento);
   },
+
+  /** Snooze sessions (each with its tree) until a time, or until each one's usage limit resets. One memento for the batch. */
+  snooze: async (
+    workspaceId: string,
+    sessionIds: string[],
+    when: SnoozeWhen,
+  ): Promise<SnoozeBatchResult> =>
+    (await getAPI()?.snooze(workspaceId, sessionIds, when)) ?? { ...EMPTY_BATCH, until: null },
+
+  /** Bring snoozed sessions back now. The person's own wake: no Woke mark. */
+  wake: async (workspaceId: string, sessionIds: string[]): Promise<BatchResult> =>
+    (await getAPI()?.wake(workspaceId, sessionIds)) ?? EMPTY_BATCH,
+
+  /** Settle several sessions in one write, with one memento. */
+  settleMany: async (workspaceId: string, sessionIds: string[]): Promise<BatchResult> =>
+    (await getAPI()?.settleMany(workspaceId, sessionIds)) ?? EMPTY_BATCH,
+
+  /** Bring several settled sessions back in one write, with one memento. */
+  unsettleMany: async (workspaceId: string, sessionIds: string[]): Promise<BatchResult> =>
+    (await getAPI()?.unsettleMany(workspaceId, sessionIds)) ?? EMPTY_BATCH,
 };

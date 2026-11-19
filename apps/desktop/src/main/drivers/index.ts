@@ -35,6 +35,11 @@ export function getDriver(id?: HarnessDriverId): HarnessDriver {
   return driver;
 }
 
+/** Every registered driver, for contract tests that must hold for each one. */
+export function allDrivers(): HarnessDriver[] {
+  return Object.values(DRIVERS);
+}
+
 /**
  * Why a session on this harness cannot run under `policy`, or null — asked
  * before anything is created, so a launch that would be refused at spawn is
@@ -47,5 +52,5 @@ export function toolPolicyProblem(
   return getDriver(fields.driverId).toolPolicyProblem(toHarnessConfig(fields), policy);
 }
 
-export type { HarnessDriver, HarnessConfig } from './HarnessDriver';
+export type { HarnessDriver, HarnessConfig, UsageLimitReporting } from './HarnessDriver';
 export { toHarnessConfig } from './HarnessDriver';

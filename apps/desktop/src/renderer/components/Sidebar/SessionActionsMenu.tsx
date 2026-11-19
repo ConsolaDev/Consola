@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type MutableRefObject } from 'react';
 import * as DropdownMenu from '@radix-ui/react-dropdown-menu';
 import {
+  AlarmClockOff,
   Archive,
   ArchiveRestore,
   ArrowLeftRight,
@@ -24,6 +25,10 @@ import { SwitchHarnessDialog } from '../Dialogs/SwitchHarnessDialog';
 import { settleWithUndo, unsettleWithUndo } from '../../utils/settleActions';
 import { worktreeCleanupBridge } from '../../services/worktreeCleanupBridge';
 import type { SettleOffer } from '../../sidebar/settleRules';
+import type { SnoozeOffer } from '../../sidebar/snoozeRules';
+import { snoozeWithUndo, wakeWithUndo } from '../../utils/snoozeActions';
+import { formatClock } from '../../../shared/snooze';
+import { SnoozeMenuItems } from '../Snooze/SnoozeMenuItems';
 
 /** Stable identity: a fresh [] from the selector would re-render every tick. */
 const EMPTY_LABELS: Label[] = [];
@@ -48,6 +53,12 @@ interface SessionActionsMenuProps {
   onDelete: () => void;
   /** What this row may do about the Settled shelf; absent offers nothing. */
   settle?: SettleOffer;
+  /** What this row may do about the Snoozed shelf; absent offers nothing. */
+  snooze?: SnoozeOffer;
+  /** The name the row shows, for toasts. */
+  label?: string;
+  /** When this session's usage limit resets, when it is stopped on one and the CLI said. */
+  limitResetsAt?: number;
 }
 
 /**
@@ -74,6 +85,9 @@ export function SessionActionsMenu({
   at,
   returnFocus,
   settle,
+  snooze,
+  label,
+  limitResetsAt,
 }: SessionActionsMenuProps) {
   const inManagedWorktree = useManagedWorktree(session, open);
   const bound = useWorkspaceStore((state) =>
@@ -246,6 +260,55 @@ export function SessionActionsMenu({
               </DropdownMenu.SubContent>
             </DropdownMenu.Portal>
           </DropdownMenu.Sub>
+          {/* Snooze follows Labels: both file the session away, one for a while. */}
+          {snooze?.kind === 'wake' && (
+            <DropdownMenu.Item
+              className="dropdown-item"
+              onSelect={() =>
+                void wakeWithUndo(workspaceId, [session.id], {
+                  [session.id]: label ?? session.name,
+                })
+              }
+            >
+              <AlarmClockOff size={14} />
+              <span>Wake</span>
+            </DropdownMenu.Item>
+          )}
+          {snooze?.kind === 'snooze' &&
+            limitResetsAt !== undefined &&
+            limitResetsAt > Date.now() && (
+              <DropdownMenu.Item
+                className="dropdown-item"
+                onSelect={() =>
+                  void snoozeWithUndo(
+                    workspaceId,
+                    [session.id],
+                    { untilLimitResets: true },
+                    { [session.id]: label ?? session.name },
+                  )
+                }
+              >
+                <AlarmClockOff size={14} />
+                <span>Snooze until limit resets · {formatClock(limitResetsAt)}</span>
+              </DropdownMenu.Item>
+            )}
+          {(snooze?.kind === 'snooze' || snooze?.kind === 'wake') && (
+            <SnoozeMenuItems
+              workspaceId={workspaceId}
+              sessionIds={[session.id]}
+              names={{ [session.id]: label ?? session.name }}
+              onOpenDialog={() => {
+                openingDialog.current = true;
+              }}
+              title={snooze.kind === 'wake' ? 'Snooze until another time' : 'Snooze'}
+            />
+          )}
+          {snooze?.kind === 'blocked' && (
+            <DropdownMenu.Item className="dropdown-item" disabled title={snooze.reason}>
+              <AlarmClockOff size={14} />
+              <span>Snooze · {snooze.reason}</span>
+            </DropdownMenu.Item>
+          )}
           {/* Conductors stay on their harness; main refuses them too. */}
           {session.kind === 'interactive' && (
             <DropdownMenu.Item className="dropdown-item" onSelect={handleSwitchHarness}>

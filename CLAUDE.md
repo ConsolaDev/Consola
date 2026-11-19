@@ -462,6 +462,58 @@ Parse the response strictly. It is the CLI's own wire format rather than a
 promised contract, so an unrecognised shape must throw: a plausible-looking
 empty result would read as "this harness has no commands".
 
+### Snooze Is Derived in Main, and Never Hides a Question
+
+A snooze is four ledger fields (`snoozedUntil`, `snoozedAt`, `snoozeReason`,
+then `wokeAt`/`wakeCause` once it ends), not a field on `Session`: a click must
+not fsync the workspace list. `deriveAttention` reads `snoozed` from them and
+the clock, beating every status except an open run that holds the session.
+The renderer never computes it; snooze views ride the attention push
+(`AttentionChange.snoozes`), so windows cannot disagree.
+
+`Snoozer` (`main/attention/Snoozer.ts`) is the only writer of those fields. It
+snoozes a conductor's whole tree (only a root is offered), and runs one timer
+through `armAt` (`wakeTimer.ts`), which hops at most a day, because a
+`setTimeout` past 2³¹-1 ms fires at once. Every main timer for a wall-clock
+time goes through `armAt`, and is re-checked on `powerMonitor` `resume`. A
+snooze that ran out while Consola was closed wakes at startup, before the
+first auto-settle sweep.
+
+A snooze can never hide a new question. `SessionSource` calls the Snoozer on
+every edge into `needs-attention` (screen or hook) before anything derives, so
+the wake is written first. A question already open when the person snoozed
+stays snoozed ("ask me later"); an agent may not snooze one at all. Finishing
+work, opening the session, a queued prompt, a paste and an agent's prompt
+never wake it. Only the person's keys on `TERMINAL_INPUT` do: Enter,
+or a key pressed at a question that then goes away. Snoozing never touches a
+PTY, and nothing is ever typed at a wake.
+
+Undo restores only the fields an action wrote (`seenAt` and the shelving
+fields), never `lastActiveAt` or `finishedAt`: a snoozed session keeps
+working, and a whole-record restore would erase a finish written in between.
+
+### Usage Limits Are Asked of the CLI, Never Guessed
+
+Two questions, kept apart. *When did this session stop on a limit?* comes from
+the session: a `turn-failed` hook with `limit` (Claude's `StopFailure`), or the
+CLI's own notice on screen (`UsageLimitReporting.showsLimitNotice`, given the
+raw screen text because notices are matched at a line's start). *When does it
+reset?* comes only from the harness's CLI (`UsageLimitReporting.read`: Claude's
+`get_usage` control request, Codex's `account/rateLimits/read`), through
+`HarnessLimitsCache`, keyed like capabilities. A notice limits nothing until
+the CLI confirms a used-up window that binds the session, since the agent may
+have printed those words itself. No session lends another its reset.
+
+One rule reads every CLI's windows (`shared/usageLimits.ts`). An answer the
+mapper does not recognise throws, and a used-up window with no time leaves no
+time, never a guessed one: waking a session into the same limit only stops it
+again. `UsageLimitService` decides when to offer an automatic snooze (answer
+in, terminal at rest, reset over a minute away, once per stop); the Snoozer
+decides whether, and never replaces a time the person chose. A driver reports
+limits by adding the `usageLimits` capability; the contract test
+(`drivers/usageLimits.test.ts`) needs its fixtures under
+`drivers/__fixtures__/usage-limits/<driverId>/`.
+
 ### Claude's Own Storage
 
 `ClaudeSessionIndex` reads transcripts under `$CLAUDE_CONFIG_DIR/projects`
@@ -477,6 +529,8 @@ anything already there.
 
 All channel names are defined in `src/shared/constants.ts`. Key patterns:
 - `terminal:*` - Session terminal lifecycle and events
+- `attention:*` - Derived attention, settle, snooze and wake (batches are one write, one memento)
+- `usage-limits:*` - Which sessions stopped on a usage limit, pushed whole
 - `harness:*` - Harness health probes and capabilities, dispatched by driver
 - `file:*` - File operations
 - `git:*` - Git status and commit message generation

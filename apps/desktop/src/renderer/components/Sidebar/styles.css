@@ -2348,3 +2348,31 @@ button.shelf-header[data-empty="true"]:hover {
   font-size: 11px;
   color: var(--color-error, #d33);
 }
+
+/* --- Selection ------------------------------------------------------------
+   Rows picked with ⌘-click or ⇧-click, to act on together. An accent wash,
+   so a selected row reads apart from the open one (which keeps its own
+   fill) and from hover. */
+/* Two classes, so hover does not wash the selection out. */
+.session-nav-item.session-nav-item--selected {
+  background: color-mix(in srgb, var(--color-accent) 16%, transparent);
+  color: var(--color-text-primary);
+}
+
+.session-nav-item.session-nav-item--selected.active {
+  background: color-mix(in srgb, var(--color-accent) 24%, var(--color-bg-active));
+}
+
+/* The heading of a selection's menu: how many it acts on. */
+.dropdown-label {
+  padding: var(--space-1) var(--space-2);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* A row off the Snoozed shelf held over the list: dropping it here wakes it. */
+.sidebar-sessions--wake-drop {
+  outline: 1px dashed var(--color-accent);
+  outline-offset: -2px;
+  border-radius: var(--radius-md);
+}

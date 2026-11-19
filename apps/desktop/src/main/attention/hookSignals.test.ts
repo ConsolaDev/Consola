@@ -11,6 +11,24 @@ function signals(...status: TerminalStatus[]) {
   return hooks;
 }
 
+describe('a failed turn', () => {
+  it('ends what a turn latched, as a normal stop would', () => {
+    const signals = new HookSignals();
+    signals.apply('t', { kind: 'needs-input', origin: 'question' });
+    signals.apply('t', { kind: 'turn-ended', backgroundWork: 2, backgroundAgents: 1 });
+    signals.apply('t', { kind: 'needs-input', origin: 'menu' });
+    signals.apply('t', { kind: 'needs-input', origin: 'question' });
+    signals.apply('t', { kind: 'resumed' });
+    signals.apply('t', { kind: 'turn-failed', limit: true });
+    expect(signals.get('t')).toEqual({
+      needsInput: false,
+      holdingBackgroundWork: false,
+      awaitingAgents: false,
+      turn: 'over',
+    });
+  });
+});
+
 describe('HookSignals', () => {
   it('knows nothing of a terminal no hook has spoken for', () => {
     expect(new HookSignals().get('i')).toBeUndefined();

@@ -7,6 +7,7 @@ import type {
   HarnessLaunchFields,
   HarnessProbeResult,
 } from '../../shared/types';
+import type { HarnessLimits } from '../../shared/usageLimits';
 import type { SessionToolPolicy } from '../../shared/workspace';
 import type { AttentionSignal } from '../attention/hookSignals';
 
@@ -187,12 +188,37 @@ export interface HarnessDriver {
    * menu, a subagent waiting — never a replacement for reading the screen.
    */
   readonly attentionHooks?: AttentionHooks;
+
+  /**
+   * How this CLI answers "what are my limits, and when do they reset?".
+   *
+   * Optional: a CLI that cannot say omits it, and a session that stops on a
+   * limit there simply stops, with no time to come back at.
+   */
+  readonly usageLimits?: UsageLimitReporting;
 }
 
 /** A driver's attention-reporting capability: where its CLI is told to post, and what the posts mean. */
 export interface AttentionHooks {
   /** Translate one posted payload. Null for an event that says nothing about attention. */
   parse(body: unknown): AttentionSignal | null;
+}
+
+/** A driver's usage-limit reporting, asked of the CLI itself. */
+export interface UsageLimitReporting {
+  /**
+   * Ask the CLI for this harness's limits. Starts a process and runs no turn,
+   * so it costs no tokens. Rejects on an answer it does not recognise, rather
+   * than inventing one: a guessed reset would wake a session into the same
+   * limit.
+   */
+  read(config: HarnessConfig): Promise<HarnessLimits>;
+  /**
+   * Whether `visibleText`, a terminal screen, shows the CLI's own notice that
+   * a turn stopped on a usage limit. A hint only: a match prompts a `read`,
+   * and the session is limited only when a used-up window binds it.
+   */
+  showsLimitNotice?(visibleText: string): boolean;
 }
 
 /**

@@ -15,13 +15,40 @@ import type { DragEvent } from 'react';
  * typo in either would simply mean nothing is ever droppable.
  *
  * Buckets are derived from attention, so there is nothing to drag a row
- * between them; a label is the one thing a drop can assign.
+ * between them, with one exception: a row dragged off the Snoozed shelf onto
+ * the list wakes it (`SNOOZED_SESSION_DRAG_TYPE`).
  */
 export const SESSION_DRAG_TYPE = 'application/x-consola-session';
 
-export function startSessionDrag(event: DragEvent, session: { id: string }): void {
-  event.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
+/**
+ * A row dragged off the Snoozed shelf. Dropped on the list it wakes, the one
+ * move between sections a drag makes. Its own type, so the list claims only
+ * this drag and a label chip keeps every other.
+ */
+export const SNOOZED_SESSION_DRAG_TYPE = 'application/x-consola-session-snoozed';
+
+/**
+ * Start a row's drag. `labelable` rows can be dropped on a label chip;
+ * `snoozed` ones on the list, to wake. A snoozed conductor is only the latter.
+ */
+export function startSessionDrag(
+  event: DragEvent,
+  session: { id: string },
+  { labelable = true, snoozed = false }: { labelable?: boolean; snoozed?: boolean } = {},
+): void {
+  if (labelable) event.dataTransfer.setData(SESSION_DRAG_TYPE, session.id);
+  if (snoozed) event.dataTransfer.setData(SNOOZED_SESSION_DRAG_TYPE, session.id);
   event.dataTransfer.effectAllowed = 'move';
+}
+
+/** Whether a drag in progress is a row off the Snoozed shelf. */
+export function isSnoozedSessionDrag(event: DragEvent): boolean {
+  return event.dataTransfer.types.includes(SNOOZED_SESSION_DRAG_TYPE);
+}
+
+/** The snoozed session dropped, or null when the drop carried none. */
+export function droppedSnoozedSessionId(event: DragEvent): string | null {
+  return event.dataTransfer.getData(SNOOZED_SESSION_DRAG_TYPE) || null;
 }
 
 /** Whether a drag in progress is one of our session rows. */

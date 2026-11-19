@@ -1,4 +1,9 @@
-import type { AttentionRecord, AttentionSnapshot } from '../../shared/attention';
+import type {
+  AttentionRecord,
+  AttentionSnapshot,
+  SnoozeReason,
+  WakeCause,
+} from '../../shared/attention';
 import type { SettleMemento } from '../../shared/preferences';
 import type { JsonStateFile } from '../state/JsonStateFile';
 
@@ -30,7 +35,33 @@ export interface AttentionLedger {
    * has new activity, or the sweep would re-hide what was just recovered.
    */
   unsettle(sessionIds: string[], at: number): SettleMemento;
-  /** Put entries back exactly as a memento recorded them. */
+  /**
+   * Park sessions until `until`, in one write. Clears settled (one shelf at a
+   * time) and any earlier wake. Only the Snoozer calls this.
+   */
+  snooze(targets: SnoozeTarget[], at: number, reason?: SnoozeReason): SnoozeMemento;
+  /**
+   * End sessions' snoozes, in one write. Each records when it came back
+   * (`wokeAt`, where the list places it). `marks` names the ones that came
+   * back without the person (a tree's root) and why: only those read as news.
+   * `hold` says the person brought them back, so auto-settle leaves them
+   * alone until new activity, as it does after an un-settle. Only the
+   * Snoozer calls this.
+   */
+  wake(
+    sessionIds: string[],
+    at: number,
+    options?: { marks?: Record<string, WakeCause>; hold?: boolean },
+  ): SettleMemento;
+  /** Every record with a snooze, soonest wake first. */
+  snoozed(): AttentionRecord[];
+  /**
+   * Undo a settle, un-settle, snooze or wake: put back only the fields those
+   * write (`seenAt` and the shelving fields), never activity. A snoozed
+   * session keeps working, so restoring a whole record would erase a finish
+   * written in between. An entry recorded as null had no record: its shelving
+   * fields are stripped, and whatever activity it gained since is kept.
+   */
   restore(memento: SettleMemento): void;
   get(sessionId: string): AttentionRecord | undefined;
   /** Query-shaped read for a known set. */
@@ -49,6 +80,54 @@ export interface SettleTarget {
   workspaceId: string;
   /** Its activity when the ledger has no record: the session's creation-time seed. */
   activityAt: number;
+}
+
+/** A session to snooze, and when it comes back. */
+export interface SnoozeTarget extends SettleTarget {
+  until: number;
+}
+
+/** What a snooze recorded, for `restore`: the same shape as a settle's. */
+export type SnoozeMemento = SettleMemento;
+
+/** The fields shelving writes, and so the only ones an undo puts back. */
+const SHELVING_FIELDS = [
+  'seenAt',
+  'settledAt',
+  'settleHoldAt',
+  'unsettledAt',
+  'snoozedUntil',
+  'snoozedAt',
+  'snoozeReason',
+  'wokeAt',
+  'wakeCause',
+] as const;
+
+const SNOOZE_REASONS: readonly SnoozeReason[] = ['usage-limit'];
+const WAKE_CAUSES: readonly WakeCause[] = [
+  'time',
+  'limit-reset',
+  'question',
+  'failure',
+  'limit',
+  'agent',
+];
+
+/** A record without its snooze. */
+function withoutSnooze(record: AttentionRecord): AttentionRecord {
+  const { snoozedUntil: _until, snoozedAt: _at, snoozeReason: _reason, ...rest } = record;
+  return rest;
+}
+
+/**
+ * Whether a record shelving created has seen anything since: a finish, or
+ * activity after the write (a settle is never earlier than the activity it
+ * read; a snooze is written when it was asked for).
+ */
+function hasActivitySince(record: AttentionRecord): boolean {
+  if (record.finishedAt !== undefined) return true;
+  const written = record.settledAt ?? record.snoozedAt ?? record.wokeAt;
+  return written === undefined || record.lastActiveAt > written;
 }
 
 /** The on-disk shape: one flat row per session id. */
@@ -74,10 +153,32 @@ function normalizeRecord(value: unknown): AttentionRecord | null {
     workspaceId: row.workspaceId,
     lastActiveAt: row.lastActiveAt,
   };
-  for (const key of ['finishedAt', 'seenAt', 'settledAt', 'settleHoldAt', 'unsettledAt'] as const) {
+  for (const key of [
+    'finishedAt',
+    'seenAt',
+    'settledAt',
+    'settleHoldAt',
+    'unsettledAt',
+    'snoozedUntil',
+    'snoozedAt',
+    'wokeAt',
+  ] as const) {
     const field = row[key];
     if (typeof field === 'number' && Number.isFinite(field)) record[key] = field;
   }
+  // A snooze is written whole. Half of one cannot be honoured: with no time it
+  // never ends, and with no start every failure would read as news.
+  if ((record.snoozedUntil === undefined) !== (record.snoozedAt === undefined)) {
+    delete record.snoozedUntil;
+    delete record.snoozedAt;
+  }
+  if (
+    record.snoozedUntil !== undefined &&
+    SNOOZE_REASONS.includes(row.snoozeReason as SnoozeReason)
+  )
+    record.snoozeReason = row.snoozeReason as SnoozeReason;
+  if (record.wokeAt !== undefined && WAKE_CAUSES.includes(row.wakeCause as WakeCause))
+    record.wakeCause = row.wakeCause as WakeCause;
   return record;
 }
 
@@ -197,7 +298,8 @@ export class JsonAttentionLedger implements AttentionLedger {
       memento[sessionId] = current ? { ...current } : null;
       const lastActiveAt = current?.lastActiveAt ?? activityAt;
       const settled: AttentionRecord = {
-        ...current,
+        // One shelf at a time: settling ends a snooze.
+        ...(current ? withoutSnooze(current) : undefined),
         sessionId,
         workspaceId: current?.workspaceId ?? workspaceId,
         lastActiveAt,
@@ -225,17 +327,90 @@ export class JsonAttentionLedger implements AttentionLedger {
     return memento;
   }
 
+  public snooze(targets: SnoozeTarget[], at: number, reason?: SnoozeReason): SnoozeMemento {
+    const memento: SnoozeMemento = {};
+    const next: AttentionRecord[] = [];
+    for (const { sessionId, workspaceId, activityAt, until } of targets) {
+      const current = this.records.get(sessionId);
+      memento[sessionId] = current ? { ...current } : null;
+      const {
+        settledAt: _settled,
+        wokeAt: _woke,
+        wakeCause: _cause,
+        ...rest
+      } = current ? withoutSnooze(current) : ({} as Partial<AttentionRecord>);
+      next.push({
+        ...rest,
+        sessionId,
+        workspaceId: current?.workspaceId ?? workspaceId,
+        lastActiveAt: current?.lastActiveAt ?? activityAt,
+        snoozedUntil: until,
+        snoozedAt: at,
+        ...(reason ? { snoozeReason: reason } : {}),
+      });
+    }
+    this.commitAll(next);
+    return memento;
+  }
+
+  public wake(
+    sessionIds: string[],
+    at: number,
+    options: { marks?: Record<string, WakeCause>; hold?: boolean } = {},
+  ): SettleMemento {
+    const memento: SettleMemento = {};
+    const next: AttentionRecord[] = [];
+    for (const sessionId of sessionIds) {
+      const current = this.records.get(sessionId);
+      if (!current) continue;
+      memento[sessionId] = { ...current };
+      const woken = withoutSnooze(current);
+      // When it came back places it in the list; only a mark says it is news.
+      woken.wokeAt = at;
+      delete woken.wakeCause;
+      const cause = options.marks?.[sessionId];
+      if (cause) woken.wakeCause = cause;
+      if (options.hold) woken.settleHoldAt = at;
+      next.push(woken);
+    }
+    this.commitAll(next);
+    return memento;
+  }
+
+  public snoozed(): AttentionRecord[] {
+    return [...this.records.values()]
+      .filter((record) => record.snoozedUntil !== undefined)
+      .sort((a, b) => (a.snoozedUntil ?? 0) - (b.snoozedUntil ?? 0));
+  }
+
   public restore(memento: SettleMemento): void {
     const next: AttentionRecord[] = [];
     let removed = false;
     for (const [sessionId, previous] of Object.entries(memento)) {
-      if (previous === null) {
-        if (this.records.delete(sessionId)) removed = true;
+      const current = this.records.get(sessionId);
+      // A memento crosses IPC: trust its shape no further than a file on disk.
+      const recorded = previous === null ? null : normalizeRecord(previous);
+      if (previous !== null && (!recorded || recorded.sessionId !== sessionId)) continue;
+      if (!current) {
+        // Gone since (or never had activity): nothing to keep, so the recorded row returns whole.
+        if (recorded) next.push(recorded);
         continue;
       }
-      // A memento crosses IPC: trust its shape no further than a file on disk.
-      const record = normalizeRecord(previous);
-      if (record && record.sessionId === sessionId) next.push(record);
+      if (!recorded && !hasActivitySince(current)) {
+        // The action made this record and nothing has happened since: the
+        // session goes back to having none, exactly as it was.
+        this.records.delete(sessionId);
+        removed = true;
+        continue;
+      }
+      const restored: AttentionRecord = { ...current };
+      for (const field of SHELVING_FIELDS) delete restored[field];
+      if (recorded) {
+        for (const field of SHELVING_FIELDS) {
+          if (recorded[field] !== undefined) Object.assign(restored, { [field]: recorded[field] });
+        }
+      }
+      next.push(restored);
     }
     this.commitAll(next);
     // A deleted record has nothing to mark dirty: write it out now.

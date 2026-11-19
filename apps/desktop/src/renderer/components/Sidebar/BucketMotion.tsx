@@ -4,7 +4,7 @@ import type { Bucket } from '../../sidebar/bucketize';
 import { departures, travelDuration, type Placement } from '../../sidebar/departures';
 import type { EntryKey } from '../../sidebar/entry';
 
-const BUCKETS: Bucket[] = ['waiting', 'working', 'settled'];
+const BUCKETS: Bucket[] = ['waiting', 'working', 'snoozed', 'settled'];
 
 /** More rows than this leaving in one go (a batch settle) is a flock, not a gesture: they simply go. */
 const MAX_TRAVELLERS = 3;

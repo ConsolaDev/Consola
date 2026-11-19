@@ -24,9 +24,13 @@ export const TERMINAL_FONT_SIZE_DEFAULT = 14;
  * open. Working starts folded but opens itself
  * whenever a session starts working (`useRevealWorking`). Settled holds only
  * what was put away, so it starts folded: the list above it is what a glance
- * is for.
+ * is for. Snoozed is folded for the same reason: its rows come back by themselves.
  */
-export const SHELF_DEFAULTS: Record<string, boolean> = { working: false, settled: false };
+export const SHELF_DEFAULTS: Record<string, boolean> = {
+  working: false,
+  snoozed: false,
+  settled: false,
+};
 
 /** Whether a shelf is open, with its default for a shelf never touched. */
 export function isShelfOpen(shelves: Record<string, boolean>, id: string): boolean {

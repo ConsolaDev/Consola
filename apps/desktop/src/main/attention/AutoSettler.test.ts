@@ -103,6 +103,24 @@ describe('AutoSettler eligibility', () => {
     },
   );
 
+  it('never settles a snoozed session: it has a time to come back at', () => {
+    attention.set('a', 'snoozed');
+    expect(settler([old('a')]).sweep()).toEqual([]);
+  });
+
+  it('never settles a session back from a snooze nobody has looked at, however old', () => {
+    attention.set('a', 'ready');
+    ledger.snooze(
+      [{ sessionId: 'a', workspaceId: 'w1', activityAt: NOW - 30 * DAY, until: NOW - 20 * DAY }],
+      NOW - 25 * DAY,
+    );
+    ledger.wake(['a'], NOW - DAY, { marks: { a: 'time' } });
+    expect(settler([old('a')]).sweep()).toEqual([]);
+    // Seen: its idle time counts from the wake, a day ago, not from its last turn.
+    ledger.markSeen('a', NOW - DAY + 1);
+    expect(settler([old('a')]).sweep()).toEqual([]);
+  });
+
   it('never settles a session an open run holds', () => {
     attention.set('a', 'ready');
     held.add('a');

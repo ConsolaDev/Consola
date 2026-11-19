@@ -1,5 +1,6 @@
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
 import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
+import type { SnoozePresetSetting } from '../../shared/snooze';
 
 /**
  * Preferences Bridge - Isolates all window.preferencesAPI access to this single file.
@@ -28,6 +29,16 @@ export const preferencesBridge = {
   /** The person has read the one-time explanation, in whichever window. */
   acknowledgeAutoSettle: async (): Promise<void> => {
     await getAPI()?.acknowledgeAutoSettle();
+  },
+
+  /** The Snooze menu every window shows. */
+  setSnoozePresets: async (presets: SnoozePresetSetting[]): Promise<void> => {
+    await getAPI()?.setSnoozePresets(presets);
+  },
+
+  /** Whether a session that stops on a usage limit snoozes itself until the reset. */
+  setSnoozeAtUsageLimit: async (on: boolean): Promise<void> => {
+    await getAPI()?.setSnoozeAtUsageLimit(on);
   },
 
   /** Hear a change from any window. Returns the unsubscribe. */

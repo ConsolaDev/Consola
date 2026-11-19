@@ -3,7 +3,13 @@ import type { Session, Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
 import type { LaunchSessionFields } from '../SessionLauncher';
 import type { AutomationCapabilities } from '../automations/capabilities';
-import { consolaTools, type AutomationControl, type ConsolaToolDeps } from './consolaTools';
+import type { SnoozeView } from '../../shared/attention';
+import {
+  consolaTools,
+  type AutomationControl,
+  type ConsolaToolDeps,
+  type SnoozeControl,
+} from './consolaTools';
 import { agentContext, ToolRegistry, type ToolContext } from './Tool';
 
 /** The session asking: an ordinary one, in a worktree, in a group, on a pinned harness and model. */
@@ -29,6 +35,8 @@ let launchSession: Mock<(workspaceId: string, fields: LaunchSessionFields) => Pr
 let registry: ToolRegistry;
 let capabilities: Mock<AutomationControl['capabilities']>;
 let saveEntry: Mock<AutomationControl['saveEntry']>;
+let snoozer: { snooze: Mock<SnoozeControl['snooze']>; wake: Mock<SnoozeControl['wake']> };
+let snoozeViews: Map<string, SnoozeView>;
 
 function as(sessionId: string): ToolContext {
   return agentContext(sessionId, workspaces);
@@ -68,6 +76,16 @@ beforeEach(() => {
       hasStarted: true,
     } as Partial<Session>),
   );
+  snoozer = {
+    snooze: vi.fn((_workspaceId, sessionIds) => ({
+      applied: sessionIds,
+      refused: [],
+      memento: {},
+      until: 1,
+    })),
+    wake: vi.fn((_workspaceId, sessionIds) => ({ applied: sessionIds, refused: [], memento: {} })),
+  };
+  snoozeViews = new Map();
   const deps: ConsolaToolDeps = {
     cleanup: {
       previewStale: vi.fn(),
@@ -83,6 +101,8 @@ beforeEach(() => {
     workItemContext: vi.fn(),
     inbox: () => null,
     launchSession,
+    snoozer: () => snoozer,
+    snoozes: () => snoozeViews,
   };
   registry = new ToolRegistry();
   consolaTools(deps).forEach((tool) => registry.register(tool));
@@ -246,5 +266,61 @@ describe('save_automation', () => {
     await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(
       /Invalid arguments/,
     );
+  });
+});
+
+describe('snooze_session and wake_session', () => {
+  const snooze = (args: Record<string, unknown>, context: ToolContext = as('me')) =>
+    registry.invoke('snooze_session', args, context);
+
+  it('snoozes the caller by default, for a number of minutes, as an agent', async () => {
+    const before = Date.now();
+    await snooze({ minutes: 30 });
+    const [workspaceId, ids, until, opts] = snoozer.snooze.mock.calls[0];
+    expect([workspaceId, ids, opts]).toEqual(['ws-1', ['me'], { by: 'agent' }]);
+    expect(until).toBeGreaterThanOrEqual(before + 30 * 60_000);
+  });
+
+  it('reads until as the person’s local time when it has no offset', async () => {
+    await snooze({ session_ids: ['ro'], until: '2030-01-02T09:30' });
+    expect(snoozer.snooze.mock.calls[0][2]).toBe(new Date(2030, 0, 2, 9, 30).getTime());
+  });
+
+  it('takes exactly one of until or minutes, at most 30 days, and refuses a bare date', async () => {
+    await expect(snooze({})).rejects.toThrow('exactly one of until or minutes');
+    await expect(snooze({ minutes: 5, until: '2030-01-02T09:30' })).rejects.toThrow('exactly one');
+    await expect(snooze({ until: '2030-01-02' })).rejects.toThrow('a time as well as a date');
+    await expect(snooze({ minutes: 43_201 })).rejects.toThrow(/Invalid arguments/);
+  });
+
+  it('reports what main refused, in its words', async () => {
+    snoozer.snooze.mockReturnValueOnce({
+      applied: [],
+      refused: [
+        {
+          sessionId: 'ro',
+          reason: 'needs-you',
+          message: 'It is waiting for the person to answer, so it stays in the list.',
+        },
+      ],
+      memento: {},
+      until: null,
+    });
+    const result = await snooze({ session_ids: ['ro'], minutes: 5 });
+    expect(result.summary).toBe(
+      'Snoozed nothing: It is waiting for the person to answer, so it stays in the list.',
+    );
+    expect(result.data).toMatchObject({ refused: [{ sessionId: 'ro', reason: 'needs-you' }] });
+  });
+
+  it('wakes the caller by default, as an agent', async () => {
+    await registry.invoke('wake_session', {}, as('me'));
+    expect(snoozer.wake).toHaveBeenCalledWith('ws-1', ['me'], { by: 'agent' });
+  });
+
+  it('are offered only to a session with full tools: both change something', () => {
+    for (const name of ['snooze_session', 'wake_session']) {
+      expect(registry.get(name)).toMatchObject({ mutating: true, automatable: false });
+    }
   });
 });

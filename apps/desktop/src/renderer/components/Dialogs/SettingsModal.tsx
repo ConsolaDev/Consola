@@ -52,6 +52,7 @@ import {
   type SettingsSection,
   type WorkspaceSectionId,
 } from './settingsSections';
+import { SnoozeOptions } from '../Settings/SnoozeOptions';
 import './styles.css';
 // The workspace panels' own rules (ws-*) live with the panels.
 import '../WorkspaceSettings/styles.css';
@@ -347,6 +348,7 @@ function SessionsSection() {
         </div>
         <WorktreeCleanupControl />
       </div>
+      <SnoozeOptions />
     </div>
   );
 }

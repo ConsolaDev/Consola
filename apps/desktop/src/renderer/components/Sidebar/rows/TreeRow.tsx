@@ -5,6 +5,7 @@ import type { EntryKey } from '../../../sidebar/entry';
 import type { TreeNode } from '../../../sidebar/forest';
 import { entryRow } from '../../../sidebar/rowRegistry';
 import { settleOffer } from '../../../sidebar/settleRules';
+import { snoozeOffer } from '../../../sidebar/snoozeRules';
 import { treeView } from '../../../sidebar/treeView';
 import { useSettingsStore } from '../../../stores/settingsStore';
 
@@ -55,6 +56,7 @@ export function TreeRow({ node, bucket, workspaceId, activeKey, highlightActive 
       active: highlightActive && child.entry.key === activeKey,
       child: isChild,
       settle: settleOffer(child, isChild),
+      snooze: snoozeOffer(child, isChild),
       bucket,
       trailing:
         isChild || !badgeWord ? undefined : (

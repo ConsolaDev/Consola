@@ -27,7 +27,8 @@ export const idOfKey = (key: EntryKey): string => key.slice(key.indexOf(':') + 1
  */
 export function sessionEntries(
   sessions: readonly Session[],
-  snapshot: Pick<AttentionState, 'records' | 'attention'>,
+  snapshot: Pick<AttentionState, 'records' | 'attention'> &
+    Partial<Pick<AttentionState, 'snoozes'>>,
   labels: readonly Label[],
 ): Entry[] {
   const liveLabels = new Set(labels.map((label) => label.id));
@@ -40,6 +41,7 @@ export function sessionEntries(
       if (value !== undefined) facets[key] = value;
     }
     const activityAt = activityOf(session, record);
+    const snooze = snapshot.snoozes?.[session.id];
     return {
       key: sessionKey(session.id),
       kind: 'session',
@@ -48,6 +50,11 @@ export function sessionEntries(
       ...(record?.unsettledAt !== undefined ? { unsettledAt: record.unsettledAt } : {}),
       activityAt,
       ...(record?.finishedAt !== undefined ? { finishedAt: record.finishedAt } : {}),
+      ...(snooze?.until !== undefined ? { snoozedUntil: snooze.until } : {}),
+      // Placement reads the ledger, which keeps the time after the person
+      // looks; the mark reads main's view, which drops it then.
+      ...(record?.wokeAt !== undefined ? { wokeAt: record.wokeAt } : {}),
+      ...(snooze?.wokeAt !== undefined ? { wakeMark: snooze.wakeCause ?? 'time' } : {}),
       ...(session.parentSessionId ? { parent: sessionKey(session.parentSessionId) } : {}),
       labels: (session.labelIds ?? []).filter((id) => liveLabels.has(id)),
       facets,

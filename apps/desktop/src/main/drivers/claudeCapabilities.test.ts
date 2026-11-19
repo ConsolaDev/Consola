@@ -2,7 +2,12 @@ import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
-import { mapInitializeResponse, requestInitializeHandshake } from './claudeCapabilities';
+import {
+  mapInitializeResponse,
+  requestControl,
+  requestInitializeHandshake,
+  requestUsage,
+} from './claudeCapabilities';
 
 /**
  * The handshake is the one part of this feature that talks to another process,
@@ -26,12 +31,17 @@ afterAll(() => {
  * script to run.
  */
 function runAgainst(scriptBody: string, timeoutMs = 5000): Promise<unknown> {
+  return requestInitializeHandshake(fakeCli(scriptBody), scriptDir, process.env, timeoutMs);
+}
+
+/** An executable that runs `scriptBody` under Node, passing its arguments through. */
+function fakeCli(scriptBody: string): string {
   const file = path.join(scriptDir, `cli-${Math.abs(hash(scriptBody))}.cjs`);
   fs.writeFileSync(file, scriptBody, 'utf8');
   const shim = path.join(scriptDir, `shim-${Math.abs(hash(scriptBody))}.sh`);
-  fs.writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${file}"\n`, 'utf8');
+  fs.writeFileSync(shim, `#!/bin/sh\nexec "${process.execPath}" "${file}" "$@"\n`, 'utf8');
   fs.chmodSync(shim, 0o755);
-  return requestInitializeHandshake(shim, scriptDir, process.env, timeoutMs);
+  return shim;
 }
 
 function hash(value: string): number {
@@ -147,6 +157,107 @@ describe('requestInitializeHandshake', () => {
     await new Promise((resolve) => setTimeout(resolve, 700));
 
     expect(fs.existsSync(marker)).toBe(false);
+  });
+});
+
+/**
+ * A CLI that answers every control request it reads, `initialize` a moment
+ * late, and reports back what it saw when the later requests arrived: whether
+ * the earlier answer had gone out, whether stdin had already ended, its argv.
+ */
+const SEQUENCE_CLI = `
+  const lines = require('readline').createInterface({ input: process.stdin });
+  let answeredFirst = false;
+  let stdinEnded = false;
+  lines.on('close', () => { stdinEnded = true; });
+  lines.on('line', (line) => {
+    const message = JSON.parse(line);
+    const reply = (subtype, body) => process.stdout.write(JSON.stringify({
+      type: 'control_response',
+      response: { subtype, request_id: message.request_id, ...body },
+    }) + '\\n');
+    if (message.request.subtype === 'initialize') {
+      setTimeout(() => { answeredFirst = true; reply('success', { response: { commands: [] } }); }, 50);
+    } else if (message.request.subtype === 'refuse') {
+      reply('error', { error: 'get_usage is not supported' });
+    } else {
+      reply('success', { response: {
+        request: message.request, answeredFirst, stdinEnded, argv: process.argv.slice(2),
+      } });
+    }
+  });
+  setTimeout(() => {}, 5000);
+`;
+
+describe('requestControl', () => {
+  it('asks the next question only once the last is answered, keeping stdin open until then', async () => {
+    const [initialize, second] = await requestControl(
+      fakeCli(SEQUENCE_CLI),
+      scriptDir,
+      process.env,
+      [
+        { requestId: 'a', request: { subtype: 'initialize' } },
+        { requestId: 'b', request: { subtype: 'get_usage', skip_behaviors: true } },
+      ],
+    );
+
+    expect(initialize).toEqual({ commands: [] });
+    expect(second).toMatchObject({
+      request: { subtype: 'get_usage', skip_behaviors: true },
+      answeredFirst: true,
+      stdinEnded: false,
+    });
+  });
+
+  it('adds its extra arguments after the protocol flags', async () => {
+    const [, second] = await requestControl(
+      fakeCli(SEQUENCE_CLI),
+      scriptDir,
+      process.env,
+      [
+        { requestId: 'a', request: { subtype: 'initialize' } },
+        { requestId: 'b', request: { subtype: 'anything' } },
+      ],
+      { extraArgs: ['--settings', '{"disableAllHooks":true}'] },
+    );
+
+    expect((second as { argv: string[] }).argv.slice(-3)).toEqual([
+      '--no-session-persistence',
+      '--settings',
+      '{"disableAllHooks":true}',
+    ]);
+  });
+
+  it('rejects when a later request is refused, rather than returning the first answer alone', async () => {
+    await expect(
+      requestControl(fakeCli(SEQUENCE_CLI), scriptDir, process.env, [
+        { requestId: 'a', request: { subtype: 'initialize' } },
+        { requestId: 'b', request: { subtype: 'refuse' } },
+      ]),
+    ).rejects.toThrow(/get_usage is not supported/);
+  });
+});
+
+describe('requestUsage', () => {
+  it('asks for usage without running hooks or scanning transcripts, after initialising', async () => {
+    const usage = await requestUsage(fakeCli(SEQUENCE_CLI), scriptDir, process.env);
+
+    expect(usage).toMatchObject({
+      request: { subtype: 'get_usage', skip_behaviors: true },
+      answeredFirst: true,
+    });
+    const { argv } = usage as { argv: string[] };
+    expect(argv).toContain('--no-session-persistence');
+    expect(argv.slice(argv.indexOf('--settings'), argv.indexOf('--settings') + 2)).toEqual([
+      '--settings',
+      '{"disableAllHooks":true}',
+    ]);
+  });
+
+  it('gives up at its deadline', async () => {
+    await expect(
+      requestUsage(fakeCli('setTimeout(() => {}, 60000);'), scriptDir, process.env, 300),
+    ).rejects.toThrow(/within 300ms/);
   });
 });
 

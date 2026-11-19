@@ -8,12 +8,18 @@ import type { HarnessCapabilities, HarnessProbeResult } from '../../shared/types
 import { getLoginEnv } from '../LoginEnvironment';
 import { JsonStateFile } from '../state/JsonStateFile';
 import type { SessionToolPolicy } from '../../shared/workspace';
-import type { HarnessConfig, HarnessDriver, SessionLaunch } from './HarnessDriver';
+import type {
+  HarnessConfig,
+  HarnessDriver,
+  SessionLaunch,
+  UsageLimitReporting,
+} from './HarnessDriver';
 import { findCodexRollout, readSessionModel } from './sessionModel';
-import { createCodexThread } from './codexAppServer';
+import { createCodexThread, readCodexRateLimits } from './codexAppServer';
 import { readCodexRollout } from './codexConversation';
-import { listCodexModels } from './codexModels';
+import { codexModelConfigArgs, listCodexModels } from './codexModels';
 import { readCodexFirstPrompt } from './codexFirstPrompt';
+import { mapCodexUsage, showsCodexLimitNotice } from './codexUsage';
 
 interface CodexMapping {
   threadId: string;
@@ -109,6 +115,20 @@ export class CodexDriver implements HarnessDriver {
   public readonly configDirEnvVar = 'CODEX_HOME';
   public readonly initialPromptViaArgs = true;
   public readonly retryResumeAsFresh = false;
+  /** Asked of `codex app-server` from the home directory, like the model list. */
+  public readonly usageLimits: UsageLimitReporting = {
+    read: async (config) =>
+      mapCodexUsage(
+        await readCodexRateLimits(
+          this.resolveBinary(config),
+          os.homedir(),
+          this.composeEnv(config, getLoginEnv()),
+          codexModelConfigArgs(config.extraArgs),
+        ),
+        Date.now(),
+      ),
+    showsLimitNotice: showsCodexLimitNotice,
+  };
   private readonly preparing = new Map<string, Promise<string>>();
 
   private readonly rolloutFiles = new Map<string, string>();

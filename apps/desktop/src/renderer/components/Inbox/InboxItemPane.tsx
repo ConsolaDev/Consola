@@ -68,6 +68,7 @@ const STATUS_WORDS: Record<Attention, string> = {
   'needs-attention': 'needs you',
   done: 'done',
   exited: 'exited',
+  snoozed: 'snoozed',
   settled: 'settled',
 };
 

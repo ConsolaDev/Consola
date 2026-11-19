@@ -47,6 +47,8 @@ export interface HarnessSwitcherDeps {
    */
   forgetAttention(instanceId: string): void;
   driverFor?: (id?: HarnessDriverId) => HarnessDriver;
+  /** When a harness can be used again by any model, if its CLI said it is at its limit. */
+  limitedUntil?: (harnessId: string) => number | undefined;
   newConversationId?: () => string;
   now?: () => Date;
 }
@@ -96,12 +98,14 @@ export class HarnessSwitcher {
       .filter((harness) => isSwitchTarget(harness, sides.session))
       .map((target): HarnessSwitchPreview => {
         const plan = this.plan(sides, target);
+        const limitedUntil = this.deps.limitedUntil?.(target.id);
         return plan.ok
           ? {
               harnessId: target.id,
               ok: true,
               mode: plan.mode,
               summary: describeSwitch(plan.mode, target.name),
+              ...(limitedUntil !== undefined ? { limitedUntil } : {}),
             }
           : { harnessId: target.id, ok: false, reason: plan.reason };
       });

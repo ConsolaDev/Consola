@@ -251,6 +251,8 @@ export class TerminalService extends EventEmitter {
   /** Prompts waiting for the composer, oldest first. */
   private promptQueue: string[] = [];
   private isAwaitingConfirmation = false;
+  /** Whether the settled screen shows the CLI's own notice that a turn stopped on a usage limit. */
+  private isShowingLimitNotice = false;
   private isDestroyed = false;
   private isLaunching = false;
   private initialPromptArgument: string | undefined;
@@ -987,6 +989,15 @@ export class TerminalService extends EventEmitter {
     if (awaiting !== this.isAwaitingConfirmation) {
       this.isAwaitingConfirmation = awaiting;
       this.emit('awaiting-confirmation', awaiting);
+    }
+
+    // A hint only, asked of the driver so nothing here knows its words: a
+    // notice that appears prompts a read of the harness's limits, which
+    // decides. The raw text, since a notice is matched at a line's start.
+    const notice = this.driver.usageLimits?.showsLimitNotice?.(this.screen.visibleText()) ?? false;
+    if (notice !== this.isShowingLimitNotice) {
+      this.isShowingLimitNotice = notice;
+      this.emit('limit-notice', notice);
     }
   }
 
