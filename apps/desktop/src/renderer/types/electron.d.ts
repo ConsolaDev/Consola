@@ -7,6 +7,7 @@ import type {
   WorktreeCleanupRules,
 } from '../../shared/worktreeCleanup';
 import type { AppUpdateAPI } from '../../shared/appUpdates';
+import type { BrowserAPI } from '../../shared/browser';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type { Preferences, SettleMemento, SettleResult } from '../../shared/preferences';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
@@ -102,6 +103,7 @@ export interface GitAPI {
 declare global {
   interface Window {
     appUpdateAPI?: AppUpdateAPI;
+    browserAPI: BrowserAPI;
     dialogAPI: DialogAPI;
     fileAPI: FileAPI;
     attentionAPI: AttentionAPI;

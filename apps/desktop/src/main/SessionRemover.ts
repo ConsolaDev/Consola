@@ -6,6 +6,8 @@ export interface SessionRemoverDeps {
   /** The agent PTY and its attention state (badge, notification edge). */
   destroyTerminal(instanceId: string): void;
   destroyShell(instanceId: string): void;
+  /** The session's browser tabs and the pages behind them. */
+  destroyBrowser(sessionId: string): void;
   /** The session's MCP endpoint: socket, config file and live connections. */
   releaseMcp(sessionId: string): void;
   /**
@@ -62,6 +64,8 @@ export class SessionRemover {
    */
   public discard(session: Pick<Session, 'id' | 'instanceId' | 'removedWorktree'>): void {
     this.stop(session);
+    // Not in stop(): a stopped session keeps its record, and its tabs with it.
+    this.deps.destroyBrowser(session.id);
     try {
       this.deps.releaseRemovedWorktree?.(session);
     } catch (error) {

@@ -85,6 +85,38 @@ export interface BrowserSessionSnapshot {
   activeTabId: string | null;
 }
 
+/** What a window receives on `BROWSER_SNAPSHOT`: one session's tabs, merged with live state. */
+export interface BrowserSnapshotMessage {
+  sessionId: string;
+  snapshot: BrowserSessionSnapshot;
+}
+
+/**
+ * What the preload exposes as `window.browserAPI`. Reach it through
+ * `browserBridge`, never directly.
+ *
+ * Every call names a session or tab; main refuses one outside the window's
+ * workspace. Navigation goes only through `navigate`: a renderer never sets a
+ * `<webview>`'s `src` after attach.
+ */
+export interface BrowserAPI {
+  get(sessionId: string): Promise<BrowserSessionSnapshot>;
+  /** Opens a tab (empty `url` for a blank one) and makes it active. Null when refused. */
+  open(sessionId: string, url: string): Promise<BrowserTab | null>;
+  close(tabId: string): Promise<void>;
+  activate(tabId: string): Promise<void>;
+  /** False when the address is not a web address or the tab is not the window's. */
+  navigate(tabId: string, url: string): Promise<boolean>;
+  back(tabId: string): Promise<void>;
+  forward(tabId: string): Promise<void>;
+  reload(tabId: string): Promise<void>;
+  stop(tabId: string): Promise<void>;
+  /** Binds a mounted, dom-ready `<webview>` (by its `getWebContentsId()`) to its tab. */
+  attach(tabId: string, webContentsId: number): Promise<boolean>;
+  onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void;
+  onShortcut(callback: () => void): () => void;
+}
+
 // --- Addresses ---
 
 /**

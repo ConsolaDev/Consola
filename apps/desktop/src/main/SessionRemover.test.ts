@@ -13,6 +13,7 @@ function harness(
     }),
     destroyTerminal: (id) => calls.push(`terminal ${id}`),
     destroyShell: (id) => calls.push(`shell ${id}`),
+    destroyBrowser: (id) => calls.push(`browser ${id}`),
     releaseMcp: (id) => calls.push(`mcp ${id}`),
     removeHandoffs: (id) => {
       calls.push(`handoffs ${id}`);
@@ -33,6 +34,7 @@ describe('SessionRemover', () => {
       'terminal workspace-w-session-1',
       'shell workspace-w-session-1',
       'mcp s-1',
+      'browser s-1',
       'handoffs s-1',
     ]);
   });
@@ -62,6 +64,7 @@ describe('SessionRemover', () => {
       'terminal workspace-w-session-1',
       'shell workspace-w-session-1',
       'mcp s-1',
+      'browser s-1',
       'handoffs s-1',
     ]);
   });

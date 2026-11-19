@@ -13,7 +13,22 @@ import { describeError } from './describeError';
 import { SessionCheckoutService } from './SessionCheckoutService';
 import type { SessionCheckout } from '../shared/sessionCheckout';
 import { guardedIpc as ipcMain } from './guardedIpc';
-import { BrowserWindow, dialog, app, Notification, powerMonitor, protocol, shell } from 'electron';
+import {
+  BrowserWindow,
+  dialog,
+  app,
+  Notification,
+  powerMonitor,
+  protocol,
+  session as electronSession,
+  shell,
+  webContents as electronWebContents,
+} from 'electron';
+import type { BrowserStateFile } from '../shared/browser';
+import { BrowserService } from './browser/BrowserService';
+import { BrowserStateStore } from './browser/BrowserStateStore';
+import { registerBrowserHandlers } from './browser/browserIpc';
+import { partitionFor } from './browser/sessionPolicy';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -156,6 +171,9 @@ import type { ActivateWorkspaceResult, WorkspaceView } from '../shared/types';
 // One terminal per session tab, kept alive while the session is open
 let terminalManager: TerminalManager | null = null;
 let shellManager: ShellManager | null = null;
+// The in-app browser: tabs per session and the pages behind them.
+let browserService: BrowserService | null = null;
+let browserHandlers: { remove(): void } | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
@@ -248,6 +266,49 @@ export function setupIpcHandlers(): boolean {
   );
   preferences.load();
 
+  // The in-app browser's tabs. Not loaded through loadOrExit: the store never
+  // throws, and a lost file only costs the open tabs.
+  const browserStore = new BrowserStateStore(
+    new JsonStateFile<BrowserStateFile>(path.join(app.getPath('userData'), 'browser-state.json')),
+  );
+  browserStore.load();
+  const browser = new BrowserService({
+    store: browserStore,
+    workspaceIdForSession: (sessionId) =>
+      workspaces
+        .getAll()
+        .find((workspace) => workspace.sessions.some((session) => session.id === sessionId))?.id,
+    findWindowForWorkspace: (workspaceId) => findWindowForWorkspace(workspaceId) ?? undefined,
+    send: (window, channel, payload) => window.webContents.send(channel, payload),
+    // A silent failure here would mean a deleted workspace's logins survive.
+    clearPartition: async (workspaceId) => {
+      try {
+        const target = electronSession.fromPartition(partitionFor(workspaceId));
+        await target.clearStorageData();
+        await target.clearCache();
+      } catch (error) {
+        console.error(`Could not clear the browser data of workspace ${workspaceId}:`, error);
+      }
+    },
+  });
+  browserService = browser;
+  browserHandlers = registerBrowserHandlers({
+    ipc: ipcMain,
+    service: browser,
+    workspaceForSender: (sender) => {
+      const window = BrowserWindow.fromWebContents(sender);
+      return (window && getWorkspaceFor(window)) || undefined;
+    },
+    windowForSender: (sender) => BrowserWindow.fromWebContents(sender) ?? undefined,
+    sessionInWorkspace: (sessionId, workspaceId) =>
+      !!workspaces
+        .getAll()
+        .find((workspace) => workspace.id === workspaceId)
+        ?.sessions.some((session) => session.id === sessionId),
+    webContentsFromId: (id) => electronWebContents.fromId(id),
+    sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),
+  });
+
   // Every window renders the same records, so a change goes to all of them
   // rather than to whoever asked for it. A deleted workspace also has to be
   // dropped from any window still holding it, or that window would keep
@@ -258,6 +319,10 @@ export function setupIpcHandlers(): boolean {
     // already refuses to surface it, so this is housekeeping rather than
     // correctness — it stops the file growing forever.
     viewMemory.prune(liveIds);
+    browserStore.prune(
+      new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
+      liveIds,
+    );
     attentionLedger.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
     );
@@ -311,6 +376,7 @@ export function setupIpcHandlers(): boolean {
       forgetTerminalAttention(instanceId);
     },
     destroyShell: (instanceId) => shellManager?.destroy(instanceId),
+    destroyBrowser: (sessionId) => browser.destroySession(sessionId),
     // A session's endpoint would otherwise outlive its record as a
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),
@@ -338,6 +404,9 @@ export function setupIpcHandlers(): boolean {
     const doomed = workspaces.getAll().find((workspace) => workspace.id === id);
     const stranded = doomed?.sessions ?? [];
 
+    // Before the record goes: the browser finds this workspace's sessions
+    // through it, and its logins and history are wiped with it.
+    browser.destroyWorkspace(id);
     workspaces.deleteWorkspace(id);
 
     // Only once the delete has reached disk — a failed write throws above
@@ -2062,12 +2131,19 @@ ${truncatedDiff}`;
       const requesting = BrowserWindow.fromWebContents(event.sender);
       if (!requesting) return { verdict: 'focused-elsewhere' };
 
+      // A window that leaves its workspace stops showing its pages: its
+      // webviews unmount, and main lets go of them (the tabs stay).
+      const before = getWorkspaceFor(requesting);
+      const letGoOfPages = () => {
+        if (before && before !== workspaceId) browser.detachWindow(requesting);
+      };
+
       if (workspaceId === null) {
         // Home shows no workspace, so there is nothing remembered to
         // hand back — but the window did take the change.
-        return assignWorkspace(requesting, null)
-          ? { verdict: 'took', view: EMPTY_VIEW }
-          : { verdict: 'focused-elsewhere' };
+        if (!assignWorkspace(requesting, null)) return { verdict: 'focused-elsewhere' };
+        letGoOfPages();
+        return { verdict: 'took', view: EMPTY_VIEW };
       }
 
       // A dropdown rendered before another window deleted this workspace
@@ -2089,6 +2165,7 @@ ${truncatedDiff}`;
       if (!assignWorkspace(requesting, workspaceId)) {
         return { verdict: 'focused-elsewhere' };
       }
+      letGoOfPages();
       // Answered in the same round trip the claim rides on: asking
       // separately would paint the blank composer and correct it a
       // frame later, on every switch.
@@ -2281,6 +2358,10 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC_CHANNELS.SHELL_RESIZE);
   shellManager?.destroyAll();
   shellManager = null;
+  browserHandlers?.remove();
+  browserHandlers = null;
+  browserService?.destroyAll();
+  browserService = null;
   terminalManager?.destroyAll();
   terminalManager = null;
 

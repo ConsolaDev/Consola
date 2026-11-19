@@ -12,6 +12,7 @@ import type {
   WorktreeCleanupRules,
 } from '../shared/worktreeCleanup';
 import type { ShellAPI } from '../shared/shell';
+import type { BrowserAPI } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
@@ -86,6 +87,22 @@ contextBridge.exposeInMainWorld('shellAPI', {
   onData: (callback) => subscribe(IPC_CHANNELS.SHELL_DATA, callback),
   onExit: (callback) => subscribe(IPC_CHANNELS.SHELL_EXIT, callback),
 } satisfies ShellAPI);
+
+contextBridge.exposeInMainWorld('browserAPI', {
+  get: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_GET, sessionId),
+  open: (sessionId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_OPEN, sessionId, url),
+  close: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CLOSE, tabId),
+  activate: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ACTIVATE, tabId),
+  navigate: (tabId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_NAVIGATE, tabId, url),
+  back: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_BACK, tabId),
+  forward: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_FORWARD, tabId),
+  reload: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_RELOAD, tabId),
+  stop: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_STOP, tabId),
+  attach: (tabId, webContentsId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ATTACH, tabId, webContentsId),
+  onSnapshot: (callback) => subscribe(IPC_CHANNELS.BROWSER_SNAPSHOT, callback),
+  onShortcut: (callback) => subscribe<void>(IPC_CHANNELS.BROWSER_SHORTCUT, () => callback()),
+} satisfies BrowserAPI);
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('terminalAPI', {

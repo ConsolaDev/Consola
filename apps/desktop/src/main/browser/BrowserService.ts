@@ -4,6 +4,7 @@ import {
   isAllowedPageUrl,
   MAX_TABS_PER_SESSION,
   type BrowserSessionSnapshot,
+  type BrowserSnapshotMessage,
   type BrowserTab,
   type BrowserTabError,
   type BrowserTabLive,
@@ -16,11 +17,7 @@ import type { BrowserStateStore } from './BrowserStateStore';
 export const CRASH_RETRY_LIMIT = 3;
 export const CRASH_RETRY_WINDOW_MS = 30_000;
 
-/** What a window receives on `BROWSER_SNAPSHOT`: one session's tabs, merged with live state. */
-export interface BrowserSnapshotMessage {
-  sessionId: string;
-  snapshot: BrowserSessionSnapshot;
-}
+export type { BrowserSnapshotMessage };
 
 export interface BrowserServiceDeps {
   store: BrowserStateStore;
