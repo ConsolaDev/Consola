@@ -267,7 +267,7 @@ test.describe('in-app browser', () => {
     expect(await cookiesIn(ids.alpha.workspaceId)).toContain('fixture=signed-in');
   });
 
-  test('the palette draws over a visible page, and a page click closes a menu', async () => {
+  test('the palette draws over a visible page, and a page taking focus closes a menu', async () => {
     await openSession(page, 'Alpha');
     if (!(await panel(page).isVisible())) await globe(page).click();
     await typeAddress(page, `${fixtures.host}/a.html`);
@@ -303,10 +303,34 @@ test.describe('in-app browser', () => {
     // An open dropdown closes when the page takes focus.
     await page.getByRole('button', { name: 'Filter sessions', exact: true }).first().click();
     await expect(page.locator('.dropdown-content')).toBeVisible();
-    const box = await pageBox.boundingBox();
-    if (!box) throw new Error('the page has no box');
-    await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+    // The host closes menus by dispatching a synthetic pointerdown when the
+    // page takes focus. Record untrusted ones, so the menu closing is tied to
+    // that path and not to Radix reacting to the click or focus change itself.
+    await page.evaluate(() => {
+      const w = window as unknown as { __syntheticPointerDowns: number };
+      w.__syntheticPointerDowns = 0;
+      document.addEventListener(
+        'pointerdown',
+        (event) => {
+          if (!event.isTrusted) w.__syntheticPointerDowns += 1;
+        },
+        true,
+      );
+    });
+    // In the hidden test window a guest never gains real window focus, so
+    // neither a mouse click nor `focus()` makes the `<webview>` element emit
+    // its `focus` event (checked: activeElement becomes the webview, no event).
+    // Emit it the way the tag does when the guest takes focus; this guards the
+    // wiring from that event to closing the app's menus.
+    await page.evaluate(() => {
+      document.querySelector('webview')?.dispatchEvent(new Event('focus'));
+    });
     await expect(page.locator('.dropdown-content')).toHaveCount(0);
+    expect(
+      await page.evaluate(
+        () => (window as unknown as { __syntheticPointerDowns: number }).__syntheticPointerDowns,
+      ),
+    ).toBeGreaterThan(0);
   });
 
   test('switching workspace and back returns the page at its latest address', async () => {
