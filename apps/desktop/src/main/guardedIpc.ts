@@ -1,8 +1,11 @@
-import { BrowserWindow, ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
+import { ipcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron';
 import { isTrustedSender } from './ipcSenderGuard';
+import { isConsolaContents } from './windowRegistry';
 
 function trusted(event: IpcMainEvent | IpcMainInvokeEvent): boolean {
-  return isTrustedSender(event, BrowserWindow.fromWebContents(event.sender) !== null);
+  // The registry, not `BrowserWindow.fromWebContents`: a page's popup is a
+  // window to Electron, and its main frame would pass every other check.
+  return isTrustedSender(event, isConsolaContents(event.sender.id));
 }
 
 /**

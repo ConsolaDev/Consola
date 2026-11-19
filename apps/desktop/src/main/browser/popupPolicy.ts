@@ -18,6 +18,8 @@ export interface PopupContext {
   recentPersonInput: boolean;
   /** The opener's session already has the most tabs it may have. */
   atTabCap: boolean;
+  /** A popup this opener made is still open. */
+  openerHasPopup: boolean;
 }
 
 export type PopupDecision =
@@ -41,8 +43,9 @@ const clampSide = (value: number) => Math.min(MAX_SIDE, Math.max(MIN_SIDE, Math.
  * The size a `window.open` features string asks for, or null when it asks for
  * none. A page that names a size wants a popup window (a sign-in dialog); one
  * that does not wants a tab. A missing side takes a default, and both are kept
- * within bounds so a page cannot ask for a window the size of nothing or of
- * several screens.
+ * within bounds. The caller builds the window from this size alone: nothing
+ * else in the features string (frame, position, always-on-top, modal, ...) is
+ * ever applied to it.
  */
 export function parsePopupSize(features: string): PopupSize | null {
   let width: number | undefined;
@@ -92,6 +95,9 @@ export function decidePopup(request: PopupRequest, context: PopupContext): Popup
     if (!context.recentPersonInput) {
       return { action: 'deny', reason: 'no click or key behind the popup' };
     }
+    if (context.openerHasPopup) {
+      return { action: 'deny', reason: 'this page already has a popup open' };
+    }
     return { action: 'popup', url: request.url, ...size };
   }
 
@@ -109,6 +115,10 @@ export const PERSON_INPUT_MS = 1_500;
  * Remembers when the person last pressed something in a page. Electron does
  * not say whether a `window.open` came from a gesture, so main watches the
  * input that reached the page instead.
+ *
+ * Only a person's input may `touch()` this. Input an agent dispatches (CDP
+ * `Input.*` from the browser tools) also raises `input-event`, and must not
+ * count as a person's gesture.
  */
 export class PersonInputClock {
   private last = Number.NEGATIVE_INFINITY;
@@ -122,4 +132,28 @@ export class PersonInputClock {
   public isRecent(): boolean {
     return this.now() - this.last <= PERSON_INPUT_MS;
   }
+
+  /** Spends the gesture: true once per press, so one click cannot open a string of popups. */
+  public consume(): boolean {
+    const recent = this.isRecent();
+    this.last = Number.NEGATIVE_INFINITY;
+    return recent;
+  }
+}
+
+/**
+ * A popup's window title. The page sets its own title freely, so the title
+ * always leads with the origin the popup is really showing: a sign-in window
+ * cannot pose as another site.
+ */
+export function popupTitle(url: string, pageTitle: string): string {
+  let origin = url;
+  try {
+    const parsed = new URL(url);
+    if (parsed.origin !== 'null') origin = parsed.origin;
+  } catch {
+    // Not an address: show it as it is.
+  }
+  const title = pageTitle.trim();
+  return title ? `${origin} — ${title}` : origin;
 }

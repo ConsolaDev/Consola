@@ -179,9 +179,10 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
         className="browser-page-webview"
         src={initial.src}
         partition={initial.partition}
-        // Lets a page's window.open reach main's popup policy; without it
-        // Chromium drops the request before main is asked.
-        allowpopups={true}
+        // Tells Electron this guest may ask for windows, which main's popup
+        // policy then decides. A string, not `true`: React drops a boolean
+        // on an element it does not know, and the typings only allow one.
+        {...({ allowpopups: 'true' } as object)}
       />
       {tab.loading && <div className="browser-page-loading" aria-hidden="true" />}
       {shownError && (

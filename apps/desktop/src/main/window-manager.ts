@@ -7,6 +7,7 @@ import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
 import { decideAppNavigation, installGuestPolicy } from './browser/guestPolicy';
 import { configurePartition } from './browser/sessionPolicy';
+import { forgetConsolaContents, registerConsolaContents } from './windowRegistry';
 
 const DEV_SERVER_ORIGIN = 'http://localhost:5173';
 
@@ -119,6 +120,7 @@ export function createWindow(
   // native event dispatch swallows it. The entry would leak forever.
   const windowId = window.webContents.id;
   contexts.set(windowId, { workspaceId: context.workspaceId });
+  registerConsolaContents(windowId);
 
   installGuestPolicy(window, {
     workspaceOf: () => getWorkspaceFor(window),
@@ -144,6 +146,7 @@ export function createWindow(
     // already what happens with nothing remembered at all.
     if (closing?.workspaceId) lastHeldWorkspaceId = closing.workspaceId;
     contexts.delete(windowId);
+    forgetConsolaContents(windowId);
   });
 
   return window;
@@ -222,8 +225,25 @@ export function focusOrCreate(
   return createWindow({ workspaceId, ...view });
 }
 
+/**
+ * The app's own windows. Every broadcast and every "any window" choice goes
+ * through here rather than `BrowserWindow.getAllWindows()`, which also lists a
+ * page's popup: app data sent to it would reach untrusted content.
+ */
+export function consolaWindows(): BrowserWindow[] {
+  return BrowserWindow.getAllWindows().filter(
+    (window) => !window.isDestroyed() && contexts.has(window.webContents.id),
+  );
+}
+
+/** The focused window, if it is one of the app's own. */
+export function getFocusedConsolaWindow(): BrowserWindow | null {
+  const focused = BrowserWindow.getFocusedWindow();
+  return focused && consolaWindows().includes(focused) ? focused : null;
+}
+
 export function getAnyWindow(): BrowserWindow | null {
-  return BrowserWindow.getAllWindows()[0] ?? null;
+  return consolaWindows()[0] ?? null;
 }
 
 /**
@@ -456,7 +476,7 @@ export function restoreWindowLayout(
   // Checked rather than assumed: a failure part-way through the loop has
   // already opened windows, and a blank extra one on top would be its own
   // small bug.
-  if (BrowserWindow.getAllWindows().length === 0) {
+  if (consolaWindows().length === 0) {
     createWindow();
   }
 }

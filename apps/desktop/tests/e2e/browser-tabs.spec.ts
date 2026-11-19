@@ -25,6 +25,8 @@ test.afterAll(async () => {
 
 interface Seeded {
   alpha: { workspaceId: string; sessionId: string };
+  /** A second session in Alpha's workspace. */
+  alphaSecond: { workspaceId: string; sessionId: string };
   beta: { workspaceId: string; sessionId: string };
 }
 
@@ -41,6 +43,21 @@ async function seed(page: Page, root: string): Promise<Seeded> {
         binaryPath: stub,
         accentColor: '#555555',
       });
+      const addSession = async (
+        workspace: { id: string; scopes: { id: string }[] },
+        name: string,
+        instanceId: string,
+      ) => {
+        const session = await window.workspaceAPI.createSession(workspace.id, {
+          name,
+          nameIsUserSet: true,
+          workspaceId: workspace.id,
+          instanceId,
+          harnessId: 'browser-test',
+          scopeId: workspace.scopes[0].id,
+        });
+        return session!.id;
+      };
       const make = async (name: string) => {
         const workspace = await window.workspaceAPI.createWorkspace(
           name,
@@ -48,33 +65,33 @@ async function seed(page: Page, root: string): Promise<Seeded> {
           false,
           'browser-test',
         );
-        const session = await window.workspaceAPI.createSession(workspace.id, {
-          name: `${name} session`,
-          nameIsUserSet: true,
-          workspaceId: workspace.id,
-          instanceId: `browser-tabs-${name}`,
-          harnessId: 'browser-test',
-          scopeId: workspace.scopes[0].id,
-        });
-        return { workspaceId: workspace.id, sessionId: session!.id };
+        const sessionId = await addSession(workspace, `${name} session`, `browser-tabs-${name}`);
+        return { workspace, sessionId };
       };
-      const alpha = await make('Alpha');
-      const beta = await make('Beta');
-      return { alpha, beta };
+      const alphaMade = await make('Alpha');
+      // A second session in the same workspace, to tell sessions from workspaces.
+      const second = await addSession(alphaMade.workspace, 'Alpha second', 'browser-tabs-Alpha-2');
+      const betaMade = await make('Beta');
+      return {
+        alpha: { workspaceId: alphaMade.workspace.id, sessionId: alphaMade.sessionId },
+        alphaSecond: { workspaceId: alphaMade.workspace.id, sessionId: second },
+        beta: { workspaceId: betaMade.workspace.id, sessionId: betaMade.sessionId },
+      };
     },
     { root, stub },
   );
 }
 
-async function openSession(page: Page, workspace: string): Promise<void> {
+async function openSession(
+  page: Page,
+  workspace: string,
+  sessionName = `${workspace} session`,
+): Promise<void> {
   await page
     .getByRole('navigation', { name: 'Workspaces', exact: true })
     .getByRole('button', { name: new RegExp(workspace) })
     .click();
-  await page
-    .locator('.session-nav-item')
-    .filter({ hasText: `${workspace} session` })
-    .click();
+  await page.locator('.session-nav-item').filter({ hasText: sessionName }).click();
 }
 
 const globe = (page: Page) => page.getByRole('button', { name: /^(Show|Hide) browser$/ });
@@ -199,13 +216,29 @@ interface PopupInfo {
   title: string;
   /** The popup is on the same partition as the guest that opened it. */
   samePartition: boolean;
-  preferences: { sandbox?: boolean; contextIsolation?: boolean; nodeIntegration?: boolean };
+  preferences: {
+    sandbox?: boolean;
+    contextIsolation?: boolean;
+    nodeIntegration?: boolean;
+    webSecurity?: boolean;
+  };
   hasPreload: boolean;
+  /** What the window itself is, which a page's `window.open` features must not change. */
+  chrome: {
+    title: string;
+    hasFrame: boolean;
+    closable: boolean;
+    movable: boolean;
+    alwaysOnTop: boolean;
+    modal: boolean;
+    hasParent: boolean;
+    withinDisplay: boolean;
+  };
 }
 
 /** Every window that is not the app's own, from main. */
 function popups(app: ElectronApplication, openerUrlPrefix: string): Promise<PopupInfo[]> {
-  return app.evaluate(({ BrowserWindow, webContents }, prefix) => {
+  return app.evaluate(({ BrowserWindow, screen, webContents }, prefix) => {
     const opener = webContents
       .getAllWebContents()
       .find((contents) => contents.getType() === 'webview' && contents.getURL().startsWith(prefix));
@@ -221,8 +254,24 @@ function popups(app: ElectronApplication, openerUrlPrefix: string): Promise<Popu
             sandbox: preferences.sandbox,
             contextIsolation: preferences.contextIsolation,
             nodeIntegration: preferences.nodeIntegration,
+            webSecurity: preferences.webSecurity,
           },
           hasPreload: !!preferences.preload,
+          chrome: {
+            title: window.getTitle(),
+            // A frameless window's content fills its bounds.
+            hasFrame: window.getBounds().height > window.getContentBounds().height,
+            closable: window.isClosable(),
+            movable: window.isMovable(),
+            alwaysOnTop: window.isAlwaysOnTop(),
+            modal: window.isModal(),
+            hasParent: window.getParentWindow() !== null,
+            withinDisplay: (() => {
+              const bounds = window.getBounds();
+              const area = screen.getDisplayMatching(bounds).workArea;
+              return bounds.width <= area.width && bounds.height <= area.height;
+            })(),
+          },
         };
       });
   }, openerUrlPrefix);
@@ -256,20 +305,28 @@ test.describe('in-app browser tabs', () => {
       .poll(async () => (await tabsOf(page, ids.alpha.sessionId)).tabs.map((t) => t.url))
       .toEqual([fixtures.url('/a.html'), fixtures.url('/b.html')]);
 
-    await openSession(page, 'Beta');
+    // Another session of the SAME workspace starts with none of Alpha's tabs.
+    await openSession(page, 'Alpha', 'Alpha second');
     await showBrowser(page);
     await expect(tabs(page)).toHaveCount(0);
+    expect((await tabsOf(page, ids.alphaSecond.sessionId)).tabs).toHaveLength(0);
     await typeAddress(page, `${fixtures.host}/c.html`);
     await expect(tabs(page)).toHaveCount(1);
     await expect
-      .poll(async () => (await tabsOf(page, ids.beta.sessionId)).tabs.map((t) => t.url))
+      .poll(async () => (await tabsOf(page, ids.alphaSecond.sessionId)).tabs.map((t) => t.url))
       .toEqual([fixtures.url('/c.html')]);
 
-    // Alpha still has both, and Beta's page did not join them. (Main answers
-    // only for the workspace the window holds, so go back first.)
+    // Back in the first session: its two tabs, and the second session's page
+    // did not join them. The lists differ in main too.
     await openSession(page, 'Alpha');
-    expect((await tabsOf(page, ids.alpha.sessionId)).tabs).toHaveLength(2);
     await expect(tabs(page)).toHaveCount(2);
+    expect((await tabsOf(page, ids.alpha.sessionId)).tabs.map((t) => t.url)).toEqual([
+      fixtures.url('/a.html'),
+      fixtures.url('/b.html'),
+    ]);
+    expect((await tabsOf(page, ids.alphaSecond.sessionId)).tabs.map((t) => t.url)).toEqual([
+      fixtures.url('/c.html'),
+    ]);
   });
 
   test('the strip opens, switches and closes tabs, and stops at twelve', async () => {
@@ -371,8 +428,49 @@ test.describe('in-app browser tabs', () => {
     // No window of any kind opened for it.
     expect(await popups(app, fixtures.url('/b.html'))).toEqual([]);
 
-    // Beta, another workspace, is untouched.
-    expect((await tabsOf(page, ids.beta.sessionId)).tabs).toHaveLength(0);
+    // Another session of the same workspace gained nothing.
+    expect((await tabsOf(page, ids.alphaSecond.sessionId)).tabs).toHaveLength(0);
+  });
+
+  test('a page cannot style its popup: frame, size, stacking and modality stay the app’s', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/opener.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/opener.html')]);
+
+    await inGuest(app, fixtures.url('/opener.html'), `document.getElementById('evil').click()`);
+    await expect.poll(async () => (await popups(app, fixtures.url('/opener.html'))).length).toBe(1);
+    await expect
+      .poll(async () => (await popups(app, fixtures.url('/opener.html')))[0]?.title)
+      .toBe('popup:nested-denied');
+
+    const [popup] = await popups(app, fixtures.url('/opener.html'));
+    expect(popup.chrome).toMatchObject({
+      hasFrame: true,
+      closable: true,
+      movable: true,
+      alwaysOnTop: false,
+      modal: false,
+      hasParent: true,
+      withinDisplay: true,
+    });
+    // It names the site, not what the page called itself.
+    expect(popup.chrome.title).toBe(`${new URL(fixtures.url('/')).origin} — popup:nested-denied`);
+    // Asking for node access, no sandbox or no web security changes nothing.
+    expect(popup.preferences).toMatchObject({
+      sandbox: true,
+      contextIsolation: true,
+      nodeIntegration: false,
+      webSecurity: true,
+    });
+    expect(popup.hasPreload).toBe(false);
+
+    // One popup at a time: a second click while it is open opens nothing.
+    await readInGuest(app, fixtures.url('/opener.html'), `document.title = 'reset'`);
+    // (A different window name: the same one would just reuse the open popup.)
+    await inGuest(app, fixtures.url('/opener.html'), `document.getElementById('pop2').click()`);
+    await expect.poll(() => titleOf(app, fixtures.url('/opener.html'))).toBe('opened:false');
+    expect(await popups(app, fixtures.url('/opener.html'))).toHaveLength(1);
   });
 
   test('a sized popup follows a click, is hardened, and cannot open another', async () => {

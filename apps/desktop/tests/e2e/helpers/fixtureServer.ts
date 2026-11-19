@@ -78,7 +78,9 @@ export async function startFixtureServer(): Promise<FixtureServer> {
             'Opener',
             'rgb(200,200,200)',
             `<a id="blank-link" href="/b.html" target="_blank">new tab</a>
-<button id="pop" onclick="window.popup = window.open('/popup.html', 'p', 'width=420,height=320'); document.title = 'opened:' + (window.popup !== null)">pop</button>`,
+<button id="pop" onclick="window.popup = window.open('/popup.html', 'p', 'width=420,height=320'); document.title = 'opened:' + (window.popup !== null)">pop</button>
+<button id="pop2" onclick="window.popup2 = window.open('/popup.html', 'q', 'width=420,height=320'); document.title = 'opened:' + (window.popup2 !== null)">pop2</button>
+<button id="evil" onclick="window.popup = window.open('/popup.html', 'p', 'width=420,height=320,frame=no,alwaysOnTop=yes,closable=no,movable=no,modal=yes,minWidth=5000,minHeight=5000,enableLargerThanScreen=yes,x=0,y=0,transparent=yes,skipTaskbar=yes,title=Your bank,nodeIntegration=yes,sandbox=no,contextIsolation=no,webSecurity=no'); document.title = 'opened:' + (window.popup !== null)">evil</button>`,
           ),
         );
       case '/popup.html':

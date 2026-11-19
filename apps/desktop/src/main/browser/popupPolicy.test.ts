@@ -1,11 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { decidePopup, parsePopupSize, type PopupContext } from './popupPolicy';
+import {
+  decidePopup,
+  parsePopupSize,
+  PERSON_INPUT_MS,
+  PersonInputClock,
+  popupTitle,
+  type PopupContext,
+} from './popupPolicy';
 
 const ready: PopupContext = {
   openerKnown: true,
   openerIsPopup: false,
   recentPersonInput: true,
   atTabCap: false,
+  openerHasPopup: false,
 };
 
 const open = (
@@ -97,5 +105,59 @@ describe('decidePopup', () => {
   it('denies dispositions that are not a window being opened', () => {
     expect(open('other').action).toBe('deny');
     expect(open('default').action).toBe('deny');
+  });
+});
+
+describe('one popup at a time', () => {
+  it('denies a sized popup while the opener already has one open', () => {
+    expect(
+      open('new-window', 'width=500,height=600', undefined, { openerHasPopup: true }).action,
+    ).toBe('deny');
+  });
+
+  it('still opens tabs while a popup is open', () => {
+    expect(open('foreground-tab', '', undefined, { openerHasPopup: true }).action).toBe('tab');
+  });
+});
+
+describe('PersonInputClock', () => {
+  it('lets one gesture pay for one popup', () => {
+    let now = 1_000;
+    const clock = new PersonInputClock(() => now);
+    clock.touch();
+    now += 10;
+    expect(clock.consume()).toBe(true);
+    expect(clock.isRecent()).toBe(false);
+    expect(clock.consume()).toBe(false);
+  });
+
+  it('expires after PERSON_INPUT_MS', () => {
+    let now = 1_000;
+    const clock = new PersonInputClock(() => now);
+    clock.touch();
+    now += PERSON_INPUT_MS + 1;
+    expect(clock.consume()).toBe(false);
+  });
+});
+
+describe('popupTitle', () => {
+  it('always names the site the popup is showing, ahead of the page title', () => {
+    expect(popupTitle('https://accounts.example.com/login?x=1', 'Sign in to Bank')).toBe(
+      'https://accounts.example.com \u2014 Sign in to Bank',
+    );
+  });
+
+  it('shows the origin alone while the page has no title', () => {
+    expect(popupTitle('https://a.test/', '')).toBe('https://a.test');
+  });
+
+  it('does not let a page title pose as another site', () => {
+    expect(popupTitle('https://evil.test/', 'https://bank.com \u2014 Sign in')).toBe(
+      'https://evil.test \u2014 https://bank.com \u2014 Sign in',
+    );
+  });
+
+  it('says so for a blank page', () => {
+    expect(popupTitle('about:blank', '')).toBe('about:blank');
   });
 });

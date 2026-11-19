@@ -20,6 +20,7 @@ import {
   Notification,
   powerMonitor,
   protocol,
+  screen as electronScreen,
   session as electronSession,
   shell,
   webContents as electronWebContents,
@@ -142,9 +143,11 @@ import type {
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 import {
   assignWorkspace,
+  consolaWindows,
   createWindow,
   findWindowForWorkspace,
   focusOrCreate,
+  getFocusedConsolaWindow,
   getWorkspaceFor,
   showAutomations,
   viewsFromStoredLayout,
@@ -311,6 +314,15 @@ export function setupIpcHandlers(): boolean {
       atTabCap: (sessionId) => browser.atTabCap(sessionId),
       openTab: (sessionId, url) => void browser.openTab(sessionId, url, 'person'),
       popups: browser.popups,
+      // `webContents` is accepted by the constructor though not typed.
+      createWindow: (options) =>
+        new BrowserWindow(options as Electron.BrowserWindowConstructorOptions),
+      maxSize: () => {
+        const { width, height } = electronScreen.getDisplayNearestPoint(
+          electronScreen.getCursorScreenPoint(),
+        ).workArea;
+        return { width, height };
+      },
       hidden: isBackgroundTest,
     });
   });
@@ -355,7 +367,7 @@ export function setupIpcHandlers(): boolean {
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
     );
 
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (window.isDestroyed()) continue;
       window.webContents.send(IPC_CHANNELS.WORKSPACE_CHANGED, all);
 
@@ -703,7 +715,7 @@ export function setupIpcHandlers(): boolean {
   if (!loadOrExit(() => harnesses.load(), 'harnesses')) return false;
 
   harnesses.onChange((all) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) {
         window.webContents.send(IPC_CHANNELS.HARNESS_CHANGED, all);
       }
@@ -753,7 +765,7 @@ export function setupIpcHandlers(): boolean {
   );
   cleanupHistory.load();
   cleanupHistory.onChange(() => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.WORKTREE_CLEANUP_CHANGED);
     }
   });
@@ -815,7 +827,7 @@ export function setupIpcHandlers(): boolean {
     // renderer-bound payload.
     composeEnv: composeProviderEnv,
     broadcast: (snapshot: InboxSnapshot) => {
-      for (const window of BrowserWindow.getAllWindows()) {
+      for (const window of consolaWindows()) {
         if (!window.isDestroyed()) {
           window.webContents.send(IPC_CHANNELS.INBOX_CHANGED, snapshot);
         }
@@ -962,7 +974,7 @@ export function setupIpcHandlers(): boolean {
     },
   );
 
-  terminalManager = new TerminalManager(() => BrowserWindow.getAllWindows());
+  terminalManager = new TerminalManager(() => consolaWindows());
   const manager = terminalManager;
   shellManager = new ShellManager();
   const shells = shellManager;
@@ -1067,7 +1079,7 @@ export function setupIpcHandlers(): boolean {
   autoSettler = settler;
   let sweptDays = preferences.get().autoSettleDays;
   preferences.onChange((next) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.PREFERENCES_CHANGED, next);
     }
     // A threshold the person just changed applies now, not in five minutes.
@@ -1131,7 +1143,7 @@ export function setupIpcHandlers(): boolean {
   });
   workspaces.onChange(() => attentionSessions.refresh());
   attention.onChange((change) => {
-    for (const window of BrowserWindow.getAllWindows()) {
+    for (const window of consolaWindows()) {
       if (!window.isDestroyed()) window.webContents.send(IPC_CHANNELS.ATTENTION_CHANGED, change);
     }
     if (typeof app.setBadgeCount === 'function') app.setBadgeCount(attention.needsAttentionCount());
@@ -1217,7 +1229,7 @@ export function setupIpcHandlers(): boolean {
     const ringing = sessionsToNotify(
       change,
       notificationPolicy,
-      BrowserWindow.getFocusedWindow() !== null,
+      getFocusedConsolaWindow() !== null,
     );
     for (const sessionId of ringing) {
       if (!Notification.isSupported()) continue;
@@ -1599,7 +1611,7 @@ export function setupIpcHandlers(): boolean {
     broadcast: (workspaceId, snapshot) => {
       attentionRuns.refresh();
       const change: AutomationsChange = { workspaceId, snapshot };
-      for (const window of BrowserWindow.getAllWindows()) {
+      for (const window of consolaWindows()) {
         if (!window.isDestroyed())
           window.webContents.send(IPC_CHANNELS.AUTOMATIONS_CHANGED, change);
       }

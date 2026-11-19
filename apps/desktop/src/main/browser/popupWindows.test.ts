@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { PersonInputClock, PERSON_INPUT_MS } from './popupPolicy';
 import { PopupRegistry, type PopupHandle } from './popupWindows';
 
 function fakePopup(): PopupHandle & { destroyed: boolean } {
@@ -49,18 +48,5 @@ describe('PopupRegistry', () => {
     registry.track(popup, { sessionId: 's1', workspaceId: 'w1', host: 'a' });
     registry.forget(popup);
     expect(registry.size).toBe(0);
-  });
-});
-
-describe('PersonInputClock', () => {
-  it('counts input only for a short while, and never before any', () => {
-    let now = 10_000;
-    const clock = new PersonInputClock(() => now);
-    expect(clock.isRecent()).toBe(false);
-    clock.touch();
-    now += PERSON_INPUT_MS;
-    expect(clock.isRecent()).toBe(true);
-    now += 1;
-    expect(clock.isRecent()).toBe(false);
   });
 });
