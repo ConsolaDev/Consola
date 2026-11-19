@@ -14,6 +14,8 @@ import {
 import type { ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserStateStore } from './BrowserStateStore';
+import { CertificateTrust, offersContinue } from './CertificateTrust';
+import { AuthPrompts } from './HttpAuth';
 import { LivePages } from './LivePages';
 import { findListeners, PageTools, sendFound } from './PageTools';
 import { PopupRegistry } from './popupWindows';
@@ -33,6 +35,8 @@ export interface BrowserServiceDeps {
   send(window: BrowserWindow, channel: string, payload: BrowserSnapshotMessage): void;
   /** Wipes a workspace's cookies, storage and cache (its partition). */
   clearPartition(workspaceId: string): Promise<void> | void;
+  /** Where certificate approvals live. Defaults to a fresh set, for tests. */
+  certificates?: CertificateTrust;
   now?(): number;
   newId?(): string;
   /** Calls `fn` every `ms` until the returned function is called. Defaults to an unref'd interval. */
@@ -110,6 +114,12 @@ export class BrowserService {
   private readonly pending = new Map<number, PendingGuest>();
   /** The popup windows pages opened, closed with whatever owns them. */
   public readonly popups = new PopupRegistry();
+  /** Certificates the person approved, and the guard that applies them to a page. */
+  public readonly certificates: CertificateTrust;
+  /** Sign-in requests waiting for the person. */
+  public readonly auth = new AuthPrompts({
+    send: (window, channel, payload) => window.webContents.send(channel, payload),
+  });
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly pages: LivePages;
@@ -117,6 +127,7 @@ export class BrowserService {
   private readonly stopTimer: () => void;
 
   constructor(private readonly deps: BrowserServiceDeps) {
+    this.certificates = deps.certificates ?? new CertificateTrust();
     this.now = deps.now ?? Date.now;
     this.newId = deps.newId ?? randomUUID;
     this.pages = new LivePages(this.now);
@@ -201,7 +212,8 @@ export class BrowserService {
     // A failed load commits Chromium's error page, and Electron reports it as a
     // navigation. It is neither the page's address nor a visit, and it must not
     // wipe the error that explains it; `did-start-loading` clears errors.
-    if (this.live.get(tabId)?.error?.kind === 'unreachable') return;
+    const shown = this.live.get(tabId)?.error?.kind;
+    if (shown === 'unreachable' || shown === 'certificate') return;
     if (!isAllowedPageUrl(url)) return;
     this.updateTab(tabId, { url, title });
     const workspaceId = this.deps.workspaceIdForSession(found.sessionId);
@@ -333,6 +345,7 @@ export class BrowserService {
     const entry = this.guests.get(tabId);
     if (!entry) return;
     sendFound(entry.host, tabId, null);
+    this.auth.cancelGuest(entry.guestId);
     entry.unsubscribe();
     this.guests.delete(tabId);
     // The guest is gone (destroyed, or its window let go): no page to keep.
@@ -458,7 +471,28 @@ export class BrowserService {
     this.destroyGuestsWhere((entry) => entry.workspaceId === workspaceId);
     this.popups.closeWhere((owner) => owner.workspaceId === workspaceId);
     this.deps.store.deleteHistory(workspaceId);
+    this.certificates.clearWorkspace(workspaceId);
     void Promise.resolve(this.deps.clearPartition(workspaceId)).catch(() => {});
+  }
+
+  /**
+   * "Clear browsing data": the workspace's cookies, storage and cache, the
+   * pages it visited, and the certificates the person approved. Its pages stay
+   * open. Rejects when the partition could not be cleared, so the person is
+   * told rather than left believing it worked.
+   *
+   * Chromium's per-site zoom levels cannot be cleared: Electron has no
+   * session API for them, so only the live pages are put back to the default.
+   */
+  public async clearBrowsingData(workspaceId: string): Promise<void> {
+    this.deps.store.deleteHistory(workspaceId);
+    this.certificates.clearWorkspace(workspaceId);
+    for (const entry of this.guests.values()) {
+      if (entry.workspaceId === workspaceId && !entry.guest.isDestroyed()) {
+        entry.guest.setZoomLevel(0);
+      }
+    }
+    await this.deps.clearPartition(workspaceId);
   }
 
   /** The window stopped holding its workspace or closed: its pages go, the tabs stay. */
@@ -466,6 +500,8 @@ export class BrowserService {
     for (const [tabId, entry] of [...this.guests]) {
       if (entry.host === window) this.unbindGuest(tabId, false);
     }
+    // A guest that never bound still has a dialog waiting on this window.
+    this.auth.cancelWindow(window);
     // Tabs whose element had not bound yet have no guest to let go of.
     this.pages.dropWindow(window);
     this.popups.closeWhere((owner) => owner.host === window);
@@ -474,6 +510,7 @@ export class BrowserService {
   /** App quit: the guests die with their windows, so only the state needs saving. */
   public destroyAll(): void {
     this.stopTimer();
+    this.auth.cancelAll();
     for (const tabId of [...this.guests.keys()]) this.destroyGuest(tabId);
     this.pages.clear();
     this.popups.closeAll();
@@ -541,6 +578,7 @@ export class BrowserService {
     const entry = this.guests.get(tabId);
     if (!entry) return;
     sendFound(entry.host, tabId, null);
+    this.auth.cancelGuest(entry.guestId);
     entry.unsubscribe();
     this.guests.delete(tabId);
     const { guest } = entry;
@@ -551,6 +589,68 @@ export class BrowserService {
     } catch {
       // The guest died between the check and the call: nothing left to stop.
     }
+  }
+
+  // --- Certificates and sign-in ---
+
+  /**
+   * Applies the safety rules that must hold from a guest's first request,
+   * before it is bound to any tab: its certificate errors (`CertificateTrust`)
+   * and its sign-in requests (`AuthPrompts`).
+   */
+  public guardGuest(
+    guest: WebContents,
+    host: BrowserWindow,
+    workspaceId: string,
+    guestId: number,
+  ): void {
+    this.certificates.guard(guest, workspaceId, guestId);
+    this.auth.guard(guest, host, guestId);
+  }
+
+  /**
+   * The person chose "Continue anyway" on a tab whose certificate was refused:
+   * pin that certificate for its host, then load the address again. False when
+   * the tab shows no such offer, or the guest is gone.
+   */
+  public continueCertificate(tabId: string): boolean {
+    const entry = this.guests.get(tabId);
+    const shown = this.live.get(tabId)?.error;
+    if (!entry || !entry.workspaceId || shown?.kind !== 'certificate' || !shown.canContinue) {
+      return false;
+    }
+    if (entry.guest.isDestroyed()) return false;
+    const denied = this.certificates.approveDenied(entry.workspaceId, entry.guestId);
+    if (!denied || denied.url !== shown.url) return false;
+    void entry.guest.loadURL(denied.url).catch(() => {});
+    return true;
+  }
+
+  /**
+   * The error a failed main-frame load is, when it is a certificate this guest
+   * was refused. Both must agree: Chromium's certificate failures are the
+   * -200s, so a later load that fails for another reason (a server that went
+   * away) never inherits an old refusal.
+   */
+  private certificateErrorFor(
+    guestId: number,
+    code: number,
+    failedUrl: string,
+  ): BrowserTabError | null {
+    const denied = this.certificates.deniedFor(guestId);
+    if (!denied || code > -200 || code <= -300) return null;
+    try {
+      if (new URL(denied.url).origin !== new URL(failedUrl).origin) return null;
+    } catch {
+      return null;
+    }
+    return {
+      kind: 'certificate',
+      url: denied.url,
+      host: denied.host,
+      error: denied.error,
+      canContinue: offersContinue(denied.error, denied.host),
+    };
   }
 
   // --- A page's first load ---
@@ -572,7 +672,12 @@ export class BrowserService {
       isMainFrame: boolean,
     ) => {
       if (!isMainFrame || code === -3) return;
-      pending.error = { kind: 'unreachable', code, description, url };
+      pending.error = this.certificateErrorFor(guestId, code, url) ?? {
+        kind: 'unreachable',
+        code,
+        description,
+        url,
+      };
       pending.loading = false;
     };
     const listeners: Array<[string, (...args: never[]) => void]> = [
@@ -656,7 +761,12 @@ export class BrowserService {
     ) => {
       // -3 is a load another navigation superseded, not a failure.
       if (!isMainFrame || code === -3) return;
-      const error: BrowserTabError = { kind: 'unreachable', code, description, url };
+      const error: BrowserTabError = this.certificateErrorFor(entry.guestId, code, url) ?? {
+        kind: 'unreachable',
+        code,
+        description,
+        url,
+      };
       this.setLive(tabId, { error, loading: false });
     };
     const onCrash = (_event: unknown, details: { reason?: string }) => {

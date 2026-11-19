@@ -12,6 +12,7 @@ import {
   Boxes,
   Folder,
   FolderGit2,
+  Globe,
   Info,
   Minus,
   Plug,
@@ -46,6 +47,7 @@ import { HarnessPanel } from '../WorkspaceSettings/HarnessPanel';
 import { SessionTitlesPanel } from '../WorkspaceSettings/SessionTitlesPanel';
 import { ScopesPanel } from '../WorkspaceSettings/ScopesPanel';
 import { LabelsPanel } from '../WorkspaceSettings/LabelsPanel';
+import { BrowserSettingsPanel } from '../WorkspaceSettings/BrowserSettingsPanel';
 import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
 import { ActionsPanel } from '../WorkspaceSettings/ActionsPanel';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
@@ -82,6 +84,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   actions: { label: 'Actions', icon: Sparkles },
   labels: { label: 'Labels', icon: Tag },
   worktrees: { label: 'Worktrees', icon: FolderGit2 },
+  browser: { label: 'Browser', icon: Globe },
   danger: { label: 'Danger zone', icon: Trash2, danger: true },
 };
 
@@ -253,6 +256,7 @@ function WorkspaceSection({
       {section === 'actions' && <ActionsPanel workspace={workspace} />}
       {section === 'labels' && <LabelsPanel workspace={workspace} />}
       {section === 'worktrees' && <WorktreeCleanupPanel workspace={workspace} />}
+      {section === 'browser' && <BrowserSettingsPanel />}
       {section === 'danger' && <DangerZonePanel workspace={workspace} />}
     </div>
   );

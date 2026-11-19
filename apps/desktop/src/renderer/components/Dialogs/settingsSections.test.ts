@@ -22,6 +22,7 @@ describe('the settings list', () => {
       'actions',
       'labels',
       'worktrees',
+      'browser',
       'danger',
     ]);
   });

@@ -105,6 +105,11 @@ contextBridge.exposeInMainWorld('browserAPI', {
   zoom: (tabId, step) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ZOOM, tabId, step),
   openDevTools: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_DEVTOOLS, tabId),
   history: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_HISTORY),
+  continueCertificate: (tabId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, tabId),
+  answerAuth: (id, credentials) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_AUTH_ANSWER, id, credentials),
+  clearData: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CLEAR_DATA),
   attach: (tabId, webContentsId) =>
     ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ATTACH, tabId, webContentsId),
   setVisible: (sessionId, tabId) =>
@@ -112,6 +117,8 @@ contextBridge.exposeInMainWorld('browserAPI', {
   onSnapshot: (callback) => subscribe(IPC_CHANNELS.BROWSER_SNAPSHOT, callback),
   onShortcut: (callback) => subscribe(IPC_CHANNELS.BROWSER_SHORTCUT, callback),
   onFound: (callback) => subscribe(IPC_CHANNELS.BROWSER_FOUND, callback),
+  onAuthRequest: (callback) => subscribe(IPC_CHANNELS.BROWSER_AUTH_REQUEST, callback),
+  onAuthCancelled: (callback) => subscribe(IPC_CHANNELS.BROWSER_AUTH_CANCELLED, callback),
 } satisfies BrowserAPI);
 
 // Expose protected methods to the renderer process

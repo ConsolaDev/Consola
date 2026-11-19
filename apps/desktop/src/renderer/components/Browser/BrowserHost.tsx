@@ -13,6 +13,7 @@ import { useBrowserSlotStore } from '../../stores/browserSlotStore';
 import { forgetBrowser, loadBrowser, useBrowserStore } from '../../stores/browserStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
+import { BrowserAuthDialog } from './BrowserAuthDialog';
 import { BrowserError, useShownError } from './BrowserError';
 import {
   autoRetryUrl,
@@ -138,6 +139,7 @@ export function BrowserHost() {
           />
         );
       })}
+      <BrowserAuthDialog />
     </div>
   );
 }
@@ -187,7 +189,13 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
       />
       {tab.loading && <div className="browser-page-loading" aria-hidden="true" />}
       {shownError && (
-        <BrowserError error={shownError} retryingByItself={retryUrl !== null} onRetry={retry} />
+        <BrowserError
+          error={shownError}
+          retryingByItself={retryUrl !== null}
+          onRetry={retry}
+          onBack={tab.canGoBack ? () => noteFailure(browserBridge.back(tabId)) : undefined}
+          onContinue={() => noteFailure(browserBridge.continueCertificate(tabId))}
+        />
       )}
     </div>
   );

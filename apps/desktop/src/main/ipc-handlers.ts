@@ -287,14 +287,19 @@ export function setupIpcHandlers(): boolean {
         .find((workspace) => workspace.sessions.some((session) => session.id === sessionId))?.id,
     findWindowForWorkspace: (workspaceId) => findWindowForWorkspace(workspaceId) ?? undefined,
     send: (window, channel, payload) => window.webContents.send(channel, payload),
-    // A silent failure here would mean a deleted workspace's logins survive.
+    // Logged and rethrown: a deleted workspace's caller already ignores the
+    // rejection, while "Clear browsing data" must tell the person it failed.
     clearPartition: async (workspaceId) => {
       try {
         const target = electronSession.fromPartition(partitionFor(workspaceId));
         await target.clearStorageData();
         await target.clearCache();
+        // An open connection was set up under a certificate the person may have
+        // approved; reusing it would skip the check that approval no longer passes.
+        await target.closeAllConnections();
       } catch (error) {
         console.error(`Could not clear the browser data of workspace ${workspaceId}:`, error);
+        throw error;
       }
     },
   });
@@ -305,6 +310,7 @@ export function setupIpcHandlers(): boolean {
   // host window worth forwarding to; a refused one is closed straight away.
   const stopWatchingGuests = onGuestAttached((guest, window, workspaceId, guestId) => {
     browser.noteAttached(guest, guestId);
+    browser.guardGuest(guest, window, workspaceId, guestId);
     forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
     installPopupPolicy(guest, {
       host: window,
@@ -314,6 +320,7 @@ export function setupIpcHandlers(): boolean {
       atTabCap: (sessionId) => browser.atTabCap(sessionId),
       openTab: (sessionId, url) => void browser.openTab(sessionId, url, 'person'),
       popups: browser.popups,
+      certificates: browser.certificates,
       // `webContents` is accepted by the constructor though not typed.
       createWindow: (options) =>
         new BrowserWindow(options as Electron.BrowserWindowConstructorOptions),

@@ -909,3 +909,291 @@ describe('live pages', () => {
     expect(stopped).toBe(true);
   });
 });
+
+describe('certificates', () => {
+  const AUTHORITY = 'net::ERR_CERT_AUTHORITY_INVALID';
+  const certificate = (fingerprint: string) => ({ fingerprint });
+
+  function refuse(
+    guest: FakeGuest,
+    options: { url?: string; error?: string; fingerprint?: string } = {},
+  ) {
+    const event = { preventDefault: vi.fn() };
+    const callback = vi.fn();
+    guest.emit(
+      'certificate-error',
+      event,
+      options.url ?? 'https://127.0.0.1:8443/',
+      options.error ?? AUTHORITY,
+      certificate(options.fingerprint ?? 'sha256/AAAA'),
+      callback,
+      true,
+    );
+    return { event, callback };
+  }
+
+  function guarded(url = 'https://127.0.0.1:8443/') {
+    service.openTab('s1', url, 'person');
+    const guest = new FakeGuest(21);
+    service.guardGuest(guest.asWebContents(), winA, 'w1', 21);
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    return guest;
+  }
+  const error = () => last().payload.snapshot.tabs[0].error;
+
+  it('refuses by default and shows the certificate, with a way on for a local dev server', () => {
+    const guest = guarded();
+    const { event, callback } = refuse(guest);
+    expect(event.preventDefault).not.toHaveBeenCalled();
+    expect(callback).not.toHaveBeenCalled();
+    guest.emit('did-fail-load', {}, -202, 'ERR', 'https://127.0.0.1:8443/', true);
+    expect(error()).toEqual({
+      kind: 'certificate',
+      url: 'https://127.0.0.1:8443/',
+      host: '127.0.0.1',
+      error: AUTHORITY,
+      canContinue: true,
+    });
+  });
+
+  it('offers no way on for a host that is not on this machine', () => {
+    const remote = guarded('https://example.com/');
+    refuse(remote, { url: 'https://example.com/' });
+    remote.emit('did-fail-load', {}, -202, 'x', 'https://example.com/', true);
+    expect(error()).toMatchObject({ kind: 'certificate', canContinue: false });
+    expect(service.continueCertificate('tab1')).toBe(false);
+  });
+
+  it('offers no way on for an expired certificate on this machine', () => {
+    const guest = guarded();
+    refuse(guest, { error: 'net::ERR_CERT_DATE_INVALID' });
+    guest.emit('did-fail-load', {}, -201, 'x', 'https://127.0.0.1:8443/', true);
+    expect(error()).toMatchObject({ kind: 'certificate', canContinue: false });
+    expect(service.continueCertificate('tab1')).toBe(false);
+  });
+
+  it('does not take a later, unrelated failure for the old refusal', () => {
+    const guest = guarded();
+    refuse(guest);
+    guest.emit('did-fail-load', {}, -102, 'REFUSED', 'https://127.0.0.1:8443/', true);
+    expect(error()).toMatchObject({ kind: 'unreachable' });
+  });
+
+  it('keeps the certificate error when Chromium then commits its error page', () => {
+    const guest = guarded();
+    refuse(guest);
+    guest.emit('did-fail-load', {}, -202, 'x', 'https://127.0.0.1:8443/', true);
+    guest.emit('did-navigate', {}, 'https://127.0.0.1:8443/');
+    expect(error()).toMatchObject({ kind: 'certificate' });
+  });
+
+  it('on "Continue anyway" pins that certificate, reloads, and allows exactly it', () => {
+    const guest = guarded();
+    refuse(guest);
+    guest.emit('did-fail-load', {}, -202, 'x', 'https://127.0.0.1:8443/', true);
+    expect(service.continueCertificate('tab1')).toBe(true);
+    expect(guest.loadURL).toHaveBeenCalledWith('https://127.0.0.1:8443/');
+
+    const same = refuse(guest);
+    expect(same.event.preventDefault).toHaveBeenCalled();
+    expect(same.callback).toHaveBeenCalledWith(true);
+
+    const other = refuse(guest, { fingerprint: 'sha256/BBBB' });
+    expect(other.event.preventDefault).not.toHaveBeenCalled();
+    const elsewhere = refuse(guest, { url: 'https://localhost:8443/' });
+    expect(elsewhere.event.preventDefault).not.toHaveBeenCalled();
+    const expired = refuse(guest, { error: 'net::ERR_CERT_DATE_INVALID' });
+    expect(expired.event.preventDefault).not.toHaveBeenCalled();
+  });
+
+  it("shares an approval with the workspace's other pages and no other workspace's", () => {
+    const first = guarded();
+    refuse(first);
+    first.emit('did-fail-load', {}, -202, 'x', 'https://127.0.0.1:8443/', true);
+    service.continueCertificate('tab1');
+
+    const sibling = new FakeGuest(22);
+    service.guardGuest(sibling.asWebContents(), winA, 'w1', 22);
+    expect(refuse(sibling).callback).toHaveBeenCalledWith(true);
+
+    const foreign = new FakeGuest(23);
+    service.guardGuest(foreign.asWebContents(), winB, 'w2', 23);
+    expect(refuse(foreign).callback).not.toHaveBeenCalled();
+  });
+
+  it('only a main-frame refusal can be continued', () => {
+    const guest = guarded();
+    guest.emit(
+      'certificate-error',
+      { preventDefault: vi.fn() },
+      'https://127.0.0.1:8443/img.png',
+      AUTHORITY,
+      certificate('sha256/AAAA'),
+      vi.fn(),
+      false,
+    );
+    guest.emit('did-fail-load', {}, -202, 'x', 'https://127.0.0.1:8443/', true);
+    expect(error()).toMatchObject({ kind: 'unreachable' });
+  });
+
+  it('shows a refusal that happened before the guest was bound', () => {
+    service.openTab('s1', 'https://127.0.0.1:8443/', 'person');
+    const guest = new FakeGuest(24);
+    service.noteAttached(guest.asWebContents(), 24);
+    service.guardGuest(guest.asWebContents(), winA, 'w1', 24);
+    refuse(guest);
+    guest.emit('did-fail-load', {}, -202, 'x', 'https://127.0.0.1:8443/', true);
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    expect(error()).toMatchObject({ kind: 'certificate', canContinue: true });
+  });
+
+  it('a workspace delete drops its approvals', () => {
+    const guest = guarded();
+    refuse(guest);
+    guest.emit('did-fail-load', {}, -202, 'x', 'https://127.0.0.1:8443/', true);
+    service.continueCertificate('tab1');
+    expect(service.certificates.pinnedFor('w1', '127.0.0.1')).toBeDefined();
+    service.destroyWorkspace('w1', ['s1']);
+    expect(service.certificates.pinnedFor('w1', '127.0.0.1')).toBeUndefined();
+  });
+});
+
+describe('clearing browsing data', () => {
+  it('drops history and approvals, resets live zoom, and clears the partition', async () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.openTab('s3', 'https://c.com', 'person');
+    service.recordCommit('tab1', 'https://a.com/x', 'x');
+    service.recordCommit('tab2', 'https://c.com/x', 'x');
+    service.certificates.approve('w1', '127.0.0.1', 'sha256/AAAA');
+    service.certificates.approve('w2', '127.0.0.1', 'sha256/BBBB');
+    const mine = new FakeGuest(31);
+    const theirs = new FakeGuest(32);
+    mine.zoomLevel = 2;
+    theirs.zoomLevel = 2;
+    service.bindGuest('tab1', mine.asWebContents(), winA);
+    service.bindGuest('tab2', theirs.asWebContents(), winB);
+
+    await service.clearBrowsingData('w1');
+
+    expect(store.getHistory('w1')).toEqual([]);
+    expect(store.getHistory('w2')).toHaveLength(1);
+    expect(service.certificates.pinnedFor('w1', '127.0.0.1')).toBeUndefined();
+    expect(service.certificates.pinnedFor('w2', '127.0.0.1')).toBeDefined();
+    expect(mine.zoomLevel).toBe(0);
+    expect(theirs.zoomLevel).toBe(2);
+    expect(clearPartition).toHaveBeenCalledWith('w1');
+    expect(clearPartition).not.toHaveBeenCalledWith('w2');
+    // Open pages stay open.
+    expect(mine.stop).not.toHaveBeenCalled();
+  });
+
+  it('tells the caller when the partition could not be cleared', async () => {
+    clearPartition.mockRejectedValueOnce(new Error('disk'));
+    await expect(service.clearBrowsingData('w1')).rejects.toThrow('disk');
+  });
+});
+
+describe('sign-in', () => {
+  function host() {
+    const send = vi.fn();
+    return {
+      send,
+      window: {
+        isDestroyed: () => false,
+        webContents: { send, isDestroyed: () => false },
+      } as unknown as BrowserWindow,
+    };
+  }
+  const info = { isProxy: false, realm: 'Staging' };
+
+  function ask(guest: FakeGuest, url: string, authInfo = info) {
+    const event = { preventDefault: vi.fn() };
+    const callback = vi.fn();
+    guest.emit('login', event, { url }, authInfo, callback);
+    return { event, callback };
+  }
+
+  it('asks for the page’s own origin, even before the guest is bound, and answers the page', () => {
+    const { send, window } = host();
+    const guest = new FakeGuest(41);
+    guest.url = 'https://staging.example.com/admin';
+    service.guardGuest(guest.asWebContents(), window, 'w1', 41);
+    const { event, callback } = ask(guest, 'https://staging.example.com/admin');
+    expect(event.preventDefault).toHaveBeenCalled();
+    const request = send.mock.calls[0];
+    expect(request[0]).toBe(IPC_CHANNELS.BROWSER_AUTH_REQUEST);
+    expect(request[1]).toMatchObject({ origin: 'https://staging.example.com', realm: 'Staging' });
+    expect(service.auth.answer(window, request[1].id, { username: 'u', password: 'p' })).toBe(true);
+    expect(callback).toHaveBeenCalledWith('u', 'p');
+  });
+
+  it('asks while a first load is still waiting on the sign-in: nothing is committed yet', () => {
+    const { send, window } = host();
+    const guest = new FakeGuest(46);
+    guest.url = '';
+    service.guardGuest(guest.asWebContents(), window, 'w1', 46);
+    guest.emit('did-start-navigation', {
+      url: 'https://staging.example.com/admin',
+      isMainFrame: true,
+      isSameDocument: false,
+    });
+    const { event } = ask(guest, 'https://staging.example.com/admin');
+    expect(event.preventDefault).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('follows a redirect, and a subframe’s navigation is not the page', () => {
+    const { send, window } = host();
+    const guest = new FakeGuest(47);
+    service.guardGuest(guest.asWebContents(), window, 'w1', 47);
+    guest.emit('did-start-navigation', { url: 'https://a.example.com/', isMainFrame: true });
+    guest.emit('did-redirect-navigation', { url: 'https://b.example.com/', isMainFrame: true });
+    guest.emit('did-start-navigation', { url: 'https://c.example.com/', isMainFrame: false });
+    expect(ask(guest, 'https://c.example.com/').event.preventDefault).not.toHaveBeenCalled();
+    expect(ask(guest, 'https://a.example.com/').event.preventDefault).not.toHaveBeenCalled();
+    expect(ask(guest, 'https://b.example.com/').event.preventDefault).toHaveBeenCalled();
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('leaves another origin, and a proxy, to Electron’s cancel', () => {
+    const { send, window } = host();
+    const guest = new FakeGuest(42);
+    guest.url = 'https://staging.example.com/';
+    service.guardGuest(guest.asWebContents(), window, 'w1', 42);
+    const other = ask(guest, 'https://tracker.example.net/pixel');
+    const proxy = ask(guest, 'https://staging.example.com/', { isProxy: true, realm: '' });
+    expect(other.event.preventDefault).not.toHaveBeenCalled();
+    expect(proxy.event.preventDefault).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('cancels when the tab is closed, and when the guest is destroyed', () => {
+    const { send, window } = host();
+    service.openTab('s1', 'https://staging.example.com/', 'person');
+    const guest = new FakeGuest(43);
+    guest.url = 'https://staging.example.com/';
+    service.guardGuest(guest.asWebContents(), window, 'w1', 43);
+    service.bindGuest('tab1', guest.asWebContents(), window);
+    const closing = ask(guest, 'https://staging.example.com/');
+    service.closeTab('tab1');
+    expect(closing.callback).toHaveBeenCalledWith();
+    expect(send.mock.calls.some((c) => c[0] === IPC_CHANNELS.BROWSER_AUTH_CANCELLED)).toBe(true);
+
+    const second = new FakeGuest(44);
+    second.url = 'https://staging.example.com/';
+    service.guardGuest(second.asWebContents(), window, 'w1', 44);
+    const dying = ask(second, 'https://staging.example.com/');
+    second.emit('destroyed');
+    expect(dying.callback).toHaveBeenCalledWith();
+  });
+
+  it('cancels when the window is detached', () => {
+    const { window } = host();
+    const guest = new FakeGuest(45);
+    guest.url = 'https://staging.example.com/';
+    service.guardGuest(guest.asWebContents(), window, 'w1', 45);
+    const waiting = ask(guest, 'https://staging.example.com/');
+    service.detachWindow(window);
+    expect(waiting.callback).toHaveBeenCalledWith();
+  });
+});

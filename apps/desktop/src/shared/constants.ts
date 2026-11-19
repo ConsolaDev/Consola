@@ -187,11 +187,16 @@ export const IPC_CHANNELS = {
   BROWSER_ZOOM: 'browser:zoom', // Step, reset or read a tab's zoom level
   BROWSER_DEVTOOLS: 'browser:devtools', // Open a tab's DevTools in their own window
   BROWSER_HISTORY: 'browser:history', // The sender's workspace's visited pages, newest first
+  BROWSER_CERTIFICATE_CONTINUE: 'browser:certificate-continue', // Trust a refused loopback certificate and reload
+  BROWSER_AUTH_ANSWER: 'browser:auth-answer', // The credentials (or a cancel) for a sign-in dialog
+  BROWSER_CLEAR_DATA: 'browser:clear-data', // Wipe the sender's workspace's browsing data
 
   // In-app browser (main -> renderer)
   BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot
   BROWSER_SHORTCUT: 'browser:shortcut', // A shortcut pressed while a page had focus
   BROWSER_FOUND: 'browser:found', // A tab's find result: which match, out of how many
+  BROWSER_AUTH_REQUEST: 'browser:auth-request', // A page asks for a username and password
+  BROWSER_AUTH_CANCELLED: 'browser:auth-cancelled', // A sign-in dialog's request is over; close it
 } as const;
 
 export const DEFAULT_DIMENSIONS = {

@@ -12,6 +12,7 @@ const partition = { name: 'partition of w1' };
 
 let handlers: Map<string, Handler>;
 let service: Record<string, ReturnType<typeof vi.fn>>;
+let authAnswer: ReturnType<typeof vi.fn>;
 let workspace: string | undefined;
 let window: { once: ReturnType<typeof vi.fn> } | undefined;
 let contents: Map<number, Partial<WebContents>>;
@@ -56,13 +57,16 @@ beforeEach(() => {
     bindGuest: vi.fn(() => true),
     detachWindow: vi.fn(),
     setVisible: vi.fn(),
+    continueCertificate: vi.fn(() => true),
+    clearBrowsingData: vi.fn(async () => {}),
   };
+  authAnswer = vi.fn(() => true);
   deps = {
     ipc: {
       handle: (channel, listener) => handlers.set(channel, listener as Handler),
       removeHandler: (channel) => handlers.delete(channel),
     },
-    service: service as unknown as BrowserService,
+    service: { ...service, auth: { answer: authAnswer } } as unknown as BrowserService,
     workspaceForSender: () => workspace,
     windowForSender: () => window as unknown as BrowserWindow | undefined,
     sessionInWorkspace: (sessionId, ws) => sessionId === 's-mine' && ws === 'w1',
@@ -108,6 +112,7 @@ describe('tab-scoped handlers', () => {
     [IPC_CHANNELS.BROWSER_STOP_FIND, 'stopFind', []],
     [IPC_CHANNELS.BROWSER_ZOOM, 'zoom', ['in']],
     [IPC_CHANNELS.BROWSER_DEVTOOLS, 'openDevTools', []],
+    [IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, 'continueCertificate', []],
   ];
 
   it.each(tabCalls)('%s reaches the service for the workspace tab', (channel, method, extra) => {
@@ -130,6 +135,34 @@ describe('tab-scoped handlers', () => {
   it('navigate answers false when refused', () => {
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-foreign', 'https://a.com')).toBe(false);
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-mine', 'https://a.com')).toBe(true);
+  });
+});
+
+describe('sign-in answers and clearing data', () => {
+  const auth = () => authAnswer;
+
+  it('hands an answer to the service on behalf of the sender window only', () => {
+    call(IPC_CHANNELS.BROWSER_AUTH_ANSWER, 'req1', { username: 'u', password: 'p' });
+    expect(auth()).toHaveBeenCalledWith(window, 'req1', { username: 'u', password: 'p' });
+  });
+
+  it('ignores an answer with no window or a request id that is not text', () => {
+    call(IPC_CHANNELS.BROWSER_AUTH_ANSWER, 5, null);
+    expect(auth()).not.toHaveBeenCalled();
+    window = undefined;
+    call(IPC_CHANNELS.BROWSER_AUTH_ANSWER, 'req1', null);
+    expect(auth()).not.toHaveBeenCalled();
+  });
+
+  it('clears the sender workspace only, whatever the caller passes', async () => {
+    await call(IPC_CHANNELS.BROWSER_CLEAR_DATA, 'w-other');
+    expect(service.clearBrowsingData).toHaveBeenCalledWith('w1');
+  });
+
+  it('clears nothing for a window that holds no workspace', async () => {
+    workspace = undefined;
+    await call(IPC_CHANNELS.BROWSER_CLEAR_DATA);
+    expect(service.clearBrowsingData).not.toHaveBeenCalled();
   });
 });
 

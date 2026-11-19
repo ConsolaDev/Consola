@@ -62,7 +62,14 @@ export type BrowserTabError =
   /** The page could not be reached (DNS, refused connection, timeout). */
   | { kind: 'unreachable'; code: number; description: string; url: string }
   /** The server's certificate was refused; the person decides what to do. */
-  | { kind: 'certificate'; url: string; host: string; error: string }
+  | {
+      kind: 'certificate';
+      url: string;
+      host: string;
+      error: string;
+      /** Whether "Continue anyway" is on offer: only an unknown authority on this machine. */
+      canContinue: boolean;
+    }
   /** The guest's renderer process died. */
   | { kind: 'crashed' };
 
@@ -123,6 +130,26 @@ export interface BrowserFoundMessage {
   result: FindResult | null;
 }
 
+/** What a window receives on `BROWSER_AUTH_REQUEST`: a page asks the person to sign in. */
+export interface BrowserAuthRequestMessage {
+  /** Names the request when the window answers; main checks the answer came from this window. */
+  id: string;
+  /** The page's own origin: the dialog says who is asking. */
+  origin: string;
+  /** The server's name for what is protected; page-controlled text, shown as such. */
+  realm: string;
+}
+
+/** What a window receives on `BROWSER_AUTH_CANCELLED`: the request ended without an answer. */
+export interface BrowserAuthCancelledMessage {
+  id: string;
+}
+
+export interface BrowserCredentials {
+  username: string;
+  password: string;
+}
+
 /**
  * What the preload exposes as `window.browserAPI`. Reach it through
  * `browserBridge`, never directly.
@@ -152,6 +179,12 @@ export interface BrowserAPI {
   openDevTools(tabId: string): Promise<void>;
   /** Pages the sender's workspace visited, newest first. */
   history(): Promise<BrowserHistoryEntry[]>;
+  /** Trusts the certificate a tab refused (loopback only) and reloads it. False when nothing was offered. */
+  continueCertificate(tabId: string): Promise<boolean>;
+  /** Answers a sign-in request with credentials, or null to cancel it. */
+  answerAuth(id: string, credentials: BrowserCredentials | null): Promise<void>;
+  /** Wipes the sender's workspace's cookies, storage, cache, history and certificate approvals. */
+  clearData(): Promise<void>;
   /** Binds a mounted, attached `<webview>` (by its `getWebContentsId()`) to its tab. */
   attach(tabId: string, webContentsId: number): Promise<boolean>;
   /** Tells main which tab this window shows, or none (null both). Main decides which pages stay live. */
@@ -159,6 +192,8 @@ export interface BrowserAPI {
   onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void;
   onShortcut(callback: (message: BrowserShortcutMessage) => void): () => void;
   onFound(callback: (message: BrowserFoundMessage) => void): () => void;
+  onAuthRequest(callback: (message: BrowserAuthRequestMessage) => void): () => void;
+  onAuthCancelled(callback: (message: BrowserAuthCancelledMessage) => void): () => void;
 }
 
 // --- Addresses ---

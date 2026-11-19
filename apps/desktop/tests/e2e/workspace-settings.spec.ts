@@ -495,6 +495,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
       'Actions',
       'Labels',
       'Worktrees',
+      'Browser',
       'Danger zone',
     ]);
 
@@ -502,7 +503,7 @@ test('one Settings dialog lists the app, the workspace and Updates, whichever do
     // bottom edge of the list.
     const nav = modal.getByRole('navigation', { name: 'Settings sections', exact: true });
     await expect(nav.locator('.settings-modal-nav-item').last()).toHaveText('Updates');
-    await expect(nav.locator('.settings-modal-nav-item')).toHaveCount(12);
+    await expect(nav.locator('.settings-modal-nav-item')).toHaveCount(14);
     const navBox = (await nav.boundingBox())!;
     const updatesBox = (await nav
       .getByRole('button', { name: 'Updates', exact: true })

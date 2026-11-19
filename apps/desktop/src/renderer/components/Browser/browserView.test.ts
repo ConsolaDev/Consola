@@ -180,6 +180,7 @@ describe('autoRetryUrl', () => {
         url: 'https://localhost/',
         host: 'localhost',
         error: 'x',
+        canContinue: true,
       }),
     ).toBeNull();
     expect(autoRetryUrl(null)).toBeNull();

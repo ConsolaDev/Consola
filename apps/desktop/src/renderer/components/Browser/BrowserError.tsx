@@ -22,10 +22,20 @@ interface BrowserErrorProps {
   /** A page on this machine is retried on its own while it is on screen. */
   retryingByItself: boolean;
   onRetry: () => void;
+  /** Goes back a page: offered for a refused certificate, which the person may want to leave. */
+  onBack?: () => void;
+  /** Trusts the refused certificate and loads the page: offered only when main says it may be. */
+  onContinue?: () => void;
 }
 
 /** Why a page is not showing, and the one thing to do about it. */
-export function BrowserError({ error, retryingByItself, onRetry }: BrowserErrorProps) {
+export function BrowserError({
+  error,
+  retryingByItself,
+  onRetry,
+  onBack,
+  onContinue,
+}: BrowserErrorProps) {
   const { icon, title, detail, code, action } = explain(error);
   return (
     <div className="browser-error" role="alert">
@@ -36,9 +46,27 @@ export function BrowserError({ error, retryingByItself, onRetry }: BrowserErrorP
       {retryingByItself && (
         <p className="browser-error-hint">Consola keeps trying while this page is open.</p>
       )}
-      <button type="button" className="dialog-button-secondary" onClick={onRetry}>
-        {action}
-      </button>
+      {error.kind === 'certificate' && error.canContinue && (
+        <p className="browser-error-hint">
+          This is a server on your own machine. If you started it, you can continue; Consola will
+          trust this certificate only, for this workspace, until it quits.
+        </p>
+      )}
+      <div className="browser-error-actions">
+        {error.kind === 'certificate' && onBack && (
+          <button type="button" className="dialog-button-secondary" onClick={onBack}>
+            Go back
+          </button>
+        )}
+        <button type="button" className="dialog-button-secondary" onClick={onRetry}>
+          {action}
+        </button>
+        {error.kind === 'certificate' && error.canContinue && onContinue && (
+          <button type="button" className="dialog-button-danger" onClick={onContinue}>
+            Continue anyway
+          </button>
+        )}
+      </div>
     </div>
   );
 }

@@ -37,6 +37,9 @@ const CHANNELS = [
   IPC_CHANNELS.BROWSER_ZOOM,
   IPC_CHANNELS.BROWSER_DEVTOOLS,
   IPC_CHANNELS.BROWSER_HISTORY,
+  IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE,
+  IPC_CHANNELS.BROWSER_AUTH_ANSWER,
+  IPC_CHANNELS.BROWSER_CLEAR_DATA,
 ];
 
 const EMPTY: BrowserSessionSnapshot = { tabs: [], activeTabId: null };
@@ -120,6 +123,21 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   ipc.handle(IPC_CHANNELS.BROWSER_HISTORY, (event): BrowserHistoryEntry[] => {
     const workspaceId = deps.workspaceForSender(event.sender);
     return workspaceId ? service.historyFor(workspaceId) : [];
+  });
+
+  ipc.handle(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, (event, tabId: string): boolean =>
+    ownedTab(event, tabId) ? service.continueCertificate(tabId) : false,
+  );
+  // The request id alone is not authority: main only accepts it from the
+  // window that was asked, so another window cannot answer, or cancel, for it.
+  ipc.handle(IPC_CHANNELS.BROWSER_AUTH_ANSWER, (event, id: string, credentials: unknown) => {
+    const window = deps.windowForSender(event.sender);
+    if (window && typeof id === 'string') service.auth.answer(window, id, credentials);
+  });
+  // No argument, like history: a window clears its own workspace and no other.
+  ipc.handle(IPC_CHANNELS.BROWSER_CLEAR_DATA, async (event) => {
+    const workspaceId = deps.workspaceForSender(event.sender);
+    if (workspaceId) await service.clearBrowsingData(workspaceId);
   });
 
   ipc.handle(

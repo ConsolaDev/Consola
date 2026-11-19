@@ -1,4 +1,5 @@
 import type { BrowserWindow, BrowserWindowConstructorOptions, WebContents } from 'electron';
+import type { CertificateTrust } from './CertificateTrust';
 import { guardNavigation } from './guestPolicy';
 import { decidePopup, PersonInputClock, popupTitle } from './popupPolicy';
 
@@ -79,6 +80,8 @@ export interface PopupPolicyDeps {
   atTabCap(sessionId: string): boolean;
   openTab(sessionId: string, url: string): void;
   popups: PopupRegistry;
+  /** Answers a popup's certificate errors the way its opener's are. */
+  certificates: CertificateTrust;
   /** Builds the window. Electron's `BrowserWindow` constructor, handed in so this module stays free of it. */
   createWindow(options: PopupWindowOptions): BrowserWindow;
   /** The largest a popup may be: the screen the person is using. */
@@ -158,7 +161,7 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
           webPreferences,
         });
         openPopup = popup;
-        hardenPopup(popup);
+        hardenPopup(popup, deps.certificates, deps.workspaceId);
         deps.popups.track(popup, owner);
         popup.once('closed', () => {
           deps.popups.forget(popup);
@@ -170,10 +173,26 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
   });
 }
 
-/** Everything a popup's page is held to, on top of the preferences it was created with. */
-function hardenPopup(popup: BrowserWindow): void {
+/**
+ * Everything a popup's page is held to, on top of the preferences it was
+ * created with.
+ *
+ * Certificates: a popup is refused a bad certificate like any page, and honours
+ * only what the person already approved for the workspace. It has no "Continue
+ * anyway" of its own. Sign-in: a popup has no `login` handler, so Electron
+ * cancels its requests. A dialog drawn over the opener's window would ask for a
+ * password while the page that wants it is in a different window, and a popup
+ * is the shape a phishing page takes; a sign-in that needs one can be done in
+ * a tab.
+ */
+function hardenPopup(
+  popup: BrowserWindow,
+  certificates: CertificateTrust,
+  workspaceId: string | undefined,
+): void {
   popup.setMenu(null);
   const contents = popup.webContents;
+  if (workspaceId) certificates.guard(contents, workspaceId, contents.id);
   guardNavigation(contents);
   // Nothing opens from a popup. The page keeps `window.opener`, but it gets
   // no windows of its own.

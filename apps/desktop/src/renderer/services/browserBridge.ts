@@ -1,5 +1,8 @@
 import type { ZoomStep } from '../../shared/browserTools';
 import type {
+  BrowserAuthCancelledMessage,
+  BrowserAuthRequestMessage,
+  BrowserCredentials,
   BrowserFoundMessage,
   BrowserHistoryEntry,
   BrowserSessionSnapshot,
@@ -87,6 +90,21 @@ export const browserBridge = {
     return window.browserAPI.history();
   },
 
+  /** Trust the certificate a tab refused (loopback only) and reload it. False when none was offered. */
+  continueCertificate(tabId: string): Promise<boolean> {
+    return window.browserAPI.continueCertificate(tabId);
+  },
+
+  /** Answer a sign-in request with credentials, or null to cancel it. */
+  answerAuth(id: string, credentials: BrowserCredentials | null): Promise<void> {
+    return window.browserAPI.answerAuth(id, credentials);
+  },
+
+  /** Wipe this workspace's cookies, storage, cache, history and certificate approvals. */
+  clearData(): Promise<void> {
+    return window.browserAPI.clearData();
+  },
+
   /**
    * Bind a mounted `<webview>` to its tab, once its page exists (`did-attach`),
    * with its `getWebContentsId()`. Resolves false when main refused it.
@@ -117,5 +135,15 @@ export const browserBridge = {
   /** A tab's find result changed. Returns the unsubscribe. */
   onFound(callback: (message: BrowserFoundMessage) => void): () => void {
     return window.browserAPI.onFound(callback);
+  },
+
+  /** A page asks the person to sign in. Returns the unsubscribe. */
+  onAuthRequest(callback: (message: BrowserAuthRequestMessage) => void): () => void {
+    return window.browserAPI.onAuthRequest(callback);
+  },
+
+  /** A sign-in request ended unanswered (timeout, tab closed). Returns the unsubscribe. */
+  onAuthCancelled(callback: (message: BrowserAuthCancelledMessage) => void): () => void {
+    return window.browserAPI.onAuthCancelled(callback);
   },
 };

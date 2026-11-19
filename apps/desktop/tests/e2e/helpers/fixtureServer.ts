@@ -99,6 +99,16 @@ export async function startFixtureServer(): Promise<FixtureServer> {
           200,
           `<!doctype html><html><head><title>probing</title></head><body><script>${PROBE_SCRIPT}</script></body></html>`,
         );
+      case '/secret.html': {
+        // Basic auth: `ada` / `lovelace`. Anything else is asked again.
+        const expected = `Basic ${Buffer.from('ada:lovelace').toString('base64')}`;
+        if (req.headers.authorization === expected) {
+          return send(200, page('Secret', 'rgb(0,128,0)'));
+        }
+        return send(401, page('Unauthorized', 'rgb(128,0,0)'), {
+          'www-authenticate': 'Basic realm="Fixture area"',
+        });
+      }
       case '/set-cookie.html':
         return send(200, page('Cookie set', 'rgb(255,255,0)'), {
           'set-cookie': 'fixture=signed-in; Path=/; Max-Age=3600',

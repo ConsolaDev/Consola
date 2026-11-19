@@ -357,11 +357,16 @@
 }
 
 .browser-error-hint {
+  max-width: 52ch;
   margin: 0;
   font-size: var(--font-size-xs);
 }
 
-.browser-error .dialog-button-secondary {
+.browser-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: var(--space-2);
   margin-top: var(--space-2);
 }
 
