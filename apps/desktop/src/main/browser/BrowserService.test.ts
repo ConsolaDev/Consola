@@ -845,6 +845,52 @@ describe('live pages', () => {
     expect(all).toContain('tab10');
   });
 
+  it('a visible blank tab is not live and takes none of the cap', () => {
+    for (let i = 0; i < 8; i++) service.openTab('s1', `https://e.com/${i}`, 'person');
+    for (let i = 1; i <= 8; i++) {
+      now += 1000;
+      service.setVisible(winA, 's1', `tab${i}`);
+    }
+    expect(liveIds('s1')).toHaveLength(8);
+    service.openTab('s1', '', 'person');
+    now += 1000;
+    service.setVisible(winA, 's1', 'tab9');
+    expect(liveIds('s1')).toHaveLength(8);
+    expect(liveIds('s1')).toContain('tab1');
+    expect(liveIds('s1')).not.toContain('tab9');
+  });
+
+  it('a blank tab becomes live when it is given an address while shown', () => {
+    for (let i = 0; i < 8; i++) service.openTab('s1', `https://e.com/${i}`, 'person');
+    for (let i = 1; i <= 8; i++) {
+      now += 1000;
+      service.setVisible(winA, 's1', `tab${i}`);
+    }
+    service.openTab('s1', '', 'person');
+    now += 1000;
+    service.setVisible(winA, 's1', 'tab9');
+    service.navigate('tab9', 'https://new.com');
+    expect(liveIds('s1')).toHaveLength(8);
+    expect(liveIds('s1')).toContain('tab9');
+    expect(liveIds('s1')).not.toContain('tab1');
+  });
+
+  it('a blank tab given an address while hidden is live once shown', () => {
+    service.openTab('s1', '', 'person');
+    service.navigate('tab1', 'https://new.com');
+    expect(liveIds('s1')).toEqual([]);
+    service.setVisible(winA, 's1', 'tab1');
+    expect(liveIds('s1')).toEqual(['tab1']);
+  });
+
+  it('a tool call on a blank tab does not make it live', () => {
+    service.openTab('s1', '', 'person');
+    const release = service.holdForToolCall('tab1');
+    expect(release).not.toBeNull();
+    expect(liveIds('s1')).toEqual([]);
+    release?.();
+  });
+
   it('a tool call in flight keeps a hidden tab live, and its end counts as use', () => {
     service.openTab('s1', 'https://a.com', 'person');
     service.setVisible(winA, 's1', 'tab1');

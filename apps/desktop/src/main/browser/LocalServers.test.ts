@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { LocalServers, parseListeners } from './LocalServers';
 
 const LISTENING = [
@@ -135,6 +135,25 @@ describe('LocalServers.listFor', () => {
       return { code: -1, stdout: '' };
     }, 'linux');
     expect(await servers.listFor(inside)).toEqual([]);
+  });
+
+  it('says null, not empty, when the scan failed', async () => {
+    const failing = new LocalServers(async () => ({ code: -1, stdout: '' }), 'linux');
+    expect(await failing.scanFor(inside)).toBeNull();
+    const none = new LocalServers(async () => ({ code: 0, stdout: '' }), 'linux');
+    expect(await none.scanFor(inside)).toEqual([]);
+  });
+
+  it('says null when the scan runs out of time', async () => {
+    vi.useFakeTimers();
+    try {
+      const hung = new LocalServers(() => new Promise(() => {}), 'linux');
+      const answer = hung.scanFor(inside);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(await answer).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('answers nothing on Windows without running anything', async () => {

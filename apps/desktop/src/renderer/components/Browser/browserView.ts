@@ -1,4 +1,5 @@
 import {
+  isBlankPageUrl,
   isLoopbackHost,
   type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
@@ -18,10 +19,8 @@ export interface HostedTab {
   tab: BrowserTabSnapshot;
 }
 
-/** A tab with nowhere to be yet: no address, or the placeholder one. */
-export function isBlankUrl(url: string): boolean {
-  return url === '' || url === 'about:blank';
-}
+/** A tab with nowhere to be yet. Main decides liveness by the same predicate. */
+export const isBlankUrl = isBlankPageUrl;
 
 /**
  * Which tabs have a page in this window: those of this workspace's sessions

@@ -91,8 +91,8 @@ export const browserBridge = {
     return window.browserAPI.history();
   },
 
-  /** Servers running from a session's folder, for the empty tab. Empty on any failure. */
-  localServers(sessionId: string): Promise<LocalServer[]> {
+  /** Servers running from a session's folder, for the empty tab. Null when the scan could not answer. */
+  localServers(sessionId: string): Promise<LocalServer[] | null> {
     return window.browserAPI.localServers(sessionId);
   },
 

@@ -532,10 +532,12 @@ test.describe('in-app browser tabs', () => {
     await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
-    // Pages, not blank tabs: a blank tab hosts no page until it has an address.
+    // Ten pages and a blank tab last: the blank one hosts no page and takes
+    // none of the eight, so it must not push a real page out.
     await page.evaluate(
       async ({ sessionId, url }) => {
-        for (let i = 0; i < 11; i += 1) await window.browserAPI.open(sessionId, url);
+        for (let i = 0; i < 10; i += 1) await window.browserAPI.open(sessionId, url);
+        await window.browserAPI.open(sessionId, '');
       },
       { sessionId: ids.alpha.sessionId, url: fixtures.url('/b.html') },
     );

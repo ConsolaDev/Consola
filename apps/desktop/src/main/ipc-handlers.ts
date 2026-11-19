@@ -358,7 +358,7 @@ export function setupIpcHandlers(): boolean {
       const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
       // Undefined while a cleanup rule has the worktree removed: no folder, no servers.
       const folder = workspace && checkoutPathForSession(workspace, session);
-      return localServers.listFor(folder);
+      return localServers.scanFor(folder);
     },
     webContentsFromId: (id) => electronWebContents.fromId(id),
     sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),

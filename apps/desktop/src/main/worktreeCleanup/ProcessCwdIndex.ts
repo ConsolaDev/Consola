@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
-import * as path from 'node:path';
 import { parseLsofFields } from '../lsofFields';
+import { isWithin } from '../pathWithin';
 
 /** A process whose working directory was read. */
 export interface ProcessEntry {
@@ -117,12 +117,6 @@ function parsePs(output: string): Map<number, number> {
     if (Number.isFinite(pid) && Number.isFinite(ppid)) parents.set(pid, ppid);
   }
   return parents;
-}
-
-/** Whether `child` is `parent` or lies below it. Both already resolved. */
-export function isWithin(child: string, parent: string): boolean {
-  const relative = path.relative(parent, child);
-  return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }
 
 function runCommand(

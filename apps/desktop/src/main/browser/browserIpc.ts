@@ -19,8 +19,8 @@ export interface BrowserIpcDeps {
   windowForSender(sender: WebContents): BrowserWindow | undefined;
   /** Whether the session exists and belongs to the workspace. */
   sessionInWorkspace(sessionId: string, workspaceId: string): boolean;
-  /** The servers started from the session's checkout; empty when it has none or cannot be read. */
-  localServersFor(sessionId: string): Promise<LocalServer[]>;
+  /** The servers started from the session's checkout; null when the scan could not answer. */
+  localServersFor(sessionId: string): Promise<LocalServer[] | null>;
   webContentsFromId(id: number): WebContents | undefined;
   /** The Electron session of a workspace's browser partition. */
   sessionForWorkspace(workspaceId: string): unknown;
@@ -137,7 +137,7 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   // workspace's folders are not for this window to learn about.
   ipc.handle(
     IPC_CHANNELS.BROWSER_LOCAL_SERVERS,
-    async (event, sessionId: string): Promise<LocalServer[]> =>
+    async (event, sessionId: string): Promise<LocalServer[] | null> =>
       ownedSession(event, sessionId) ? await deps.localServersFor(sessionId) : [],
   );
 

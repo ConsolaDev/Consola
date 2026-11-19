@@ -52,6 +52,12 @@ export class LivePages {
     this.calls.delete(tabId);
   }
 
+  /** The window showing this tab right now, if any. */
+  public windowShowing(tabId: string): BrowserWindow | undefined {
+    for (const [window, shown] of this.visible) if (shown === tabId) return window;
+    return undefined;
+  }
+
   /** A window shows this tab, or nothing. What it showed before counts as shown just now. */
   public setVisible(window: BrowserWindow, tabId: string | null): void {
     const previous = this.visible.get(window);

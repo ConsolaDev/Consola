@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { BrowserWindow, WebContents } from 'electron';
 import {
   isAllowedPageUrl,
+  isBlankPageUrl,
   MAX_TABS_PER_SESSION,
   type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
@@ -204,7 +205,13 @@ export class BrowserService {
       // A failed load arrives as `did-fail-load`; the rejection adds nothing.
       void guest.loadURL(url).catch(() => {});
     } else {
+      // A blank tab has no page, so it is not live. Giving it an address is
+      // what makes it live, if someone is looking at it; otherwise it becomes
+      // live when it is next shown.
+      const window = this.pages.windowShowing(tabId);
+      if (window && !this.pages.has(tabId)) this.pages.add(tabId, window);
       this.updateTab(tabId, { url });
+      this.applyLiveRule();
     }
     return true;
   }
@@ -375,7 +382,9 @@ export class BrowserService {
   public setVisible(window: BrowserWindow, sessionId: string | null, tabId: string | null): void {
     const shown = tabId && sessionId && this.find(tabId)?.sessionId === sessionId ? tabId : null;
     this.pages.setVisible(window, shown);
-    const added = shown !== null && this.pages.add(shown, window);
+    // A blank tab is shown (the window's report is kept) but has no page, so
+    // it is not live and holds none of the cap.
+    const added = shown !== null && !this.isBlank(shown) && this.pages.add(shown, window);
     this.applyLiveRule(added && sessionId ? [sessionId] : []);
   }
 
@@ -387,6 +396,8 @@ export class BrowserService {
   public holdForToolCall(tabId: string): (() => void) | null {
     const found = this.find(tabId);
     if (!found) return null;
+    // Nothing to keep alive on a tab with no page.
+    if (this.isBlank(tabId)) return () => {};
     const window = this.pageWindowFor(found.sessionId);
     const { added, release } = this.pages.hold(tabId, window);
     this.applyLiveRule(added ? [found.sessionId] : []);
@@ -409,6 +420,11 @@ export class BrowserService {
       if (found) sessions.add(found.sessionId);
     }
     for (const sessionId of sessions) this.pushSnapshot(sessionId);
+  }
+
+  private isBlank(tabId: string): boolean {
+    const tab = this.find(tabId)?.tab;
+    return !!tab && isBlankPageUrl(tab.url);
   }
 
   private pageWindowFor(sessionId: string): BrowserWindow | undefined {

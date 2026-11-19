@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import * as fs from 'node:fs';
 import type { LocalServer } from '../../shared/browser';
 import { parseLsofFields } from '../lsofFields';
-import { isWithin } from '../worktreeCleanup/ProcessCwdIndex';
+import { isWithin } from '../pathWithin';
 
 /** How long the whole scan may take before it gives up and lists nothing. */
 const SCAN_TIMEOUT_MS = 2_000;
@@ -58,8 +58,10 @@ function isLocalHost(host: string): boolean {
  * Two `lsof` calls, listeners first and then the working folder of just those
  * processes, kept when it is inside the session's checkout by real path (a
  * symlinked folder and a prefix-sharing sibling both resolve correctly). It
- * runs on demand, never on a timer, and anything that stops it answering,
- * Windows included, reads as no servers.
+ * runs only when asked, never on a timer. `listFor` reads anything that stops
+ * it answering as no servers; `scanFor` says `null` for that instead, so a
+ * caller that already shows a list can keep it rather than blank it. Windows
+ * is a definite empty answer.
  */
 export class LocalServers {
   constructor(
@@ -68,11 +70,16 @@ export class LocalServers {
   ) {}
 
   public async listFor(folder: string | undefined): Promise<LocalServer[]> {
+    return (await this.scanFor(folder)) ?? [];
+  }
+
+  /** The servers, or null when the scan failed or ran out of time. */
+  public async scanFor(folder: string | undefined): Promise<LocalServer[] | null> {
     if (!folder || this.platform === 'win32') return [];
     // One budget for both calls, not one each.
     let timer: ReturnType<typeof setTimeout> | undefined;
-    const late = new Promise<LocalServer[]>((resolve) => {
-      timer = setTimeout(() => resolve([]), SCAN_TIMEOUT_MS);
+    const late = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), SCAN_TIMEOUT_MS);
     });
     try {
       return await Promise.race([this.scan(folder), late]);
@@ -81,21 +88,25 @@ export class LocalServers {
     }
   }
 
-  private async scan(folder: string): Promise<LocalServer[]> {
+  private async scan(folder: string): Promise<LocalServer[] | null> {
     try {
       const root = fs.realpathSync(folder);
       const listeners = (await this.listeners()).filter((l) => l.pid !== process.pid);
       if (listeners.length === 0) return [];
       const cwds = await this.workingFolders([...new Set(listeners.map((l) => l.pid))]);
-      return listeners
-        .filter((listener) => {
-          const cwd = cwds.get(listener.pid);
-          return cwd !== undefined && isWithin(realOrSelf(cwd), root);
-        })
-        .sort((a, b) => a.port - b.port)
-        .map(({ port, command }) => ({ port, command, url: `http://localhost:${port}` }));
+      return (
+        listeners
+          .filter((listener) => {
+            const cwd = cwds.get(listener.pid);
+            return cwd !== undefined && isWithin(realOrSelf(cwd), root);
+          })
+          .sort((a, b) => a.port - b.port)
+          // One row per port, whichever process answers it.
+          .filter((listener, index, sorted) => sorted[index - 1]?.port !== listener.port)
+          .map(({ port, command }) => ({ port, command, url: `http://localhost:${port}` }))
+      );
     } catch {
-      return [];
+      return null;
     }
   }
 

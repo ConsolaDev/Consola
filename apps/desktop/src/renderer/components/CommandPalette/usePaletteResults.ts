@@ -60,7 +60,7 @@ function useLocalServers(open: boolean, sessionId: string | undefined): LocalSer
     let cancelled = false;
     browserBridge.localServers(sessionId).then(
       (found) => {
-        if (!cancelled) setServers(found);
+        if (!cancelled) setServers(found ?? NO_SERVERS);
       },
       () => {},
     );

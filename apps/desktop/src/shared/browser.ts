@@ -193,8 +193,8 @@ export interface BrowserAPI {
   openDevTools(tabId: string): Promise<void>;
   /** Pages the sender's workspace visited, newest first. */
   history(): Promise<BrowserHistoryEntry[]>;
-  /** Servers listening on this machine that were started from the session's folder. Empty on any failure. */
-  localServers(sessionId: string): Promise<LocalServer[]>;
+  /** Servers listening on this machine that were started from the session's folder. Null when the scan could not answer. */
+  localServers(sessionId: string): Promise<LocalServer[] | null>;
   /** Trusts the certificate a tab refused (loopback only) and reloads it. False when nothing was offered. */
   continueCertificate(tabId: string): Promise<boolean>;
   /** Answers a sign-in request with credentials, or null to cancel it. */
@@ -228,6 +228,11 @@ export function isLoopbackHost(host: string): boolean {
   if (!octets) return false;
   const parts = octets.slice(1).map(Number);
   return parts.every((n) => n <= 255) && parts[0] === 127;
+}
+
+/** A tab with nowhere to be yet: no address, or the placeholder one. It has no page. */
+export function isBlankPageUrl(url: string): boolean {
+  return url === '' || url === 'about:blank';
 }
 
 /** Pages are only ever web pages: `file:`, `data:`, `chrome:` and the rest never load. */

@@ -563,3 +563,30 @@
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
 }
+
+.browser-empty-heading-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.browser-empty-refresh {
+  display: inline-flex;
+  padding: var(--space-1);
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+}
+
+.browser-empty-refresh:hover:not(:disabled),
+.browser-empty-refresh:focus-visible {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.browser-empty-refresh:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
