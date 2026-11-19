@@ -293,6 +293,13 @@ export class BrowserService {
     this.tools.openDevTools(tabId);
   }
 
+  /** The page a tab shows as a PNG, with the session that owns it; null when it has no live page. */
+  public async capturePage(tabId: string): Promise<{ sessionId: string; png: Buffer } | null> {
+    const sessionId = this.find(tabId)?.sessionId;
+    const png = sessionId ? await this.tools.capturePage(tabId) : null;
+    return sessionId && png ? { sessionId, png } : null;
+  }
+
   /** Pages a workspace visited, newest first. */
   public historyFor(workspaceId: string): BrowserHistoryEntry[] {
     return this.deps.store.getHistory(workspaceId);

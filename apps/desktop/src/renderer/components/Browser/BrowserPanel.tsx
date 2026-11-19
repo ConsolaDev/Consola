@@ -15,6 +15,10 @@ import './styles.css';
 
 interface BrowserPanelProps {
   sessionId: string;
+  /** The session's terminal, where a screenshot's path is pasted. */
+  instanceId: string;
+  /** The session's checkout, which decides how a pasted path is written. */
+  cwd: string;
 }
 
 /**
@@ -23,7 +27,7 @@ interface BrowserPanelProps {
  * root, because this panel unmounts with every overlay and a `<webview>` that
  * moves loses its page; the slot only says where to draw it.
  */
-export function BrowserPanel({ sessionId }: BrowserPanelProps) {
+export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) {
   const snapshot = useBrowserSnapshot(sessionId);
   const tab = activeTabOf(snapshot);
 
@@ -63,7 +67,13 @@ export function BrowserPanel({ sessionId }: BrowserPanelProps) {
     // biome-ignore lint/a11y/noStaticElementInteractions: it only listens for keys bubbling from the controls inside
     <div className="browser-panel" data-testid="browser-panel" onKeyDown={onKeyDown}>
       <BrowserTabStrip sessionId={sessionId} snapshot={snapshot} />
-      <BrowserToolbar key={`${sessionId}:${tab?.id ?? ''}`} tab={tab} onOpen={open} />
+      <BrowserToolbar
+        key={`${sessionId}:${tab?.id ?? ''}`}
+        tab={tab}
+        onOpen={open}
+        instanceId={instanceId}
+        cwd={cwd}
+      />
       {findOpen && tab && <FindBar key={tab.id} tabId={tab.id} onClose={closeFind} />}
       <div className="browser-slot" data-testid="browser-slot">
         {(!tab || isBlankUrl(tab.url)) && <BrowserEmptyTab sessionId={sessionId} onOpen={open} />}

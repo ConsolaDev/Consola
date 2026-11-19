@@ -4,6 +4,7 @@ import { SessionRemover } from './SessionRemover';
 function harness(
   deleteRecord: (workspaceId: string, sessionId: string) => void = () => {},
   removeHandoffs: (sessionId: string) => Promise<void> = async () => {},
+  removeCaptures: (sessionId: string) => Promise<void> = async () => {},
 ) {
   const calls: string[] = [];
   const remover = new SessionRemover({
@@ -14,6 +15,10 @@ function harness(
     destroyTerminal: (id) => calls.push(`terminal ${id}`),
     destroyShell: (id) => calls.push(`shell ${id}`),
     destroyBrowser: (id) => calls.push(`browser ${id}`),
+    removeCaptures: (id) => {
+      calls.push(`captures ${id}`);
+      return removeCaptures(id);
+    },
     releaseMcp: (id) => calls.push(`mcp ${id}`),
     removeHandoffs: (id) => {
       calls.push(`handoffs ${id}`);
@@ -35,6 +40,7 @@ describe('SessionRemover', () => {
       'shell workspace-w-session-1',
       'mcp s-1',
       'browser s-1',
+      'captures s-1',
       'handoffs s-1',
     ]);
   });
@@ -65,6 +71,7 @@ describe('SessionRemover', () => {
       'shell workspace-w-session-1',
       'mcp s-1',
       'browser s-1',
+      'captures s-1',
       'handoffs s-1',
     ]);
   });
@@ -75,6 +82,28 @@ describe('SessionRemover', () => {
     expect(() => remover.remove('w', session)).not.toThrow();
     await new Promise((resolve) => setImmediate(resolve));
     expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('a captures folder that cannot be deleted is logged and the later steps still run', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { remover, calls } = harness(undefined, undefined, () =>
+      Promise.reject(new Error('busy')),
+    );
+    expect(() => remover.discard(session)).not.toThrow();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(error).toHaveBeenCalled();
+    expect(calls).toContain('handoffs s-1');
+    error.mockRestore();
+  });
+
+  it('a captures removal that throws at once does not skip the handoffs', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { remover, calls } = harness(undefined, undefined, () => {
+      throw new Error('sync');
+    });
+    expect(() => remover.discard(session)).not.toThrow();
+    expect(calls).toContain('handoffs s-1');
     error.mockRestore();
   });
 });

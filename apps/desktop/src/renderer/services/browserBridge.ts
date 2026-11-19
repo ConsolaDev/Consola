@@ -91,6 +91,11 @@ export const browserBridge = {
     return window.browserAPI.history();
   },
 
+  /** Save the page a tab shows as a PNG file and resolve its path; null when the tab has no live page. */
+  capture(tabId: string): Promise<string | null> {
+    return window.browserAPI.capture(tabId);
+  },
+
   /** Servers running from a session's folder, for the empty tab. Null when the scan could not answer. */
   localServers(sessionId: string): Promise<LocalServer[] | null> {
     return window.browserAPI.localServers(sessionId);

@@ -52,6 +52,7 @@ beforeEach(() => {
     findText: vi.fn(),
     stopFind: vi.fn(),
     zoom: vi.fn(() => 1),
+    capturePage: vi.fn(async () => ({ sessionId: 's-mine', png: Buffer.from([1]) })),
     openDevTools: vi.fn(),
     historyFor: vi.fn(() => [{ url: 'https://a.com', title: 'A', at: 1 }]),
     bindGuest: vi.fn(() => true),
@@ -72,6 +73,7 @@ beforeEach(() => {
     sessionInWorkspace: (sessionId, ws) => sessionId === 's-mine' && ws === 'w1',
     webContentsFromId: (id) => contents.get(id) as WebContents | undefined,
     sessionForWorkspace: () => partition,
+    saveCapture: async (sessionId) => `/captures/${sessionId}/x.png`,
     localServersFor: async () => [{ port: 5173, command: 'vite', url: 'http://localhost:5173' }],
   };
   registerBrowserHandlers(deps);
@@ -113,6 +115,24 @@ describe('local servers', () => {
   it('are refused for a window that holds no workspace', async () => {
     workspace = undefined;
     expect(await call(IPC_CHANNELS.BROWSER_LOCAL_SERVERS, 's-mine')).toEqual([]);
+  });
+});
+
+describe('capture', () => {
+  it('writes the capture under the tab’s session and answers its path', async () => {
+    expect(await call(IPC_CHANNELS.BROWSER_CAPTURE, 't-mine')).toBe('/captures/s-mine/x.png');
+  });
+
+  it('is refused for a foreign tab and for a window with no workspace', async () => {
+    expect(await call(IPC_CHANNELS.BROWSER_CAPTURE, 't-foreign')).toBeNull();
+    workspace = undefined;
+    expect(await call(IPC_CHANNELS.BROWSER_CAPTURE, 't-mine')).toBeNull();
+    expect(service.capturePage).not.toHaveBeenCalled();
+  });
+
+  it('answers null when the tab has no page to capture', async () => {
+    service.capturePage.mockResolvedValueOnce(null);
+    expect(await call(IPC_CHANNELS.BROWSER_CAPTURE, 't-mine')).toBeNull();
   });
 });
 

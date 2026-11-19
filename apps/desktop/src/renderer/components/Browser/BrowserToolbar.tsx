@@ -1,18 +1,24 @@
 import type { ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, X } from 'lucide-react';
+import { ArrowLeft, ArrowRight, Camera, ExternalLink, RotateCw, X } from 'lucide-react';
 import { isAllowedPageUrl, type BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
+import { terminalBridge } from '../../services/terminalBridge';
+import { formatDroppedPaths } from '../Terminal/useTerminalFileDrop';
 import { AddressBar } from './AddressBar';
 import { BrowserMoreMenu } from './BrowserMoreMenu';
 import { useShownError } from './BrowserError';
-import { addressText } from './browserView';
+import { addressText, isBlankUrl } from './browserView';
 
 interface BrowserToolbarProps {
   /** The session's active tab; none while the session has no pages. */
   tab: BrowserTabSnapshot | undefined;
   /** Opens a resolved address. Resolves false when Consola refused it. */
   onOpen: (url: string) => Promise<boolean>;
+  /** The session's terminal, where a screenshot's path is pasted. */
+  instanceId: string;
+  /** The session's checkout, for writing the pasted path as a file drop does. */
+  cwd: string;
 }
 
 /**
@@ -21,10 +27,22 @@ interface BrowserToolbarProps {
  * never touched from here. Key it by the tab, so an address being typed and a
  * held error belong to one tab only.
  */
-export function BrowserToolbar({ tab, onOpen }: BrowserToolbarProps) {
+export function BrowserToolbar({ tab, onOpen, instanceId, cwd }: BrowserToolbarProps) {
   const shownError = useShownError(tab);
   const address = addressText(tab, shownError);
   const loading = tab?.loading ?? false;
+  // Only a page that is loaded can be photographed: a blank or unloaded tab
+  // has nothing to show.
+  const canCapture = !!tab?.live && !!tab.url && !isBlankUrl(tab.url);
+
+  // Pasted, never submitted: the person decides what to say about it, exactly
+  // as with a file dropped on the terminal. Main writes the file; the image
+  // itself never reaches this window.
+  const sendScreenshot = async () => {
+    if (!tab) return;
+    const file = await browserBridge.capture(tab.id);
+    if (file) terminalBridge.paste(instanceId, formatDroppedPaths([file], cwd));
+  };
 
   return (
     <Tooltip.Provider delayDuration={300}>
@@ -62,6 +80,13 @@ export function BrowserToolbar({ tab, onOpen }: BrowserToolbarProps) {
           onClick={() => window.open(address, '_blank')}
         >
           <ExternalLink size={14} />
+        </ToolbarButton>
+        <ToolbarButton
+          label="Send a screenshot to the session"
+          disabled={!canCapture}
+          onClick={() => void sendScreenshot()}
+        >
+          <Camera size={14} />
         </ToolbarButton>
         <BrowserMoreMenu tabId={tab?.id} />
       </div>

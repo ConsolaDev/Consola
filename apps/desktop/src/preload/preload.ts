@@ -105,6 +105,7 @@ contextBridge.exposeInMainWorld('browserAPI', {
   zoom: (tabId, step) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ZOOM, tabId, step),
   openDevTools: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_DEVTOOLS, tabId),
   history: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_HISTORY),
+  capture: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CAPTURE, tabId),
   localServers: (sessionId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_LOCAL_SERVERS, sessionId),
   continueCertificate: (tabId) =>
     ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, tabId),

@@ -28,6 +28,7 @@ import {
 import type { BrowserStateFile } from '../shared/browser';
 import { BrowserService } from './browser/BrowserService';
 import { BrowserStateStore } from './browser/BrowserStateStore';
+import { CaptureStore } from './browser/CaptureStore';
 import { LocalServers } from './browser/LocalServers';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
@@ -280,6 +281,8 @@ export function setupIpcHandlers(): boolean {
     new JsonStateFile<BrowserStateFile>(path.join(app.getPath('userData'), 'browser-state.json')),
   );
   browserStore.load();
+  // Screenshots sent to a session, as files its agent can read.
+  const captures = new CaptureStore(path.join(app.getPath('userData'), 'browser-captures'));
   const browser = new BrowserService({
     store: browserStore,
     workspaceIdForSession: (sessionId) =>
@@ -360,6 +363,7 @@ export function setupIpcHandlers(): boolean {
       const folder = workspace && checkoutPathForSession(workspace, session);
       return localServers.scanFor(folder);
     },
+    saveCapture: (sessionId, png) => captures.write(sessionId, png),
     webContentsFromId: (id) => electronWebContents.fromId(id),
     sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),
   });
@@ -438,6 +442,7 @@ export function setupIpcHandlers(): boolean {
     },
     destroyShell: (instanceId) => shellManager?.destroy(instanceId),
     destroyBrowser: (sessionId) => browser.destroySession(sessionId),
+    removeCaptures: (sessionId) => captures.removeAll(sessionId),
     // A session's endpoint would otherwise outlive its record as a
     // listening socket and a config file nothing can name again.
     releaseMcp: (sessionId) => mcpHost.unregister(sessionId),

@@ -8,6 +8,8 @@ export interface SessionRemoverDeps {
   destroyShell(instanceId: string): void;
   /** The session's browser tabs and the pages behind them. */
   destroyBrowser(sessionId: string): void;
+  /** The screenshots it sent from its browser, as files. */
+  removeCaptures(sessionId: string): Promise<void>;
   /** The session's MCP endpoint: socket, config file and live connections. */
   releaseMcp(sessionId: string): void;
   /**
@@ -66,6 +68,13 @@ export class SessionRemover {
     this.stop(session);
     // Not in stop(): a stopped session keeps its record, and its tabs with it.
     this.deps.destroyBrowser(session.id);
+    try {
+      this.deps.removeCaptures(session.id).catch((error) => {
+        console.error(`Could not delete the browser captures of session ${session.id}:`, error);
+      });
+    } catch (error) {
+      console.error(`Could not delete the browser captures of session ${session.id}:`, error);
+    }
     try {
       this.deps.releaseRemovedWorktree?.(session);
     } catch (error) {

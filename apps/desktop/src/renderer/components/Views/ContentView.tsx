@@ -187,7 +187,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             <>
               <Separator className="resize-handle" />
               <Panel id="browser" defaultSize="45%" minSize="320px">
-                <BrowserPanel sessionId={session.id} />
+                <BrowserPanel sessionId={session.id} instanceId={instanceId} cwd={cwd} />
               </Panel>
             </>
           )}

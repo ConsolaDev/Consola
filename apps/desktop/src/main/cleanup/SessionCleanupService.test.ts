@@ -163,6 +163,7 @@ class Rig {
       destroyTerminal: (instanceId) => this.stopped.push(instanceId),
       destroyShell: () => {},
       destroyBrowser: () => {},
+      removeCaptures: async () => {},
       releaseMcp: () => {},
       removeHandoffs: async () => {},
     });

@@ -21,6 +21,8 @@ export interface BrowserIpcDeps {
   sessionInWorkspace(sessionId: string, workspaceId: string): boolean;
   /** The servers started from the session's checkout; null when the scan could not answer. */
   localServersFor(sessionId: string): Promise<LocalServer[] | null>;
+  /** Where a capture is written; answers the file's path. */
+  saveCapture(sessionId: string, png: Buffer): Promise<string>;
   webContentsFromId(id: number): WebContents | undefined;
   /** The Electron session of a workspace's browser partition. */
   sessionForWorkspace(workspaceId: string): unknown;
@@ -48,6 +50,7 @@ const CHANNELS = [
   IPC_CHANNELS.BROWSER_AUTH_ANSWER,
   IPC_CHANNELS.BROWSER_CLEAR_DATA,
   IPC_CHANNELS.BROWSER_LOCAL_SERVERS,
+  IPC_CHANNELS.BROWSER_CAPTURE,
 ];
 
 const EMPTY: BrowserSessionSnapshot = { tabs: [], activeTabId: null };
@@ -140,6 +143,14 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
     async (event, sessionId: string): Promise<LocalServer[] | null> =>
       ownedSession(event, sessionId) ? await deps.localServersFor(sessionId) : [],
   );
+
+  // Checked like every tab-scoped call. The image never leaves main: only the
+  // path of the file it was written to goes back.
+  ipc.handle(IPC_CHANNELS.BROWSER_CAPTURE, async (event, tabId: string): Promise<string | null> => {
+    if (!ownedTab(event, tabId)) return null;
+    const captured = await service.capturePage(tabId);
+    return captured ? await deps.saveCapture(captured.sessionId, captured.png) : null;
+  });
 
   ipc.handle(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, (event, tabId: string): boolean =>
     ownedTab(event, tabId) ? service.continueCertificate(tabId) : false,

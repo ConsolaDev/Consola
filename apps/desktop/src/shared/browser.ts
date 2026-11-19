@@ -195,6 +195,8 @@ export interface BrowserAPI {
   history(): Promise<BrowserHistoryEntry[]>;
   /** Servers listening on this machine that were started from the session's folder. Null when the scan could not answer. */
   localServers(sessionId: string): Promise<LocalServer[] | null>;
+  /** Saves what the tab's page shows as a PNG and resolves its path; null when the tab has no live page. */
+  capture(tabId: string): Promise<string | null>;
   /** Trusts the certificate a tab refused (loopback only) and reloads it. False when nothing was offered. */
   continueCertificate(tabId: string): Promise<boolean>;
   /** Answers a sign-in request with credentials, or null to cancel it. */

@@ -56,6 +56,23 @@ export class PageTools {
     return guest.getZoomLevel();
   }
 
+  /**
+   * The page as a PNG, or null for a tab with no live page or one that cannot
+   * be read. Reads the guest's own surface: nothing is focused, and the
+   * window and the page keep the keyboard where it was.
+   */
+  public async capturePage(tabId: string): Promise<Buffer | null> {
+    const guest = this.guestOf(tabId);
+    if (!guest) return null;
+    try {
+      const image = await guest.capturePage();
+      return image.isEmpty() ? null : image.toPNG();
+    } catch {
+      // The page went away mid-capture.
+      return null;
+    }
+  }
+
   /** Detached, so the page keeps its whole panel. */
   public openDevTools(tabId: string): void {
     this.guestOf(tabId)?.openDevTools({ mode: 'detach' });

@@ -11,6 +11,12 @@ function guest() {
     setZoomLevel: vi.fn(),
     getZoomLevel: vi.fn(() => 0),
     isDestroyed: () => false,
+    capturePage: vi.fn(
+      async (): Promise<{ isEmpty(): boolean; toPNG(): Buffer }> => ({
+        isEmpty: () => false,
+        toPNG: () => Buffer.from([9]),
+      }),
+    ),
   };
 }
 
@@ -33,6 +39,25 @@ describe('PageTools', () => {
     expect(g.findInPage).toHaveBeenLastCalledWith('needle');
     tools.findText('t', 'needle', { forward: false, next: true });
     expect(g.findInPage).toHaveBeenLastCalledWith('needle', { forward: false, findNext: true });
+  });
+});
+
+describe('capturePage', () => {
+  it('answers the PNG of a live page and null for a tab with no page', async () => {
+    const g = guest();
+    expect([
+      ...((await new PageTools(() => g as unknown as WebContents).capturePage('t')) ?? []),
+    ]).toEqual([9]);
+    expect(await new PageTools(() => undefined).capturePage('t')).toBeNull();
+  });
+
+  it('answers null for an empty image or a page that fails mid-capture', async () => {
+    const g = guest();
+    g.capturePage.mockResolvedValueOnce({ isEmpty: () => true, toPNG: () => Buffer.from([]) });
+    const tools = new PageTools(() => g as unknown as WebContents);
+    expect(await tools.capturePage('t')).toBeNull();
+    g.capturePage.mockRejectedValueOnce(new Error('gone'));
+    expect(await tools.capturePage('t')).toBeNull();
   });
 });
 
