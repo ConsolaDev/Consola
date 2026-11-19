@@ -59,6 +59,11 @@ export function decideAttach(
   // could add (a preload, its own session, `webviewTag` to nest guests) is one
   // more thing to remember to strip. A guest never gets a script of the app's;
   // no preload means no `ipcRenderer`, which keeps a page from reaching main.
+  //
+  // Dropping Electron's defaults is deliberate too: `disablePopups: true` goes,
+  // so a popup now reaches `setWindowOpenHandler` (which denies it, and which
+  // later popup handling relies on), and `zoomFactor` goes, so guests start at
+  // 100%.
   const webPreferences: WebPreferences = {
     partition: params.partition,
     nodeIntegration: false,
@@ -122,10 +127,12 @@ export function decideAppNavigation(
  * Called once for every guest a window has attached, with everything a later
  * feature needs to watch it. `guestId` is read once, as the guest attaches.
  *
+ * Registering here is how `BrowserService` hears about guests without
+ * re-plumbing `did-attach-webview`.
+ *
  * Navigation goes through main: the renderer must never set `<webview>.src`
  * after attach. It would bypass `will-navigate`; the guard below reverts a
- * disallowed address, but only as a backstop. Registering here is how `BrowserService` hears
- * about guests without re-plumbing `did-attach-webview`.
+ * disallowed address, but only as a backstop.
  *
  * A listener that tracks the guest by id reads `guest.id` here, once, and keeps
  * it: a destroyed WebContents throws on `.id`, and an event handler that throws
@@ -198,7 +205,8 @@ export function installGuestPolicy(
     // Applied to the real objects: Electron reads both after this event.
     const { webPreferences: allowed } = decision;
     for (const key of Object.keys(webPreferences)) {
-      if (!(key in allowed)) delete (webPreferences as Record<string, unknown>)[key];
+      if (!Object.prototype.hasOwnProperty.call(allowed, key))
+        delete (webPreferences as Record<string, unknown>)[key];
     }
     Object.assign(webPreferences, allowed);
     // Also set on params: the attribute is read from there too.
@@ -210,6 +218,8 @@ export function installGuestPolicy(
     // Read once, now: a destroyed WebContents throws on `.id`, and an event
     // handler that throws is swallowed, leaving state that never clears.
     const guestId = guest.id;
+    // Guarded first, so even a guest refused below is never unguarded.
+    secureGuest(guest);
     const workspaceId = deps.workspaceOf();
     // What was checked on the way in is checked again on the way out: the
     // guest must be in the partition of the workspace this window holds.
@@ -218,10 +228,15 @@ export function installGuestPolicy(
       window.isDestroyed() ||
       guest.session !== deps.prepare(browserPartitionFor(workspaceId))
     ) {
+      // `close()` alone is not enough on Electron 43: it destroys only main's
+      // handle, and the page keeps loading and running. A popup from it then
+      // takes the whole main process down. Electron starts loading `src` just
+      // before this event, so that one navigation is still in flight and
+      // `stop()` cancels it before the handle goes.
+      guest.stop();
       guest.close();
       return;
     }
-    secureGuest(guest);
     for (const listener of guestAttachedListeners) {
       listener(guest, window, workspaceId, guestId);
     }
