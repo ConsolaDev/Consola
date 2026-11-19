@@ -1,5 +1,6 @@
-import { useId, useRef, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import { resolveAddressInput } from '../../../shared/browser';
+import { useAddressFocusStore } from '../../stores/addressFocusStore';
 
 interface AddressBarProps {
   /** What the bar shows while nobody is editing it. */
@@ -25,6 +26,16 @@ export function AddressBar({ address, onOpen }: AddressBarProps) {
   // the select-all that focusing does.
   const selectingOnFocus = useRef(false);
   const messageId = useId();
+
+  // The one place focus moves into the panel, and only because the person
+  // pressed ⌘L (an agent's input never reaches this store).
+  useEffect(
+    () =>
+      useAddressFocusStore.subscribe((state, previous) => {
+        if (state.requests !== previous.requests) inputRef.current?.focus();
+      }),
+    [],
+  );
 
   const reset = () => {
     setDraft(null);

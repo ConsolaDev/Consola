@@ -31,7 +31,11 @@ import {
 } from '../../stores/settingsStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useTheme } from '../../hooks/useTheme';
-import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
+import {
+  BROWSER_SHORTCUT_LABEL,
+  COMMAND_PALETTE_SHORTCUT_LABEL,
+  isMac,
+} from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
 import { WorktreeCleanupControl } from '../WorktreeCleanup/WorktreeCleanupControl';
@@ -363,6 +367,7 @@ function ShortcutsSection() {
     { label: 'Switch workspace by position', key: `${mod}1–9` },
     { label: 'Toggle sidebar', key: `${mod}\\` },
     { label: 'Toggle file explorer', key: `${mod}${shift}E` },
+    { label: 'Toggle browser', key: BROWSER_SHORTCUT_LABEL },
     { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: `${mod}${shift}T` },

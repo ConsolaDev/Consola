@@ -355,6 +355,16 @@ export class BrowserService {
     return undefined;
   }
 
+  /**
+   * The tab a guest is bound to, or null while it is not (a page's first keys
+   * can arrive before the renderer binds it). Asked by guest id, never by the
+   * contents: a destroyed one throws on `.id`.
+   */
+  public tabIdForGuest(guestId: number): string | null {
+    for (const [tabId, entry] of this.guests) if (entry.guestId === guestId) return tabId;
+    return null;
+  }
+
   private liveGuest(tabId: string): WebContents | undefined {
     const guest = this.guests.get(tabId)?.guest;
     return guest && !guest.isDestroyed() ? guest : undefined;

@@ -1,11 +1,11 @@
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
+import { FolderTree, Globe, RotateCw, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
-import { isMac } from '../../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, isMac } from '../../utils/platform';
 
 interface PathDisplayProps {
   path: string;
@@ -15,6 +15,10 @@ interface PathDisplayProps {
   showExplorerToggle?: boolean;
   isExplorerVisible?: boolean;
   onToggleExplorer?: () => void;
+  isBrowserVisible?: boolean;
+  onToggleBrowser?: () => void;
+  /** An agent is using the session's page; marks the globe. Off until something drives it. */
+  isBrowserAgentActive?: boolean;
   isTerminalVisible?: boolean;
   onToggleTerminal?: () => void;
 }
@@ -46,6 +50,9 @@ export function PathDisplay({
   showExplorerToggle = false,
   isExplorerVisible = false,
   onToggleExplorer,
+  isBrowserVisible = false,
+  onToggleBrowser,
+  isBrowserAgentActive = false,
   isTerminalVisible = false,
   onToggleTerminal,
 }: PathDisplayProps) {
@@ -164,6 +171,31 @@ export function PathDisplay({
                 <Tooltip.Content className="tooltip-content" sideOffset={5}>
                   {isExplorerVisible ? 'Hide file explorer' : 'Show file explorer'} (
                   {explorerShortcut})
+                  <Tooltip.Arrow className="tooltip-arrow" />
+                </Tooltip.Content>
+              </Tooltip.Portal>
+            </Tooltip.Root>
+          </Tooltip.Provider>
+        )}
+        {onToggleBrowser && (
+          <Tooltip.Provider delayDuration={300}>
+            <Tooltip.Root>
+              <Tooltip.Trigger asChild>
+                <button
+                  type="button"
+                  className={`path-display-toggle ${isBrowserVisible ? 'active' : ''}`}
+                  onClick={onToggleBrowser}
+                  aria-label={isBrowserVisible ? 'Hide browser' : 'Show browser'}
+                  aria-pressed={isBrowserVisible}
+                  aria-keyshortcuts={isMac ? 'Meta+Shift+L' : 'Control+Shift+L'}
+                  data-agent-active={isBrowserAgentActive || undefined}
+                >
+                  <Globe size={14} />
+                </button>
+              </Tooltip.Trigger>
+              <Tooltip.Portal>
+                <Tooltip.Content className="tooltip-content" sideOffset={5}>
+                  {isBrowserVisible ? 'Hide browser' : 'Show browser'} ({BROWSER_SHORTCUT_LABEL})
                   <Tooltip.Arrow className="tooltip-arrow" />
                 </Tooltip.Content>
               </Tooltip.Portal>

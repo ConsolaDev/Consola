@@ -1,5 +1,6 @@
 import type {
   BrowserSessionSnapshot,
+  BrowserShortcutMessage,
   BrowserSnapshotMessage,
   BrowserTab,
 } from '../../shared/browser';
@@ -68,8 +69,8 @@ export const browserBridge = {
     return window.browserAPI.onSnapshot(callback);
   },
 
-  /** The browser shortcut was pressed while a page had focus. Returns the unsubscribe. */
-  onShortcut(callback: () => void): () => void {
+  /** A chord was pressed while a page had focus, and main took it. Returns the unsubscribe. */
+  onShortcut(callback: (message: BrowserShortcutMessage) => void): () => void {
     return window.browserAPI.onShortcut(callback);
   },
 };

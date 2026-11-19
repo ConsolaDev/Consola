@@ -157,6 +157,16 @@ describe('tabs', () => {
     expect(service.snapshotFor('s1')).toEqual({ tabs: [], activeTabId: null });
   });
 
+  it('names the tab a guest is bound to, and none before or after', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    const guest = new FakeGuest(12);
+    expect(service.tabIdForGuest(12)).toBeNull();
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    expect(service.tabIdForGuest(12)).toBe('tab1');
+    service.unbindGuest('tab1');
+    expect(service.tabIdForGuest(12)).toBeNull();
+  });
+
   it('activates only a tab that exists', () => {
     service.openTab('s1', 'https://a.com', 'person');
     service.openTab('s1', 'https://b.com', 'person');

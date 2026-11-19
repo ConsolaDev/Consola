@@ -30,6 +30,8 @@ import './styles.css';
 export function SessionHeader({ workspace, session }: { workspace: Workspace; session: Session }) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
+  const isBrowserVisible = useNavigationStore((state) => state.isBrowserVisible);
+  const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const isTerminalVisible = useShellStore((state) => state.open[session.instanceId] ?? false);
   const toggleTerminal = useShellStore((state) => state.toggle);
   const cwd = checkoutPathForSession(workspace, session) ?? '';
@@ -79,6 +81,8 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           showExplorerToggle
           isExplorerVisible={isExplorerVisible}
           onToggleExplorer={toggleExplorer}
+          isBrowserVisible={isBrowserVisible}
+          onToggleBrowser={toggleBrowser}
           isTerminalVisible={isTerminalVisible}
           onToggleTerminal={() => toggleTerminal(session.instanceId)}
         />

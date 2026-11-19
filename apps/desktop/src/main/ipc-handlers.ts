@@ -29,6 +29,7 @@ import { BrowserService } from './browser/BrowserService';
 import { BrowserStateStore } from './browser/BrowserStateStore';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
+import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import { partitionFor } from './browser/sessionPolicy';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -295,9 +296,12 @@ export function setupIpcHandlers(): boolean {
   browserService = browser;
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.
-  const stopWatchingGuests = onGuestAttached((guest, _window, _workspaceId, guestId) =>
-    browser.noteAttached(guest, guestId),
-  );
+  // Here rather than in `secureGuest` because only an accepted guest has a
+  // host window worth forwarding to; a refused one is closed straight away.
+  const stopWatchingGuests = onGuestAttached((guest, window, _workspaceId, guestId) => {
+    browser.noteAttached(guest, guestId);
+    forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
+  });
   const registered = registerBrowserHandlers({
     ipc: ipcMain,
     service: browser,

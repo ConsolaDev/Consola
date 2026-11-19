@@ -1,4 +1,15 @@
 import type { PaletteScope } from '../components/CommandPalette/types';
+import {
+  BROWSER_SHORTCUT_LABELS,
+  isBrowserShortcut as isBrowser,
+  isCommandPaletteShortcut as isCommandPalette,
+  isSidebarShortcut as isSidebar,
+  matchScopeShortcut as matchScope,
+  matchWorkspaceShortcut as matchWorkspace,
+  scopeShortcutLabels,
+  type KeyChord,
+  type ShortcutPlatform,
+} from '../../shared/shortcuts';
 
 /**
  * Which platform the renderer is running on.
@@ -9,52 +20,46 @@ import type { PaletteScope } from '../components/CommandPalette/types';
  */
 export const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
 
+/** `isMac` in the form the shared matchers take. */
+export const PLATFORM: ShortcutPlatform = isMac ? 'mac' : 'other';
+
 /** The modifier that means "application shortcut" on this platform. */
 export function hasPlatformModifier(event: KeyboardEvent): boolean {
   return isMac ? event.metaKey : event.ctrlKey;
 }
 
-/** Cmd/Ctrl + 1–9 follows the workspace rail's order. */
-export function matchWorkspaceShortcut(event: KeyboardEvent): number | null {
-  if (
-    !hasPlatformModifier(event) ||
-    (isMac ? event.ctrlKey : event.metaKey) ||
-    event.altKey ||
-    event.shiftKey ||
-    event.isComposing
-  )
-    return null;
-  const digit = /^Digit[1-9]$/.test(event.code) ? event.code.slice(5) : event.key;
-  return /^[1-9]$/.test(digit) ? Number(digit) - 1 : null;
+/** What a key event is, in the shape `shared/shortcuts` matches over. */
+export function chordOf(event: KeyboardEvent): KeyChord {
+  return {
+    key: event.key,
+    code: event.code,
+    meta: event.metaKey,
+    ctrl: event.ctrlKey,
+    shift: event.shiftKey,
+    alt: event.altKey,
+    isComposing: event.isComposing,
+  };
 }
 
-/**
- * The command palette chord: Cmd+K on macOS, Ctrl+Shift+P everywhere else.
- *
- * The split is not cosmetic. xterm only turns a key into PTY bytes for a bare
- * Ctrl+letter — `ctrlKey && !shiftKey && !altKey && !metaKey` — so Ctrl+K would
- * reach Claude as U+000B (kill-to-end-of-line) before this listener ever saw
- * it. Cmd carries `metaKey` and Ctrl+Shift+P carries `shiftKey`, so neither
- * chord produces a keypress the terminal would forward.
- */
-export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
-  if (isMac) {
-    return (
-      event.metaKey &&
-      !event.ctrlKey &&
-      !event.shiftKey &&
-      !event.altKey &&
-      event.key.toLowerCase() === 'k'
-    );
-  }
-  return (
-    event.ctrlKey &&
-    event.shiftKey &&
-    !event.metaKey &&
-    !event.altKey &&
-    event.key.toLowerCase() === 'p'
-  );
+/** The matchers live in `shared/shortcuts` because main answers the same questions for pages. */
+export function matchWorkspaceShortcut(event: KeyboardEvent): number | null {
+  return matchWorkspace(chordOf(event), PLATFORM);
 }
+
+export function isCommandPaletteShortcut(event: KeyboardEvent): boolean {
+  return isCommandPalette(chordOf(event), PLATFORM);
+}
+
+export function isSidebarShortcut(event: KeyboardEvent): boolean {
+  return isSidebar(chordOf(event), PLATFORM);
+}
+
+/** Shows or hides the browser panel. */
+export function isBrowserShortcut(event: KeyboardEvent): boolean {
+  return isBrowser(chordOf(event), PLATFORM);
+}
+
+export const BROWSER_SHORTCUT_LABEL = BROWSER_SHORTCUT_LABELS[PLATFORM];
 
 /**
  * The Working shelf chord: Cmd+Shift+B on macOS, Ctrl+Shift+B elsewhere.
@@ -82,38 +87,11 @@ export const COMMAND_PALETTE_SHORTCUT_LABEL = isMac ? '⌘K' : 'Ctrl+Shift+P';
  * each non-mac chord carries Shift. Actions get no chord on purpose — the
  * palette opens with them at the top, and `>` is one keystroke away.
  */
-const SCOPE_SHORTCUTS: ReadonlyArray<{
-  scope: PaletteScope;
-  key: string;
-  shift: boolean;
-  label: string;
-}> = isMac
-  ? [
-      { scope: 'sessions', key: 'p', shift: false, label: '⌘P' },
-      { scope: 'workspaces', key: 'p', shift: true, label: '⇧⌘P' },
-      { scope: 'files', key: 'o', shift: true, label: '⇧⌘O' },
-    ]
-  : [
-      { scope: 'sessions', key: 's', shift: true, label: 'Ctrl+Shift+S' },
-      { scope: 'workspaces', key: 'w', shift: true, label: 'Ctrl+Shift+W' },
-      { scope: 'files', key: 'o', shift: true, label: 'Ctrl+Shift+O' },
-    ];
-
 /** The scope a key event asks for, or null if it is not one of these chords. */
 export function matchScopeShortcut(event: KeyboardEvent): PaletteScope | null {
-  const hasPlatformModifier = isMac
-    ? event.metaKey && !event.ctrlKey
-    : event.ctrlKey && !event.metaKey;
-  if (!hasPlatformModifier || event.altKey) return null;
-
-  const key = event.key.toLowerCase();
-  const match = SCOPE_SHORTCUTS.find(
-    (entry) => entry.key === key && entry.shift === event.shiftKey,
-  );
-  return match?.scope ?? null;
+  return matchScope(chordOf(event), PLATFORM);
 }
 
 /** How each scope chord is written, for the palette's section headers. */
-export const SCOPE_SHORTCUT_LABELS: Partial<Record<PaletteScope, string>> = Object.fromEntries(
-  SCOPE_SHORTCUTS.map((entry) => [entry.scope, entry.label]),
-);
+export const SCOPE_SHORTCUT_LABELS: Partial<Record<PaletteScope, string>> =
+  scopeShortcutLabels(PLATFORM);

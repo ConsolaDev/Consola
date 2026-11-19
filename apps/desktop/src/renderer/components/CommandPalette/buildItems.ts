@@ -4,6 +4,7 @@ import {
   FolderTree,
   GitBranch,
   GitCommit,
+  Globe,
   Minus,
   PanelLeft,
   PanelRight,
@@ -34,7 +35,7 @@ import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
-import { isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
+import { BROWSER_SHORTCUT_LABEL, isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
 import type {
   PaletteMode,
   ActionPaletteItem,
@@ -224,6 +225,15 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       icon: FolderTree,
       shortcutHint: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
       run: () => useNavigationStore.getState().toggleExplorer(),
+    });
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.view.toggle-browser',
+      label: 'Toggle browser',
+      icon: Globe,
+      shortcutHint: BROWSER_SHORTCUT_LABEL,
+      run: () => useNavigationStore.getState().toggleBrowser(),
     });
   }
 

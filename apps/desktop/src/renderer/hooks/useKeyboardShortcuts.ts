@@ -5,12 +5,16 @@ import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
 import {
+  isBrowserShortcut,
   isCommandPaletteShortcut,
+  isSidebarShortcut,
   isWorkingShelfShortcut,
   matchScopeShortcut,
   matchWorkspaceShortcut,
 } from '../utils/platform';
 import { windowBridge } from '../services/windowBridge';
+import { browserBridge } from '../services/browserBridge';
+import { handleBrowserAction } from '../components/Browser/handleBrowserAction';
 import type { PaletteScope } from '../components/CommandPalette/types';
 
 interface UseKeyboardShortcutsOptions {
@@ -19,6 +23,24 @@ interface UseKeyboardShortcutsOptions {
   onOpenSettings?: () => void;
   onTogglePalette?: () => void;
   onOpenScopedPalette?: (scope: PaletteScope) => void;
+}
+
+/** Jumps to the workspace at `index` on the rail. False when there is none. */
+function switchToWorkspaceAt(index: number, repeat: boolean): boolean {
+  const workspace = useWorkspaceStore.getState().workspaces[index];
+  if (!workspace) return false;
+  if (!repeat) void useNavigationStore.getState().setActiveWorkspace(workspace.id);
+  return true;
+}
+
+/** Shows or hides the open session's terminal. False when no session is open. */
+function toggleOpenSessionShell(repeat: boolean): boolean {
+  const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
+  if (!activeWorkspaceId || !activeSessionId || overlay !== null) return false;
+  const session = useWorkspaceStore.getState().getSession(activeWorkspaceId, activeSessionId);
+  if (!session) return false;
+  if (!repeat) useShellStore.getState().toggle(session.instanceId);
+  return true;
 }
 
 /**
@@ -32,6 +54,7 @@ interface UseKeyboardShortcutsOptions {
 export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) {
   const toggleSidebar = useNavigationStore((state) => state.toggleSidebar);
   const toggleExplorer = useNavigationStore((state) => state.toggleExplorer);
+  const toggleBrowser = useNavigationStore((state) => state.toggleBrowser);
   const cycleTheme = useSettingsStore((state) => state.cycleTheme);
   const {
     onNewSession,
@@ -45,11 +68,7 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     const handleKeyDown = (event: KeyboardEvent) => {
       const workspaceIndex = matchWorkspaceShortcut(event);
       if (workspaceIndex !== null) {
-        const workspace = useWorkspaceStore.getState().workspaces[workspaceIndex];
-        if (workspace) {
-          event.preventDefault();
-          if (!event.repeat) void useNavigationStore.getState().setActiveWorkspace(workspace.id);
-        }
+        if (switchToWorkspaceAt(workspaceIndex, event.repeat)) event.preventDefault();
         return;
       }
 
@@ -78,24 +97,22 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // Shows or hides the browser panel beside the session.
+      if (isBrowserShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) toggleBrowser();
+        return;
+      }
+
       if (isShellShortcut(event)) {
-        const { activeWorkspaceId, activeSessionId, overlay } = useNavigationStore.getState();
-        if (activeWorkspaceId && activeSessionId && overlay === null) {
-          const session = useWorkspaceStore
-            .getState()
-            .getSession(activeWorkspaceId, activeSessionId);
-          if (session) {
-            event.preventDefault();
-            if (!event.repeat) useShellStore.getState().toggle(session.instanceId);
-          }
-        }
+        if (toggleOpenSessionShell(event.repeat)) event.preventDefault();
         return;
       }
 
       const isMod = event.metaKey || event.ctrlKey;
 
       // Cmd/Ctrl + \ : Toggle sidebar
-      if (isMod && event.key === '\\') {
+      if (isSidebarShortcut(event)) {
         event.preventDefault();
         toggleSidebar();
         return;
@@ -141,10 +158,44 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     };
 
     window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
+
+    // A chord pressed inside a page never reaches the listener above: a
+    // focused `<webview>` keeps its keys. Main takes the app's chords from the
+    // page and sends them here, to run the same actions. Whatever is not an
+    // app chord is one of the browser's own, which `handleBrowserAction` owns.
+    const stopForwarded = browserBridge.onShortcut(({ tabId, action }) => {
+      switch (action.kind) {
+        case 'workspace':
+          switchToWorkspaceAt(action.index, false);
+          return;
+        case 'command-palette':
+          onTogglePalette?.();
+          return;
+        case 'scoped-palette':
+          onOpenScopedPalette?.(action.scope);
+          return;
+        case 'sidebar':
+          toggleSidebar();
+          return;
+        case 'terminal':
+          toggleOpenSessionShell(false);
+          return;
+        case 'browser':
+          toggleBrowser();
+          return;
+        default:
+          handleBrowserAction(tabId, action);
+      }
+    });
+
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+      stopForwarded();
+    };
   }, [
     toggleSidebar,
     toggleExplorer,
+    toggleBrowser,
     cycleTheme,
     onNewSession,
     onNewSessionWithOptions,

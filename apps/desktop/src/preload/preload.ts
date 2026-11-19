@@ -101,7 +101,7 @@ contextBridge.exposeInMainWorld('browserAPI', {
   attach: (tabId, webContentsId) =>
     ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ATTACH, tabId, webContentsId),
   onSnapshot: (callback) => subscribe(IPC_CHANNELS.BROWSER_SNAPSHOT, callback),
-  onShortcut: (callback) => subscribe<void>(IPC_CHANNELS.BROWSER_SHORTCUT, () => callback()),
+  onShortcut: (callback) => subscribe(IPC_CHANNELS.BROWSER_SHORTCUT, callback),
 } satisfies BrowserAPI);
 
 // Expose protected methods to the renderer process

@@ -4,6 +4,8 @@
  * imports, because main, the renderer and tests all read it.
  */
 
+import type { ForwardedShortcut } from './shortcuts';
+
 /** A session can hold this many pages; more would keep too many guests alive. */
 export const MAX_TABS_PER_SESSION = 12;
 
@@ -92,6 +94,16 @@ export interface BrowserSnapshotMessage {
 }
 
 /**
+ * What a window receives on `BROWSER_SHORTCUT`: a chord main took from a page
+ * that had focus. `tabId` is the tab whose page it came from, or null when
+ * main had not bound that page to a tab yet.
+ */
+export interface BrowserShortcutMessage {
+  tabId: string | null;
+  action: ForwardedShortcut;
+}
+
+/**
  * What the preload exposes as `window.browserAPI`. Reach it through
  * `browserBridge`, never directly.
  *
@@ -114,7 +126,7 @@ export interface BrowserAPI {
   /** Binds a mounted, attached `<webview>` (by its `getWebContentsId()`) to its tab. */
   attach(tabId: string, webContentsId: number): Promise<boolean>;
   onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void;
-  onShortcut(callback: () => void): () => void;
+  onShortcut(callback: (message: BrowserShortcutMessage) => void): () => void;
 }
 
 // --- Addresses ---
