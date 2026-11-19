@@ -61,8 +61,8 @@ export function decideAttach(
   // no preload means no `ipcRenderer`, which keeps a page from reaching main.
   //
   // Dropping Electron's defaults is deliberate too: `disablePopups: true` goes,
-  // so a popup now reaches `setWindowOpenHandler` (which denies it, and which
-  // later popup handling relies on), and `zoomFactor` goes, so guests start at
+  // so a popup now reaches `setWindowOpenHandler` (where `popupPolicy` decides
+  // it), and `zoomFactor` goes, so guests start at
   // 100%.
   const webPreferences: WebPreferences = {
     partition: params.partition,
@@ -155,10 +155,20 @@ export function onGuestAttached(listener: GuestAttachedListener): () => void {
 
 /**
  * The floor every guest gets, before any feature looks at it: navigation
- * limited to web pages, and no popups until a later feature decides which are
- * allowed.
+ * limited to web pages, and no popups until `installPopupPolicy` decides which
+ * are allowed (a guest it never reaches keeps this refusal).
  */
 export function secureGuest(guest: WebContents): void {
+  guardNavigation(guest);
+  guest.setWindowOpenHandler(() => ({ action: 'deny' }));
+}
+
+/**
+ * Keeps a page's contents on web addresses: refuses a disallowed navigation
+ * before it starts, and reverts one that started anyway. Shared by guests and
+ * popup windows, which hold the same kind of untrusted page.
+ */
+export function guardNavigation(guest: WebContents): void {
   const refuse = (event: { preventDefault(): void }, url: string) => {
     if (!decideNavigation(url)) event.preventDefault();
   };
@@ -175,7 +185,6 @@ export function secureGuest(guest: WebContents): void {
       void guest.loadURL('about:blank').catch(() => undefined);
     });
   });
-  guest.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
 /**

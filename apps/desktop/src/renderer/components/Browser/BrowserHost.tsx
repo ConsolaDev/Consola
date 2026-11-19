@@ -182,6 +182,9 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
         className="browser-page-webview"
         src={initial.src}
         partition={initial.partition}
+        // Lets a page's window.open reach main's popup policy; without it
+        // Chromium drops the request before main is asked.
+        allowpopups={true}
       />
       {tab.loading && <div className="browser-page-loading" aria-hidden="true" />}
       {shownError && (

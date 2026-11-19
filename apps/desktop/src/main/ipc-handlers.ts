@@ -29,6 +29,8 @@ import { BrowserService } from './browser/BrowserService';
 import { BrowserStateStore } from './browser/BrowserStateStore';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
+import { installPopupPolicy } from './browser/popupWindows';
+import { isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import { partitionFor } from './browser/sessionPolicy';
 import { randomUUID } from 'node:crypto';
@@ -298,9 +300,19 @@ export function setupIpcHandlers(): boolean {
   // after dom-ready, when its first load may already have finished or failed.
   // Here rather than in `secureGuest` because only an accepted guest has a
   // host window worth forwarding to; a refused one is closed straight away.
-  const stopWatchingGuests = onGuestAttached((guest, window, _workspaceId, guestId) => {
+  const stopWatchingGuests = onGuestAttached((guest, window, workspaceId, guestId) => {
     browser.noteAttached(guest, guestId);
     forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
+    installPopupPolicy(guest, {
+      host: window,
+      guestId,
+      sessionIdOf: (id) => browser.sessionIdForGuest(id),
+      workspaceId,
+      atTabCap: (sessionId) => browser.atTabCap(sessionId),
+      openTab: (sessionId, url) => void browser.openTab(sessionId, url, 'person'),
+      popups: browser.popups,
+      hidden: isBackgroundTest,
+    });
   });
   const registered = registerBrowserHandlers({
     ipc: ipcMain,

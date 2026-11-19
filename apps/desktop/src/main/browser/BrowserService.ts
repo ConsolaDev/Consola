@@ -12,6 +12,7 @@ import {
 } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserStateStore } from './BrowserStateStore';
+import { PopupRegistry } from './popupWindows';
 
 /** A guest whose renderer dies is reloaded at most this often before the person decides. */
 export const CRASH_RETRY_LIMIT = 3;
@@ -89,6 +90,8 @@ export class BrowserService {
   private readonly live = new Map<string, LiveFields>();
   /** Guests attached but not yet bound, by guest id. */
   private readonly pending = new Map<number, PendingGuest>();
+  /** The popup windows pages opened, closed with whatever owns them. */
+  public readonly popups = new PopupRegistry();
   private readonly now: () => number;
   private readonly newId: () => string;
 
@@ -295,6 +298,7 @@ export class BrowserService {
     // By the guests' own memory as well as the store's tabs: the store may
     // already have dropped the session (see `prune`).
     this.destroyGuestsWhere((entry) => entry.sessionId === sessionId);
+    this.popups.closeWhere((owner) => owner.sessionId === sessionId);
     const session = this.deps.store.getSession(sessionId);
     if (!session) return;
     for (const tab of session.tabs) this.live.delete(tab.id);
@@ -311,6 +315,7 @@ export class BrowserService {
       if (!liveSessionIds.has(sessionId)) this.destroySession(sessionId);
     }
     this.destroyGuestsWhere((entry) => !liveSessionIds.has(entry.sessionId));
+    this.popups.closeWhere((owner) => !liveSessionIds.has(owner.sessionId));
     this.deps.store.prune(liveSessionIds, liveWorkspaceIds);
   }
 
@@ -324,6 +329,7 @@ export class BrowserService {
     // Every page of the workspace is closed before its storage is cleared: a
     // live page could otherwise write it again afterwards.
     this.destroyGuestsWhere((entry) => entry.workspaceId === workspaceId);
+    this.popups.closeWhere((owner) => owner.workspaceId === workspaceId);
     this.deps.store.deleteHistory(workspaceId);
     void Promise.resolve(this.deps.clearPartition(workspaceId)).catch(() => {});
   }
@@ -333,11 +339,13 @@ export class BrowserService {
     for (const [tabId, entry] of [...this.guests]) {
       if (entry.host === window) this.unbindGuest(tabId, false);
     }
+    this.popups.closeWhere((owner) => owner.host === window);
   }
 
   /** App quit: the guests die with their windows, so only the state needs saving. */
   public destroyAll(): void {
     for (const tabId of [...this.guests.keys()]) this.destroyGuest(tabId);
+    this.popups.closeAll();
     this.live.clear();
     this.deps.store.flush();
   }
@@ -363,6 +371,17 @@ export class BrowserService {
   public tabIdForGuest(guestId: number): string | null {
     for (const [tabId, entry] of this.guests) if (entry.guestId === guestId) return tabId;
     return null;
+  }
+
+  /** The session whose tab a guest is bound to, or undefined while it is not. */
+  public sessionIdForGuest(guestId: number): string | undefined {
+    for (const entry of this.guests.values()) if (entry.guestId === guestId) return entry.sessionId;
+    return undefined;
+  }
+
+  /** Whether a session may not open another tab. */
+  public atTabCap(sessionId: string): boolean {
+    return this.listFor(sessionId).length >= MAX_TABS_PER_SESSION;
   }
 
   private liveGuest(tabId: string): WebContents | undefined {

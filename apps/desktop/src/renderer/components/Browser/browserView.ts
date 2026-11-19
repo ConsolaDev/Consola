@@ -126,6 +126,22 @@ export function autoRetryUrl(error: BrowserTabError | null): string | null {
 }
 
 /**
+ * What a tab is called in the strip: the page's title, else its host, else a
+ * placeholder for a tab that has not been anywhere.
+ */
+export function tabLabel(tab: Pick<BrowserTabSnapshot, 'title' | 'url'>): string {
+  const title = tab.title.trim();
+  if (title) return title;
+  try {
+    const host = new URL(tab.url).host;
+    if (host) return host;
+  } catch {
+    // Not an address: a blank tab.
+  }
+  return 'New tab';
+}
+
+/**
  * What the address bar shows while nobody is editing it. A page that failed
  * shows the address that failed, not the last one that loaded, since that is
  * the one the error is about; a blank tab shows nothing.

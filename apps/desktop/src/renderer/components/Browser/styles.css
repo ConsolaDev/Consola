@@ -256,3 +256,103 @@
 .browser-error .dialog-button-secondary {
   margin-top: var(--space-2);
 }
+
+/* --- Tab strip (the look of the file preview's tab bar) --- */
+
+.browser-tab-strip {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+  overflow-x: auto;
+  min-height: 32px;
+  scrollbar-width: none;
+}
+
+.browser-tab-strip::-webkit-scrollbar {
+  display: none;
+}
+
+.browser-tab {
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+  gap: var(--space-1);
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+  white-space: nowrap;
+  user-select: none;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast),
+    border-color var(--transition-fast);
+}
+
+.browser-tab:hover {
+  background: var(--color-bg-hover);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.browser-tab[aria-selected="true"] {
+  background: var(--color-bg-active);
+  border-color: var(--color-border);
+  color: var(--color-text-primary);
+}
+
+.browser-tab-label {
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.browser-tab-close,
+.browser-tab-new {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-text-tertiary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.browser-tab-close {
+  width: 14px;
+  height: 14px;
+  margin-left: var(--space-1);
+  opacity: 0;
+}
+
+.browser-tab:hover .browser-tab-close,
+.browser-tab[aria-selected="true"] .browser-tab-close {
+  opacity: 1;
+}
+
+.browser-tab-new {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+}
+
+.browser-tab-close:hover,
+.browser-tab-new:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.browser-tab-new:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}

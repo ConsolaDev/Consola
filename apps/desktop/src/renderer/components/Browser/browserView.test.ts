@@ -13,6 +13,7 @@ import {
   pagePresence,
   RETRY_MAX_MS,
   retryDelayMs,
+  tabLabel,
   visibleTabId,
 } from './browserView';
 
@@ -190,5 +191,22 @@ describe('addressText', () => {
     expect(addressText(tab('t', { url: '' }), null)).toBe('');
     expect(addressText(tab('t', { url: 'about:blank' }), null)).toBe('');
     expect(addressText(tab('t', { url: '' }), { kind: 'crashed' })).toBe('');
+  });
+});
+
+describe('tabLabel', () => {
+  it('prefers the page title', () => {
+    expect(tabLabel(tab('t', { title: ' Docs ', url: 'https://a.test/x' }))).toBe('Docs');
+  });
+
+  it('falls back to the host, port included', () => {
+    expect(tabLabel(tab('t', { title: '', url: 'http://127.0.0.1:3000/a' }))).toBe(
+      '127.0.0.1:3000',
+    );
+  });
+
+  it('calls a tab that has been nowhere a new tab', () => {
+    expect(tabLabel(tab('t', { title: '', url: '' }))).toBe('New tab');
+    expect(tabLabel(tab('t', { title: '', url: 'about:blank' }))).toBe('New tab');
   });
 });

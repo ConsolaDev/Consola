@@ -58,6 +58,28 @@ export async function startFixtureServer(): Promise<FixtureServer> {
         return send(200, page('Page B', 'rgb(0,0,255)'));
       case '/c.html':
         return send(200, page('Page C', 'rgb(0,255,0)'));
+      case '/opener.html':
+        // A new-tab link, and a button that opens a sized popup. The script
+        // records what `window.open` returned, so a test can tell a refusal
+        // (null) from a window that opened.
+        return send(
+          200,
+          page(
+            'Opener',
+            'rgb(200,200,200)',
+            `<a id="blank-link" href="/b.html" target="_blank">new tab</a>
+<button id="pop" onclick="window.popup = window.open('/popup.html', 'p', 'width=420,height=320'); document.title = 'opened:' + (window.popup !== null)">pop</button>`,
+          ),
+        );
+      case '/popup.html':
+        // Tries to open a window of its own, which must be refused.
+        return send(
+          200,
+          `<!doctype html><html><head><title>popup</title></head><body><script>
+            const nested = window.open('/c.html', 'n', 'width=300,height=300');
+            document.title = 'popup:nested-' + (nested === null ? 'denied' : 'open');
+          </script></body></html>`,
+        );
       case '/probe.html':
         return send(
           200,

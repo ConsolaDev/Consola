@@ -3,6 +3,7 @@ import { Globe } from 'lucide-react';
 import { browserBridge } from '../../services/browserBridge';
 import { showBrowserSlot } from '../../stores/browserSlotStore';
 import { activeTabOf, loadBrowser, useBrowserSnapshot } from '../../stores/browserStore';
+import { BrowserTabStrip } from './BrowserTabStrip';
 import { BrowserToolbar } from './BrowserToolbar';
 import './styles.css';
 
@@ -33,6 +34,7 @@ export function BrowserPanel({ sessionId }: BrowserPanelProps) {
 
   return (
     <div className="browser-panel" data-testid="browser-panel">
+      <BrowserTabStrip sessionId={sessionId} snapshot={snapshot} />
       <BrowserToolbar key={`${sessionId}:${tab?.id ?? ''}`} tab={tab} onOpen={open} />
       <div className="browser-slot" data-testid="browser-slot">
         {!tab && (
