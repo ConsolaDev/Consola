@@ -17,6 +17,7 @@ import { BrowserError, useShownError } from './BrowserError';
 import {
   autoRetryUrl,
   hostOrder,
+  pageKey,
   liveTabs,
   pagePresence,
   retryDelayMs,
@@ -97,7 +98,7 @@ export function BrowserHost() {
   );
 
   const live = liveTabs(sessionIds, snapshots).filter((hosted) => !refusedHere.has(hosted.tab.id));
-  const tabs = new Map(live.map((hosted) => [hosted.tab.id, hosted]));
+  const tabs = new Map(live.map((hosted) => [pageKey(hosted.tab), hosted]));
 
   // Main pushes a session's changes only to the window holding its
   // workspace, so what is held for any other session (one of a workspace this
@@ -113,7 +114,7 @@ export function BrowserHost() {
   const [order, setOrder] = useState<string[]>([]);
   const nextOrder = hostOrder(
     order,
-    live.map((hosted) => hosted.tab.id),
+    live.map((hosted) => pageKey(hosted.tab)),
   );
   if (nextOrder !== order) setOrder(nextOrder);
 
@@ -123,16 +124,16 @@ export function BrowserHost() {
 
   return (
     <div ref={hostRef} className="browser-host">
-      {nextOrder.map((tabId) => {
-        const hosted = tabs.get(tabId);
+      {nextOrder.map((key) => {
+        const hosted = tabs.get(key);
         if (!hosted || !workspaceId) return null;
         return (
           <BrowserPage
-            key={tabId}
+            key={key}
             sessionId={hosted.sessionId}
             tab={hosted.tab}
             partition={browserPartitionFor(workspaceId)}
-            presence={pagePresence(tabId, visible, mustKeepPainting(hosted.tab))}
+            presence={pagePresence(hosted.tab.id, visible, mustKeepPainting(hosted.tab))}
             onRefused={refuse}
           />
         );

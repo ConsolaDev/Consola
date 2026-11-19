@@ -434,6 +434,7 @@ export class BrowserService {
         ...IDLE,
         ...this.live.get(tab.id),
         live: this.pages.has(tab.id),
+        loadId: this.pages.loadId(tab.id),
         agentActive: false,
       })),
       activeTabId: session.activeTabId,

@@ -10,6 +10,7 @@ import {
   hostOrder,
   liveTabs,
   nextShownError,
+  pageKey,
   pagePresence,
   RETRY_MAX_MS,
   retryDelayMs,
@@ -27,6 +28,7 @@ function tab(id: string, fields: Partial<BrowserTabSnapshot> = {}): BrowserTabSn
     canGoBack: false,
     canGoForward: false,
     live: false,
+    loadId: 0,
     agentActive: false,
     ...fields,
   };
@@ -62,6 +64,22 @@ describe('liveTabs', () => {
   it('leaves out a session of another workspace', () => {
     expect(liveTabs(new Set(['b']), snapshots).map((h) => h.tab.id)).toEqual(['b1']);
     expect(liveTabs(new Set(), snapshots)).toEqual([]);
+  });
+});
+
+describe('pageKey', () => {
+  it('is a new key when a tab is unloaded and shown again, even if never seen not live', () => {
+    const before = pageKey(tab('a1', { live: true, loadId: 3 }));
+    // Main unloaded and re-showed the tab: live before and after, new load.
+    const after = pageKey(tab('a1', { live: true, loadId: 4 }));
+    expect(after).not.toBe(before);
+    expect(hostOrder([before, 'z:1'], [after, 'z:1'])).toEqual(['z:1', after]);
+  });
+
+  it('is stable while the load is the same', () => {
+    expect(pageKey(tab('a1', { loadId: 3 }))).toBe(
+      pageKey(tab('a1', { loadId: 3, loading: true })),
+    );
   });
 });
 

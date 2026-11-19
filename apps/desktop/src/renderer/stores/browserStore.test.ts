@@ -28,6 +28,7 @@ const tab = (id: string): BrowserTabSnapshot => ({
   canGoBack: false,
   canGoForward: false,
   live: true,
+  loadId: 1,
   agentActive: false,
 });
 

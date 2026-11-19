@@ -17,6 +17,8 @@ export class LivePages {
   /** Live tabs, with the window that mounts each (undefined when none holds it). */
   private readonly pages = new Map<string, BrowserWindow | undefined>();
   private readonly shownAt = new Map<string, number>();
+  private readonly loads = new Map<string, number>();
+  private nextLoad = 0;
   /** The tab each window is showing. */
   private readonly visible = new Map<BrowserWindow, string>();
   /** Tool calls in flight, per tab: calls can overlap. */
@@ -28,9 +30,15 @@ export class LivePages {
     return this.pages.has(tabId);
   }
 
+  /** Which load of its page a live tab is on (new each time it becomes live), 0 when not live. */
+  public loadId(tabId: string): number {
+    return this.loads.get(tabId) ?? 0;
+  }
+
   /** Makes a tab live and counts it as just shown. True when it was not live before. */
   public add(tabId: string, window: BrowserWindow | undefined): boolean {
     const added = !this.pages.has(tabId);
+    if (added) this.loads.set(tabId, ++this.nextLoad);
     this.pages.set(tabId, window);
     this.shownAt.set(tabId, this.now());
     return added;
@@ -39,6 +47,7 @@ export class LivePages {
   /** The tab is gone, or its page is. What a window shows is its own report and is left to it. */
   public drop(tabId: string): void {
     this.pages.delete(tabId);
+    this.loads.delete(tabId);
     this.shownAt.delete(tabId);
     this.calls.delete(tabId);
   }
@@ -112,6 +121,7 @@ export class LivePages {
 
   public clear(): void {
     this.pages.clear();
+    this.loads.clear();
     this.shownAt.clear();
     this.visible.clear();
     this.calls.clear();

@@ -36,6 +36,16 @@ export function liveTabs(
 }
 
 /**
+ * The key of a tab's element. A tab main unloads and shows again gets a new
+ * load id, so it is a new element even when the window never rendered the
+ * tab as not live in between (an element that stayed would keep a page main
+ * has blanked, and never attach again).
+ */
+export function pageKey(tab: Pick<BrowserTabSnapshot, 'id' | 'loadId'>): string {
+  return `${tab.id}:${tab.loadId}`;
+}
+
+/**
  * The order the host mounts pages in: the previous order with gone pages
  * dropped and new ones appended. Never anything else, because React moves an
  * element whose place among its siblings changes, and Electron destroys the

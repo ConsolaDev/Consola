@@ -347,8 +347,8 @@ test.describe('in-app browser tabs', () => {
     // The page of the tab left behind stays alive: main unloads by time and
     // count, not by which tab is active.
     await expect
-      .poll(() => guestUrls(app))
-      .toEqual(expect.arrayContaining([fixtures.url('/a.html'), fixtures.url('/b.html')]));
+      .poll(async () => (await guestUrls(app)).sort())
+      .toEqual([fixtures.url('/a.html'), fixtures.url('/b.html')]);
 
     // Middle-click closes, and the neighbour shows.
     await tabs(page).nth(0).click({ button: 'middle' });
@@ -386,8 +386,8 @@ test.describe('in-app browser tabs', () => {
     await typeAddress(page, `${fixtures.host}/b.html`);
     await expect(tabs(page).nth(1)).toContainText('Page B');
     await expect
-      .poll(() => guestUrls(app))
-      .toEqual(expect.arrayContaining([fixtures.url('/a.html'), fixtures.url('/b.html')]));
+      .poll(async () => (await guestUrls(app)).sort())
+      .toEqual([fixtures.url('/a.html'), fixtures.url('/b.html')]);
     const secondId = await guestIdAt(app, fixtures.url('/b.html'));
 
     // Back and forth, each time landing on the page that was left running.
@@ -423,8 +423,8 @@ test.describe('in-app browser tabs', () => {
     await expect(tabs(page)).toHaveCount(2);
     await expect(tabs(page).nth(1)).toHaveAttribute('aria-selected', 'true');
     await expect
-      .poll(() => guestUrls(app))
-      .toEqual(expect.arrayContaining([fixtures.url('/b.html')]));
+      .poll(async () => (await guestUrls(app)).sort())
+      .toEqual([fixtures.url('/b.html'), fixtures.url('/opener.html')]);
     // No window of any kind opened for it.
     expect(await popups(app, fixtures.url('/b.html'))).toEqual([]);
 
@@ -525,6 +525,29 @@ test.describe('in-app browser tabs', () => {
         ),
       )
       .toBe(0);
+  });
+
+  test('at most eight pages stay live: the least recently shown is unloaded, and reloads when shown', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    await page.evaluate(async (sessionId) => {
+      for (let i = 0; i < 11; i += 1) await window.browserAPI.open(sessionId, '');
+    }, ids.alpha.sessionId);
+    await expect(tabs(page)).toHaveCount(12);
+
+    // Twelve tabs, eight pages: the first tab was shown longest ago, so its
+    // page is gone while its tab (and address) remain.
+    await expect.poll(async () => (await guestUrls(app)).length).toBe(8);
+    expect(await guestUrls(app)).not.toContain(fixtures.url('/a.html'));
+    const first = (await tabsOf(page, ids.alpha.sessionId)).tabs[0];
+    expect(first.url).toBe(fixtures.url('/a.html'));
+    expect(first.live).toBe(false);
+
+    await tabs(page).nth(0).click();
+    await expect.poll(() => guestUrls(app)).toContain(fixtures.url('/a.html'));
+    await expect.poll(async () => (await guestUrls(app)).length).toBe(8);
   });
 
   test('the cap refuses a link that wants a thirteenth tab', async () => {

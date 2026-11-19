@@ -770,6 +770,23 @@ describe('live pages', () => {
     expect(liveIds('s1')).toEqual([]);
   });
 
+  it('gives a tab a new load id each time it becomes live', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    const loadOf = () => service.snapshotFor('s1').tabs[0].loadId;
+    expect(loadOf()).toBe(0);
+    service.setVisible(winA, 's1', 'tab1');
+    const first = loadOf();
+    expect(first).toBeGreaterThan(0);
+    service.setVisible(winA, 's1', 'tab1');
+    expect(loadOf()).toBe(first);
+    service.setVisible(winA, null, null);
+    now += 20 * MIN;
+    tick?.();
+    expect(loadOf()).toBe(0);
+    service.setVisible(winA, 's1', 'tab1');
+    expect(loadOf()).toBeGreaterThan(first);
+  });
+
   it('shows an unloaded tab live again at its stored address', () => {
     service.openTab('s1', 'https://a.com', 'person');
     service.setVisible(winA, 's1', 'tab1');

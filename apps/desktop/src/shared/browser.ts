@@ -78,6 +78,13 @@ export interface BrowserTabLive {
    * is live once shown, and unloaded after a while hidden or past the cap.
    */
   live: boolean;
+  /**
+   * Which load of the page this is: main gives a tab a new one each time it
+   * becomes live. A window keys the page's element by it, so a tab that was
+   * unloaded and shown again is a new element even if the window never saw
+   * the tab as not live in between.
+   */
+  loadId: number;
   /** An agent is driving this tab right now. */
   agentActive: boolean;
 }
