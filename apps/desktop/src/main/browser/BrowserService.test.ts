@@ -230,6 +230,18 @@ describe('navigate and commit', () => {
     expect(last().payload.snapshot.tabs[0].error ?? null).toBeNull();
   });
 
+  it('a failed load keeps its error and is not a visit when its error page commits', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    const guest = new FakeGuest(11);
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    guest.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://x.com/', true);
+    guest.emit('did-navigate', {}, 'https://x.com/');
+    guest.emit('did-navigate', {}, 'chrome-error://chromewebdata/');
+    expect(last().payload.snapshot.tabs[0].error).toMatchObject({ kind: 'unreachable' });
+    expect(service.listFor('s1')[0].url).toBe('https://a.com');
+    expect(store.getHistory('w1')).toEqual([]);
+  });
+
   it('back, forward, reload and stop act on the guest', () => {
     service.openTab('s1', 'https://a.com', 'person');
     const guest = new FakeGuest(11);
@@ -326,6 +338,30 @@ describe('guests', () => {
     expect(service.guestFor('tab2')).toBeDefined();
     expect(service.listFor('s1')).toHaveLength(1);
     expect(ga.close).not.toHaveBeenCalled();
+  });
+});
+
+describe('closing windows', () => {
+  it('sends nothing to a destroyed window and does not throw', () => {
+    const dead = { name: 'A', isDestroyed: () => true } as unknown as BrowserWindow;
+    service = new BrowserService({
+      store,
+      workspaceIdForSession: (id) => sessionWorkspace[id],
+      findWindowForWorkspace: () => dead,
+      send: (_w, c, p) => sent.push({ window: 'dead', channel: c, payload: p as never }),
+      clearPartition,
+    });
+    expect(() => service.openTab('s1', 'https://a.com', 'person')).not.toThrow();
+    expect(sent).toHaveLength(0);
+  });
+
+  it('detachWindow pushes no snapshot', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.bindGuest('tab1', new FakeGuest(11).asWebContents(), winA);
+    sent.length = 0;
+    service.detachWindow(winA);
+    expect(sent).toHaveLength(0);
+    expect(service.snapshotFor('s1').tabs[0].live).toBe(false);
   });
 });
 

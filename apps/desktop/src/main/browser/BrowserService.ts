@@ -154,7 +154,11 @@ export class BrowserService {
   public recordCommit(tabId: string, url: string, title: string): void {
     const found = this.find(tabId);
     if (!found) return;
-    this.setLive(tabId, { error: null }, false);
+    // A failed load commits Chromium's error page, and Electron reports it as a
+    // navigation. It is neither the page's address nor a visit, and it must not
+    // wipe the error that explains it; `did-start-loading` clears errors.
+    if (this.live.get(tabId)?.error?.kind === 'unreachable') return;
+    if (!isAllowedPageUrl(url)) return;
     this.updateTab(tabId, { url, title });
     const workspaceId = this.deps.workspaceIdForSession(found.sessionId);
     if (workspaceId && isAllowedPageUrl(url)) {
@@ -219,14 +223,14 @@ export class BrowserService {
   }
 
   /** Stops following a guest without closing it. */
-  public unbindGuest(tabId: string): void {
+  public unbindGuest(tabId: string, push = true): void {
     const entry = this.guests.get(tabId);
     if (!entry) return;
     entry.unsubscribe();
     this.guests.delete(tabId);
     this.live.set(tabId, { ...IDLE });
     const found = this.find(tabId);
-    if (found) this.pushSnapshot(found.sessionId);
+    if (found && push) this.pushSnapshot(found.sessionId);
   }
 
   // --- Snapshots ---
@@ -276,7 +280,7 @@ export class BrowserService {
   /** The window stopped holding its workspace or closed: its pages go, the tabs stay. */
   public detachWindow(window: BrowserWindow): void {
     for (const [tabId, entry] of [...this.guests]) {
-      if (entry.host === window) this.unbindGuest(tabId);
+      if (entry.host === window) this.unbindGuest(tabId, false);
     }
   }
 
@@ -339,7 +343,9 @@ export class BrowserService {
   private pushSnapshot(sessionId: string): void {
     const workspaceId = this.deps.workspaceIdForSession(sessionId);
     const window = workspaceId ? this.deps.findWindowForWorkspace(workspaceId) : undefined;
-    if (!window) return;
+    // A window that is closing may still be reported by its `closed` handler;
+    // sending to a destroyed one throws.
+    if (!window || window.isDestroyed?.() || window.webContents?.isDestroyed?.()) return;
     this.deps.send(window, IPC_CHANNELS.BROWSER_SNAPSHOT, {
       sessionId,
       snapshot: this.snapshotFor(sessionId),
