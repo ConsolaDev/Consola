@@ -10,6 +10,11 @@
  * command is refused: nothing here can open, close or list another page, or
  * reach the partition's cookies.
  *
+ * Messages are plain objects handed across in the same process, never
+ * serialized. Every answer is written asynchronously, after `receive` has
+ * returned: Playwright registers its callback for a command only once its
+ * transport's `send` returns, so an answer written inside `send` would be lost.
+ *
  * The approach follows T3 Code's `apps/desktop/src/preview/CdpRelay.ts`
  * (MIT, copyright T3 Tools Inc.), which worked out which commands Playwright
  * sends; the code is written fresh for Consola.
@@ -20,11 +25,15 @@ export const PAGE_SESSION_ID = 'consola-page';
 /** Playwright requires every page to name a browser context; this one is made up. */
 const BROWSER_CONTEXT_ID = 'consola-browser-context';
 /**
- * The largest single message the relay will write. A screenshot of a large
- * page runs to tens of megabytes of base64, so the ceiling is generous; it
- * exists so one runaway answer cannot be serialized into main's memory.
+ * How many commands may wait on the page at once. Nothing else in the relay
+ * holds anything: events go to Playwright as they arrive. But each command
+ * holds a callback here and in Playwright until the page answers, and a page
+ * stuck in a loop answers nothing while its console output keeps Playwright
+ * sending (it releases each logged object). Playwright has a few dozen in
+ * flight when it attaches, so only a page that has stopped answering reaches
+ * this, and the connection is ended rather than left to grow.
  */
-export const MAX_MESSAGE_BYTES = 64 * 1024 * 1024;
+export const MAX_COMMANDS_IN_FLIGHT = 10_000;
 /** JSON-RPC's "server error", the code Chromium itself uses for a refused command. */
 const CDP_ERROR = -32000;
 
@@ -50,15 +59,15 @@ export interface RelayPage {
 }
 
 export interface RelayOutput {
-  write(text: string): void;
+  write(message: Record<string, unknown>): void;
   /** The connection cannot carry on. Called once; nothing is written after it. */
   fail(reason: string): void;
 }
 
 /** One client's conversation with the page. */
 export interface RelayConnection {
-  /** A raw message from the client. */
-  receive(raw: string): void;
+  /** A message from the client. Never answered before this returns. */
+  receive(message: unknown): void;
   /** An event from the debugger: `sessionId` is empty for the page's own events. */
   event(method: string, params: unknown, sessionId: string | undefined): void;
   /** Stops writing; replies still in flight are dropped. */
@@ -97,13 +106,14 @@ interface Answer {
 export function createRelayConnection(
   page: RelayPage,
   output: RelayOutput,
-  maxMessageBytes: number = MAX_MESSAGE_BYTES,
+  maxCommandsInFlight: number = MAX_COMMANDS_IN_FLIGHT,
 ): RelayConnection {
   let closed = false;
   // Page events wait until Playwright has been told the page exists: before
   // that it has no session to file them under.
   let announced = false;
   let announcing = false;
+  let inFlight = 0;
   // The relay's own sessions. A session id not listed here belongs to one of
   // the page's iframes or workers, which Chromium attached itself.
   const sessions = new Map<string, 'browser' | 'page'>([[PAGE_SESSION_ID, 'page']]);
@@ -116,11 +126,8 @@ export function createRelayConnection(
     return sessionId;
   };
 
-  const write = (message: Message): boolean => {
-    if (closed) return false;
-    if (jsonBytesUpTo(message, maxMessageBytes) > maxMessageBytes) return false;
-    output.write(JSON.stringify(message));
-    return true;
+  const write = (message: Message) => {
+    if (!closed) output.write(message);
   };
 
   const fail = (reason: string) => {
@@ -219,73 +226,71 @@ export function createRelayConnection(
     }
   };
 
-  const pageCommand = (command: Command, child: string | undefined): Promise<unknown> => {
+  const pageCommand = async (command: Command, child: string | undefined): Promise<Answer> => {
     // Playwright asks for focus emulation on every page it attaches to, and
     // Chromium would then treat the page as focused for as long as the agent
     // stays connected. Main turns it on itself, and only while the agent acts.
-    if (command.method === 'Emulation.setFocusEmulationEnabled') return Promise.resolve({});
+    if (command.method === 'Emulation.setFocusEmulationEnabled') return { result: {} };
     // The page was attached while running, so it is not waiting; an iframe or
     // worker attached by Chromium is, and needs the command to start.
     if (command.method === 'Runtime.runIfWaitingForDebugger' && child === undefined) {
-      return Promise.resolve({});
+      return { result: {} };
     }
-    return page.send(command.method, command.params ?? {}, child);
+    return { result: await page.send(command.method, command.params ?? {}, child) };
   };
 
   const answer = (command: Command, outcome: Promise<Answer>) => {
     const route = command.sessionId === undefined ? {} : { sessionId: command.sessionId };
-    const refuse = (message: string) =>
-      write({ id: command.id, error: { code: CDP_ERROR, message }, ...route });
-    // Replies go out as each command finishes, so a slow one holds up nothing.
-    outcome.then(
-      ({ result, followUp }) => {
-        if (!write({ id: command.id, result: result ?? {}, ...route })) {
-          refuse('The answer is too large for the relay to carry.');
-          return;
-        }
-        if (followUp && write(followUp)) announced = true;
-      },
-      (cause: unknown) => refuse(cause instanceof Error ? cause.message : String(cause)),
-    );
+    // `then` runs after `receive` has returned, never inside it, and replies
+    // go out as each command finishes, so a slow one holds up nothing.
+    outcome
+      .then(
+        ({ result, followUp }) => {
+          write({ id: command.id, result: result ?? {}, ...route });
+          if (followUp && !closed) {
+            write(followUp);
+            announced = true;
+          }
+        },
+        (cause: unknown) =>
+          write({
+            id: command.id,
+            error: {
+              code: CDP_ERROR,
+              message: cause instanceof Error ? cause.message : String(cause),
+            },
+            ...route,
+          }),
+      )
+      .finally(() => {
+        inFlight -= 1;
+      });
   };
 
   return {
-    receive(raw) {
-      if (closed) return;
-      let command: unknown;
-      try {
-        command = JSON.parse(raw);
-      } catch {
+    receive(message) {
+      if (closed || !isCommand(message)) return;
+      inFlight += 1;
+      if (inFlight > maxCommandsInFlight) {
+        fail('The page stopped answering while commands kept arriving.');
         return;
       }
-      if (!isCommand(command)) return;
-      const kind = command.sessionId === undefined ? 'browser' : sessions.get(command.sessionId);
+      const kind = message.sessionId === undefined ? 'browser' : sessions.get(message.sessionId);
       if (kind === 'browser') {
-        answer(command, browserCommand(command));
+        answer(message, browserCommand(message));
         return;
       }
-      const child = kind === 'page' ? undefined : command.sessionId;
-      answer(
-        command,
-        pageCommand(command, child).then((result) => ({ result })),
-      );
+      answer(message, pageCommand(message, kind === 'page' ? undefined : message.sessionId));
     },
 
     event(method, params, sessionId) {
       if (closed || !announced) return;
-      const messages: Message[] = sessionId
-        ? [{ method, params, sessionId }]
-        : [...sessions]
-            .filter(([, kind]) => kind === 'page')
-            .map(([id]) => ({ method, params, sessionId: id }));
-      for (const message of messages) {
-        // Dropping an event would leave Playwright believing something about
-        // the page that is no longer true, so an oversized one ends the
-        // connection instead.
-        if (!write(message)) {
-          fail('The page sent an event too large for the relay to carry.');
-          return;
-        }
+      if (sessionId) {
+        write({ method, params, sessionId });
+        return;
+      }
+      for (const [id, kind] of sessions) {
+        if (kind === 'page') write({ method, params, sessionId: id });
       }
     },
 
@@ -293,78 +298,4 @@ export function createRelayConnection(
       closed = true;
     },
   };
-}
-
-/** JSON's printable ASCII, which `JSON.stringify` writes one byte per character. */
-const PLAIN = /^[\x20\x21\x23-\x5b\x5d-\x7e]*$/;
-
-/** UTF-8 bytes `JSON.stringify` writes for a string, quotes included. */
-function stringBytes(text: string): number {
-  if (PLAIN.test(text)) return text.length + 2;
-  let bytes = 2;
-  for (let i = 0; i < text.length; i++) {
-    const code = text.charCodeAt(i);
-    if (code === 0x22 || code === 0x5c) bytes += 2;
-    else if (code < 0x20) bytes += code >= 8 && code <= 13 && code !== 11 ? 2 : 6;
-    else if (code < 0x80) bytes += 1;
-    else if (code < 0x800) bytes += 2;
-    else if (code >= 0xd800 && code <= 0xdbff) {
-      const next = text.charCodeAt(i + 1);
-      if (next >= 0xdc00 && next <= 0xdfff) {
-        bytes += 4;
-        i++;
-      } else bytes += 6; // a lone surrogate is written as \udxxx
-    } else if (code >= 0xdc00 && code <= 0xdfff) bytes += 6;
-    else bytes += 3;
-  }
-  return bytes;
-}
-
-/** Whether JSON leaves a value out of an object (and writes `null` for it in an array). */
-function isOmitted(value: unknown): boolean {
-  return value === undefined || typeof value === 'function' || typeof value === 'symbol';
-}
-
-/**
- * The UTF-8 size of `JSON.stringify(value)`, counted without building the
- * string, for plain JSON data such as the debugger delivers. The count stops
- * once it passes `limit`, answering some number above it, so a message too
- * large to send costs a partial walk rather than a string as large as itself.
- */
-export function jsonBytesUpTo(value: unknown, limit: number): number {
-  let total = 0;
-  const visit = (item: unknown): boolean => {
-    if (typeof item === 'string') {
-      // Every UTF-16 unit takes at least a byte, so a string that long cannot fit.
-      if (item.length + 2 > limit - total) {
-        total = limit + 1;
-        return false;
-      }
-      total += stringBytes(item);
-    } else if (typeof item === 'number') {
-      total += Number.isFinite(item) ? String(item).length : 4;
-    } else if (typeof item === 'boolean') {
-      total += item ? 4 : 5;
-    } else if (item === null) {
-      total += 4;
-    } else if (Array.isArray(item)) {
-      total += 2 + Math.max(item.length - 1, 0);
-      for (const entry of item) {
-        if (isOmitted(entry)) total += 4;
-        else if (!visit(entry)) return false;
-      }
-    } else if (typeof item === 'object') {
-      total += 2;
-      let first = true;
-      for (const [key, entry] of Object.entries(item)) {
-        if (isOmitted(entry)) continue;
-        total += first ? 1 : 2; // the colon, and the comma before every key but the first
-        first = false;
-        if (!visit(key) || !visit(entry)) return false;
-      }
-    }
-    return total <= limit;
-  };
-  visit(value);
-  return total;
 }

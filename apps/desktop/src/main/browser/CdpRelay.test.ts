@@ -1,7 +1,6 @@
 import { EventEmitter } from 'node:events';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import WebSocket from 'ws';
-import { CdpRelay, type RelayGuest, refuseUpgrade } from './CdpRelay';
+import { CdpRelay, type CdpRelayOptions, DEVTOOLS_OPEN_MESSAGE, type RelayGuest } from './CdpRelay';
 import { PAGE_SESSION_ID } from './cdpRelayProtocol';
 
 type Message = Record<string, unknown>;
@@ -50,182 +49,114 @@ class FakeDebugger extends EventEmitter {
 }
 
 const relays: CdpRelay[] = [];
-const sockets: WebSocket[] = [];
 afterEach(() => {
-  for (const socket of sockets.splice(0)) socket.terminate();
   for (const relay of relays.splice(0)) relay.close();
 });
 
-async function open(options: Parameters<typeof CdpRelay.open>[1] = {}) {
+/** A stand-in for the guest's `WebContents`. */
+class FakeGuest extends EventEmitter {
+  devToolsOpen = false;
+  readonly debugger: FakeDebugger;
+  constructor(pageDebugger: FakeDebugger) {
+    super();
+    this.debugger = pageDebugger;
+  }
+  getUserAgent() {
+    return 'Mozilla/5.0 Consola';
+  }
+  isDevToolsOpened() {
+    return this.devToolsOpen;
+  }
+}
+
+const guestOf = (fake: FakeDebugger) => new FakeGuest(fake) as unknown as RelayGuest & FakeGuest;
+
+/** A relay with Playwright's side played by the test, as CRConnection wires a transport. */
+function open(options: CdpRelayOptions = {}) {
   const fake = new FakeDebugger();
-  const guest = { debugger: fake, getUserAgent: () => 'Mozilla/5.0 Consola' };
+  const guest = guestOf(fake);
   const onClose = vi.fn();
-  const relay = await CdpRelay.open(guest as unknown as RelayGuest, { onClose, ...options });
+  const relay = CdpRelay.open(guest, { onClose, ...options });
   relays.push(relay);
-  return { fake, relay, onClose, url: new URL(relay.endpoint) };
-}
-
-/** Tries a WebSocket upgrade: 'open', or the HTTP status it was refused with. */
-function attempt(endpoint: string, headers: Record<string, string> = {}): Promise<'open' | number> {
-  return new Promise((resolve, reject) => {
-    const socket = new WebSocket(endpoint, { headers });
-    sockets.push(socket);
-    socket.on('open', () => resolve('open'));
-    socket.on('unexpected-response', (_request, response) => resolve(response.statusCode ?? 0));
-    socket.on('error', reject);
-  });
-}
-
-/** A connected client that collects what the relay writes. */
-async function connect(endpoint: string) {
-  const socket = new WebSocket(endpoint);
-  sockets.push(socket);
   const received: Message[] = [];
-  const waiters: Array<() => void> = [];
-  socket.on('message', (data) => {
-    received.push(JSON.parse(String(data)));
-    for (const wake of waiters.splice(0)) wake();
-  });
-  await new Promise((resolve, reject) => {
-    socket.once('open', resolve);
-    socket.once('error', reject);
-  });
+  const onclose = vi.fn();
+  relay.onmessage = (message) => received.push(message as Message);
+  relay.onclose = onclose;
   const until = async (match: (message: Message) => boolean): Promise<Message> => {
-    for (;;) {
-      const found = received.find(match);
-      if (found) return found;
-      await new Promise<void>((wake) => waiters.push(wake));
-    }
+    await vi.waitFor(() => expect(received.find(match)).toBeDefined());
+    return received.find(match) as Message;
   };
-  const send = (message: Message) => socket.send(JSON.stringify(message));
   const call = (id: number, method: string, params?: Message, sessionId?: string) => {
-    send({ id, method, params, sessionId });
+    relay.send(
+      sessionId === undefined ? { id, method, params } : { id, method, params, sessionId },
+    );
     return until((message) => message.id === id);
   };
-  return { socket, received, until, call };
+  const announce = async () => {
+    await call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
+    await until((message) => message.method === 'Target.attachedToTarget');
+  };
+  return { fake, guest, relay, onClose, onclose, received, until, call, announce };
 }
 
-const closedOnce = (socket: WebSocket) =>
-  new Promise<void>((resolve) => {
-    if (socket.readyState === WebSocket.CLOSED) resolve();
-    else socket.once('close', () => resolve());
-  });
+const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-describe('CdpRelay endpoint', () => {
-  it('attaches to the page and listens on loopback, at a path holding 24 random bytes', async () => {
-    const { fake, relay } = await open();
-    const other = await open();
+describe('CdpRelay as Playwright’s transport', () => {
+  it('attaches to the page’s debugger, at protocol 1.3', () => {
+    const { fake } = open();
+    expect(fake.attached).toBe(true);
     expect(fake.attachedWith).toBe('1.3');
-    expect(relay.endpoint).toMatch(/^ws:\/\/127\.0\.0\.1:\d+\/[A-Za-z0-9_-]{32}$/);
-    expect(new URL(other.relay.endpoint).pathname).not.toBe(new URL(relay.endpoint).pathname);
   });
 
-  it('refuses a wrong path', async () => {
-    const { url, fake, relay } = await open();
-    const secret = url.pathname;
-    for (const path of [
-      '/',
-      secret.slice(0, -1),
-      `${secret}/x`,
-      `${secret}?x=1`,
-      '/json/version',
-    ]) {
-      expect(await attempt(`ws://${url.host}${path}`)).toBe(404);
-    }
-    expect(fake.commands).toEqual([]);
-    expect(relay.isClosed).toBe(false);
+  it('answers through onmessage, never inside send', async () => {
+    const { relay, received } = open();
+    relay.send({ id: 1, method: 'Browser.getVersion' });
+    expect(received).toEqual([]);
+    await settle();
+    expect(received).toEqual([
+      { id: 1, result: expect.objectContaining({ userAgent: 'Mozilla/5.0 Consola' }) },
+    ]);
   });
 
-  it('refuses a request with an Origin header, even on the right path', async () => {
-    const { relay } = await open();
-    expect(await attempt(relay.endpoint, { Origin: 'http://127.0.0.1:3000' })).toBe(403);
-    expect(await attempt(relay.endpoint, { Origin: 'null' })).toBe(403);
-    expect(await attempt(relay.endpoint)).toBe('open');
+  it('announces the page under its real target id, as a page', async () => {
+    const { call, until } = open();
+    await call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
+    expect(await until((message) => message.method === 'Target.attachedToTarget')).toEqual({
+      method: 'Target.attachedToTarget',
+      params: expect.objectContaining({
+        sessionId: PAGE_SESSION_ID,
+        targetInfo: expect.objectContaining({ targetId: 'GUEST-TARGET', type: 'page' }),
+      }),
+    });
   });
 
-  it('refuses a Host that is not loopback on this port', async () => {
-    const { relay, url } = await open();
-    for (const host of [
-      `evil.example:${url.port}`,
-      `127.0.0.1.evil.example:${url.port}`,
-      `127.0.0.1:${Number(url.port) + 1}`,
-      '127.0.0.1',
-    ]) {
-      expect(await attempt(relay.endpoint, { Host: host })).toBe(403);
-    }
-    expect(await attempt(relay.endpoint, { Host: `localhost:${url.port}` })).toBe('open');
-  });
-
-  it('answers plain HTTP with nothing, the secret path included', async () => {
-    const { relay, url } = await open();
-    const httpBase = `http://${url.host}`;
-    expect((await fetch(`${httpBase}/json/version`)).status).toBe(404);
-    expect((await fetch(`${httpBase}${url.pathname}`)).status).toBe(404);
-    expect(relay.isClosed).toBe(false);
-  });
-
-  it('serves one client: a second is refused while the first is connected', async () => {
-    const { relay } = await open();
-    await connect(relay.endpoint);
-    expect(await attempt(relay.endpoint)).toBe(409);
-  });
-});
-
-describe('refuseUpgrade', () => {
-  const expected = { path: '/secret', port: 4000 };
-  const request = (url: string, headers: Record<string, string>) => ({ url, headers });
-
-  it('lets through only the secret path, from loopback, with no Origin', () => {
-    expect(refuseUpgrade(request('/secret', { host: '127.0.0.1:4000' }), expected)).toBeUndefined();
-    expect(refuseUpgrade(request('/secret', { host: 'LOCALHOST:4000' }), expected)).toBeUndefined();
-    expect(refuseUpgrade(request('/secret', { host: '[::1]:4000' }), expected)).toBeUndefined();
-    expect(refuseUpgrade(request('/secrets', { host: '127.0.0.1:4000' }), expected)).toBe(404);
-    expect(refuseUpgrade(request('/secret', {}), expected)).toBe(403);
-    expect(refuseUpgrade(request('/secret', { host: '0.0.0.0:4000' }), expected)).toBe(403);
-    expect(
-      refuseUpgrade(request('/secret', { host: '127.0.0.1:4000', origin: '' }), expected),
-    ).toBe(403);
-    expect(
-      refuseUpgrade(
-        request('/secret', { host: '127.0.0.1:4000', 'sec-websocket-origin': 'http://a' }),
-        expected,
-      ),
-    ).toBe(403);
-  });
-});
-
-describe('CdpRelay traffic', () => {
   it('forwards a page command to the debugger and routes the answer back', async () => {
-    const { relay, fake } = await open();
-    fake.answer = async (method) => ({ result: { type: 'number', value: 2 }, method });
-    const client = await connect(relay.endpoint);
-    await client.call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
-    await client.until((message) => message.method === 'Target.attachedToTarget');
-    const reply = await client.call(2, 'Runtime.evaluate', { expression: '1+1' }, PAGE_SESSION_ID);
+    const { fake, call, announce } = open();
+    fake.answer = async () => ({ result: { type: 'number', value: 2 } });
+    await announce();
+    const reply = await call(2, 'Runtime.evaluate', { expression: '1+1' }, PAGE_SESSION_ID);
     expect(reply).toEqual({
       id: 2,
-      result: { result: { type: 'number', value: 2 }, method: 'Runtime.evaluate' },
+      result: { result: { type: 'number', value: 2 } },
       sessionId: PAGE_SESSION_ID,
     });
     expect(fake.commands).toEqual([{ method: 'Runtime.evaluate', params: { expression: '1+1' } }]);
   });
 
-  it('refuses an unknown browser-level command with a CDP error', async () => {
-    const { relay, fake } = await open();
-    const client = await connect(relay.endpoint);
-    const reply = await client.call(1, 'Target.createTarget', { url: 'https://example.com' });
-    expect(reply).toEqual({
+  it('refuses a new page, or any other unknown browser-level command, with a CDP error', async () => {
+    const { fake, call } = open();
+    expect(await call(1, 'Target.createTarget', { url: 'about:blank' })).toEqual({
       id: 1,
       error: { code: -32000, message: expect.stringContaining('Target.createTarget') },
     });
+    expect(await call(2, 'Storage.getCookies', {})).toHaveProperty('error');
     expect(fake.commands).toEqual([]);
   });
 
-  it('swallows focus emulation instead of passing it to the page', async () => {
-    const { relay, fake } = await open();
-    const client = await connect(relay.endpoint);
-    await client.call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
-    const reply = await client.call(
+  it('swallows Playwright’s focus emulation, while main can still set it itself', async () => {
+    const { relay, fake, call, announce } = open();
+    await announce();
+    const reply = await call(
       2,
       'Emulation.setFocusEmulationEnabled',
       { enabled: true },
@@ -233,134 +164,122 @@ describe('CdpRelay traffic', () => {
     );
     expect(reply).toEqual({ id: 2, result: {}, sessionId: PAGE_SESSION_ID });
     expect(fake.commands).toEqual([]);
+    await relay.setFocusEmulation(true);
+    await relay.setFocusEmulation(false);
+    expect(fake.commands).toEqual([
+      { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: true } },
+      { method: 'Emulation.setFocusEmulationEnabled', params: { enabled: false } },
+    ]);
   });
 
   it('delivers the debugger’s events, under the page session or the child’s own', async () => {
-    const { relay, fake } = await open();
-    const client = await connect(relay.endpoint);
-    await client.call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
-    await client.until((message) => message.method === 'Target.attachedToTarget');
+    const { fake, announce, until } = open();
+    await announce();
     fake.emitEvent('Page.loadEventFired', { timestamp: 1 });
     fake.emitEvent('Runtime.consoleAPICalled', { type: 'log' }, 'IFRAME-SESSION');
-    expect(await client.until((message) => message.method === 'Page.loadEventFired')).toEqual({
+    expect(await until((message) => message.method === 'Page.loadEventFired')).toEqual({
       method: 'Page.loadEventFired',
       params: { timestamp: 1 },
       sessionId: PAGE_SESSION_ID,
     });
-    expect(
-      await client.until((message) => message.method === 'Runtime.consoleAPICalled'),
-    ).toHaveProperty('sessionId', 'IFRAME-SESSION');
+    expect(await until((message) => message.method === 'Runtime.consoleAPICalled')).toHaveProperty(
+      'sessionId',
+      'IFRAME-SESSION',
+    );
   });
 });
 
 describe('CdpRelay lifetime', () => {
-  it('surfaces a failed attach and leaves nothing behind', async () => {
+  it('surfaces a failed attach (DevTools open, say) and leaves nothing behind', () => {
     const fake = new FakeDebugger();
     fake.attachError = 'Another debugger is already attached to this target';
-    const guest = { debugger: fake, getUserAgent: () => 'UA' } as unknown as RelayGuest;
-    await expect(CdpRelay.open(guest)).rejects.toThrow(/already attached/);
+    expect(() => CdpRelay.open(guestOf(fake))).toThrow(
+      'Could not attach to the page: Another debugger is already attached to this target',
+    );
     expect(fake.listenerCount('message')).toBe(0);
     expect(fake.listenerCount('detach')).toBe(0);
   });
 
-  it('refuses a page whose attachment ends while the relay is starting', async () => {
-    const fake = new FakeDebugger();
-    const attach = fake.attach.bind(fake);
-    fake.attach = (version?: string) => {
-      attach(version);
-      // DevTools opening, say, before the server has finished binding.
-      queueMicrotask(() => {
-        fake.attached = false;
-        fake.emit('detach', {}, 'Replaced by DevTools');
-      });
-    };
-    const guest = { debugger: fake, getUserAgent: () => 'UA' } as unknown as RelayGuest;
-    await expect(CdpRelay.open(guest)).rejects.toThrow(/detached/);
-    expect(fake.listenerCount('detach')).toBe(0);
-  });
-
-  it('refuses a page whose debugger something else already holds', async () => {
+  it('refuses a page whose debugger something else already holds, leaving it attached', () => {
     const fake = new FakeDebugger();
     fake.attached = true;
-    const guest = { debugger: fake, getUserAgent: () => 'UA' } as unknown as RelayGuest;
-    await expect(CdpRelay.open(guest)).rejects.toThrow(/already/);
+    expect(() => CdpRelay.open(guestOf(fake))).toThrow(/already in use/);
     expect(fake.detachCalls).toBe(0);
   });
 
-  it('close() detaches, drops the client and stops listening, once', async () => {
-    const { relay, fake, onClose } = await open();
-    const client = await connect(relay.endpoint);
+  // Electron 43 lets DevTools and the debugger share a guest, so the relay
+  // has to step aside on its own: the person comes first.
+  it('will not open while DevTools is open on the page', () => {
+    const fake = new FakeDebugger();
+    const guest = guestOf(fake);
+    guest.devToolsOpen = true;
+    expect(() => CdpRelay.open(guest)).toThrow(DEVTOOLS_OPEN_MESSAGE);
+    expect(fake.attached).toBe(false);
+    expect(guest.listenerCount('devtools-opened')).toBe(0);
+  });
+
+  it('closes when the person opens DevTools on the page', () => {
+    const { relay, guest, fake, onclose, onClose } = open();
+    guest.emit('devtools-opened');
+    expect(relay.isClosed).toBe(true);
+    expect(fake.detachCalls).toBe(1);
+    expect(onclose).toHaveBeenCalledWith(DEVTOOLS_OPEN_MESSAGE);
+    expect(onClose).toHaveBeenCalledWith(DEVTOOLS_OPEN_MESSAGE);
+  });
+
+  it('close() detaches once and tells Playwright and main, once', async () => {
+    const { relay, guest, fake, onClose, onclose, received } = open();
+    relay.close('The tab was closed.');
     relay.close();
-    relay.close();
-    await closedOnce(client.socket);
     expect(fake.detachCalls).toBe(1);
     expect(fake.listenerCount('message')).toBe(0);
-    expect(onClose).toHaveBeenCalledOnce();
+    expect(fake.listenerCount('detach')).toBe(0);
+    expect(guest.listenerCount('devtools-opened')).toBe(0);
+    expect(onclose).toHaveBeenCalledExactlyOnceWith('The tab was closed.');
+    expect(onClose).toHaveBeenCalledExactlyOnceWith('The tab was closed.');
     expect(relay.isClosed).toBe(true);
-    await expect(attempt(relay.endpoint)).rejects.toThrow(/ECONNREFUSED/);
+    relay.send({ id: 9, method: 'Browser.getVersion' });
+    await settle();
+    expect(received).toEqual([]);
+    await expect(relay.setFocusEmulation(true)).rejects.toThrow(/closed/);
   });
 
-  // One client, once: a relay never carries a second conversation, so nothing
-  // one client set up on the page can leak into the next.
-  it('closes when its client leaves', async () => {
-    const { relay, fake, onClose } = await open();
-    const client = await connect(relay.endpoint);
-    client.socket.close();
-    await vi.waitFor(() => expect(onClose).toHaveBeenCalledOnce());
-    expect(fake.detachCalls).toBe(1);
-    await expect(attempt(relay.endpoint)).rejects.toThrow(/ECONNREFUSED/);
+  it('drops answers still in flight when it closes', async () => {
+    const { relay, fake, received, announce } = open();
+    await announce();
+    received.length = 0;
+    let finish: (value: unknown) => void = () => {};
+    fake.answer = () => new Promise((resolve) => (finish = resolve));
+    relay.send({ id: 2, method: 'DOM.getDocument', params: {}, sessionId: PAGE_SESSION_ID });
+    await settle();
+    relay.close();
+    finish({ root: {} });
+    await settle();
+    expect(received).toEqual([]);
   });
 
-  it('closes when the debugger detaches on its own, without detaching it again', async () => {
-    const { relay, fake, onClose } = await open();
-    const client = await connect(relay.endpoint);
-    fake.attached = false;
-    fake.emit('detach', {}, 'target closed');
-    await closedOnce(client.socket);
-    expect(onClose).toHaveBeenCalledWith(expect.stringContaining('target closed'));
+  // `webContents.debugger` is shared: once Chromium has ended the relay's
+  // attachment, a detach from the relay could only end someone else's.
+  it('closes when the debugger detaches on its own, without detaching it again', () => {
+    const { relay, fake, onclose, onClose } = open();
+    fake.emit('detach', {}, 'Replaced by DevTools');
+    expect(relay.isClosed).toBe(true);
     expect(fake.detachCalls).toBe(0);
+    expect(onclose).toHaveBeenCalledWith(expect.stringContaining('Replaced by DevTools'));
+    expect(onClose).toHaveBeenCalledWith(expect.stringContaining('Replaced by DevTools'));
   });
 
-  it('drops a client that falls behind past the byte budget, rather than buffering', async () => {
-    const maxQueuedBytes = 256 * 1024;
-    const { relay, fake, onClose } = await open({ maxQueuedBytes });
-    const client = await connect(relay.endpoint);
-    await client.call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
-    await client.until((message) => message.method === 'Target.attachedToTarget');
-    client.socket.pause();
-    const payload = 'x'.repeat(16 * 1024);
-    // 64 MiB of events. The kernel's loopback buffers take the first few
-    // megabytes whatever the budget; past those the relay must give up long
-    // before the flood ends.
-    const flood = 4096;
-    let closedAt: number | undefined;
-    for (let i = 0; i < flood; i++) {
-      fake.emitEvent('Runtime.consoleAPICalled', { args: [{ value: payload }], i });
-      if (closedAt === undefined && relay.isClosed) closedAt = i;
+  it('closes, rather than letting callbacks pile up, when the page stops answering', async () => {
+    const { relay, fake, onclose, announce } = open({ maxCommandsInFlight: 3 });
+    await announce();
+    fake.answer = () => new Promise(() => {});
+    for (let id = 10; id < 13; id++) {
+      relay.send({ id, method: 'Runtime.releaseObject', params: {}, sessionId: PAGE_SESSION_ID });
     }
-    expect(closedAt).toBeDefined();
-    expect(closedAt).toBeLessThan(flood / 2);
-    expect(onClose).toHaveBeenCalledWith(expect.stringContaining('fell behind'));
+    expect(relay.isClosed).toBe(false);
+    relay.send({ id: 13, method: 'Runtime.releaseObject', params: {}, sessionId: PAGE_SESSION_ID });
+    expect(relay.isClosed).toBe(true);
     expect(fake.detachCalls).toBe(1);
-  });
-
-  it('keeps a client that keeps up, however much the page sends over time', async () => {
-    const { relay, fake, onClose } = await open({ maxQueuedBytes: 256 * 1024 });
-    const client = await connect(relay.endpoint);
-    await client.call(1, 'Target.setAutoAttach', { autoAttach: true, flatten: true });
-    await client.until((message) => message.method === 'Target.attachedToTarget');
-    const payload = 'x'.repeat(16 * 1024);
-    for (let batch = 0; batch < 40; batch++) {
-      for (let i = 0; i < 5; i++) {
-        fake.emitEvent('Runtime.consoleAPICalled', { args: [{ value: payload }] });
-      }
-      await new Promise((resolve) => setTimeout(resolve, 5));
-    }
-    await vi.waitFor(() =>
-      expect(
-        client.received.filter((message) => message.method === 'Runtime.consoleAPICalled'),
-      ).toHaveLength(200),
-    );
-    expect(onClose).not.toHaveBeenCalled();
+    expect(onclose).toHaveBeenCalledWith(expect.stringContaining('stopped answering'));
   });
 });

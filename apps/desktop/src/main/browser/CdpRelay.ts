@@ -1,99 +1,34 @@
-import * as crypto from 'node:crypto';
-import * as http from 'node:http';
-import type { AddressInfo } from 'node:net';
-import type { Duplex } from 'node:stream';
-import type { Debugger } from 'electron';
-import { type RawData, WebSocket, WebSocketServer } from 'ws';
+import type { Debugger, WebContents } from 'electron';
+import type { ConnectOverCDPTransport } from 'playwright-core';
 import {
   createRelayConnection,
-  MAX_MESSAGE_BYTES,
+  MAX_COMMANDS_IN_FLIGHT,
   type RelayConnection,
   type RelayPage,
 } from './cdpRelayProtocol';
 
-/**
- * How far the client may fall behind before the relay gives up on it. A page
- * can log faster than Playwright reads, and every byte not yet read waits in
- * main's memory; relaying without a ceiling is what took T3 Code's main
- * process down (#20395). Generous enough for a burst of console output on
- * top of a large screenshot, so only a client that has stopped keeping up
- * reaches it. One message more than this can be queued at worst.
- */
-export const MAX_QUEUED_BYTES = 64 * 1024 * 1024;
-
-/** Playwright's commands are small; the largest carry a script to inject. */
-const MAX_INBOUND_BYTES = 64 * 1024 * 1024;
-
-/** The parts of `webContents.debugger` the relay uses. */
-export type RelayDebugger = Pick<
-  Debugger,
-  'attach' | 'detach' | 'isAttached' | 'sendCommand' | 'on' | 'removeListener'
+/** The guest page the relay serves; a `WebContents` is one. */
+export type RelayGuest = Pick<
+  WebContents,
+  'debugger' | 'getUserAgent' | 'isDevToolsOpened' | 'on' | 'removeListener'
 >;
 
-/** The guest page the relay serves: a `WebContents`, as far as the relay is concerned. */
-export interface RelayGuest {
-  readonly debugger: RelayDebugger;
-  getUserAgent(): string;
-}
+/** What the relay answers when the person has DevTools open on the tab. */
+export const DEVTOOLS_OPEN_MESSAGE =
+  'DevTools is open on this tab; close it to let the agent use the page.';
 
 export interface CdpRelayOptions {
   /** Called once, when the relay closes for any reason, `close()` included. */
   onClose?: (reason: string) => void;
-  /** Tests lower these; the defaults are the ceilings above. */
-  maxQueuedBytes?: number;
-  maxMessageBytes?: number;
-}
-
-/** Hosts a request on this machine may name. A web page's DNS name never matches. */
-const LOOPBACK_NAMES = new Set(['127.0.0.1', 'localhost', '[::1]']);
-
-/**
- * Why a WebSocket upgrade is refused, as an HTTP status, or undefined to let
- * it through. A browser always sends `Origin` on a WebSocket handshake, so no
- * web page (the person's own pages included) can ever connect, and a `Host`
- * other than loopback on this port is a DNS-rebinding attempt or a request
- * meant for someone else. The path must be the secret exactly.
- */
-export function refuseUpgrade(
-  request: Pick<http.IncomingMessage, 'url' | 'headers'>,
-  expected: { path: string; port: number },
-): 403 | 404 | undefined {
-  const { headers } = request;
-  // Sec-WebSocket-Origin is what the handshake's older version 8 sends instead.
-  if (headers.origin !== undefined || headers['sec-websocket-origin'] !== undefined) return 403;
-  if (!isLoopbackHost(headers.host, expected.port)) return 403;
-  if (!samePath(request.url, expected.path)) return 404;
-  return undefined;
-}
-
-function isLoopbackHost(host: string | undefined, port: number): boolean {
-  if (!host) return false;
-  const colon = host.lastIndexOf(':');
-  if (colon < 0) return false;
-  return (
-    LOOPBACK_NAMES.has(host.slice(0, colon).toLowerCase()) && host.slice(colon + 1) === String(port)
-  );
-}
-
-/** Compared in constant time, so the secret cannot be guessed a character at a time. */
-function samePath(url: string | undefined, path: string): boolean {
-  const given = Buffer.from(url ?? '');
-  const expected = Buffer.from(path);
-  return given.length === expected.length && crypto.timingSafeEqual(given, expected);
-}
-
-function refuse(socket: Duplex, status: number): void {
-  socket.once('finish', () => socket.destroy());
-  socket.end(
-    `HTTP/1.1 ${status} ${http.STATUS_CODES[status]}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`,
-  );
+  /** Tests lower it; the default is `MAX_COMMANDS_IN_FLIGHT`. */
+  maxCommandsInFlight?: number;
 }
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
-function detachQuietly(pageDebugger: RelayDebugger): void {
+function detachQuietly(pageDebugger: Debugger): void {
   try {
     if (pageDebugger.isAttached()) pageDebugger.detach();
   } catch (error) {
@@ -103,60 +38,52 @@ function detachQuietly(pageDebugger: RelayDebugger): void {
 }
 
 /**
- * Serves one guest page's `webContents.debugger` to `playwright-core`'s
- * `chromium.connectOverCDP(endpoint)`, so the agent's browser tools get
+ * Lets `playwright-core` drive one guest page: pass the relay itself to
+ * `chromium.connectOverCDP(relay)`, so the agent's browser tools get
  * Playwright's element finding and waiting on top of a page the person can
  * see (spec decision 5).
  *
- * Whoever reaches this controls a page where the person may be signed in,
- * so it is shut tight:
- * - It listens on 127.0.0.1 only, on a port the OS picks, at a path holding
- *   24 random bytes. The address never leaves main: no tool returns it and no
- *   session's environment holds it. Consola never starts with
- *   `--remote-debugging-port`, which would expose every window, its own
- *   included.
- * - It refuses any upgrade with an `Origin` header, a non-loopback `Host` or
- *   a wrong path (`refuseUpgrade`), and answers plain HTTP with 404.
- * - It serves one client, once. A second connection is refused, and when the
- *   client leaves the relay closes, so nothing one connection set up on the
- *   page carries into another. A new connection means a new relay.
- * - What it has written but the client has not read is capped
- *   (`MAX_QUEUED_BYTES`); past it the client is dropped, since dropping
- *   events instead would leave Playwright out of step with the page.
+ * It is Playwright's in-process transport, not a server. Nothing listens on
+ * any port, so there is no address for another process or a web page to
+ * find, and Consola never starts with `--remote-debugging-port`, which would
+ * expose every window, its own included. The only way in is the object main
+ * holds. What CDP it speaks is `cdpRelayProtocol`'s: one page, and nothing
+ * that can open, close or list another.
  *
- * The relay holds the page's one debugger attachment from `open` to `close`:
- * Electron allows a single client per page, and opening DevTools on the page
- * ends it (Electron emits `detach`), which closes the relay. Main can still
- * send its own commands through the same `webContents.debugger` meanwhile.
- * What CDP the relay speaks is `cdpRelayProtocol`'s.
+ * The relay holds the page's debugger attachment from `open` to `close`, and
+ * a relay carries one Playwright connection: once closed it stays closed, and
+ * a new connection needs a new relay, so nothing one connection set up on the
+ * page carries into the next.
+ *
+ * The person comes first. Electron 43 lets DevTools and this attachment share
+ * a `<webview>` guest (despite its docs, opening DevTools does not end the
+ * attachment), so the relay steps aside itself: it will not open while
+ * DevTools is open on the page, and it closes when DevTools opens. Electron's
+ * own `detach` (the page closing, its renderer going away) closes it too.
+ *
+ * Memory: nothing is queued. Events go to Playwright as Electron delivers
+ * them, and answers as the page gives them. What can grow is the set of
+ * commands waiting on a page that has stopped answering, and that is capped
+ * (`MAX_COMMANDS_IN_FLIGHT`); past it the relay closes.
  */
-export class CdpRelay {
-  /** Where Playwright connects. Stays in main. */
-  public readonly endpoint: string;
+export class CdpRelay implements ConnectOverCDPTransport {
+  /** Set by Playwright when it takes the transport. */
+  public onmessage?: (message: object) => void;
+  /** Set by Playwright; told when the relay closes, whoever closed it. */
+  public onclose?: (reason?: string) => void;
 
-  private readonly server: http.Server;
-  private readonly sockets = new WebSocketServer({
-    noServer: true,
-    maxPayload: MAX_INBOUND_BYTES,
-    perMessageDeflate: false,
-    clientTracking: false,
-  });
-  private readonly path = `/${crypto.randomBytes(24).toString('base64url')}`;
-  private readonly port: number;
-  private readonly maxQueuedBytes: number;
-  private client: WebSocket | undefined;
-  private connection: RelayConnection | undefined;
-  private served = false;
+  private readonly connection: RelayConnection;
   private closed = false;
   /** Chromium ended the attachment itself, so there is nothing left to detach. */
   private dropped = false;
 
   /**
-   * Attaches to the page's debugger and starts listening. Rejects, with
-   * nothing left attached or listening, if the page cannot be debugged:
-   * DevTools or another client already holds it, or the page is gone.
+   * Attaches to the page's debugger. Throws, leaving nothing attached, if the
+   * page cannot be debugged: DevTools is open on it (`DEVTOOLS_OPEN_MESSAGE`),
+   * another client already holds its debugger, or the page is gone.
    */
-  public static async open(guest: RelayGuest, options: CdpRelayOptions = {}): Promise<CdpRelay> {
+  public static open(guest: RelayGuest, options: CdpRelayOptions = {}): CdpRelay {
+    if (guest.isDevToolsOpened()) throw new Error(DEVTOOLS_OPEN_MESSAGE);
     const pageDebugger = guest.debugger;
     if (pageDebugger.isAttached()) {
       throw new Error('Could not attach to the page: its debugger is already in use.');
@@ -166,118 +93,75 @@ export class CdpRelay {
     } catch (error) {
       throw new Error(`Could not attach to the page: ${messageOf(error)}`);
     }
-    const server = http.createServer((_request, response) => {
-      response.writeHead(404, { Connection: 'close' });
-      response.end();
-    });
-    try {
-      await new Promise<void>((resolve, reject) => {
-        server.once('error', reject);
-        // Loopback only, never 0.0.0.0; port 0 lets the OS choose.
-        server.listen(0, '127.0.0.1', () => {
-          server.off('error', reject);
-          resolve();
-        });
-      });
-    } catch (error) {
-      detachQuietly(pageDebugger);
-      throw new Error(`Could not start the page's relay: ${messageOf(error)}`);
-    }
-    // The relay hears `detach` only once it exists, so an attachment that
-    // ended while the server was starting (DevTools opened, the page closed)
-    // is caught here instead.
-    if (!pageDebugger.isAttached()) {
-      server.close();
-      throw new Error('Could not attach to the page: its debugger detached while starting.');
-    }
-    server.unref();
-    return new CdpRelay(guest, server, options);
+    return new CdpRelay(guest, options);
   }
 
   private constructor(
     private readonly guest: RelayGuest,
-    server: http.Server,
     private readonly options: CdpRelayOptions,
   ) {
-    this.server = server;
-    this.port = (server.address() as AddressInfo).port;
-    this.endpoint = `ws://127.0.0.1:${this.port}${this.path}`;
-    this.maxQueuedBytes = options.maxQueuedBytes ?? MAX_QUEUED_BYTES;
+    this.connection = createRelayConnection(
+      this.page(),
+      {
+        // A message with nobody to take it is dropped, never held. Playwright
+        // sets `onmessage` before it sends anything, and the relay writes only
+        // in answer to what it sent, so this drops only what arrives after
+        // Playwright has gone.
+        write: (message) => this.onmessage?.(message),
+        fail: (reason) => this.close(reason),
+      },
+      options.maxCommandsInFlight ?? MAX_COMMANDS_IN_FLIGHT,
+    );
     guest.debugger.on('message', this.onDebuggerMessage);
     guest.debugger.on('detach', this.onDebuggerDetach);
-    server.on('upgrade', (request, socket, head) => this.onUpgrade(request, socket, head));
-    server.on('error', (error) => this.close(`The relay failed: ${error.message}`));
+    guest.on('devtools-opened', this.onDevToolsOpened);
   }
 
   public get isClosed(): boolean {
     return this.closed;
   }
 
-  /** Detaches from the page, drops the client and stops listening. Idempotent. */
+  /** From Playwright: one CDP command. Answered later, never inside this call. */
+  public send(message: object): void {
+    if (!this.closed) this.connection.receive(message);
+  }
+
+  /**
+   * Detaches from the page and disconnects Playwright. Idempotent. Playwright
+   * calls it when its browser closes; main calls it when the tab goes away.
+   */
   public close(reason = 'The relay was closed.'): void {
     if (this.closed) return;
     this.closed = true;
-    this.connection?.close();
+    this.connection.close();
     const pageDebugger = this.guest.debugger;
     // The listeners come off first, so this detach never reads as Chromium's own.
     pageDebugger.removeListener('message', this.onDebuggerMessage);
     pageDebugger.removeListener('detach', this.onDebuggerDetach);
+    this.guest.removeListener('devtools-opened', this.onDevToolsOpened);
     if (!this.dropped) detachQuietly(pageDebugger);
-    this.client?.terminate();
-    this.sockets.close();
-    this.server.close();
-    this.server.closeAllConnections();
+    this.onclose?.(reason);
     this.options.onClose?.(reason);
   }
 
-  private onUpgrade(request: http.IncomingMessage, socket: Duplex, head: Buffer): void {
-    // A client that hangs up mid-handshake is no concern of the relay's.
-    socket.on('error', () => {});
-    if (this.closed) {
-      socket.destroy();
-      return;
-    }
-    const refusal = refuseUpgrade(request, { path: this.path, port: this.port });
-    if (refusal !== undefined) {
-      refuse(socket, refusal);
-      return;
-    }
-    if (this.served) {
-      refuse(socket, 409);
-      return;
-    }
-    this.served = true;
-    this.sockets.handleUpgrade(request, socket, head, (client) => this.accept(client));
-  }
-
-  private accept(client: WebSocket): void {
-    if (this.closed) {
-      client.terminate();
-      return;
-    }
-    this.client = client;
-    this.connection = createRelayConnection(
-      this.page(),
-      { write: (text) => this.write(text), fail: (reason) => this.close(reason) },
-      this.options.maxMessageBytes ?? MAX_MESSAGE_BYTES,
-    );
-    client.on('message', (data: RawData, isBinary: boolean) => {
-      // Playwright speaks text frames only.
-      if (isBinary || !Buffer.isBuffer(data)) return;
-      this.connection?.receive(data.toString('utf8'));
-    });
-    client.on('close', () => this.close('The client disconnected.'));
-    client.on('error', (error) => this.close(`The connection failed: ${error.message}`));
-  }
-
-  private write(text: string): void {
-    const client = this.client;
-    if (this.closed || !client || client.readyState !== WebSocket.OPEN) return;
-    if (client.bufferedAmount > this.maxQueuedBytes) {
-      this.close('The client fell behind the page, past what the relay will hold for it.');
-      return;
-    }
-    client.send(text);
+  /**
+   * Main's own switch for focus emulation, sent through the same attachment.
+   * The relay swallows Playwright's request for it, so a page the person is
+   * not looking at is never told it has focus for as long as the agent stays
+   * connected; main turns it on only while the agent acts.
+   *
+   * Seen on Electron 43, in a window that never had OS focus:
+   * - Typed text lands only with emulation on *and* after a Playwright click
+   *   on the page. Emulation alone (fill, `keyboard.type`,
+   *   `pressSequentially`) and a click alone both leave the field empty.
+   * - Turned on and off with nothing in between, `document.hasFocus()`
+   *   returns to false. After a click made while it was on, `hasFocus()`
+   *   stays true once it is off, though neither the window nor the guest has
+   *   OS focus: the click focused the page in Chromium's own reckoning.
+   */
+  public async setFocusEmulation(enabled: boolean): Promise<void> {
+    if (this.closed) throw new Error('The relay is closed.');
+    await this.guest.debugger.sendCommand('Emulation.setFocusEmulationEnabled', { enabled });
   }
 
   private page(): RelayPage {
@@ -312,11 +196,15 @@ export class CdpRelay {
     params: unknown,
     sessionId: string,
   ): void => {
-    this.connection?.event(method, params, sessionId);
+    this.connection.event(method, params, sessionId);
   };
 
   private readonly onDebuggerDetach = (_event: unknown, reason: string): void => {
     this.dropped = true;
     this.close(`The page's debugger detached (${reason}).`);
+  };
+
+  private readonly onDevToolsOpened = (): void => {
+    this.close(DEVTOOLS_OPEN_MESSAGE);
   };
 }

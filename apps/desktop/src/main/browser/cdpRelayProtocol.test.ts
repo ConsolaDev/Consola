@@ -1,16 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  createRelayConnection,
-  jsonBytesUpTo,
-  PAGE_SESSION_ID,
-  type RelayPage,
-} from './cdpRelayProtocol';
+import { createRelayConnection, PAGE_SESSION_ID, type RelayPage } from './cdpRelayProtocol';
 
 type Message = Record<string, unknown>;
 
 const TARGET = { targetId: 'GUEST-TARGET', url: 'http://localhost:4719/', title: 'Fixture' };
 
-function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxMessageBytes?: number) {
+function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxCommandsInFlight?: number) {
   const written: Message[] = [];
   const fail = vi.fn();
   const page: RelayPage = {
@@ -21,11 +16,14 @@ function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxMessageByte
   };
   const relay = createRelayConnection(
     page,
-    { write: (text) => written.push(JSON.parse(text)), fail },
-    maxMessageBytes,
+    { write: (message) => written.push(message), fail },
+    maxCommandsInFlight,
   );
+  // Shaped as Playwright's CRConnection sends them: sessionId only when there is one.
   const command = (id: number, method: string, params?: Message, sessionId?: string) =>
-    relay.receive(JSON.stringify({ id, method, params, sessionId }));
+    relay.receive(
+      sessionId === undefined ? { id, method, params } : { id, method, params, sessionId },
+    );
   const reply = (id: number) => written.find((message) => message.id === id);
   return { relay, written, fail, send, command, reply };
 }
@@ -33,8 +31,8 @@ function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxMessageByte
 // Each reply lands a few microtasks after its command; one macrotask lets them all land.
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
-async function announced(send?: RelayPage['send'], maxMessageBytes?: number) {
-  const context = setup(send, maxMessageBytes);
+async function announced(send?: RelayPage['send'], maxCommandsInFlight?: number) {
+  const context = setup(send, maxCommandsInFlight);
   context.command(1, 'Target.setAutoAttach', {
     autoAttach: true,
     waitForDebuggerOnStart: true,
@@ -149,10 +147,12 @@ describe('the browser-level commands the relay answers itself', () => {
 
   it('ignores input that is not a command', async () => {
     const { relay, written, send } = setup();
-    relay.receive('not json');
-    relay.receive(JSON.stringify({ method: 'Browser.getVersion' }));
-    relay.receive(JSON.stringify({ id: 'x', method: 'Browser.getVersion' }));
-    relay.receive(JSON.stringify([1, 2]));
+    relay.receive('{"id":1,"method":"Browser.getVersion"}');
+    relay.receive(null);
+    relay.receive({ method: 'Browser.getVersion' });
+    relay.receive({ id: 'x', method: 'Browser.getVersion' });
+    relay.receive({ id: 1, method: 'Browser.getVersion', params: 'nope' });
+    relay.receive([1, 2]);
     await settle();
     expect(written).toEqual([]);
     expect(send).not.toHaveBeenCalled();
@@ -315,33 +315,39 @@ describe('extra sessions on the page', () => {
   });
 });
 
-describe('message size', () => {
-  it('fails only a reply that is too large, and still sends the next one', async () => {
-    const send = vi.fn(async (method: string) =>
-      method === 'DOM.getDocument' ? { data: 'x'.repeat(2000) } : { data: 'small' },
-    );
-    const { command, reply, fail } = await announced(send, 1000);
-    command(5, 'DOM.getDocument', {}, PAGE_SESSION_ID);
-    command(6, 'Page.captureScreenshot', {}, PAGE_SESSION_ID);
+describe('the connection itself', () => {
+  // Playwright registers a command's callback only after `send` returns, so an
+  // answer written inside it would never be matched and the command would hang.
+  it('never answers inside receive, not even for commands it answers itself', async () => {
+    const { command, written } = await announced();
+    command(5, 'Browser.getVersion');
+    command(6, 'Emulation.setFocusEmulationEnabled', { enabled: true }, PAGE_SESSION_ID);
+    command(7, 'Target.createTarget', { url: 'about:blank' });
+    expect(written).toEqual([]);
     await settle();
-    expect(reply(5)).toEqual({
-      id: 5,
-      error: { code: -32000, message: expect.stringContaining('too large') },
-      sessionId: PAGE_SESSION_ID,
-    });
-    expect(reply(6)).toEqual({ id: 6, result: { data: 'small' }, sessionId: PAGE_SESSION_ID });
-    expect(fail).not.toHaveBeenCalled();
+    expect(written.map((message) => message.id)).toEqual([5, 6, 7]);
   });
 
-  // A dropped event would leave Playwright out of step with the page.
-  it('gives up on the connection for an event that is too large, and writes nothing after', async () => {
-    const { relay, written, fail, command } = await announced(undefined, 1000);
-    relay.event('Runtime.consoleAPICalled', { args: ['x'.repeat(2000)] }, '');
-    relay.event('Page.loadEventFired', { timestamp: 1 }, '');
-    command(9, 'Browser.getVersion');
+  it('ends the connection when too many commands wait on a page that stopped answering', async () => {
+    const send = vi.fn(() => new Promise<unknown>(() => {}));
+    const { command, fail, written } = await announced(send, 3);
+    for (let id = 10; id < 13; id++) command(id, 'Runtime.releaseObject', {}, PAGE_SESSION_ID);
+    expect(fail).not.toHaveBeenCalled();
+    command(13, 'Runtime.releaseObject', {}, PAGE_SESSION_ID);
+    expect(fail).toHaveBeenCalledWith(expect.stringContaining('stopped answering'));
+    expect(send).toHaveBeenCalledTimes(3);
+    command(14, 'Browser.getVersion');
     await settle();
-    expect(fail).toHaveBeenCalledOnce();
     expect(written).toEqual([]);
+  });
+
+  it('counts a command as waiting only until it is answered', async () => {
+    const { command, fail } = await announced(undefined, 3);
+    for (let id = 10; id < 40; id++) {
+      command(id, 'Runtime.releaseObject', {}, PAGE_SESSION_ID);
+      await settle();
+    }
+    expect(fail).not.toHaveBeenCalled();
   });
 
   it('writes nothing once closed', async () => {
@@ -351,40 +357,5 @@ describe('message size', () => {
     command(9, 'Browser.getVersion');
     await settle();
     expect(written).toEqual([]);
-  });
-});
-
-describe('jsonBytesUpTo', () => {
-  const exact = (value: unknown) => Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8');
-
-  it('counts exactly what JSON.stringify would write, in UTF-8 bytes', () => {
-    const values: unknown[] = [
-      null,
-      true,
-      false,
-      0,
-      -12.5,
-      1e21,
-      Number.NaN,
-      '',
-      'plain ascii',
-      'quote " backslash \\ slash /',
-      'controls \n\t\r\b\f \u0001 \u001f',
-      'accents é ñ, CJK 漢字, emoji 😀',
-      'lone surrogates \ud800 and \udfff',
-      [],
-      [1, 'two', null, undefined, [3]],
-      {},
-      { a: 1, b: 'two', skipped: undefined, nested: { list: [true, false], text: 'é' } },
-    ];
-    for (const value of values) {
-      expect(jsonBytesUpTo(value, Number.MAX_SAFE_INTEGER)).toBe(exact(value));
-    }
-  });
-
-  it('stops counting past the limit', () => {
-    const big = { list: Array.from({ length: 1000 }, () => 'x'.repeat(100)) };
-    expect(jsonBytesUpTo(big, 500)).toBeGreaterThan(500);
-    expect(jsonBytesUpTo(big, 500)).toBeLessThan(exact(big));
   });
 });
