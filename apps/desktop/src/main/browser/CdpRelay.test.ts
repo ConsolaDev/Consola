@@ -175,6 +175,11 @@ describe('CdpRelay as Playwright’s transport', () => {
   it('delivers the debugger’s events, under the page session or the child’s own', async () => {
     const { fake, announce, until } = open();
     await announce();
+    fake.emitEvent('Target.attachedToTarget', {
+      sessionId: 'IFRAME-SESSION',
+      targetInfo: { targetId: 'IFRAME', type: 'iframe' },
+      waitingForDebugger: true,
+    });
     fake.emitEvent('Page.loadEventFired', { timestamp: 1 });
     fake.emitEvent('Runtime.consoleAPICalled', { type: 'log' }, 'IFRAME-SESSION');
     expect(await until((message) => message.method === 'Page.loadEventFired')).toEqual({
@@ -187,10 +192,45 @@ describe('CdpRelay as Playwright’s transport', () => {
       'IFRAME-SESSION',
     );
   });
+
+  // The reviewer's escape.js and files.js probes, against the fake: none of
+  // these may reach the debugger from the page's own session.
+  it('keeps the page’s session to the page: no other target, no downloads, no files', async () => {
+    const { fake, call, announce } = open();
+    await announce();
+    const attempts: Array<[string, Message]> = [
+      ['Target.getTargets', {}],
+      ['Target.attachToTarget', { targetId: 'HOST-WINDOW', flatten: true }],
+      ['Page.setDownloadBehavior', { behavior: 'allow', downloadPath: '/tmp/anywhere' }],
+      ['DOM.setFileInputFiles', { files: ['/etc/hosts'], nodeId: 7 }],
+      ['Page.navigate', { url: 'file:///etc/hosts' }],
+      ['Page.bringToFront', {}],
+    ];
+    let id = 10;
+    for (const [method, params] of attempts) {
+      expect(await call(id++, method, params, PAGE_SESSION_ID)).toHaveProperty('error');
+    }
+    // Answered by the relay itself, so it changes nothing either.
+    const downloads = await call(
+      id++,
+      'Browser.setDownloadBehavior',
+      {
+        behavior: 'allow',
+        downloadPath: '/tmp/anywhere',
+      },
+      PAGE_SESSION_ID,
+    );
+    expect(downloads).toHaveProperty('result', {});
+    // A session id the page never announced gets nowhere.
+    expect(
+      await call(id++, 'Runtime.evaluate', { expression: '1' }, 'HOST-SESSION'),
+    ).toHaveProperty('error');
+    expect(fake.commands).toEqual([]);
+  });
 });
 
 describe('CdpRelay lifetime', () => {
-  it('surfaces a failed attach (DevTools open, say) and leaves nothing behind', () => {
+  it('surfaces a failed attach and leaves nothing behind', () => {
     const fake = new FakeDebugger();
     fake.attachError = 'Another debugger is already attached to this target';
     expect(() => CdpRelay.open(guestOf(fake))).toThrow(
@@ -242,6 +282,26 @@ describe('CdpRelay lifetime', () => {
     await settle();
     expect(received).toEqual([]);
     await expect(relay.setFocusEmulation(true)).rejects.toThrow(/closed/);
+  });
+
+  it('tells main before Playwright, and one listener failing does not silence the other', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const order: string[] = [];
+    const fake = new FakeDebugger();
+    const relay = CdpRelay.open(guestOf(fake), {
+      onClose: () => {
+        order.push('main');
+        throw new Error('main failed');
+      },
+    });
+    relay.onclose = () => {
+      order.push('playwright');
+      throw new Error('playwright failed');
+    };
+    expect(() => relay.close('The tab was closed.')).not.toThrow();
+    expect(order).toEqual(['main', 'playwright']);
+    expect(fake.detachCalls).toBe(1);
+    warn.mockRestore();
   });
 
   it('drops answers still in flight when it closes', async () => {

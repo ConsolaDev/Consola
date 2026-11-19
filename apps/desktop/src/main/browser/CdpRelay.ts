@@ -47,8 +47,10 @@ function detachQuietly(pageDebugger: Debugger): void {
  * any port, so there is no address for another process or a web page to
  * find, and Consola never starts with `--remote-debugging-port`, which would
  * expose every window, its own included. The only way in is the object main
- * holds. What CDP it speaks is `cdpRelayProtocol`'s: one page, and nothing
- * that can open, close or list another.
+ * holds. What CDP it speaks is `cdpRelayProtocol`'s, which presents one page
+ * and holds the page's own sessions to that page: Chromium would otherwise
+ * answer them for every target in the app, Consola's windows included, and
+ * for the disk.
  *
  * The relay holds the page's debugger attachment from `open` to `close`, and
  * a relay carries one Playwright connection: once closed it stays closed, and
@@ -140,8 +142,15 @@ export class CdpRelay implements ConnectOverCDPTransport {
     pageDebugger.removeListener('detach', this.onDebuggerDetach);
     this.guest.removeListener('devtools-opened', this.onDevToolsOpened);
     if (!this.dropped) detachQuietly(pageDebugger);
-    this.onclose?.(reason);
-    this.options.onClose?.(reason);
+    // Main first, so it knows why before Playwright reports the disconnect;
+    // each on its own, so one that throws cannot keep the other from hearing.
+    for (const notify of [this.options.onClose, this.onclose]) {
+      try {
+        notify?.(reason);
+      } catch (error) {
+        console.warn('A listener for the relay closing failed:', messageOf(error));
+      }
+    }
   }
 
   /**

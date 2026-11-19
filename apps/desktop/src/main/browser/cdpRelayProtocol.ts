@@ -1,3 +1,5 @@
+import { isAllowedPageUrl } from '../../shared/browser';
+
 /**
  * The Chrome DevTools Protocol that `CdpRelay` speaks to Playwright, with no IO.
  *
@@ -5,10 +7,17 @@
  * `connectOverCDP` expects a whole browser: it asks which pages exist,
  * attaches to them and only then talks to a page. So this answers the
  * browser-level questions itself, presenting a browser that has exactly one
- * page, and passes everything addressed to that page (or to the page's own
- * iframes and workers) through to the debugger. Any other browser-level
- * command is refused: nothing here can open, close or list another page, or
- * reach the partition's cookies.
+ * page. Any other browser-level command is refused.
+ *
+ * The page's own session is no narrower by itself: Chromium answers it for
+ * the whole app, listing every target (Consola's own windows included),
+ * attaching to any of them, and placing downloads anywhere on disk. So
+ * commands on the page's sessions pass a second wall (`refusalOnPage` and
+ * the checks beside it): nothing that reaches another target or the whole
+ * browser, the partition's cookies, the disk (downloads, files handed to the
+ * page), focus or the page's closing, and navigation only to web pages.
+ * Commands go to an iframe or worker only under a session id Chromium
+ * announced for this page; any other session id is refused.
  *
  * Messages are plain objects handed across in the same process, never
  * serialized. Every answer is written asynchronously, after `receive` has
@@ -97,6 +106,67 @@ function isCommand(value: unknown): value is Command {
   );
 }
 
+/** Domains that act on the whole browser, never on one page. */
+const BROWSER_WIDE_DOMAINS = new Set(['Browser', 'Storage', 'SystemInfo', 'Tracing']);
+
+/** Every site's cookies in the workspace's partition; a page's script reaches only its own. */
+const COOKIE_COMMANDS = new Set([
+  'Network.getAllCookies',
+  'Network.getCookies',
+  'Network.setCookie',
+  'Network.setCookies',
+  'Network.deleteCookies',
+  'Network.clearBrowserCookies',
+]);
+
+/** Invariant 6 (agent input never focuses anything), and closing a tab is Consola's. */
+const PERSON_PAGE_COMMANDS = new Set(['Page.bringToFront', 'Page.close', 'Page.crash']);
+
+/** The Target commands a page's sessions keep, each checked further against what the relay knows. */
+const PAGE_TARGET_COMMANDS = new Set([
+  // Chromium attaches the page's own iframes and workers through it.
+  'Target.setAutoAttach',
+  'Target.detachFromTarget',
+  'Target.getTargetInfo',
+]);
+
+function carriesFiles(params: Record<string, unknown>): boolean {
+  const data = params.data;
+  return isRecord(data) && Array.isArray(data.files) && data.files.length > 0;
+}
+
+/**
+ * Why a command on the page's own sessions is refused, by what it is alone,
+ * or undefined to go on. Rules that need to know the page are in
+ * `createRelayConnection`.
+ */
+export function refusalOnPage(method: string, params: Record<string, unknown>): string | undefined {
+  const domain = method.slice(0, method.indexOf('.'));
+  if (domain === 'Target' && !PAGE_TARGET_COMMANDS.has(method)) {
+    return 'it reaches beyond this tab';
+  }
+  if (BROWSER_WIDE_DOMAINS.has(domain)) return 'it acts on the whole browser, not this tab';
+  if (COOKIE_COMMANDS.has(method)) return 'it reaches every site’s cookies in the workspace';
+  if (method === 'Page.setDownloadBehavior') return 'where downloads go is Consola’s to decide';
+  // Ruling P: no agent file uploads in this version.
+  if (
+    method === 'DOM.setFileInputFiles' ||
+    (method === 'Input.dispatchDragEvent' && carriesFiles(params))
+  ) {
+    return 'the agent cannot hand files to a page';
+  }
+  if (PERSON_PAGE_COMMANDS.has(method)) return 'the page is the person’s to focus and close';
+  // Ruling Q: the same rule as an address the person types. Main's own
+  // navigation check stays as the other wall.
+  if (
+    method === 'Page.navigate' &&
+    !(typeof params.url === 'string' && isAllowedPageUrl(params.url))
+  ) {
+    return 'pages are only ever web pages (http or https)';
+  }
+  return undefined;
+}
+
 /** A browser-level answer, and the event that must follow it, if any. */
 interface Answer {
   result: unknown;
@@ -114,9 +184,11 @@ export function createRelayConnection(
   let announced = false;
   let announcing = false;
   let inFlight = 0;
-  // The relay's own sessions. A session id not listed here belongs to one of
-  // the page's iframes or workers, which Chromium attached itself.
+  // The relay's own sessions.
   const sessions = new Map<string, 'browser' | 'page'>([[PAGE_SESSION_ID, 'page']]);
+  // The page's iframes and workers, by the session id Chromium announced for
+  // each on the page's own sessions. Only these are forwarded to.
+  const children = new Set<string>();
   let sequence = 0;
 
   const newSession = (kind: 'browser' | 'page') => {
@@ -226,17 +298,72 @@ export function createRelayConnection(
     }
   };
 
-  const pageCommand = async (command: Command, child: string | undefined): Promise<Answer> => {
+  /** The page's answer, as a promise even when sending throws. */
+  const forward = (
+    method: string,
+    params: Record<string, unknown>,
+    child: string | undefined,
+  ): Promise<Answer> => {
+    try {
+      return page.send(method, params, child).then((result) => ({ result }));
+    } catch (error) {
+      return Promise.reject(error);
+    }
+  };
+
+  /** The checks that must ask the page first; anything else is decided at once. */
+  const lookUpRefusal = async (
+    method: string,
+    params: Record<string, unknown>,
+    child: string | undefined,
+  ): Promise<string | undefined> => {
+    if (method === 'Target.getTargetInfo') {
+      return params.targetId === (await page.targetInfo()).targetId
+        ? undefined
+        : 'it names another target';
+    }
+    // An entry is only an id, so look up where it leads.
+    const history = await page.send('Page.getNavigationHistory', {}, child);
+    const entries = isRecord(history) && Array.isArray(history.entries) ? history.entries : [];
+    const entry = entries.find((item) => isRecord(item) && item.id === params.entryId);
+    return isRecord(entry) && typeof entry.url === 'string' && isAllowedPageUrl(entry.url)
+      ? undefined
+      : 'pages are only ever web pages (http or https)';
+  };
+
+  const pageCommand = (command: Command, child: string | undefined): Promise<Answer> => {
+    const { method } = command;
+    const params = command.params ?? {};
     // Playwright asks for focus emulation on every page it attaches to, and
     // Chromium would then treat the page as focused for as long as the agent
     // stays connected. Main turns it on itself, and only while the agent acts.
-    if (command.method === 'Emulation.setFocusEmulationEnabled') return { result: {} };
+    // Downloads are main's to allow or cancel, on the page as at the root.
     // The page was attached while running, so it is not waiting; an iframe or
     // worker attached by Chromium is, and needs the command to start.
-    if (command.method === 'Runtime.runIfWaitingForDebugger' && child === undefined) {
-      return { result: {} };
+    if (
+      method === 'Emulation.setFocusEmulationEnabled' ||
+      method === 'Browser.setDownloadBehavior' ||
+      (method === 'Runtime.runIfWaitingForDebugger' && child === undefined)
+    ) {
+      return Promise.resolve({ result: {} });
     }
-    return { result: await page.send(command.method, command.params ?? {}, child) };
+    const refuse = (why: string) =>
+      Promise.reject(new Error(`${method} is not available on this tab’s page: ${why}.`));
+    const refusal =
+      refusalOnPage(method, params) ??
+      (method === 'Target.detachFromTarget' &&
+      !(typeof params.sessionId === 'string' && children.has(params.sessionId))
+        ? 'it names no iframe or worker of this page'
+        : undefined);
+    if (refusal) return refuse(refusal);
+    // With no target named, a session describes its own target.
+    const needsLookUp =
+      (method === 'Target.getTargetInfo' && params.targetId !== undefined) ||
+      method === 'Page.navigateToHistoryEntry';
+    if (!needsLookUp) return forward(method, params, child);
+    return lookUpRefusal(method, params, child).then((why) =>
+      why ? refuse(why) : forward(method, params, child),
+    );
   };
 
   const answer = (command: Command, outcome: Promise<Answer>) => {
@@ -275,16 +402,25 @@ export function createRelayConnection(
         fail('The page stopped answering while commands kept arriving.');
         return;
       }
-      const kind = message.sessionId === undefined ? 'browser' : sessions.get(message.sessionId);
-      if (kind === 'browser') {
-        answer(message, browserCommand(message));
-        return;
-      }
-      answer(message, pageCommand(message, kind === 'page' ? undefined : message.sessionId));
+      const { sessionId } = message;
+      const kind = sessionId === undefined ? 'browser' : sessions.get(sessionId);
+      if (kind === 'browser') answer(message, browserCommand(message));
+      else if (kind === 'page') answer(message, pageCommand(message, undefined));
+      else if (sessionId !== undefined && children.has(sessionId)) {
+        answer(message, pageCommand(message, sessionId));
+      } else answer(message, Promise.reject(new Error('No such session.')));
     },
 
     event(method, params, sessionId) {
-      if (closed || !announced) return;
+      if (closed) return;
+      // Only the page's own sessions are heard, and an iframe or worker
+      // becomes one when Chromium announces it on one of them.
+      if (sessionId && !children.has(sessionId)) return;
+      if (isRecord(params) && typeof params.sessionId === 'string') {
+        if (method === 'Target.attachedToTarget') children.add(params.sessionId);
+        if (method === 'Target.detachedFromTarget') children.delete(params.sessionId);
+      }
+      if (!announced) return;
       if (sessionId) {
         write({ method, params, sessionId });
         return;

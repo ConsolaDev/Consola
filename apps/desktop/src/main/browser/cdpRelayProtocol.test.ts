@@ -31,6 +31,17 @@ function setup(send: RelayPage['send'] = vi.fn(async () => ({})), maxCommandsInF
 // Each reply lands a few microtasks after its command; one macrotask lets them all land.
 const settle = () => new Promise<void>((resolve) => setImmediate(resolve));
 
+/** The session id Chromium gave the page's one cross-site iframe. */
+const CHILD = 'IFRAME-SESSION';
+
+/** What the debugger emits when Chromium auto-attaches one of the page's iframes or workers. */
+const attachedEvent = (sessionId: string) => ({
+  sessionId,
+  targetInfo: { targetId: `${sessionId}-TARGET`, type: 'iframe', url: 'http://other/' },
+  waitingForDebugger: true,
+});
+
+/** A connection whose page has been announced, with one iframe Chromium attached under it. */
 async function announced(send?: RelayPage['send'], maxCommandsInFlight?: number) {
   const context = setup(send, maxCommandsInFlight);
   context.command(1, 'Target.setAutoAttach', {
@@ -39,6 +50,7 @@ async function announced(send?: RelayPage['send'], maxCommandsInFlight?: number)
     flatten: true,
   });
   await settle();
+  context.relay.event('Target.attachedToTarget', attachedEvent(CHILD), '');
   context.written.length = 0;
   return context;
 }
@@ -232,6 +244,237 @@ describe('page commands', () => {
     expect(send).not.toHaveBeenCalled();
     expect(reply(5)).toEqual({ id: 5, result: {}, sessionId: PAGE_SESSION_ID });
     expect(reply(6)).toEqual({ id: 6, result: {}, sessionId: 'IFRAME-SESSION' });
+  });
+});
+
+// Chromium answers the page's own debugger session for far more than the page:
+// it lists every target in the app, Consola's own window included, attaches to
+// any of them, and sets where downloads go. So the page's sessions get only
+// what drives the page itself (reviewer's escape.js and files.js probes).
+describe('what the page’s own sessions may not do', () => {
+  const sessions = [PAGE_SESSION_ID, CHILD];
+
+  async function refusedOnBoth(method: string, params: Message = {}) {
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    command(50, method, params, PAGE_SESSION_ID);
+    command(51, method, params, CHILD);
+    await settle();
+    for (const [id, sessionId] of [
+      [50, PAGE_SESSION_ID],
+      [51, CHILD],
+    ] as const) {
+      expect(reply(id)).toEqual({
+        id,
+        error: { code: -32000, message: expect.stringContaining(method) },
+        sessionId,
+      });
+    }
+    expect(send).not.toHaveBeenCalled();
+  }
+
+  it.each([
+    ['Target.getTargets', {}],
+    ['Target.attachToTarget', { targetId: 'HOST-WINDOW', flatten: true }],
+    ['Target.attachToBrowserTarget', {}],
+    ['Target.setDiscoverTargets', { discover: true }],
+    ['Target.createTarget', { url: 'about:blank' }],
+    ['Target.closeTarget', { targetId: 'HOST-WINDOW' }],
+    ['Target.activateTarget', { targetId: 'HOST-WINDOW' }],
+    ['Target.exposeDevToolsProtocol', { targetId: 'GUEST-TARGET' }],
+    ['Target.sendMessageToTarget', { message: '{}', sessionId: 'X' }],
+  ])('refuses %s, which reaches other targets', async (method, params) => {
+    await refusedOnBoth(method, params);
+  });
+
+  it.each([
+    ['Browser.getVersion'],
+    ['Browser.setDockTile'],
+    ['Browser.getWindowForTarget'],
+    ['Browser.grantPermissions'],
+    ['Storage.getCookies'],
+    ['SystemInfo.getProcessInfo'],
+    ['Tracing.start'],
+  ])('refuses %s, which is browser-wide', async (method) => {
+    await refusedOnBoth(method);
+  });
+
+  it.each([
+    ['Network.getAllCookies'],
+    ['Network.getCookies'],
+    ['Network.setCookie'],
+    ['Network.setCookies'],
+    ['Network.deleteCookies'],
+    ['Network.clearBrowserCookies'],
+  ])('refuses %s: the partition’s cookies are not the page’s to hand out', async (method) => {
+    await refusedOnBoth(method);
+  });
+
+  it('refuses to set where downloads go, and answers Browser.setDownloadBehavior itself', async () => {
+    await refusedOnBoth('Page.setDownloadBehavior', { behavior: 'allow', downloadPath: '/tmp' });
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    command(5, 'Browser.setDownloadBehavior', { behavior: 'allow', downloadPath: '/tmp' }, CHILD);
+    command(6, 'Browser.setDownloadBehavior', { behavior: 'allow' }, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toEqual({ id: 5, result: {}, sessionId: CHILD });
+    expect(reply(6)).toEqual({ id: 6, result: {}, sessionId: PAGE_SESSION_ID });
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  // Ruling P: no agent file uploads in this version.
+  it('never hands a local file to the page', async () => {
+    await refusedOnBoth('DOM.setFileInputFiles', { files: ['/etc/hosts'], nodeId: 3 });
+    await refusedOnBoth('Input.dispatchDragEvent', {
+      type: 'drop',
+      x: 1,
+      y: 1,
+      data: { items: [], files: ['/etc/hosts'], dragOperationsMask: 1 },
+    });
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    const drag = { type: 'dragEnter', x: 1, y: 1, data: { items: [], dragOperationsMask: 1 } };
+    command(5, 'Input.dispatchDragEvent', drag, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledWith('Input.dispatchDragEvent', drag, undefined);
+  });
+
+  // Invariant 6, and closing a tab is Consola's, never the agent's through the page.
+  it.each([['Page.bringToFront'], ['Page.close'], ['Page.crash']])(
+    'refuses %s on the person’s page',
+    async (method) => {
+      await refusedOnBoth(method);
+    },
+  );
+
+  // Ruling Q: the same rule as an address the person types; main's
+  // did-start-navigation check stays as the other wall.
+  it.each([
+    ['file:///etc/hosts'],
+    ['data:text/html,<p>hi</p>'],
+    ['javascript:alert(1)'],
+    ['chrome://settings'],
+    ['about:blank'],
+    ['not a url'],
+  ])('refuses to navigate to %s', async (url) => {
+    await refusedOnBoth('Page.navigate', { url, frameId: 'F' });
+  });
+
+  it('navigates to a web page, on the page and in an iframe', async () => {
+    const send = vi.fn(async () => ({ frameId: 'F' }));
+    const { command, reply } = await announced(send);
+    command(5, 'Page.navigate', { url: 'https://example.com/' }, PAGE_SESSION_ID);
+    command(6, 'Page.navigate', { url: 'http://localhost:3000/', frameId: 'F' }, CHILD);
+    await settle();
+    expect(reply(5)).toHaveProperty('result');
+    expect(reply(6)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledWith('Page.navigate', { url: 'https://example.com/' }, undefined);
+    expect(send).toHaveBeenCalledWith(
+      'Page.navigate',
+      { url: 'http://localhost:3000/', frameId: 'F' },
+      CHILD,
+    );
+  });
+
+  it('goes back or forward only to a history entry that is a web page', async () => {
+    const history = {
+      currentIndex: 1,
+      entries: [
+        { id: 1, url: 'https://example.com/' },
+        { id: 2, url: 'https://example.com/next' },
+        { id: 3, url: 'file:///etc/hosts' },
+      ],
+    };
+    const send = vi.fn(async (method: string) =>
+      method === 'Page.getNavigationHistory' ? history : {},
+    );
+    const { command, reply } = await announced(send);
+    command(5, 'Page.navigateToHistoryEntry', { entryId: 1 }, PAGE_SESSION_ID);
+    command(6, 'Page.navigateToHistoryEntry', { entryId: 3 }, PAGE_SESSION_ID);
+    command(7, 'Page.navigateToHistoryEntry', { entryId: 99 }, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toEqual({ id: 5, result: {}, sessionId: PAGE_SESSION_ID });
+    expect(reply(6)).toHaveProperty('error');
+    expect(reply(7)).toHaveProperty('error');
+    expect(send.mock.calls.filter(([method]) => method === 'Page.navigateToHistoryEntry')).toEqual([
+      ['Page.navigateToHistoryEntry', { entryId: 1 }, undefined],
+    ]);
+  });
+
+  it('lets through the Target commands that drive the page’s own iframes and workers', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    const autoAttach = { autoAttach: true, waitForDebuggerOnStart: true, flatten: true };
+    command(5, 'Target.setAutoAttach', autoAttach, CHILD);
+    command(6, 'Target.getTargetInfo', {}, PAGE_SESSION_ID);
+    command(7, 'Target.getTargetInfo', { targetId: 'GUEST-TARGET' }, PAGE_SESSION_ID);
+    command(8, 'Target.getTargetInfo', { targetId: 'HOST-WINDOW' }, PAGE_SESSION_ID);
+    command(9, 'Target.detachFromTarget', { sessionId: CHILD }, PAGE_SESSION_ID);
+    command(10, 'Target.detachFromTarget', { sessionId: 'HOST-SESSION' }, PAGE_SESSION_ID);
+    await settle();
+    for (const id of [5, 6, 7, 9]) expect(reply(id)).toHaveProperty('result');
+    for (const id of [8, 10]) expect(reply(id)).toHaveProperty('error');
+    expect(send.mock.calls).toHaveLength(4);
+    expect(send.mock.calls).toEqual(
+      expect.arrayContaining([
+        ['Target.setAutoAttach', autoAttach, CHILD],
+        ['Target.getTargetInfo', {}, undefined],
+        ['Target.getTargetInfo', { targetId: 'GUEST-TARGET' }, undefined],
+        ['Target.detachFromTarget', { sessionId: CHILD }, undefined],
+      ]),
+    );
+  });
+
+  it.each(sessions)('still forwards ordinary page commands on %s', async (sessionId) => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    command(5, 'DOM.getDocument', {}, sessionId);
+    await settle();
+    expect(reply(5)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledOnce();
+  });
+});
+
+describe('the page’s iframes and workers', () => {
+  it('forwards to one only after Chromium has announced it, and not after it detached', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply, relay } = await announced(send);
+    command(5, 'Runtime.enable', {}, 'NESTED');
+    // An iframe inside the iframe, announced on the iframe's own session.
+    relay.event('Target.attachedToTarget', attachedEvent('NESTED'), CHILD);
+    command(6, 'Runtime.enable', {}, 'NESTED');
+    relay.event('Target.detachedFromTarget', { sessionId: 'NESTED' }, CHILD);
+    command(7, 'Runtime.enable', {}, 'NESTED');
+    await settle();
+    expect(reply(5)).toEqual({
+      id: 5,
+      error: { code: -32000, message: 'No such session.' },
+      sessionId: 'NESTED',
+    });
+    expect(reply(6)).toEqual({ id: 6, result: {}, sessionId: 'NESTED' });
+    expect(reply(7)).toHaveProperty('error');
+    expect(send).toHaveBeenCalledOnce();
+  });
+
+  it('refuses a session id Chromium never announced for this page', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply, relay } = await announced(send);
+    // An announcement heard on a session that is not the page's grants nothing.
+    relay.event('Target.attachedToTarget', attachedEvent('HOST-SESSION'), 'STRANGER');
+    command(5, 'Runtime.evaluate', { expression: 'window.HOST_SECRET' }, 'HOST-SESSION');
+    await settle();
+    expect(reply(5)).toHaveProperty('error');
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('passes on events only from sessions it knows', async () => {
+    const { relay, written } = await announced();
+    relay.event('Runtime.consoleAPICalled', { type: 'log' }, 'STRANGER');
+    relay.event('Runtime.consoleAPICalled', { type: 'log' }, CHILD);
+    expect(written).toEqual([
+      { method: 'Runtime.consoleAPICalled', params: { type: 'log' }, sessionId: CHILD },
+    ]);
   });
 });
 
