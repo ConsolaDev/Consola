@@ -168,6 +168,22 @@ export const IPC_CHANNELS = {
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot
+
+  // In-app browser (renderer -> main). Every handler checks the tab belongs to the sender's workspace.
+  BROWSER_GET: 'browser:get', // One session's BrowserSessionSnapshot, for the first paint
+  BROWSER_OPEN: 'browser:open', // Open a tab in a session
+  BROWSER_CLOSE: 'browser:close', // Close a tab
+  BROWSER_ACTIVATE: 'browser:activate', // Make a tab the visible one
+  BROWSER_NAVIGATE: 'browser:navigate', // Send a tab to an address
+  BROWSER_BACK: 'browser:back',
+  BROWSER_FORWARD: 'browser:forward',
+  BROWSER_RELOAD: 'browser:reload',
+  BROWSER_STOP: 'browser:stop',
+  BROWSER_ATTACH: 'browser:attach', // Bind a mounted <webview> to its tab after dom-ready
+
+  // In-app browser (main -> renderer)
+  BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot
+  BROWSER_SHORTCUT: 'browser:shortcut', // A shortcut pressed while a page had focus
 } as const;
 
 export const DEFAULT_DIMENSIONS = {
