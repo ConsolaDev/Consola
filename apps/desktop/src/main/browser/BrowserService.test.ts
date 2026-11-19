@@ -956,6 +956,142 @@ describe('live pages', () => {
   });
 });
 
+describe('agent calls', () => {
+  const tabOf = (sessionId: string, tabId: string) =>
+    service.snapshotFor(sessionId).tabs.find((t) => t.id === tabId);
+
+  it('marks a tab agent-active while a call holds it, pushing each change', () => {
+    service.openTab('s1', 'https://a.com', 'agent');
+    const pushes = sent.length;
+    const release = service.holdForToolCall('tab1');
+    expect(tabOf('s1', 'tab1')).toMatchObject({ live: true, agentActive: true });
+    expect(sent.length).toBeGreaterThan(pushes);
+    expect(last().payload.snapshot.tabs[0]).toMatchObject({ live: true, agentActive: true });
+
+    release?.();
+    expect(tabOf('s1', 'tab1')).toMatchObject({ live: true, agentActive: false });
+    expect(last().payload.snapshot.tabs[0].agentActive).toBe(false);
+  });
+
+  it('stays agent-active until the last of overlapping calls ends', () => {
+    service.openTab('s1', 'https://a.com', 'agent');
+    const first = service.holdForToolCall('tab1');
+    const second = service.holdForToolCall('tab1');
+    first?.();
+    first?.();
+    expect(tabOf('s1', 'tab1')?.agentActive).toBe(true);
+    const pushes = sent.length;
+    second?.();
+    expect(tabOf('s1', 'tab1')?.agentActive).toBe(false);
+    expect(sent.length).toBe(pushes + 1);
+    second?.();
+    expect(sent.length).toBe(pushes + 1);
+  });
+
+  it('a call ending on a closed tab pushes nothing', () => {
+    service.openTab('s1', 'https://a.com', 'agent');
+    const release = service.holdForToolCall('tab1');
+    service.closeTab('tab1');
+    const pushes = sent.length;
+    release?.();
+    expect(sent.length).toBe(pushes);
+  });
+
+  it('says whether an agent can have a tab’s page', () => {
+    service.openTab('s1', 'https://a.com', 'agent');
+    service.openTab('s1', '', 'agent');
+    expect(service.pageAvailability('tab1')).toBe('ready');
+    expect(service.pageAvailability('tab2')).toBe('blank');
+    expect(service.pageAvailability('nope')).toBe('missing');
+
+    service = new BrowserService({
+      store,
+      workspaceIdForSession: (id) => sessionWorkspace[id],
+      findWindowForWorkspace: () => undefined,
+      send: () => {},
+      clearPartition,
+    });
+    expect(service.pageAvailability('tab1')).toBe('no-window');
+  });
+
+  it('a window that is closing holds nothing', () => {
+    const closing = { name: 'C', isDestroyed: () => true } as unknown as BrowserWindow;
+    service = new BrowserService({
+      store,
+      workspaceIdForSession: (id) => sessionWorkspace[id],
+      findWindowForWorkspace: () => closing,
+      send: () => {},
+      clearPartition,
+      newId: () => `tab${++ids}`,
+    });
+    service.openTab('s1', 'https://a.com', 'agent');
+    expect(service.pageAvailability(`tab${ids}`)).toBe('no-window');
+  });
+
+  it('tells its watchers when a page binds to its tab', () => {
+    service.openTab('s1', 'https://a.com', 'agent');
+    const bound: Array<[string, WebContents]> = [];
+    const stop = service.onGuestBound((tabId, guest) => bound.push([tabId, guest]));
+    const guest = new FakeGuest(11).asWebContents();
+    service.bindGuest('tab1', guest, winA);
+    expect(bound).toEqual([['tab1', guest]]);
+    expect(service.guestFor('tab1')).toBe(guest);
+
+    stop();
+    service.bindGuest('tab1', new FakeGuest(12).asWebContents(), winA);
+    expect(bound).toHaveLength(1);
+  });
+
+  describe('tells its watchers when a tab’s page goes', () => {
+    let gone: string[];
+    let g1: FakeGuest;
+    beforeEach(() => {
+      gone = [];
+      service.onGuestGone((tabId) => gone.push(tabId));
+      service.openTab('s1', 'https://a.com', 'agent');
+      g1 = new FakeGuest(11);
+      service.bindGuest('tab1', g1.asWebContents(), winA);
+    });
+
+    it('when the guest is destroyed', () => {
+      g1.destroyed = true;
+      g1.emit('destroyed');
+      expect(gone).toEqual(['tab1']);
+    });
+
+    it('when the tab closes', () => {
+      service.closeTab('tab1');
+      expect(gone).toEqual(['tab1']);
+    });
+
+    it('when another page binds to the tab', () => {
+      service.bindGuest('tab1', new FakeGuest(12).asWebContents(), winA);
+      expect(gone).toEqual(['tab1']);
+    });
+
+    it('when its window lets go of it', () => {
+      service.detachWindow(winA);
+      expect(gone).toEqual(['tab1']);
+    });
+
+    it('when the session is deleted', () => {
+      service.destroySession('s1');
+      expect(gone).toEqual(['tab1']);
+    });
+
+    it('when the app quits', () => {
+      service.destroyAll();
+      expect(gone).toEqual(['tab1']);
+    });
+
+    it('and never for a tab that had no page', () => {
+      service.openTab('s1', 'https://b.com', 'agent');
+      service.closeTab('tab2');
+      expect(gone).toEqual([]);
+    });
+  });
+});
+
 describe('certificates', () => {
   const AUTHORITY = 'net::ERR_CERT_AUTHORITY_INVALID';
   const certificate = (fingerprint: string) => ({ fingerprint });

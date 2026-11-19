@@ -87,6 +87,13 @@ type LiveFields = Pick<
   'loading' | 'canGoBack' | 'canGoForward' | 'error' | 'favicon'
 >;
 
+/**
+ * Whether an agent can have a tab's page: `missing` (no such tab), `blank`
+ * (no address, so no page to have), `no-window` (no window holds the
+ * workspace, and a page needs one to live in), or `ready`.
+ */
+export type PageAvailability = 'ready' | 'missing' | 'blank' | 'no-window';
+
 const IDLE: LiveFields = { loading: false, canGoBack: false, canGoForward: false };
 
 /**
@@ -104,13 +111,16 @@ const IDLE: LiveFields = { loading: false, canGoBack: false, canGoForward: false
  *
  * Which tabs have a page is main's decision (`LivePages`, `decideLive`): a
  * window mounts a page for each tab a snapshot calls `live`, and removes the
- * element of one that no longer is. Tool-call bookkeeping (`agentActive`) is
- * not here yet; `holdForToolCall` is what it will call, and `snapshotFor`
- * reports `agentActive` as idle until then.
+ * element of one that no longer is. An agent's call holds its tab
+ * (`holdForToolCall`), which makes it live and `agentActive`; `AgentPages`
+ * builds the call itself on that, and `PageDriver` follows the guests through
+ * `onGuestBound` and `onGuestGone`.
  */
 export class BrowserService {
   private readonly guests = new Map<string, LiveGuest>();
   private readonly live = new Map<string, LiveFields>();
+  private readonly boundWatchers = new Set<(tabId: string, guest: WebContents) => void>();
+  private readonly goneWatchers = new Set<(tabId: string) => void>();
   /** Guests attached but not yet bound, by guest id. */
   private readonly pending = new Map<number, PendingGuest>();
   /** The popup windows pages opened, closed with whatever owns them. */
@@ -312,6 +322,22 @@ export class BrowserService {
     return this.liveGuest(tabId);
   }
 
+  /** Calls `watcher` each time a page binds to its tab. Returns the unsubscribe. */
+  public onGuestBound(watcher: (tabId: string, guest: WebContents) => void): () => void {
+    this.boundWatchers.add(watcher);
+    return () => this.boundWatchers.delete(watcher);
+  }
+
+  /**
+   * Calls `watcher` each time a tab's bound page is let go of, for whatever
+   * reason: closed, unloaded, destroyed, replaced, or its window gone.
+   * Returns the unsubscribe.
+   */
+  public onGuestGone(watcher: (tabId: string) => void): () => void {
+    this.goneWatchers.add(watcher);
+    return () => this.goneWatchers.delete(watcher);
+  }
+
   /**
    * Binds a mounted guest to its tab and follows its events. The caller has
    * already checked what the guest is and whom it belongs to; here only the
@@ -357,6 +383,7 @@ export class BrowserService {
     // its element was attaching: the element exists, so the set must say so.
     this.pages.add(tabId, host);
     this.applyLiveRule([found.sessionId]);
+    for (const watcher of this.boundWatchers) watcher(tabId, guest);
     return true;
   }
 
@@ -368,6 +395,7 @@ export class BrowserService {
     this.auth.cancelGuest(entry.guestId);
     entry.unsubscribe();
     this.guests.delete(tabId);
+    for (const watcher of this.goneWatchers) watcher(tabId);
     // The guest is gone (destroyed, or its window let go): no page to keep.
     this.pages.drop(tabId);
     const found = this.find(tabId);
@@ -399,6 +427,11 @@ export class BrowserService {
    * An agent's tool call is running on this tab: its page is kept live
    * (made live if it was not) and never unloaded until `release` is called,
    * which counts as use. Overlapping calls on a tab each need their release.
+   *
+   * While any call holds it the tab is `agentActive`, which is what tells the
+   * window to keep the page painting though nobody sees it (an agent reading
+   * a page that renders nothing reads nothing) and to mark the tab. Both
+   * edges are pushed.
    */
   public holdForToolCall(tabId: string): (() => void) | null {
     const found = this.find(tabId);
@@ -406,9 +439,23 @@ export class BrowserService {
     // Nothing to keep alive on a tab with no page.
     if (this.isBlank(tabId)) return () => {};
     const window = this.pageWindowFor(found.sessionId);
-    const { added, release } = this.pages.hold(tabId, window);
-    this.applyLiveRule(added ? [found.sessionId] : []);
-    return release;
+    const { release } = this.pages.hold(tabId, window);
+    this.applyLiveRule([found.sessionId]);
+    return () => {
+      const wasActive = this.pages.inCall(tabId);
+      release();
+      const sessionId = this.find(tabId)?.sessionId;
+      if (wasActive && !this.pages.inCall(tabId) && sessionId) this.pushSnapshot(sessionId);
+    };
+  }
+
+  /** Whether an agent can have this tab's page now (see `PageAvailability`). */
+  public pageAvailability(tabId: string): PageAvailability {
+    const found = this.find(tabId);
+    if (!found) return 'missing';
+    if (isBlankPageUrl(found.tab.url)) return 'blank';
+    const window = this.pageWindowFor(found.sessionId);
+    return window && !window.isDestroyed?.() ? 'ready' : 'no-window';
   }
 
   /**
@@ -451,7 +498,7 @@ export class BrowserService {
         ...this.live.get(tab.id),
         live: this.pages.has(tab.id),
         loadId: this.pages.loadId(tab.id),
-        agentActive: false,
+        agentActive: this.pages.inCall(tab.id),
       })),
       activeTabId: session.activeTabId,
     };
@@ -610,6 +657,8 @@ export class BrowserService {
     this.auth.cancelGuest(entry.guestId);
     entry.unsubscribe();
     this.guests.delete(tabId);
+    // Before the page is blanked, so whoever drives it lets go of it first.
+    for (const watcher of this.goneWatchers) watcher(tabId);
     const { guest } = entry;
     if (guest.isDestroyed()) return;
     try {

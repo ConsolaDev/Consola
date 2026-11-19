@@ -26,14 +26,16 @@ import {
   webContents as electronWebContents,
 } from 'electron';
 import type { BrowserStateFile } from '../shared/browser';
+import { AgentPages } from './browser/AgentPages';
 import { BrowserService } from './browser/BrowserService';
+import { PageDriver } from './browser/PageDriver';
 import { BrowserStateStore } from './browser/BrowserStateStore';
 import { CaptureStore } from './browser/CaptureStore';
 import { LocalServers } from './browser/LocalServers';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
-import { isBackgroundTest } from './test-mode';
+import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import { partitionFor } from './browser/sessionPolicy';
 import { randomUUID } from 'node:crypto';
@@ -183,6 +185,8 @@ let shellManager: ShellManager | null = null;
 // The in-app browser: tabs per session and the pages behind them.
 let browserService: BrowserService | null = null;
 let browserHandlers: { remove(): void } | null = null;
+// What an agent's browser tools drive the pages with.
+let pageDriver: PageDriver | null = null;
 
 // Where each workspace was left, so returning to one lands where you were.
 let viewMemoryService: ViewMemoryService | null = null;
@@ -311,6 +315,13 @@ export function setupIpcHandlers(): boolean {
     },
   });
   browserService = browser;
+  // An agent's calls on a tab, and the Playwright connections behind them. A
+  // connection ends with the page it drives.
+  const agentPages = new AgentPages(browser);
+  const driver = new PageDriver({ calls: agentPages });
+  const stopForgettingPages = browser.onGuestGone((tabId) => driver.forget(tabId));
+  pageDriver = driver;
+  exposeToTests('browserAgent', { calls: agentPages, driver });
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.
   // Here rather than in `secureGuest` because only an accepted guest has a
@@ -371,6 +382,7 @@ export function setupIpcHandlers(): boolean {
     remove: () => {
       registered.remove();
       stopWatchingGuests();
+      stopForgettingPages();
     },
   };
 
@@ -2432,6 +2444,9 @@ export function cleanupIpcHandlers(): void {
   shellManager = null;
   browserHandlers?.remove();
   browserHandlers = null;
+  // Before the pages go, so no connection outlives the page it drives.
+  pageDriver?.closeAll();
+  pageDriver = null;
   browserService?.destroyAll();
   browserService = null;
   terminalManager?.destroyAll();

@@ -94,6 +94,27 @@ export async function startFixtureServer(): Promise<FixtureServer> {
             document.title = 'popup:nested-' + (nested === null ? 'denied' : 'open');
           </script></body></html>`,
         );
+      case '/agent.html':
+        // What an agent reads: a heading, a field and a button to ref, and,
+        // as it loads, a console error, an uncaught error, an HTTP error and
+        // a network error (port 9 is one Chromium always refuses). Red, so a
+        // screenshot shows it painted.
+        return send(
+          200,
+          page(
+            'Agent fixture',
+            'rgb(255,0,0)',
+            `<h1>Agent fixture</h1>
+<label>Name <input id="name"></label>
+<button id="go" onclick="document.title = 'Hi, ' + document.getElementById('name').value">Greet</button>
+<img src="/agent-missing.png" alt="" width="1" height="1">
+<script>
+  console.error('fixture: something broke');
+  setTimeout(() => { throw new Error('fixture: uncaught'); }, 0);
+  fetch('http://127.0.0.1:9/unreachable').catch(() => {});
+</script>`,
+          ),
+        );
       case '/probe.html':
         return send(
           200,

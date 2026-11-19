@@ -91,6 +91,11 @@ export class LivePages {
     };
   }
 
+  /** Whether a tool call is under way on this tab. */
+  public inCall(tabId: string): boolean {
+    return (this.calls.get(tabId) ?? 0) > 0;
+  }
+
   /** The window stopped holding its workspace or closed: its pages go with it. */
   public dropWindow(window: BrowserWindow): void {
     this.visible.delete(window);
@@ -116,7 +121,7 @@ export class LivePages {
         id: tabId,
         lastShownAt: this.shownAt.get(tabId) ?? now,
         visible: shown.has(tabId),
-        toolCallInFlight: (this.calls.get(tabId) ?? 0) > 0,
+        toolCallInFlight: this.inCall(tabId),
       });
     }
     const keep = decideLive(candidates, now);
