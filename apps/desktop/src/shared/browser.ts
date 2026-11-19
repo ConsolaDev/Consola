@@ -111,7 +111,7 @@ export interface BrowserAPI {
   forward(tabId: string): Promise<void>;
   reload(tabId: string): Promise<void>;
   stop(tabId: string): Promise<void>;
-  /** Binds a mounted, dom-ready `<webview>` (by its `getWebContentsId()`) to its tab. */
+  /** Binds a mounted, attached `<webview>` (by its `getWebContentsId()`) to its tab. */
   attach(tabId: string, webContentsId: number): Promise<boolean>;
   onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void;
   onShortcut(callback: () => void): () => void;

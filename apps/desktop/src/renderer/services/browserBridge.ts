@@ -56,8 +56,8 @@ export const browserBridge = {
   },
 
   /**
-   * Bind a mounted `<webview>` to its tab, once it is dom-ready, with its
-   * `getWebContentsId()`. Resolves false when main refused it.
+   * Bind a mounted `<webview>` to its tab, once its page exists (`did-attach`),
+   * with its `getWebContentsId()`. Resolves false when main refused it.
    */
   attach(tabId: string, webContentsId: number): Promise<boolean> {
     return window.browserAPI.attach(tabId, webContentsId);

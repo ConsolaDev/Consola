@@ -12,6 +12,8 @@ interface BrowserStoreState {
   /**
    * How many pushes each session has received. A fetch started before a push
    * is older than it, so `load` compares this to know it was overtaken.
+   * Forgetting a session counts as one too: an answer still in flight for it
+   * must not bring it back.
    */
   pushes: Record<string, number>;
 }
@@ -61,14 +63,20 @@ export async function loadBrowser(sessionId: string): Promise<void> {
   });
 }
 
-/** Drop what is held for a session the window no longer shows. */
+/**
+ * Drop what is held for a session the window no longer shows, and any answer
+ * still in flight for it. Main pushes a session's changes only to the window
+ * holding its workspace, so what was held would be out of date by the time
+ * the window came back to it.
+ */
 export function forgetBrowser(sessionId: string): void {
   useBrowserStore.setState((state) => {
     const snapshots = { ...state.snapshots };
-    const pushes = { ...state.pushes };
     delete snapshots[sessionId];
-    delete pushes[sessionId];
-    return { snapshots, pushes };
+    return {
+      snapshots,
+      pushes: { ...state.pushes, [sessionId]: (state.pushes[sessionId] ?? 0) + 1 },
+    };
   });
 }
 

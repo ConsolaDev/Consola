@@ -86,6 +86,20 @@ describe('browserStore', () => {
     expect(Object.keys(held())).toEqual(['b']);
   });
 
+  it('an answer in flight for a forgotten session is dropped, not stored', async () => {
+    let answer!: (value: BrowserSessionSnapshot) => void;
+    vi.mocked(browserBridge.get).mockReturnValue(
+      new Promise((resolve) => {
+        answer = resolve;
+      }),
+    );
+    const loading = loadBrowser('a');
+    forgetBrowser('a');
+    answer(snapshot('old', 'old'));
+    await loading;
+    expect(held().a).toBeUndefined();
+  });
+
   it('subscribeToBrowser feeds pushes into the store and returns the unsubscribe', () => {
     const unsubscribe = () => {};
     vi.mocked(browserBridge.onSnapshot).mockReturnValue(unsubscribe);

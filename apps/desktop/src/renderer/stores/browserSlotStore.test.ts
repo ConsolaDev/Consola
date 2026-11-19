@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
-import { showBrowserSlot, useBrowserSlotStore } from './browserSlotStore';
+import { keepShownSessions, showBrowserSlot, useBrowserSlotStore } from './browserSlotStore';
 
 describe('browserSlotStore', () => {
   beforeEach(() => {
@@ -20,7 +20,18 @@ describe('browserSlotStore', () => {
     expect(useBrowserSlotStore.getState().sessionId).toBe('b');
   });
 
-  it('remembers every session ever shown, once each, first shown first', () => {
+  it('forgets shown sessions outside the ones kept, and changes nothing when all are kept', () => {
+    showBrowserSlot('a')();
+    showBrowserSlot('b')();
+    showBrowserSlot('c')();
+    keepShownSessions(new Set(['a', 'c', 'z']));
+    expect(useBrowserSlotStore.getState().shownSessionIds).toEqual(['a', 'c']);
+    const before = useBrowserSlotStore.getState();
+    keepShownSessions(new Set(['a', 'c']));
+    expect(useBrowserSlotStore.getState()).toBe(before);
+  });
+
+  it('remembers every session shown, once each, first shown first', () => {
     showBrowserSlot('a')();
     showBrowserSlot('b')();
     showBrowserSlot('a')();

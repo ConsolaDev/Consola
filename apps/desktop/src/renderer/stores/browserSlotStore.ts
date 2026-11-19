@@ -37,3 +37,15 @@ export function showBrowserSlot(sessionId: string): () => void {
     );
   };
 }
+
+/**
+ * Forget the sessions shown here that are not in `keep`: those of a workspace
+ * the window left, or deleted. Coming back, a session's page returns only
+ * once its panel is on screen again and its tabs have been read afresh.
+ */
+export function keepShownSessions(keep: ReadonlySet<string>): void {
+  useBrowserSlotStore.setState((state) => {
+    const shownSessionIds = state.shownSessionIds.filter((id) => keep.has(id));
+    return shownSessionIds.length === state.shownSessionIds.length ? state : { shownSessionIds };
+  });
+}
