@@ -1,3 +1,4 @@
+import type { TerminalLinkRule } from '../../shared/browser';
 import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
 import type { WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 
@@ -23,6 +24,11 @@ export const preferencesBridge = {
   /** The global worktree cleanup rules. */
   setWorktreeCleanup: async (rules: WorktreeCleanupRules): Promise<void> => {
     await getAPI()?.setWorktreeCleanup(rules);
+  },
+
+  /** Where a link clicked in a terminal opens. */
+  setTerminalLinks: async (rule: TerminalLinkRule): Promise<void> => {
+    await getAPI()?.setTerminalLinks(rule);
   },
 
   /** The person has read the one-time explanation, in whichever window. */

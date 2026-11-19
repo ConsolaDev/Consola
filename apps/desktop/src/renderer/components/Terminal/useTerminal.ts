@@ -12,12 +12,14 @@ import { useSettingsStore } from '../../stores/settingsStore';
 import { useTerminalStore } from '../../stores/terminalStore';
 import { terminalBridge } from '../../services/terminalBridge';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
-import { openTerminalLink } from './terminalLinks';
+import { terminalLinkHandler } from './terminalLinks';
 import { terminalKeyOverride } from './terminalKeys';
 import { restoreScreen, whenSettled } from './restoreScreen';
 
 interface UseTerminalOptions {
   instanceId: string;
+  /** The session record this terminal belongs to; a clicked link opens in its browser. */
+  sessionId: string;
   /** Workspace this session belongs to; main resolves its GitHub binding. */
   workspaceId: string;
   cwd: string;
@@ -40,6 +42,7 @@ interface UseTerminalOptions {
  */
 export function useTerminal({
   instanceId,
+  sessionId,
   workspaceId,
   cwd,
   claudeSessionId,
@@ -72,12 +75,12 @@ export function useTerminal({
       scrollback: TERMINAL_SCROLLBACK_LINES,
       macOptionIsMeta: true,
       // OSC 8 hyperlinks; plain URLs in the output are the addon's below.
-      linkHandler: { activate: openTerminalLink },
+      linkHandler: { activate: terminalLinkHandler(sessionId) },
     });
 
     const fitAddon = new FitAddon();
     terminal.loadAddon(fitAddon);
-    terminal.loadAddon(new WebLinksAddon(openTerminalLink));
+    terminal.loadAddon(new WebLinksAddon(terminalLinkHandler(sessionId)));
 
     const unicodeAddon = new Unicode11Addon();
     terminal.loadAddon(unicodeAddon);
@@ -227,7 +230,7 @@ export function useTerminal({
     };
     // The PTY identity is what matters here; theme and font are applied below.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instanceId, workspaceId, cwd, claudeSessionId, resume, setTerminalState]);
+  }, [instanceId, sessionId, workspaceId, cwd, claudeSessionId, resume, setTerminalState]);
 
   // Follow the app's light/dark setting without rebuilding the terminal.
   useEffect(() => {

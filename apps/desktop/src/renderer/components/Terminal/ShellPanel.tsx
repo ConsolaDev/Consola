@@ -12,13 +12,13 @@ import type { ShellData } from '../../../shared/shell';
 import { TERMINAL_SCROLLBACK_LINES } from '../../../shared/constants';
 import { useSettingsStore } from '../../stores/settingsStore';
 import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xtermTheme';
-import { openTerminalLink } from './terminalLinks';
+import { terminalLinkHandler } from './terminalLinks';
 import { terminalKeyOverride } from './terminalKeys';
 import { restoreScreen, whenSettled } from './restoreScreen';
 import '@xterm/xterm/css/xterm.css';
 import './styles.css';
 
-export function ShellPanel({ instanceId }: { instanceId: string }) {
+export function ShellPanel({ instanceId, sessionId }: { instanceId: string; sessionId: string }) {
   const toggleShell = useShellStore((state) => state.toggle);
   const containerRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -42,13 +42,13 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
       scrollback: TERMINAL_SCROLLBACK_LINES,
       macOptionIsMeta: true,
       allowProposedApi: true,
-      linkHandler: { activate: openTerminalLink },
+      linkHandler: { activate: terminalLinkHandler(sessionId) },
     });
     const fit = new FitAddon();
     terminal.loadAddon(fit);
     terminal.loadAddon(new Unicode11Addon());
     terminal.unicode.activeVersion = '11';
-    terminal.loadAddon(new WebLinksAddon(openTerminalLink));
+    terminal.loadAddon(new WebLinksAddon(terminalLinkHandler(sessionId)));
     terminal.open(containerRef.current);
     terminalRef.current = terminal;
     fit.fit();
@@ -138,7 +138,7 @@ export function ShellPanel({ instanceId }: { instanceId: string }) {
       terminalRef.current = null;
       fitRef.current = null;
     };
-  }, [instanceId, generation]);
+  }, [instanceId, sessionId, generation]);
 
   useEffect(() => {
     if (terminalRef.current) terminalRef.current.options.theme = buildXtermTheme(theme === 'dark');

@@ -1105,6 +1105,9 @@ export function setupIpcHandlers(): boolean {
   ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, (_event, rules: unknown) =>
     preferences.setWorktreeCleanup(rules),
   );
+  ipcMain.handle(IPC_CHANNELS.PREFERENCES_SET_TERMINAL_LINKS, (_event, rule: unknown) =>
+    preferences.setTerminalLinks(rule),
+  );
   /** The cleanup rules that apply in a workspace now: its own, none, or the global ones. */
   const cleanupRulesFor = (workspace: Workspace) =>
     effectiveWorktreeCleanup(preferences.get().worktreeCleanup, workspace.worktreeCleanup);

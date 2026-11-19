@@ -138,7 +138,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
             </>
           )}
           <Panel id="agent" minSize="20%">
-            <SessionTerminalLayout instanceId={instanceId}>
+            <SessionTerminalLayout instanceId={instanceId} sessionId={session.id}>
               <TerminalPanel
                 instanceId={instanceId}
                 workspaceId={workspaceId}

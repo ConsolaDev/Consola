@@ -12,7 +12,7 @@ import type {
   WorktreeCleanupRules,
 } from '../shared/worktreeCleanup';
 import type { ShellAPI } from '../shared/shell';
-import type { BrowserAPI } from '../shared/browser';
+import type { BrowserAPI, TerminalLinkRule } from '../shared/browser';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import type {
@@ -536,6 +536,8 @@ contextBridge.exposeInMainWorld('preferencesAPI', {
   get: (): Promise<Preferences> => ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_GET),
   setWorktreeCleanup: (rules: WorktreeCleanupRules): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_WORKTREE_CLEANUP, rules),
+  setTerminalLinks: (rule: TerminalLinkRule): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_TERMINAL_LINKS, rule),
   setAutoSettleDays: (days: number): Promise<void> =>
     ipcRenderer.invoke(IPC_CHANNELS.PREFERENCES_SET_AUTO_SETTLE_DAYS, days),
   acknowledgeAutoSettle: (): Promise<void> =>

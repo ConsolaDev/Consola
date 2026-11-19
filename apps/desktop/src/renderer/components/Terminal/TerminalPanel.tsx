@@ -50,6 +50,7 @@ export function TerminalPanel({
 }: TerminalPanelProps) {
   const { containerRef, focus } = useTerminal({
     instanceId,
+    sessionId,
     workspaceId,
     cwd,
     claudeSessionId,

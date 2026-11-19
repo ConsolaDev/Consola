@@ -1,4 +1,8 @@
-import { DEFAULT_PREFERENCES, type Preferences } from '../../shared/preferences';
+import {
+  DEFAULT_PREFERENCES,
+  isTerminalLinkRule,
+  type Preferences,
+} from '../../shared/preferences';
 import { normalizeRules, type WorktreeCleanupRules } from '../../shared/worktreeCleanup';
 import type { JsonStateFile } from './JsonStateFile';
 
@@ -17,6 +21,9 @@ export function normalizePreferences(value: unknown): Preferences {
       ? pending.filter((id): id is string => typeof id === 'string')
       : [],
     worktreeCleanup: normalizeRules(row.worktreeCleanup),
+    terminalLinks: isTerminalLinkRule(row.terminalLinks)
+      ? row.terminalLinks
+      : DEFAULT_PREFERENCES.terminalLinks,
   };
 }
 
@@ -56,6 +63,12 @@ export class PreferencesService {
   public setWorktreeCleanup(rules: unknown): void {
     const next: WorktreeCleanupRules = normalizeRules(rules, this.preferences.worktreeCleanup);
     this.update({ worktreeCleanup: next });
+  }
+
+  /** Where terminal links open. Anything that is not one of the three rules is ignored. */
+  public setTerminalLinks(rule: unknown): void {
+    if (!isTerminalLinkRule(rule)) return;
+    this.update({ terminalLinks: rule });
   }
 
   /** Apply a change from the person. Only the fields they can set. */

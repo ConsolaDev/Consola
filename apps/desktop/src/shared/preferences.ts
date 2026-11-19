@@ -1,4 +1,5 @@
 import type { AttentionRecord } from './attention';
+import type { TerminalLinkRule } from './browser';
 import { DEFAULT_WORKTREE_CLEANUP_RULES, type WorktreeCleanupRules } from './worktreeCleanup';
 
 /**
@@ -18,6 +19,15 @@ export interface Preferences {
   pendingAutoSettle: string[];
   /** When a session's worktree is removed on its own. Every rule is off by default. */
   worktreeCleanup: WorktreeCleanupRules;
+  /** Where a link clicked in a terminal opens. Shift does the opposite for one click. */
+  terminalLinks: TerminalLinkRule;
+}
+
+/** Every rule a terminal link can follow, for validating what main reads or is sent. */
+export const TERMINAL_LINK_RULES: readonly TerminalLinkRule[] = ['local', 'all', 'never'];
+
+export function isTerminalLinkRule(value: unknown): value is TerminalLinkRule {
+  return TERMINAL_LINK_RULES.some((rule) => rule === value);
 }
 
 /** On by default: old work leaves the list by itself, and says so the first time. */
@@ -31,6 +41,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   hasExplainedAutoSettle: false,
   pendingAutoSettle: [],
   worktreeCleanup: DEFAULT_WORKTREE_CLEANUP_RULES,
+  terminalLinks: 'local',
 };
 
 /**

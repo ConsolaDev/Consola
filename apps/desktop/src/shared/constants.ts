@@ -77,6 +77,7 @@ export const IPC_CHANNELS = {
   PREFERENCES_ACKNOWLEDGE_AUTO_SETTLE: 'preferences:acknowledge-auto-settle',
   PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
   PREFERENCES_SET_WORKTREE_CLEANUP: 'preferences:set-worktree-cleanup',
+  PREFERENCES_SET_TERMINAL_LINKS: 'preferences:set-terminal-links',
   WORKTREE_CLEANUP_PREVIEW: 'worktree-cleanup:preview', // renderer -> main: what the rules would remove now, and why the rest stays
   WORKTREE_CLEANUP_RUN: 'worktree-cleanup:run', // renderer -> main: "Clean up now"; answers the report
   WORKTREE_CLEANUP_HISTORY: 'worktree-cleanup:history', // renderer -> main: what was removed and rebuilt, newest first

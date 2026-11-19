@@ -7,7 +7,7 @@ import type {
   WorktreeCleanupRules,
 } from '../../shared/worktreeCleanup';
 import type { AppUpdateAPI } from '../../shared/appUpdates';
-import type { BrowserAPI } from '../../shared/browser';
+import type { BrowserAPI, TerminalLinkRule } from '../../shared/browser';
 import type { AttentionChange, AttentionState } from '../../shared/attention';
 import type { Preferences, SettleMemento, SettleResult } from '../../shared/preferences';
 import type { CheckoutInfo } from '../../shared/sessionCheckout';
@@ -84,6 +84,7 @@ export interface WorktreeCleanupAPI {
 export interface PreferencesAPI {
   get: () => Promise<Preferences>;
   setWorktreeCleanup: (rules: WorktreeCleanupRules) => Promise<void>;
+  setTerminalLinks: (rule: TerminalLinkRule) => Promise<void>;
   setAutoSettleDays: (days: number) => Promise<void>;
   acknowledgeAutoSettle: () => Promise<void>;
   onChanged: (callback: (preferences: Preferences) => void) => () => void;

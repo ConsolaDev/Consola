@@ -28,6 +28,7 @@ describe('PreferencesService', () => {
         settledDays: 0,
         runFinished: { enabled: false, afterMinutes: 60 },
       },
+      terminalLinks: 'local',
     });
   });
 
@@ -62,6 +63,7 @@ describe('PreferencesService', () => {
         settledDays: 0,
         runFinished: { enabled: false, afterMinutes: 60 },
       },
+      terminalLinks: 'local',
     });
   });
 
@@ -110,6 +112,30 @@ describe('PreferencesService', () => {
     const reloaded = build();
     reloaded.load();
     expect(reloaded.get().worktreeCleanup.settledDays).toBe(7);
+  });
+
+  it('keeps a stored terminal link rule, and falls back to local for anything else', () => {
+    fs.writeFileSync(file(), JSON.stringify({ terminalLinks: 'all' }));
+    const service = build();
+    service.load();
+    expect(service.get().terminalLinks).toBe('all');
+    fs.writeFileSync(file(), JSON.stringify({ terminalLinks: 'sometimes' }));
+    service.load();
+    expect(service.get().terminalLinks).toBe('local');
+  });
+
+  it('sets the terminal link rule, persists it, and ignores a value that is not a rule', () => {
+    const service = build();
+    service.load();
+    const listener = vi.fn();
+    service.onChange(listener);
+    service.setTerminalLinks('never');
+    service.setTerminalLinks('bogus');
+    expect(service.get().terminalLinks).toBe('never');
+    expect(listener).toHaveBeenCalledTimes(1);
+    const next = build();
+    next.load();
+    expect(next.get().terminalLinks).toBe('never');
   });
 
   it('persists a changed threshold, and 0 means off', () => {

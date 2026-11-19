@@ -38,6 +38,7 @@ import {
   isMac,
 } from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
+import { TerminalLinksControl } from '../Browser/TerminalLinksControl';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
 import { WorktreeCleanupControl } from '../WorktreeCleanup/WorktreeCleanupControl';
 import { WorktreeCleanupPanel } from '../WorktreeCleanup/WorktreeCleanupPanel';
@@ -74,6 +75,7 @@ interface SettingsNavMeta {
 const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   appearance: { label: 'Appearance', icon: Palette },
   sessions: { label: 'Sessions', icon: ListChecks },
+  appBrowser: { label: 'Browser', icon: Globe },
   harnesses: { label: 'Harnesses', icon: Boxes },
   shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
   updates: { label: 'Updates', icon: Monitor },
@@ -184,6 +186,7 @@ export function SettingsModal({
               />
             )}
             {section === 'sessions' && <SessionsSection />}
+            {section === 'appBrowser' && <AppBrowserSection />}
             {section === 'harnesses' && <HarnessesSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'updates' && <AppUpdatesSection />}
@@ -354,6 +357,25 @@ function SessionsSection() {
           </span>
         </div>
         <WorktreeCleanupControl />
+      </div>
+    </div>
+  );
+}
+
+function AppBrowserSection() {
+  return (
+    <div className="settings-modal-section">
+      <h2 className="settings-modal-section-title">Browser</h2>
+      <div className="settings-modal-option">
+        <div className="settings-modal-option-info">
+          <span className="settings-modal-option-label">Links in the terminal</span>
+          <span className="settings-modal-option-description">
+            Where a link opens when you click it in a session’s terminal or shell. Hold Shift while
+            you click to do the opposite, once. Links that are not web pages always go to the
+            system.
+          </span>
+        </div>
+        <TerminalLinksControl />
       </div>
     </div>
   );
