@@ -1,0 +1,258 @@
+/* ========================================
+   In-app browser
+   ======================================== */
+
+/*
+ * The panel only says where a page goes: its slot is an anchor, and the page
+ * itself lives in the host at the layout's root and is drawn over it.
+ */
+.browser-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  background: var(--color-bg-primary);
+}
+
+.browser-slot {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  anchor-name: --browser-slot;
+}
+
+/* --- Toolbar --- */
+
+.browser-toolbar {
+  display: grid;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  align-items: center;
+  column-gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.browser-toolbar-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: color-mix(in srgb, var(--color-text-secondary) 67%, var(--color-text-primary));
+  cursor: pointer;
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
+}
+
+.browser-toolbar-button:hover:not(:disabled) {
+  background: var(--color-bg-hover);
+  color: var(--color-text-primary);
+}
+
+.browser-toolbar-button:disabled {
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
+.browser-address-input {
+  width: 100%;
+  height: 24px;
+  margin: 0 var(--space-1);
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.browser-address-input:focus {
+  border-color: var(--color-accent);
+}
+
+.browser-address-input[aria-invalid="true"] {
+  border-color: var(--color-error);
+}
+
+.browser-address-input::placeholder {
+  color: var(--color-text-disabled);
+}
+
+/* In flow, under the bar: anything overlapping the slot would sit under the page. */
+.browser-address-message {
+  grid-column: 1 / -1;
+  margin: var(--space-1) var(--space-1) 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-error);
+}
+
+/* --- Empty panel --- */
+
+.browser-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  height: 100%;
+  padding: var(--space-4);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.browser-empty-title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.browser-empty-hint {
+  margin: 0;
+  font-size: var(--font-size-sm);
+}
+
+/* --- Pages (rendered by the host, drawn over the slot) --- */
+
+/* No box of its own: it sits in the layout's grid, and a box would take a cell. */
+.browser-host {
+  display: contents;
+}
+
+/*
+ * Pinned to the slot with anchor positioning, so it follows every resize with
+ * no measuring. Without a slot on screen the fallbacks cover the window, which
+ * only a page kept painting ever uses, and that one is invisible and inert.
+ */
+.browser-page {
+  position: fixed;
+  position-anchor: --browser-slot;
+  top: anchor(top, 0px);
+  left: anchor(left, 0px);
+  width: anchor-size(width, 100vw);
+  height: anchor-size(height, 100vh);
+  z-index: var(--z-browser-page);
+  display: flex;
+  overflow: hidden;
+  /* What shows before the page paints: never a white flash in dark mode. */
+  background: var(--color-bg-primary);
+}
+
+.browser-page[data-presence="hidden"] {
+  display: none;
+}
+
+/* Still rendering frames for whoever reads it, but not seen and not clickable. */
+.browser-page[data-presence="painting"] {
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* A page swallows pointer events, which would stall a drag passing over it. */
+.browser-host[data-dragging] .browser-page {
+  pointer-events: none;
+}
+
+/* The element keeps its own `display: flex`; only its size is set here. */
+.browser-page-webview {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+}
+
+/* Over the error too, so a retry under way is visible. */
+.browser-page-loading {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 1;
+  height: 2px;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.browser-page-loading::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 30%;
+  background: var(--color-accent);
+  animation: browser-loading 1.2s var(--ease-out-quart) infinite;
+}
+
+@keyframes browser-loading {
+  from {
+    left: -30%;
+  }
+  to {
+    left: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .browser-page-loading::after {
+    left: 0;
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* --- Errors (over the page, inside its wrapper) --- */
+
+.browser-error {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  background: var(--color-bg-primary);
+  color: var(--color-text-tertiary);
+  text-align: center;
+}
+
+.browser-error-title {
+  margin: 0;
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-primary);
+}
+
+.browser-error-detail {
+  max-width: 48ch;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  overflow-wrap: anywhere;
+}
+
+.browser-error-code {
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.browser-error-hint {
+  margin: 0;
+  font-size: var(--font-size-xs);
+}
+
+.browser-error .dialog-button-secondary {
+  margin-top: var(--space-2);
+}
