@@ -25,8 +25,17 @@ export class CaptureStore {
   public async write(sessionId: string, png: Buffer, at = new Date()): Promise<string> {
     const file = this.pathFor(sessionId, at);
     await fs.mkdir(path.dirname(file), { recursive: true, mode: 0o700 });
-    await fs.writeFile(file, png, { mode: 0o600 });
-    return file;
+    // 'wx': two captures in one millisecond must not overwrite each other, so a
+    // name already taken gets a counter instead.
+    for (let attempt = 0; ; attempt += 1) {
+      const target = attempt === 0 ? file : file.replace(/\.png$/, `-${attempt}.png`);
+      try {
+        await fs.writeFile(target, png, { mode: 0o600, flag: 'wx' });
+        return target;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'EEXIST' || attempt >= 100) throw error;
+      }
+    }
   }
 
   /** A session's captures, every one. Nothing to remove is not an error. */

@@ -3,6 +3,9 @@ import type { BrowserFoundMessage } from '../../shared/browser';
 import { stepZoom, type FindResult, type ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 
+/** A page that has not answered a capture by now is not going to. */
+export const CAPTURE_TIMEOUT_MS = 5000;
+
 /** A search longer than this is not a search a person typed. */
 const MAX_FIND_LENGTH = 500;
 
@@ -64,12 +67,30 @@ export class PageTools {
   public async capturePage(tabId: string): Promise<Buffer | null> {
     const guest = this.guestOf(tabId);
     if (!guest) return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
     try {
-      const image = await guest.capturePage();
+      // Bounded: a page that stopped painting never answers, and the person
+      // would otherwise wait on a button that does nothing.
+      const image = await Promise.race([
+        guest.capturePage(),
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), CAPTURE_TIMEOUT_MS);
+        }),
+      ]);
+      if (!image) {
+        console.warn(`Capturing tab ${tabId} timed out after ${CAPTURE_TIMEOUT_MS} ms`);
+        return null;
+      }
       return image.isEmpty() ? null : image.toPNG();
-    } catch {
-      // The page went away mid-capture.
+    } catch (error) {
+      // The page went away mid-capture. The message only, never the image.
+      console.warn(
+        `Could not capture tab ${tabId}:`,
+        error instanceof Error ? error.message : error,
+      );
       return null;
+    } finally {
+      clearTimeout(timer);
     }
   }
 

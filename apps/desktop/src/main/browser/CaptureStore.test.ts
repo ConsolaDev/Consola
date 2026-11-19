@@ -42,6 +42,16 @@ describe('CaptureStore', () => {
     await expect(fs.stat(other)).resolves.toBeTruthy();
   });
 
+  it('never overwrites a capture taken in the same millisecond', async () => {
+    const store = new CaptureStore(root);
+    const at = new Date('2026-11-19T10:20:30.456Z');
+    const first = await store.write('s-1', Buffer.from([1]), at);
+    const second = await store.write('s-1', Buffer.from([2]), at);
+    expect(second).not.toBe(first);
+    expect([...(await fs.readFile(first))]).toEqual([1]);
+    expect([...(await fs.readFile(second))]).toEqual([2]);
+  });
+
   it('has nothing to remove without error, and ignores an unsafe id', async () => {
     const store = new CaptureStore(root);
     await expect(store.removeAll('never')).resolves.toBeUndefined();

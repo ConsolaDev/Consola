@@ -1,6 +1,6 @@
 import type { WebContents } from 'electron';
-import { describe, expect, it, vi } from 'vitest';
-import { findListeners, PageTools } from './PageTools';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { CAPTURE_TIMEOUT_MS, findListeners, PageTools } from './PageTools';
 
 function guest() {
   return {
@@ -42,6 +42,11 @@ describe('PageTools', () => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+  vi.restoreAllMocks();
+});
+
 describe('capturePage', () => {
   it('answers the PNG of a live page and null for a tab with no page', async () => {
     const g = guest();
@@ -49,6 +54,25 @@ describe('capturePage', () => {
       ...((await new PageTools(() => g as unknown as WebContents).capturePage('t')) ?? []),
     ]).toEqual([9]);
     expect(await new PageTools(() => undefined).capturePage('t')).toBeNull();
+  });
+
+  it('gives up on a page that never answers, and says so in the log', async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const g = guest();
+    g.capturePage.mockReturnValueOnce(new Promise(() => {}));
+    const pending = new PageTools(() => g as unknown as WebContents).capturePage('t');
+    await vi.advanceTimersByTimeAsync(CAPTURE_TIMEOUT_MS);
+    expect(await pending).toBeNull();
+    expect(warn).toHaveBeenCalled();
+  });
+
+  it('logs why a capture failed', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const g = guest();
+    g.capturePage.mockRejectedValueOnce(new Error('gone'));
+    await new PageTools(() => g as unknown as WebContents).capturePage('t');
+    expect(warn.mock.calls[0].join(' ')).toContain('gone');
   });
 
   it('answers null for an empty image or a page that fails mid-capture', async () => {

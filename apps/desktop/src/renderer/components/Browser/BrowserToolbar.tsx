@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useRef, useState, type ReactNode } from 'react';
 import * as Tooltip from '@radix-ui/react-tooltip';
 import { ArrowLeft, ArrowRight, Camera, ExternalLink, RotateCw, X } from 'lucide-react';
 import { isAllowedPageUrl, type BrowserTabSnapshot } from '../../../shared/browser';
@@ -8,7 +8,9 @@ import { formatDroppedPaths } from '../Terminal/useTerminalFileDrop';
 import { AddressBar } from './AddressBar';
 import { BrowserMoreMenu } from './BrowserMoreMenu';
 import { useShownError } from './BrowserError';
+import { showToast } from '../../stores/toastStore';
 import { addressText, isBlankUrl } from './browserView';
+import { singleFlight } from './singleFlight';
 
 interface BrowserToolbarProps {
   /** The session's active tab; none while the session has no pages. */
@@ -33,15 +35,29 @@ export function BrowserToolbar({ tab, onOpen, instanceId, cwd }: BrowserToolbarP
   const loading = tab?.loading ?? false;
   // Only a page that is loaded can be photographed: a blank or unloaded tab
   // has nothing to show.
-  const canCapture = !!tab?.live && !!tab.url && !isBlankUrl(tab.url);
+  const [capturing, setCapturing] = useState(false);
+  const flight = useRef(singleFlight());
+  const canCapture = !capturing && !!tab?.live && !!tab.url && !isBlankUrl(tab.url);
 
   // Pasted, never submitted: the person decides what to say about it, exactly
   // as with a file dropped on the terminal. Main writes the file; the image
   // itself never reaches this window.
+  // One capture at a time: a second click while one is pending would paste a
+  // second path. A page that cannot be captured says so rather than doing nothing.
   const sendScreenshot = async () => {
     if (!tab) return;
-    const file = await browserBridge.capture(tab.id);
-    if (file) terminalBridge.paste(instanceId, formatDroppedPaths([file], cwd));
+    setCapturing(true);
+    try {
+      await flight.current(async () => {
+        const file = await browserBridge.capture(tab.id);
+        if (file) terminalBridge.paste(instanceId, formatDroppedPaths([file], cwd));
+        else showToast("Couldn't capture this page");
+      });
+    } catch {
+      showToast("Couldn't capture this page");
+    } finally {
+      setCapturing(false);
+    }
   };
 
   return (
