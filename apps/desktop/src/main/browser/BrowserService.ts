@@ -3,7 +3,6 @@ import type { BrowserWindow, WebContents } from 'electron';
 import {
   isAllowedPageUrl,
   MAX_TABS_PER_SESSION,
-  type BrowserFoundMessage,
   type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
   type BrowserSnapshotMessage,
@@ -12,10 +11,11 @@ import {
   type BrowserTabLive,
   type SessionBrowser,
 } from '../../shared/browser';
-import { stepZoom, type FindResult, type ZoomStep } from '../../shared/browserTools';
+import type { ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserStateStore } from './BrowserStateStore';
 import { LivePages } from './LivePages';
+import { findListeners, PageTools, sendFound } from './PageTools';
 import { PopupRegistry } from './popupWindows';
 
 /** A guest whose renderer dies is reloaded at most this often before the person decides. */
@@ -38,9 +38,6 @@ export interface BrowserServiceDeps {
   /** Calls `fn` every `ms` until the returned function is called. Defaults to an unref'd interval. */
   every?(ms: number, fn: () => void): () => void;
 }
-
-/** A search longer than this is not a search a person typed. */
-const MAX_FIND_LENGTH = 500;
 
 /** How often the live-page rule is applied when nothing else prompts it. */
 export const LIVE_CHECK_MS = 60_000;
@@ -116,6 +113,7 @@ export class BrowserService {
   private readonly now: () => number;
   private readonly newId: () => string;
   private readonly pages: LivePages;
+  private readonly tools = new PageTools((tabId) => this.liveGuest(tabId));
   private readonly stopTimer: () => void;
 
   constructor(private readonly deps: BrowserServiceDeps) {
@@ -253,50 +251,23 @@ export class BrowserService {
   }
 
   public hardReload(tabId: string): void {
-    this.liveGuest(tabId)?.reloadIgnoringCache();
+    this.tools.hardReload(tabId);
   }
 
-  /**
-   * Searches the page, highlighting without taking focus: the find bar keeps
-   * the keyboard. `next` continues the same text; a new text starts over.
-   * `found-in-page` reports back (see `listenersFor`).
-   */
   public findText(tabId: string, text: string, options: { forward: boolean; next: boolean }): void {
-    const guest = this.liveGuest(tabId);
-    if (!guest || typeof text !== 'string' || text === '') return;
-    const query = text.slice(0, MAX_FIND_LENGTH);
-    // A new search passes no options at all: Electron 43 never reported back a
-    // search started with explicit `{ forward: true, findNext: false }`.
-    if (options?.next === true) {
-      guest.findInPage(query, { forward: options.forward !== false, findNext: true });
-    } else {
-      guest.findInPage(query);
-    }
+    this.tools.findText(tabId, text, options);
   }
 
   public stopFind(tabId: string): void {
-    this.liveGuest(tabId)?.stopFindInPage('clearSelection');
+    this.tools.stopFind(tabId);
   }
 
-  /**
-   * Steps, resets or reads (`get`) a page's zoom and answers the level
-   * Chromium reports for it now. Chromium zooms per host within a partition
-   * (as Chrome does), so tabs on one origin share a level and the level
-   * follows the page across navigations; nothing here forces it per tab.
-   * A tab with no page answers the default.
-   */
   public zoom(tabId: string, step: ZoomStep | 'get'): number {
-    const guest = this.liveGuest(tabId);
-    if (!guest) return 0;
-    if (step === 'in' || step === 'out' || step === 'reset') {
-      guest.setZoomLevel(stepZoom(guest.getZoomLevel(), step));
-    }
-    return guest.getZoomLevel();
+    return this.tools.zoom(tabId, step);
   }
 
-  /** Detached, so the page keeps its whole panel. */
   public openDevTools(tabId: string): void {
-    this.liveGuest(tabId)?.openDevTools({ mode: 'detach' });
+    this.tools.openDevTools(tabId);
   }
 
   /** Pages a workspace visited, newest first. */
@@ -357,23 +328,11 @@ export class BrowserService {
     return true;
   }
 
-  /**
-   * Tells the window a tab's find result, or null when the search ended (a
-   * navigation, or the page going away). Main is the one source: the find bar
-   * never infers it from addresses.
-   */
-  private sendFound(entry: LiveGuest, tabId: string, result: FindResult | null): void {
-    const { host } = entry;
-    if (host.isDestroyed?.() || !host.webContents || host.webContents.isDestroyed?.()) return;
-    const message: BrowserFoundMessage = { tabId, result };
-    host.webContents.send(IPC_CHANNELS.BROWSER_FOUND, message);
-  }
-
   /** Stops following a guest without closing it. */
   public unbindGuest(tabId: string, push = true): void {
     const entry = this.guests.get(tabId);
     if (!entry) return;
-    this.sendFound(entry, tabId, null);
+    sendFound(entry.host, tabId, null);
     entry.unsubscribe();
     this.guests.delete(tabId);
     // The guest is gone (destroyed, or its window let go): no page to keep.
@@ -581,7 +540,7 @@ export class BrowserService {
   private destroyGuest(tabId: string): void {
     const entry = this.guests.get(tabId);
     if (!entry) return;
-    this.sendFound(entry, tabId, null);
+    sendFound(entry.host, tabId, null);
     entry.unsubscribe();
     this.guests.delete(tabId);
     const { guest } = entry;
@@ -712,24 +671,14 @@ export class BrowserService {
       if (!guest.isDestroyed()) guest.reload();
     };
 
-    // Only the final result of a search is told: Chromium reports as it counts.
-    const onFound = (
-      _event: unknown,
-      result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean },
-    ) => {
-      if (!result.finalUpdate) return;
-      this.sendFound(entry, tabId, { active: result.activeMatchOrdinal, total: result.matches });
-    };
-    // A new document ends the search: its count described the old one, and a
-    // "next" would continue a search the page no longer has.
+    const find = findListeners(guest, (result) => sendFound(entry.host, tabId, result));
     const onNavigated = (url: string) => {
-      this.sendFound(entry, tabId, null);
-      if (!guest.isDestroyed()) guest.stopFindInPage('clearSelection');
+      find.endFind();
       commit(url);
     };
 
     return [
-      ['found-in-page', onFound],
+      ['found-in-page', find.onFound],
       ['did-navigate', (_e: unknown, url: string) => onNavigated(url)],
       [
         'did-navigate-in-page',
