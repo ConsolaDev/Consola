@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  BrowserHistoryEntry,
   BrowserSessionSnapshot,
   BrowserTabError,
   BrowserTabSnapshot,
@@ -8,10 +9,12 @@ import {
   addressText,
   autoRetryUrl,
   hostOrder,
+  isBlankUrl,
   liveTabs,
   nextShownError,
   pageKey,
   pagePresence,
+  recentPages,
   RETRY_MAX_MS,
   retryDelayMs,
   tabLabel,
@@ -223,5 +226,41 @@ describe('tabLabel', () => {
   it('calls a tab that has been nowhere a new tab', () => {
     expect(tabLabel(tab('t', { title: '', url: '' }))).toBe('New tab');
     expect(tabLabel(tab('t', { title: '', url: 'about:blank' }))).toBe('New tab');
+  });
+});
+
+describe('a blank tab', () => {
+  it('is blank with no address or about:blank, and not otherwise', () => {
+    expect(isBlankUrl('')).toBe(true);
+    expect(isBlankUrl('about:blank')).toBe(true);
+    expect(isBlankUrl('http://localhost:3000')).toBe(false);
+  });
+
+  it('has no page to host, even when main calls it live', () => {
+    const snapshots = {
+      a: snapshot(
+        [
+          tab('blank', { url: '', live: true }),
+          tab('about', { url: 'about:blank', live: true }),
+          tab('real', { live: true }),
+        ],
+        'blank',
+      ),
+    };
+    expect(liveTabs(new Set(['a']), snapshots).map((hosted) => hosted.tab.id)).toEqual(['real']);
+  });
+});
+
+describe('recentPages', () => {
+  const entry = (url: string, title = ''): BrowserHistoryEntry => ({ url, title, at: 1 });
+
+  it('keeps each address once, newest first, up to the limit', () => {
+    const history = [entry('https://a.com'), entry('https://b.com'), entry('https://a.com')];
+    expect(recentPages(history, 2).map((e) => e.url)).toEqual(['https://a.com', 'https://b.com']);
+    expect(recentPages(history, 1)).toHaveLength(1);
+  });
+
+  it('is empty for no history', () => {
+    expect(recentPages([])).toEqual([]);
   });
 });

@@ -105,6 +105,15 @@ export interface BrowserSessionSnapshot {
   activeTabId: string | null;
 }
 
+/** A server listening on this machine, started from a session's folder. */
+export interface LocalServer {
+  port: number;
+  /** The process's command name, as `lsof` reports it (it may be truncated). */
+  command: string;
+  /** Where to open it. */
+  url: string;
+}
+
 /** What a window receives on `BROWSER_SNAPSHOT`: one session's tabs, merged with live state. */
 export interface BrowserSnapshotMessage {
   sessionId: string;
@@ -179,6 +188,8 @@ export interface BrowserAPI {
   openDevTools(tabId: string): Promise<void>;
   /** Pages the sender's workspace visited, newest first. */
   history(): Promise<BrowserHistoryEntry[]>;
+  /** Servers listening on this machine that were started from the session's folder. Empty on any failure. */
+  localServers(sessionId: string): Promise<LocalServer[]>;
   /** Trusts the certificate a tab refused (loopback only) and reloads it. False when nothing was offered. */
   continueCertificate(tabId: string): Promise<boolean>;
   /** Answers a sign-in request with credentials, or null to cancel it. */

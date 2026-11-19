@@ -1,5 +1,6 @@
 import {
   isLoopbackHost,
+  type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
   type BrowserTabError,
   type BrowserTabSnapshot,
@@ -17,9 +18,16 @@ export interface HostedTab {
   tab: BrowserTabSnapshot;
 }
 
+/** A tab with nowhere to be yet: no address, or the placeholder one. */
+export function isBlankUrl(url: string): boolean {
+  return url === '' || url === 'about:blank';
+}
+
 /**
  * Which tabs have a page in this window: those of this workspace's sessions
- * that main calls `live`. Main decides (it shows a tab, keeps one an agent
+ * that main calls `live`, except a blank tab, which shows its empty-tab view
+ * and has no page until it has an address (an `about:blank` guest would only
+ * flash white and hold a live-page slot). Main decides (it shows a tab, keeps one an agent
  * is using, and unloads the rest by `decideLive`); the window only mounts
  * what it is told and removes the element of a tab that stops being live.
  */
@@ -30,7 +38,9 @@ export function liveTabs(
   const hosted: HostedTab[] = [];
   for (const [sessionId, snapshot] of Object.entries(snapshots)) {
     if (!workspaceSessionIds.has(sessionId)) continue;
-    for (const tab of snapshot.tabs) if (tab.live) hosted.push({ sessionId, tab });
+    for (const tab of snapshot.tabs) {
+      if (tab.live && !isBlankUrl(tab.url)) hosted.push({ sessionId, tab });
+    }
   }
   return hosted;
 }
@@ -157,4 +167,23 @@ export function addressText(
   if (!tab) return '';
   const url = shownError && 'url' in shownError ? shownError.url : tab.url;
   return url === 'about:blank' ? '' : url;
+}
+
+/** How many recent pages the empty tab offers. */
+const RECENT_PAGES_SHOWN = 5;
+
+/** The history's newest pages, each address once. `history` is newest first already. */
+export function recentPages(
+  history: readonly BrowserHistoryEntry[],
+  limit: number = RECENT_PAGES_SHOWN,
+): BrowserHistoryEntry[] {
+  const seen = new Set<string>();
+  const pages: BrowserHistoryEntry[] = [];
+  for (const entry of history) {
+    if (seen.has(entry.url)) continue;
+    seen.add(entry.url);
+    pages.push(entry);
+    if (pages.length >= limit) break;
+  }
+  return pages;
 }

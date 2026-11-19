@@ -9,6 +9,7 @@ import type {
   BrowserShortcutMessage,
   BrowserSnapshotMessage,
   BrowserTab,
+  LocalServer,
 } from '../../shared/browser';
 
 /**
@@ -88,6 +89,11 @@ export const browserBridge = {
   /** Pages this workspace visited, newest first. */
   history(): Promise<BrowserHistoryEntry[]> {
     return window.browserAPI.history();
+  },
+
+  /** Servers running from a session's folder, for the empty tab. Empty on any failure. */
+  localServers(sessionId: string): Promise<LocalServer[]> {
+    return window.browserAPI.localServers(sessionId);
   },
 
   /** Trust the certificate a tab refused (loopback only) and reload it. False when none was offered. */

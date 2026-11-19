@@ -1,11 +1,12 @@
 import { useEffect, useLayoutEffect, type KeyboardEvent } from 'react';
-import { Globe } from 'lucide-react';
 import { browserBridge } from '../../services/browserBridge';
 import { matchBrowserFocusedShortcut } from '../../../shared/shortcuts';
 import { closeFind, useBrowserFindStore } from '../../stores/browserFindStore';
 import { chordOf, PLATFORM } from '../../utils/platform';
 import { showBrowserSlot } from '../../stores/browserSlotStore';
 import { activeTabOf, loadBrowser, useBrowserSnapshot } from '../../stores/browserStore';
+import { isBlankUrl } from './browserView';
+import { BrowserEmptyTab } from './BrowserEmptyTab';
 import { handleBrowserAction } from './handleBrowserAction';
 import { FindBar } from './FindBar';
 import { BrowserTabStrip } from './BrowserTabStrip';
@@ -65,13 +66,7 @@ export function BrowserPanel({ sessionId }: BrowserPanelProps) {
       <BrowserToolbar key={`${sessionId}:${tab?.id ?? ''}`} tab={tab} onOpen={open} />
       {findOpen && tab && <FindBar key={tab.id} tabId={tab.id} onClose={closeFind} />}
       <div className="browser-slot" data-testid="browser-slot">
-        {!tab && (
-          <div className="browser-empty">
-            <Globe size={28} strokeWidth={1.5} />
-            <p className="browser-empty-title">No page open</p>
-            <p className="browser-empty-hint">Type an address or a search above.</p>
-          </div>
-        )}
+        {(!tab || isBlankUrl(tab.url)) && <BrowserEmptyTab sessionId={sessionId} onOpen={open} />}
       </div>
     </div>
   );

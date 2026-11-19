@@ -1,5 +1,10 @@
 import type { BrowserWindow, IpcMainInvokeEvent, WebContents } from 'electron';
-import type { BrowserHistoryEntry, BrowserSessionSnapshot, BrowserTab } from '../../shared/browser';
+import type {
+  BrowserHistoryEntry,
+  BrowserSessionSnapshot,
+  BrowserTab,
+  LocalServer,
+} from '../../shared/browser';
 import type { ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { guardedIpc } from '../guardedIpc';
@@ -14,6 +19,8 @@ export interface BrowserIpcDeps {
   windowForSender(sender: WebContents): BrowserWindow | undefined;
   /** Whether the session exists and belongs to the workspace. */
   sessionInWorkspace(sessionId: string, workspaceId: string): boolean;
+  /** The servers started from the session's checkout; empty when it has none or cannot be read. */
+  localServersFor(sessionId: string): Promise<LocalServer[]>;
   webContentsFromId(id: number): WebContents | undefined;
   /** The Electron session of a workspace's browser partition. */
   sessionForWorkspace(workspaceId: string): unknown;
@@ -40,6 +47,7 @@ const CHANNELS = [
   IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE,
   IPC_CHANNELS.BROWSER_AUTH_ANSWER,
   IPC_CHANNELS.BROWSER_CLEAR_DATA,
+  IPC_CHANNELS.BROWSER_LOCAL_SERVERS,
 ];
 
 const EMPTY: BrowserSessionSnapshot = { tabs: [], activeTabId: null };
@@ -124,6 +132,14 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
     const workspaceId = deps.workspaceForSender(event.sender);
     return workspaceId ? service.historyFor(workspaceId) : [];
   });
+
+  // Names a session, so it is checked like every session-scoped call: another
+  // workspace's folders are not for this window to learn about.
+  ipc.handle(
+    IPC_CHANNELS.BROWSER_LOCAL_SERVERS,
+    async (event, sessionId: string): Promise<LocalServer[]> =>
+      ownedSession(event, sessionId) ? await deps.localServersFor(sessionId) : [],
+  );
 
   ipc.handle(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, (event, tabId: string): boolean =>
     ownedTab(event, tabId) ? service.continueCertificate(tabId) : false,

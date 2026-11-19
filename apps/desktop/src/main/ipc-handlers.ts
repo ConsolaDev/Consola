@@ -28,6 +28,7 @@ import {
 import type { BrowserStateFile } from '../shared/browser';
 import { BrowserService } from './browser/BrowserService';
 import { BrowserStateStore } from './browser/BrowserStateStore';
+import { LocalServers } from './browser/LocalServers';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
@@ -333,6 +334,7 @@ export function setupIpcHandlers(): boolean {
       hidden: isBackgroundTest,
     });
   });
+  const localServers = new LocalServers();
   const registered = registerBrowserHandlers({
     ipc: ipcMain,
     service: browser,
@@ -346,6 +348,15 @@ export function setupIpcHandlers(): boolean {
         .getAll()
         .find((workspace) => workspace.id === workspaceId)
         ?.sessions.some((session) => session.id === sessionId),
+    localServersFor: (sessionId) => {
+      const workspace = workspaces
+        .getAll()
+        .find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
+      const session = workspace?.sessions.find((candidate) => candidate.id === sessionId);
+      // Undefined while a cleanup rule has the worktree removed: no folder, no servers.
+      const folder = workspace && checkoutPathForSession(workspace, session);
+      return localServers.listFor(folder);
+    },
     webContentsFromId: (id) => electronWebContents.fromId(id),
     sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),
   });

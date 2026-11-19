@@ -17,6 +17,7 @@ import {
   Sparkles,
   Trash2,
 } from 'lucide-react';
+import type { LocalServer } from '../../../shared/browser';
 import type { GitFileStatus } from '../../types/electron';
 import type { SettingsSection } from '../Dialogs/settingsSections';
 import type { Harness } from '../../stores/harnessStore';
@@ -33,6 +34,7 @@ import {
 } from '../../stores/settingsStore';
 import { useWorkspaceStore } from '../../stores/workspaceStore';
 import { dialogBridge } from '../../services/dialogBridge';
+import { focusSessionAddressBar, openInSessionBrowser } from '../Browser/browserActions';
 import { createQuickSession, openNewSessionDialog } from '../../utils/sessionActions';
 import { workspaceStatusFor, type AttentionMap } from '../../utils/sessionStatus';
 import { BROWSER_SHORTCUT_LABEL, isMac, WORKING_SHELF_SHORTCUT_LABEL } from '../../utils/platform';
@@ -72,6 +74,8 @@ export interface PaletteContext {
   commitMessage: string;
   isGitReviewOpen: boolean;
   terminalFontSize: number;
+  /** Servers running from the active session's folder, read when the palette opened. */
+  localServers: LocalServer[];
   openSettings: (section?: SettingsSection) => void;
 }
 
@@ -235,6 +239,24 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       shortcutHint: BROWSER_SHORTCUT_LABEL,
       run: () => useNavigationStore.getState().toggleBrowser(),
     });
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: 'action.browser.open-address',
+      label: 'Open address in browser…',
+      icon: Globe,
+      run: () => void focusSessionAddressBar(activeSession.id),
+    });
+    for (const server of ctx.localServers) {
+      items.push({
+        kind: 'action',
+        section: 'actions',
+        id: `action.browser.open-server.${server.port}`,
+        label: `Open localhost:${server.port} — ${server.command}`,
+        icon: Globe,
+        run: () => void openInSessionBrowser(activeSession.id, server.url),
+      });
+    }
   }
 
   // Only a linked session has an item to show, and only a workspace with an

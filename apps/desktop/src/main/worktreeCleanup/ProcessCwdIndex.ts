@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process';
 import * as path from 'node:path';
+import { parseLsofFields } from '../lsofFields';
 
 /** A process whose working directory was read. */
 export interface ProcessEntry {
@@ -106,22 +107,7 @@ export class ProcessCwdIndex {
 
 /** `lsof -F pcn`: a `p` line opens a process, `c` is its command, `n` its cwd. */
 export function parseLsof(output: string): ProcessEntry[] {
-  const entries: ProcessEntry[] = [];
-  let pid: number | null = null;
-  let command = '';
-  for (const line of output.split('\n')) {
-    const tag = line[0];
-    const value = line.slice(1);
-    if (tag === 'p') {
-      pid = Number.parseInt(value, 10);
-      command = '';
-    } else if (tag === 'c') {
-      command = value;
-    } else if (tag === 'n' && pid !== null && Number.isFinite(pid)) {
-      entries.push({ pid, command, cwd: value });
-    }
-  }
-  return entries;
+  return parseLsofFields(output).map(({ pid, command, name }) => ({ pid, command, cwd: name }));
 }
 
 function parsePs(output: string): Map<number, number> {
@@ -134,7 +120,7 @@ function parsePs(output: string): Map<number, number> {
 }
 
 /** Whether `child` is `parent` or lies below it. Both already resolved. */
-function isWithin(child: string, parent: string): boolean {
+export function isWithin(child: string, parent: string): boolean {
   const relative = path.relative(parent, child);
   return relative === '' || (!relative.startsWith('..') && !path.isAbsolute(relative));
 }

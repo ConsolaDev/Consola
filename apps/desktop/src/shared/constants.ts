@@ -191,6 +191,7 @@ export const IPC_CHANNELS = {
   BROWSER_CERTIFICATE_CONTINUE: 'browser:certificate-continue', // Trust a refused loopback certificate and reload
   BROWSER_AUTH_ANSWER: 'browser:auth-answer', // The credentials (or a cancel) for a sign-in dialog
   BROWSER_CLEAR_DATA: 'browser:clear-data', // Wipe the sender's workspace's browsing data
+  BROWSER_LOCAL_SERVERS: 'browser:local-servers', // Servers running from a session's folder
 
   // In-app browser (main -> renderer)
   BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot

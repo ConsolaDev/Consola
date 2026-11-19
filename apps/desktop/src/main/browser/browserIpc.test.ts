@@ -72,6 +72,7 @@ beforeEach(() => {
     sessionInWorkspace: (sessionId, ws) => sessionId === 's-mine' && ws === 'w1',
     webContentsFromId: (id) => contents.get(id) as WebContents | undefined,
     sessionForWorkspace: () => partition,
+    localServersFor: async () => [{ port: 5173, command: 'vite', url: 'http://localhost:5173' }],
   };
   registerBrowserHandlers(deps);
 });
@@ -95,6 +96,23 @@ describe('session-scoped handlers', () => {
     expect(call(IPC_CHANNELS.BROWSER_GET, 's-mine')).toEqual({ tabs: [], activeTabId: null });
     expect(call(IPC_CHANNELS.BROWSER_OPEN, 's-mine', '')).toBeNull();
     expect(service.openTab).not.toHaveBeenCalled();
+  });
+});
+
+describe('local servers', () => {
+  const servers = [{ port: 5173, command: 'vite', url: 'http://localhost:5173' }];
+
+  it('are listed for a session of the sender workspace', async () => {
+    expect(await call(IPC_CHANNELS.BROWSER_LOCAL_SERVERS, 's-mine')).toEqual(servers);
+  });
+
+  it('are refused for a session of another workspace', async () => {
+    expect(await call(IPC_CHANNELS.BROWSER_LOCAL_SERVERS, 's-foreign')).toEqual([]);
+  });
+
+  it('are refused for a window that holds no workspace', async () => {
+    workspace = undefined;
+    expect(await call(IPC_CHANNELS.BROWSER_LOCAL_SERVERS, 's-mine')).toEqual([]);
   });
 });
 

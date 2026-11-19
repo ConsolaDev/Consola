@@ -532,9 +532,13 @@ test.describe('in-app browser tabs', () => {
     await showBrowser(page);
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
-    await page.evaluate(async (sessionId) => {
-      for (let i = 0; i < 11; i += 1) await window.browserAPI.open(sessionId, '');
-    }, ids.alpha.sessionId);
+    // Pages, not blank tabs: a blank tab hosts no page until it has an address.
+    await page.evaluate(
+      async ({ sessionId, url }) => {
+        for (let i = 0; i < 11; i += 1) await window.browserAPI.open(sessionId, url);
+      },
+      { sessionId: ids.alpha.sessionId, url: fixtures.url('/b.html') },
+    );
     await expect(tabs(page)).toHaveCount(12);
 
     // Twelve tabs, eight pages: the first tab was shown longest ago, so its
