@@ -113,6 +113,29 @@ so a view that shrinks and returns to the size the CLI already knows has lost
 rows the CLI will never repaint. Its relative cursor moves then land typing
 above the prompt.
 
+Output crosses to a window only while that window has a view of the terminal
+mounted: unmounting sends `TERMINAL_DETACH`, and `TerminalManager` sends
+nothing more until the next mount, which repaints from the snapshot. Two
+things make that exact. `ScreenModel.write` parses synchronously, so a
+snapshot holds every byte main has received; and a view drops output that
+reaches it before its snapshot does, since that output is in the snapshot.
+What is sent is gathered for `OUTPUT_BATCH_MS` first: a PTY hands over 1 KiB
+per read, so one repaint is dozens of reads, and a frame boundary between them
+paints half of it. The replay goes into the view in slices (`REPLAY_CHUNK`),
+because xterm never yields inside one write.
+
+A fullscreen CLI scrolls one row per wheel report, and xterm sends one report
+per wheel event whatever its distance. `tuiWheel` turns each event into the
+rows it moved (trackpads 1:1 with the fraction carried, notched wheels on a
+curve), while the program has mouse reporting on.
+
+`@xterm/xterm` and `@xterm/addon-webgl` carry pnpm patches (`patches/`): WebGL
+atlas fixes (page layout versions, merged pages capped at 4096, released
+textures and contexts) and three scroll fixes in xterm. The runtime reads the
+minified `lib/` files; each hunk is repeated in `src/` so the patch can be
+read. Bumping either package means carrying the patch over or dropping what
+upstream fixed.
+
 ### Each Workspace Remembers Where It Was Left
 
 Switching workspaces returns to the view that workspace was last on, rather

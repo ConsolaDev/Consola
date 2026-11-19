@@ -38,6 +38,14 @@ export const terminalBridge = {
     window.terminalAPI.restart(instanceId);
   },
 
+  /**
+   * The view unmounted. The terminal keeps running, but its output stops
+   * crossing to this window: the next mount repaints from main's screen.
+   */
+  detach(instanceId: string): void {
+    window.terminalAPI.detach(instanceId);
+  },
+
   /** Tear down the terminal. Only for sessions being closed, not unmounted. */
   destroy(instanceId: string): void {
     window.terminalAPI.destroy(instanceId);

@@ -64,4 +64,36 @@ describe('ScreenModel', () => {
     model.dispose();
     remounted.dispose();
   });
+
+  it('holds every byte written before a snapshot, with no tick in between', () => {
+    const model = new ScreenModel(COLS, ROWS);
+    model.write('written just now');
+    // Main stops sending output while no view is mounted, so a byte the
+    // snapshot missed here would never reach the next view.
+    expect(model.visibleText().split('\n')[0]).toBe('written just now');
+    expect(model.snapshot().replay).toContain('written just now');
+    model.dispose();
+  });
+
+  it('holds a half-drawn synchronized frame in the view until its end marker arrives', () => {
+    const model = new ScreenModel(COLS, ROWS);
+    model.write('\x1b[?2026hhalf a fra');
+    expect(model.snapshot().replay.startsWith('\x1b[?2026h')).toBe(true);
+    model.write('me\x1b[?2026l');
+    expect(model.snapshot().replay.startsWith('\x1b[?2026h')).toBe(false);
+    model.dispose();
+  });
+
+  it('still calls back after a write, once it is parsed', async () => {
+    const model = new ScreenModel(COLS, ROWS);
+    let called = false;
+    model.write('done', () => {
+      called = true;
+    });
+    // Asynchronously, as xterm's own write would.
+    expect(called).toBe(false);
+    await Promise.resolve();
+    expect(called).toBe(true);
+    model.dispose();
+  });
 });

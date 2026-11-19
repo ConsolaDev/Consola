@@ -122,6 +122,11 @@ contextBridge.exposeInMainWorld('terminalAPI', {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
   },
 
+  // The view unmounted; the terminal keeps running
+  detach: (instanceId: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_DETACH, instanceId);
+  },
+
   // Tear down a session's terminal
   destroy: (instanceId: string): void => {
     ipcRenderer.send(IPC_CHANNELS.TERMINAL_DESTROY, instanceId);

@@ -2028,6 +2028,10 @@ export function setupIpcHandlers(): boolean {
     })();
   });
 
+  ipcMain.on(IPC_CHANNELS.TERMINAL_DETACH, (event, instanceId: string) => {
+    manager.release(instanceId, event.sender);
+  });
+
   ipcMain.on(IPC_CHANNELS.TERMINAL_DESTROY, (_event, instanceId: string) => {
     manager.destroy(instanceId);
     forgetTerminalAttention(instanceId);
@@ -2518,6 +2522,7 @@ export function cleanupIpcHandlers(): void {
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_PASTE);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESIZE);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_RESTART);
+  ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DETACH);
   ipcMain.removeAllListeners(IPC_CHANNELS.TERMINAL_DESTROY);
   ipcMain.removeHandler(IPC_CHANNELS.CONDUCTOR_CREATE);
   ipcMain.removeHandler(IPC_CHANNELS.SESSION_FAN_OUT);

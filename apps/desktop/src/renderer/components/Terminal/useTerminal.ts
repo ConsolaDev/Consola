@@ -15,6 +15,7 @@ import { buildXtermTheme, readTerminalFont, TERMINAL_FONT_FAMILY } from './xterm
 import { openTerminalLink } from './terminalLinks';
 import { terminalKeyOverride } from './terminalKeys';
 import { restoreScreen, whenSettled } from './restoreScreen';
+import { attachTuiWheel } from './tuiWheel';
 
 interface UseTerminalOptions {
   instanceId: string;
@@ -85,27 +86,6 @@ export function useTerminal({
 
     terminal.open(container);
 
-    // WebGL rendering is a big win for a repainting TUI, but it fails on
-    // some GPUs — fall back to the DOM renderer rather than a blank pane.
-    try {
-      const webglAddon = new WebglAddon();
-      // A lost GL context is not the same as one that never worked: it can
-      // happen mid-session on a GPU switch or driver reset. Disposing the
-      // addon is what hands rendering back to the DOM renderer; without
-      // this the pane simply stops painting.
-      webglAddon.onContextLoss(() => {
-        console.warn('WebGL context lost, falling back to DOM renderer');
-        webglAddon.dispose();
-      });
-      terminal.loadAddon(webglAddon);
-    } catch (error) {
-      console.warn('WebGL renderer unavailable, using DOM renderer:', error);
-    }
-
-    terminalRef.current = terminal;
-
-    fitAddon.fit();
-
     let disposed = false;
     // Until the screen main kept is in this view, the view stays the size
     // that screen was captured at; after that it follows its pane once the
@@ -116,9 +96,63 @@ export function useTerminal({
     });
     fitRef.current = settled.request;
 
-    // Forward keystrokes to the PTY.
+    // WebGL rendering is a big win for a repainting TUI, but it fails on
+    // some GPUs — fall back to the DOM renderer rather than a blank pane.
+    // A lost GL context is not the same as one that never worked: it can
+    // happen mid-session on a GPU switch or driver reset. Disposing the
+    // addon is what hands rendering back to the DOM renderer; without
+    // this the pane simply stops painting. A pane left on the DOM renderer
+    // for good repaints a busy TUI far slower, so WebGL is tried again
+    // shortly, unless the context keeps going (WEBGL_RETRY_LIMIT a minute).
+    let webglRetry: ReturnType<typeof setTimeout> | undefined;
+    const webglLosses: number[] = [];
+    const attachWebgl = () => {
+      if (disposed) return;
+      try {
+        const webglAddon = new WebglAddon();
+        webglAddon.onContextLoss(() => {
+          console.warn('WebGL context lost, falling back to DOM renderer');
+          webglAddon.dispose();
+          // The DOM renderer measures cells a little wider: fit the grid again.
+          settled.request();
+          const now = Date.now();
+          webglLosses.push(now);
+          while (webglLosses.length && now - webglLosses[0] > WEBGL_RETRY_WINDOW_MS) {
+            webglLosses.shift();
+          }
+          if (webglLosses.length < WEBGL_RETRY_LIMIT) {
+            clearTimeout(webglRetry);
+            webglRetry = setTimeout(attachWebgl, WEBGL_RETRY_DELAY_MS);
+          }
+        });
+        terminal.loadAddon(webglAddon);
+        settled.request();
+      } catch (error) {
+        console.warn('WebGL renderer unavailable, using DOM renderer:', error);
+      }
+    };
+    attachWebgl();
+
+    terminalRef.current = terminal;
+
+    fitAddon.fit();
+
+    // Forward keystrokes to the PTY. The wheel reports one gesture is worth
+    // travel as one write, so the CLI can paint them as one frame.
+    let wheelBatch: string[] | null = null;
     const dataDisposable = terminal.onData((data) => {
-      terminalBridge.sendInput(instanceId, data);
+      if (wheelBatch) wheelBatch.push(data);
+      else terminalBridge.sendInput(instanceId, data);
+    });
+    attachTuiWheel(terminal, (replay) => {
+      wheelBatch = [];
+      try {
+        replay();
+      } finally {
+        const batch = wheelBatch.join('');
+        wheelBatch = null;
+        if (batch) terminalBridge.sendInput(instanceId, batch);
+      }
     });
 
     // A few keys have to send something other than what xterm would.
@@ -143,9 +177,13 @@ export function useTerminal({
       return false;
     });
 
-    // Receive this session's output only.
+    // Receive this session's output only, and only once main's screen is in.
+    // Main sends nothing until this view attaches, and what was gathered
+    // before then is in that screen already: written as well, it would be
+    // painted twice. Anything that arrives first is from an earlier view.
+    let attached = false;
     const unsubscribeData = terminalBridge.onData((message) => {
-      if (message.instanceId === instanceId) {
+      if (attached && message.instanceId === instanceId) {
         terminal.write(message.data);
       }
     });
@@ -153,18 +191,22 @@ export function useTerminal({
     // xterm measures the character cell the moment it opens. If the bundled
     // font has not finished loading by then it measures a fallback, and every
     // glyph afterwards is drawn on a grid sized for the wrong font. Re-measure
-    // once the real font is in — normally a no-op, since main.tsx starts the
-    // load at app startup.
-    document.fonts
-      .load(`${font.fontWeight} ${font.fontSize}px "${TERMINAL_FONT_FAMILY}"`)
-      .then(() => {
-        if (disposed) return;
-        terminal.clearTextureAtlas();
-        settled.request();
-      })
-      .catch(() => {
-        // Fallback metrics are still usable; nothing to recover here.
-      });
+    // once the real font is in. Normally it already is (main.tsx starts the
+    // load at app startup), and then nothing is redrawn: the glyph atlas is
+    // shared, and clearing it re-rasterises every glyph for every pane.
+    const fontSpec = `${font.fontWeight} ${font.fontSize}px "${TERMINAL_FONT_FAMILY}"`;
+    if (!document.fonts.check(fontSpec)) {
+      document.fonts
+        .load(fontSpec)
+        .then(() => {
+          if (disposed) return;
+          terminal.clearTextureAtlas();
+          settled.request();
+        })
+        .catch(() => {
+          // Fallback metrics are still usable; nothing to recover here.
+        });
+    }
 
     // A pending prompt from a launch action travels with the create call;
     // the main process submits it once the CLI is ready and is not sitting
@@ -190,7 +232,8 @@ export function useTerminal({
       .then((snapshot) => {
         if (disposed) return;
         // Repaint whatever the PTY produced while this view was gone,
-        // then follow the pane.
+        // then follow the pane. Live output from here on lands after it.
+        attached = true;
         restoreScreen(terminal, snapshot, () => {
           restored = true;
           settled.request();
@@ -200,6 +243,7 @@ export function useTerminal({
       })
       .catch((error) => {
         console.error('Failed to start terminal:', error);
+        attached = true;
         terminal.write(
           "\r\n\x1b[31mFailed to start this session's CLI. Check the harness in Settings — is the binary installed and on your PATH?\x1b[0m\r\n",
         );
@@ -214,8 +258,10 @@ export function useTerminal({
     return () => {
       disposed = true;
       settled.cancel();
+      clearTimeout(webglRetry);
       resizeObserver.disconnect();
       unsubscribeData();
+      terminalBridge.detach(instanceId);
       dataDisposable.dispose();
       terminal.dispose();
       terminalRef.current = null;
@@ -249,10 +295,24 @@ export function useTerminal({
   return { containerRef, focus };
 }
 
-/** Re-measure the pane and push the new dimensions to the PTY. */
+/** WebGL is tried again this long after its context is lost… */
+const WEBGL_RETRY_DELAY_MS = 2000;
+/** …unless it was lost this many times within the window. */
+const WEBGL_RETRY_LIMIT = 3;
+const WEBGL_RETRY_WINDOW_MS = 60_000;
+
+/**
+ * Re-measure the pane and push new dimensions to the PTY.
+ *
+ * Only when they changed: the view already matches the PTY once its
+ * snapshot is in (restoreScreen), and a resize the CLI did not need still
+ * resizes main's screen and reads as input.
+ */
 function refit(terminal: Terminal, fitAddon: FitAddon, instanceId: string) {
   try {
+    const { cols, rows } = terminal;
     fitAddon.fit();
+    if (terminal.cols === cols && terminal.rows === rows) return;
     terminalBridge.resize(instanceId, terminal.cols, terminal.rows);
   } catch {
     // Pane is hidden or zero-sized; the next observation will fit.
