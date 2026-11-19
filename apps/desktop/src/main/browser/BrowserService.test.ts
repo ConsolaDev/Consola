@@ -15,6 +15,17 @@ class FakeGuest extends EventEmitter {
   url = '';
   loadURL = vi.fn(async (_url: string) => {});
   reload = vi.fn();
+  reloadIgnoringCache = vi.fn();
+  findInPage = vi.fn();
+  stopFindInPage = vi.fn();
+  openDevTools = vi.fn();
+  zoomLevel = 0;
+  setZoomLevel = vi.fn((level: number) => {
+    this.zoomLevel = level;
+  });
+  getZoomLevel() {
+    return this.zoomLevel;
+  }
   stop = vi.fn();
   close = vi.fn(() => {
     this.destroyed = true;
@@ -322,6 +333,104 @@ describe('crashes', () => {
     service.bindGuest('tab1', guest.asWebContents(), winA);
     guest.emit('render-process-gone', {}, { reason: 'clean-exit' });
     expect(guest.reload).not.toHaveBeenCalled();
+  });
+});
+
+describe('page tools', () => {
+  function bound() {
+    service.openTab('s1', 'https://a.com', 'person');
+    const guest = new FakeGuest(11);
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    return guest;
+  }
+
+  it('hard reload ignores the cache', () => {
+    const guest = bound();
+    service.hardReload('tab1');
+    expect(guest.reloadIgnoringCache).toHaveBeenCalled();
+    expect(guest.reload).not.toHaveBeenCalled();
+  });
+
+  it('finds without moving focus, and continues or reverses a search', () => {
+    const guest = bound();
+    service.findText('tab1', 'needle', { forward: true, next: false });
+    service.findText('tab1', 'needle', { forward: false, next: true });
+    expect(guest.findInPage.mock.calls).toEqual([
+      ['needle'],
+      ['needle', { forward: false, findNext: true }],
+    ]);
+  });
+
+  it('ignores an empty or non-text search', () => {
+    const guest = bound();
+    service.findText('tab1', '', { forward: true, next: false });
+    service.findText('tab1', 5 as unknown as string, { forward: true, next: false });
+    expect(guest.findInPage).not.toHaveBeenCalled();
+  });
+
+  it('clears the highlights when a search ends', () => {
+    const guest = bound();
+    service.stopFind('tab1');
+    expect(guest.stopFindInPage).toHaveBeenCalledWith('clearSelection');
+  });
+
+  it("tells the window only a search's final result", () => {
+    const send = vi.fn();
+    const win = { webContents: { send, isDestroyed: () => false } } as unknown as BrowserWindow;
+    service.openTab('s1', 'https://a.com', 'person');
+    const guest = new FakeGuest(11);
+    service.bindGuest('tab1', guest.asWebContents(), win);
+    guest.emit('found-in-page', {}, { activeMatchOrdinal: 1, matches: 1, finalUpdate: false });
+    expect(send).not.toHaveBeenCalled();
+    guest.emit('found-in-page', {}, { activeMatchOrdinal: 2, matches: 5, finalUpdate: true });
+    expect(send).toHaveBeenCalledWith(IPC_CHANNELS.BROWSER_FOUND, {
+      tabId: 'tab1',
+      active: 2,
+      total: 5,
+    });
+  });
+
+  it("steps zoom from the page's own level and reads it back", () => {
+    const guest = bound();
+    expect(service.zoom('tab1', 'in')).toBe(0.5);
+    expect(service.zoom('tab1', 'in')).toBe(1);
+    expect(service.zoom('tab1', 'get')).toBe(1);
+    expect(guest.setZoomLevel).toHaveBeenCalledTimes(2);
+    expect(service.zoom('tab1', 'reset')).toBe(0);
+  });
+
+  it('answers the default for a tab with no page', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    expect(service.zoom('tab1', 'in')).toBe(0);
+  });
+
+  it('opens DevTools detached', () => {
+    const guest = bound();
+    service.openDevTools('tab1');
+    expect(guest.openDevTools).toHaveBeenCalledWith({ mode: 'detach' });
+  });
+
+  it('gives the latest visit the title that arrives after it', () => {
+    const guest = bound();
+    guest.emit('did-navigate', {}, 'https://a.com/');
+    expect(service.historyFor('w1')[0]).toMatchObject({ url: 'https://a.com/', title: '' });
+    guest.emit('page-title-updated', {}, 'Arrived');
+    expect(service.historyFor('w1')).toHaveLength(1);
+    expect(service.historyFor('w1')[0]).toMatchObject({ url: 'https://a.com/', title: 'Arrived' });
+  });
+
+  it("does not title a visit that is no longer the tab's page", () => {
+    const guest = bound();
+    guest.emit('did-navigate', {}, 'https://a.com/');
+    store.addHistory('w1', { url: 'https://other.com/', title: '', at: now });
+    guest.emit('page-title-updated', {}, 'Late');
+    expect(service.historyFor('w1')[0]).toMatchObject({ url: 'https://other.com/', title: '' });
+  });
+
+  it("serves a workspace's history only", () => {
+    store.addHistory('w1', { url: 'https://a.com', title: 'A', at: 1 });
+    store.addHistory('w2', { url: 'https://b.com', title: 'B', at: 2 });
+    expect(service.historyFor('w1').map((e) => e.url)).toEqual(['https://a.com']);
   });
 });
 

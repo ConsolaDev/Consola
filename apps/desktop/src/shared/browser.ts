@@ -4,6 +4,7 @@
  * imports, because main, the renderer and tests all read it.
  */
 
+import type { FindResult, ZoomStep } from './browserTools';
 import type { ForwardedShortcut } from './shortcuts';
 
 /** A session can hold this many pages; more would keep too many guests alive. */
@@ -106,6 +107,11 @@ export interface BrowserShortcutMessage {
   action: ForwardedShortcut;
 }
 
+/** What a window receives on `BROWSER_FOUND`: a tab's current find result. */
+export interface BrowserFoundMessage extends FindResult {
+  tabId: string;
+}
+
 /**
  * What the preload exposes as `window.browserAPI`. Reach it through
  * `browserBridge`, never directly.
@@ -126,12 +132,22 @@ export interface BrowserAPI {
   forward(tabId: string): Promise<void>;
   reload(tabId: string): Promise<void>;
   stop(tabId: string): Promise<void>;
+  hardReload(tabId: string): Promise<void>;
+  /** Starts or continues a search of the page. `forward` false steps back; `next` continues the same text. */
+  find(tabId: string, text: string, options: { forward: boolean; next: boolean }): Promise<void>;
+  stopFind(tabId: string): Promise<void>;
+  /** Steps, resets or reads (`get`) the tab's zoom level, resolving the level now in force. */
+  zoom(tabId: string, step: ZoomStep | 'get'): Promise<number>;
+  openDevTools(tabId: string): Promise<void>;
+  /** Pages the sender's workspace visited, newest first. */
+  history(): Promise<BrowserHistoryEntry[]>;
   /** Binds a mounted, attached `<webview>` (by its `getWebContentsId()`) to its tab. */
   attach(tabId: string, webContentsId: number): Promise<boolean>;
   /** Tells main which tab this window shows, or none (null both). Main decides which pages stay live. */
   setVisible(sessionId: string | null, tabId: string | null): Promise<void>;
   onSnapshot(callback: (message: BrowserSnapshotMessage) => void): () => void;
   onShortcut(callback: (message: BrowserShortcutMessage) => void): () => void;
+  onFound(callback: (message: BrowserFoundMessage) => void): () => void;
 }
 
 // --- Addresses ---

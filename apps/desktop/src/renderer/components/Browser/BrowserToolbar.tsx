@@ -4,6 +4,7 @@ import { ArrowLeft, ArrowRight, ExternalLink, RotateCw, X } from 'lucide-react';
 import { isAllowedPageUrl, type BrowserTabSnapshot } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
 import { AddressBar } from './AddressBar';
+import { BrowserMoreMenu } from './BrowserMoreMenu';
 import { useShownError } from './BrowserError';
 import { addressText } from './browserView';
 
@@ -62,6 +63,7 @@ export function BrowserToolbar({ tab, onOpen }: BrowserToolbarProps) {
         >
           <ExternalLink size={14} />
         </ToolbarButton>
+        <BrowserMoreMenu tabId={tab?.id} />
       </div>
     </Tooltip.Provider>
   );

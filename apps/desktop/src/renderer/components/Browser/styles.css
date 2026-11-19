@@ -25,7 +25,7 @@
 
 .browser-toolbar {
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr) auto;
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto auto;
   align-items: center;
   column-gap: 2px;
   padding: var(--space-1) var(--space-2);
@@ -93,6 +93,114 @@
   margin: var(--space-1) var(--space-1) 0;
   font-size: var(--font-size-xs);
   color: var(--color-error);
+}
+
+/* --- Find bar --- */
+
+/* In flow, for the same reason as the address message. */
+.browser-find {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.browser-find-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-2);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-primary);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-size-sm);
+  outline: none;
+  transition: border-color var(--transition-fast);
+}
+
+.browser-find-input:focus {
+  border-color: var(--color-accent);
+}
+
+.browser-find-count {
+  min-width: 64px;
+  padding: 0 var(--space-1);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* --- More menu --- */
+
+.browser-more-content {
+  min-width: 220px;
+}
+
+.browser-more-content .dropdown-item {
+  gap: var(--space-2);
+}
+
+.browser-menu-keys {
+  margin-left: auto;
+  padding-left: var(--space-4);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* Keeps the labels of icon-less rows in line with the rows that have one. */
+.browser-menu-icon-gap {
+  width: 14px;
+  flex-shrink: 0;
+}
+
+/* --- Address suggestions --- */
+
+/* Portalled to the body: inside the panel it would be under the page. */
+.browser-suggestions {
+  position: fixed;
+  z-index: var(--z-dropdown);
+  margin: 0;
+  padding: var(--space-1);
+  list-style: none;
+  background: var(--color-bg-secondary);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-elevation-2);
+}
+
+.browser-suggestion {
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+
+.browser-suggestion[aria-selected="true"],
+.browser-suggestion:hover {
+  background: var(--color-bg-hover);
+}
+
+.browser-suggestion-title,
+.browser-suggestion-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-suggestion-title {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-primary);
+}
+
+.browser-suggestion-url {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
 }
 
 /* --- Empty panel --- */

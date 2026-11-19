@@ -54,6 +54,16 @@ export async function startFixtureServer(): Promise<FixtureServer> {
     switch (pathname) {
       case '/a.html':
         return send(200, page('Page A', 'rgb(255,0,0)', '<a id="to-b" href="/b.html">go to b</a>'));
+      case '/find.html':
+        // Three matches of one word, for the find bar's count.
+        return send(
+          200,
+          page(
+            'Find me',
+            'rgb(240,240,240)',
+            '<p>needle one</p><p>needle two</p><p>needle three</p>',
+          ),
+        );
       case '/b.html':
         return send(200, page('Page B', 'rgb(0,0,255)'));
       case '/c.html':

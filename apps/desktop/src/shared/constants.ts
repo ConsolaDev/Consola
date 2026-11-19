@@ -181,10 +181,17 @@ export const IPC_CHANNELS = {
   BROWSER_STOP: 'browser:stop',
   BROWSER_ATTACH: 'browser:attach', // Bind a mounted <webview> to its tab once it attaches
   BROWSER_SET_VISIBLE: 'browser:set-visible', // Which tab the person is looking at, or none
+  BROWSER_HARD_RELOAD: 'browser:hard-reload', // Reload a tab ignoring its cache
+  BROWSER_FIND: 'browser:find', // Search a tab's page for text
+  BROWSER_STOP_FIND: 'browser:stop-find', // Clear a tab's find highlights
+  BROWSER_ZOOM: 'browser:zoom', // Step, reset or read a tab's zoom level
+  BROWSER_DEVTOOLS: 'browser:devtools', // Open a tab's DevTools in their own window
+  BROWSER_HISTORY: 'browser:history', // The sender's workspace's visited pages, newest first
 
   // In-app browser (main -> renderer)
   BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot
   BROWSER_SHORTCUT: 'browser:shortcut', // A shortcut pressed while a page had focus
+  BROWSER_FOUND: 'browser:found', // A tab's find result: which match, out of how many
 } as const;
 
 export const DEFAULT_DIMENSIONS = {

@@ -1,0 +1,200 @@
+import { expect, test } from '@playwright/test';
+import type { ElectronApplication, Page } from '@playwright/test';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { launchElectron } from './helpers/electron';
+import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+
+/**
+ * The browser's More menu, find bar and address suggestions. A page is a
+ * `<webview>` guest Playwright cannot see, so what a page did is read from
+ * main, and the host's own controls are driven as a person would.
+ */
+
+let fixtures: FixtureServer;
+
+test.beforeAll(async () => {
+  fixtures = await startFixtureServer();
+});
+
+test.afterAll(async () => {
+  await fixtures.close();
+});
+
+/** One workspace with one session, on a stub harness that never prompts. */
+async function seed(page: Page, root: string): Promise<void> {
+  const stub = path.join(root, 'agent.sh');
+  fs.writeFileSync(stub, '#!/bin/sh\nprintf "Agent ready\\n"\nexec sleep 300\n', { mode: 0o755 });
+  await page.evaluate(
+    async ({ root, stub }) => {
+      await window.harnessStateAPI.addHarness({
+        id: 'browser-test',
+        driverId: 'claude',
+        name: 'Stub',
+        binaryPath: stub,
+        accentColor: '#555555',
+      });
+      const workspace = await window.workspaceAPI.createWorkspace(
+        'Menu',
+        root,
+        false,
+        'browser-test',
+      );
+      await window.workspaceAPI.createSession(workspace.id, {
+        name: 'Menu session',
+        nameIsUserSet: true,
+        workspaceId: workspace.id,
+        instanceId: 'browser-menu',
+        harnessId: 'browser-test',
+        scopeId: workspace.scopes[0].id,
+      });
+    },
+    { root, stub },
+  );
+  await page
+    .getByRole('navigation', { name: 'Workspaces', exact: true })
+    .getByRole('button', { name: /Menu/ })
+    .click();
+  await page.locator('.session-nav-item').filter({ hasText: 'Menu session' }).click();
+}
+
+const panel = (page: Page) => page.getByTestId('browser-panel');
+const address = (page: Page) => page.getByRole('textbox', { name: 'Address' });
+
+async function showBrowser(page: Page): Promise<void> {
+  if (!(await panel(page).isVisible())) {
+    await page.getByRole('button', { name: /^(Show|Hide) browser$/ }).click();
+  }
+  await expect(panel(page)).toBeVisible();
+}
+
+async function typeAddress(page: Page, text: string): Promise<void> {
+  await address(page).click();
+  await address(page).fill(text);
+  await address(page).press('Enter');
+}
+
+function guestUrls(app: ElectronApplication): Promise<string[]> {
+  return app.evaluate(({ webContents }) =>
+    webContents
+      .getAllWebContents()
+      .filter((contents) => contents.getType() === 'webview')
+      .map((contents) => contents.getURL()),
+  );
+}
+
+/** The zoom level of the guest at `urlPrefix`, from main. */
+function zoomLevelAt(app: ElectronApplication, urlPrefix: string): Promise<number | null> {
+  return app.evaluate(
+    ({ webContents }, prefix) =>
+      webContents
+        .getAllWebContents()
+        .find((c) => c.getType() === 'webview' && c.getURL().startsWith(prefix))
+        ?.getZoomLevel() ?? null,
+    urlPrefix,
+  );
+}
+
+test.describe('in-app browser menu', () => {
+  let app: ElectronApplication;
+  let page: Page;
+
+  test.beforeEach(async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-menu-'));
+    ({ app, page } = await launchElectron());
+    await seed(page, root);
+    await showBrowser(page);
+  });
+
+  test.afterEach(async () => {
+    await app.close();
+  });
+
+  test('find on page reports how many matches there are', async () => {
+    await typeAddress(page, `${fixtures.host}/find.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/find.html')]);
+
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: /Find on page/ }).click();
+    const input = page.getByRole('textbox', { name: 'Find on page' });
+    await expect(input).toBeFocused();
+    await input.fill('needle');
+    await expect(page.getByTestId('browser-find-count')).toHaveText('1 of 3');
+
+    await input.press('Enter');
+    await expect(page.getByTestId('browser-find-count')).toHaveText('2 of 3');
+    await input.press('Shift+Enter');
+    await expect(page.getByTestId('browser-find-count')).toHaveText('1 of 3');
+
+    await input.fill('absent');
+    await expect(page.getByTestId('browser-find-count')).toHaveText('No matches');
+
+    await input.press('Escape');
+    await expect(page.getByTestId('browser-find')).toHaveCount(0);
+  });
+
+  test('the find chord works from the address bar', async () => {
+    await typeAddress(page, `${fixtures.host}/find.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/find.html')]);
+    await address(page).click();
+    await page.keyboard.press('ControlOrMeta+f');
+    await expect(page.getByRole('textbox', { name: 'Find on page' })).toBeFocused();
+  });
+
+  test('zoom changes the page and shows its level', async () => {
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    expect(await zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0);
+
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Zoom in' }).click();
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0.5);
+    await expect(page.getByTestId('browser-zoom-level')).toHaveText('110%');
+
+    await page.getByRole('menuitem', { name: 'Zoom out' }).click();
+    await page.getByRole('menuitem', { name: 'Zoom out' }).click();
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(-0.5);
+
+    await page.getByRole('menuitem', { name: 'Actual size' }).click();
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0);
+  });
+
+  test('the zoom chord works from the address bar', async () => {
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    await address(page).click();
+    await page.keyboard.press('ControlOrMeta+=');
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0.5);
+    await page.keyboard.press('ControlOrMeta+0');
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0);
+  });
+
+  test('hard reload fetches the page again', async () => {
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    await expect.poll(() => fixtures.hits('/a.html')).toBeGreaterThan(0);
+    const before = fixtures.hits('/a.html');
+
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Hard reload' }).click();
+    await expect.poll(() => fixtures.hits('/a.html')).toBeGreaterThan(before);
+  });
+
+  test('the address bar suggests pages visited before', async () => {
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+    await typeAddress(page, `${fixtures.host}/b.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/b.html')]);
+
+    await address(page).click();
+    await address(page).fill('Page A');
+    const option = page.getByRole('option', { name: /Page A/ });
+    await expect(option).toBeVisible();
+    await expect(page.getByRole('option')).toHaveCount(1);
+
+    await address(page).press('ArrowDown');
+    await address(page).press('Enter');
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+  });
+});

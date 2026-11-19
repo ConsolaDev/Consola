@@ -1,8 +1,13 @@
-import { useEffect, useLayoutEffect } from 'react';
+import { useEffect, useLayoutEffect, type KeyboardEvent } from 'react';
 import { Globe } from 'lucide-react';
 import { browserBridge } from '../../services/browserBridge';
+import { matchBrowserFocusedShortcut } from '../../../shared/shortcuts';
+import { closeFind, useBrowserFindStore } from '../../stores/browserFindStore';
+import { chordOf, PLATFORM } from '../../utils/platform';
 import { showBrowserSlot } from '../../stores/browserSlotStore';
 import { activeTabOf, loadBrowser, useBrowserSnapshot } from '../../stores/browserStore';
+import { handleBrowserAction } from './handleBrowserAction';
+import { FindBar } from './FindBar';
 import { BrowserTabStrip } from './BrowserTabStrip';
 import { BrowserToolbar } from './BrowserToolbar';
 import './styles.css';
@@ -25,6 +30,15 @@ export function BrowserPanel({ sessionId }: BrowserPanelProps) {
     void loadBrowser(sessionId);
   }, [sessionId]);
 
+  const findOpen = useBrowserFindStore((state) => state.open);
+
+  // A search belongs to one page: another tab, or the panel going away, ends it.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the tab's id is the trigger, not a value read
+  useEffect(() => {
+    closeFind();
+    return closeFind;
+  }, [tab?.id]);
+
   // Before paint, so the page lands in the slot on the panel's first frame.
   useLayoutEffect(() => showBrowserSlot(sessionId), [sessionId]);
 
@@ -32,10 +46,24 @@ export function BrowserPanel({ sessionId }: BrowserPanelProps) {
   const open = async (url: string): Promise<boolean> =>
     tab ? browserBridge.navigate(tab.id, url) : (await browserBridge.open(sessionId, url)) !== null;
 
+  // The browser's chords pressed in the panel itself (toolbar, address bar,
+  // find bar): a page's keys never get here, main forwards those. The terminal
+  // is not inside this panel, so it keeps its keys.
+  const onKeyDown = (event: KeyboardEvent) => {
+    const kind = matchBrowserFocusedShortcut(chordOf(event.nativeEvent), PLATFORM);
+    if (!kind) return;
+    event.preventDefault();
+    // Holding a key repeats it; only zoom is worth repeating.
+    if (event.repeat && !kind.startsWith('zoom')) return;
+    handleBrowserAction(null, { kind });
+  };
+
   return (
-    <div className="browser-panel" data-testid="browser-panel">
+    // biome-ignore lint/a11y/noStaticElementInteractions: it only listens for keys bubbling from the controls inside
+    <div className="browser-panel" data-testid="browser-panel" onKeyDown={onKeyDown}>
       <BrowserTabStrip sessionId={sessionId} snapshot={snapshot} />
       <BrowserToolbar key={`${sessionId}:${tab?.id ?? ''}`} tab={tab} onOpen={open} />
+      {findOpen && tab && <FindBar key={tab.id} tabId={tab.id} onClose={closeFind} />}
       <div className="browser-slot" data-testid="browser-slot">
         {!tab && (
           <div className="browser-empty">

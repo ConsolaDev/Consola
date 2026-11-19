@@ -1,4 +1,7 @@
+import type { ZoomStep } from '../../shared/browserTools';
 import type {
+  BrowserFoundMessage,
+  BrowserHistoryEntry,
   BrowserSessionSnapshot,
   BrowserShortcutMessage,
   BrowserSnapshotMessage,
@@ -56,6 +59,34 @@ export const browserBridge = {
     return window.browserAPI.stop(tabId);
   },
 
+  /** Reload ignoring the cache. */
+  hardReload(tabId: string): Promise<void> {
+    return window.browserAPI.hardReload(tabId);
+  },
+
+  /** Search the page; `next` continues the same text, `forward: false` goes back. */
+  find(tabId: string, text: string, options: { forward: boolean; next: boolean }): Promise<void> {
+    return window.browserAPI.find(tabId, text, options);
+  },
+
+  stopFind(tabId: string): Promise<void> {
+    return window.browserAPI.stopFind(tabId);
+  },
+
+  /** Step, reset or read (`get`) a tab's zoom level, resolving the level in force. */
+  zoom(tabId: string, step: ZoomStep | 'get'): Promise<number> {
+    return window.browserAPI.zoom(tabId, step);
+  },
+
+  openDevTools(tabId: string): Promise<void> {
+    return window.browserAPI.openDevTools(tabId);
+  },
+
+  /** Pages this workspace visited, newest first. */
+  history(): Promise<BrowserHistoryEntry[]> {
+    return window.browserAPI.history();
+  },
+
   /**
    * Bind a mounted `<webview>` to its tab, once its page exists (`did-attach`),
    * with its `getWebContentsId()`. Resolves false when main refused it.
@@ -81,5 +112,10 @@ export const browserBridge = {
   /** A chord was pressed while a page had focus, and main took it. Returns the unsubscribe. */
   onShortcut(callback: (message: BrowserShortcutMessage) => void): () => void {
     return window.browserAPI.onShortcut(callback);
+  },
+
+  /** A tab's find result changed. Returns the unsubscribe. */
+  onFound(callback: (message: BrowserFoundMessage) => void): () => void {
+    return window.browserAPI.onFound(callback);
   },
 };

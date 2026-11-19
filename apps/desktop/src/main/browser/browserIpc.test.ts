@@ -47,6 +47,12 @@ beforeEach(() => {
     goForward: vi.fn(),
     reload: vi.fn(),
     stop: vi.fn(),
+    hardReload: vi.fn(),
+    findText: vi.fn(),
+    stopFind: vi.fn(),
+    zoom: vi.fn(() => 1),
+    openDevTools: vi.fn(),
+    historyFor: vi.fn(() => [{ url: 'https://a.com', title: 'A', at: 1 }]),
     bindGuest: vi.fn(() => true),
     detachWindow: vi.fn(),
     setVisible: vi.fn(),
@@ -97,6 +103,11 @@ describe('tab-scoped handlers', () => {
     [IPC_CHANNELS.BROWSER_FORWARD, 'goForward', []],
     [IPC_CHANNELS.BROWSER_RELOAD, 'reload', []],
     [IPC_CHANNELS.BROWSER_STOP, 'stop', []],
+    [IPC_CHANNELS.BROWSER_HARD_RELOAD, 'hardReload', []],
+    [IPC_CHANNELS.BROWSER_FIND, 'findText', ['text', { forward: true, next: false }]],
+    [IPC_CHANNELS.BROWSER_STOP_FIND, 'stopFind', []],
+    [IPC_CHANNELS.BROWSER_ZOOM, 'zoom', ['in']],
+    [IPC_CHANNELS.BROWSER_DEVTOOLS, 'openDevTools', []],
   ];
 
   it.each(tabCalls)('%s reaches the service for the workspace tab', (channel, method, extra) => {
@@ -119,6 +130,22 @@ describe('tab-scoped handlers', () => {
   it('navigate answers false when refused', () => {
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-foreign', 'https://a.com')).toBe(false);
     expect(call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-mine', 'https://a.com')).toBe(true);
+  });
+});
+
+describe('zoom and history', () => {
+  it('zoom answers the level for an owned tab and the default for a foreign one', () => {
+    expect(call(IPC_CHANNELS.BROWSER_ZOOM, 't-mine', 'get')).toBe(1);
+    expect(call(IPC_CHANNELS.BROWSER_ZOOM, 't-foreign', 'get')).toBe(0);
+  });
+
+  it('history is the sender workspace only, whatever the caller passes', () => {
+    expect(call(IPC_CHANNELS.BROWSER_HISTORY, 'w-other')).toHaveLength(1);
+    expect(service.historyFor).toHaveBeenCalledWith('w1');
+    workspace = undefined;
+    service.historyFor.mockClear();
+    expect(call(IPC_CHANNELS.BROWSER_HISTORY)).toEqual([]);
+    expect(service.historyFor).not.toHaveBeenCalled();
   });
 });
 

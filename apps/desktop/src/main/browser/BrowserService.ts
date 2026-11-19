@@ -3,6 +3,8 @@ import type { BrowserWindow, WebContents } from 'electron';
 import {
   isAllowedPageUrl,
   MAX_TABS_PER_SESSION,
+  type BrowserFoundMessage,
+  type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
   type BrowserSnapshotMessage,
   type BrowserTab,
@@ -10,6 +12,7 @@ import {
   type BrowserTabLive,
   type SessionBrowser,
 } from '../../shared/browser';
+import { stepZoom, type ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserStateStore } from './BrowserStateStore';
 import { LivePages } from './LivePages';
@@ -35,6 +38,9 @@ export interface BrowserServiceDeps {
   /** Calls `fn` every `ms` until the returned function is called. Defaults to an unref'd interval. */
   every?(ms: number, fn: () => void): () => void;
 }
+
+/** A search longer than this is not a search a person typed. */
+const MAX_FIND_LENGTH = 500;
 
 /** How often the live-page rule is applied when nothing else prompts it. */
 export const LIVE_CHECK_MS = 60_000;
@@ -206,6 +212,21 @@ export class BrowserService {
     }
   }
 
+  /**
+   * A page's title usually arrives after its commit, so the visit was written
+   * untitled. The title belongs to the latest visit only while that visit is
+   * still this tab's address: a later one is another page's.
+   */
+  private titleLatestVisit(tabId: string, title: string): void {
+    const found = this.find(tabId);
+    const workspaceId = found && this.deps.workspaceIdForSession(found.sessionId);
+    if (!found || !workspaceId) return;
+    const latest = this.deps.store.getHistory(workspaceId)[0];
+    if (latest && latest.url === found.tab.url && latest.title !== title) {
+      this.deps.store.addHistory(workspaceId, { ...latest, title });
+    }
+  }
+
   public tabBelongsToWorkspace(tabId: string, workspaceId: string): boolean {
     const found = this.find(tabId);
     return !!found && this.deps.workspaceIdForSession(found.sessionId) === workspaceId;
@@ -229,6 +250,56 @@ export class BrowserService {
 
   public stop(tabId: string): void {
     this.liveGuest(tabId)?.stop();
+  }
+
+  public hardReload(tabId: string): void {
+    this.liveGuest(tabId)?.reloadIgnoringCache();
+  }
+
+  /**
+   * Searches the page, highlighting without taking focus: the find bar keeps
+   * the keyboard. `next` continues the same text; a new text starts over.
+   * `found-in-page` reports back (see `listenersFor`).
+   */
+  public findText(tabId: string, text: string, options: { forward: boolean; next: boolean }): void {
+    const guest = this.liveGuest(tabId);
+    if (!guest || typeof text !== 'string' || text === '') return;
+    const query = text.slice(0, MAX_FIND_LENGTH);
+    // A new search passes no options at all: Electron 43 never reported back a
+    // search started with explicit `{ forward: true, findNext: false }`.
+    if (options?.next === true) {
+      guest.findInPage(query, { forward: options.forward !== false, findNext: true });
+    } else {
+      guest.findInPage(query);
+    }
+  }
+
+  public stopFind(tabId: string): void {
+    this.liveGuest(tabId)?.stopFindInPage('clearSelection');
+  }
+
+  /**
+   * Steps, resets or reads (`get`) a page's zoom and answers the level now in
+   * force. Not persisted: a page that unloads and returns starts at 100%.
+   * A tab with no page is at the default.
+   */
+  public zoom(tabId: string, step: ZoomStep | 'get'): number {
+    const guest = this.liveGuest(tabId);
+    if (!guest) return 0;
+    if (step === 'in' || step === 'out' || step === 'reset') {
+      guest.setZoomLevel(stepZoom(guest.getZoomLevel(), step));
+    }
+    return guest.getZoomLevel();
+  }
+
+  /** Detached, so the page keeps its whole panel. */
+  public openDevTools(tabId: string): void {
+    this.liveGuest(tabId)?.openDevTools({ mode: 'detach' });
+  }
+
+  /** Pages a workspace visited, newest first. */
+  public historyFor(workspaceId: string): BrowserHistoryEntry[] {
+    return this.deps.store.getHistory(workspaceId);
   }
 
   // --- Live guests ---
@@ -624,7 +695,24 @@ export class BrowserService {
       if (!guest.isDestroyed()) guest.reload();
     };
 
+    // Only the final result of a search is told: Chromium reports as it counts.
+    const onFound = (
+      _event: unknown,
+      result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean },
+    ) => {
+      if (!result.finalUpdate) return;
+      const { host } = entry;
+      if (host.isDestroyed?.() || host.webContents?.isDestroyed?.()) return;
+      const message: BrowserFoundMessage = {
+        tabId,
+        active: result.activeMatchOrdinal,
+        total: result.matches,
+      };
+      host.webContents.send(IPC_CHANNELS.BROWSER_FOUND, message);
+    };
+
     return [
+      ['found-in-page', onFound],
       ['did-navigate', (_e: unknown, url: string) => commit(url)],
       [
         'did-navigate-in-page',
@@ -632,7 +720,13 @@ export class BrowserService {
           if (isMainFrame) commit(url);
         },
       ],
-      ['page-title-updated', (_e: unknown, title: string) => this.updateTab(tabId, { title })],
+      [
+        'page-title-updated',
+        (_e: unknown, title: string) => {
+          this.updateTab(tabId, { title });
+          this.titleLatestVisit(tabId, title);
+        },
+      ],
       ['did-start-loading', () => this.setLive(tabId, { loading: true, error: null })],
       ['did-stop-loading', () => this.setLive(tabId, { loading: false })],
       ['did-fail-load', onFailLoad],

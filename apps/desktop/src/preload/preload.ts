@@ -98,12 +98,20 @@ contextBridge.exposeInMainWorld('browserAPI', {
   forward: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_FORWARD, tabId),
   reload: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_RELOAD, tabId),
   stop: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_STOP, tabId),
+  hardReload: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_HARD_RELOAD, tabId),
+  find: (tabId, text, options) =>
+    ipcRenderer.invoke(IPC_CHANNELS.BROWSER_FIND, tabId, text, options),
+  stopFind: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_STOP_FIND, tabId),
+  zoom: (tabId, step) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ZOOM, tabId, step),
+  openDevTools: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_DEVTOOLS, tabId),
+  history: () => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_HISTORY),
   attach: (tabId, webContentsId) =>
     ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ATTACH, tabId, webContentsId),
   setVisible: (sessionId, tabId) =>
     ipcRenderer.invoke(IPC_CHANNELS.BROWSER_SET_VISIBLE, sessionId, tabId),
   onSnapshot: (callback) => subscribe(IPC_CHANNELS.BROWSER_SNAPSHOT, callback),
   onShortcut: (callback) => subscribe(IPC_CHANNELS.BROWSER_SHORTCUT, callback),
+  onFound: (callback) => subscribe(IPC_CHANNELS.BROWSER_FOUND, callback),
 } satisfies BrowserAPI);
 
 // Expose protected methods to the renderer process

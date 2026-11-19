@@ -1,5 +1,6 @@
 import type { BrowserWindow, IpcMainInvokeEvent, WebContents } from 'electron';
-import type { BrowserSessionSnapshot, BrowserTab } from '../../shared/browser';
+import type { BrowserHistoryEntry, BrowserSessionSnapshot, BrowserTab } from '../../shared/browser';
+import type { ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { guardedIpc } from '../guardedIpc';
 import type { BrowserService } from './BrowserService';
@@ -30,6 +31,12 @@ const CHANNELS = [
   IPC_CHANNELS.BROWSER_STOP,
   IPC_CHANNELS.BROWSER_ATTACH,
   IPC_CHANNELS.BROWSER_SET_VISIBLE,
+  IPC_CHANNELS.BROWSER_HARD_RELOAD,
+  IPC_CHANNELS.BROWSER_FIND,
+  IPC_CHANNELS.BROWSER_STOP_FIND,
+  IPC_CHANNELS.BROWSER_ZOOM,
+  IPC_CHANNELS.BROWSER_DEVTOOLS,
+  IPC_CHANNELS.BROWSER_HISTORY,
 ];
 
 const EMPTY: BrowserSessionSnapshot = { tabs: [], activeTabId: null };
@@ -88,6 +95,31 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   });
   ipc.handle(IPC_CHANNELS.BROWSER_STOP, (event, tabId: string) => {
     if (ownedTab(event, tabId)) service.stop(tabId);
+  });
+
+  ipc.handle(IPC_CHANNELS.BROWSER_HARD_RELOAD, (event, tabId: string) => {
+    if (ownedTab(event, tabId)) service.hardReload(tabId);
+  });
+  ipc.handle(
+    IPC_CHANNELS.BROWSER_FIND,
+    (event, tabId: string, text: string, options: { forward: boolean; next: boolean }) => {
+      if (ownedTab(event, tabId)) service.findText(tabId, text, options);
+    },
+  );
+  ipc.handle(IPC_CHANNELS.BROWSER_STOP_FIND, (event, tabId: string) => {
+    if (ownedTab(event, tabId)) service.stopFind(tabId);
+  });
+  ipc.handle(IPC_CHANNELS.BROWSER_ZOOM, (event, tabId: string, step: ZoomStep | 'get'): number =>
+    ownedTab(event, tabId) ? service.zoom(tabId, step) : 0,
+  );
+  ipc.handle(IPC_CHANNELS.BROWSER_DEVTOOLS, (event, tabId: string) => {
+    if (ownedTab(event, tabId)) service.openDevTools(tabId);
+  });
+  // No argument: the workspace is the sender's own, so a window can never ask
+  // for another workspace's history by naming it.
+  ipc.handle(IPC_CHANNELS.BROWSER_HISTORY, (event): BrowserHistoryEntry[] => {
+    const workspaceId = deps.workspaceForSender(event.sender);
+    return workspaceId ? service.historyFor(workspaceId) : [];
   });
 
   ipc.handle(
