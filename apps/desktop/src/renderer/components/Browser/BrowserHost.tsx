@@ -210,7 +210,9 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
         {...({ allowpopups: 'true' } as object)}
       />
       {tab.loading && <div className="browser-page-loading" aria-hidden="true" />}
-      {authRequest && presence === 'shown' && <BrowserAuthPrompt request={authRequest} />}
+      {authRequest && presence === 'shown' && (
+        <BrowserAuthPrompt key={authRequest.id} request={authRequest} />
+      )}
       {shownError && (
         <BrowserError
           error={shownError}

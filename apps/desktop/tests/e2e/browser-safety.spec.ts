@@ -28,10 +28,10 @@ test.afterAll(async () => {
 });
 
 /** One workspace with one session, on a stub harness that never prompts. */
-async function seed(page: Page, root: string): Promise<string> {
+async function seed(page: Page, root: string): Promise<{ workspaceId: string; sessionId: string }> {
   const stub = path.join(root, 'agent.sh');
   fs.writeFileSync(stub, '#!/bin/sh\nprintf "Agent ready\\n"\nexec sleep 300\n', { mode: 0o755 });
-  const workspaceId = await page.evaluate(
+  const ids = await page.evaluate(
     async ({ root, stub }) => {
       await window.harnessStateAPI.addHarness({
         id: 'browser-test',
@@ -46,7 +46,7 @@ async function seed(page: Page, root: string): Promise<string> {
         false,
         'browser-test',
       );
-      await window.workspaceAPI.createSession(workspace.id, {
+      const session = await window.workspaceAPI.createSession(workspace.id, {
         name: 'Safety session',
         nameIsUserSet: true,
         workspaceId: workspace.id,
@@ -54,7 +54,7 @@ async function seed(page: Page, root: string): Promise<string> {
         harnessId: 'browser-test',
         scopeId: workspace.scopes[0].id,
       });
-      return workspace.id;
+      return { workspaceId: workspace.id, sessionId: session?.id as string };
     },
     { root, stub },
   );
@@ -63,7 +63,7 @@ async function seed(page: Page, root: string): Promise<string> {
     .getByRole('button', { name: /Safety/ })
     .click();
   await page.locator('.session-nav-item').filter({ hasText: 'Safety session' }).click();
-  return workspaceId;
+  return ids;
 }
 
 const panel = (page: Page) => page.getByTestId('browser-panel');
@@ -104,11 +104,12 @@ test.describe('in-app browser safety', () => {
   let app: ElectronApplication;
   let page: Page;
   let workspaceId: string;
+  let sessionId: string;
 
   test.beforeEach(async () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-safety-'));
     ({ app, page } = await launchElectron());
-    workspaceId = await seed(page, root);
+    ({ workspaceId, sessionId } = await seed(page, root));
     await showBrowser(page);
   });
 
@@ -179,6 +180,22 @@ test.describe('in-app browser safety', () => {
     await expect(prompt(page)).toHaveCount(0);
   });
 
+  test('a tab opened on the protected address, a genuine first load, prompts too', async () => {
+    // The page's webview is created with this address as its `src`, so the
+    // load starts before anything could have been watching it.
+    await page.evaluate(
+      ([id, url]) => window.browserAPI.open(id, url),
+      [sessionId, `${fixtures.host}/secret.html`.replace(/^/, 'http://')],
+    );
+    const form = prompt(page);
+    await expect(form).toBeVisible();
+    await expect(form.getByLabel('Username')).not.toBeFocused();
+    await form.getByLabel('Username').fill('ada');
+    await form.getByLabel('Password').fill('lovelace');
+    await form.getByRole('button', { name: 'Sign in' }).click();
+    await expect.poll(() => guestTitles(app)).toEqual(['Secret']);
+  });
+
   test('a 401 the page fetches in the background raises no prompt', async () => {
     await typeAddress(page, `${fixtures.host}/fetch-secret.html`);
     await expect.poll(() => guestTitles(app)).toEqual(['fetched:401']);
@@ -218,10 +235,12 @@ test.describe('in-app browser safety', () => {
     await prompt(page).getByRole('button', { name: 'Sign in' }).click();
     await expect.poll(() => guestTitles(app)).toEqual(['Secret']);
 
-    // Remembered: the same site loads without asking.
+    // Remembered: leave and come back, and it loads without asking.
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestTitles(app)).toEqual(['Page A']);
     await typeAddress(page, `${fixtures.host}/secret.html?again=1`);
-    await expect(prompt(page)).toHaveCount(0);
     await expect.poll(() => guestTitles(app)).toEqual(['Secret']);
+    await expect(prompt(page)).toHaveCount(0);
 
     await page.getByRole('button', { name: 'More', exact: true }).click();
     await page.getByRole('menuitem', { name: 'Clear browsing data' }).click();

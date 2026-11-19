@@ -16,29 +16,24 @@ const MAX_CREDENTIAL_LENGTH = 1024;
 
 /**
  * Whether a page's request for a username and password is shown to the
- * person. Only a navigation the person can see happening is: a `fetch`, an
- * image or any other background request is refused outright, since a page
- * could otherwise raise a prompt whenever it liked, from a hidden tab, in a
- * loop. The navigation must also be the main frame's own pending one, to the
- * same origin (never a proxy, never another site's resource), so the prompt
- * can say plainly who is asking.
+ * person. Only the guest's own main-frame navigation is: a `fetch`, an image,
+ * and an iframe's navigation (Electron also calls that a navigation request)
+ * are refused outright, since a page could otherwise raise a prompt whenever
+ * it liked, from a hidden tab, in a loop. Both flags must be exactly `true`,
+ * so a field Electron stops sending fails closed. The prompt names the
+ * request's own origin, so it says plainly who is asking, and no state about
+ * what the page was doing before is needed (a first load starts before the
+ * guard can see it).
  */
 export function decideLogin(request: {
-  isRequestForNavigation: boolean;
+  isMainFrame: unknown;
+  isRequestForNavigation: unknown;
   requestUrl: string;
-  /** Where the main frame is navigating to right now; null when it is not navigating. */
-  pendingNavigationUrl: string | null;
   isProxy: boolean;
 }): boolean {
-  if (!request.isRequestForNavigation || request.isProxy) return false;
-  const pending = request.pendingNavigationUrl;
-  if (pending === null) return false;
-  if (!isAllowedPageUrl(request.requestUrl) || !isAllowedPageUrl(pending)) return false;
-  try {
-    return new URL(request.requestUrl).origin === new URL(pending).origin;
-  } catch {
-    return false;
-  }
+  if (request.isMainFrame !== true || request.isRequestForNavigation !== true) return false;
+  if (request.isProxy) return false;
+  return isAllowedPageUrl(request.requestUrl);
 }
 
 /**
@@ -48,7 +43,7 @@ export function decideLogin(request: {
  */
 export function cleanRealm(realm: unknown): string {
   return String(realm ?? '')
-    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2066-\u2069\ufeff]/g, '')
+    .replace(/[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u061c\u2028-\u202e\u2066-\u2069\ufeff]/g, '')
     .slice(0, 200);
 }
 
@@ -203,14 +198,14 @@ export class AuthPrompts {
 
   /**
    * Follows a guest's `login` events from the moment it attaches (the first
-   * page often asks before the guest is bound to a tab).
+   * page often asks before the guest is bound to a tab, and its first load
+   * has already started by then).
    *
-   * What the main frame is navigating to is tracked here, from its start to
-   * its end: a navigation that finishes without committing (stopped, a 204, a
-   * download, a failure) leaves nothing pending, so a later request cannot
-   * borrow its origin. A new navigation also withdraws a prompt still waiting
-   * for the old one, and lets a cancelled prompt be asked again. A request
-   * that is not `decideLogin`'s to show is cancelled at once.
+   * A new main-frame navigation withdraws a prompt still waiting for the old
+   * one and lets a cancelled prompt be asked again. So does a load that stops
+   * or fails without a new navigation (a stopped page, a 204, a download), so
+   * a prompt never lingers over a different page. A request that is not
+   * `decideLogin`'s to show is cancelled at once.
    */
   public guard(
     guest: WebContents,
@@ -218,27 +213,19 @@ export class AuthPrompts {
     guestId: number,
     tabIdOf: () => string | null,
   ): void {
-    let pendingUrl: string | null = null;
-    const start = (details: { url: string; isMainFrame: boolean; isSameDocument?: boolean }) => {
-      if (!details.isMainFrame || details.isSameDocument) return;
-      pendingUrl = details.url;
-      this.cancelGuest(guestId);
+    const forgetDeclined = () => {
       for (const key of [...this.declined]) {
         if (key.startsWith(`${guestId}|`)) this.declined.delete(key);
       }
     };
-    const redirect = (details: { url: string; isMainFrame: boolean }) => {
-      if (details.isMainFrame) pendingUrl = details.url;
-    };
-    const end = () => {
-      pendingUrl = null;
-    };
-    guest.on('did-start-navigation', start);
-    guest.on('did-redirect-navigation', redirect);
-    guest.on('did-navigate', end);
-    guest.on('did-stop-loading', end);
+    guest.on('did-start-navigation', (details) => {
+      if (!details.isMainFrame || details.isSameDocument) return;
+      this.cancelGuest(guestId);
+      forgetDeclined();
+    });
+    guest.on('did-stop-loading', () => this.cancelGuest(guestId));
     guest.on('did-fail-load', (_event, _code, _description, _url, isMainFrame) => {
-      if (isMainFrame) end();
+      if (isMainFrame) this.cancelGuest(guestId);
     });
     guest.on('login', (event, details, authInfo, callback) => {
       // Cancelled unless this passes: the page never waits on a prompt that
@@ -251,10 +238,11 @@ export class AuthPrompts {
         callback();
         return;
       }
+      // `isMainFrame` is real but missing from Electron's typings.
       const allowed = decideLogin({
-        isRequestForNavigation: details.isRequestForNavigation === true,
+        isMainFrame: (details as { isMainFrame?: unknown }).isMainFrame,
+        isRequestForNavigation: details.isRequestForNavigation,
         requestUrl: details.url,
-        pendingNavigationUrl: pendingUrl,
         isProxy: authInfo.isProxy,
       });
       if (!allowed || !alive(host) || this.declined.has(`${guestId}|${origin}`)) {
@@ -272,9 +260,7 @@ export class AuthPrompts {
     });
     guest.once('destroyed', () => {
       this.cancelGuest(guestId);
-      for (const key of [...this.declined]) {
-        if (key.startsWith(`${guestId}|`)) this.declined.delete(key);
-      }
+      forgetDeclined();
     });
   }
 }

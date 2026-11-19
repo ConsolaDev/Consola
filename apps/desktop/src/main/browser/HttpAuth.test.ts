@@ -5,13 +5,13 @@ import { AuthPrompts, AUTH_TIMEOUT_MS, cleanRealm, decideLogin } from './HttpAut
 
 describe('decideLogin', () => {
   const ok = {
+    isMainFrame: true,
     isRequestForNavigation: true,
     requestUrl: 'https://staging.example.com/admin',
-    pendingNavigationUrl: 'https://staging.example.com/',
     isProxy: false,
   };
 
-  it('prompts for a navigation to the page’s own origin', () => {
+  it('prompts for the main frame’s own navigation', () => {
     expect(decideLogin(ok)).toBe(true);
   });
 
@@ -19,29 +19,30 @@ describe('decideLogin', () => {
     expect(decideLogin({ ...ok, isRequestForNavigation: false })).toBe(false);
   });
 
-  it('refuses when the main frame is not navigating', () => {
-    expect(decideLogin({ ...ok, pendingNavigationUrl: null })).toBe(false);
+  it('refuses an iframe’s navigation, which Electron also calls a navigation request', () => {
+    expect(decideLogin({ ...ok, isMainFrame: false })).toBe(false);
+  });
+
+  it('fails closed when a flag is missing or not exactly true', () => {
+    expect(decideLogin({ ...ok, isMainFrame: undefined })).toBe(false);
+    expect(decideLogin({ ...ok, isRequestForNavigation: undefined })).toBe(false);
+    expect(decideLogin({ ...ok, isMainFrame: 1 })).toBe(false);
+    expect(decideLogin({ ...ok, isRequestForNavigation: 'true' })).toBe(false);
   });
 
   it('refuses a proxy', () => {
     expect(decideLogin({ ...ok, isProxy: true })).toBe(false);
   });
 
-  it('refuses another origin: a different host, port or scheme', () => {
-    expect(decideLogin({ ...ok, requestUrl: 'https://evil.example.net/x' })).toBe(false);
-    expect(decideLogin({ ...ok, requestUrl: 'https://staging.example.com:8443/x' })).toBe(false);
-    expect(decideLogin({ ...ok, requestUrl: 'http://staging.example.com/x' })).toBe(false);
-  });
-
-  it('refuses when an address is not a web address or cannot be read', () => {
-    expect(decideLogin({ ...ok, pendingNavigationUrl: 'about:blank' })).toBe(false);
+  it('refuses an address that is not a web address', () => {
     expect(decideLogin({ ...ok, requestUrl: 'not a url' })).toBe(false);
+    expect(decideLogin({ ...ok, requestUrl: 'file:///etc/passwd' })).toBe(false);
   });
 });
 
 describe('cleanRealm', () => {
   it('drops control and bidirectional characters, and cuts it short', () => {
-    expect(cleanRealm('Admin‮evil\u0000\n⁦x‏')).toBe('Adminevilx');
+    expect(cleanRealm('Admin‮evil\u0000\n⁦x‏؜')).toBe('Adminevilx');
     expect(cleanRealm('a'.repeat(500))).toHaveLength(200);
     expect(cleanRealm(undefined)).toBe('');
   });
@@ -211,74 +212,81 @@ describe('AuthPrompts.guard', () => {
 
   const navigate = (url: string) =>
     guest.emit('did-start-navigation', { url, isMainFrame: true, isSameDocument: false });
-  function login(url = URL_A, isRequestForNavigation = true) {
+  function login(
+    url = URL_A,
+    flags: { isMainFrame?: boolean; isRequestForNavigation?: boolean } = {},
+  ) {
     const event = { preventDefault: vi.fn() };
     const callback = vi.fn();
-    guest.emit('login', event, { url, isRequestForNavigation }, info, callback);
+    const details = { url, isMainFrame: true, isRequestForNavigation: true, ...flags };
+    guest.emit('login', event, details, info, callback);
     return callback;
   }
   const requests = () => sent.filter((m) => m.channel === 'browser:auth-request');
 
-  it('prompts, with the tab, for the navigation that is under way', () => {
-    navigate(URL_A);
-    const callback = login();
+  it('prompts, with the tab, for a main-frame navigation, naming the request’s own origin', () => {
+    const callback = login('https://other.example.org/x');
     expect(callback).not.toHaveBeenCalled();
     expect(requests()).toHaveLength(1);
-    expect(requests()[0].payload).toMatchObject({ tabId: 't1', realm: 'Fixture' });
+    expect(requests()[0].payload).toMatchObject({
+      tabId: 't1',
+      origin: 'https://other.example.org',
+      realm: 'Fixture',
+    });
   });
 
-  it('cancels a request that is not a navigation, however often it comes', () => {
-    navigate(URL_A);
-    for (let i = 0; i < 3; i++) expect(login(URL_A, false)).toHaveBeenCalledWith();
-    expect(requests()).toHaveLength(0);
-  });
-
-  it('cancels when nothing is navigating', () => {
-    expect(login()).toHaveBeenCalledWith();
-    expect(requests()).toHaveLength(0);
-  });
-
-  it.each(['did-stop-loading', 'did-navigate'])(
-    'a navigation that ended on %s no longer lends its origin',
-    (ending) => {
-      navigate(URL_A);
-      guest.emit(ending);
-      expect(login()).toHaveBeenCalledWith();
-      expect(requests()).toHaveLength(0);
-    },
-  );
-
-  it('a navigation that failed no longer lends its origin', () => {
-    navigate(URL_A);
-    guest.emit('did-fail-load', {}, -3, 'ABORTED', URL_A, true);
-    expect(login()).toHaveBeenCalledWith();
-  });
-
-  it('a subframe failure or navigation changes nothing', () => {
-    navigate(URL_A);
-    guest.emit('did-fail-load', {}, -105, 'x', 'https://other.example/', false);
-    guest.emit('did-start-navigation', { url: 'https://c.example/', isMainFrame: false });
+  it('prompts for a first load the guard never saw start', () => {
+    // No did-start-navigation was observed: the guest began loading before it was guarded.
     expect(login()).not.toHaveBeenCalled();
     expect(requests()).toHaveLength(1);
   });
 
-  it('follows a redirect to another origin', () => {
-    navigate(URL_A);
-    guest.emit('did-redirect-navigation', { url: 'https://auth.example.org/', isMainFrame: true });
-    expect(login(URL_A)).toHaveBeenCalledWith();
-    expect(login('https://auth.example.org/x')).not.toHaveBeenCalled();
+  it('cancels a request that is not a navigation, however often it comes', () => {
+    for (let i = 0; i < 3; i++) {
+      expect(login(URL_A, { isRequestForNavigation: false })).toHaveBeenCalledWith();
+    }
+    expect(requests()).toHaveLength(0);
   });
 
-  it('withdraws a waiting prompt when the page navigates away', () => {
+  it('cancels an iframe’s navigation, of the page’s origin or another', () => {
     navigate(URL_A);
+    expect(login(URL_A, { isMainFrame: false })).toHaveBeenCalledWith();
+    expect(login('http://localhost:1/secret', { isMainFrame: false })).toHaveBeenCalledWith();
+    expect(requests()).toHaveLength(0);
+  });
+
+  it('cancels when Electron stops saying which frame asked', () => {
+    const event = { preventDefault: vi.fn() };
+    const callback = vi.fn();
+    guest.emit('login', event, { url: URL_A, isRequestForNavigation: true }, info, callback);
+    expect(callback).toHaveBeenCalledWith();
+  });
+
+  it.each(['did-stop-loading'])('withdraws a waiting prompt on %s', (ending) => {
     const waiting = login();
+    guest.emit(ending);
+    expect(waiting).toHaveBeenCalledWith();
+    expect(sent.at(-1)?.channel).toBe('browser:auth-cancelled');
+  });
+
+  it('withdraws a waiting prompt when the main frame’s load fails, but not a subframe’s', () => {
+    const waiting = login();
+    guest.emit('did-fail-load', {}, -105, 'x', 'https://other.example/', false);
+    expect(waiting).not.toHaveBeenCalled();
+    guest.emit('did-fail-load', {}, -105, 'x', URL_A, true);
+    expect(waiting).toHaveBeenCalledWith();
+  });
+
+  it('withdraws a waiting prompt when the page navigates away, not for a subframe', () => {
+    const waiting = login();
+    guest.emit('did-start-navigation', { url: 'https://c.example/', isMainFrame: false });
+    expect(waiting).not.toHaveBeenCalled();
     navigate('https://elsewhere.example.com/');
     expect(waiting).toHaveBeenCalledWith();
     expect(sent.at(-1)?.channel).toBe('browser:auth-cancelled');
   });
 
   it('does not ask again for a page the person cancelled, until it navigates', () => {
-    navigate(URL_A);
     const first = login();
     const { id } = requests()[0].payload as { id: string };
     prompts.answer(host, id, null);
@@ -294,7 +302,6 @@ describe('AuthPrompts.guard', () => {
 
   it('holds a prompt raised before the guest has a tab, naming none yet', () => {
     tab = null;
-    navigate(URL_A);
     login();
     expect(requests()[0].payload).toMatchObject({ tabId: null });
   });
@@ -306,15 +313,13 @@ describe('AuthPrompts.guard', () => {
     } as never;
     const other = new FakeGuest();
     prompts.guard(other.asWebContents(), gone, 2, () => null);
-    other.emit('did-start-navigation', { url: URL_A, isMainFrame: true });
     const callback = vi.fn();
-    const details = { url: URL_A, isRequestForNavigation: true };
+    const details = { url: URL_A, isMainFrame: true, isRequestForNavigation: true };
     other.emit('login', { preventDefault: vi.fn() }, details, info, callback);
     expect(callback).toHaveBeenCalledWith();
   });
 
   it('cancels a prompt whose guest is destroyed', () => {
-    navigate(URL_A);
     const waiting = login();
     guest.emit('destroyed');
     expect(waiting).toHaveBeenCalledWith();

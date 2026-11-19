@@ -1152,13 +1152,14 @@ describe('sign-in', () => {
   }
   const info = { isProxy: false, realm: 'Staging' };
   const URL_S = 'https://staging.example.com/admin';
-  const navigate = (guest: FakeGuest, url = URL_S) =>
-    guest.emit('did-start-navigation', { url, isMainFrame: true, isSameDocument: false });
+  // A first load starts before the guard exists, so no navigation is announced first.
+  const navigate = (_guest: FakeGuest) => {};
 
   function ask(guest: FakeGuest, url: string, isRequestForNavigation = true, authInfo = info) {
     const event = { preventDefault: vi.fn() };
     const callback = vi.fn();
-    guest.emit('login', event, { url, isRequestForNavigation }, authInfo, callback);
+    const details = { url, isRequestForNavigation, isMainFrame: true };
+    guest.emit('login', event, details, authInfo, callback);
     return { event, callback };
   }
 
@@ -1191,13 +1192,22 @@ describe('sign-in', () => {
     expect(requests.at(-1)?.[1]).toMatchObject({ tabId: 'tab1' });
   });
 
-  it('cancels a background request, another origin and a proxy', () => {
+  it('cancels a background request, an iframe’s navigation and a proxy', () => {
     const { send, window } = host();
     const guest = new FakeGuest(42);
     service.guardGuest(guest.asWebContents(), window, 'w1', 42);
     navigate(guest);
     expect(ask(guest, URL_S, false).callback).toHaveBeenCalledWith();
-    expect(ask(guest, 'https://tracker.example.net/pixel').callback).toHaveBeenCalledWith();
+    const frame = { preventDefault: vi.fn() };
+    const frameCallback = vi.fn();
+    guest.emit(
+      'login',
+      frame,
+      { url: URL_S, isRequestForNavigation: true, isMainFrame: false },
+      info,
+      frameCallback,
+    );
+    expect(frameCallback).toHaveBeenCalledWith();
     const proxy = ask(guest, URL_S, true, { isProxy: true, realm: '' });
     expect(proxy.callback).toHaveBeenCalledWith();
     expect(send).not.toHaveBeenCalled();
