@@ -319,7 +319,7 @@ export function setupIpcHandlers(): boolean {
     // already refuses to surface it, so this is housekeeping rather than
     // correctness — it stops the file growing forever.
     viewMemory.prune(liveIds);
-    browserStore.prune(
+    browser.prune(
       new Set(all.flatMap((workspace) => workspace.sessions.map((session) => session.id))),
       liveIds,
     );

@@ -37,6 +37,12 @@ interface LiveGuest {
   guest: WebContents;
   /** Read once up front: `webContents.id` throws once the contents is destroyed. */
   guestId: number;
+  /**
+   * Remembered so the guest can be ended when the store no longer has the
+   * tab: a workspace delete prunes the store before the browser is told.
+   */
+  sessionId: string;
+  workspaceId: string | undefined;
   host: BrowserWindow;
   /** When this guest's renderer died recently, for the retry budget. */
   crashes: number[];
@@ -206,7 +212,15 @@ export class BrowserService {
     if (!found) return false;
     this.unbindGuest(tabId);
 
-    const entry: LiveGuest = { guest, guestId: guest.id, host, crashes: [], unsubscribe: () => {} };
+    const entry: LiveGuest = {
+      guest,
+      guestId: guest.id,
+      sessionId: found.sessionId,
+      workspaceId: this.deps.workspaceIdForSession(found.sessionId),
+      host,
+      crashes: [],
+      unsubscribe: () => {},
+    };
     const listeners = this.listenersFor(tabId, entry);
     for (const [event, listener] of listeners) guest.on(event as 'destroyed', listener);
     entry.unsubscribe = () => {
@@ -225,8 +239,10 @@ export class BrowserService {
     if (!entry) return;
     entry.unsubscribe();
     this.guests.delete(tabId);
-    this.live.set(tabId, { ...IDLE });
     const found = this.find(tabId);
+    // A late event for a tab already removed must not bring its entry back.
+    if (found) this.live.set(tabId, { ...IDLE });
+    else this.live.delete(tabId);
     if (found && push) this.pushSnapshot(found.sessionId);
   }
 
@@ -251,13 +267,26 @@ export class BrowserService {
 
   /** The session is gone: its tabs and pages go with it. */
   public destroySession(sessionId: string): void {
+    // By the guests' own memory as well as the store's tabs: the store may
+    // already have dropped the session (see `prune`).
+    this.destroyGuestsWhere((entry) => entry.sessionId === sessionId);
     const session = this.deps.store.getSession(sessionId);
     if (!session) return;
-    for (const tab of session.tabs) {
-      this.destroyGuest(tab.id);
-      this.live.delete(tab.id);
-    }
+    for (const tab of session.tabs) this.live.delete(tab.id);
     this.deps.store.deleteSession(sessionId);
+  }
+
+  /**
+   * Housekeeping after sessions or workspaces were deleted: their pages are
+   * closed and their live state dropped before the store forgets them, since
+   * the store alone cannot reach a guest.
+   */
+  public prune(liveSessionIds: Set<string>, liveWorkspaceIds: Set<string>): void {
+    for (const sessionId of this.deps.store.sessionIds()) {
+      if (!liveSessionIds.has(sessionId)) this.destroySession(sessionId);
+    }
+    this.destroyGuestsWhere((entry) => !liveSessionIds.has(entry.sessionId));
+    this.deps.store.prune(liveSessionIds, liveWorkspaceIds);
   }
 
   /**
@@ -267,6 +296,9 @@ export class BrowserService {
    */
   public destroyWorkspace(workspaceId: string, sessionIds: readonly string[]): void {
     for (const sessionId of sessionIds) this.destroySession(sessionId);
+    // Every page of the workspace is closed before its storage is cleared: a
+    // live page could otherwise write it again afterwards.
+    this.destroyGuestsWhere((entry) => entry.workspaceId === workspaceId);
     this.deps.store.deleteHistory(workspaceId);
     void Promise.resolve(this.deps.clearPartition(workspaceId)).catch(() => {});
   }
@@ -301,6 +333,14 @@ export class BrowserService {
   private liveGuest(tabId: string): WebContents | undefined {
     const guest = this.guests.get(tabId)?.guest;
     return guest && !guest.isDestroyed() ? guest : undefined;
+  }
+
+  private destroyGuestsWhere(match: (entry: LiveGuest) => boolean): void {
+    for (const [tabId, entry] of [...this.guests]) {
+      if (!match(entry)) continue;
+      this.destroyGuest(tabId);
+      this.live.delete(tabId);
+    }
   }
 
   /** Ends a guest's page for good; its `destroyed` event then finds nothing to unbind. */

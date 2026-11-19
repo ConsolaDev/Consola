@@ -393,6 +393,72 @@ describe('lifecycle', () => {
     expect(clearPartition).toHaveBeenCalledWith('w1');
   });
 
+  describe('when the store has already forgotten the sessions', () => {
+    const liveCount = () => (service as unknown as { live: Map<string, unknown> }).live.size;
+
+    function openTwoGuests() {
+      service.openTab('s1', 'https://a.com', 'person');
+      service.openTab('s2', 'https://b.com', 'person');
+      const g1 = new FakeGuest(11);
+      const g2 = new FakeGuest(12);
+      service.bindGuest('tab1', g1.asWebContents(), winA);
+      service.bindGuest('tab2', g2.asWebContents(), winA);
+      return { g1, g2 };
+    }
+
+    it('destroyWorkspace still closes the guests, before the partition is cleared', () => {
+      const { g1, g2 } = openTwoGuests();
+      // What workspaces.onChange does while the delete is still under way.
+      store.prune(new Set(['s3']), new Set(['w2']));
+      service.destroyWorkspace('w1', ['s1', 's2']);
+      expect(g1.close).toHaveBeenCalled();
+      expect(g2.close).toHaveBeenCalled();
+      expect(g1.close.mock.invocationCallOrder[0]).toBeLessThan(
+        clearPartition.mock.invocationCallOrder[0],
+      );
+      expect(liveCount()).toBe(0);
+    });
+
+    it('destroyWorkspace closes a guest of a session the caller did not name', () => {
+      const { g1 } = openTwoGuests();
+      service.destroyWorkspace('w1', []);
+      expect(g1.close).toHaveBeenCalled();
+    });
+
+    it('destroySession closes guests of a pruned session and drops their live state', () => {
+      const { g1, g2 } = openTwoGuests();
+      store.prune(new Set(['s2']), new Set(['w1']));
+      service.destroySession('s1');
+      expect(g1.close).toHaveBeenCalled();
+      expect(g2.close).not.toHaveBeenCalled();
+      expect(liveCount()).toBe(1);
+    });
+
+    it('prune closes the guests of sessions that no longer exist, then prunes the store', () => {
+      const { g1, g2 } = openTwoGuests();
+      service.openTab('s3', 'https://c.com', 'person');
+      const kept = new FakeGuest(13);
+      service.bindGuest('tab3', kept.asWebContents(), winB);
+      service.prune(new Set(['s3']), new Set(['w2']));
+      expect(g1.close).toHaveBeenCalled();
+      expect(g2.close).toHaveBeenCalled();
+      expect(kept.close).not.toHaveBeenCalled();
+      expect(service.listFor('s1')).toEqual([]);
+      expect(service.listFor('s3')).toHaveLength(1);
+      expect(liveCount()).toBe(1);
+    });
+
+    it('a late destroyed event for a removed tab leaves no live entry behind', () => {
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      store.prune(new Set(), new Set());
+      guest.emit('destroyed');
+      expect(liveCount()).toBe(0);
+      expect(service.guestFor('tab1')).toBeUndefined();
+    });
+  });
+
   it('destroyAll flushes the store and destroys guests', () => {
     service.openTab('s1', 'https://a.com', 'person');
     const guest = new FakeGuest(11);
