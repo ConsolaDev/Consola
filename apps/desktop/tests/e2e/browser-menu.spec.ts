@@ -127,6 +127,14 @@ test.describe('in-app browser menu', () => {
     await input.press('Shift+Enter');
     await expect(page.getByTestId('browser-find-count')).toHaveText('1 of 3');
 
+    // A navigation ends the search: the count goes and the next one starts fresh.
+    await input.fill('needle');
+    await expect(page.getByTestId('browser-find-count')).toHaveText('1 of 3');
+    await typeAddress(page, `${fixtures.host}/find2.html`);
+    await expect(page.getByTestId('browser-find-count')).toHaveText('');
+    await page.getByRole('textbox', { name: 'Find on page' }).click();
+    await page.getByRole('textbox', { name: 'Find on page' }).press('Enter');
+    await expect(page.getByTestId('browser-find-count')).toHaveText('1 of 2');
     await input.fill('absent');
     await expect(page.getByTestId('browser-find-count')).toHaveText('No matches');
 
@@ -158,6 +166,32 @@ test.describe('in-app browser menu', () => {
 
     await page.getByRole('menuitem', { name: 'Actual size' }).click();
     await expect.poll(() => zoomLevelAt(app, fixtures.url('/a.html'))).toBe(0);
+  });
+
+  test("zoom follows the page's host, as in Chrome, not the tab", async () => {
+    const a = fixtures.url('/a.html');
+    await typeAddress(page, `${fixtures.host}/a.html`);
+    await expect.poll(() => guestUrls(app)).toEqual([a]);
+    await page.getByRole('button', { name: 'More', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Zoom in' }).click();
+    await expect.poll(() => zoomLevelAt(app, a)).toBe(0.5);
+    await page.keyboard.press('Escape');
+
+    // A second tab on the same host starts at the level the host has.
+    await page.getByRole('button', { name: 'New tab', exact: true }).click();
+    await typeAddress(page, `${fixtures.host}/b.html`);
+    const b = fixtures.url('/b.html');
+    await expect.poll(() => guestUrls(app)).toContain(b);
+    expect(await zoomLevelAt(app, b)).toBe(0.5);
+
+    // Another host has its own level.
+    await typeAddress(page, `localhost:${fixtures.port}/a.html`);
+    await expect.poll(() => guestUrls(app)).toContain(`http://localhost:${fixtures.port}/a.html`);
+    expect(await zoomLevelAt(app, `http://localhost:${fixtures.port}/`)).toBe(0);
+    await typeAddress(page, `${fixtures.host}/c.html`);
+    await expect.poll(() => guestUrls(app)).toContain(fixtures.url('/c.html'));
+    // And going back to the first host finds its level again.
+    await expect.poll(() => zoomLevelAt(app, fixtures.url('/c.html'))).toBe(0.5);
   });
 
   test('the zoom chord works from the address bar', async () => {
@@ -197,4 +231,41 @@ test.describe('in-app browser menu', () => {
     await address(page).press('Enter');
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
   });
+});
+
+test("a host's zoom level is kept across a relaunch", async () => {
+  test.setTimeout(90_000);
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-menu-'));
+  const first = await launchElectron();
+  await seed(first.page, root);
+  await showBrowser(first.page);
+  await typeAddress(first.page, `${fixtures.host}/a.html`);
+  await expect.poll(() => guestUrls(first.app)).toEqual([fixtures.url('/a.html')]);
+  await first.page.getByRole('button', { name: 'More', exact: true }).click();
+  await first.page.getByRole('menuitem', { name: 'Zoom in' }).click();
+  await expect.poll(() => zoomLevelAt(first.app, fixtures.url('/a.html'))).toBe(0.5);
+  await first.page.keyboard.press('Escape');
+  const userData = await first.app.evaluate(({ app }) => app.getPath('userData'));
+  const stateFile = path.join(userData, 'browser-state.json');
+  await expect
+    .poll(() => (fs.existsSync(stateFile) ? fs.readFileSync(stateFile, 'utf8') : ''), {
+      timeout: 10_000,
+    })
+    .toContain(fixtures.url('/a.html'));
+  await first.app.close();
+
+  const second = await launchElectron({ userDataDir: first.userDataDir });
+  try {
+    await second.page
+      .getByRole('navigation', { name: 'Workspaces', exact: true })
+      .getByRole('button', { name: /Menu/ })
+      .click();
+    await second.page.locator('.session-nav-item').filter({ hasText: 'Menu session' }).click();
+    await showBrowser(second.page);
+    await expect.poll(() => guestUrls(second.app)).toEqual([fixtures.url('/a.html')]);
+    // Chromium keeps a host's zoom in the workspace's persistent partition.
+    await expect.poll(() => zoomLevelAt(second.app, fixtures.url('/a.html'))).toBe(0.5);
+  } finally {
+    await second.app.close();
+  }
 });

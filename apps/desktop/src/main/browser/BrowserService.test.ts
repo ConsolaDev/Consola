@@ -385,8 +385,38 @@ describe('page tools', () => {
     guest.emit('found-in-page', {}, { activeMatchOrdinal: 2, matches: 5, finalUpdate: true });
     expect(send).toHaveBeenCalledWith(IPC_CHANNELS.BROWSER_FOUND, {
       tabId: 'tab1',
-      active: 2,
-      total: 5,
+      result: { active: 2, total: 5 },
+    });
+  });
+
+  describe('a search ends', () => {
+    function withWindow() {
+      const send = vi.fn();
+      const win = { webContents: { send, isDestroyed: () => false } } as unknown as BrowserWindow;
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      service.bindGuest('tab1', guest.asWebContents(), win);
+      return { send, guest };
+    }
+    const reset = { tabId: 'tab1', result: null };
+
+    it('when the page navigates to another document', () => {
+      const { send, guest } = withWindow();
+      guest.emit('did-navigate', {}, 'https://a.com/next');
+      expect(send).toHaveBeenCalledWith(IPC_CHANNELS.BROWSER_FOUND, reset);
+      expect(guest.stopFindInPage).toHaveBeenCalledWith('clearSelection');
+    });
+
+    it('but not on a same-document navigation', () => {
+      const { send, guest } = withWindow();
+      guest.emit('did-navigate-in-page', {}, 'https://a.com/#x', true);
+      expect(send).not.toHaveBeenCalled();
+    });
+
+    it('when the page is unbound or let go', () => {
+      const first = withWindow();
+      service.unbindGuest('tab1');
+      expect(first.send).toHaveBeenCalledWith(IPC_CHANNELS.BROWSER_FOUND, reset);
     });
   });
 

@@ -12,7 +12,7 @@ import {
   type BrowserTabLive,
   type SessionBrowser,
 } from '../../shared/browser';
-import { stepZoom, type ZoomStep } from '../../shared/browserTools';
+import { stepZoom, type FindResult, type ZoomStep } from '../../shared/browserTools';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { BrowserStateStore } from './BrowserStateStore';
 import { LivePages } from './LivePages';
@@ -279,9 +279,11 @@ export class BrowserService {
   }
 
   /**
-   * Steps, resets or reads (`get`) a page's zoom and answers the level now in
-   * force. Not persisted: a page that unloads and returns starts at 100%.
-   * A tab with no page is at the default.
+   * Steps, resets or reads (`get`) a page's zoom and answers the level
+   * Chromium reports for it now. Chromium zooms per host within a partition
+   * (as Chrome does), so tabs on one origin share a level and the level
+   * follows the page across navigations; nothing here forces it per tab.
+   * A tab with no page answers the default.
    */
   public zoom(tabId: string, step: ZoomStep | 'get'): number {
     const guest = this.liveGuest(tabId);
@@ -355,10 +357,23 @@ export class BrowserService {
     return true;
   }
 
+  /**
+   * Tells the window a tab's find result, or null when the search ended (a
+   * navigation, or the page going away). Main is the one source: the find bar
+   * never infers it from addresses.
+   */
+  private sendFound(entry: LiveGuest, tabId: string, result: FindResult | null): void {
+    const { host } = entry;
+    if (host.isDestroyed?.() || !host.webContents || host.webContents.isDestroyed?.()) return;
+    const message: BrowserFoundMessage = { tabId, result };
+    host.webContents.send(IPC_CHANNELS.BROWSER_FOUND, message);
+  }
+
   /** Stops following a guest without closing it. */
   public unbindGuest(tabId: string, push = true): void {
     const entry = this.guests.get(tabId);
     if (!entry) return;
+    this.sendFound(entry, tabId, null);
     entry.unsubscribe();
     this.guests.delete(tabId);
     // The guest is gone (destroyed, or its window let go): no page to keep.
@@ -566,6 +581,7 @@ export class BrowserService {
   private destroyGuest(tabId: string): void {
     const entry = this.guests.get(tabId);
     if (!entry) return;
+    this.sendFound(entry, tabId, null);
     entry.unsubscribe();
     this.guests.delete(tabId);
     const { guest } = entry;
@@ -702,19 +718,19 @@ export class BrowserService {
       result: { activeMatchOrdinal: number; matches: number; finalUpdate: boolean },
     ) => {
       if (!result.finalUpdate) return;
-      const { host } = entry;
-      if (host.isDestroyed?.() || host.webContents?.isDestroyed?.()) return;
-      const message: BrowserFoundMessage = {
-        tabId,
-        active: result.activeMatchOrdinal,
-        total: result.matches,
-      };
-      host.webContents.send(IPC_CHANNELS.BROWSER_FOUND, message);
+      this.sendFound(entry, tabId, { active: result.activeMatchOrdinal, total: result.matches });
+    };
+    // A new document ends the search: its count described the old one, and a
+    // "next" would continue a search the page no longer has.
+    const onNavigated = (url: string) => {
+      this.sendFound(entry, tabId, null);
+      if (!guest.isDestroyed()) guest.stopFindInPage('clearSelection');
+      commit(url);
     };
 
     return [
       ['found-in-page', onFound],
-      ['did-navigate', (_e: unknown, url: string) => commit(url)],
+      ['did-navigate', (_e: unknown, url: string) => onNavigated(url)],
       [
         'did-navigate-in-page',
         (_e: unknown, url: string, isMainFrame: boolean) => {

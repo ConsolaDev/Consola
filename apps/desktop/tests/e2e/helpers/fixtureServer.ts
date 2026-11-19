@@ -64,6 +64,8 @@ export async function startFixtureServer(): Promise<FixtureServer> {
             '<p>needle one</p><p>needle two</p><p>needle three</p>',
           ),
         );
+      case '/find2.html':
+        return send(200, page('Find again', 'rgb(230,230,230)', '<p>needle</p><p>needle</p>'));
       case '/b.html':
         return send(200, page('Page B', 'rgb(0,0,255)'));
       case '/c.html':

@@ -51,7 +51,7 @@ export function FindBar({ tabId, onClose }: FindBarProps) {
   useEffect(
     () =>
       browserBridge.onFound((message) => {
-        if (message.tabId === tabId) setResult({ active: message.active, total: message.total });
+        if (message.tabId === tabId) setResult(message.result);
       }),
     [tabId],
   );
@@ -68,7 +68,8 @@ export function FindBar({ tabId, onClose }: FindBarProps) {
 
   const step = (forward: boolean) => {
     cancelPending();
-    if (query) void browserBridge.find(tabId, query, { forward, next: true });
+    // With no result the page has no search (it navigated): start one.
+    if (query) void browserBridge.find(tabId, query, { forward, next: result !== null });
   };
 
   return (

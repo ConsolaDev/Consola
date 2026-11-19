@@ -17,8 +17,9 @@ const HARD_RELOAD_KEYS = isMac ? '⇧⌘R' : 'Ctrl+Shift+R';
 /**
  * The toolbar's "more" menu: find, zoom, hard reload and DevTools. Every item
  * goes to main by tab id, like the toolbar's buttons. Zoom keeps the menu open
- * so a few steps are a few clicks; the level shown is read from the page each
- * time the menu opens, since a chord pressed in the page changes it too.
+ * so a few steps are a few clicks. Chromium zooms per host (as Chrome does),
+ * so the level belongs to the page's site, not the tab: it is read from the
+ * page each time the menu opens and after every step, never remembered here.
  */
 export function BrowserMoreMenu({ tabId }: BrowserMoreMenuProps) {
   const [level, setLevel] = useState(0);

@@ -114,9 +114,13 @@ export interface BrowserShortcutMessage {
   action: ForwardedShortcut;
 }
 
-/** What a window receives on `BROWSER_FOUND`: a tab's current find result. */
-export interface BrowserFoundMessage extends FindResult {
+/**
+ * What a window receives on `BROWSER_FOUND`: a tab's current find result, or
+ * null when its search ended (the page navigated or went away).
+ */
+export interface BrowserFoundMessage {
   tabId: string;
+  result: FindResult | null;
 }
 
 /**
