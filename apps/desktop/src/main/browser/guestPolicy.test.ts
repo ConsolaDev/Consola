@@ -1,7 +1,12 @@
 import type { WebPreferences } from 'electron';
 import { describe, expect, it } from 'vitest';
 import { browserPartitionFor } from '../../shared/browser';
-import { decideAppNavigation, decideAttach, decideNavigation } from './guestPolicy';
+import {
+  decideAppNavigation,
+  decideAttach,
+  decideNavigation,
+  shouldRevertNavigation,
+} from './guestPolicy';
 
 const partition = browserPartitionFor('ws-1');
 const context = { workspaceId: 'ws-1' as string | null | undefined };
@@ -70,8 +75,9 @@ describe('decideAttach', () => {
     expect(decision.webPreferences).not.toHaveProperty('preload');
     expect(decision.webPreferences).not.toHaveProperty('preloadURL');
     expect(decision.webPreferences).not.toHaveProperty('additionalArguments');
-    // Unrelated preferences are left as the renderer asked.
-    expect(decision.webPreferences.zoomFactor).toBe(2);
+    // Nothing else the renderer asked for survives.
+    expect(decision.webPreferences).not.toHaveProperty('zoomFactor');
+    expect(decision.webPreferences.partition).toBe(partition);
   });
 
   it('forces the isolation preferences whatever the renderer asked for', () => {
@@ -96,6 +102,44 @@ describe('decideAttach', () => {
       webSecurity: true,
       allowRunningInsecureContent: false,
     });
+  });
+
+  it("refuses preferences that name another workspace's partition", () => {
+    const decision = decideAttach(
+      { partition, src: 'https://a.test' },
+      { partition: browserPartitionFor('ws-2') } as WebPreferences,
+      context,
+    );
+    expect(decision.allow).toBe(false);
+  });
+
+  it('refuses preferences that name the default session', () => {
+    const decision = decideAttach(
+      { partition, src: 'https://a.test' },
+      { partition: '' } as WebPreferences,
+      context,
+    );
+    expect(decision.allow).toBe(false);
+  });
+
+  it('accepts preferences that repeat the same partition', () => {
+    const decision = decideAttach(
+      { partition, src: 'https://a.test' },
+      { partition } as WebPreferences,
+      context,
+    );
+    expect(decision.allow).toBe(true);
+  });
+
+  it('never lets a guest nest guests or bring its own session', () => {
+    const decision = decideAttach(
+      { partition, src: 'https://a.test' },
+      { webviewTag: true, session: {} } as unknown as WebPreferences,
+      context,
+    );
+    if (!decision.allow) throw new Error('expected allow');
+    expect(decision.webPreferences.webviewTag).toBe(false);
+    expect(decision.webPreferences).not.toHaveProperty('session');
   });
 
   it('does not mutate the preferences it was given', () => {
@@ -162,5 +206,23 @@ describe('decideAppNavigation', () => {
   it('refuses an address that does not parse', () => {
     expect(decideAppNavigation('nonsense', dev)).toBe(false);
     expect(decideAppNavigation('nonsense', prod)).toBe(false);
+  });
+});
+
+describe('shouldRevertNavigation', () => {
+  it('lets a main frame go to a web page or stay blank', () => {
+    expect(shouldRevertNavigation('https://example.com/', true)).toBe(false);
+    expect(shouldRevertNavigation('about:blank', true)).toBe(false);
+  });
+
+  it.each(['data:text/html,hi', 'file:///etc/hosts', 'javascript:1', 'chrome://gpu', 'bad'])(
+    'reverts a main frame at %j',
+    (url) => {
+      expect(shouldRevertNavigation(url, true)).toBe(true);
+    },
+  );
+
+  it('ignores sub-frames, which cannot replace the page', () => {
+    expect(shouldRevertNavigation('data:text/html,hi', false)).toBe(false);
   });
 });

@@ -1,4 +1,4 @@
-import type { BrowserWindow, WebContents, WebPreferences } from 'electron';
+import type { BrowserWindow, Session, WebContents, WebPreferences } from 'electron';
 import { browserPartitionFor, isAllowedPageUrl } from '../../shared/browser';
 
 /**
@@ -47,25 +47,48 @@ export function decideAttach(
     return { allow: false, reason: 'the page address is not a web address' };
   }
 
-  // A copy, so the caller's object is only ever changed by the caller.
-  const webPreferences: WebPreferences & Record<string, unknown> = { ...requested };
-  // A guest never gets a script of the app's: no preload means no
-  // `ipcRenderer`, which is what keeps a page from reaching main.
-  delete webPreferences.preload;
-  delete webPreferences.preloadURL;
-  delete webPreferences.additionalArguments;
-  webPreferences.nodeIntegration = false;
-  webPreferences.nodeIntegrationInSubFrames = false;
-  webPreferences.contextIsolation = true;
-  webPreferences.sandbox = true;
-  webPreferences.webSecurity = true;
-  webPreferences.allowRunningInsecureContent = false;
+  // The `webpreferences` attribute can carry a `partition=` of its own, and
+  // Electron lets it win over the attribute checked above: the guest would
+  // land in another workspace's partition, or one with no handlers at all.
+  const asked = (requested as { partition?: unknown }).partition;
+  if (asked !== undefined && asked !== params.partition) {
+    return { allow: false, reason: 'the web preferences name a different partition' };
+  }
+
+  // Built from nothing, not copied from what the renderer asked: every key it
+  // could add (a preload, its own session, `webviewTag` to nest guests) is one
+  // more thing to remember to strip. A guest never gets a script of the app's;
+  // no preload means no `ipcRenderer`, which keeps a page from reaching main.
+  const webPreferences: WebPreferences = {
+    partition: params.partition,
+    nodeIntegration: false,
+    nodeIntegrationInSubFrames: false,
+    contextIsolation: true,
+    sandbox: true,
+    webSecurity: true,
+    allowRunningInsecureContent: false,
+    webviewTag: false,
+  };
   return { allow: true, webPreferences };
 }
 
 /** Where a guest may go: web pages only, never `file:`, `data:`, `chrome:` and the rest. */
 export function decideNavigation(url: string): boolean {
   return isAllowedPageUrl(url);
+}
+
+/**
+ * Whether a navigation that has already started must be undone.
+ *
+ * `will-navigate` does not fire when the app's page sets `<webview>.src` or
+ * calls `loadURL`: those go through main's own `loadURL`. This is the backstop
+ * for them. Only the main frame matters (a sub-frame cannot replace the
+ * page), and `about:blank` is the page a tab starts on and the one a reverted
+ * navigation lands on, so it must not revert itself forever.
+ */
+export function shouldRevertNavigation(url: string, isMainFrame: boolean): boolean {
+  if (!isMainFrame) return false;
+  return url !== 'about:blank' && !decideNavigation(url);
 }
 
 /**
@@ -97,7 +120,11 @@ export function decideAppNavigation(
 
 /**
  * Called once for every guest a window has attached, with everything a later
- * feature needs to watch it. Registering here is how `BrowserService` hears
+ * feature needs to watch it. `guestId` is read once, as the guest attaches.
+ *
+ * Navigation goes through main: the renderer must never set `<webview>.src`
+ * after attach. It would bypass `will-navigate`; the guard below reverts a
+ * disallowed address, but only as a backstop. Registering here is how `BrowserService` hears
  * about guests without re-plumbing `did-attach-webview`.
  *
  * A listener that tracks the guest by id reads `guest.id` here, once, and keeps
@@ -108,6 +135,7 @@ export type GuestAttachedListener = (
   guest: WebContents,
   hostWindow: BrowserWindow,
   workspaceId: string,
+  guestId: number,
 ) => void;
 
 const guestAttachedListeners = new Set<GuestAttachedListener>();
@@ -129,6 +157,17 @@ export function secureGuest(guest: WebContents): void {
   };
   guest.on('will-navigate', (event, url) => refuse(event, url));
   guest.on('will-redirect', (event, url) => refuse(event, url));
+  guest.on('did-start-navigation', (details) => {
+    if (!shouldRevertNavigation(details.url, details.isMainFrame)) return;
+    // Stopping or loading from inside the navigation's own event re-enters
+    // Chromium's navigation controller and takes the whole app down (SIGTRAP
+    // on Electron 43), so both wait for the event to return.
+    setImmediate(() => {
+      if (guest.isDestroyed()) return;
+      guest.stop();
+      void guest.loadURL('about:blank').catch(() => undefined);
+    });
+  });
   guest.setWindowOpenHandler(() => ({ action: 'deny' }));
 }
 
@@ -143,7 +182,8 @@ export function installGuestPolicy(
   window: BrowserWindow,
   deps: {
     workspaceOf: () => string | null | undefined;
-    prepare: (partition: string) => void;
+    /** Configures the partition's rules and returns its session. Idempotent. */
+    prepare: (partition: string) => Session;
   },
 ): void {
   const host = window.webContents;
@@ -167,9 +207,23 @@ export function installGuestPolicy(
   });
 
   host.on('did-attach-webview', (_event, guest) => {
-    secureGuest(guest);
+    // Read once, now: a destroyed WebContents throws on `.id`, and an event
+    // handler that throws is swallowed, leaving state that never clears.
+    const guestId = guest.id;
     const workspaceId = deps.workspaceOf();
-    if (!workspaceId || window.isDestroyed()) return;
-    for (const listener of guestAttachedListeners) listener(guest, window, workspaceId);
+    // What was checked on the way in is checked again on the way out: the
+    // guest must be in the partition of the workspace this window holds.
+    if (
+      !workspaceId ||
+      window.isDestroyed() ||
+      guest.session !== deps.prepare(browserPartitionFor(workspaceId))
+    ) {
+      guest.close();
+      return;
+    }
+    secureGuest(guest);
+    for (const listener of guestAttachedListeners) {
+      listener(guest, window, workspaceId, guestId);
+    }
   });
 }

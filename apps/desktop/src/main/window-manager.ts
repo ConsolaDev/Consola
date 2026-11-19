@@ -122,7 +122,11 @@ export function createWindow(
 
   installGuestPolicy(window, {
     workspaceOf: () => getWorkspaceFor(window),
-    prepare: (partition) => configurePartition(partition, session.fromPartition(partition)),
+    prepare: (partition) => {
+      const target = session.fromPartition(partition);
+      configurePartition(partition, target);
+      return target;
+    },
   });
 
   if (isDev) {
