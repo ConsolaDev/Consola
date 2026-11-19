@@ -1,9 +1,14 @@
-import { BrowserWindow, app, screen, shell } from 'electron';
+import { BrowserWindow, app, screen, session, shell } from 'electron';
 import * as path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
+import { decideAppNavigation, installGuestPolicy } from './browser/guestPolicy';
+import { configurePartition } from './browser/sessionPolicy';
+
+const DEV_SERVER_ORIGIN = 'http://localhost:5173';
 
 /**
  * The open windows, and which workspace each one holds.
@@ -79,6 +84,10 @@ export function createWindow(
       nodeIntegration: false,
       contextIsolation: true,
       sandbox: false,
+      // Lets the renderer embed the in-app browser's pages. What a guest may be
+      // is decided in main on every attach (`installGuestPolicy`), never by
+      // what the renderer puts on the element.
+      webviewTag: true,
       // Chromium throttles timers in a window it considers non-visible,
       // which would stretch the suite's waits into flakiness.
       backgroundThrottling: !isTest,
@@ -97,14 +106,27 @@ export function createWindow(
     return { action: 'deny' };
   });
 
+  // The app's own window never navigates away from the app: a link or script
+  // that moved it would put a foreign page where the preload bridge is.
+  const pageFileUrl = pathToFileURL(path.join(__dirname, '../../../dist/renderer/index.html')).href;
+  window.webContents.on('will-navigate', (event, url) => {
+    const own = isDev ? { devOrigin: DEV_SERVER_ORIGIN } : { pageFileUrl };
+    if (!decideAppNavigation(url, own)) event.preventDefault();
+  });
+
   // Captured now, not in the handler: by the time 'closed' fires Electron has
   // destroyed webContents, and reading .id off it throws — silently, because
   // native event dispatch swallows it. The entry would leak forever.
   const windowId = window.webContents.id;
   contexts.set(windowId, { workspaceId: context.workspaceId });
 
+  installGuestPolicy(window, {
+    workspaceOf: () => getWorkspaceFor(window),
+    prepare: (partition) => configurePartition(partition, session.fromPartition(partition)),
+  });
+
   if (isDev) {
-    window.loadURL('http://localhost:5173');
+    window.loadURL(DEV_SERVER_ORIGIN);
     window.webContents.openDevTools();
   } else {
     window.loadFile(path.join(__dirname, '../../../dist/renderer/index.html'));
