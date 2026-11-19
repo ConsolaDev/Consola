@@ -32,6 +32,18 @@ export interface BrowserServiceDeps {
   newId?(): string;
 }
 
+/** How long an attached guest is remembered while nothing claims it. */
+export const PENDING_GUEST_MS = 30_000;
+
+/** What a guest did between attaching and being bound to its tab. */
+interface PendingGuest {
+  loading: boolean;
+  error: BrowserTabError | null;
+  /** The last committed address seen. */
+  url: string | undefined;
+  stop(): void;
+}
+
 /** What one live guest needs remembered beside the tab. */
 interface LiveGuest {
   guest: WebContents;
@@ -75,6 +87,8 @@ const IDLE: LiveFields = { loading: false, canGoBack: false, canGoForward: false
 export class BrowserService {
   private readonly guests = new Map<string, LiveGuest>();
   private readonly live = new Map<string, LiveFields>();
+  /** Guests attached but not yet bound, by guest id. */
+  private readonly pending = new Map<number, PendingGuest>();
   private readonly now: () => number;
   private readonly newId: () => string;
 
@@ -228,7 +242,18 @@ export class BrowserService {
         guest.removeListener(event as 'destroyed', listener);
     };
     this.guests.set(tabId, entry);
-    this.setLive(tabId, this.readNavigationState(guest), false);
+
+    // What happened before this bind: the first load may be under way, have
+    // redirected, or have failed already.
+    const claimed = this.pending.get(guest.id);
+    this.dropPending(guest.id);
+    const loading = guest.isLoading();
+    const error = loading ? null : (claimed?.error ?? null);
+    if (!error) {
+      const url = [guest.getURL(), claimed?.url].find((u) => u && isAllowedPageUrl(u));
+      if (url) this.recordCommit(tabId, url, guest.getTitle());
+    }
+    this.setLive(tabId, { ...this.readNavigationState(guest), loading, error }, false);
     this.pushSnapshot(found.sessionId);
     return true;
   }
@@ -343,13 +368,78 @@ export class BrowserService {
     }
   }
 
-  /** Ends a guest's page for good; its `destroyed` event then finds nothing to unbind. */
+  /**
+   * Lets go of a guest and silences its page. Never `close()`: on a loaded
+   * `<webview>` guest that only destroys main's handle while the page keeps
+   * running (and a `window.open` from it then crashes main). Removing the
+   * element in the renderer is what tears it down cleanly, driven by the
+   * snapshots; until it does, the page is blanked so nothing keeps loading or
+   * writing storage.
+   */
   private destroyGuest(tabId: string): void {
     const entry = this.guests.get(tabId);
     if (!entry) return;
     entry.unsubscribe();
     this.guests.delete(tabId);
-    if (!entry.guest.isDestroyed()) entry.guest.close();
+    const { guest } = entry;
+    if (guest.isDestroyed()) return;
+    try {
+      guest.stop();
+      guest.loadURL('about:blank').catch(() => undefined);
+    } catch {
+      // The guest died between the check and the call: nothing left to stop.
+    }
+  }
+
+  // --- A page's first load ---
+
+  /**
+   * Starts remembering what a just-attached guest does. The renderer binds a
+   * guest only after `dom-ready`, by which time its first load may already
+   * have started, redirected or failed; `bindGuest` claims this record so the
+   * tab shows that rather than a quiet page.
+   */
+  public noteAttached(guest: WebContents, guestId: number): void {
+    this.dropPending(guestId);
+    const pending: PendingGuest = { loading: false, error: null, url: undefined, stop: () => {} };
+    const onFail = (
+      _event: unknown,
+      code: number,
+      description: string,
+      url: string,
+      isMainFrame: boolean,
+    ) => {
+      if (!isMainFrame || code === -3) return;
+      pending.error = { kind: 'unreachable', code, description, url };
+      pending.loading = false;
+    };
+    const listeners: Array<[string, (...args: never[]) => void]> = [
+      [
+        'did-start-loading',
+        () => {
+          pending.loading = true;
+          pending.error = null;
+        },
+      ],
+      ['did-stop-loading', () => (pending.loading = false)],
+      ['did-fail-load', onFail],
+      ['did-navigate', (_e: unknown, url: string) => (pending.url = url)],
+      ['destroyed', () => this.dropPending(guestId)],
+    ] as Array<[string, (...args: never[]) => void]>;
+    for (const [event, listener] of listeners) guest.on(event as 'destroyed', listener);
+    const timer = setTimeout(() => this.dropPending(guestId), PENDING_GUEST_MS);
+    timer.unref?.();
+    pending.stop = () => {
+      clearTimeout(timer);
+      for (const [event, listener] of listeners)
+        guest.removeListener(event as 'destroyed', listener);
+    };
+    this.pending.set(guestId, pending);
+  }
+
+  private dropPending(guestId: number): void {
+    this.pending.get(guestId)?.stop();
+    this.pending.delete(guestId);
   }
 
   private updateTab(tabId: string, fields: Partial<Pick<BrowserTab, 'url' | 'title'>>): void {

@@ -28,6 +28,7 @@ import type { BrowserStateFile } from '../shared/browser';
 import { BrowserService } from './browser/BrowserService';
 import { BrowserStateStore } from './browser/BrowserStateStore';
 import { registerBrowserHandlers } from './browser/browserIpc';
+import { onGuestAttached } from './browser/guestPolicy';
 import { partitionFor } from './browser/sessionPolicy';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -292,7 +293,12 @@ export function setupIpcHandlers(): boolean {
     },
   });
   browserService = browser;
-  browserHandlers = registerBrowserHandlers({
+  // Watch each page from the moment it attaches: the renderer binds it only
+  // after dom-ready, when its first load may already have finished or failed.
+  const stopWatchingGuests = onGuestAttached((guest, _window, _workspaceId, guestId) =>
+    browser.noteAttached(guest, guestId),
+  );
+  const registered = registerBrowserHandlers({
     ipc: ipcMain,
     service: browser,
     workspaceForSender: (sender) => {
@@ -308,6 +314,12 @@ export function setupIpcHandlers(): boolean {
     webContentsFromId: (id) => electronWebContents.fromId(id),
     sessionForWorkspace: (workspaceId) => electronSession.fromPartition(partitionFor(workspaceId)),
   });
+  browserHandlers = {
+    remove: () => {
+      registered.remove();
+      stopWatchingGuests();
+    },
+  };
 
   // Every window renders the same records, so a change goes to all of them
   // rather than to whoever asked for it. A deleted workspace also has to be

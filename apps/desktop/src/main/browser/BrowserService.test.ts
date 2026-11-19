@@ -11,6 +11,8 @@ class FakeGuest extends EventEmitter {
   title = '';
   back = false;
   forward = false;
+  loading = false;
+  url = '';
   loadURL = vi.fn(async (_url: string) => {});
   reload = vi.fn();
   stop = vi.fn();
@@ -30,6 +32,12 @@ class FakeGuest extends EventEmitter {
   }
   isDestroyed() {
     return this.destroyed;
+  }
+  isLoading() {
+    return this.loading;
+  }
+  getURL() {
+    return this.url;
   }
   getTitle() {
     return this.title;
@@ -73,6 +81,17 @@ beforeEach(() => {
     newId: () => `tab${++ids}`,
   });
 });
+
+/** A let-go page is stopped and blanked, never `close()`d (that leaves it running). */
+function blanked(guest: FakeGuest) {
+  expect(guest.close).not.toHaveBeenCalled();
+  expect(guest.stop).toHaveBeenCalled();
+  expect(guest.loadURL).toHaveBeenCalledWith('about:blank');
+}
+function left(guest: FakeGuest) {
+  expect(guest.stop).not.toHaveBeenCalled();
+  expect(guest.loadURL).not.toHaveBeenCalled();
+}
 
 const last = () => sent[sent.length - 1];
 
@@ -130,7 +149,7 @@ describe('tabs', () => {
     const guest = new FakeGuest(11);
     service.bindGuest('tab3', guest.asWebContents(), winA);
     service.closeTab('tab3');
-    expect(guest.close).toHaveBeenCalled();
+    blanked(guest);
     expect(service.snapshotFor('s1').activeTabId).toBe('tab2');
     service.closeTab('tab1');
     expect(service.snapshotFor('s1').activeTabId).toBe('tab2');
@@ -316,7 +335,7 @@ describe('guests', () => {
     service.bindGuest('tab1', first.asWebContents(), winA);
     service.bindGuest('tab1', second.asWebContents(), winA);
     expect(first.listenerCount('did-navigate')).toBe(0);
-    expect(first.close).not.toHaveBeenCalled();
+    left(first);
     expect(service.guestFor('tab1')?.id).toBe(12);
   });
 
@@ -337,7 +356,7 @@ describe('guests', () => {
     expect(service.guestFor('tab1')).toBeUndefined();
     expect(service.guestFor('tab2')).toBeDefined();
     expect(service.listFor('s1')).toHaveLength(1);
-    expect(ga.close).not.toHaveBeenCalled();
+    left(ga);
   });
 });
 
@@ -372,7 +391,7 @@ describe('lifecycle', () => {
     const guest = new FakeGuest(11);
     service.bindGuest('tab1', guest.asWebContents(), winA);
     service.destroySession('s1');
-    expect(guest.close).toHaveBeenCalled();
+    blanked(guest);
     expect(service.listFor('s1')).toEqual([]);
     expect(service.listFor('s2')).toHaveLength(1);
   });
@@ -385,12 +404,92 @@ describe('lifecycle', () => {
     const guest = new FakeGuest(11);
     service.bindGuest('tab2', guest.asWebContents(), winA);
     service.destroyWorkspace('w1', ['s1', 's2']);
-    expect(guest.close).toHaveBeenCalled();
+    blanked(guest);
     expect(service.listFor('s1')).toEqual([]);
     expect(service.listFor('s2')).toEqual([]);
     expect(service.listFor('s3')).toHaveLength(1);
     expect(store.getHistory('w1')).toEqual([]);
     expect(clearPartition).toHaveBeenCalledWith('w1');
+  });
+
+  describe('a page that was loading before it was bound', () => {
+    const attach = (guest: FakeGuest) => service.noteAttached(guest.asWebContents(), guest.id);
+
+    it('a load that failed before bind shows as unreachable after bind', () => {
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      attach(guest);
+      guest.emit('did-start-loading');
+      guest.emit('did-fail-load', {}, -105, 'ERR_NAME_NOT_RESOLVED', 'https://a.com/', true);
+      guest.emit('did-stop-loading');
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      const tab = service.snapshotFor('s1').tabs[0];
+      expect(tab.error).toMatchObject({ kind: 'unreachable', code: -105 });
+      expect(tab.loading).toBe(false);
+    });
+
+    it('a guest still loading at bind shows loading', () => {
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      attach(guest);
+      guest.emit('did-start-loading');
+      guest.loading = true;
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      expect(service.snapshotFor('s1').tabs[0].loading).toBe(true);
+    });
+
+    it('a redirect before bind records the final address', () => {
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      attach(guest);
+      guest.emit('did-navigate', {}, 'https://a.com/final');
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      expect(service.snapshotFor('s1').tabs[0].url).toBe('https://a.com/final');
+    });
+
+    it('reads the guest address at bind when nothing was buffered', () => {
+      service.openTab('s1', '', 'person');
+      const guest = new FakeGuest(11);
+      guest.url = 'https://a.com/now';
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      expect(service.snapshotFor('s1').tabs[0].url).toBe('https://a.com/now');
+    });
+
+    it('a failure the page then recovered from is not an error', () => {
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      attach(guest);
+      guest.emit('did-fail-load', {}, -105, 'x', 'https://a.com/', true);
+      guest.emit('did-start-loading');
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      expect(service.snapshotFor('s1').tabs[0].error).toBeFalsy();
+    });
+
+    it('drops the buffer when the guest is destroyed or goes unclaimed', () => {
+      vi.useFakeTimers();
+      try {
+        const gone = new FakeGuest(11);
+        attach(gone);
+        gone.emit('destroyed');
+        expect(gone.listenerCount('did-fail-load')).toBe(0);
+        const idle = new FakeGuest(12);
+        attach(idle);
+        vi.advanceTimersByTime(30_001);
+        expect(idle.listenerCount('did-fail-load')).toBe(0);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('ignores a subframe failure and an aborted load', () => {
+      service.openTab('s1', 'https://a.com', 'person');
+      const guest = new FakeGuest(11);
+      attach(guest);
+      guest.emit('did-fail-load', {}, -105, 'x', 'https://ads.com/', false);
+      guest.emit('did-fail-load', {}, -3, 'aborted', 'https://a.com/', true);
+      service.bindGuest('tab1', guest.asWebContents(), winA);
+      expect(service.snapshotFor('s1').tabs[0].error).toBeFalsy();
+    });
   });
 
   describe('when the store has already forgotten the sessions', () => {
@@ -411,9 +510,9 @@ describe('lifecycle', () => {
       // What workspaces.onChange does while the delete is still under way.
       store.prune(new Set(['s3']), new Set(['w2']));
       service.destroyWorkspace('w1', ['s1', 's2']);
-      expect(g1.close).toHaveBeenCalled();
-      expect(g2.close).toHaveBeenCalled();
-      expect(g1.close.mock.invocationCallOrder[0]).toBeLessThan(
+      blanked(g1);
+      blanked(g2);
+      expect(g1.loadURL.mock.invocationCallOrder[0]).toBeLessThan(
         clearPartition.mock.invocationCallOrder[0],
       );
       expect(liveCount()).toBe(0);
@@ -422,15 +521,15 @@ describe('lifecycle', () => {
     it('destroyWorkspace closes a guest of a session the caller did not name', () => {
       const { g1 } = openTwoGuests();
       service.destroyWorkspace('w1', []);
-      expect(g1.close).toHaveBeenCalled();
+      blanked(g1);
     });
 
     it('destroySession closes guests of a pruned session and drops their live state', () => {
       const { g1, g2 } = openTwoGuests();
       store.prune(new Set(['s2']), new Set(['w1']));
       service.destroySession('s1');
-      expect(g1.close).toHaveBeenCalled();
-      expect(g2.close).not.toHaveBeenCalled();
+      blanked(g1);
+      left(g2);
       expect(liveCount()).toBe(1);
     });
 
@@ -440,9 +539,9 @@ describe('lifecycle', () => {
       const kept = new FakeGuest(13);
       service.bindGuest('tab3', kept.asWebContents(), winB);
       service.prune(new Set(['s3']), new Set(['w2']));
-      expect(g1.close).toHaveBeenCalled();
-      expect(g2.close).toHaveBeenCalled();
-      expect(kept.close).not.toHaveBeenCalled();
+      blanked(g1);
+      blanked(g2);
+      left(kept);
       expect(service.listFor('s1')).toEqual([]);
       expect(service.listFor('s3')).toHaveLength(1);
       expect(liveCount()).toBe(1);
@@ -466,7 +565,7 @@ describe('lifecycle', () => {
     const flush = vi.spyOn(store, 'flush');
     service.destroyAll();
     expect(flush).toHaveBeenCalled();
-    expect(guest.close).toHaveBeenCalled();
+    blanked(guest);
     expect(service.guestFor('tab1')).toBeUndefined();
   });
 });
