@@ -333,11 +333,98 @@ describe('what the page’s own sessions may not do', () => {
     });
     const send = vi.fn(async () => ({}));
     const { command, reply } = await announced(send);
-    const drag = { type: 'dragEnter', x: 1, y: 1, data: { items: [], dragOperationsMask: 1 } };
-    command(5, 'Input.dispatchDragEvent', drag, PAGE_SESSION_ID);
+    command(
+      5,
+      'Input.dispatchDragEvent',
+      {
+        type: 'drop',
+        x: 1,
+        y: 1,
+        data: { items: [], files: ['/etc/hosts'], dragOperationsMask: 1 },
+      },
+      PAGE_SESSION_ID,
+    );
+    await settle();
+    expect(reply(5)).toMatchObject({
+      error: { message: expect.stringContaining('cannot hand files') },
+    });
+  });
+
+  // Invariant 6. Chromium hands a guest's CDP keys and text to whatever the
+  // window has focused (the person's terminal, when it has the keyboard), and
+  // a trusted press makes the page the window's focused element: Task 19's
+  // probes saw both. Only moving the mouse and the wheel are input-free.
+  it.each([
+    ['Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', text: 'a' }],
+    ['Input.insertText', { text: 'rm -rf ~' }],
+    ['Input.imeSetComposition', { text: 'a', selectionStart: 0, selectionEnd: 1 }],
+  ])('refuses %s, which would type wherever the window’s keyboard is', async (method, params) => {
+    await refusedOnBoth(method, params);
+    const { command, reply } = await announced();
+    command(5, method, params, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toMatchObject({ error: { message: expect.stringContaining('terminal') } });
+  });
+
+  it.each([
+    [
+      'Input.dispatchMouseEvent',
+      { type: 'mousePressed', x: 1, y: 1, button: 'left', clickCount: 1 },
+    ],
+    [
+      'Input.dispatchMouseEvent',
+      { type: 'mouseReleased', x: 1, y: 1, button: 'left', clickCount: 1 },
+    ],
+    ['Input.dispatchMouseEvent', { type: 'mouseMoved', x: 1, y: 1, button: 'left', buttons: 1 }],
+    ['Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x: 1, y: 1 }] }],
+    [
+      'Input.dispatchDragEvent',
+      { type: 'dragEnter', x: 1, y: 1, data: { items: [], dragOperationsMask: 1 } },
+    ],
+    ['Input.synthesizeTapGesture', { x: 1, y: 1 }],
+    ['Input.emulateTouchFromMouseEvent', { type: 'mousePressed', x: 1, y: 1, button: 'left' }],
+    ['Input.setIgnoreInputEvents', { ignore: true }],
+    ['Input.setInterceptDrags', { enabled: true }],
+  ])('refuses %s %j, which presses on the page or reaches past it', async (method, params) => {
+    await refusedOnBoth(method, params);
+  });
+
+  it('lets the mouse move and the wheel turn, with no button held', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    command(
+      5,
+      'Input.dispatchMouseEvent',
+      { type: 'mouseMoved', x: 5, y: 6, button: 'none', buttons: 0 },
+      PAGE_SESSION_ID,
+    );
+    command(
+      6,
+      'Input.dispatchMouseEvent',
+      { type: 'mouseWheel', x: 5, y: 6, deltaX: 0, deltaY: 100 },
+      CHILD,
+    );
     await settle();
     expect(reply(5)).toHaveProperty('result');
-    expect(send).toHaveBeenCalledWith('Input.dispatchDragEvent', drag, undefined);
+    expect(reply(6)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  // Task 16 re-review: these three act on every process of the app, not on the page.
+  it.each([
+    ['Memory.simulatePressureNotification', { level: 'critical' }],
+    ['Memory.setPressureNotificationsSuppressed', { suppressed: true }],
+    ['Memory.getBrowserSamplingProfile', {}],
+  ])('refuses %s, which reaches the whole app', async (method, params) => {
+    await refusedOnBoth(method, params);
+  });
+
+  it('still answers the page’s own memory questions', async () => {
+    const send = vi.fn(async () => ({ documents: 1, nodes: 2, jsEventListeners: 3 }));
+    const { command, reply } = await announced(send);
+    command(5, 'Memory.getDOMCounters', {}, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toHaveProperty('result');
   });
 
   // Invariant 6, and closing a tab is Consola's, never the agent's through the page.
@@ -493,6 +580,55 @@ describe('page events', () => {
       { method: 'Page.loadEventFired', params: { timestamp: 1 }, sessionId: PAGE_SESSION_ID },
       { method: 'Runtime.consoleAPICalled', params: { type: 'log' }, sessionId: 'IFRAME-SESSION' },
     ]);
+  });
+});
+
+describe('the page’s alerts and confirms', () => {
+  // Main holds them for the agent (PageDialogs). Playwright, told of one and
+  // given no listener, would dismiss it at once.
+  it.each([['alert'], ['confirm'], ['prompt']])(
+    'keeps the page’s %s, and its closing, from Playwright',
+    async (type) => {
+      const { relay, written } = await announced();
+      relay.event('Page.javascriptDialogOpening', { type, message: 'm', url: 'u' }, '');
+      relay.event('Page.javascriptDialogClosed', { result: true, userInput: '' }, '');
+      relay.event('Page.loadEventFired', { timestamp: 1 }, '');
+      expect(written).toEqual([
+        { method: 'Page.loadEventFired', params: { timestamp: 1 }, sessionId: PAGE_SESSION_ID },
+      ]);
+    },
+  );
+
+  it('keeps them from Playwright in an iframe too', async () => {
+    const { relay, written } = await announced();
+    relay.event('Page.javascriptDialogOpening', { type: 'alert', message: 'm' }, CHILD);
+    relay.event('Page.javascriptDialogClosed', { result: true }, CHILD);
+    expect(written).toEqual([]);
+  });
+
+  it('passes a beforeunload on, which Playwright accepts', async () => {
+    const { relay, written } = await announced();
+    relay.event('Page.javascriptDialogOpening', { type: 'beforeunload', message: '' }, '');
+    relay.event('Page.javascriptDialogClosed', { result: true }, '');
+    expect(written.map((message) => message.method)).toEqual([
+      'Page.javascriptDialogOpening',
+      'Page.javascriptDialogClosed',
+    ]);
+  });
+
+  it('refuses to answer a dialog main holds, and answers a beforeunload', async () => {
+    const send = vi.fn(async () => ({}));
+    const { relay, command, reply } = await announced(send);
+    relay.event('Page.javascriptDialogOpening', { type: 'confirm', message: 'm' }, '');
+    command(5, 'Page.handleJavaScriptDialog', { accept: true }, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toHaveProperty('error');
+    relay.event('Page.javascriptDialogClosed', { result: false }, '');
+    relay.event('Page.javascriptDialogOpening', { type: 'beforeunload', message: '' }, '');
+    command(6, 'Page.handleJavaScriptDialog', { accept: true }, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(6)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -14,10 +14,15 @@ import { isAllowedPageUrl } from '../../shared/browser';
  * attaching to any of them, and placing downloads anywhere on disk. So
  * commands on the page's sessions pass a second wall (`refusalOnPage` and
  * the checks beside it): nothing that reaches another target or the whole
- * browser, the partition's cookies, the disk (downloads, files handed to the
- * page), focus or the page's closing, and navigation only to web pages.
- * Commands go to an iframe or worker only under a session id Chromium
- * announced for this page; any other session id is refused.
+ * app, the partition's cookies, the disk (downloads, files handed to the
+ * page), focus or the page's closing, no input that types or presses, and
+ * navigation only to web pages. Commands go to an iframe or worker only
+ * under a session id Chromium announced for this page; any other session id
+ * is refused.
+ *
+ * The page's alerts and confirms are main's to hold for the agent
+ * (`PageDialogs`), so Playwright is never told of them: with no listener of
+ * its own it would dismiss each one at once.
  *
  * Messages are plain objects handed across in the same process, never
  * serialized. Every answer is written asynchronously, after `receive` has
@@ -109,6 +114,26 @@ function isCommand(value: unknown): value is Command {
 /** Domains that act on the whole browser, never on one page. */
 const BROWSER_WIDE_DOMAINS = new Set(['Browser', 'Storage', 'SystemInfo', 'Tracing']);
 
+/**
+ * `Memory` methods that act on every process of the app or read the main
+ * process's own allocations; the rest of the domain answers for the page.
+ */
+const APP_WIDE_MEMORY_COMMANDS = new Set([
+  'Memory.simulatePressureNotification',
+  'Memory.setPressureNotificationsSuppressed',
+  'Memory.getBrowserSamplingProfile',
+]);
+
+/** Input that carries keys or text. */
+const TYPING_COMMANDS = new Set([
+  'Input.dispatchKeyEvent',
+  'Input.insertText',
+  'Input.imeSetComposition',
+]);
+
+/** The dialogs main holds for the agent; a `beforeunload` is Playwright's to accept, as ever. */
+const HELD_DIALOG_TYPES = new Set(['alert', 'confirm', 'prompt']);
+
 /** Every site's cookies in the workspace's partition; a page's script reaches only its own. */
 const COOKIE_COMMANDS = new Set([
   'Network.getAllCookies',
@@ -136,6 +161,28 @@ function carriesFiles(params: Record<string, unknown>): boolean {
 }
 
 /**
+ * Invariant 6, as Task 19's runs found it on a `<webview>` guest. Chromium
+ * hands a guest's CDP keys and text to whatever the WINDOW has focused (the
+ * person's terminal, when it has the keyboard: the probe typed into it), and
+ * a trusted press (a mouse button, a touch, a tap) makes the page the
+ * window's focused element, taking the keyboard from the person. Only moving
+ * the mouse and turning the wheel, with no button held, leave both alone, so
+ * the agent's acts press and type inside the page itself instead.
+ */
+function inputRefusal(method: string, params: Record<string, unknown>): string | undefined {
+  if (TYPING_COMMANDS.has(method)) {
+    return 'keys and text would land wherever the window’s keyboard is, the person’s terminal included';
+  }
+  const pointerOnly =
+    method === 'Input.dispatchMouseEvent' &&
+    (params.type === 'mouseMoved' || params.type === 'mouseWheel') &&
+    !params.buttons;
+  return pointerOnly
+    ? undefined
+    : 'it presses on the page, which takes the window’s keyboard from the person';
+}
+
+/**
  * Why a command on the page's own sessions is refused, by what it is alone,
  * or undefined to go on. Rules that need to know the page are in
  * `createRelayConnection`.
@@ -146,6 +193,7 @@ export function refusalOnPage(method: string, params: Record<string, unknown>): 
     return 'it reaches beyond this tab';
   }
   if (BROWSER_WIDE_DOMAINS.has(domain)) return 'it acts on the whole browser, not this tab';
+  if (APP_WIDE_MEMORY_COMMANDS.has(method)) return 'it acts on the whole app, not this tab';
   if (COOKIE_COMMANDS.has(method)) return 'it reaches every site’s cookies in the workspace';
   if (method === 'Page.setDownloadBehavior') return 'where downloads go is Consola’s to decide';
   // Ruling P: no agent file uploads in this version.
@@ -156,6 +204,7 @@ export function refusalOnPage(method: string, params: Record<string, unknown>): 
     return 'the agent cannot hand files to a page';
   }
   if (PERSON_PAGE_COMMANDS.has(method)) return 'the page is the person’s to focus and close';
+  if (domain === 'Input') return inputRefusal(method, params);
   // Ruling Q: the same rule as an address the person types. Main's own
   // navigation check stays as the other wall.
   if (
@@ -189,6 +238,8 @@ export function createRelayConnection(
   // The page's iframes and workers, by the session id Chromium announced for
   // each on the page's own sessions. Only these are forwarded to.
   const children = new Set<string>();
+  // Sessions ('' for the page itself) showing a dialog main holds.
+  const heldDialogs = new Set<string>();
   let sequence = 0;
 
   const newSession = (kind: 'browser' | 'page') => {
@@ -354,6 +405,9 @@ export function createRelayConnection(
       (method === 'Target.detachFromTarget' &&
       !(typeof params.sessionId === 'string' && children.has(params.sessionId))
         ? 'it names no iframe or worker of this page'
+        : undefined) ??
+      (method === 'Page.handleJavaScriptDialog' && heldDialogs.has(child ?? '')
+        ? 'the page’s dialog is answered with consola_browser_dialog'
         : undefined);
     if (refusal) return refuse(refusal);
     // With no target named, a session describes its own target.
@@ -420,6 +474,17 @@ export function createRelayConnection(
         if (method === 'Target.attachedToTarget') children.add(params.sessionId);
         if (method === 'Target.detachedFromTarget') children.delete(params.sessionId);
       }
+      const dialogSession = sessionId || '';
+      if (
+        method === 'Page.javascriptDialogOpening' &&
+        isRecord(params) &&
+        typeof params.type === 'string' &&
+        HELD_DIALOG_TYPES.has(params.type)
+      ) {
+        heldDialogs.add(dialogSession);
+        return;
+      }
+      if (method === 'Page.javascriptDialogClosed' && heldDialogs.delete(dialogSession)) return;
       if (!announced) return;
       if (sessionId) {
         write({ method, params, sessionId });
