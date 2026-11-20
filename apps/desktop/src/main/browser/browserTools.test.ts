@@ -139,6 +139,9 @@ let snapshot: ReturnType<
   typeof vi.fn<(tabId: string, options?: { screenshot?: boolean }) => Promise<PageSnapshot>>
 >;
 let localServers: ReturnType<typeof vi.fn<(folder: string | undefined) => Promise<LocalServer[]>>>;
+/** The tabs the driver says an agent's connection is open on, and what it was told to close. */
+let connected: string[];
+let disconnected: Array<[string, string]>;
 /** Dialogs main holds, by tab. */
 let held: Record<string, HeldDialog>;
 let now: number;
@@ -170,6 +173,8 @@ beforeEach(() => {
   browser.add('w-1', { id: 'mine-agent', openedBy: 'agent', title: 'Agent page' });
   browser.add('w-2', { id: 'theirs', openedBy: 'agent', title: 'Not yours' });
   snapshot = vi.fn(async () => page());
+  connected = [];
+  disconnected = [];
   held = {};
   now = 1_700_000_000_000;
   person = new PersonInput(() => now);
@@ -188,7 +193,12 @@ async function clientFor(sessionId: string): Promise<Client> {
     browserTools: browserTools({
       getWorkspaces: () => workspaces,
       browser,
-      driver: { snapshot, withPage: vi.fn() },
+      driver: {
+        snapshot,
+        withPage: vi.fn(),
+        connectedTabs: () => connected,
+        disconnect: (tabId, reason) => disconnected.push([tabId, reason]),
+      },
       person,
       dialogs: {
         pendingFor: (tabId) => held[tabId],
@@ -645,6 +655,32 @@ describe('access lost while the page answered', () => {
     const result = await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-agent' });
     expect(result).toMatchObject({ isError: true, text: ACCESS_OFF });
     expect(result.content).toHaveLength(1);
+  });
+
+  it("lets go of the caller's pages when it meets the refusal, and of nobody else's", async () => {
+    // The snapshot's connection opened after the workspace change's sweep had run.
+    connected = ['mine-agent', 'mine-person', 'theirs'];
+    snapshot.mockImplementation(async () => {
+      workspaces[0] = {
+        ...workspaces[0],
+        sessions: workspaces[0].sessions.map((session) =>
+          session.id === 'w-1' ? { ...session, toolPolicy: 'read-only' } : session,
+        ),
+      };
+      return page();
+    });
+    const result = await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-agent' });
+    expect(result.isError).toBe(true);
+    expect(disconnected.map(([tabId]) => tabId)).toEqual(['mine-agent', 'mine-person']);
+    expect(disconnected[0][1]).toBe(result.text);
+  });
+
+  it('lets go of nothing when access holds', async () => {
+    connected = ['mine-agent'];
+    expect((await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-agent' })).isError).toBe(
+      false,
+    );
+    expect(disconnected).toEqual([]);
   });
 
   it('snapshot answers the refusal for a failure too, once the session is gone', async () => {

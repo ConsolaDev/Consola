@@ -62,10 +62,12 @@ export function closeConnectionsWithoutAccess(
   return closed;
 }
 
-/** What `CallerAccess` reads: the workspaces, and the caller's tabs. */
+/** What `CallerAccess` reads: the workspaces, and the caller's tabs, and what it lets go of. */
 export interface CallerAccessDeps {
   getWorkspaces(): Workspace[];
   browser: Pick<BrowserService, 'snapshotFor'>;
+  /** The agent's open connections, closed for the caller's tabs when a call finds access gone. */
+  driver: AgentConnections;
 }
 
 /**
@@ -93,18 +95,32 @@ export class CallerAccess {
    * What `step` gave once the caller is asked again: access can be turned
    * off, or the session deleted or made read-only, while a page answered,
    * and then nothing read from it may reach the agent. A failure gives way
-   * to the refusal as well, since its text can be the page's.
+   * to the refusal as well, since its text can be the page's. Refused, the
+   * caller's connections to its pages close too: the sweep on a workspace
+   * change (`closeConnectionsWithoutAccess`) can have run before this
+   * call's connection opened, and would leave the debugger on the page.
    */
   public async stillAllowed<T>(step: Promise<T>): Promise<T> {
     let value: T;
     try {
       value = await step;
     } catch (error) {
-      this.check();
+      this.checkAfterPage();
       throw error;
     }
-    this.check();
+    this.checkAfterPage();
     return value;
+  }
+
+  private checkAfterPage(): void {
+    try {
+      this.check();
+    } catch (refusal) {
+      const reason = refusal instanceof Error ? refusal.message : String(refusal);
+      const mine = new Set(this.deps.browser.snapshotFor(this.sessionId).tabs.map((tab) => tab.id));
+      closeConnectionsWithoutAccess(this.deps.driver, (tabId) => (mine.has(tabId) ? reason : null));
+      throw refusal;
+    }
   }
 
   /**

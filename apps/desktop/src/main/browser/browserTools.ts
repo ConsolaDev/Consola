@@ -49,7 +49,7 @@ export interface BrowserToolsDeps extends BrowserActToolsDeps {
   browser: BrowserToolsBrowser;
   /** Also hears an agent's moves, for the download rule (`moveAsAgent`). */
   person: BrowserActToolsDeps['person'] & AgentMoveDeps['person'];
-  driver: Pick<PageDriver, 'snapshot' | 'withPage'>;
+  driver: Pick<PageDriver, 'snapshot' | 'withPage' | 'connectedTabs' | 'disconnect'>;
   dialogs: ToolDialogs;
   /** Servers listening from a folder (`LocalServers.listFor`, bounded at 2 s). */
   localServers(folder: string | undefined): Promise<LocalServer[]>;

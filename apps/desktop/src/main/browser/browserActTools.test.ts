@@ -1018,4 +1018,30 @@ describe('access lost while the page answered', () => {
     const result = await act({ action: 'click', ref: 'e5' });
     expect(result).toEqual({ isError: true, text: ACCESS_OFF });
   });
+
+  // The sweep on a workspace change ran before this call's connection opened:
+  // the refusal it meets lets go of the page too, so the debugger does not stay on.
+  it("closes the caller's connection to the page once its call meets the refusal", async () => {
+    expect((await act({ action: 'click', ref: 'e5' })).isError).toBe(false);
+    expect(driver.connectedTabs()).toEqual(['mine']);
+    turnOffMeanwhile();
+    expect(await act({ action: 'click', ref: 'e5' })).toEqual({ isError: true, text: ACCESS_OFF });
+    expect(driver.connectedTabs()).toEqual([]);
+  });
+
+  it("closes only the caller's own connections", async () => {
+    expect(
+      (await call('consola_browser_evaluate', { tabId: 'theirs', expression: '1' }, 'w-2')).isError,
+    ).toBe(false);
+    // w-1's session is made read-only while its page answers; w-2's is not.
+    fakePage.during = () => {
+      const [w1, ...rest] = workspaces[0].sessions;
+      workspaces[0] = {
+        ...workspaces[0],
+        sessions: [{ ...w1, toolPolicy: 'read-only' }, ...rest],
+      };
+    };
+    expect((await act({ action: 'click', ref: 'e5' })).isError).toBe(true);
+    expect(driver.connectedTabs()).toEqual(['theirs']);
+  });
 });
