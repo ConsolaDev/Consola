@@ -256,8 +256,8 @@ export function CommandPalette({ open, onOpenChange, initialScope }: CommandPale
       }
 
       if (item.kind === 'file') {
-        // Opening a diff needs the review panel, which lives in the content view.
-        useGitReviewStore.getState().open();
+        // The diff opens as a preview, and the file is expanded and scrolled
+        // to in the Changes tab for when that is on screen.
         useGitReviewStore.getState().setFileExpanded(item.relativePath, true);
         useGitReviewStore.getState().setScrollToFile(item.relativePath);
         usePreviewTabStore

@@ -88,7 +88,9 @@ export function TerminalPanel({
   };
 
   return (
-    <div className="terminal-panel">
+    // Marks the conversation's terminal apart from a session shell, which is a
+    // `.terminal-panel` too.
+    <div className="terminal-panel" data-conversation-terminal="">
       <UsageLimitNotice workspaceId={workspaceId} sessionId={sessionId} />
       {/*
        * Holds the restart action, so it appears with it — and, on a

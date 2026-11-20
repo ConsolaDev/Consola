@@ -1,6 +1,9 @@
 import { useMemo } from 'react';
 import { activityOf } from '../../../shared/attention';
+import { checkoutPathForSession } from '../../../shared/workspace';
+import { TAB_KINDS, tabFactsFor } from '../../sidePanel/tabKinds';
 import { useAttentionStore } from '../../stores/attentionStore';
+import { useCheckout } from '../../stores/checkoutStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { isSelectableHarness, useHarnessStore } from '../../stores/harnessStore';
@@ -55,7 +58,6 @@ export function usePaletteContext(): PaletteContext {
   const fileStatuses = useGitStatusStore((state) => state.fileStatuses);
   const gitStatusRootPath = useGitStatusStore((state) => state.rootPath);
   const commitMessage = useGitReviewStore((state) => state.commitMessage);
-  const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
   const terminalFontSize = useSettingsStore((state) => state.terminalFontSize);
   const { openSettings } = useSettings();
 
@@ -68,6 +70,22 @@ export function usePaletteContext(): PaletteContext {
     () => activeWorkspace?.sessions.find((session) => session.id === activeSessionId) ?? null,
     [activeWorkspace, activeSessionId],
   );
+
+  // The tab kinds as the side panel would offer them for the active session.
+  const activeCheckout = useCheckout(
+    activeWorkspace && activeSession
+      ? checkoutPathForSession(activeWorkspace, activeSession)
+      : null,
+  );
+  const tabKinds = useMemo(() => {
+    if (!activeWorkspace || !activeSession) return [];
+    const facts = tabFactsFor(activeWorkspace, activeSession, activeCheckout);
+    return TAB_KINDS.map((kind) => ({
+      id: kind.id,
+      title: kind.title(facts),
+      available: kind.availability(facts).available,
+    }));
+  }, [activeWorkspace, activeSession, activeCheckout]);
 
   // A session with no name yet is still being created; the sidebar hides those
   // too, and a blank row would be unselectable anyway.
@@ -115,7 +133,7 @@ export function usePaletteContext(): PaletteContext {
       gitStatusRootPath,
       stagedCount,
       commitMessage,
-      isGitReviewOpen,
+      tabKinds,
       terminalFontSize,
       openSettings,
     }),
@@ -131,7 +149,7 @@ export function usePaletteContext(): PaletteContext {
       gitStatusRootPath,
       stagedCount,
       commitMessage,
-      isGitReviewOpen,
+      tabKinds,
       terminalFontSize,
       openSettings,
     ],

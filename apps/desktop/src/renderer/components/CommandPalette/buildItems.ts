@@ -2,7 +2,6 @@ import {
   Boxes,
   FolderPlus,
   FolderTree,
-  GitBranch,
   GitCommit,
   Minus,
   PanelLeft,
@@ -25,6 +24,8 @@ import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useHarnessStore } from '../../stores/harnessStore';
 import { useNavigationStore } from '../../stores/navigationStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { TAB_KINDS, type TabKindId } from '../../sidePanel/tabKinds';
 import {
   useSettingsStore,
   TERMINAL_FONT_SIZE_MAX,
@@ -69,7 +70,8 @@ export interface PaletteContext {
   gitStatusRootPath: string | null;
   stagedCount: number;
   commitMessage: string;
-  isGitReviewOpen: boolean;
+  /** The side panel's tab kinds for the active session, in registry order; empty without one. */
+  tabKinds: Array<{ id: TabKindId; title: string; available: boolean }>;
   terminalFontSize: number;
   openSettings: (section?: SettingsSection) => void;
 }
@@ -214,7 +216,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
     run: () => useNavigationStore.getState().toggleSidebar(),
   });
 
-  // The explorer and review panels only exist inside a session's content view.
+  // The explorer only exists inside a session's content view.
   if (activeSession) {
     items.push({
       kind: 'action',
@@ -224,6 +226,21 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
       icon: FolderTree,
       shortcutHint: isMac ? '⇧⌘E' : 'Ctrl+Shift+E',
       run: () => useNavigationStore.getState().toggleExplorer(),
+    });
+  }
+
+  // One row per tab kind that applies to the active session. The side panel
+  // only exists inside one too, so without a session `tabKinds` is empty.
+  for (const kind of TAB_KINDS) {
+    const entry = ctx.tabKinds.find((candidate) => candidate.id === kind.id);
+    if (!entry?.available) continue;
+    items.push({
+      kind: 'action',
+      section: 'actions',
+      id: `action.side-panel.open.${kind.id}`,
+      label: `Open ${entry.title}`,
+      icon: kind.icon,
+      run: () => useSidePanelStore.getState().openKind(kind.id),
     });
   }
 
@@ -290,19 +307,6 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
   if (scope?.isGitRepo && gitRoot) {
     const rootPath = gitRoot;
 
-    if (activeSession) {
-      items.push({
-        kind: 'action',
-        section: 'actions',
-        id: 'action.git.toggle-review',
-        // One row rather than separate open and toggle entries, labelled by
-        // what it is about to do. Gated on isGitRepo to match the toolbar.
-        label: ctx.isGitReviewOpen ? 'Close git review' : 'Open git review',
-        icon: GitBranch,
-        run: () => useGitReviewStore.getState().toggle(),
-      });
-    }
-
     // Generate and commit need a status that actually describes this repo.
     if (hasFreshGitStatus(ctx) && ctx.stagedCount > 0) {
       items.push({
@@ -313,8 +317,8 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
         context: `${ctx.stagedCount} staged`,
         icon: Sparkles,
         run: () => {
-          // The review panel is where the draft and any error surface.
-          useGitReviewStore.getState().open();
+          // The Changes tab is where the draft and any error surface.
+          useSidePanelStore.getState().openKind('changes');
           return useGitReviewStore.getState().generateCommitMessage(rootPath);
         },
       });
@@ -328,7 +332,7 @@ export function buildActionItems(ctx: PaletteContext): ActionPaletteItem[] {
           context: `${ctx.stagedCount} staged`,
           icon: GitCommit,
           run: () => {
-            useGitReviewStore.getState().open();
+            useSidePanelStore.getState().openKind('changes');
             return useGitReviewStore.getState().commitStaged(rootPath);
           },
         });

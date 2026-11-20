@@ -1,8 +1,8 @@
+import type { ReactNode } from 'react';
 import { SHELL_SHORTCUT_LABEL } from '../../utils/shellShortcut';
 import * as Tooltip from '@radix-ui/react-tooltip';
-import { FolderTree, RotateCw, GitPullRequestDraft, TerminalSquare } from 'lucide-react';
+import { FolderTree, RotateCw, TerminalSquare } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
-import { useGitReviewStore } from '../../stores/gitReviewStore';
 import { useCheckoutStore } from '../../stores/checkoutStore';
 import { tildePath } from '../../utils/displayPath';
 import { isMac } from '../../utils/platform';
@@ -17,6 +17,8 @@ interface PathDisplayProps {
   onToggleExplorer?: () => void;
   isTerminalVisible?: boolean;
   onToggleTerminal?: () => void;
+  /** More header buttons, placed after the git stats. */
+  children?: ReactNode;
 }
 
 const explorerShortcut = isMac ? '⇧⌘E' : 'Ctrl+Shift+E';
@@ -48,14 +50,13 @@ export function PathDisplay({
   onToggleExplorer,
   isTerminalVisible = false,
   onToggleTerminal,
+  children,
 }: PathDisplayProps) {
   // Use granular selectors to prevent unnecessary re-renders
   const stats = useGitStatusStore((state) => state.stats);
   const isLoading = useGitStatusStore((state) => state.isLoading);
   const isGitRepo = useGitStatusStore((state) => state.isGitRepo);
   const refresh = useGitStatusStore((state) => state.refresh);
-  const isReviewOpen = useGitReviewStore((state) => state.isOpen);
-  const toggleReview = useGitReviewStore((state) => state.toggle);
 
   // The branch lives in the checkout chip beside the title, so a manual
   // refresh re-reads that too: one button, one answer.
@@ -123,29 +124,7 @@ export function PathDisplay({
           </div>
         )}
 
-        {/* Git Review Panel toggle */}
-        {isGitRepo && (
-          <Tooltip.Provider delayDuration={300}>
-            <Tooltip.Root>
-              <Tooltip.Trigger asChild>
-                <button
-                  className={`path-display-toggle ${isReviewOpen ? 'active' : ''}`}
-                  onClick={toggleReview}
-                  aria-label={isReviewOpen ? 'Close review panel' : 'Open review panel'}
-                  aria-pressed={isReviewOpen}
-                >
-                  <GitPullRequestDraft size={14} />
-                </button>
-              </Tooltip.Trigger>
-              <Tooltip.Portal>
-                <Tooltip.Content className="tooltip-content" sideOffset={5}>
-                  {isReviewOpen ? 'Close review panel' : 'Review changes'}
-                  <Tooltip.Arrow className="tooltip-arrow" />
-                </Tooltip.Content>
-              </Tooltip.Portal>
-            </Tooltip.Root>
-          </Tooltip.Provider>
-        )}
+        {children}
 
         {showExplorerToggle && onToggleExplorer && (
           <Tooltip.Provider delayDuration={300}>

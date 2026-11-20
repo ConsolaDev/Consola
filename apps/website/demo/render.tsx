@@ -9,6 +9,8 @@ import { useNavigationStore } from '../../desktop/src/renderer/stores/navigation
 import { useGitReviewStore } from '../../desktop/src/renderer/stores/gitReviewStore';
 import { useGitStatusStore } from '../../desktop/src/renderer/stores/gitStatusStore';
 import { useSettingsStore } from '../../desktop/src/renderer/stores/settingsStore';
+import { useSidePanelStore } from '../../desktop/src/renderer/stores/sidePanelStore';
+import { isInFront } from '../../desktop/src/renderer/sidePanel/layout';
 import '@fontsource-variable/jetbrains-mono';
 import '@radix-ui/themes/styles.css';
 import '../../desktop/src/renderer/styles/themes/index.css';
@@ -68,12 +70,12 @@ function Root() {
 async function openChanges() {
   await useNavigationStore.getState().setActiveWorkspace('acme');
   useNavigationStore.getState().setActiveSession('retry');
-  useGitReviewStore.getState().open();
+  useSidePanelStore.getState().openKind('changes');
   await useGitStatusStore.getState().refresh('/demo/acme/platform');
 }
 document.addEventListener('demo:changes', async (event) => {
   await useGitStatusStore.getState().refresh((event as CustomEvent<string>).detail);
-  useGitReviewStore.getState().open();
+  useSidePanelStore.getState().openKind('changes');
 });
 window.addEventListener('message', async (event) => {
   if (
@@ -85,7 +87,7 @@ window.addEventListener('message', async (event) => {
   if (event.data.command === 'home') {
     await useNavigationStore.getState().setActiveWorkspace('acme');
     useNavigationStore.getState().setActiveSession('onboarding');
-    useGitReviewStore.getState().close();
+    useSidePanelStore.getState().setVisible(false);
   }
   if (event.data.command === 'personal')
     await useNavigationStore.getState().setActiveWorkspace('personal');
@@ -114,12 +116,12 @@ function reportView() {
         ? null
         : navigation.overlay === 'inbox'
           ? 'inbox'
-          : useGitReviewStore.getState().isOpen && navigation.activeSessionId
+          : isInFront(useSidePanelStore.getState().layout, 'changes') && navigation.activeSessionId
             ? 'changes'
             : 'home';
   window.parent.postMessage({ type: 'consola:demo-view', view }, location.origin);
 }
 useNavigationStore.subscribe(reportView);
-useGitReviewStore.subscribe(reportView);
+useSidePanelStore.subscribe(reportView);
 reportView();
 window.parent.postMessage({ type: 'consola:demo-ready' }, location.origin);

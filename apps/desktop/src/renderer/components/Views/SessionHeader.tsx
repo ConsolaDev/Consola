@@ -12,7 +12,9 @@ import { scopeTrail } from '../../utils/scopeTrail';
 import { tildePath } from '../../utils/displayPath';
 import { renameSession } from '../../utils/sessionActions';
 import { SessionNameEditor } from '../SessionName/SessionNameEditor';
+import { useTabFacts } from '../SidePanel/useTabFacts';
 import { PathDisplay } from './PathDisplay';
+import { ShortcutButton } from './ShortcutButton';
 import { CheckoutChip } from './CheckoutChip';
 import { SnoozeChip } from '../Snooze/SnoozeChip';
 import './styles.css';
@@ -35,6 +37,7 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
   const toggleTerminal = useShellStore((state) => state.toggle);
   const cwd = checkoutPathForSession(workspace, session) ?? '';
   const checkout = useCheckout(cwd || null, { fresh: true });
+  const facts = useTabFacts(workspace, session);
   const scope = scopeForSession(workspace, session);
   const [isRenaming, setIsRenaming] = useState(false);
 
@@ -83,7 +86,9 @@ export function SessionHeader({ workspace, session }: { workspace: Workspace; se
           onToggleExplorer={toggleExplorer}
           isTerminalVisible={isTerminalVisible}
           onToggleTerminal={() => toggleTerminal(session.instanceId)}
-        />
+        >
+          <ShortcutButton kind="changes" facts={facts} />
+        </PathDisplay>
       )}
     </div>
   );

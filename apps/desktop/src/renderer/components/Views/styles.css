@@ -801,6 +801,14 @@
   color: var(--color-accent);
 }
 
+/* A shortcut for a tab that does not apply here: dimmed, its tooltip says why */
+.path-display-toggle[aria-disabled="true"],
+.path-display-toggle[aria-disabled="true"]:hover {
+  background: transparent;
+  color: var(--color-text-disabled);
+  cursor: default;
+}
+
 /* Git stats badge */
 .git-stats-badge {
   display: flex;

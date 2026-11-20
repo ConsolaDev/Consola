@@ -1,4 +1,4 @@
-import { useEffect, useMemo, memo } from 'react';
+import { useEffect, useMemo, memo, type KeyboardEvent } from 'react';
 import { X, PanelLeftClose, PanelLeft, GitBranch } from 'lucide-react';
 import { useGitStatusStore } from '../../stores/gitStatusStore';
 import { useGitReviewStore } from '../../stores/gitReviewStore';
@@ -14,10 +14,14 @@ import './styles.css';
 interface GitReviewPanelProps {
   /** Instance ID for code selection feature */
   instanceId?: string;
+  /** Closes the tab this panel is shown in. */
+  onClose: () => void;
 }
 
-export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitReviewPanelProps) {
-  const close = useGitReviewStore((state) => state.close);
+export const GitReviewPanel = memo(function GitReviewPanel({
+  instanceId,
+  onClose,
+}: GitReviewPanelProps) {
   const isSidebarCollapsed = useGitReviewStore((state) => state.isSidebarCollapsed);
   const toggleSidebar = useGitReviewStore((state) => state.toggleSidebar);
 
@@ -47,17 +51,11 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
     }
   }, [rootPath, refresh]);
 
-  // Keyboard shortcuts
-  useEffect(() => {
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        close();
-      }
-    };
-
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [close]);
+  // Only an Escape pressed inside the tab closes it. Anywhere else Escape
+  // belongs to something else, Claude's interrupt key among them.
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Escape') onClose();
+  };
 
   // Memoize file counts to prevent recalculation on every render
   const { totalCount, stagedCount } = useMemo(() => {
@@ -72,7 +70,8 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
 
   if (!rootPath) {
     return (
-      <div className="git-review-panel">
+      // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside, it is not a control itself
+      <div className="git-review-panel" onKeyDown={handleKeyDown}>
         <div className="git-review-empty">
           <GitBranch size={48} strokeWidth={1.5} className="git-review-empty-icon" />
           <h3 className="git-review-empty-title">No workspace selected</h3>
@@ -84,13 +83,14 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
 
   if (!isGitRepo) {
     return (
-      <div className="git-review-panel">
+      // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside, it is not a control itself
+      <div className="git-review-panel" onKeyDown={handleKeyDown}>
         <div className="git-review-main">
           <div className="git-review-main-header">
             <div className="git-review-main-header-left">
               <span className="git-review-main-header-title">Git Changes</span>
             </div>
-            <button className="git-review-close-btn" onClick={close} title="Close (Esc)">
+            <button className="git-review-close-btn" onClick={onClose} title="Close (Esc)">
               <X size={16} />
             </button>
           </div>
@@ -107,7 +107,8 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
   }
 
   const panelContent = (
-    <div className="git-review-panel">
+    // biome-ignore lint/a11y/noStaticElementInteractions: catches Escape from the controls inside, it is not a control itself
+    <div className="git-review-panel" onKeyDown={handleKeyDown}>
       {/* Sidebar */}
       <div className={`git-review-sidebar ${isSidebarCollapsed ? 'collapsed' : ''}`}>
         <div className="git-review-sidebar-header">
@@ -144,7 +145,7 @@ export const GitReviewPanel = memo(function GitReviewPanel({ instanceId }: GitRe
               {stagedCount > 0 && ` · ${stagedCount} approved`}
             </span>
           </div>
-          <button className="git-review-close-btn" onClick={close} title="Close (Esc)">
+          <button className="git-review-close-btn" onClick={onClose} title="Close (Esc)">
             <X size={16} />
           </button>
         </div>

@@ -7,10 +7,12 @@ import { useHarnessStore } from '../../stores/harnessStore';
 import { usePreviewTabStore } from '../../stores/previewTabStore';
 import { useNavigationStore } from '../../stores/navigationStore';
 import { useGitStatusAutoRefresh } from '../../stores/gitStatusStore';
-import { useGitReviewStore } from '../../stores/gitReviewStore';
+import { useCheckout } from '../../stores/checkoutStore';
+import { useSidePanelStore } from '../../stores/sidePanelStore';
+import { tabFactsFor } from '../../sidePanel/tabKinds';
 import { TerminalPanel } from '../Terminal';
 import { PreviewPanel } from '../PreviewPanel';
-import { GitReviewPanel } from '../GitReviewPanel';
+import { SidePanel } from '../SidePanel/SidePanel';
 import { WorkItemStrip } from '../WorkItemStrip';
 import { WorkItemPanel } from '../WorkItemPanel';
 import { SessionHeader } from './SessionHeader';
@@ -24,7 +26,7 @@ interface ContentViewProps {
 
 export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const isExplorerVisible = useNavigationStore((state) => state.isExplorerVisible);
-  const isGitReviewOpen = useGitReviewStore((state) => state.isOpen);
+  const isSidePanelVisible = useSidePanelStore((state) => state.layout.visible);
   const isWorkItemPanelVisible = useNavigationStore((state) => state.isWorkItemPanelVisible);
 
   const getWorkspace = useWorkspaceStore((state) => state.getWorkspace);
@@ -53,6 +55,9 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   // has nothing to show even when the session still names an item.
   const showWorkItemPanel =
     isWorkItemPanelVisible && Boolean(session?.workItem) && Boolean(workspace?.provider);
+  // What the side panel's tabs read: `useTabFacts`, split around the early
+  // return below, since hooks cannot wait for the session to be found.
+  const checkout = useCheckout(cwd || null);
 
   // Conditional panels must have separate saved layouts: hiding the explorer
   // must not overwrite the layout that remembers its width.
@@ -61,10 +66,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
     'agent',
     ...(showWorkItemPanel ? ['work-item'] : []),
     ...(hasOpenTabs ? ['preview'] : []),
-    ...(isGitReviewOpen ? ['git-review'] : []),
+    ...(isSidePanelVisible ? ['side-panel'] : []),
   ];
+  // Not the id the columns before the side panel saved under, so none of
+  // their layouts is read back.
   const { defaultLayout, onLayoutChanged } = useDefaultLayout({
-    id: 'content-view-split',
+    id: 'session-pane',
     panelIds,
     storage: localStorage,
   });
@@ -111,6 +118,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
   const handleSelectFile = (path: string) => {
     openFile(path);
   };
+  const facts = tabFactsFor(workspace, session, checkout);
 
   return (
     <div className="workspace-view">
@@ -134,6 +142,12 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               <Separator className="resize-handle" />
             </>
           )}
+          {/* The conversation. It stays an unconditional child of this Group,
+              with no wrapper that differs between layouts and the same key,
+              so opening, closing or resizing the side panel only resizes it:
+              a remount would reattach the terminal at a captured size and
+              could lose the prompt's frame (CLAUDE.md, "Terminals Outlive
+              Their Views"). */}
           <Panel id="agent" minSize="20%">
             <SessionTerminalLayout instanceId={instanceId}>
               <TerminalPanel
@@ -156,6 +170,7 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               />
             </SessionTerminalLayout>
           </Panel>
+          {/* The info panel (PR 2) goes here, between the conversation and the side panel. */}
           {showWorkItemPanel && (
             <>
               <Separator className="resize-handle" />
@@ -172,11 +187,11 @@ export function ContentView({ workspaceId, sessionId }: ContentViewProps) {
               </Panel>
             </>
           )}
-          {isGitReviewOpen && (
+          {isSidePanelVisible && (
             <>
               <Separator className="resize-handle" />
-              <Panel id="git-review" defaultSize="40%" minSize="20%">
-                <GitReviewPanel instanceId={instanceId} />
+              <Panel id="side-panel" defaultSize="40%" minSize="280px" maxSize="75%">
+                <SidePanel facts={facts} />
               </Panel>
             </>
           )}
