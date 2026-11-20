@@ -366,6 +366,10 @@ test('the browser panel keeps typed tabs in memory and its settings render', asy
   await expect(tabs.getByRole('tab', { selected: true })).toHaveText('localhost:5173');
   await expect(address).toHaveValue('http://localhost:5173/');
   await expect(panel.getByTestId('browser-empty-tab')).toHaveCount(0);
+  // The toolbar is one row: a control without a grid column of its own wraps under Back.
+  const back = await panel.getByRole('button', { name: 'Back', exact: true }).boundingBox();
+  const more = await panel.getByRole('button', { name: 'More', exact: true }).boundingBox();
+  expect(more.y).toBeCloseTo(back.y, 0);
 
   // A second tab starts empty and offers what the first one visited.
   await tabs.getByRole('button', { name: 'New tab', exact: true }).click();

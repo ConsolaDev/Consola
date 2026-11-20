@@ -25,7 +25,8 @@
 
 .browser-toolbar {
   display: grid;
-  grid-template-columns: auto auto auto minmax(0, 1fr) auto auto;
+  /* Back, forward, reload, the address, then system browser, screenshot and more. */
+  grid-template-columns: auto auto auto minmax(0, 1fr) auto auto auto;
   align-items: center;
   column-gap: 2px;
   padding: var(--space-1) var(--space-2);
