@@ -1,3 +1,19 @@
+/** A test run: `NODE_ENV=test`, which also moves `userData` to the test profile (`index.ts`). */
+export const isTest = process.env.NODE_ENV === 'test';
+
 /** Keep E2E launches off the desktop unless explicitly debugging visibly. */
-export const isBackgroundTest =
-  process.env.NODE_ENV === 'test' && process.env.CONSOLA_E2E_HEADED !== '1';
+export const isBackgroundTest = isTest && process.env.CONSOLA_E2E_HEADED !== '1';
+
+/**
+ * The automations tick an end-to-end test asks for (`CONSOLA_AUTOMATIONS_TICK_MS`),
+ * so "across ticks" takes seconds: honoured only in a test run, and only as a
+ * whole number of at least 500 ms. Anything else is undefined, the engine's own.
+ */
+export function automationsTickMs(
+  raw = process.env.CONSOLA_AUTOMATIONS_TICK_MS,
+  test = isTest,
+): number | undefined {
+  if (!test || raw === undefined || !/^\d+$/.test(raw)) return undefined;
+  const ms = Number.parseInt(raw, 10);
+  return ms >= 500 ? ms : undefined;
+}

@@ -221,6 +221,8 @@ export interface AutomationServiceDeps {
   broadcast(workspaceId: string, snapshot: AutomationsSnapshot): void;
   /** setInterval, as a seam; returns a canceller. */
   every(ms: number, run: () => void): () => void;
+  /** How often the tick runs; `TICK_MS` unless the host sets it (end-to-end tests do). */
+  tickMs?: number;
   /** A workspace's latest Inbox snapshot, or null before its first fetch. */
   inboxSnapshot(workspaceId: string): ItemSnapshot | null;
   /** Fetch a workspace's Inbox now — an event automation's "Check now". */
@@ -565,7 +567,7 @@ export class AutomationService {
     this.started = true;
     await this.syncWorkspaces();
     this.announcingAllows = true;
-    this.stopTicking = this.deps.every(TICK_MS, () => void this.tick());
+    this.stopTicking = this.deps.every(this.deps.tickMs ?? TICK_MS, () => void this.tick());
     // Catch up on anything missed while Consola was closed, and resume
     // whatever was queued when it quit.
     await this.tick();

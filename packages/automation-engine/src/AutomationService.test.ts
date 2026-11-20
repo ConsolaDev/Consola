@@ -11,7 +11,12 @@ import {
   replaceAutomationEntry,
 } from '@consola/factory-spec';
 import { defineTool, FakeToolRegistry } from './tools.test-helpers';
-import { AutomationService, INTERRUPTED_PROMPT, type AutomationNotice } from './AutomationService';
+import {
+  AutomationService,
+  INTERRUPTED_PROMPT,
+  TICK_MS,
+  type AutomationNotice,
+} from './AutomationService';
 import { inboxItem, itemKey } from './inboxItems.test-helpers';
 import { assignedReviewsEntry, EMPTY_FACTORY_FILE, factoryTemplate } from './factoryTemplates';
 import { RunFolder } from './node/runFolder';
@@ -68,6 +73,8 @@ interface Setup {
   stopAgent?: (session: SessionView, reason: string) => boolean;
   /** Where runs keep their definitions and documents; by default, nowhere a test can reach. */
   runFolder?: RunFolderPort;
+  /** The host's tick, when it sets one (the e2e seam); by default the engine's own. */
+  tickMs?: number;
 }
 
 /** A run folder for tests that never touch one: any path it is asked for throws. */
@@ -123,8 +130,11 @@ function setup({
   harness = { name: 'Claude', problem: null },
   stopAgent = vi.fn(() => true),
   runFolder = NO_RUN_FOLDER,
+  tickMs,
 }: Setup = {}) {
   let clock = now;
+  /** Each interval the service armed, in milliseconds. */
+  const intervals: number[] = [];
   const world: AgentWorld = {
     inbox: new Map(),
     launches: [],
@@ -252,7 +262,11 @@ function setup({
     newId: () => `run-${++id}`,
     notify: (notice) => notices.push(notice),
     broadcast: vi.fn(),
-    every: () => () => {},
+    every: (ms) => {
+      intervals.push(ms);
+      return () => {};
+    },
+    ...(tickMs !== undefined ? { tickMs } : {}),
     inboxSnapshot: (workspaceId) => world.inbox.get(workspaceId) ?? null,
     refreshInbox: async (workspaceId) => {
       world.refreshes.push(workspaceId);
@@ -313,6 +327,7 @@ function setup({
   });
   const t = {
     service,
+    intervals,
     file,
     history,
     store,
@@ -443,6 +458,15 @@ describe('an agent’s destructive call', () => {
 });
 
 describe('scheduling', () => {
+  it('ticks every TICK_MS, or every tickMs when the host sets it', async () => {
+    const plain = setup();
+    await plain.start();
+    expect(plain.intervals).toEqual([TICK_MS]);
+    const fast = setup({ tickMs: 2000 });
+    await fast.start();
+    expect(fast.intervals).toEqual([2000]);
+  });
+
   it('never fires a new automation for an occurrence before it existed, then fires when due', async () => {
     const t = setup({ now: new Date(2026, 10, 4, 10, 0), accepted: true });
     await t.start();
