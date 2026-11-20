@@ -48,6 +48,7 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     sidebarWidth: SIDEBAR_WIDTH_DEFAULT,
     isExplorerVisible: false,
     isWorkItemPanelVisible: false,
+    isBrowserVisible: false,
     activeWorkspaceId: 'current-workspace',
     activeSessionId: 'current-session',
     overlay: null,
@@ -58,6 +59,8 @@ function makeCurrent(overrides: Partial<NavigationState> = {}): NavigationState 
     setExplorerVisible: vi.fn(),
     toggleWorkItemPanel: vi.fn(),
     setWorkItemPanelVisible: vi.fn(),
+    toggleBrowser: vi.fn(),
+    setBrowserVisible: vi.fn(),
     setActiveWorkspace: vi.fn(),
     setActiveSession: vi.fn(),
     openInbox: vi.fn(),
@@ -111,6 +114,14 @@ describe('mergeNavigationState', () => {
       mergeNavigationState({ isWorkItemPanelVisible: 'yes' }, current).isWorkItemPanelVisible,
     ).toBe(false);
     expect(mergeNavigationState({}, current).isWorkItemPanelVisible).toBe(false);
+  });
+
+  it('takes the browser panel preference from the blob, and keeps current without one', () => {
+    const current = makeCurrent({ isBrowserVisible: false });
+
+    expect(mergeNavigationState({ isBrowserVisible: true }, current).isBrowserVisible).toBe(true);
+    expect(mergeNavigationState({ isBrowserVisible: 1 }, current).isBrowserVisible).toBe(false);
+    expect(mergeNavigationState({}, current).isBrowserVisible).toBe(false);
   });
 
   it('ignores a non-boolean preference value', () => {

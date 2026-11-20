@@ -5,7 +5,13 @@
  */
 
 /** Sections that are the same in every workspace. */
-export type AppSectionId = 'appearance' | 'sessions' | 'harnesses' | 'shortcuts' | 'updates';
+export type AppSectionId =
+  | 'appearance'
+  | 'sessions'
+  | 'appBrowser'
+  | 'harnesses'
+  | 'shortcuts'
+  | 'updates';
 
 /** Sections that edit the workspace this window is on. */
 export type WorkspaceSectionId =
@@ -16,6 +22,7 @@ export type WorkspaceSectionId =
   | 'actions'
   | 'labels'
   | 'worktrees'
+  | 'browser'
   | 'danger';
 
 export type SettingsSection = AppSectionId | WorkspaceSectionId;
@@ -24,6 +31,7 @@ export type SettingsSection = AppSectionId | WorkspaceSectionId;
 export const APP_GROUP: readonly AppSectionId[] = [
   'appearance',
   'sessions',
+  'appBrowser',
   'harnesses',
   'shortcuts',
 ];
@@ -37,6 +45,7 @@ export const WORKSPACE_GROUP: readonly WorkspaceSectionId[] = [
   'actions',
   'labels',
   'worktrees',
+  'browser',
   'danger',
 ];
 

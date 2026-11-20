@@ -1,6 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RunRecord } from '@consola/factory-spec';
 import type { Workspace } from '../../shared/workspace';
+import { browserRefusal } from '../browser/browserToolAccess';
 import { agentContext, type ToolRegistry, type ToolResult } from '../tools/Tool';
 import { mcpToolName } from './names';
 import { asToolResult } from './toolResult';
@@ -17,6 +18,8 @@ export interface SessionServerDeps {
   };
   /** Adds the group tools; called only for conductors. */
   conductorTools: { addTo(server: McpServer, conductorSessionId: string): void };
+  /** Adds the in-app browser tools; called only when `browserRefusal` allows the session. */
+  browserTools: { addTo(server: McpServer, sessionId: string): void };
   getWorkspaces(): Workspace[];
 }
 
@@ -33,7 +36,8 @@ function describeFor(tool: { description: string; destructive?: boolean }): stri
  * The MCP server one session sees, built fresh for each connection.
  *
  * Every session gets the Consola tools, acting on its own workspace and never
- * on itself; a conductor also gets its group tools. The session id comes
+ * on itself; a conductor also gets its group tools, and a session that may use
+ * its workspace's browser gets the browser tools. The session id comes
  * from the endpoint the connection
  * arrived on (SessionMcpHost), and the caller is re-resolved on every call,
  * so a deleted or moved session loses its authority immediately.
@@ -47,10 +51,10 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
 
   // A session's kind and tool policy are fixed for its lifetime, so
   // deciding per connection is enough.
-  const caller = deps
+  const workspace = deps
     .getWorkspaces()
-    .flatMap((workspace) => workspace.sessions)
-    .find((session) => session.id === sessionId);
+    .find((candidate) => candidate.sessions.some((session) => session.id === sessionId));
+  const caller = workspace?.sessions.find((session) => session.id === sessionId);
   // A read-only session — one an automation started — gets only tools that
   // change nothing: no deletes, and no run_automation, since a run never
   // starts another run. Whatever its item's text talks it into, it has no
@@ -84,6 +88,9 @@ export function buildSessionServer(sessionId: string, deps: SessionServerDeps): 
   }
 
   if (caller?.kind === 'conductor' && !readOnly) deps.conductorTools.addTo(server, sessionId);
+  // Browser access, unlike the kind, can be turned off later: the tools ask
+  // again on every call.
+  if (browserRefusal(workspace, caller) === null) deps.browserTools.addTo(server, sessionId);
 
   return server;
 }

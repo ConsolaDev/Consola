@@ -86,6 +86,7 @@ export const IPC_CHANNELS = {
   PREFERENCES_SET_SNOOZE_AT_USAGE_LIMIT: 'preferences:set-snooze-at-usage-limit',
   PREFERENCES_CHANGED: 'preferences:changed', // main -> renderer: the full preferences, to every window
   PREFERENCES_SET_WORKTREE_CLEANUP: 'preferences:set-worktree-cleanup',
+  PREFERENCES_SET_TERMINAL_LINKS: 'preferences:set-terminal-links',
   WORKTREE_CLEANUP_PREVIEW: 'worktree-cleanup:preview', // renderer -> main: what the rules would remove now, and why the rest stays
   WORKTREE_CLEANUP_RUN: 'worktree-cleanup:run', // renderer -> main: "Clean up now"; answers the report
   WORKTREE_CLEANUP_HISTORY: 'worktree-cleanup:history', // renderer -> main: what was removed and rebuilt, newest first
@@ -178,6 +179,38 @@ export const IPC_CHANNELS = {
 
   // Personal automations (main -> every renderer)
   AUTOMATIONS_CHANGED: 'automations:changed', // A workspace's fresh AutomationsSnapshot
+
+  // In-app browser (renderer -> main). Every handler checks the tab belongs to the sender's workspace.
+  BROWSER_GET: 'browser:get', // One session's BrowserSessionSnapshot, for the first paint
+  BROWSER_OPEN: 'browser:open', // Open a tab in a session
+  BROWSER_CLOSE: 'browser:close', // Close a tab
+  BROWSER_ACTIVATE: 'browser:activate', // Make a tab the visible one
+  BROWSER_NAVIGATE: 'browser:navigate', // Send a tab to an address
+  BROWSER_RETRY: 'browser:retry', // A shown tab's automatic retry of an unreachable page on this machine: never the person's input
+  BROWSER_BACK: 'browser:back',
+  BROWSER_FORWARD: 'browser:forward',
+  BROWSER_RELOAD: 'browser:reload',
+  BROWSER_STOP: 'browser:stop',
+  BROWSER_ATTACH: 'browser:attach', // Bind a mounted <webview> to its tab once it attaches
+  BROWSER_SET_VISIBLE: 'browser:set-visible', // Which tab the person is looking at, or none
+  BROWSER_HARD_RELOAD: 'browser:hard-reload', // Reload a tab ignoring its cache
+  BROWSER_FIND: 'browser:find', // Search a tab's page for text
+  BROWSER_STOP_FIND: 'browser:stop-find', // Clear a tab's find highlights
+  BROWSER_ZOOM: 'browser:zoom', // Step, reset or read a tab's zoom level
+  BROWSER_DEVTOOLS: 'browser:devtools', // Open a tab's DevTools in their own window
+  BROWSER_HISTORY: 'browser:history', // The sender's workspace's visited pages, newest first
+  BROWSER_CERTIFICATE_CONTINUE: 'browser:certificate-continue', // Trust a refused loopback certificate and reload
+  BROWSER_AUTH_ANSWER: 'browser:auth-answer', // The credentials (or a cancel) for a sign-in dialog
+  BROWSER_CLEAR_DATA: 'browser:clear-data', // Wipe the sender's workspace's browsing data
+  BROWSER_CAPTURE: 'browser:capture', // Save a tab's page as a PNG and answer its path
+  BROWSER_LOCAL_SERVERS: 'browser:local-servers', // Servers running from a session's folder
+
+  // In-app browser (main -> renderer)
+  BROWSER_SNAPSHOT: 'browser:snapshot', // A session's fresh BrowserSessionSnapshot
+  BROWSER_SHORTCUT: 'browser:shortcut', // A shortcut pressed while a page had focus
+  BROWSER_FOUND: 'browser:found', // A tab's find result: which match, out of how many
+  BROWSER_AUTH_REQUEST: 'browser:auth-request', // A page asks for a username and password
+  BROWSER_AUTH_CANCELLED: 'browser:auth-cancelled', // A sign-in dialog's request is over; close it
 } as const;
 
 export const DEFAULT_DIMENSIONS = {

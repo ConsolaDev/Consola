@@ -2,7 +2,9 @@ import { beforeEach, describe, expect, it } from 'vitest';
 import type { Attention } from '../../shared/attention';
 import { NEW_SESSION_NAME, type Session, type Workspace } from '../../shared/workspace';
 import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-helpers';
-import { EmptySessionReaper, mayBeEmpty } from './EmptySessionReaper';
+import { BrowserService } from '../browser/BrowserService';
+import { BrowserStateStore } from '../browser/BrowserStateStore';
+import { browsedIn, EmptySessionReaper, mayBeEmpty } from './EmptySessionReaper';
 
 const blank = (id: string, extra: Partial<Session> = {}) =>
   makeSession({
@@ -22,6 +24,8 @@ let shown: Set<string>;
 let transcripts: Map<string, boolean | null>;
 let removed: string[];
 let reads: string[];
+/** Each session's browser tabs; a `null` entry cannot be read. No entry: no tabs. */
+let tabs: Map<string, { url: string; openedBy: 'person' | 'agent' }[] | null>;
 
 function reaper(overrides: Partial<ConstructorParameters<typeof EmptySessionReaper>[0]> = {}) {
   return new EmptySessionReaper({
@@ -36,6 +40,7 @@ function reaper(overrides: Partial<ConstructorParameters<typeof EmptySessionReap
       workspace.sessions = workspace.sessions.filter((candidate) => candidate.id !== session.id);
       removed.push(session.id);
     },
+    browserTabs: (session) => (tabs.has(session.id) ? (tabs.get(session.id) ?? null) : []),
     ...overrides,
   });
 }
@@ -52,6 +57,7 @@ beforeEach(() => {
   transcripts = new Map();
   removed = [];
   reads = [];
+  tabs = new Map();
 });
 
 describe('mayBeEmpty', () => {
@@ -75,6 +81,106 @@ describe('mayBeEmpty', () => {
       carried: 'native' as const,
     };
     expect(mayBeEmpty(blank('a', { priorConversations: [prior] }))).toBe(false);
+  });
+});
+
+describe('browsedIn', () => {
+  it('is a tab holding an address, whoever opened it', () => {
+    expect(browsedIn([{ url: 'https://example.test/' }])).toBe(true);
+    expect(browsedIn([{ url: '' }, { url: 'http://localhost:5173/' }])).toBe(true);
+  });
+
+  it('is not a browser with no tabs, or only blank ones', () => {
+    expect(browsedIn([])).toBe(false);
+    expect(browsedIn([{ url: '' }, { url: 'about:blank' }])).toBe(false);
+  });
+
+  it('is a tab list that cannot be read, so nothing is thrown away unseen', () => {
+    expect(browsedIn(null)).toBe(true);
+  });
+});
+
+describe('EmptySessionReaper and the browser', () => {
+  it('removes an empty session with no browser tabs, as before', async () => {
+    given(blank('a'));
+    expect(await reaper().sweep()).toEqual(['a']);
+  });
+
+  it('keeps an empty session with a tab on an address, whoever opened it, unread', async () => {
+    given(blank('mine'), blank('agents'));
+    tabs.set('mine', [{ url: 'https://example.test/', openedBy: 'person' }]);
+    tabs.set('agents', [
+      { url: '', openedBy: 'person' },
+      { url: 'http://localhost:3000/', openedBy: 'agent' },
+    ]);
+    expect(await reaper().sweep()).toEqual([]);
+    expect(await reaper().settled(['mine', 'agents'])).toEqual([]);
+    expect(removed).toEqual([]);
+    // Used, so there is nothing to ask its transcript.
+    expect(reads).toEqual([]);
+  });
+
+  it('removes an empty session whose only tabs are blank', async () => {
+    given(blank('a'));
+    tabs.set('a', [
+      { url: '', openedBy: 'person' },
+      { url: 'about:blank', openedBy: 'agent' },
+    ]);
+    expect(await reaper().sweep()).toEqual(['a']);
+  });
+
+  it('keeps an empty session whose tab list cannot be read, or whose read throws', async () => {
+    given(blank('a'), blank('b'));
+    tabs.set('a', null);
+    const failing = reaper({
+      browserTabs: (session) => {
+        if (session.id === 'b') throw new Error('no browser');
+        return tabs.get(session.id) ?? null;
+      },
+    });
+    expect(await failing.sweep()).toEqual([]);
+    expect(removed).toEqual([]);
+    expect(reads).toEqual([]);
+  });
+
+  it('keeps every empty session when the browser’s state file could not be read', async () => {
+    // As main wires it: the stored tabs, through the real store and service.
+    const browserOver = (read: () => unknown) => {
+      const store = new BrowserStateStore({ read, write: () => {} });
+      store.load();
+      return new BrowserService({
+        store,
+        workspaceIdForSession: () => 'w1',
+        findWindowForWorkspace: () => undefined,
+        send: () => {},
+        clearPartition: () => {},
+        every: () => () => {},
+      });
+    };
+    const lost = browserOver(() => {
+      throw new Error('Could not read browser-state.json or its backup');
+    });
+    given(blank('a'));
+    const afterLoss = reaper({ browserTabs: (session) => lost.storedTabsFor(session.id) });
+    expect(await afterLoss.sweep()).toEqual([]);
+    expect(reads).toEqual([]);
+
+    // A file that was never written is no loss: nothing was there to keep.
+    const none = browserOver(() => null);
+    const firstRun = reaper({ browserTabs: (session) => none.storedTabsFor(session.id) });
+    expect(await firstRun.sweep()).toEqual(['a']);
+  });
+
+  it('keeps a session that got a page while its transcript was read', async () => {
+    given(blank('a'));
+    const racing = reaper({
+      hasFirstMessage: async () => {
+        tabs.set('a', [{ url: 'https://example.test/', openedBy: 'person' }]);
+        return false;
+      },
+    });
+    expect(await racing.sweep()).toEqual([]);
+    expect(removed).toEqual([]);
   });
 });
 

@@ -51,6 +51,14 @@ export function allowedWorkspaceUpdates(updates: WorkspaceUpdates): WorkspaceUpd
         ? undefined
         : normalizeWorkspaceOverride(updates.worktreeCleanup);
   }
+  // Presence: `'off'` turns agents' browser access off, `undefined` turns it
+  // back on by removing the field.
+  if ('browserAgentAccess' in updates) {
+    if (updates.browserAgentAccess !== undefined && updates.browserAgentAccess !== 'off') {
+      throw new Error('Agent access to the browser is either off or absent.');
+    }
+    allowed.browserAgentAccess = updates.browserAgentAccess;
+  }
   return allowed;
 }
 

@@ -12,6 +12,7 @@ import {
   Boxes,
   Folder,
   FolderGit2,
+  Globe,
   Info,
   Minus,
   Plug,
@@ -31,8 +32,13 @@ import {
 } from '../../stores/settingsStore';
 import type { Workspace } from '../../stores/workspaceStore';
 import { useTheme } from '../../hooks/useTheme';
-import { COMMAND_PALETTE_SHORTCUT_LABEL, isMac } from '../../utils/platform';
+import {
+  BROWSER_SHORTCUT_LABEL,
+  COMMAND_PALETTE_SHORTCUT_LABEL,
+  isMac,
+} from '../../utils/platform';
 import { HarnessesSection } from '../Harnesses';
+import { TerminalLinksControl } from '../Browser/TerminalLinksControl';
 import { AutoSettleControl } from '../AutoSettle/AutoSettleControl';
 import { WorktreeCleanupControl } from '../WorktreeCleanup/WorktreeCleanupControl';
 import { WorktreeCleanupPanel } from '../WorktreeCleanup/WorktreeCleanupPanel';
@@ -42,6 +48,7 @@ import { HarnessPanel } from '../WorkspaceSettings/HarnessPanel';
 import { SessionTitlesPanel } from '../WorkspaceSettings/SessionTitlesPanel';
 import { ScopesPanel } from '../WorkspaceSettings/ScopesPanel';
 import { LabelsPanel } from '../WorkspaceSettings/LabelsPanel';
+import { BrowserSettingsPanel } from '../WorkspaceSettings/BrowserSettingsPanel';
 import { DangerZonePanel } from '../WorkspaceSettings/DangerZonePanel';
 import { ActionsPanel } from '../WorkspaceSettings/ActionsPanel';
 import { providerNavLabel } from '../WorkspaceSettings/navLabels';
@@ -70,6 +77,7 @@ interface SettingsNavMeta {
 const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   appearance: { label: 'Appearance', icon: Palette },
   sessions: { label: 'Sessions', icon: ListChecks },
+  appBrowser: { label: 'Browser links', icon: Globe },
   harnesses: { label: 'Harnesses', icon: Boxes },
   shortcuts: { label: 'Keyboard shortcuts', icon: Keyboard },
   updates: { label: 'Updates', icon: Monitor },
@@ -80,6 +88,7 @@ const NAV_META: Record<SettingsSection, SettingsNavMeta> = {
   actions: { label: 'Actions', icon: Sparkles },
   labels: { label: 'Labels', icon: Tag },
   worktrees: { label: 'Worktrees', icon: FolderGit2 },
+  browser: { label: 'Browser', icon: Globe },
   danger: { label: 'Danger zone', icon: Trash2, danger: true },
 };
 
@@ -179,6 +188,7 @@ export function SettingsModal({
               />
             )}
             {section === 'sessions' && <SessionsSection />}
+            {section === 'appBrowser' && <AppBrowserSection />}
             {section === 'harnesses' && <HarnessesSection />}
             {section === 'shortcuts' && <ShortcutsSection />}
             {section === 'updates' && <AppUpdatesSection />}
@@ -251,6 +261,7 @@ function WorkspaceSection({
       {section === 'actions' && <ActionsPanel workspace={workspace} />}
       {section === 'labels' && <LabelsPanel workspace={workspace} />}
       {section === 'worktrees' && <WorktreeCleanupPanel workspace={workspace} />}
+      {section === 'browser' && <BrowserSettingsPanel workspace={workspace} />}
       {section === 'danger' && <DangerZonePanel workspace={workspace} />}
     </div>
   );
@@ -332,8 +343,8 @@ function SessionsSection() {
           <span className="settings-modal-option-label">Settle idle sessions</span>
           <span className="settings-modal-option-description">
             Sessions with nothing happening move to the Settled shelf after this long, and new
-            activity brings a session back. A session that never had a message is removed instead.
-            Choose Off to keep every session where it is.
+            activity brings a session back. A session that never had a message, and has no page
+            open, is removed instead. Choose Off to keep every session where it is.
           </span>
         </div>
         <AutoSettleControl />
@@ -355,6 +366,25 @@ function SessionsSection() {
   );
 }
 
+function AppBrowserSection() {
+  return (
+    <div className="settings-modal-section">
+      <h2 className="settings-modal-section-title">Browser links</h2>
+      <div className="settings-modal-option">
+        <div className="settings-modal-option-info">
+          <span className="settings-modal-option-label">Links in the terminal</span>
+          <span className="settings-modal-option-description">
+            Where a link opens when you click it in a session’s terminal or shell. Hold Shift while
+            you click to do the opposite, once. Links that are not web pages always go to the
+            system.
+          </span>
+        </div>
+        <TerminalLinksControl />
+      </div>
+    </div>
+  );
+}
+
 function ShortcutsSection() {
   // Mirrors what useKeyboardShortcuts actually binds -- nothing aspirational.
   const mod = isMac ? '⌘' : 'Ctrl+';
@@ -367,6 +397,7 @@ function ShortcutsSection() {
     { label: 'Switch workspace by position', key: `${mod}1–9` },
     { label: 'Toggle sidebar', key: `${mod}\\` },
     { label: 'Toggle file explorer', key: `${mod}${shift}E` },
+    { label: 'Toggle browser', key: BROWSER_SHORTCUT_LABEL },
     { label: 'Toggle terminal', key: SHELL_SHORTCUT_LABEL },
     { label: 'Open settings', key: `${mod},` },
     { label: 'Cycle theme', key: `${mod}${shift}T` },

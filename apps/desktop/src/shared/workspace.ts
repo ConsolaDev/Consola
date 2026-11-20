@@ -283,6 +283,9 @@ export interface Workspace {
   // How this workspace's worktrees are cleaned up: its own rules, off, or —
   // absent — the global rules in Preferences. Optional, so no migration.
   worktreeCleanup?: WorkspaceWorktreeCleanup;
+  // Whether this workspace's agents may use its in-app browser: `'off'`, or
+  // absent for on. Optional, so no migration.
+  browserAgentAccess?: 'off';
   createdAt: number;
   updatedAt: number;
 }
@@ -483,7 +486,15 @@ export type SessionUpdates = Partial<
 
 /** The workspace fields a window may change; the filter in main enforces it. */
 export type WorkspaceUpdates = Partial<
-  Pick<Workspace, 'name' | 'defaultHarnessId' | 'icon' | 'sessionTitles' | 'worktreeCleanup'>
+  Pick<
+    Workspace,
+    | 'name'
+    | 'defaultHarnessId'
+    | 'icon'
+    | 'sessionTitles'
+    | 'worktreeCleanup'
+    | 'browserAgentAccess'
+  >
 >;
 
 /**

@@ -1,12 +1,14 @@
-import { BrowserWindow, Menu, MenuItem, app, protocol } from 'electron';
+import { Menu, MenuItem, app, protocol } from 'electron';
 import { IPC_CHANNELS } from '../shared/constants';
 import { WORK_ITEM_ASSET_SCHEME } from '../shared/workItemAssets';
 import { setupAppUpdates } from './appUpdates';
 import { isBackgroundTest } from './test-mode';
 import {
+  consolaWindows,
   contextToReopen,
   createWindow,
   getAnyWindow,
+  getFocusedConsolaWindow,
   restoreWindowLayout,
   saveWindowLayout,
 } from './window-manager';
@@ -106,7 +108,7 @@ app.whenReady().then(() => {
     const applicationMenu = menu.items[0]?.submenu;
     if (applicationMenu) {
       const showSettings = (section?: 'updates') => {
-        const existing = BrowserWindow.getFocusedWindow() ?? getAnyWindow();
+        const existing = getFocusedConsolaWindow() ?? getAnyWindow();
         const target =
           existing ?? createWindow(contextToReopen(getKnownWorkspaceIds(), viewMemoryPort()));
         const openSettings = () =>
@@ -146,7 +148,7 @@ app.whenReady().then(() => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) {
+    if (consolaWindows().length === 0) {
       // Reopen where the user left off, not on an empty Home. The window
       // registry was emptied as each window closed and the layout file is
       // only written at quit, so the last workspace a window held is all

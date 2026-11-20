@@ -4,6 +4,8 @@ import { SessionRemover } from './SessionRemover';
 function harness(
   deleteRecord: (workspaceId: string, sessionId: string) => void = () => {},
   removeHandoffs: (sessionId: string) => Promise<void> = async () => {},
+  removeCaptures: (sessionId: string) => Promise<void> = async () => {},
+  destroyBrowser: (sessionId: string) => void = () => {},
 ) {
   const calls: string[] = [];
   const remover = new SessionRemover({
@@ -13,6 +15,14 @@ function harness(
     }),
     destroyTerminal: (id) => calls.push(`terminal ${id}`),
     destroyShell: (id) => calls.push(`shell ${id}`),
+    destroyBrowser: (id) => {
+      calls.push(`browser ${id}`);
+      destroyBrowser(id);
+    },
+    removeCaptures: (id) => {
+      calls.push(`captures ${id}`);
+      return removeCaptures(id);
+    },
     releaseMcp: (id) => calls.push(`mcp ${id}`),
     removeHandoffs: (id) => {
       calls.push(`handoffs ${id}`);
@@ -33,6 +43,8 @@ describe('SessionRemover', () => {
       'terminal workspace-w-session-1',
       'shell workspace-w-session-1',
       'mcp s-1',
+      'browser s-1',
+      'captures s-1',
       'handoffs s-1',
     ]);
   });
@@ -62,6 +74,8 @@ describe('SessionRemover', () => {
       'terminal workspace-w-session-1',
       'shell workspace-w-session-1',
       'mcp s-1',
+      'browser s-1',
+      'captures s-1',
       'handoffs s-1',
     ]);
   });
@@ -71,6 +85,39 @@ describe('SessionRemover', () => {
     const { remover } = harness(undefined, () => Promise.reject(new Error('busy')));
     expect(() => remover.remove('w', session)).not.toThrow();
     await new Promise((resolve) => setImmediate(resolve));
+    expect(error).toHaveBeenCalled();
+    error.mockRestore();
+  });
+
+  it('a captures folder that cannot be deleted is logged and the later steps still run', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { remover, calls } = harness(undefined, undefined, () =>
+      Promise.reject(new Error('busy')),
+    );
+    expect(() => remover.discard(session)).not.toThrow();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(error).toHaveBeenCalled();
+    expect(calls).toContain('handoffs s-1');
+    error.mockRestore();
+  });
+
+  it('a captures removal that throws at once does not skip the handoffs', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { remover, calls } = harness(undefined, undefined, () => {
+      throw new Error('sync');
+    });
+    expect(() => remover.discard(session)).not.toThrow();
+    expect(calls).toContain('handoffs s-1');
+    error.mockRestore();
+  });
+
+  it('a browser teardown that throws is logged, and the later steps still run', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const { remover, calls } = harness(undefined, undefined, undefined, () => {
+      throw new Error('Object has been destroyed');
+    });
+    expect(() => remover.discard(session)).not.toThrow();
+    expect(calls).toEqual(expect.arrayContaining(['captures s-1', 'handoffs s-1']));
     expect(error).toHaveBeenCalled();
     error.mockRestore();
   });
