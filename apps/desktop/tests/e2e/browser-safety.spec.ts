@@ -284,6 +284,33 @@ test.describe('in-app browser safety', () => {
     await expect.poll(() => cookiesIn(app, workspaceId)).toEqual([]);
   });
 
+  test("the workspace's switch turns its agents' browser access off, and back on", async () => {
+    // What the record says: 'off', or nothing, which means on.
+    const access = () =>
+      page.evaluate(async (id) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        return workspaces.find((candidate) => candidate.id === id)?.browserAgentAccess ?? 'on';
+      }, workspaceId);
+
+    await page.keyboard.press(settingsChord());
+    const modal = page.getByRole('dialog', { name: /Settings/ });
+    await modal
+      .getByRole('group', { name: /^Workspace/ })
+      .getByRole('button', { name: 'Browser', exact: true })
+      .click();
+    const toggle = modal.getByRole('switch', { name: "Let agents use this workspace's browser" });
+    await expect(toggle).toBeChecked();
+    expect(await access()).toBe('on');
+
+    await toggle.click();
+    await expect(toggle).not.toBeChecked();
+    await expect.poll(access).toBe('off');
+
+    await toggle.click();
+    await expect(toggle).toBeChecked();
+    await expect.poll(access).toBe('on');
+  });
+
   test('a page asking to capture the screen is refused without an error in main', async () => {
     await typeAddress(page, `${fixtures.host}/a.html`);
     await expect.poll(() => guestTitles(app)).toEqual(['Page A']);

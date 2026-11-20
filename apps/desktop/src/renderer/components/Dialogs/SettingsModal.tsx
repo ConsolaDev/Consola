@@ -260,7 +260,7 @@ function WorkspaceSection({
       {section === 'actions' && <ActionsPanel workspace={workspace} />}
       {section === 'labels' && <LabelsPanel workspace={workspace} />}
       {section === 'worktrees' && <WorktreeCleanupPanel workspace={workspace} />}
-      {section === 'browser' && <BrowserSettingsPanel />}
+      {section === 'browser' && <BrowserSettingsPanel workspace={workspace} />}
       {section === 'danger' && <DangerZonePanel workspace={workspace} />}
     </div>
   );
