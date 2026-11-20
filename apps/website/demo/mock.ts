@@ -11,7 +11,12 @@ import {
 } from './fixtures';
 import { substitutePlaceholders } from '../../desktop/src/shared/workItemPrompt';
 import { DEFAULT_DIMENSIONS } from '../../desktop/src/shared/constants';
-import type { Workspace, Session, NewSessionFields } from '../../desktop/src/shared/workspace';
+import {
+  createLabelRecord,
+  type Workspace,
+  type Session,
+  type NewSessionFields,
+} from '../../desktop/src/shared/workspace';
 import type { WorkspaceView, TerminalCreateOptions } from '../../desktop/src/shared/types';
 import type { WorkItemRef } from '../../desktop/src/shared/workItems';
 import type { WorkItemDetails, WorkItemMutation } from '../../desktop/src/shared/workItemDetails';
@@ -20,22 +25,23 @@ import type { BrowserSnapshotMessage } from '../../desktop/src/shared/browser';
 import { browserMock } from './mockBrowser';
 
 /**
- * Every `window.*API` the desktop declares, less those the demo leaves out, so
- * a bridge added to the app is a type error here before it is an error page on
- * the site. `installMock` assigns them all from one object of this type.
+ * Every `window.*API` the desktop declares, optional ones included, less those
+ * the demo leaves out, so a bridge added to the app is a type error here before
+ * it is an error page on the site. `installMock` assigns them all from one
+ * object of this type.
  */
-type DemoBridge = Omit<Pick<Window, Extract<keyof Window, `${string}API`>>, Unprovided>;
+type DemoBridge = Omit<Required<Pick<Window, Extract<keyof Window, `${string}API`>>>, Unprovided>;
+/** Only names `Window` declares, so one renamed or removed in the app fails here. */
+type WindowKeys<K extends keyof Window> = K;
 /**
- * Left out because each renderer bridge for them checks they exist and answers
- * as if nothing were there: no attention records, default preferences, no
- * worktree cleanup, no usage limits, no update checks.
+ * Left out because the renderer checks each one exists before using it. The
+ * bridges for the first four answer as if nothing were there (no attention
+ * records, default preferences, no worktree cleanup, no usage limits), and
+ * `AppUpdates`, which reads `appUpdateAPI` itself, shows no update status.
  */
-type Unprovided =
-  | 'attentionAPI'
-  | 'preferencesAPI'
-  | 'worktreeCleanupAPI'
-  | 'usageLimitsAPI'
-  | 'appUpdateAPI';
+type Unprovided = WindowKeys<
+  'attentionAPI' | 'preferencesAPI' | 'worktreeCleanupAPI' | 'usageLimitsAPI' | 'appUpdateAPI'
+>;
 
 function channel<T>() {
   const listeners = new Set<(value: T) => void>();
@@ -369,14 +375,21 @@ export function installMock() {
     switchHarness: async () => {
       throw new Error('Switching harnesses runs in the desktop app.');
     },
+    // The label calls keep `WorkspaceService`'s rules: an unknown label changes
+    // nothing, and an emoji, colour or list cleared away is absent, not empty.
     createLabel: async (id, fields) => {
-      const label = { id: crypto.randomUUID(), ...fields };
+      const label = createLabelRecord(fields);
       workspace(id).labels.push(label);
       publish();
       return structuredClone(label);
     },
     updateLabel: async (id, labelId, fields) => {
-      Object.assign(workspace(id).labels.find((l) => l.id === labelId)!, fields);
+      const label = workspace(id).labels.find((l) => l.id === labelId);
+      if (label) {
+        Object.assign(label, fields);
+        if (label.emoji === undefined) delete label.emoji;
+        if (label.color === undefined) delete label.color;
+      }
       publish();
     },
     deleteLabel: async (id, labelId) => {
@@ -385,7 +398,11 @@ export function installMock() {
       if (index < 0) return null;
       const carriers = w.sessions.filter((s) => s.labelIds?.includes(labelId));
       const [label] = w.labels.splice(index, 1);
-      for (const s of carriers) s.labelIds = s.labelIds!.filter((l) => l !== labelId);
+      for (const s of carriers) {
+        const rest = s.labelIds!.filter((l) => l !== labelId);
+        if (rest.length) s.labelIds = rest;
+        else delete s.labelIds;
+      }
       publish();
       return { label, index, sessionIds: carriers.map((s) => s.id) };
     },
@@ -399,7 +416,9 @@ export function installMock() {
       publish();
     },
     assignLabel: async (id, sessionId, labelId) => {
-      const s = workspace(id).sessions.find((s) => s.id === sessionId);
+      const w = workspace(id);
+      if (!w.labels.some((l) => l.id === labelId)) throw new Error(`No label ${labelId}`);
+      const s = w.sessions.find((s) => s.id === sessionId);
       if (s && !s.labelIds?.includes(labelId)) s.labelIds = [...(s.labelIds || []), labelId];
       publish();
     },
