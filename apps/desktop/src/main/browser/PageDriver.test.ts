@@ -733,6 +733,15 @@ describe('focus emulation', () => {
     expect(calls.ended).toBe(2);
   });
 
+  it('cannot be switched back on by a step that outlived its call', async () => {
+    let late: (() => Promise<void>) | undefined;
+    await driver.withPage('tab1', async (_page, control) => {
+      late = () => control.setFocusEmulation(true);
+    });
+    await expect(late?.()).rejects.toThrow('The call has ended.');
+    expect(relays[0].focus).toEqual([]);
+  });
+
   it('is left alone on a connection a deadline closed, since detaching ends it', async () => {
     const stuck = driver.withPage('tab1', async (_page, control) => {
       await control.setFocusEmulation(true);

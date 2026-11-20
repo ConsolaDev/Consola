@@ -464,6 +464,8 @@ export class PageDriver {
       const control: PageControl = {
         signal: AbortSignal.any([ended.signal, current.closedSignal]),
         setFocusEmulation: async (enabled) => {
+          // A step left running after its call ended must not switch it back on for nobody.
+          if (enabled) ended.signal.throwIfAborted();
           if (enabled === holdsFocus) return;
           holdsFocus = enabled;
           await (enabled ? current.holdFocus() : current.releaseFocus());

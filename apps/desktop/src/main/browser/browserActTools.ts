@@ -223,9 +223,8 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
 }
 
 /**
- * A failed step, as the agent reads it: a refusal from the page in words,
- * anything else as its first line only. Playwright's call log after it can
- * quote the page's markup, which is page text.
+ * A failed act, as the agent reads it: a refusal from the page in words,
+ * anything else as a page step's failure (`pageStepFailure`).
  */
 function actFailure(error: unknown, plan: ActPlan): Error {
   const reason = actRefusalIn(messageOf(error));

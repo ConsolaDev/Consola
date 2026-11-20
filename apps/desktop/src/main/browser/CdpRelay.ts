@@ -159,14 +159,14 @@ export class CdpRelay implements ConnectOverCDPTransport {
    * not looking at is never told it has focus for as long as the agent stays
    * connected; main turns it on only while the agent acts.
    *
-   * Seen on Electron 43, in a window that never had OS focus:
-   * - Typed text lands only with emulation on *and* after a Playwright click
-   *   on the page. Emulation alone (fill, `keyboard.type`,
-   *   `pressSequentially`) and a click alone both leave the field empty.
-   * - Turned on and off with nothing in between, `document.hasFocus()`
-   *   returns to false. After a click made while it was on, `hasFocus()`
-   *   stays true once it is off, though neither the window nor the guest has
-   *   OS focus: the click focused the page in Chromium's own reckoning.
+   * Seen on Electron 43, in a window that never had OS focus: turned on and
+   * off with nothing in between, `document.hasFocus()` returns to false.
+   * Task 19's probes then found why CDP typing only seemed to need a click
+   * first: Chromium delivers a guest's CDP keys and text to whatever the
+   * window has focused, and a CDP click is what made that the page. Both
+   * are refused now (`cdpRelayProtocol`), and acts type inside the page; the
+   * emulation is what gives them the focus events and `hasFocus()` a rich
+   * editor waits for.
    */
   public async setFocusEmulation(enabled: boolean): Promise<void> {
     if (this.closed) throw new Error('The relay is closed.');
