@@ -13,14 +13,16 @@ import { EventBudget } from './relayBudget';
  * The page's own session is no narrower by itself: Chromium answers it for
  * the whole app, listing every target (Consola's own windows included),
  * attaching to any of them, and placing downloads anywhere on disk. So
- * commands on the page's sessions pass a second wall (`refusalOnPage` and
- * the checks beside it): nothing that reaches another target or the whole
- * app, the partition's cookies, the disk (downloads, files handed to the
- * page), focus or the page's closing, no input that types or presses, no
- * user gesture on the agent's script (`withoutUserGesture`), and navigation
- * only to web pages. Commands go to an iframe or worker only
- * under a session id Chromium announced for this page; any other session id
- * is refused.
+ * commands on the page's sessions pass a second wall. Only the commands the
+ * browser tools need are passed on at all (`FORWARDED_COMMANDS`); anything
+ * else is refused, and the refusal logged with its method. Within that, and
+ * named first so a refusal says why (`refusalOnPage` and the checks beside
+ * it): nothing that reaches another target or the whole app, the
+ * partition's cookies, the disk (downloads, files handed to the page), focus
+ * or the page's closing, no input that types or presses, no user gesture on
+ * the agent's script (`withoutUserGesture`), and navigation only to web
+ * pages. Commands go to an iframe or worker only under a session id
+ * Chromium announced for this page; any other session id is refused.
  *
  * The page's alerts and confirms are main's to hold for the agent
  * (`PageDialogs`), so Playwright is never told of them: with no listener of
@@ -200,6 +202,75 @@ function inputRefusal(method: string, params: Record<string, unknown>): string |
     : 'it presses on the page, which takes the window’s keyboard from the person';
 }
 
+/**
+ * Every command the relay passes on to the page, or to one of its iframes or
+ * workers: what Playwright 1.62.1 sends on the browser tools' paths, recorded
+ * across the agent end-to-end specs (snapshots and screenshots, every act,
+ * evaluate, every wait, an iframe on another site and a worker), and nothing
+ * more. Unknown is refused: a later Playwright call, or a Playwright bump,
+ * that wants more is refused with its method logged, rather than reaching
+ * past the page unseen. Each entry acts on this one page only. Left out
+ * though Playwright can ask for them: other sites' storage in the partition
+ * (`CacheStorage`, `IndexedDB`, `DOMStorage`, `FileSystem`), service workers
+ * and the partition's cache, `Network.loadNetworkResource`, and interception
+ * that would override the person's decisions (certificates, file choosers,
+ * `Fetch`, the inspect overlay). Never add to it for Playwright's
+ * convenience.
+ */
+const FORWARDED_COMMANDS: ReadonlySet<string> = new Set([
+  // Finding an element and where it is: a ref, a hover, a frame's owner.
+  'DOM.describeNode',
+  'DOM.resolveNode',
+  'DOM.getContentQuads',
+  'DOM.scrollIntoViewIfNeeded',
+  // A move of the mouse or a turn of the wheel, with no button (`inputRefusal`).
+  'Input.dispatchMouseEvent',
+  // The page's own events: its log, its requests (a wait on the network), its frames and loads.
+  'Log.enable',
+  'Network.enable',
+  'Page.enable',
+  'Page.getFrameTree',
+  'Page.setLifecycleEventsEnabled',
+  // Playwright's own scripts, in a world of their own in this page's documents.
+  'Page.addScriptToEvaluateOnNewDocument',
+  'Page.createIsolatedWorld',
+  'Runtime.enable',
+  'Runtime.evaluate',
+  'Runtime.callFunctionOn',
+  'Runtime.releaseObject',
+  // An iframe or worker waiting to start (the page itself is answered here).
+  'Runtime.runIfWaitingForDebugger',
+  // A picture of the page as it paints.
+  'Page.getLayoutMetrics',
+  'Page.captureScreenshot',
+  // The page's own iframes and workers, each checked against what the relay knows.
+  'Target.setAutoAttach',
+  'Target.detachFromTarget',
+  'Target.getTargetInfo',
+  // Answering the page's `beforeunload` (a dialog main holds is refused), and
+  // sending the page to a web page (checked as an address the person types).
+  'Page.handleJavaScriptDialog',
+  'Page.navigate',
+  'Page.navigateToHistoryEntry',
+]);
+
+/**
+ * Commands answered with an empty success, never passed on: Playwright asks
+ * for them on every page it attaches to and needs an answer to go on, and
+ * passed on they would change the person's page for as long as the agent
+ * stays connected. Focus emulation is main's own, on only while an act runs
+ * (`CdpRelay.setFocusEmulation`); media emulation would restyle the page.
+ */
+const ANSWERED_HERE: ReadonlySet<string> = new Set([
+  'Emulation.setFocusEmulationEnabled',
+  'Emulation.setEmulatedMedia',
+  // Where downloads go is main's to decide, on the page as at the root.
+  'Browser.setDownloadBehavior',
+]);
+
+/** Why a command the relay does not name is refused. */
+const UNKNOWN_REASON = 'the browser tools never send it, so it is not passed on';
+
 /** The commands that run the agent's script in the page, and could carry a user gesture. */
 const SCRIPT_COMMANDS = new Set(['Runtime.evaluate', 'Runtime.callFunctionOn']);
 
@@ -264,6 +335,8 @@ export interface RelayConnectionOptions {
   maxCommandsInFlight?: number;
   /** What the page may send the connection (`relayBudget`); tests give it a clock. */
   budget?: EventBudget;
+  /** Where a refused unknown command is reported; `console.warn` unless given. */
+  warn?: (message: string) => void;
 }
 
 export function createRelayConnection(
@@ -273,6 +346,7 @@ export function createRelayConnection(
 ): RelayConnection {
   const maxCommandsInFlight = options.maxCommandsInFlight ?? MAX_COMMANDS_IN_FLIGHT;
   const budget = options.budget ?? new EventBudget();
+  const warn = options.warn ?? ((message: string) => console.warn(message));
   let closed = false;
   // Page events wait until Playwright has been told the page exists: before
   // that it has no session to file them under.
@@ -437,23 +511,24 @@ export function createRelayConnection(
   const pageCommand = (command: Command, child: string | undefined): Promise<Answer> => {
     const { method } = command;
     const params = withoutUserGesture(method, command.params ?? {});
-    // Playwright asks for focus emulation on every page it attaches to, and
-    // Chromium would then treat the page as focused for as long as the agent
-    // stays connected. Main turns it on itself, and only while the agent acts.
-    // Downloads are main's to allow or cancel, on the page as at the root.
     // The page was attached while running, so it is not waiting; an iframe or
     // worker attached by Chromium is, and needs the command to start.
     if (
-      method === 'Emulation.setFocusEmulationEnabled' ||
-      method === 'Browser.setDownloadBehavior' ||
+      ANSWERED_HERE.has(method) ||
       (method === 'Runtime.runIfWaitingForDebugger' && child === undefined)
     ) {
       return Promise.resolve({ result: {} });
     }
     const refuse = (why: string) =>
       Promise.reject(new Error(`${method} is not available on this tab’s page: ${why}.`));
+    // Named refusals first, so the reason says what the command would reach.
+    const named = refusalOnPage(method, params);
+    if (!named && !FORWARDED_COMMANDS.has(method)) {
+      warn(`An agent's connection asked for ${method}, which the relay does not pass on; refused.`);
+      return refuse(UNKNOWN_REASON);
+    }
     const refusal =
-      refusalOnPage(method, params) ??
+      named ??
       (method === 'Target.detachFromTarget' &&
       !(typeof params.sessionId === 'string' && children.has(params.sessionId))
         ? 'it names no iframe or worker of this page'

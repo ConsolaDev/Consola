@@ -13,6 +13,7 @@ function setup(
 ) {
   const written: Message[] = [];
   const fail = vi.fn();
+  const warn = vi.fn();
   const page: RelayPage = {
     send,
     targetInfo: async () => TARGET,
@@ -22,7 +23,7 @@ function setup(
   const relay = createRelayConnection(
     page,
     { write: (message) => written.push(message), fail },
-    { maxCommandsInFlight, budget },
+    { maxCommandsInFlight, budget, warn },
   );
   // Shaped as Playwright's CRConnection sends them: sessionId only when there is one.
   const command = (id: number, method: string, params?: Message, sessionId?: string) =>
@@ -30,7 +31,7 @@ function setup(
       sessionId === undefined ? { id, method, params } : { id, method, params, sessionId },
     );
   const reply = (id: number) => written.find((message) => message.id === id);
-  return { relay, written, fail, send, command, reply };
+  return { relay, written, fail, warn, send, command, reply };
 }
 
 // Each reply lands a few microtasks after its command; one macrotask lets them all land.
@@ -223,7 +224,7 @@ describe('page commands', () => {
     );
     const { command, written } = await announced(send);
     command(5, 'Page.captureScreenshot', {}, PAGE_SESSION_ID);
-    command(6, 'DOM.enable', {}, PAGE_SESSION_ID);
+    command(6, 'Page.getFrameTree', {}, PAGE_SESSION_ID);
     pending[1]();
     await settle();
     expect(written.map((message) => message.id)).toEqual([6]);
@@ -286,6 +287,89 @@ describe('what the page’s own sessions may not do', () => {
     }
     expect(send).not.toHaveBeenCalled();
   }
+
+  // What Playwright 1.62.1 sends on the browser tools' paths, recorded across the
+  // agent end-to-end specs: these, and nothing else, reach the page.
+  it.each([
+    ['DOM.describeNode', { objectId: 'o1' }],
+    ['DOM.resolveNode', { backendNodeId: 3 }],
+    ['DOM.getContentQuads', { objectId: 'o1' }],
+    ['DOM.scrollIntoViewIfNeeded', { objectId: 'o1' }],
+    ['Log.enable', {}],
+    ['Network.enable', {}],
+    ['Page.enable', {}],
+    ['Page.getFrameTree', {}],
+    ['Page.setLifecycleEventsEnabled', { enabled: true }],
+    ['Page.addScriptToEvaluateOnNewDocument', { source: '1', worldName: 'w' }],
+    ['Page.createIsolatedWorld', { frameId: 'F', worldName: 'w' }],
+    ['Page.getLayoutMetrics', {}],
+    ['Page.captureScreenshot', { format: 'png' }],
+    ['Runtime.enable', {}],
+    ['Runtime.evaluate', { expression: '1' }],
+    ['Runtime.callFunctionOn', { functionDeclaration: 'f' }],
+    ['Runtime.releaseObject', { objectId: 'o1' }],
+    ['Target.setAutoAttach', { autoAttach: true, flatten: true }],
+  ])('passes %s on to the page and to its iframes', async (method, params) => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    command(50, method, params, PAGE_SESSION_ID);
+    command(51, method, params, CHILD);
+    await settle();
+    expect(reply(50)).toHaveProperty('result');
+    expect(reply(51)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  // Unknown is refused: the list is what the tools use, never what Playwright might ask.
+  it.each([
+    ['Accessibility.getFullAXTree', {}],
+    ['CacheStorage.requestCacheNames', { securityOrigin: 'https://bank.example' }],
+    ['IndexedDB.requestDatabaseNames', { securityOrigin: 'https://bank.example' }],
+    ['DOMStorage.getDOMStorageItems', { storageId: { securityOrigin: 'https://bank.example' } }],
+    ['FileSystem.getDirectory', {}],
+    ['ServiceWorker.unregister', { scopeURL: 'https://bank.example/' }],
+    ['Network.clearBrowserCache', {}],
+    ['Network.loadNetworkResource', { url: 'file:///etc/hosts' }],
+    ['Network.setExtraHTTPHeaders', { headers: {} }],
+    ['Fetch.enable', { handleAuthRequests: true }],
+    ['Security.setIgnoreCertificateErrors', { ignore: true }],
+    ['Page.setInterceptFileChooserDialog', { enabled: true }],
+    ['Page.setWebLifecycleState', { state: 'frozen' }],
+    ['Page.reload', {}],
+    ['Overlay.setInspectMode', { mode: 'searchForNode' }],
+    ['Debugger.enable', {}],
+    ['Emulation.setDeviceMetricsOverride', { width: 1, height: 1 }],
+    ['Emulation.setScriptExecutionDisabled', { value: true }],
+    ['HeapProfiler.takeHeapSnapshot', {}],
+    ['Memory.getDOMCounters', {}],
+    ['IO.read', { handle: '1' }],
+    ['Runtime.terminateExecution', {}],
+    ['NoSuch.method', {}],
+  ])('refuses %s, which the browser tools never send, and logs it', async (method, params) => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply, warn } = await announced(send);
+    command(50, method, params, PAGE_SESSION_ID);
+    command(51, method, params, CHILD);
+    await settle();
+    for (const id of [50, 51]) {
+      expect(reply(id)).toMatchObject({
+        error: { message: expect.stringContaining(method) },
+      });
+    }
+    expect(send).not.toHaveBeenCalled();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining(method));
+  });
+
+  it('answers media emulation itself: the person’s page is never restyled for the agent', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command, reply } = await announced(send);
+    command(50, 'Emulation.setEmulatedMedia', { media: '', features: [] }, PAGE_SESSION_ID);
+    command(51, 'Emulation.setEmulatedMedia', { media: 'print' }, CHILD);
+    await settle();
+    expect(reply(50)).toHaveProperty('result');
+    expect(reply(51)).toHaveProperty('result');
+    expect(send).not.toHaveBeenCalled();
+  });
 
   it.each([
     ['Target.getTargets', {}],
@@ -431,9 +515,9 @@ describe('what the page’s own sessions may not do', () => {
   it('leaves every other command’s parameters as they were', async () => {
     const send = vi.fn(async () => ({}));
     const { command } = await announced(send);
-    command(5, 'DOM.getDocument', { depth: 1 }, PAGE_SESSION_ID);
+    command(5, 'DOM.describeNode', { objectId: 'o1', depth: 1 }, PAGE_SESSION_ID);
     await settle();
-    expect(send).toHaveBeenCalledWith('DOM.getDocument', { depth: 1 }, undefined);
+    expect(send).toHaveBeenCalledWith('DOM.describeNode', { objectId: 'o1', depth: 1 }, undefined);
   });
 
   it('refuses a mouse move that names a button, held or not', async () => {
@@ -474,14 +558,6 @@ describe('what the page’s own sessions may not do', () => {
     ['Memory.getBrowserSamplingProfile', {}],
   ])('refuses %s, which reaches the whole app', async (method, params) => {
     await refusedOnBoth(method, params);
-  });
-
-  it('still answers the page’s own memory questions', async () => {
-    const send = vi.fn(async () => ({ documents: 1, nodes: 2, jsEventListeners: 3 }));
-    const { command, reply } = await announced(send);
-    command(5, 'Memory.getDOMCounters', {}, PAGE_SESSION_ID);
-    await settle();
-    expect(reply(5)).toHaveProperty('result');
   });
 
   // Invariant 6, and closing a tab is Consola's, never the agent's through the page.
@@ -573,7 +649,7 @@ describe('what the page’s own sessions may not do', () => {
   it.each(sessions)('still forwards ordinary page commands on %s', async (sessionId) => {
     const send = vi.fn(async () => ({}));
     const { command, reply } = await announced(send);
-    command(5, 'DOM.getDocument', {}, sessionId);
+    command(5, 'Page.getFrameTree', {}, sessionId);
     await settle();
     expect(reply(5)).toHaveProperty('result');
     expect(send).toHaveBeenCalledOnce();
@@ -802,9 +878,9 @@ describe('extra sessions on the page', () => {
   it('gives a second session on the same page its commands and events', async () => {
     const { command, relay, written, send, pageSession } = await extraSession();
     expect(pageSession).not.toBe(PAGE_SESSION_ID);
-    command(4, 'Accessibility.getFullAXTree', {}, pageSession);
+    command(4, 'Page.getFrameTree', {}, pageSession);
     await settle();
-    expect(send).toHaveBeenCalledWith('Accessibility.getFullAXTree', {}, undefined);
+    expect(send).toHaveBeenCalledWith('Page.getFrameTree', {}, undefined);
     written.length = 0;
     relay.event('Page.loadEventFired', { timestamp: 2 }, '');
     expect(written.map((message) => message.sessionId)).toEqual([PAGE_SESSION_ID, pageSession]);

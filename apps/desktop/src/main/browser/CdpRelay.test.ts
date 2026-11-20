@@ -326,7 +326,7 @@ describe('CdpRelay lifetime', () => {
     received.length = 0;
     let finish: (value: unknown) => void = () => {};
     fake.answer = () => new Promise((resolve) => (finish = resolve));
-    relay.send({ id: 2, method: 'DOM.getDocument', params: {}, sessionId: PAGE_SESSION_ID });
+    relay.send({ id: 2, method: 'Page.getFrameTree', params: {}, sessionId: PAGE_SESSION_ID });
     await settle();
     relay.close();
     finish({ root: {} });
