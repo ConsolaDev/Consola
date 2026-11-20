@@ -164,6 +164,7 @@ import {
   focusOrCreate,
   getFocusedConsolaWindow,
   getWorkspaceFor,
+  shareQuitGuard,
   showAutomations,
   viewsFromStoredLayout,
   type ViewMemoryAccess,
@@ -422,6 +423,7 @@ export function setupIpcHandlers(): boolean {
     browser.noteAttached(guest, guestId);
     browser.guardGuest(guest, window, workspaceId, guestId);
     forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
+    shareQuitGuard(window, guest);
     pageDialogs.takeOver(guest, guestId);
     watchPersonInput(
       guest,
@@ -467,6 +469,7 @@ export function setupIpcHandlers(): boolean {
         return { width, height };
       },
       hidden: isBackgroundTest,
+      guardQuit: (contents) => shareQuitGuard(window, contents),
     });
   });
   const localServers = new LocalServers();

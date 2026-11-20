@@ -1,4 +1,4 @@
-import { BrowserWindow, app, screen, session, shell } from 'electron';
+import { BrowserWindow, app, screen, session, shell, type WebContents } from 'electron';
 import * as path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared/types';
@@ -57,6 +57,9 @@ export interface ViewMemoryAccess {
  * memory is keyed by workspace and outlives the window.
  */
 let lastHeldWorkspaceId: string | null = null;
+
+/** Each Consola window's ⌘Q guard (macOS), by the window's web contents id. */
+const quitGuards = new Map<number, ReturnType<typeof createQuitShortcut>>();
 
 export function createWindow(
   context: WindowContext = EMPTY_CONTEXT,
@@ -128,10 +131,13 @@ export function createWindow(
         if (window.isDestroyed()) return;
         if (window.isFullScreen()) window.setFullScreen(false);
         window.setOpacity(0);
+        // A page's popups are the window's children: they hide with it.
+        for (const child of window.getChildWindows()) child.setOpacity(0);
       },
       quit: () => app.quit(),
     });
     window.webContents.on('before-input-event', quitShortcut);
+    quitGuards.set(window.webContents.id, quitShortcut);
   }
 
   // Captured now, not in the handler: by the time 'closed' fires Electron has
@@ -165,10 +171,25 @@ export function createWindow(
     // already what happens with nothing remembered at all.
     if (closing?.workspaceId) lastHeldWorkspaceId = closing.workspaceId;
     contexts.delete(windowId);
+    quitGuards.delete(windowId);
     forgetConsolaContents(windowId);
   });
 
   return window;
+}
+
+/**
+ * Holds ⌘Q back in `contents` by `window`'s own guard: a page the window
+ * shows, or a popup one of its pages opened. Whatever has the keyboard gets
+ * the key on its own web contents, so without this the window's guard never
+ * sees it and the menu's Quit takes one press. One guard for all of them, so
+ * a second press counts wherever the first one landed, and the hint shows in
+ * the window.
+ */
+export function shareQuitGuard(window: BrowserWindow, contents: WebContents): void {
+  if (window.isDestroyed()) return;
+  const guard = quitGuards.get(window.webContents.id);
+  if (guard) contents.on('before-input-event', guard);
 }
 
 /** Which workspace a window holds, or undefined if it is not in the registry. */

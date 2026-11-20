@@ -102,6 +102,11 @@ export interface PopupPolicyDeps {
   maxSize(): { width: number; height: number };
   /** An E2E run keeps windows off the desktop. */
   hidden?: boolean;
+  /**
+   * Holds ⌘Q back in the popup by the host window's own guard, so the popup
+   * is no way around it (macOS; elsewhere there is no guard to share).
+   */
+  guardQuit?(contents: WebContents): void;
 }
 
 /**
@@ -176,6 +181,7 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
         });
         openPopup = popup;
         hardenPopup(popup, deps.certificates, deps.workspaceId);
+        deps.guardQuit?.(popup.webContents);
         const owner: PopupOwner = {
           sessionId,
           workspaceId: deps.workspaceId,
