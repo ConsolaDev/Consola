@@ -9,51 +9,58 @@ const actionRuns = (name: string) => `${name} action`;
 
 /** What an entry runs, in words: "Review action", "Prompt", "Tool: cleanup_stale_sessions", "Steps: review → publish". */
 export function describeRun(automation: Automation): string {
-    if (isStepsEntry(automation)) return `Steps: ${automation.steps.map((step) => step.id).join(' → ')}`;
-    const { run } = automation;
-    if (run.kind === 'tool') return `Tool: ${run.tool}`;
-    return run.kind === 'action' ? actionRuns(run.name) : 'Prompt';
+  if (isStepsEntry(automation))
+    return `Steps: ${automation.steps.map((step) => step.id).join(' → ')}`;
+  const { run } = automation;
+  if (run.kind === 'tool') return `Tool: ${run.tool}`;
+  return run.kind === 'action' ? actionRuns(run.name) : 'Prompt';
 }
 
 /** A tool run in-process, or agent sessions; an entry of commands only runs no agent, so it reads as a tool. */
 export function describeKind(automation: Automation): AutomationView['kind'] {
-    if (isStepsEntry(automation)) return automation.steps.some((step) => step.kind === 'agent') ? 'agent' : 'tool';
-    return automation.run.kind === 'tool' ? 'tool' : 'agent';
+  if (isStepsEntry(automation))
+    return automation.steps.some((step) => step.kind === 'agent') ? 'agent' : 'tool';
+  return automation.run.kind === 'tool' ? 'tool' : 'agent';
 }
 
 /** Each step as the automation page draws it: "Prompt", "Review action", or the command's first line. */
 export function describeSteps(steps: Step[]): NonNullable<AutomationView['steps']> {
-    return steps.map((step) => ({
-        id: step.id,
-        kind: step.kind,
-        ...(step.if !== undefined ? { if: step.if } : {}),
-        ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
-        summary: step.kind === 'run' ? commandSummary(step.run) : step.action !== undefined ? actionRuns(step.action) : 'Prompt',
-    }));
+  return steps.map((step) => ({
+    id: step.id,
+    kind: step.kind,
+    ...(step.if !== undefined ? { if: step.if } : {}),
+    ...(step.kind === 'run' && step.dryRun === 'run' ? { dryRun: true as const } : {}),
+    summary:
+      step.kind === 'run'
+        ? commandSummary(step.run)
+        : step.action !== undefined
+          ? actionRuns(step.action)
+          : 'Prompt',
+  }));
 }
 
 function commandSummary(command: string): string {
-    const line = command
-        .split('\n')
-        .map((text) => text.trim())
-        .find((text) => text !== '');
-    return clipText(line ?? '', COMMAND_SUMMARY_CHARS);
+  const line = command
+    .split('\n')
+    .map((text) => text.trim())
+    .find((text) => text !== '');
+  return clipText(line ?? '', COMMAND_SUMMARY_CHARS);
 }
 
 /** A poll's interval, in words and as written: `{ words: '90 minutes', short: '90m' }`, `{ words: '2 hours', short: '2h' }`. */
 export function describeEvery(ms: number): { words: string; short: string } {
-    const minutes = Math.round(ms / 60_000);
-    if (minutes % 60 === 0) {
-        const hours = minutes / 60;
-        return { words: `${hours} ${hours === 1 ? 'hour' : 'hours'}`, short: `${hours}h` };
-    }
-    return { words: `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`, short: `${minutes}m` };
+  const minutes = Math.round(ms / 60_000);
+  if (minutes % 60 === 0) {
+    const hours = minutes / 60;
+    return { words: `${hours} ${hours === 1 ? 'hour' : 'hours'}`, short: `${hours}h` };
+  }
+  return { words: `${minutes} ${minutes === 1 ? 'minute' : 'minutes'}`, short: `${minutes}m` };
 }
 
 /** An event trigger that did not resolve, said as written. */
 export function describeTriggerAsWritten(automation: Automation): string {
-    const { trigger } = automation;
-    if (trigger.kind === 'event') return `${trigger.connection}: ${trigger.events.join(', ')}`;
-    if (trigger.kind === 'poll') return `poll: every ${describeEvery(trigger.everyMs).short}`;
-    return trigger.kind === 'manual' ? 'manual' : trigger.cron;
+  const { trigger } = automation;
+  if (trigger.kind === 'event') return `${trigger.connection}: ${trigger.events.join(', ')}`;
+  if (trigger.kind === 'poll') return `poll: every ${describeEvery(trigger.everyMs).short}`;
+  return trigger.kind === 'manual' ? 'manual' : trigger.cron;
 }

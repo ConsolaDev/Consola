@@ -3,7 +3,14 @@ import { parseAutomationEntry, type RunRecord } from '@consola/factory-spec';
 import { reReviewEntry, RE_REVIEW_NAME } from '../factoryTemplates';
 import { itemKey } from '../inboxItems.test-helpers';
 import type { WorkItemPort } from '../ports';
-import { stepsHarness, WORKSPACE_ID, type FakeCommand, type StepsHarness, type StepsHarnessOptions, type StepsWorld } from '../steps/steps.test-helpers';
+import {
+  stepsHarness,
+  WORKSPACE_ID,
+  type FakeCommand,
+  type StepsHarness,
+  type StepsHarnessOptions,
+  type StepsWorld,
+} from '../steps/steps.test-helpers';
 import type { ItemRef, ItemTarget } from '../views';
 
 /*
@@ -24,71 +31,72 @@ export const RE_REVIEW_ENTRY = `${reReviewEntry()}\n`;
 
 /** The check command the template runs, as its `run: |` block reads. */
 export const RE_REVIEW_COMMAND = (() => {
-    const parsed = parseAutomationEntry(RE_REVIEW_ENTRY);
-    if (!parsed.ok || parsed.automation.trigger.kind !== 'poll') throw new Error('The re-review template is not a poll.');
-    return parsed.automation.trigger.run;
+  const parsed = parseAutomationEntry(RE_REVIEW_ENTRY);
+  if (!parsed.ok || parsed.automation.trigger.kind !== 'poll')
+    throw new Error('The re-review template is not a poll.');
+  return parsed.automation.trigger.run;
 })();
 
 const indented = (text: string, by: string) =>
-    text
-        .trimEnd()
-        .split('\n')
-        .map((line) => `${by}${line}`)
-        .join('\n');
+  text
+    .trimEnd()
+    .split('\n')
+    .map((line) => `${by}${line}`)
+    .join('\n');
 
 /** ws-1's factory.yml holding these `- name:` list items, each written at column 0. */
 export function factoryWith(...entries: string[]): string {
-    return `version: 1\nautomations:\n${entries.map((entry) => `${indented(entry, '  ')}\n`).join('')}`;
+  return `version: 1\nautomations:\n${entries.map((entry) => `${indented(entry, '  ')}\n`).join('')}`;
 }
 
 export interface SourcesHarnessOptions extends Omit<StepsHarnessOptions, 'workItems'> {
-    /** Repositories cloned into one of ws-1's scopes, as `inWorkspace` answers. Default: sprocket/catalog-portal. */
-    clonedRepos?: string[];
+  /** Repositories cloned into one of ws-1's scopes, as `inWorkspace` answers. Default: sprocket/catalog-portal. */
+  clonedRepos?: string[];
 }
 
 /** PR A's world, plus the host's work items. Edit the sets, then `service.syncWorkspaces()` where resolving depends on them. */
 export interface SourcesWorld extends StepsWorld {
-    /** The fake host's `WorkItemPort`, which the service was given. */
-    workItems: WorkItemPort;
-    /** Connections whose work item URLs the host reads, as `canParseUrls` answers. Default: github. */
-    urlConnections: Set<string>;
-    /** Repositories cloned into one of ws-1's scopes, compared ignoring case. */
-    clonedRepos: Set<string>;
+  /** The fake host's `WorkItemPort`, which the service was given. */
+  workItems: WorkItemPort;
+  /** Connections whose work item URLs the host reads, as `canParseUrls` answers. Default: github. */
+  urlConnections: Set<string>;
+  /** Repositories cloned into one of ws-1's scopes, compared ignoring case. */
+  clonedRepos: Set<string>;
 }
 
 export interface SourcesHarness extends Omit<StepsHarness, 'world' | 'relaunch'> {
-    world: SourcesWorld;
-    /** Make ws-1's factory.yml hold this one `- name:` entry (default: the spec's template) and reload it. */
-    setPoll(entry?: string): Promise<void>;
-    /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
-    relaunch(): Promise<SourcesHarness>;
-    /** Quit, replace ws-1's factory.yml while nothing watches it, then start a new service: an edit made while Consola was closed. */
-    relaunchWith(yaml: string): Promise<SourcesHarness>;
-    /**
-     * One run of ws-1's poll entry `name` (default: the spec's template) on
-     * #51, as its checks make one: the due checks end finding nothing (the
-     * first after Allow records what is there), then a Check now finds
-     * `PR_51_ROW`. The entry must be allowed: one that is not never checks.
-     */
-    fire(name?: string): Promise<RunRecord>;
-    /** What every check prints from now on, as its stdout: these objects, as a JSON array. Until set, none (`[]`). */
-    pollOutput(items: object[]): void;
-    /**
-     * Run the due checks to completion: a tick, then every check command
-     * still running ends at exit 0, printing `pollOutput`'s items, and so
-     * does each one their ending let start. A check a test ended itself is
-     * left as it is.
-     */
-    check(): Promise<void>;
-    /** A Check now on `name` (default: the spec's template) that prints `items`, run to completion with every other due check. */
-    checkSees(items: object[], name?: string): Promise<void>;
-    /**
-     * Run on…: a person's run of `name` (default: the spec's template) on
-     * `target`, or an agent's with `actor`, then whatever it set going. The
-     * run as it stands once that settled, copied: later changes do not reach
-     * it. A refusal rejects, as the click's does.
-     */
-    runOn(target: ItemTarget, name?: string, actor?: { sessionId?: string }): Promise<RunRecord>;
+  world: SourcesWorld;
+  /** Make ws-1's factory.yml hold this one `- name:` entry (default: the spec's template) and reload it. */
+  setPoll(entry?: string): Promise<void>;
+  /** Quit, then start a new service over the same state, history, run folder, files, clock and world. */
+  relaunch(): Promise<SourcesHarness>;
+  /** Quit, replace ws-1's factory.yml while nothing watches it, then start a new service: an edit made while Consola was closed. */
+  relaunchWith(yaml: string): Promise<SourcesHarness>;
+  /**
+   * One run of ws-1's poll entry `name` (default: the spec's template) on
+   * #51, as its checks make one: the due checks end finding nothing (the
+   * first after Allow records what is there), then a Check now finds
+   * `PR_51_ROW`. The entry must be allowed: one that is not never checks.
+   */
+  fire(name?: string): Promise<RunRecord>;
+  /** What every check prints from now on, as its stdout: these objects, as a JSON array. Until set, none (`[]`). */
+  pollOutput(items: object[]): void;
+  /**
+   * Run the due checks to completion: a tick, then every check command
+   * still running ends at exit 0, printing `pollOutput`'s items, and so
+   * does each one their ending let start. A check a test ended itself is
+   * left as it is.
+   */
+  check(): Promise<void>;
+  /** A Check now on `name` (default: the spec's template) that prints `items`, run to completion with every other due check. */
+  checkSees(items: object[], name?: string): Promise<void>;
+  /**
+   * Run on…: a person's run of `name` (default: the spec's template) on
+   * `target`, or an agent's with `actor`, then whatever it set going. The
+   * run as it stands once that settled, copied: later changes do not reach
+   * it. A refusal rejects, as the click's does.
+   */
+  runOn(target: ItemTarget, name?: string, actor?: { sessionId?: string }): Promise<RunRecord>;
 }
 
 /** sprocket/catalog-portal#51, as a poll with `item: { github: .url }` reads it. */
@@ -99,91 +107,107 @@ export const PR_51_KEY = itemKey({ provider: 'github', ...PR_51 });
 /** What the template's check prints for #51: its URL, title and head. */
 export const PR_51_ROW = { url: PR_51_URL, title: 'Fix the cart total', head: 'a' };
 
-const GITHUB_WORK_ITEM_URL = /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
+const GITHUB_WORK_ITEM_URL =
+  /^https:\/\/github\.com\/([A-Za-z0-9_.-]+)\/([A-Za-z0-9_.-]+)\/(pull|issues)\/([1-9][0-9]*)$/;
 
 /** GitHub's URL rule, as the desktop's driver has it: exactly a pull request's or an issue's page. */
-function fakeWorkItems(world: () => Pick<SourcesWorld, 'urlConnections' | 'clonedRepos'>): WorkItemPort {
-    return {
-        canParseUrls: (connection) => world().urlConnections.has(connection),
-        parseUrl(connection, url): ItemRef | null {
-            if (connection !== 'github' || !world().urlConnections.has(connection)) return null;
-            const match = GITHUB_WORK_ITEM_URL.exec(url);
-            if (!match) return null;
-            const [, owner, name, kind, number] = match;
-            return { provider: 'github', repo: `${owner}/${name}`, type: kind === 'pull' ? 'pr' : 'issue', number: Number(number) };
-        },
-        keyOf: itemKey,
-        urlOf: (ref) => `https://github.com/${ref.repo}/${ref.type === 'pr' ? 'pull' : 'issues'}/${ref.number}`,
-        inWorkspace: (_workspaceId, ref) => [...world().clonedRepos].some((repo) => repo.toLowerCase() === ref.repo.toLowerCase()),
-    };
+function fakeWorkItems(
+  world: () => Pick<SourcesWorld, 'urlConnections' | 'clonedRepos'>,
+): WorkItemPort {
+  return {
+    canParseUrls: (connection) => world().urlConnections.has(connection),
+    parseUrl(connection, url): ItemRef | null {
+      if (connection !== 'github' || !world().urlConnections.has(connection)) return null;
+      const match = GITHUB_WORK_ITEM_URL.exec(url);
+      if (!match) return null;
+      const [, owner, name, kind, number] = match;
+      return {
+        provider: 'github',
+        repo: `${owner}/${name}`,
+        type: kind === 'pull' ? 'pr' : 'issue',
+        number: Number(number),
+      };
+    },
+    keyOf: itemKey,
+    urlOf: (ref) =>
+      `https://github.com/${ref.repo}/${ref.type === 'pr' ? 'pull' : 'issues'}/${ref.number}`,
+    inWorkspace: (_workspaceId, ref) =>
+      [...world().clonedRepos].some((repo) => repo.toLowerCase() === ref.repo.toLowerCase()),
+  };
 }
 
 /** A started service over Sprocket whose host reads GitHub URLs. Call it inside a test, as `stepsHarness`. */
 export async function sourcesHarness(options: SourcesHarnessOptions = {}): Promise<SourcesHarness> {
-    const { clonedRepos = ['sprocket/catalog-portal'], ...rest } = options;
-    // The fake reads the world it belongs to, which exists only once the steps harness made it; until then, these.
-    let sets: Pick<SourcesWorld, 'urlConnections' | 'clonedRepos'> = { urlConnections: new Set(['github']), clonedRepos: new Set(clonedRepos) };
-    const workItems = fakeWorkItems(() => sets);
-    const base = await stepsHarness({ ...rest, workItems });
-    const world: SourcesWorld = Object.assign(base.world, sets, { workItems });
-    sets = world;
-    // Kept across relaunches, as the world is.
-    let printed = '[]';
-    const checksDir = path.join(base.folder.workspaceDir(WORKSPACE_ID), 'checks');
-    const isCheck = (command: FakeCommand) => path.dirname(path.dirname(command.spec.stdoutPath)) === checksDir;
+  const { clonedRepos = ['sprocket/catalog-portal'], ...rest } = options;
+  // The fake reads the world it belongs to, which exists only once the steps harness made it; until then, these.
+  let sets: Pick<SourcesWorld, 'urlConnections' | 'clonedRepos'> = {
+    urlConnections: new Set(['github']),
+    clonedRepos: new Set(clonedRepos),
+  };
+  const workItems = fakeWorkItems(() => sets);
+  const base = await stepsHarness({ ...rest, workItems });
+  const world: SourcesWorld = Object.assign(base.world, sets, { workItems });
+  sets = world;
+  // Kept across relaunches, as the world is.
+  let printed = '[]';
+  const checksDir = path.join(base.folder.workspaceDir(WORKSPACE_ID), 'checks');
+  const isCheck = (command: FakeCommand) =>
+    path.dirname(path.dirname(command.spec.stdoutPath)) === checksDir;
 
-    const checkAll = async (harness: StepsHarness) => {
-        await harness.tick();
-        // Ending one frees the lane for another that is due: that one ends too.
-        for (let round = 0; round < 20; round++) {
-            const running = world.commands.filter((command) => isCheck(command) && !command.ended);
-            if (running.length === 0) return;
-            for (const command of running) await command.end({ stdout: printed });
-        }
-        throw new Error('Checks kept starting: a check() never settled.');
-    };
-    const checkSees = async (harness: StepsHarness, items: object[], name: string) => {
-        printed = JSON.stringify(items);
-        // Check now: refused for an entry not allowed, as a person's click is.
-        await harness.service.trigger(WORKSPACE_ID, name);
-        await checkAll(harness);
-    };
+  const checkAll = async (harness: StepsHarness) => {
+    await harness.tick();
+    // Ending one frees the lane for another that is due: that one ends too.
+    for (let round = 0; round < 20; round++) {
+      const running = world.commands.filter((command) => isCheck(command) && !command.ended);
+      if (running.length === 0) return;
+      for (const command of running) await command.end({ stdout: printed });
+    }
+    throw new Error('Checks kept starting: a check() never settled.');
+  };
+  const checkSees = async (harness: StepsHarness, items: object[], name: string) => {
+    printed = JSON.stringify(items);
+    // Check now: refused for an entry not allowed, as a person's click is.
+    await harness.service.trigger(WORKSPACE_ID, name);
+    await checkAll(harness);
+  };
 
-    const wrap = (harness: StepsHarness): SourcesHarness => ({
-        ...harness,
-        world,
-        async setPoll(entry = RE_REVIEW_ENTRY) {
-            await harness.setYaml(factoryWith(entry));
-        },
-        async relaunch() {
-            return wrap(await harness.relaunch());
-        },
-        async relaunchWith(yaml) {
-            harness.service.shutdown();
-            // A service that quit reads no file: this only changes what the next one loads.
-            await harness.setYaml(yaml);
-            return wrap(await harness.relaunch());
-        },
-        async fire(name = RE_REVIEW_NAME) {
-            const before = new Set(harness.store.runs().map((run) => run.id));
-            printed = '[]';
-            await checkAll(harness);
-            await checkSees(harness, [PR_51_ROW], name);
-            const run = harness.store.runs().find((candidate) => !before.has(candidate.id) && candidate.automationId === name);
-            if (!run) throw new Error(`A check of ${name} that found #51 made no run.`);
-            return harness.store.get(run.id)!;
-        },
-        pollOutput(items) {
-            printed = JSON.stringify(items);
-        },
-        check: () => checkAll(harness),
-        checkSees: (items, name = RE_REVIEW_NAME) => checkSees(harness, items, name),
-        async runOn(target, name = RE_REVIEW_NAME, actor = {}) {
-            const run = await harness.service.trigger(WORKSPACE_ID, name, actor, target);
-            await harness.flush();
-            if (!run) throw new Error(`Run on… ${name} made no run.`);
-            return structuredClone(harness.store.get(run.id)!);
-        },
-    });
-    return wrap(base);
+  const wrap = (harness: StepsHarness): SourcesHarness => ({
+    ...harness,
+    world,
+    async setPoll(entry = RE_REVIEW_ENTRY) {
+      await harness.setYaml(factoryWith(entry));
+    },
+    async relaunch() {
+      return wrap(await harness.relaunch());
+    },
+    async relaunchWith(yaml) {
+      harness.service.shutdown();
+      // A service that quit reads no file: this only changes what the next one loads.
+      await harness.setYaml(yaml);
+      return wrap(await harness.relaunch());
+    },
+    async fire(name = RE_REVIEW_NAME) {
+      const before = new Set(harness.store.runs().map((run) => run.id));
+      printed = '[]';
+      await checkAll(harness);
+      await checkSees(harness, [PR_51_ROW], name);
+      const run = harness.store
+        .runs()
+        .find((candidate) => !before.has(candidate.id) && candidate.automationId === name);
+      if (!run) throw new Error(`A check of ${name} that found #51 made no run.`);
+      return harness.store.get(run.id)!;
+    },
+    pollOutput(items) {
+      printed = JSON.stringify(items);
+    },
+    check: () => checkAll(harness),
+    checkSees: (items, name = RE_REVIEW_NAME) => checkSees(harness, items, name),
+    async runOn(target, name = RE_REVIEW_NAME, actor = {}) {
+      const run = await harness.service.trigger(WORKSPACE_ID, name, actor, target);
+      await harness.flush();
+      if (!run) throw new Error(`Run on… ${name} made no run.`);
+      return structuredClone(harness.store.get(run.id)!);
+    },
+  });
+  return wrap(base);
 }

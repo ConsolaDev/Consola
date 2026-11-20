@@ -78,7 +78,7 @@ export interface NavigationState {
  */
 export function mergeNavigationState(
   persisted: unknown,
-  current: NavigationState
+  current: NavigationState,
 ): NavigationState {
   const saved = (persisted ?? {}) as Partial<NavigationState>;
   return {
@@ -182,8 +182,8 @@ export const useNavigationStore = create<NavigationState>()(
       // identity with whatever workspace that blob last held. mergeNavigationState
       // takes only the preference keys, and only when they're the right type.
       merge: (persisted, current) => mergeNavigationState(persisted, current as NavigationState),
-    }
-  )
+    },
+  ),
 );
 
 /**
@@ -235,6 +235,7 @@ export function subscribeToShowAutomations(): () => void {
   return windowBridge.onShowAutomations(({ runId, automation }) => {
     useNavigationStore.setState({ overlay: 'automations' });
     if (runId) useAutomationsStore.getState().openPanel({ kind: 'run', runId });
-    else if (automation) useAutomationsStore.getState().openPanel({ kind: 'automation', name: automation });
+    else if (automation)
+      useAutomationsStore.getState().openPanel({ kind: 'automation', name: automation });
   });
 }

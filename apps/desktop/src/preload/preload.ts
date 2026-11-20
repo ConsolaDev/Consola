@@ -4,31 +4,31 @@ import type { ShellAPI } from '../shared/shell';
 import type { SessionCheckout, CheckoutContext, CheckoutInfo } from '../shared/sessionCheckout';
 import { contextBridge, ipcRenderer, webUtils } from 'electron';
 import {
-    TerminalCreateOptions,
-    TerminalSnapshot,
-    TerminalDataMessage,
-    TerminalActivityMessage,
-    TerminalAwaitingConfirmationMessage,
-    TerminalExitMessage,
-    TerminalStatusMessage,
-    AssistantActivitySnapshot,
-    TerminalStatusSnapshot,
-    HarnessLaunchFields,
-    HarnessCapabilitiesResult,
-    HarnessProbeResult,
-    SessionNameResult,
-    WorkspaceSnapshot,
-    WindowContext,
-    WorkspaceView,
-    ActivateWorkspaceResult,
-    WorkItemLaunchResult,
-    RunActionInSessionResult,
-    CloneRepoResult,
-    SessionFanOutIntent,
-    SessionFanOutResult,
-    ScopeRepo,
-    ConductorCreateRequest,
-    AutomationsRequest,
+  TerminalCreateOptions,
+  TerminalSnapshot,
+  TerminalDataMessage,
+  TerminalActivityMessage,
+  TerminalAwaitingConfirmationMessage,
+  TerminalExitMessage,
+  TerminalStatusMessage,
+  AssistantActivitySnapshot,
+  TerminalStatusSnapshot,
+  HarnessLaunchFields,
+  HarnessCapabilitiesResult,
+  HarnessProbeResult,
+  SessionNameResult,
+  WorkspaceSnapshot,
+  WindowContext,
+  WorkspaceView,
+  ActivateWorkspaceResult,
+  WorkItemLaunchResult,
+  RunActionInSessionResult,
+  CloneRepoResult,
+  SessionFanOutIntent,
+  SessionFanOutResult,
+  ScopeRepo,
+  ConductorCreateRequest,
+  AutomationsRequest,
 } from '../shared/types';
 import { IPC_CHANNELS } from '../shared/constants';
 import type { AutomationsAPI } from '../shared/automations';
@@ -37,389 +37,402 @@ import type { GitProviderId, ProviderProbeResult } from '../shared/providers';
 import type { WorkItemAction } from '../shared/workItemActions';
 import type { InboxSnapshot, WorkItemLaunchAction, WorkItemRef } from '../shared/workItems';
 import type {
-    Group,
-    NewGroupFields,
-    NewScopeFields,
-    NewSessionFields,
-    Scope,
-    Session,
-    SessionUpdates,
-    Workspace,
-    WorkspaceProvider,
-    WorkspaceUpdates,
+  Group,
+  NewGroupFields,
+  NewScopeFields,
+  NewSessionFields,
+  Scope,
+  Session,
+  SessionUpdates,
+  Workspace,
+  WorkspaceProvider,
+  WorkspaceUpdates,
 } from '../shared/workspace';
 import type { Harness, HarnessUpdates, NewHarnessFields } from '../shared/harness';
 
 // Subscribe to a main->renderer channel, returning an unsubscribe function so
 // callers never have to re-register their peers to remove one listener.
 function subscribe<T>(channel: string, callback: (payload: T) => void): () => void {
-    const listener = (_event: Electron.IpcRendererEvent, payload: T) => callback(payload);
-    ipcRenderer.on(channel, listener);
-    return () => ipcRenderer.removeListener(channel, listener);
+  const listener = (_event: Electron.IpcRendererEvent, payload: T) => callback(payload);
+  ipcRenderer.on(channel, listener);
+  return () => ipcRenderer.removeListener(channel, listener);
 }
 
 contextBridge.exposeInMainWorld('appUpdateAPI', {
-    getState: () => ipcRenderer.invoke(UPDATE_CHANNELS.GET),
-    check: () => ipcRenderer.invoke(UPDATE_CHANNELS.CHECK),
-    install: () => ipcRenderer.invoke(UPDATE_CHANNELS.INSTALL),
-    onChanged: callback => subscribe(UPDATE_CHANNELS.CHANGED, callback),
+  getState: () => ipcRenderer.invoke(UPDATE_CHANNELS.GET),
+  check: () => ipcRenderer.invoke(UPDATE_CHANNELS.CHECK),
+  install: () => ipcRenderer.invoke(UPDATE_CHANNELS.INSTALL),
+  onChanged: (callback) => subscribe(UPDATE_CHANNELS.CHANGED, callback),
 } satisfies AppUpdateAPI);
 
 contextBridge.exposeInMainWorld('shellAPI', {
-    attach: options => ipcRenderer.invoke(IPC_CHANNELS.SHELL_ATTACH, options),
-    restart: options => ipcRenderer.invoke(IPC_CHANNELS.SHELL_RESTART, options),
-    input: (id, data) => ipcRenderer.send(IPC_CHANNELS.SHELL_INPUT, id, data),
-    resize: (id, cols, rows) => ipcRenderer.send(IPC_CHANNELS.SHELL_RESIZE, id, cols, rows),
-    onData: callback => subscribe(IPC_CHANNELS.SHELL_DATA, callback),
-    onExit: callback => subscribe(IPC_CHANNELS.SHELL_EXIT, callback),
+  attach: (options) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_ATTACH, options),
+  restart: (options) => ipcRenderer.invoke(IPC_CHANNELS.SHELL_RESTART, options),
+  input: (id, data) => ipcRenderer.send(IPC_CHANNELS.SHELL_INPUT, id, data),
+  resize: (id, cols, rows) => ipcRenderer.send(IPC_CHANNELS.SHELL_RESIZE, id, cols, rows),
+  onData: (callback) => subscribe(IPC_CHANNELS.SHELL_DATA, callback),
+  onExit: (callback) => subscribe(IPC_CHANNELS.SHELL_EXIT, callback),
 } satisfies ShellAPI);
 
 // Expose protected methods to the renderer process
 contextBridge.exposeInMainWorld('terminalAPI', {
-    // Start or attach to a session's terminal
-    create: (options: TerminalCreateOptions): Promise<TerminalSnapshot> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_CREATE, options);
-    },
+  // Start or attach to a session's terminal
+  create: (options: TerminalCreateOptions): Promise<TerminalSnapshot> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_CREATE, options);
+  },
 
-    // Send user input to the PTY
-    sendInput: (instanceId: string, data: string): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_INPUT, instanceId, data);
-    },
+  // Send user input to the PTY
+  sendInput: (instanceId: string, data: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_INPUT, instanceId, data);
+  },
 
-    // Paste a block of text as a single unit
-    paste: (instanceId: string, text: string): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_PASTE, instanceId, text);
-    },
+  // Paste a block of text as a single unit
+  paste: (instanceId: string, text: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_PASTE, instanceId, text);
+  },
 
-    // Resize the terminal
-    resize: (instanceId: string, cols: number, rows: number): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, instanceId, cols, rows);
-    },
+  // Resize the terminal
+  resize: (instanceId: string, cols: number, rows: number): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESIZE, instanceId, cols, rows);
+  },
 
-    // Relaunch claude after it exited
-    restart: (instanceId: string): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
-    },
+  // Relaunch claude after it exited
+  restart: (instanceId: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_RESTART, instanceId);
+  },
 
-    // Tear down a session's terminal
-    destroy: (instanceId: string): void => {
-        ipcRenderer.send(IPC_CHANNELS.TERMINAL_DESTROY, instanceId);
-    },
+  // Tear down a session's terminal
+  destroy: (instanceId: string): void => {
+    ipcRenderer.send(IPC_CHANNELS.TERMINAL_DESTROY, instanceId);
+  },
 
-    // Live status of every terminal, for a window that missed the edges
-    getStatusSnapshot: (): Promise<TerminalStatusSnapshot> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT);
-    },
+  // Live status of every terminal, for a window that missed the edges
+  getStatusSnapshot: (): Promise<TerminalStatusSnapshot> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.TERMINAL_STATUS_SNAPSHOT);
+  },
 
-    onData: (callback: (message: TerminalDataMessage) => void) =>
-        subscribe(IPC_CHANNELS.TERMINAL_DATA, callback),
+  onData: (callback: (message: TerminalDataMessage) => void) =>
+    subscribe(IPC_CHANNELS.TERMINAL_DATA, callback),
 
-    onActivity: (callback: (message: TerminalActivityMessage) => void) =>
-        subscribe(IPC_CHANNELS.TERMINAL_ACTIVITY, callback),
+  onActivity: (callback: (message: TerminalActivityMessage) => void) =>
+    subscribe(IPC_CHANNELS.TERMINAL_ACTIVITY, callback),
 
-    onAwaitingConfirmation: (callback: (message: TerminalAwaitingConfirmationMessage) => void) =>
-        subscribe(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, callback),
+  onAwaitingConfirmation: (callback: (message: TerminalAwaitingConfirmationMessage) => void) =>
+    subscribe(IPC_CHANNELS.TERMINAL_AWAITING_CONFIRMATION, callback),
 
-    onExit: (callback: (message: TerminalExitMessage) => void) =>
-        subscribe(IPC_CHANNELS.TERMINAL_EXIT, callback),
+  onExit: (callback: (message: TerminalExitMessage) => void) =>
+    subscribe(IPC_CHANNELS.TERMINAL_EXIT, callback),
 
-    onStatus: (callback: (message: TerminalStatusMessage) => void) =>
-        subscribe(IPC_CHANNELS.TERMINAL_STATUS, callback),
+  onStatus: (callback: (message: TerminalStatusMessage) => void) =>
+    subscribe(IPC_CHANNELS.TERMINAL_STATUS, callback),
 
-    // Drag-and-drop's one main-world question. `webUtils` is preload-only, and
-    // a `File` cannot cross the context bridge as a value -- the lookup has to
-    // happen here, against the object the renderer hands in.
-    pathForFile: (file: File): string => webUtils.getPathForFile(file),
+  // Drag-and-drop's one main-world question. `webUtils` is preload-only, and
+  // a `File` cannot cross the context bridge as a value -- the lookup has to
+  // happen here, against the object the renderer hands in.
+  pathForFile: (file: File): string => webUtils.getPathForFile(file),
 });
 
 // Expose harness queries to the renderer
 contextBridge.exposeInMainWorld('harnessAPI', {
-    getSessionModel: (sessionId: string, fields: HarnessLaunchFields): Promise<string | null> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_MODEL, sessionId, fields),
+  getSessionModel: (sessionId: string, fields: HarnessLaunchFields): Promise<string | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_MODEL, sessionId, fields),
 
-    probe: (fields: HarnessLaunchFields): Promise<HarnessProbeResult> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_PROBE, fields);
-    },
+  probe: (fields: HarnessLaunchFields): Promise<HarnessProbeResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_PROBE, fields);
+  },
 
-    getSessionName: (
-        sessionId: string,
-        fields: HarnessLaunchFields
-    ): Promise<SessionNameResult | null> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
-    },
+  getSessionName: (
+    sessionId: string,
+    fields: HarnessLaunchFields,
+  ): Promise<SessionNameResult | null> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_SESSION_NAME, sessionId, fields);
+  },
 
-    getCapabilities: (fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_CAPABILITIES, fields);
-    },
+  getCapabilities: (fields: HarnessLaunchFields): Promise<HarnessCapabilitiesResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.HARNESS_CAPABILITIES, fields);
+  },
 });
 
 // The Inbox: main owns the cache; the renderer sends intents and listens for
 // pushes. Remote actions are explicit and validated in main.
 contextBridge.exposeInMainWorld('inboxAPI', {
-    getDetails: (workspaceId: string, ref: WorkItemRef) =>
-        ipcRenderer.invoke(IPC_CHANNELS.INBOX_DETAILS, workspaceId, ref),
-    mutateItem: (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation) =>
-        ipcRenderer.invoke(IPC_CHANNELS.INBOX_MUTATE, workspaceId, ref, mutation),
-    getInbox: (workspaceId: string): Promise<InboxSnapshot | null> =>
-        ipcRenderer.invoke(IPC_CHANNELS.INBOX_GET, workspaceId),
+  getDetails: (workspaceId: string, ref: WorkItemRef) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INBOX_DETAILS, workspaceId, ref),
+  mutateItem: (workspaceId: string, ref: WorkItemRef, mutation: WorkItemMutation) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INBOX_MUTATE, workspaceId, ref, mutation),
+  getInbox: (workspaceId: string): Promise<InboxSnapshot | null> =>
+    ipcRenderer.invoke(IPC_CHANNELS.INBOX_GET, workspaceId),
 
-    refreshInbox: (workspaceId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.INBOX_REFRESH, workspaceId),
+  refreshInbox: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.INBOX_REFRESH, workspaceId),
 
-    onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) =>
-        subscribe<InboxSnapshot>(IPC_CHANNELS.INBOX_CHANGED, callback),
+  onInboxChanged: (callback: (snapshot: InboxSnapshot) => void) =>
+    subscribe<InboxSnapshot>(IPC_CHANNELS.INBOX_CHANGED, callback),
 });
 
 // Provider operations. Tokens never cross this bridge — they are borrowed
 // and consumed entirely inside the main process.
 contextBridge.exposeInMainWorld('providerAPI', {
-    probe: (id: GitProviderId): Promise<ProviderProbeResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_PROBE, id),
+  probe: (id: GitProviderId): Promise<ProviderProbeResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_PROBE, id),
 
-    resolveRepos: (workspaceId: string, repos: string[]): Promise<Record<string, string | null>> =>
-        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS, workspaceId, repos),
+  resolveRepos: (workspaceId: string, repos: string[]): Promise<Record<string, string | null>> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_RESOLVE_REPOS, workspaceId, repos),
 
-    launchWorkItem: (
-        workspaceId: string,
-        ref: WorkItemRef,
-        action: WorkItemLaunchAction
-    ): Promise<WorkItemLaunchResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM, workspaceId, ref, action),
+  launchWorkItem: (
+    workspaceId: string,
+    ref: WorkItemRef,
+    action: WorkItemLaunchAction,
+  ): Promise<WorkItemLaunchResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_LAUNCH_WORK_ITEM, workspaceId, ref, action),
 
-    runActionInSession: (
-        workspaceId: string,
-        sessionId: string,
-        actionId: string
-    ): Promise<RunActionInSessionResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION, workspaceId, sessionId, actionId),
+  runActionInSession: (
+    workspaceId: string,
+    sessionId: string,
+    actionId: string,
+  ): Promise<RunActionInSessionResult> =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.PROVIDER_RUN_ACTION_IN_SESSION,
+      workspaceId,
+      sessionId,
+      actionId,
+    ),
 
-    cloneRepo: (
-        workspaceId: string,
-        repo: string,
-        destinationDir: string
-    ): Promise<CloneRepoResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_CLONE_REPO, workspaceId, repo, destinationDir),
+  cloneRepo: (
+    workspaceId: string,
+    repo: string,
+    destinationDir: string,
+  ): Promise<CloneRepoResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROVIDER_CLONE_REPO, workspaceId, repo, destinationDir),
 });
 
 // Expose workspace state to the renderer. Main owns the records; the renderer
 // sends intents and listens for the result.
 contextBridge.exposeInMainWorld('workspaceAPI', {
-    getSnapshot: (): Promise<WorkspaceSnapshot> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT),
+  getSnapshot: (): Promise<WorkspaceSnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GET_SNAPSHOT),
 
-    importState: (workspaces: Workspace[], version: number): Promise<boolean> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_IMPORT, workspaces, version),
+  importState: (workspaces: Workspace[], version: number): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_IMPORT, workspaces, version),
 
-    createWorkspace: (
-        name: string,
-        path: string,
-        isGitRepo: boolean,
-        defaultHarnessId?: string
-    ): Promise<Workspace> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CREATE, name, path, isGitRepo, defaultHarnessId),
+  createWorkspace: (
+    name: string,
+    path: string,
+    isGitRepo: boolean,
+    defaultHarnessId?: string,
+  ): Promise<Workspace> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CREATE, name, path, isGitRepo, defaultHarnessId),
 
-    updateWorkspace: (
-        id: string,
-        updates: WorkspaceUpdates
-    ): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE, id, updates),
+  updateWorkspace: (id: string, updates: WorkspaceUpdates): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE, id, updates),
 
-    deleteWorkspace: (id: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_DELETE, id),
+  deleteWorkspace: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_DELETE, id),
 
-    moveWorkspace: (id: string, beforeId: string | null): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_MOVE, id, beforeId),
+  moveWorkspace: (id: string, beforeId: string | null): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_MOVE, id, beforeId),
 
-    checkoutContext: (workspaceId: string, scopeId: string): Promise<CheckoutContext> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT, workspaceId, scopeId),
+  checkoutContext: (workspaceId: string, scopeId: string): Promise<CheckoutContext> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_CHECKOUT_CONTEXT, workspaceId, scopeId),
 
-    createSession: (workspaceId: string, fields: NewSessionFields, checkout?: SessionCheckout): Promise<Session | undefined> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_CREATE, workspaceId, fields, checkout),
+  createSession: (
+    workspaceId: string,
+    fields: NewSessionFields,
+    checkout?: SessionCheckout,
+  ): Promise<Session | undefined> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_CREATE, workspaceId, fields, checkout),
 
-    updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
+  updateSession: (workspaceId: string, sessionId: string, updates: SessionUpdates): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_UPDATE, workspaceId, sessionId, updates),
 
-    deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
+  deleteSession: (workspaceId: string, sessionId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_DELETE, workspaceId, sessionId),
 
-    forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_FORK, workspaceId, sessionId),
+  forkSession: (workspaceId: string, sessionId: string): Promise<Session> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SESSION_FORK, workspaceId, sessionId),
 
-    addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
+  addScope: (workspaceId: string, fields: NewScopeFields): Promise<Scope> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_ADD_SCOPE, workspaceId, fields),
 
-    updateScope: (
-        workspaceId: string,
-        scopeId: string,
-        updates: Partial<Pick<Scope, 'name' | 'path'>>
-    ): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE, workspaceId, scopeId, updates),
+  updateScope: (
+    workspaceId: string,
+    scopeId: string,
+    updates: Partial<Pick<Scope, 'name' | 'path'>>,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_UPDATE_SCOPE, workspaceId, scopeId, updates),
 
-    removeScope: (workspaceId: string, scopeId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE, workspaceId, scopeId),
+  removeScope: (workspaceId: string, scopeId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_REMOVE_SCOPE, workspaceId, scopeId),
 
-    setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_PROVIDER_BINDING, workspaceId, binding),
+  setProviderBinding: (workspaceId: string, binding: WorkspaceProvider | null): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_PROVIDER_BINDING, workspaceId, binding),
 
-    setActions: (
-        workspaceId: string,
-        actions: WorkItemAction[],
-        sectionDefaults: Partial<Record<InboxSection, string>>
-    ): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_ACTIONS, workspaceId, actions, sectionDefaults),
+  setActions: (
+    workspaceId: string,
+    actions: WorkItemAction[],
+    sectionDefaults: Partial<Record<InboxSection, string>>,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_SET_ACTIONS, workspaceId, actions, sectionDefaults),
 
-    createGroup: (workspaceId: string, fields: NewGroupFields): Promise<Group> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_CREATE, workspaceId, fields),
+  createGroup: (workspaceId: string, fields: NewGroupFields): Promise<Group> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_CREATE, workspaceId, fields),
 
-    updateGroup: (
-        workspaceId: string,
-        groupId: string,
-        updates: Partial<Pick<Group, 'name' | 'emoji'>>
-    ): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE, workspaceId, groupId, updates),
+  updateGroup: (
+    workspaceId: string,
+    groupId: string,
+    updates: Partial<Pick<Group, 'name' | 'emoji'>>,
+  ): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_UPDATE, workspaceId, groupId, updates),
 
-    archiveGroup: (workspaceId: string, groupId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE, workspaceId, groupId),
+  archiveGroup: (workspaceId: string, groupId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_ARCHIVE, workspaceId, groupId),
 
-    restoreGroup: (workspaceId: string, groupId: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE, workspaceId, groupId),
+  restoreGroup: (workspaceId: string, groupId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WORKSPACE_GROUP_RESTORE, workspaceId, groupId),
 
-    fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),
+  fanOut: (intent: SessionFanOutIntent): Promise<SessionFanOutResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SESSION_FAN_OUT, intent),
 
-    listScopeRepos: (workspaceId: string, scopeId: string): Promise<ScopeRepo[]> =>
-        ipcRenderer.invoke(IPC_CHANNELS.SCOPE_LIST_REPOS, workspaceId, scopeId),
+  listScopeRepos: (workspaceId: string, scopeId: string): Promise<ScopeRepo[]> =>
+    ipcRenderer.invoke(IPC_CHANNELS.SCOPE_LIST_REPOS, workspaceId, scopeId),
 
-    onChanged: (callback: (workspaces: Workspace[]) => void) =>
-        subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
+  onChanged: (callback: (workspaces: Workspace[]) => void) =>
+    subscribe<Workspace[]>(IPC_CHANNELS.WORKSPACE_CHANGED, callback),
 });
 
 // Conductor orchestration: one intent. The conductor itself is an ordinary
 // session and rides the terminal and workspace APIs above.
 contextBridge.exposeInMainWorld('conductorAPI', {
-    create: (request: ConductorCreateRequest): Promise<Group> =>
-        ipcRenderer.invoke(IPC_CHANNELS.CONDUCTOR_CREATE, request),
+  create: (request: ConductorCreateRequest): Promise<Group> =>
+    ipcRenderer.invoke(IPC_CHANNELS.CONDUCTOR_CREATE, request),
 });
 
 // The workspace Assistant: its record is made or replaced in main; the
 // session itself rides the terminal and workspace APIs above.
 contextBridge.exposeInMainWorld('assistantAPI', {
-    open: (workspaceId: string): Promise<Session> => ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_OPEN, workspaceId),
-    startFresh: (workspaceId: string): Promise<Session> =>
-        ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_START_FRESH, workspaceId),
-    getActivity: (workspaceId: string): Promise<AssistantActivitySnapshot> =>
-        ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, workspaceId),
-    markSeen: (workspaceId: string): Promise<void> => ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_MARK_SEEN, workspaceId),
-    onActivityChanged: (callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void) =>
-        subscribe<{ workspaceId: string; activity: AssistantActivitySnapshot }>(
-            IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED,
-            callback
-        ),
+  open: (workspaceId: string): Promise<Session> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_OPEN, workspaceId),
+  startFresh: (workspaceId: string): Promise<Session> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_START_FRESH, workspaceId),
+  getActivity: (workspaceId: string): Promise<AssistantActivitySnapshot> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_GET_ACTIVITY, workspaceId),
+  markSeen: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.ASSISTANT_MARK_SEEN, workspaceId),
+  onActivityChanged: (
+    callback: (change: { workspaceId: string; activity: AssistantActivitySnapshot }) => void,
+  ) =>
+    subscribe<{ workspaceId: string; activity: AssistantActivitySnapshot }>(
+      IPC_CHANNELS.ASSISTANT_ACTIVITY_CHANGED,
+      callback,
+    ),
 });
 
 // Expose harness state to the renderer. Main owns the records; the renderer
 // sends intents and listens for the result. Separate from `harnessAPI`, which
 // probes health: a probe result is a live fact and is never persisted.
 contextBridge.exposeInMainWorld('harnessStateAPI', {
-    getSnapshot: (): Promise<{ harnesses: Harness[]; needsImport: boolean }> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_GET_SNAPSHOT),
+  getSnapshot: (): Promise<{ harnesses: Harness[]; needsImport: boolean }> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_GET_SNAPSHOT),
 
-    importState: (harnesses: Harness[]): Promise<boolean> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_IMPORT, harnesses),
+  importState: (harnesses: Harness[]): Promise<boolean> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_IMPORT, harnesses),
 
-    addHarness: (input: NewHarnessFields): Promise<Harness> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_ADD, input),
+  addHarness: (input: NewHarnessFields): Promise<Harness> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_ADD, input),
 
-    updateHarness: (id: string, updates: HarnessUpdates): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_UPDATE, id, updates),
+  updateHarness: (id: string, updates: HarnessUpdates): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_UPDATE, id, updates),
 
-    archiveHarness: (id: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_ARCHIVE, id),
+  archiveHarness: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_ARCHIVE, id),
 
-    restoreHarness: (id: string): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.HARNESS_RESTORE, id),
+  restoreHarness: (id: string): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.HARNESS_RESTORE, id),
 
-    onChanged: (callback: (harnesses: Harness[]) => void) =>
-        subscribe<Harness[]>(IPC_CHANNELS.HARNESS_CHANGED, callback),
+  onChanged: (callback: (harnesses: Harness[]) => void) =>
+    subscribe<Harness[]>(IPC_CHANNELS.HARNESS_CHANGED, callback),
 });
 
 // Expose Dialog API to renderer
 contextBridge.exposeInMainWorld('dialogAPI', {
-    selectFolders: (): Promise<Array<{ path: string; name: string; isGitRepo: boolean }>> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
-    },
-    selectFolder: (): Promise<{ path: string; name: string; isGitRepo: boolean } | null> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDER);
-    },
+  selectFolders: (): Promise<Array<{ path: string; name: string; isGitRepo: boolean }>> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDERS);
+  },
+  selectFolder: (): Promise<{ path: string; name: string; isGitRepo: boolean } | null> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.DIALOG_SELECT_FOLDER);
+  },
 });
 
 // Expose File API to renderer
 contextBridge.exposeInMainWorld('fileAPI', {
-    readFile: (filePath: string): Promise<string> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath);
-    },
-    listDirectory: (dirPath: string): Promise<Array<{ name: string; path: string; isDirectory: boolean }>> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIRECTORY, dirPath);
-    },
+  readFile: (filePath: string): Promise<string> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.FILE_READ, filePath);
+  },
+  listDirectory: (
+    dirPath: string,
+  ): Promise<Array<{ name: string; path: string; isDirectory: boolean }>> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.FILE_LIST_DIRECTORY, dirPath);
+  },
 });
 
 // Git status result types
 interface GitStatusResult {
-    files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }>;
-    stats: { modifiedCount: number; addedLines: number; removedLines: number };
-    isGitRepo: boolean;
+  files: Array<{ path: string; status: 'staged' | 'modified' | 'untracked' | 'deleted' }>;
+  stats: { modifiedCount: number; addedLines: number; removedLines: number };
+  isGitRepo: boolean;
 }
 
 // Git diff result types
 interface GitDiffHunk {
-    oldStart: number;
-    oldLines: number;
-    newStart: number;
-    newLines: number;
-    lines: Array<{
-        type: 'context' | 'add' | 'remove';
-        content: string;
-        oldLineNumber?: number;
-        newLineNumber?: number;
-    }>;
+  oldStart: number;
+  oldLines: number;
+  newStart: number;
+  newLines: number;
+  lines: Array<{
+    type: 'context' | 'add' | 'remove';
+    content: string;
+    oldLineNumber?: number;
+    newLineNumber?: number;
+  }>;
 }
 
 interface GitDiffResult {
-    filePath: string;
-    staged: boolean;
-    oldContent: string;
-    newContent: string;
-    hunks: GitDiffHunk[];
-    isBinary: boolean;
-    isNew: boolean;
-    isDeleted: boolean;
+  filePath: string;
+  staged: boolean;
+  oldContent: string;
+  newContent: string;
+  hunks: GitDiffHunk[];
+  isBinary: boolean;
+  isNew: boolean;
+  isDeleted: boolean;
 }
 
 // Expose Git API to renderer
 contextBridge.exposeInMainWorld('gitAPI', {
-    getStatus: (rootPath: string): Promise<GitStatusResult> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, rootPath);
-    },
-    getCheckout: (dir: string): Promise<CheckoutInfo> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CHECKOUT, dir);
-    },
-    getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });
-    },
-    stageFile: (rootPath: string, filePath: string): Promise<{ success: boolean }> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE_FILE, { rootPath, filePath });
-    },
-    unstageFile: (rootPath: string, filePath: string): Promise<{ success: boolean }> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE_FILE, { rootPath, filePath });
-    },
-    commit: (rootPath: string, message: string): Promise<{ success: boolean; error?: string }> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, { rootPath, message });
-    },
-    getStagedDiff: (rootPath: string): Promise<{ stagedFiles: string[]; diff: string }> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STAGED_DIFF, { rootPath });
-    },
-    generateCommitMessage: (rootPath: string): Promise<{ message: string; error?: string }> => {
-        return ipcRenderer.invoke(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE, { rootPath });
-    },
+  getStatus: (rootPath: string): Promise<GitStatusResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STATUS, rootPath);
+  },
+  getCheckout: (dir: string): Promise<CheckoutInfo> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_CHECKOUT, dir);
+  },
+  getDiff: (rootPath: string, filePath: string, staged: boolean): Promise<GitDiffResult> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_DIFF, { rootPath, filePath, staged });
+  },
+  stageFile: (rootPath: string, filePath: string): Promise<{ success: boolean }> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_STAGE_FILE, { rootPath, filePath });
+  },
+  unstageFile: (rootPath: string, filePath: string): Promise<{ success: boolean }> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_UNSTAGE_FILE, { rootPath, filePath });
+  },
+  commit: (rootPath: string, message: string): Promise<{ success: boolean; error?: string }> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_COMMIT, { rootPath, message });
+  },
+  getStagedDiff: (rootPath: string): Promise<{ stagedFiles: string[]; diff: string }> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GIT_GET_STAGED_DIFF, { rootPath });
+  },
+  generateCommitMessage: (rootPath: string): Promise<{ message: string; error?: string }> => {
+    return ipcRenderer.invoke(IPC_CHANNELS.GENERATE_COMMIT_MESSAGE, { rootPath });
+  },
 });
 
 /**
@@ -429,78 +442,95 @@ contextBridge.exposeInMainWorld('gitAPI', {
  * render already knows what it is looking at.
  */
 function readWindowContext(): WindowContext {
-    const prefix = '--consola-window=';
-    const arg = process.argv.find((value) => value.startsWith(prefix));
-    const empty: WindowContext = { workspaceId: null, activeSessionId: null, overlay: null };
-    if (!arg) return empty;
-    try {
-        const context = JSON.parse(arg.slice(prefix.length)) as WindowContext;
-        // Main always sends a known overlay; anything else is read as none.
-        const overlay = context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
-        const { automationsRunId: runId, automationsName: name, ...rest } = context;
-        return {
-            ...rest,
-            overlay,
-            ...(typeof runId === 'string' && runId.length > 0 ? { automationsRunId: runId } : {}),
-            ...(typeof name === 'string' && name.length > 0 ? { automationsName: name } : {}),
-        };
-    } catch {
-        return empty;
-    }
+  const prefix = '--consola-window=';
+  const arg = process.argv.find((value) => value.startsWith(prefix));
+  const empty: WindowContext = { workspaceId: null, activeSessionId: null, overlay: null };
+  if (!arg) return empty;
+  try {
+    const context = JSON.parse(arg.slice(prefix.length)) as WindowContext;
+    // Main always sends a known overlay; anything else is read as none.
+    const overlay =
+      context.overlay === 'inbox' || context.overlay === 'automations' ? context.overlay : null;
+    const { automationsRunId: runId, automationsName: name, ...rest } = context;
+    return {
+      ...rest,
+      overlay,
+      ...(typeof runId === 'string' && runId.length > 0 ? { automationsRunId: runId } : {}),
+      ...(typeof name === 'string' && name.length > 0 ? { automationsName: name } : {}),
+    };
+  } catch {
+    return empty;
+  }
 }
 
 // Personal automations, one file per workspace: main runs them; the renderer
 // reads a workspace's snapshot and sends intents.
 contextBridge.exposeInMainWorld('automationsAPI', {
-    getSnapshot: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
-    runNow: (workspaceId, name, target) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name, target),
-    allow: (workspaceId, name, version) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ALLOW, workspaceId, name, version),
-    listRunTargets: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, workspaceId, name),
-    approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
-    dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
-    openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
-    addAssignedReviews: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
-    getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
-    readConversation: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, runId),
-    readStepConversation: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION, runId, stepId),
-    listRuns: (workspaceId, query) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS, workspaceId, query),
-    getRunDefinition: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, runId),
-    getStepDetail: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL, runId, stepId),
-    readStepLog: (runId, stepId, stream) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG, runId, stepId, stream),
-    readArtifact: (runId, ref) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, runId, ref),
-    retry: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RETRY, runId, stepId),
-    stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
-    addTemplate: (workspaceId, templateId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),
-    startAuthoring: (request) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING, request),
-    acknowledge: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
-    getEntry: (workspaceId, name) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, workspaceId, name),
-    onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
+  getSnapshot: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_SNAPSHOT, workspaceId),
+  runNow: (workspaceId, name, target) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RUN_NOW, workspaceId, name, target),
+  allow: (workspaceId, name, version) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ALLOW, workspaceId, name, version),
+  listRunTargets: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUN_TARGETS, workspaceId, name),
+  approve: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_APPROVE, runId),
+  dismiss: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_DISMISS, runId),
+  openFile: (workspaceId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_OPEN_FILE, workspaceId),
+  addAssignedReviews: (workspaceId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_ASSIGNED_REVIEWS, workspaceId),
+  getRun: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN, runId),
+  readConversation: (runId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_CONVERSATION, runId),
+  readStepConversation: (runId, stepId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_CONVERSATION, runId, stepId),
+  listRuns: (workspaceId, query) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_LIST_RUNS, workspaceId, query),
+  getRunDefinition: (runId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_RUN_DEFINITION, runId),
+  getStepDetail: (runId, stepId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_STEP_DETAIL, runId, stepId),
+  readStepLog: (runId, stepId, stream) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_STEP_LOG, runId, stepId, stream),
+  readArtifact: (runId, ref) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_READ_ARTIFACT, runId, ref),
+  retry: (runId, stepId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_RETRY, runId, stepId),
+  stop: (runId) => ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_STOP, runId),
+  addTemplate: (workspaceId, templateId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ADD_TEMPLATE, workspaceId, templateId),
+  startAuthoring: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_START_AUTHORING, request),
+  acknowledge: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_ACKNOWLEDGE, workspaceId, name),
+  getEntry: (workspaceId, name) =>
+    ipcRenderer.invoke(IPC_CHANNELS.AUTOMATIONS_GET_ENTRY, workspaceId, name),
+  onChanged: (callback) => subscribe(IPC_CHANNELS.AUTOMATIONS_CHANGED, callback),
 } satisfies AutomationsAPI);
 
 contextBridge.exposeInMainWorld('windowAPI', {
-    onOpenSettings: (callback: (section?: 'updates') => void) =>
-        subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
+  onOpenSettings: (callback: (section?: 'updates') => void) =>
+    subscribe<'updates' | undefined>(IPC_CHANNELS.WINDOW_OPEN_SETTINGS, callback),
 
-    onShowAutomations: (callback: (request: AutomationsRequest) => void) =>
-        subscribe<AutomationsRequest>(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, callback),
+  onShowAutomations: (callback: (request: AutomationsRequest) => void) =>
+    subscribe<AutomationsRequest>(IPC_CHANNELS.WINDOW_SHOW_AUTOMATIONS, callback),
 
-    context: readWindowContext(),
+  context: readWindowContext(),
 
-    activateWorkspace: (workspaceId: string | null): Promise<ActivateWorkspaceResult> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE, workspaceId),
+  activateWorkspace: (workspaceId: string | null): Promise<ActivateWorkspaceResult> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WINDOW_ACTIVATE_WORKSPACE, workspaceId),
 
-    openWindow: (workspaceId: string | null): Promise<void> =>
-        ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN, workspaceId),
+  openWindow: (workspaceId: string | null): Promise<void> =>
+    ipcRenderer.invoke(IPC_CHANNELS.WINDOW_OPEN, workspaceId),
 
-    setView: (workspaceId: string | null, view: WorkspaceView): void => {
-        ipcRenderer.send(IPC_CHANNELS.WINDOW_SET_VIEW, workspaceId, view);
-    },
+  setView: (workspaceId: string | null, view: WorkspaceView): void => {
+    ipcRenderer.send(IPC_CHANNELS.WINDOW_SET_VIEW, workspaceId, view);
+  },
 
-    onWorkspaceChanged: (callback: (workspaceId: string | null) => void) =>
-        subscribe<string | null>(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, callback),
+  onWorkspaceChanged: (callback: (workspaceId: string | null) => void) =>
+    subscribe<string | null>(IPC_CHANNELS.WINDOW_WORKSPACE_CHANGED, callback),
 
-    onActivateSession: (callback: (sessionId: string) => void) =>
-        subscribe<string>(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, callback),
+  onActivateSession: (callback: (sessionId: string) => void) =>
+    subscribe<string>(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, callback),
 });
 
 // Session storage types

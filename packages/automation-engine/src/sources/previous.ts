@@ -16,10 +16,10 @@ export const OF_EARLIER_RUN = 'of the earlier run on this item';
 
 /** Created strictly before `than`, a tie in time broken by id, so two runs are never each other's earlier. */
 function createdBefore(run: RunRecord, than: RunRecord): boolean {
-    const at = Date.parse(run.createdAt);
-    const thanAt = Date.parse(than.createdAt);
-    if (Number.isNaN(at) || Number.isNaN(thanAt)) return false;
-    return at < thanAt || (at === thanAt && run.id < than.id);
+  const at = Date.parse(run.createdAt);
+  const thanAt = Date.parse(than.createdAt);
+  if (Number.isNaN(at) || Number.isNaN(thanAt)) return false;
+  return at < thanAt || (at === thanAt && run.id < than.id);
 }
 
 /**
@@ -29,20 +29,24 @@ function createdBefore(run: RunRecord, than: RunRecord): boolean {
  * created before this one.
  */
 export function resolvePrevious(runs: readonly RunRecord[], run: RunRecord): RunRecord | undefined {
-    const workspaceId = run.attribution.workspaceId;
-    if (workspaceId === undefined) return undefined;
-    const key = run.trigger.item?.key;
-    let newest: RunRecord | undefined;
-    for (const candidate of runs) {
-        if (candidate.id === run.id) continue;
-        if (candidate.automationId !== run.automationId || candidate.attribution.workspaceId !== workspaceId) continue;
-        if (candidate.trigger.item?.key !== key) continue;
-        if (candidate.status !== 'completed' || candidate.dryRun) continue;
-        if (!candidate.steps || candidate.steps.length === 0) continue;
-        if (!createdBefore(candidate, run)) continue;
-        if (!newest || createdBefore(newest, candidate)) newest = candidate;
-    }
-    return newest;
+  const workspaceId = run.attribution.workspaceId;
+  if (workspaceId === undefined) return undefined;
+  const key = run.trigger.item?.key;
+  let newest: RunRecord | undefined;
+  for (const candidate of runs) {
+    if (candidate.id === run.id) continue;
+    if (
+      candidate.automationId !== run.automationId ||
+      candidate.attribution.workspaceId !== workspaceId
+    )
+      continue;
+    if (candidate.trigger.item?.key !== key) continue;
+    if (candidate.status !== 'completed' || candidate.dryRun) continue;
+    if (!candidate.steps || candidate.steps.length === 0) continue;
+    if (!createdBefore(candidate, run)) continue;
+    if (!newest || createdBefore(newest, candidate)) newest = candidate;
+  }
+  return newest;
 }
 
 /**
@@ -54,32 +58,39 @@ export function resolvePrevious(runs: readonly RunRecord[], run: RunRecord): Run
  * cannot be read: each caller has its own way to fail.
  */
 export function previousDocument(input: {
-    folder: RunFolderPort;
-    workspaceId: string;
-    previous: { runId: string } | undefined;
-    /** The previous run's record, when history still has it. */
-    record?: RunRecord;
-    step: string;
-    name: string;
-    file: boolean;
+  folder: RunFolderPort;
+  workspaceId: string;
+  previous: { runId: string } | undefined;
+  /** The previous run's record, when history still has it. */
+  record?: RunRecord;
+  step: string;
+  name: string;
+  file: boolean;
 }): { value: string } | { absent: string } {
-    const { folder, workspaceId, previous, record, step, name, file } = input;
-    if (!previous) return { absent: NO_EARLIER_RUN };
-    if (record && record.steps?.find((candidate) => candidate.id === step)?.status !== 'completed') {
-        return { absent: `\`${step}\` did not complete in the earlier run` };
+  const { folder, workspaceId, previous, record, step, name, file } = input;
+  if (!previous) return { absent: NO_EARLIER_RUN };
+  if (record && record.steps?.find((candidate) => candidate.id === step)?.status !== 'completed') {
+    return { absent: `\`${step}\` did not complete in the earlier run` };
+  }
+  const notWritten = { absent: `\`previous.${step}.${name}\` was not written in the earlier run` };
+  const attempt = folder.latestAttempt(workspaceId, previous.runId, step);
+  if (attempt === null) return notWritten;
+  if (file) {
+    // A command's `output` is kept as JSON or as text; which, its file says.
+    const formats = name === 'output' ? (['json', 'text'] as const) : ([undefined] as const);
+    for (const format of formats) {
+      const artifactFile = folder.artifactPath(
+        workspaceId,
+        previous.runId,
+        step,
+        attempt,
+        name,
+        format,
+      );
+      if (folder.exists(artifactFile)) return { value: artifactFile };
     }
-    const notWritten = { absent: `\`previous.${step}.${name}\` was not written in the earlier run` };
-    const attempt = folder.latestAttempt(workspaceId, previous.runId, step);
-    if (attempt === null) return notWritten;
-    if (file) {
-        // A command's `output` is kept as JSON or as text; which, its file says.
-        const formats = name === 'output' ? (['json', 'text'] as const) : ([undefined] as const);
-        for (const format of formats) {
-            const artifactFile = folder.artifactPath(workspaceId, previous.runId, step, attempt, name, format);
-            if (folder.exists(artifactFile)) return { value: artifactFile };
-        }
-        return notWritten;
-    }
-    const content = folder.readArtifact(workspaceId, previous.runId, step, attempt, name);
-    return content === null ? notWritten : { value: content };
+    return notWritten;
+  }
+  const content = folder.readArtifact(workspaceId, previous.runId, step, attempt, name);
+  return content === null ? notWritten : { value: content };
 }

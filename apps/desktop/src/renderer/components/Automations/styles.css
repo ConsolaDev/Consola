@@ -493,11 +493,13 @@
   font-family: inherit;
   color: var(--color-text-secondary);
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .automations-filter-trigger:hover,
-.automations-filter-trigger[data-state='open'] {
+.automations-filter-trigger[data-state="open"] {
   background: var(--color-bg-hover);
   color: var(--color-text-primary);
 }
@@ -564,7 +566,9 @@
   color: var(--color-text-tertiary);
   white-space: nowrap;
   cursor: pointer;
-  transition: background var(--transition-fast), color var(--transition-fast);
+  transition:
+    background var(--transition-fast),
+    color var(--transition-fast);
 }
 
 .automations-segment:hover {
@@ -675,7 +679,7 @@
 }
 
 /* The run the side panel is showing. */
-.automations-run-item[aria-current='true'] {
+.automations-run-item[aria-current="true"] {
   background: var(--color-bg-active);
 }
 
@@ -813,7 +817,7 @@
 }
 
 /* The template the side panel is showing. */
-.automations-template[aria-current='true'] {
+.automations-template[aria-current="true"] {
   border-color: var(--color-accent);
 }
 
@@ -1243,7 +1247,7 @@
 }
 
 /* The automation the side panel is showing. */
-.automations-row[aria-current='true'] {
+.automations-row[aria-current="true"] {
   background: var(--color-bg-active);
 }
 
@@ -1975,7 +1979,11 @@
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
   background-color: var(--color-bg-primary);
-  background-image: radial-gradient(circle at 1px 1px, var(--color-border-strong) 1px, transparent 0);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    var(--color-border-strong) 1px,
+    transparent 0
+  );
   background-size: 14px 14px;
 }
 
@@ -1999,7 +2007,7 @@
 }
 
 .automations-node + .automations-node::before {
-  content: '';
+  content: "";
   position: absolute;
   top: 50%;
   left: calc(-1px - var(--edge));
@@ -2010,7 +2018,7 @@
 }
 
 .automations-node + .automations-node::after {
-  content: '';
+  content: "";
   position: absolute;
   top: 50%;
   left: -7px;
@@ -2624,7 +2632,7 @@
 }
 
 .automations-landed::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: -3px;
   border: 2px solid var(--color-success);
@@ -2993,7 +3001,7 @@
 }
 
 .automations-node-link::after {
-  content: '';
+  content: "";
   position: absolute;
   inset: 0;
   border-radius: inherit;

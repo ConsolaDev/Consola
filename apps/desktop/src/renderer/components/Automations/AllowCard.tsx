@@ -43,7 +43,12 @@ export function AllowCard({
           </p>
         ))}
       </div>
-      <EntrySource workspaceId={workspaceId} automation={automation} opening={opening} onOpenFile={onOpenFile} />
+      <EntrySource
+        workspaceId={workspaceId}
+        automation={automation}
+        opening={opening}
+        onOpenFile={onOpenFile}
+      />
       {error && (
         <div className="automations-error" role="alert">
           {error}
@@ -54,7 +59,9 @@ export function AllowCard({
           type="button"
           className="dialog-button-primary automations-small-button"
           disabled={busy !== null}
-          onClick={() => void act('allow', () => automationsBridge.allow(workspaceId, automation.name, version))}
+          onClick={() =>
+            void act('allow', () => automationsBridge.allow(workspaceId, automation.name, version))
+          }
         >
           <ShieldCheck size={12} aria-hidden="true" />
           {busy === 'allow' ? 'Allowing…' : 'Allow'}

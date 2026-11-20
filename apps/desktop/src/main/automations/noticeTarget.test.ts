@@ -4,42 +4,63 @@ import type { AutomationNotice } from '@consola/automation-engine';
 import { noticeTarget } from './noticeTarget';
 
 const WORKSPACES = [
-    {
-        id: 'ws-1',
-        sessions: [
-            { id: 'a', kind: 'assistant' },
-            { id: 's-2', kind: 'interactive' },
-        ] as Session[],
-    },
+  {
+    id: 'ws-1',
+    sessions: [
+      { id: 'a', kind: 'assistant' },
+      { id: 's-2', kind: 'interactive' },
+    ] as Session[],
+  },
 ] as unknown as Workspace[];
 
 function notice(fields: Partial<AutomationNotice>): AutomationNotice {
-    return { title: 't', body: 'b', runId: 'r1', workspaceId: 'ws-1', needsApproval: true, ...fields };
+  return {
+    title: 't',
+    body: 'b',
+    runId: 'r1',
+    workspaceId: 'ws-1',
+    needsApproval: true,
+    ...fields,
+  };
 }
 
 describe('noticeTarget', () => {
-    it('opens the Assistant for a request it asked for', () => {
-        expect(noticeTarget(notice({ actorId: 'a' }), WORKSPACES)).toEqual({ kind: 'session', sessionId: 'a' });
+  it('opens the Assistant for a request it asked for', () => {
+    expect(noticeTarget(notice({ actorId: 'a' }), WORKSPACES)).toEqual({
+      kind: 'session',
+      sessionId: 'a',
     });
+  });
 
-    it('opens Automations for another session’s request, and for a run nobody asked for', () => {
-        expect(noticeTarget(notice({ actorId: 's-2' }), WORKSPACES)).toEqual({ kind: 'automations' });
-        expect(noticeTarget(notice({}), WORKSPACES)).toEqual({ kind: 'automations' });
-    });
+  it('opens Automations for another session’s request, and for a run nobody asked for', () => {
+    expect(noticeTarget(notice({ actorId: 's-2' }), WORKSPACES)).toEqual({ kind: 'automations' });
+    expect(noticeTarget(notice({}), WORKSPACES)).toEqual({ kind: 'automations' });
+  });
 
-    it('opens the session a run started, first', () => {
-        expect(noticeTarget(notice({ needsApproval: false, sessionId: 's-2', actorId: 'a' }), WORKSPACES)).toEqual({
-            kind: 'session',
-            sessionId: 's-2',
-        });
+  it('opens the session a run started, first', () => {
+    expect(
+      noticeTarget(notice({ needsApproval: false, sessionId: 's-2', actorId: 'a' }), WORKSPACES),
+    ).toEqual({
+      kind: 'session',
+      sessionId: 's-2',
     });
+  });
 
-    it('a notice naming an automation opens it', () => {
-        const allow = notice({ runId: undefined, needsApproval: false, automation: 're-review-on-new-commits' });
-        expect(noticeTarget(allow, WORKSPACES)).toEqual({ kind: 'automation', name: 're-review-on-new-commits' });
+  it('a notice naming an automation opens it', () => {
+    const allow = notice({
+      runId: undefined,
+      needsApproval: false,
+      automation: 're-review-on-new-commits',
     });
+    expect(noticeTarget(allow, WORKSPACES)).toEqual({
+      kind: 'automation',
+      name: 're-review-on-new-commits',
+    });
+  });
 
-    it('only routes an approval to the Assistant', () => {
-        expect(noticeTarget(notice({ needsApproval: false, actorId: 'a' }), WORKSPACES)).toEqual({ kind: 'automations' });
+  it('only routes an approval to the Assistant', () => {
+    expect(noticeTarget(notice({ needsApproval: false, actorId: 'a' }), WORKSPACES)).toEqual({
+      kind: 'automations',
     });
+  });
 });

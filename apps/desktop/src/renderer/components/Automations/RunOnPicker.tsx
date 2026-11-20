@@ -71,20 +71,43 @@ export function RunOnPicker({
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
       <Popover.Trigger asChild>
-        <button type="button" className="dialog-button-secondary automations-small-button" disabled={disabled}>
+        <button
+          type="button"
+          className="dialog-button-secondary automations-small-button"
+          disabled={disabled}
+        >
           <Play size={12} aria-hidden="true" />
           Run on…
           <ChevronDown size={11} aria-hidden="true" />
         </button>
       </Popover.Trigger>
       <Popover.Portal>
-        <Popover.Content className="automations-run-on" sideOffset={6} align="end" aria-label="Run on an item">
+        <Popover.Content
+          className="automations-run-on"
+          sideOffset={6}
+          align="end"
+          aria-label="Run on an item"
+        >
           {!targets && !error && <p className="automations-hint">Loading…</p>}
           {targets && (
             <>
-              <RunOnSection title="In its last check" rows={targets.items} now={now} disabled={starting} onPick={start} />
-              <RunOnSection title="In your Inbox" rows={targets.inbox} now={now} disabled={starting} onPick={start} />
-              {empty && !targets.acceptsUrl && <p className="automations-hint">Nothing to run on yet.</p>}
+              <RunOnSection
+                title="In its last check"
+                rows={targets.items}
+                now={now}
+                disabled={starting}
+                onPick={start}
+              />
+              <RunOnSection
+                title="In your Inbox"
+                rows={targets.inbox}
+                now={now}
+                disabled={starting}
+                onPick={start}
+              />
+              {empty && !targets.acceptsUrl && (
+                <p className="automations-hint">Nothing to run on yet.</p>
+              )}
               {targets.acceptsUrl && (
                 <form className="automations-run-on-url" onSubmit={submitUrl}>
                   <input

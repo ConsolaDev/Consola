@@ -17,54 +17,59 @@ export const MAX_BACKOFF_MS = 3_600_000;
 
 /** One automation's checks since start-up. Nothing of it is persisted. */
 export interface CheckState {
-    /** The check now running, and what its result must still match to count (Call 16): the entry's version, and the version allowed. */
-    running?: { version: string; acceptedVersion: string | undefined; startedAt: string };
-    /** When the last check ended, as the schedule counts it. Absent until one ends, and again after Allow or a Check now that waits for a slot. */
-    lastEndedAt?: string;
-    /** Failed checks in a row. */
-    failures: number;
-    /** What the last check that counted came to: how many items, what fired, or why it failed. */
-    outcome?: { at: string; items: number; fired: number; skipped: number; baseline: boolean } | { at: string; error: string };
-    /**
-     * The last successful result, kept in memory only, and the entry's version
-     * it was taken at: one taken at another version says nothing about this
-     * version's items (another command may have printed it), so it is not
-     * this version's latest (`latestResult`).
-     */
-    result?: { at: string; version: string; items: PolledItem[] };
+  /** The check now running, and what its result must still match to count (Call 16): the entry's version, and the version allowed. */
+  running?: { version: string; acceptedVersion: string | undefined; startedAt: string };
+  /** When the last check ended, as the schedule counts it. Absent until one ends, and again after Allow or a Check now that waits for a slot. */
+  lastEndedAt?: string;
+  /** Failed checks in a row. */
+  failures: number;
+  /** What the last check that counted came to: how many items, what fired, or why it failed. */
+  outcome?:
+    | { at: string; items: number; fired: number; skipped: number; baseline: boolean }
+    | { at: string; error: string };
+  /**
+   * The last successful result, kept in memory only, and the entry's version
+   * it was taken at: one taken at another version says nothing about this
+   * version's items (another command may have printed it), so it is not
+   * this version's latest (`latestResult`).
+   */
+  result?: { at: string; version: string; items: PolledItem[] };
 }
 
 /** When the next check is due: now when it never ran since start-up or Allow. */
 export function nextCheckAt(state: CheckState, everyMs: number): number | 'now' {
-    if (state.lastEndedAt === undefined) return 'now';
-    return Date.parse(state.lastEndedAt) + waitAfter(state.failures, everyMs);
+  if (state.lastEndedAt === undefined) return 'now';
+  return Date.parse(state.lastEndedAt) + waitAfter(state.failures, everyMs);
 }
 
 /** How long after a check ends the next is due: `every`, doubled per failure in a row, up to the larger of `every` and an hour. */
 export function waitAfter(failures: number, everyMs: number): number {
-    if (failures <= 0) return everyMs;
-    return Math.min(everyMs * 2 ** failures, Math.max(everyMs, MAX_BACKOFF_MS));
+  if (failures <= 0) return everyMs;
+  return Math.min(everyMs * 2 ** failures, Math.max(everyMs, MAX_BACKOFF_MS));
 }
 
 /** After a check that ended at `at` with a result: the run of failures is over. Its result and outcome are the source's to record. */
 export function afterSuccess(state: CheckState, at: string): CheckState {
-    return { ...state, lastEndedAt: at, failures: 0 };
+  return { ...state, lastEndedAt: at, failures: 0 };
 }
 
 /** The latest successful result taken at `version`; undefined when there is none since start-up, or only one taken at another. */
-export function latestResult(state: CheckState | undefined, version: string): PolledItem[] | undefined {
-    return state?.result?.version === version ? state.result.items : undefined;
+export function latestResult(
+  state: CheckState | undefined,
+  version: string,
+): PolledItem[] | undefined {
+  return state?.result?.version === version ? state.result.items : undefined;
 }
 
 /** After a check that ended at `at` without one: one more failure in a row, and why. */
 export function afterFailure(state: CheckState, at: string, error: string): CheckState {
-    return { ...state, lastEndedAt: at, failures: state.failures + 1, outcome: { at, error } };
+  return { ...state, lastEndedAt: at, failures: state.failures + 1, outcome: { at, error } };
 }
 
 /** Due at once, whenever the last check ended. What it found, and its run of failures, are kept. */
 export function dueNow(state: CheckState): CheckState {
-    const { lastEndedAt: _ended, ...rest } = state;
-    return rest;
+  const { lastEndedAt: _ended, ...rest } = state;
+  return rest;
 }
 
 /**
@@ -74,20 +79,20 @@ export function dueNow(state: CheckState): CheckState {
  * git hooks off.
  */
 export function checkSpec(input: {
-    trigger: PollTrigger;
-    automation: string;
-    cwd: string;
-    logs: { stdout: string; stderr: string };
-    base: { env: NodeJS.ProcessEnv; secrets: readonly string[] };
+  trigger: PollTrigger;
+  automation: string;
+  cwd: string;
+  logs: { stdout: string; stderr: string };
+  base: { env: NodeJS.ProcessEnv; secrets: readonly string[] };
 }): CommandSpec {
-    const { trigger, logs, base } = input;
-    return {
-        command: trigger.run,
-        cwd: input.cwd,
-        env: layerCommandEnv(base.env, {}, { CONSOLA_AUTOMATION: input.automation }),
-        timeoutMs: trigger.timeoutMs,
-        stdoutPath: logs.stdout,
-        stderrPath: logs.stderr,
-        secrets: [...base.secrets],
-    };
+  const { trigger, logs, base } = input;
+  return {
+    command: trigger.run,
+    cwd: input.cwd,
+    env: layerCommandEnv(base.env, {}, { CONSOLA_AUTOMATION: input.automation }),
+    timeoutMs: trigger.timeoutMs,
+    stdoutPath: logs.stdout,
+    stderrPath: logs.stderr,
+    secrets: [...base.secrets],
+  };
 }

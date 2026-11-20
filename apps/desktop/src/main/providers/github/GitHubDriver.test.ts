@@ -155,7 +155,11 @@ describe('GitHubDriver.probe', () => {
   it("blames the login shell, not the install, when Consola never got the shell's PATH", async () => {
     const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-nogh-'));
     const problem = '`/bin/zsh -ilc` did not finish within 20s';
-    const driver = new GitHubDriver(() => ({ PATH: empty }), undefined, () => problem);
+    const driver = new GitHubDriver(
+      () => ({ PATH: empty }),
+      undefined,
+      () => problem,
+    );
 
     const result = await driver.probe();
 
@@ -310,8 +314,18 @@ describe('GitHubDriver CONSOLA_GH_PATH override', () => {
 
 // --- The fixture gh: real argv, real env, real git for the seam's other verbs. ---
 
-const pr51: WorkItemRef = { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 };
-const issue87: WorkItemRef = { provider: 'github', repo: 'sprocket/media-upload-api', type: 'issue', number: 87 };
+const pr51: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/catalog-portal',
+  type: 'pr',
+  number: 51,
+};
+const issue87: WorkItemRef = {
+  provider: 'github',
+  repo: 'sprocket/media-upload-api',
+  type: 'issue',
+  number: 87,
+};
 const binding = { accountLogin: 'JaviDev', org: 'sprocket' };
 
 /** What a caller composes: the process env plus the borrowed token, plus the fixture's log knob. */
@@ -364,7 +378,7 @@ describe('GitHubDriver.fetchInbox', () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await expect(
-      driver.fetchInbox(binding, fixtureEnv({ GRAPHQL_INBOX_FIXTURE: broken }))
+      driver.fetchInbox(binding, fixtureEnv({ GRAPHQL_INBOX_FIXTURE: broken })),
     ).rejects.toThrow('GitHub API returned no data');
   });
 
@@ -372,7 +386,7 @@ describe('GitHubDriver.fetchInbox', () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await expect(driver.fetchInbox(binding, fixtureEnv({ STUB_GH_FAIL: '1' }))).rejects.toThrow(
-      /canned failure/
+      /canned failure/,
     );
   });
 
@@ -385,7 +399,7 @@ describe('GitHubDriver.fetchInbox', () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await expect(driver.fetchInbox(binding, fixtureEnv())).rejects.toThrow(
-      'Inbox payload must be a JSON object'
+      'Inbox payload must be a JSON object',
     );
   });
 
@@ -421,7 +435,9 @@ describe('GitHubDriver.checkout', () => {
     const clone = path.join(dir, 'catalog-portal');
     initCloneWithCommit(clone);
     const worktree = path.join(dir, 'catalog-portal-pr-51');
-    execFileSync('git', ['-C', clone, 'worktree', 'add', '--detach', worktree], { stdio: 'ignore' });
+    execFileSync('git', ['-C', clone, 'worktree', 'add', '--detach', worktree], {
+      stdio: 'ignore',
+    });
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await driver.checkout(worktree, pr51, fixtureEnv());
@@ -434,7 +450,9 @@ describe('GitHubDriver.checkout', () => {
     const clone = path.join(dir, 'catalog-portal');
     initCloneWithCommit(clone);
     const worktree = path.join(dir, 'catalog-portal-pr-51-automation');
-    execFileSync('git', ['-C', clone, 'worktree', 'add', '--detach', worktree], { stdio: 'ignore' });
+    execFileSync('git', ['-C', clone, 'worktree', 'add', '--detach', worktree], {
+      stdio: 'ignore',
+    });
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await driver.checkout(worktree, pr51, fixtureEnv(), { detach: true });
@@ -455,7 +473,7 @@ describe('GitHubDriver.checkout', () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await expect(driver.checkout(dir, pr51, fixtureEnv({ STUB_GH_FAIL: '1' }))).rejects.toThrow(
-      /gh: canned failure \(STUB_GH_FAIL=1\)/
+      /gh: canned failure \(STUB_GH_FAIL=1\)/,
     );
   });
 });
@@ -472,10 +490,16 @@ describe('GitHubDriver.cloneRepo', () => {
     fs.mkdirSync(path.dirname(target), { recursive: true });
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
-    await driver.cloneRepo('sprocket/media-upload-api', target, fixtureEnv({ STUB_GH_CLONE_FROM: source }));
+    await driver.cloneRepo(
+      'sprocket/media-upload-api',
+      target,
+      fixtureEnv({ STUB_GH_CLONE_FROM: source }),
+    );
 
     expect(fs.existsSync(path.join(target, '.git'))).toBe(true);
-    expect(invocations()).toEqual([`repo clone sprocket/media-upload-api ${target} GH_TOKEN=gho_test`]);
+    expect(invocations()).toEqual([
+      `repo clone sprocket/media-upload-api ${target} GH_TOKEN=gho_test`,
+    ]);
   }, 30_000);
 
   it('rejects with gh stderr when the clone fails, creating nothing', async () => {
@@ -483,7 +507,7 @@ describe('GitHubDriver.cloneRepo', () => {
     const driver = new GitHubDriver(() => ({ PATH: '' }));
 
     await expect(
-      driver.cloneRepo('sprocket/media-upload-api', target, fixtureEnv({ STUB_GH_FAIL: '1' }))
+      driver.cloneRepo('sprocket/media-upload-api', target, fixtureEnv({ STUB_GH_FAIL: '1' })),
     ).rejects.toThrow(/canned failure/);
     expect(fs.existsSync(target)).toBe(false);
   });
@@ -493,19 +517,33 @@ describe('GitHubDriver.matchesRemote', () => {
   const driver = new GitHubDriver(() => ({ PATH: '' }));
 
   it('matches scp-style, https and ssh remotes, ignoring .git and case', () => {
-    expect(driver.matchesRemote('git@github.com:Sprocket/Catalog-Portal.git', 'sprocket/catalog-portal')).toBe(true);
-    expect(driver.matchesRemote('https://github.com/sprocket/forum-admin.git', 'sprocket/forum-admin')).toBe(true);
-    expect(driver.matchesRemote('https://github.com/sprocket/forum-admin', 'Sprocket/Forum-Admin')).toBe(true);
-    expect(driver.matchesRemote('ssh://git@github.com/sprocket/flextools.git', 'sprocket/flextools')).toBe(true);
+    expect(
+      driver.matchesRemote('git@github.com:Sprocket/Catalog-Portal.git', 'sprocket/catalog-portal'),
+    ).toBe(true);
+    expect(
+      driver.matchesRemote('https://github.com/sprocket/forum-admin.git', 'sprocket/forum-admin'),
+    ).toBe(true);
+    expect(
+      driver.matchesRemote('https://github.com/sprocket/forum-admin', 'Sprocket/Forum-Admin'),
+    ).toBe(true);
+    expect(
+      driver.matchesRemote('ssh://git@github.com/sprocket/flextools.git', 'sprocket/flextools'),
+    ).toBe(true);
   });
 
   it('does not match a different repo', () => {
-    expect(driver.matchesRemote('git@github.com:sprocket/catalog-portal.git', 'sprocket/forum-admin')).toBe(false);
+    expect(
+      driver.matchesRemote('git@github.com:sprocket/catalog-portal.git', 'sprocket/forum-admin'),
+    ).toBe(false);
   });
 
   it('does not match the same owner/name on another host — that is a different repository', () => {
-    expect(driver.matchesRemote('git@gitlab.com:sprocket/catalog-portal.git', 'sprocket/catalog-portal')).toBe(false);
-    expect(driver.matchesRemote('https://gitlab.com/sprocket/catalog-portal', 'sprocket/catalog-portal')).toBe(false);
+    expect(
+      driver.matchesRemote('git@gitlab.com:sprocket/catalog-portal.git', 'sprocket/catalog-portal'),
+    ).toBe(false);
+    expect(
+      driver.matchesRemote('https://gitlab.com/sprocket/catalog-portal', 'sprocket/catalog-portal'),
+    ).toBe(false);
   });
 
   it('does not match remotes it cannot read', () => {
@@ -519,8 +557,14 @@ describe('GitHubDriver.isPrivateAsset', () => {
   const is = (href: string) => driver.isPrivateAsset(new URL(href));
 
   it('claims uploads pasted into a PR or issue', () => {
-    expect(is('https://github.com/user-attachments/assets/3c9d2a71-8e4f-4b6a-a1d2-5f0e7b9c4d18')).toBe(true);
-    expect(is('https://github.com/sprocket/catalog-portal/assets/1234567/0b6f1e7a-5d2c-4c1e-9a3b-2f8d7c6e5a4b')).toBe(true);
+    expect(
+      is('https://github.com/user-attachments/assets/3c9d2a71-8e4f-4b6a-a1d2-5f0e7b9c4d18'),
+    ).toBe(true);
+    expect(
+      is(
+        'https://github.com/sprocket/catalog-portal/assets/1234567/0b6f1e7a-5d2c-4c1e-9a3b-2f8d7c6e5a4b',
+      ),
+    ).toBe(true);
   });
 
   it('offers the token to github.com over https and nowhere else', () => {
@@ -562,12 +606,20 @@ describe('GitHubDriver identity, URLs and header', () => {
 
   it('builds github.com URLs', () => {
     expect(driver.workItemUrl(pr51)).toBe('https://github.com/sprocket/catalog-portal/pull/51');
-    expect(driver.workItemUrl(issue87)).toBe('https://github.com/sprocket/media-upload-api/issues/87');
+    expect(driver.workItemUrl(issue87)).toBe(
+      'https://github.com/sprocket/media-upload-api/issues/87',
+    );
   });
 
   it.each([
-    ['https://github.com/sprocket/catalog-portal/pull/51', { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 }],
-    ['https://github.com/sprocket/catalog-portal/issues/87', { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 87 }],
+    [
+      'https://github.com/sprocket/catalog-portal/pull/51',
+      { provider: 'github', repo: 'sprocket/catalog-portal', type: 'pr', number: 51 },
+    ],
+    [
+      'https://github.com/sprocket/catalog-portal/issues/87',
+      { provider: 'github', repo: 'sprocket/catalog-portal', type: 'issue', number: 87 },
+    ],
   ])('parses %s into a work item', (url, ref) => {
     expect(driver.parseWorkItemUrl(url)).toEqual(ref);
   });
@@ -591,9 +643,11 @@ describe('GitHubDriver identity, URLs and header', () => {
     expect(driver.seedHeader(pr51, item51)).toBe(
       'This session is for pull request #51 ("Extract billing client") in sprocket/catalog-portal. ' +
         "You are in a dedicated git worktree for it, so the user's own checkout stays untouched. " +
-        'Start with `gh pr view 51` to read it.'
+        'Start with `gh pr view 51` to read it.',
     );
-    expect(driver.seedHeader(issue87)).toContain('issue #87 ("Issue #87") in sprocket/media-upload-api');
+    expect(driver.seedHeader(issue87)).toContain(
+      'issue #87 ("Issue #87") in sprocket/media-upload-api',
+    );
   });
 });
 
@@ -618,7 +672,7 @@ describe('GitHubDriver.lookupPullRequests', () => {
       file,
       Object.entries(lines)
         .map(([endpoint, body]) => `${endpoint} ${JSON.stringify(body)}`)
-        .join('\n')
+        .join('\n'),
     );
     return { STUB_GH_PULLS: file };
   }
@@ -631,7 +685,7 @@ describe('GitHubDriver.lookupPullRequests', () => {
         'repos/acme/app/pulls?state=all&per_page=20&head=acme%3Afeature': [
           pull(60, { state: 'open', merged_at: null }),
         ],
-      })
+      }),
     );
 
     const result = await driver.lookupPullRequests(
@@ -639,13 +693,12 @@ describe('GitHubDriver.lookupPullRequests', () => {
         { repo: 'acme/app', number: 51 },
         { repo: 'acme/app', headBranch: 'feature' },
       ],
-      env
+      env,
     );
 
-    expect(result.map((lookup) => lookup.pullRequests.map((pr) => [pr.number, pr.status]))).toEqual([
-      [[51, 'merged']],
-      [[60, 'open']],
-    ]);
+    expect(result.map((lookup) => lookup.pullRequests.map((pr) => [pr.number, pr.status]))).toEqual(
+      [[[51, 'merged']], [[60, 'open']]],
+    );
     const calls = invocations();
     expect(calls).toHaveLength(2);
     expect(calls).toContain('api repos/acme/app/pulls/51 --hostname github.com GH_TOKEN=gho_test');
@@ -661,7 +714,7 @@ describe('GitHubDriver.lookupPullRequests', () => {
         { repo: 'acme/app', number: 404 },
         { repo: '../escape', number: 1 },
       ],
-      env
+      env,
     );
 
     expect(found.error).toBeUndefined();

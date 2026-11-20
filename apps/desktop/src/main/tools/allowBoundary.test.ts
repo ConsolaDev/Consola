@@ -27,7 +27,8 @@ function sources(dir: string): string[] {
   });
 }
 
-const withoutComments = (text: string) => text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
+const withoutComments = (text: string) =>
+  text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/\/\/.*$/gm, '');
 
 /**
  * `allow` reached as a member (`.allow`, `?.allow`, `['allow']`, `.allow.call(`)
@@ -51,7 +52,8 @@ describe('no agent-facing code reaches allow', () => {
   });
 
   it('finds the agent-facing directories', () => {
-    for (const dir of agentFacing) expect(sources(dir).length, relative(mainDir, dir)).toBeGreaterThan(0);
+    for (const dir of agentFacing)
+      expect(sources(dir).length, relative(mainDir, dir)).toBeGreaterThan(0);
   });
 
   it('touches allow in none of their source files', () => {

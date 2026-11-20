@@ -18,7 +18,13 @@ import {
   Trash2,
   type LucideIcon,
 } from 'lucide-react';
-import type { AgentRunPreview, AutomationsSnapshot, AutomationView, RunListEntry, RunRecord } from '../../../shared/automations';
+import type {
+  AgentRunPreview,
+  AutomationsSnapshot,
+  AutomationView,
+  RunListEntry,
+  RunRecord,
+} from '../../../shared/automations';
 import type {
   CleanupResult,
   PullRequestSummary,
@@ -69,7 +75,11 @@ const STATUS_ICONS: Record<RunFacts['status'], LucideIcon> = {
 export function StatusIcon({ status, size = 16 }: { status: RunFacts['status']; size?: number }) {
   const Icon = STATUS_ICONS[status];
   return (
-    <Icon size={size} className={`automations-status-icon automations-status-icon-${status}`} aria-hidden="true" />
+    <Icon
+      size={size}
+      className={`automations-status-icon automations-status-icon-${status}`}
+      aria-hidden="true"
+    />
   );
 }
 
@@ -111,7 +121,10 @@ export function RunItem({
   const full = formatTime(run.createdAt);
   const at =
     when === 'time'
-      ? new Date(run.createdAt).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit' })
+      ? new Date(run.createdAt).toLocaleTimeString(undefined, {
+          hour: '2-digit',
+          minute: '2-digit',
+        })
       : formatAgo(run.createdAt, now);
   return (
     <li>
@@ -120,7 +133,15 @@ export function RunItem({
         className={`automations-run-item ${washed ? 'automations-run-arrived' : ''}`}
         aria-current={selected ? 'true' : undefined}
         // The cells are laid out apart, so their text has no separators of its own to read out.
-        aria-label={[name, status, title !== status ? title : null, step, fired, full, duration ? `took ${duration}` : null]
+        aria-label={[
+          name,
+          status,
+          title !== status ? title : null,
+          step,
+          fired,
+          full,
+          duration ? `took ${duration}` : null,
+        ]
           .filter(Boolean)
           .join(', ')}
         onClick={onOpen}
@@ -181,7 +202,11 @@ export function AutomationFilterMenu({
   const inFile = options.filter((option) => option.inFile);
   const others = options.filter((option) => !option.inFile);
   const item = (option: RunAutomationOption) => (
-    <DropdownMenu.RadioItem key={option.id} className="dropdown-item automations-filter-item" value={`a:${option.id}`}>
+    <DropdownMenu.RadioItem
+      key={option.id}
+      className="dropdown-item automations-filter-item"
+      value={`a:${option.id}`}
+    >
       <span className="automations-filter-indicator" aria-hidden="true">
         <DropdownMenu.ItemIndicator>
           <Check size={12} />
@@ -199,12 +224,18 @@ export function AutomationFilterMenu({
           className={`automations-filter-trigger ${value !== null ? 'active' : ''}`}
           aria-label={`Automation: ${chosen?.label ?? 'all'}`}
         >
-          <span className="automations-filter-trigger-label">{chosen?.label ?? 'All automations'}</span>
+          <span className="automations-filter-trigger-label">
+            {chosen?.label ?? 'All automations'}
+          </span>
           <ChevronDown size={12} aria-hidden="true" />
         </button>
       </DropdownMenu.Trigger>
       <DropdownMenu.Portal>
-        <DropdownMenu.Content className="dropdown-content automations-filter-menu" sideOffset={6} align="end">
+        <DropdownMenu.Content
+          className="dropdown-content automations-filter-menu"
+          sideOffset={6}
+          align="end"
+        >
           {/* Prefixed values: "all" could be an automation's name. */}
           <DropdownMenu.RadioGroup
             value={value === null ? 'all' : `a:${value}`}
@@ -252,7 +283,11 @@ export function useNow(intervalMs: number | null): Date {
  * the failures that land there are what "N failed" is for. `shows` is false
  * while the view leaves out a failure that "N failed" counts.
  */
-export function useMarkRunsSeen(workspaceId: string, snapshot: AutomationsSnapshot, shows = true): void {
+export function useMarkRunsSeen(
+  workspaceId: string,
+  snapshot: AutomationsSnapshot,
+  shows = true,
+): void {
   const hasMarked = useRef(false);
   useEffect(() => {
     if (!shows) return;
@@ -288,7 +323,9 @@ function markRunsSeen(workspaceId: string): void {
 export function useArrivals(runs: RunListEntry[]): ReadonlySet<string> {
   const known = useRef<Set<string> | null>(null);
   const seen = known.current;
-  const arrived = new Set(seen === null ? [] : runs.filter((run) => !seen.has(run.id)).map((run) => run.id));
+  const arrived = new Set(
+    seen === null ? [] : runs.filter((run) => !seen.has(run.id)).map((run) => run.id),
+  );
   useEffect(() => {
     known.current ??= new Set();
     for (const run of runs) known.current.add(run.id);
@@ -351,7 +388,9 @@ export function RunNowButton({
     <button
       type="button"
       className={`${primary ? 'dialog-button-primary' : 'dialog-button-secondary'} automations-small-button`}
-      disabled={disabled || running || Boolean(automation.problem) || Boolean(automation.needsAllow)}
+      disabled={
+        disabled || running || Boolean(automation.problem) || Boolean(automation.needsAllow)
+      }
       onClick={onRun}
       title={
         automation.source === 'poll'
@@ -359,14 +398,18 @@ export function RunNowButton({
             ? 'Not checking yet: allow it first'
             : 'Run the check command now; only what is new or changed fires'
           : checks
-          ? 'Refresh the Inbox now; only what is new since the last check fires'
-          : automation.mode === 'auto' && !automation.asksFirst
-            ? 'Runs now'
-            : 'Previews now; nothing changes until you approve'
+            ? 'Refresh the Inbox now; only what is new since the last check fires'
+            : automation.mode === 'auto' && !automation.asksFirst
+              ? 'Runs now'
+              : 'Previews now; nothing changes until you approve'
       }
     >
       {checks ? (
-        <RefreshCw size={12} className={running ? 'automations-spin' : undefined} aria-hidden="true" />
+        <RefreshCw
+          size={12}
+          className={running ? 'automations-spin' : undefined}
+          aria-hidden="true"
+        />
       ) : (
         <Play size={12} aria-hidden="true" />
       )}
@@ -427,8 +470,16 @@ interface CleanupRow {
   effect: string;
 }
 
-const CLEANUP_ICONS: Record<CleanupRow['tone'], LucideIcon> = { going: Trash2, done: CircleCheck, failed: CircleX };
-const CLEANUP_WORDS: Record<CleanupRow['tone'], string> = { going: 'to remove', done: 'removed', failed: 'not removed' };
+const CLEANUP_ICONS: Record<CleanupRow['tone'], LucideIcon> = {
+  going: Trash2,
+  done: CircleCheck,
+  failed: CircleX,
+};
+const CLEANUP_WORDS: Record<CleanupRow['tone'], string> = {
+  going: 'to remove',
+  done: 'removed',
+  failed: 'not removed',
+};
 
 /**
  * A cleanup's output, a row per session: in a preview, what approving would
@@ -448,20 +499,24 @@ export function CleanupDetails({ result }: { result: unknown }) {
           effect: diskEffect(verdict),
         }))
       : [
-          ...result.removed.map((outcome): CleanupRow => ({
-            key: outcome.sessionId,
-            tone: 'done',
-            name: outcome.sessionName,
-            pullRequest: outcome.pullRequest,
-            effect: outcomeEffect(outcome),
-          })),
-          ...result.failed.map((outcome): CleanupRow => ({
-            key: outcome.sessionId,
-            tone: 'failed',
-            name: outcome.sessionName,
-            pullRequest: outcome.pullRequest,
-            effect: outcome.error ?? 'Could not be removed',
-          })),
+          ...result.removed.map(
+            (outcome): CleanupRow => ({
+              key: outcome.sessionId,
+              tone: 'done',
+              name: outcome.sessionName,
+              pullRequest: outcome.pullRequest,
+              effect: outcomeEffect(outcome),
+            }),
+          ),
+          ...result.failed.map(
+            (outcome): CleanupRow => ({
+              key: outcome.sessionId,
+              tone: 'failed',
+              name: outcome.sessionName,
+              pullRequest: outcome.pullRequest,
+              effect: outcome.error ?? 'Could not be removed',
+            }),
+          ),
         ];
   const kept = result.skipped;
   if (rows.length === 0 && kept.length === 0) return null;
@@ -511,7 +566,11 @@ export function CleanupDetails({ result }: { result: unknown }) {
 }
 
 function isCleanupData(result: unknown): result is StalePreview | CleanupResult {
-  return typeof result === 'object' && result !== null && Array.isArray((result as { skipped?: unknown }).skipped);
+  return (
+    typeof result === 'object' &&
+    result !== null &&
+    Array.isArray((result as { skipped?: unknown }).skipped)
+  );
 }
 
 /** What approving would do on disk. */
@@ -525,8 +584,16 @@ function diskEffect(verdict: SessionVerdict): string {
 /** What removing it did on disk, and anything it noted. */
 function outcomeEffect(outcome: SessionOutcome): string {
   const parts = [
-    outcome.worktree === 'removed' ? 'Worktree removed' : outcome.worktree === 'kept' ? 'Worktree kept' : null,
-    outcome.branch === 'deleted' ? 'branch deleted' : outcome.branch === 'kept' ? 'branch kept' : null,
+    outcome.worktree === 'removed'
+      ? 'Worktree removed'
+      : outcome.worktree === 'kept'
+        ? 'Worktree kept'
+        : null,
+    outcome.branch === 'deleted'
+      ? 'branch deleted'
+      : outcome.branch === 'kept'
+        ? 'branch kept'
+        : null,
     ...outcome.notes,
   ].filter((part): part is string => Boolean(part));
   return parts.join(' · ');
@@ -567,7 +634,9 @@ export function RunAgainButton({
     target !== null &&
     history.some(
       (candidate) =>
-        candidate.automationId === run.automationId && candidate.trigger.item?.key === itemKey && MOVING.has(candidate.status),
+        candidate.automationId === run.automationId &&
+        candidate.trigger.item?.key === itemKey &&
+        MOVING.has(candidate.status),
     );
   return (
     <button
@@ -578,12 +647,18 @@ export function RunAgainButton({
         Boolean(automation.problem) ||
         (target
           ? itemBusy
-          : history.some((candidate) => candidate.status === 'running' || candidate.status === 'queued'))
+          : history.some(
+              (candidate) => candidate.status === 'running' || candidate.status === 'queued',
+            ))
       }
       title={target && itemBusy ? 'A run on this item is still open' : runAgainTitle(automation)}
       onClick={() =>
         void act('rerun', async () => {
-          const next = await automationsBridge.runNow(workspaceId, run.automationId, target ?? undefined);
+          const next = await automationsBridge.runNow(
+            workspaceId,
+            run.automationId,
+            target ?? undefined,
+          );
           if (next) openPanel({ kind: 'run', runId: next.id });
         })
       }

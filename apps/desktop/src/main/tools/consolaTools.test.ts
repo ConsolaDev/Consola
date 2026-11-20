@@ -46,20 +46,41 @@ beforeEach(() => {
     makeWorkspace({
       sessions: [
         caller(),
-        makeSession({ id: 'ro', instanceId: 'inst-ro', kind: 'interactive', toolPolicy: 'read-only', hasStarted: true }),
+        makeSession({
+          id: 'ro',
+          instanceId: 'inst-ro',
+          kind: 'interactive',
+          toolPolicy: 'read-only',
+          hasStarted: true,
+        }),
       ],
     }),
   ];
   capabilities = vi.fn(() => ({ grammar: 'g' }) as unknown as AutomationCapabilities);
-  saveEntry = vi.fn(async () => ({ name: 'sweep', replaced: false, entry: '- name: sweep', line: 3 }));
+  saveEntry = vi.fn(async () => ({
+    name: 'sweep',
+    replaced: false,
+    entry: '- name: sweep',
+    line: 3,
+  }));
   trigger = vi.fn(async () => null);
   list = vi.fn(() => []);
   allow = vi.fn(async () => {});
   launchSession = vi.fn(async (_workspaceId: string, fields: LaunchSessionFields) =>
-    makeSession({ ...fields, id: 'new-1', kind: 'interactive', hasStarted: true } as Partial<Session>)
+    makeSession({
+      ...fields,
+      id: 'new-1',
+      kind: 'interactive',
+      hasStarted: true,
+    } as Partial<Session>),
   );
   const deps: ConsolaToolDeps = {
-    cleanup: { previewStale: vi.fn(), cleanupStale: vi.fn(), previewDelete: vi.fn(), deleteSession: vi.fn() },
+    cleanup: {
+      previewStale: vi.fn(),
+      cleanupStale: vi.fn(),
+      previewDelete: vi.fn(),
+      deleteSession: vi.fn(),
+    },
     getWorkspaces: () => workspaces,
     status: () => 'ready',
     isManagedPath: () => false,
@@ -75,7 +96,10 @@ beforeEach(() => {
 
 describe('start_session', () => {
   it('opens a session beside the caller: its workspace, harness, model, folder and group', async () => {
-    const result = await start({ name: 'Digital twin design', prompt: '/resume-handoff ./handoff.md' });
+    const result = await start({
+      name: 'Digital twin design',
+      prompt: '/resume-handoff ./handoff.md',
+    });
 
     expect(launchSession).toHaveBeenCalledTimes(1);
     const [workspaceId, fields] = launchSession.mock.calls[0];
@@ -93,7 +117,11 @@ describe('start_session', () => {
     });
     expect(fields.instanceId).toEqual(expect.any(String));
     expect(fields.instanceId).not.toBe('inst-me');
-    expect(result.data).toMatchObject({ sessionId: 'new-1', name: 'Digital twin design', forked: false });
+    expect(result.data).toMatchObject({
+      sessionId: 'new-1',
+      name: 'Digital twin design',
+      forked: false,
+    });
     expect(result.summary).toMatch(/Started "Digital twin design"/);
   });
 
@@ -117,7 +145,11 @@ describe('start_session', () => {
   });
 
   it('forks the caller’s own conversation when asked', async () => {
-    const result = await start({ name: 'Digital twin design', prompt: 'Carry on only the twin thread.', fork: true });
+    const result = await start({
+      name: 'Digital twin design',
+      prompt: 'Carry on only the twin thread.',
+      fork: true,
+    });
 
     const [, fields] = launchSession.mock.calls[0];
     expect(fields).toMatchObject({
@@ -134,7 +166,7 @@ describe('start_session', () => {
 
   it('refuses to fork into another folder', async () => {
     await expect(
-      start({ name: 'x', prompt: 'go', fork: true, scope_path: '/repos/parent' })
+      start({ name: 'x', prompt: 'go', fork: true, scope_path: '/repos/parent' }),
     ).rejects.toThrow(/fork runs in your own folder/);
     expect(launchSession).not.toHaveBeenCalled();
   });
@@ -148,7 +180,7 @@ describe('start_session', () => {
 
   it('refuses a scope_path that is not one of the workspace’s folders', async () => {
     await expect(start({ name: 'x', prompt: 'go', scope_path: '/elsewhere' })).rejects.toThrow(
-      /not one of this workspace’s folders/
+      /not one of this workspace’s folders/,
     );
     expect(launchSession).not.toHaveBeenCalled();
   });
@@ -164,10 +196,13 @@ describe('start_session', () => {
     expect(registry.get('start_session')).toMatchObject({ mutating: true, automatable: false });
     expect(registry.get('start_session')?.destructive).toBeFalsy();
     await expect(
-      start({ name: 'x', prompt: 'go' }, {
-        caller: { kind: 'automation', automation: 'sweep' },
-        scope: { workspaceIds: 'all', excludeSessionIds: [] },
-      })
+      start(
+        { name: 'x', prompt: 'go' },
+        {
+          caller: { kind: 'automation', automation: 'sweep' },
+          scope: { workspaceIds: 'all', excludeSessionIds: [] },
+        },
+      ),
     ).rejects.toThrow(/Only a session’s agent/);
     expect(launchSession).not.toHaveBeenCalled();
   });
@@ -194,31 +229,50 @@ describe('automation_capabilities', () => {
 
 describe('save_automation', () => {
   it('passes the caller as the author, and replace through', async () => {
-    const result = await registry.invoke('save_automation', { entry: '- name: sweep', replace: true }, as('me'));
+    const result = await registry.invoke(
+      'save_automation',
+      { entry: '- name: sweep', replace: true },
+      as('me'),
+    );
     expect(saveEntry).toHaveBeenCalledWith('ws-1', '- name: sweep', {
       replace: true,
       by: { sessionId: 'me', sessionName: 'Code review cost sizing' },
     });
     expect(result.data).toMatchObject({ name: 'sweep', replaced: false });
-    expect(registry.get('save_automation')).toMatchObject({ mutating: true, automatable: false, fullToolsOnly: true });
+    expect(registry.get('save_automation')).toMatchObject({
+      mutating: true,
+      automatable: false,
+      fullToolsOnly: true,
+    });
   });
 
   it('does not replace unless asked, and needs an entry', async () => {
     await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
     expect(saveEntry.mock.calls[0][2].replace).toBe(false);
-    await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(/Invalid arguments/);
+    await expect(registry.invoke('save_automation', { entry: '' }, as('me'))).rejects.toThrow(
+      /Invalid arguments/,
+    );
   });
 });
 
 describe('save_automation and Allow', () => {
   it('says a poll waits for Allow', async () => {
-    saveEntry.mockResolvedValueOnce({ name: 'sweep', replaced: false, entry: '- name: sweep', needsAllow: true });
+    saveEntry.mockResolvedValueOnce({
+      name: 'sweep',
+      replaced: false,
+      entry: '- name: sweep',
+      needsAllow: true,
+    });
     const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
-    expect(result.summary).toBe('Added sweep in factory.yml. It does not check until the person allows it in Consola.');
+    expect(result.summary).toBe(
+      'Added sweep in factory.yml. It does not check until the person allows it in Consola.',
+    );
   });
 
   it('does not say it waits for Allow when the entry has a problem, and says the problem', async () => {
-    list.mockReturnValueOnce([{ name: 'sweep', problem: 'its check command is empty' } as AutomationView]);
+    list.mockReturnValueOnce([
+      { name: 'sweep', problem: 'its check command is empty' } as AutomationView,
+    ]);
     const result = await registry.invoke('save_automation', { entry: '- name: sweep' }, as('me'));
     expect(result.summary).not.toMatch(/allows it/);
     expect(result.summary).toContain('It will not run: its check command is empty.');
@@ -230,7 +284,12 @@ describe('save_automation and Allow', () => {
   });
 
   it('gives an agent no way to allow: no tool allows, and running a poll does not', async () => {
-    expect(registry.list().map((tool) => tool.name).filter((name) => /allow|accept|approve_check/i.test(name))).toEqual([]);
+    expect(
+      registry
+        .list()
+        .map((tool) => tool.name)
+        .filter((name) => /allow|accept|approve_check/i.test(name)),
+    ).toEqual([]);
     await registry.invoke('run_automation', { name: 'watch', item_key: 'k1' }, as('me'));
     await registry.invoke('run_automation', { name: 'watch' }, as('me'));
     expect(allow).not.toHaveBeenCalled();
@@ -268,20 +327,34 @@ describe('run_automation on an item', () => {
 
   it('refuses both, and starts nothing', async () => {
     await expect(
-      registry.invoke('run_automation', { name: 'x', work_item: workItem, item_key: 'k' }, as('me'))
+      registry.invoke(
+        'run_automation',
+        { name: 'x', work_item: workItem, item_key: 'k' },
+        as('me'),
+      ),
     ).rejects.toThrow('Pass work_item or item_key, not both.');
     expect(trigger).not.toHaveBeenCalled();
   });
 
   it('refuses a malformed work item or an empty key before the runner sees it', async () => {
-    await expect(registry.invoke('run_automation', { name: 'x', work_item: null }, as('me'))).rejects.toThrow(/Invalid arguments/);
-    await expect(registry.invoke('run_automation', { name: 'x', work_item: 'repo#1' }, as('me'))).rejects.toThrow(/Invalid arguments/);
-    await expect(registry.invoke('run_automation', { name: 'x', item_key: '' }, as('me'))).rejects.toThrow(/Invalid arguments/);
+    await expect(
+      registry.invoke('run_automation', { name: 'x', work_item: null }, as('me')),
+    ).rejects.toThrow(/Invalid arguments/);
+    await expect(
+      registry.invoke('run_automation', { name: 'x', work_item: 'repo#1' }, as('me')),
+    ).rejects.toThrow(/Invalid arguments/);
+    await expect(
+      registry.invoke('run_automation', { name: 'x', item_key: '' }, as('me')),
+    ).rejects.toThrow(/Invalid arguments/);
     expect(trigger).not.toHaveBeenCalled();
   });
 
   it('builds the target from the known fields only', async () => {
-    await registry.invoke('run_automation', { name: 'review', work_item: { ...workItem, extra: 'x' } }, as('me'));
+    await registry.invoke(
+      'run_automation',
+      { name: 'review', work_item: { ...workItem, extra: 'x' } },
+      as('me'),
+    );
     expect(trigger.mock.calls[0][3]).toStrictEqual({ workItem });
   });
 
@@ -299,6 +372,8 @@ describe('run_automation on an item', () => {
     expect(description).toContain('work_item for a pull request or issue');
     expect(description).toContain('item_key for an item of a poll');
     expect(description).toContain('It waits for the person to approve it.');
-    expect(registry.get('list_automations')!.description).toContain('whether it takes an item, of which type');
+    expect(registry.get('list_automations')!.description).toContain(
+      'whether it takes an item, of which type',
+    );
   });
 });

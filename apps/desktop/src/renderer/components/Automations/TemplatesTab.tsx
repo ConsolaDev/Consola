@@ -57,19 +57,28 @@ export function TemplateCards({
   intro?: boolean;
 }) {
   const openPanel = useAutomationsStore((state) => state.openPanel);
-  const selected = useAutomationsStore((state) => (state.panel?.kind === 'template' ? state.panel.id : null));
+  const selected = useAutomationsStore((state) =>
+    state.panel?.kind === 'template' ? state.panel.id : null,
+  );
   const { openWorkspaceSettings } = useWorkspaceSettings();
   const { busy, error, add, justAdded } = useTemplateAdd(workspace.id);
-  const ready = snapshot.templates.filter((template) => !template.addedAs && !template.missing).length;
+  const ready = snapshot.templates.filter(
+    (template) => !template.addedAs && !template.missing,
+  ).length;
   const added = snapshot.templates.filter((template) => template.addedAs).length;
 
   return (
     <div className="automations-templates">
       {intro && (
         <div className="automations-templates-intro">
-          <p>Each template adds one entry to factory.yml, filled in for this workspace. Open one to see exactly what it writes.</p>
+          <p>
+            Each template adds one entry to factory.yml, filled in for this workspace. Open one to
+            see exactly what it writes.
+          </p>
           <span className="automations-templates-tally">
-            {[ready > 0 ? `${ready} ready to add` : null, added > 0 ? `${added} added` : null].filter(Boolean).join(' · ')}
+            {[ready > 0 ? `${ready} ready to add` : null, added > 0 ? `${added} added` : null]
+              .filter(Boolean)
+              .join(' · ')}
           </span>
         </div>
       )}
@@ -224,21 +233,30 @@ export function ServiceTiles({
   labelled?: boolean;
 }) {
   const harness = useHarnessStore((state) =>
-    state.harnesses.find((candidate) => candidate.id === workspace.defaultHarnessId)
+    state.harnesses.find((candidate) => candidate.id === workspace.defaultHarnessId),
   );
-  const tiles: Array<{ key: string; label: string; icon: ReactNode }> = template.services.map((service) => {
-    const { label, Icon } = SERVICES[service];
-    return { key: service, label, icon: <Icon size={15} aria-hidden="true" /> };
-  });
+  const tiles: Array<{ key: string; label: string; icon: ReactNode }> = template.services.map(
+    (service) => {
+      const { label, Icon } = SERVICES[service];
+      return { key: service, label, icon: <Icon size={15} aria-hidden="true" /> };
+    },
+  );
   if (template.preview?.kind === 'agent') {
     tiles.push({
       key: 'agent',
       label: harness?.name ?? 'Your agent CLI',
-      icon: harness ? <HarnessIcon driverId={harness.driverId} decorative /> : <Bot size={15} aria-hidden="true" />,
+      icon: harness ? (
+        <HarnessIcon driverId={harness.driverId} decorative />
+      ) : (
+        <Bot size={15} aria-hidden="true" />
+      ),
     });
   }
   return (
-    <ul className={`automations-services ${labelled ? 'automations-services-labelled' : ''}`} aria-label="Works with">
+    <ul
+      className={`automations-services ${labelled ? 'automations-services-labelled' : ''}`}
+      aria-label="Works with"
+    >
       {tiles.map((tile, index) => (
         <li
           key={tile.key}
@@ -260,7 +278,13 @@ export function ServiceTiles({
  */
 export function TemplateFacts({ preview }: { preview: TemplatePreview }) {
   const TriggerIcon =
-    preview.source === 'poll' ? ScanSearch : preview.source === 'manual' ? MousePointerClick : preview.onEvent ? Inbox : Clock;
+    preview.source === 'poll'
+      ? ScanSearch
+      : preview.source === 'manual'
+        ? MousePointerClick
+        : preview.onEvent
+          ? Inbox
+          : Clock;
   const trigger = triggerNodeWords(preview)?.title ?? preview.trigger;
   const ModeIcon = preview.mode === 'notify' ? Bell : Hand;
   const isAgent = preview.kind === 'agent';
@@ -277,7 +301,9 @@ export function TemplateFacts({ preview }: { preview: TemplatePreview }) {
       <li>
         <ModeIcon size={13} aria-hidden="true" />
         <span className="sr-only">Asks: </span>
-        <span className="automations-template-fact-text">{templateModeWords(preview.mode, preview.source)}</span>
+        <span className="automations-template-fact-text">
+          {templateModeWords(preview.mode, preview.source)}
+        </span>
       </li>
       <li>
         {isAgent ? <Bot size={13} aria-hidden="true" /> : <Wrench size={13} aria-hidden="true" />}
@@ -316,7 +342,9 @@ export function SetupChecklist({
     return (
       <p
         className={`automations-setup automations-setup-none ${detailed ? 'automations-setup-detailed' : ''}`}
-        title={needs.length > 0 ? needs.map((need) => `${need.label}: set up`).join('\n') : undefined}
+        title={
+          needs.length > 0 ? needs.map((need) => `${need.label}: set up`).join('\n') : undefined
+        }
       >
         <Check size={13} aria-hidden="true" />
         {needs.length === 0 ? 'No setup needed' : 'Ready to add'}
@@ -329,12 +357,22 @@ export function SetupChecklist({
     return (
       <p className="automations-setup automations-setup-unmet">
         <CircleDashed size={13} aria-hidden="true" />
-        <button type="button" className="automations-setup-fix" onClick={() => onFix(first.fix.section)}>
+        <button
+          type="button"
+          className="automations-setup-fix"
+          onClick={() => onFix(first.fix.section)}
+        >
           {first.fix.label}
           <ArrowRight size={12} aria-hidden="true" />
         </button>
         {unmet.length > 1 && (
-          <span className="automations-setup-more" title={unmet.slice(1).map((need) => need.fix.label).join('\n')}>
+          <span
+            className="automations-setup-more"
+            title={unmet
+              .slice(1)
+              .map((need) => need.fix.label)
+              .join('\n')}
+          >
             +{unmet.length - 1} more
           </span>
         )}
@@ -342,17 +380,31 @@ export function SetupChecklist({
     );
   }
   return (
-    <ul className={`automations-setup ${detailed ? 'automations-setup-detailed' : ''}`} aria-label="Setup">
+    <ul
+      className={`automations-setup ${detailed ? 'automations-setup-detailed' : ''}`}
+      aria-label="Setup"
+    >
       {needs.map((need) => (
-        <li key={need.label} className={need.met ? 'automations-setup-met' : 'automations-setup-unmet'}>
-          {need.met ? <CircleCheck size={13} aria-hidden="true" /> : <CircleDashed size={13} aria-hidden="true" />}
+        <li
+          key={need.label}
+          className={need.met ? 'automations-setup-met' : 'automations-setup-unmet'}
+        >
+          {need.met ? (
+            <CircleCheck size={13} aria-hidden="true" />
+          ) : (
+            <CircleDashed size={13} aria-hidden="true" />
+          )}
           {need.met ? (
             <span>
               {need.label}
               <span className="sr-only">: set up</span>
             </span>
           ) : (
-            <button type="button" className="automations-setup-fix" onClick={() => onFix(need.fix.section)}>
+            <button
+              type="button"
+              className="automations-setup-fix"
+              onClick={() => onFix(need.fix.section)}
+            >
               {need.fix.label}
               <ArrowRight size={12} aria-hidden="true" />
             </button>
@@ -381,17 +433,28 @@ function AddedAs({ name, onOpen }: { name: string; onOpen: () => void }) {
  * way to write one, and the templates to start from. Shared by an empty
  * Activity and an empty Automations tab.
  */
-export function GetStarted({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
+export function GetStarted({
+  workspace,
+  snapshot,
+}: {
+  workspace: Workspace;
+  snapshot: AutomationsSnapshot;
+}) {
   const openPanel = useAutomationsStore((state) => state.openPanel);
   return (
     <div className="automations-empty-state">
       <Zap size={20} className="automations-empty-icon" aria-hidden="true" />
       <p className="automations-empty-lede">
-        Automations work in this workspace without you: on a schedule, or when a pull request asks for your review.
-        Each runs a prompt, one of your actions or a Consola tool, and can ask you before it acts.
+        Automations work in this workspace without you: on a schedule, or when a pull request asks
+        for your review. Each runs a prompt, one of your actions or a Consola tool, and can ask you
+        before it acts.
       </p>
       <div className="automations-empty-actions">
-        <button type="button" className="dialog-button-primary" onClick={() => openPanel({ kind: 'new' })}>
+        <button
+          type="button"
+          className="dialog-button-primary"
+          onClick={() => openPanel({ kind: 'new' })}
+        >
           New automation
         </button>
       </div>
@@ -400,7 +463,13 @@ export function GetStarted({ workspace, snapshot }: { workspace: Workspace; snap
   );
 }
 
-export function TemplatesTab({ workspace, snapshot }: { workspace: Workspace; snapshot: AutomationsSnapshot }) {
+export function TemplatesTab({
+  workspace,
+  snapshot,
+}: {
+  workspace: Workspace;
+  snapshot: AutomationsSnapshot;
+}) {
   return (
     <div className="automations-activity">
       <TemplateCards workspace={workspace} snapshot={snapshot} intro />

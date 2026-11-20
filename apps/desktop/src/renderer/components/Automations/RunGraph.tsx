@@ -19,7 +19,13 @@ import {
 } from 'lucide-react';
 import { isAgentRunPreview, type RunRecord } from '../../../shared/automations';
 import { formatElapsed } from './presentation';
-import { foundNothingToDo, triggerStageWords, type RunStage, type RunStageKey, type RunStageState } from './runPage';
+import {
+  foundNothingToDo,
+  triggerStageWords,
+  type RunStage,
+  type RunStageKey,
+  type RunStageState,
+} from './runPage';
 
 const STATE_ICONS: Record<RunStageState, LucideIcon> = {
   passed: CircleCheck,
@@ -107,7 +113,11 @@ export function RunGraph({
                   {view.title}
                 </button>
               ) : target ? (
-                <button type="button" className="automations-node-link" onClick={() => onReveal(target)}>
+                <button
+                  type="button"
+                  className="automations-node-link"
+                  onClick={() => onReveal(target)}
+                >
                   {view.title}
                 </button>
               ) : (
@@ -134,7 +144,9 @@ function stepTitle(stage: RunStage): string | undefined {
   const step = stage.step;
   if (!step || stage.state !== 'skipped') return undefined;
   if (step.skipped) return step.skipped;
-  return step.status === 'not-run' || step.status === 'pending' ? 'It did not run: the run ended first.' : undefined;
+  return step.status === 'not-run' || step.status === 'pending'
+    ? 'It did not run: the run ended first.'
+    : undefined;
 }
 
 interface StageView {
@@ -160,7 +172,12 @@ function stageView(
   switch (stage.key) {
     case 'trigger': {
       const words = triggerStageWords(run, askerName, schedule);
-      const icon = { cron: Clock, event: Inbox, poll: ScanSearch, manual: run.trigger.by === 'agent' ? Bot : Play }[run.trigger.kind];
+      const icon = {
+        cron: Clock,
+        event: Inbox,
+        poll: ScanSearch,
+        manual: run.trigger.by === 'agent' ? Bot : Play,
+      }[run.trigger.kind];
       return { icon: icon ?? Play, ...words };
     }
     case 'preview':
