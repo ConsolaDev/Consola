@@ -445,6 +445,10 @@ describe('consola_browser_act', () => {
       'e5 is not a text field (it is a checkbox, a radio button or a button); click it instead.',
     ],
     ['file-input', 'e5 takes a file, and the agent cannot hand files to a page.'],
+    [
+      'color-input',
+      "e5 opens a colour chooser, which would cover the person's window; fill it with a colour such as #ff0000 instead.",
+    ],
     ['is-select', 'e5 is a list of options; use select with its value or label.'],
   ])('words the page’s %s refusal', async (reason, message) => {
     fakePage.failures.fillInPage = new Error(

@@ -140,7 +140,10 @@ describe('CdpRelay as Playwright’s transport', () => {
       result: { result: { type: 'number', value: 2 } },
       sessionId: PAGE_SESSION_ID,
     });
-    expect(fake.commands).toEqual([{ method: 'Runtime.evaluate', params: { expression: '1+1' } }]);
+    // With its user gesture taken off (Ruling MM).
+    expect(fake.commands).toEqual([
+      { method: 'Runtime.evaluate', params: { expression: '1+1', userGesture: false } },
+    ]);
   });
 
   it('refuses a new page, or any other unknown browser-level command, with a CDP error', async () => {

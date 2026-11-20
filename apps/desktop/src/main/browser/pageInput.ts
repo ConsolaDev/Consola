@@ -29,6 +29,7 @@ export type ActRefusal =
   | 'read-only'
   | 'not-text'
   | 'file-input'
+  | 'color-input'
   | 'is-select';
 
 /** What a refusal thrown in the page reads as, once Playwright has wrapped it. */
@@ -83,6 +84,21 @@ export function clickInPage(element: Element): 'clicked' {
   }
   if (!atPoint || node !== element) refuse('covered');
   const hit = atPoint as HTMLElement;
+  // A click on a file or colour input, or on a label for one, opens a chooser
+  // over the person's window. The relay already takes the user gesture that
+  // would let it (Ruling MM); this refuses it outright, and says why.
+  const chooserOf = (start: Element): string | null => {
+    for (let at: Element | null = start; at; at = at.parentElement) {
+      const control = at.tagName === 'LABEL' ? (at as HTMLLabelElement).control : at;
+      const kind =
+        control?.tagName === 'INPUT' ? (control as HTMLInputElement).type?.toLowerCase() : '';
+      if (kind === 'file' || kind === 'color') return kind;
+      if (at.tagName === 'LABEL') return null;
+    }
+    return null;
+  };
+  const chooser = chooserOf(hit) ?? chooserOf(element);
+  if (chooser) refuse(chooser === 'file' ? 'file-input' : 'color-input');
 
   const mouse = {
     bubbles: true,

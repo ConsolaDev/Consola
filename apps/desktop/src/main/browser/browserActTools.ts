@@ -223,6 +223,8 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
       return `${ref} is not a text field (it is a checkbox, a radio button or a button); click it instead.`;
     case 'file-input':
       return `${ref} takes a file, and the agent cannot hand files to a page.`;
+    case 'color-input':
+      return `${ref} opens a colour chooser, which would cover the person's window; fill it with a colour such as #ff0000 instead.`;
     case 'is-select':
       return `${ref} is a list of options; use select with its value or label.`;
   }

@@ -38,6 +38,8 @@ class FakeElement {
   readOnly?: boolean;
   form?: { requestSubmit(): void } | null;
   shadowRoot?: { host: FakeElement; activeElement: FakeElement | null } | null;
+  /** A label's control. */
+  control?: FakeElement | null;
   rect = { left: 10, top: 10, width: 100, height: 20 };
   hidden = false;
   scrollTop = 0;
@@ -314,6 +316,39 @@ describe('clickInPage', () => {
     doc.atPoint = off;
     expect(refusalOf(() => clickInPage(page(off)))).toBe('disabled');
     expect(doc.log).toEqual([]);
+  });
+
+  // Ruling MM's second wall: a chooser would cover the person's window.
+  it.each([
+    ['a file input', { tagName: 'INPUT', type: 'file' }, 'file-input'],
+    ['a colour input', { tagName: 'INPUT', type: 'color' }, 'color-input'],
+  ])('refuses %s, sending nothing', (_what, fields, reason) => {
+    const doc = new FakeDocument();
+    const { tagName, ...rest } = fields as { tagName: string } & Partial<FakeElement>;
+    const input = doc.element(tagName, 'pick', { tabIndex: 0, ...rest });
+    doc.atPoint = input;
+    expect(refusalOf(() => clickInPage(page(input)))).toBe(reason);
+    expect(doc.log).toEqual([]);
+  });
+
+  it('refuses a label for a file input, and anything inside one', () => {
+    const doc = new FakeDocument();
+    const file = doc.element('INPUT', 'upload', { type: 'file', tabIndex: 0 });
+    const label = doc.element('LABEL', 'upload-label', { control: file });
+    const text = label.append(new FakeElement(doc, 'SPAN', 'upload-text'));
+    doc.atPoint = text;
+    expect(refusalOf(() => clickInPage(page(label)))).toBe('file-input');
+    expect(refusalOf(() => clickInPage(page(text)))).toBe('file-input');
+    expect(doc.log).toEqual([]);
+  });
+
+  it('refuses a click that would land on a file input, whatever was named', () => {
+    const doc = new FakeDocument();
+    const wrapper = doc.element('DIV', 'dropzone', { tabIndex: 0 });
+    const file = wrapper.append(new FakeElement(doc, 'INPUT', 'hidden-file'));
+    file.type = 'file';
+    doc.atPoint = file;
+    expect(refusalOf(() => clickInPage(page(wrapper)))).toBe('file-input');
   });
 
   it('brings an element below the fold into view first', () => {

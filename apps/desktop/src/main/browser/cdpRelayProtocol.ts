@@ -15,8 +15,9 @@ import { isAllowedPageUrl } from '../../shared/browser';
  * commands on the page's sessions pass a second wall (`refusalOnPage` and
  * the checks beside it): nothing that reaches another target or the whole
  * app, the partition's cookies, the disk (downloads, files handed to the
- * page), focus or the page's closing, no input that types or presses, and
- * navigation only to web pages. Commands go to an iframe or worker only
+ * page), focus or the page's closing, no input that types or presses, no
+ * user gesture on the agent's script (`withoutUserGesture`), and navigation
+ * only to web pages. Commands go to an iframe or worker only
  * under a session id Chromium announced for this page; any other session id
  * is refused.
  *
@@ -176,10 +177,30 @@ function inputRefusal(method: string, params: Record<string, unknown>): string |
   const pointerOnly =
     method === 'Input.dispatchMouseEvent' &&
     (params.type === 'mouseMoved' || params.type === 'mouseWheel') &&
-    !params.buttons;
+    !params.buttons &&
+    (params.button === undefined || params.button === 'none');
   return pointerOnly
     ? undefined
     : 'it presses on the page, which takes the window’s keyboard from the person';
+}
+
+/** The commands that run the agent's script in the page, and could carry a user gesture. */
+const SCRIPT_COMMANDS = new Set(['Runtime.evaluate', 'Runtime.callFunctionOn']);
+
+/**
+ * Ruling MM: an agent's script never carries a user gesture. Playwright runs
+ * every page function with `userGesture: true`, which hands it transient user
+ * activation: a click it dispatches could then open a file or colour chooser
+ * over the person's window, ask for fullscreen, or anything else a page
+ * allows only on a real press. These are the only forwarded commands that
+ * take the flag (the protocol's other `userGesture` is an event's), so the
+ * relay sends each with it off, whatever was asked.
+ */
+export function withoutUserGesture(
+  method: string,
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  return SCRIPT_COMMANDS.has(method) ? { ...params, userGesture: false } : params;
 }
 
 /**
@@ -384,7 +405,7 @@ export function createRelayConnection(
 
   const pageCommand = (command: Command, child: string | undefined): Promise<Answer> => {
     const { method } = command;
-    const params = command.params ?? {};
+    const params = withoutUserGesture(method, command.params ?? {});
     // Playwright asks for focus emulation on every page it attaches to, and
     // Chromium would then treat the page as focused for as long as the agent
     // stays connected. Main turns it on itself, and only while the agent acts.
@@ -475,14 +496,16 @@ export function createRelayConnection(
         if (method === 'Target.detachedFromTarget') children.delete(params.sessionId);
       }
       const dialogSession = sessionId || '';
-      if (
-        method === 'Page.javascriptDialogOpening' &&
-        isRecord(params) &&
-        typeof params.type === 'string' &&
-        HELD_DIALOG_TYPES.has(params.type)
-      ) {
-        heldDialogs.add(dialogSession);
-        return;
+      if (method === 'Page.javascriptDialogOpening') {
+        // Each opening says afresh what the session shows: a held dialog
+        // Chromium cancelled (the page moved on) may never report closing.
+        const held =
+          isRecord(params) && typeof params.type === 'string' && HELD_DIALOG_TYPES.has(params.type);
+        if (held) {
+          heldDialogs.add(dialogSession);
+          return;
+        }
+        heldDialogs.delete(dialogSession);
       }
       if (method === 'Page.javascriptDialogClosed' && heldDialogs.delete(dialogSession)) return;
       if (!announced) return;

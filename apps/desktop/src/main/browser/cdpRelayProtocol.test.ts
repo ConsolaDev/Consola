@@ -177,7 +177,12 @@ describe('page commands', () => {
     const { command, written } = await announced(send);
     command(5, 'Runtime.evaluate', { expression: '1+1' }, PAGE_SESSION_ID);
     await settle();
-    expect(send).toHaveBeenCalledWith('Runtime.evaluate', { expression: '1+1' }, undefined);
+    // With its user gesture taken off (Ruling MM).
+    expect(send).toHaveBeenCalledWith(
+      'Runtime.evaluate',
+      { expression: '1+1', userGesture: false },
+      undefined,
+    );
     expect(written).toEqual([
       { id: 5, result: { answered: 'Runtime.evaluate' }, sessionId: PAGE_SESSION_ID },
     ]);
@@ -387,6 +392,49 @@ describe('what the page’s own sessions may not do', () => {
     ['Input.setInterceptDrags', { enabled: true }],
   ])('refuses %s %j, which presses on the page or reaches past it', async (method, params) => {
     await refusedOnBoth(method, params);
+  });
+
+  // Ruling MM: an agent's script never carries a user gesture, so nothing it
+  // runs can open a file or colour chooser, go fullscreen, or anything else a
+  // page allows only on a real press.
+  it.each([['Runtime.evaluate'], ['Runtime.callFunctionOn']])(
+    'sends %s with no user gesture, whatever was asked, on the page and in a frame',
+    async (method) => {
+      const send = vi.fn(async () => ({}));
+      const { command, reply } = await announced(send);
+      command(
+        5,
+        method,
+        { expression: 'x', functionDeclaration: 'f', userGesture: true },
+        PAGE_SESSION_ID,
+      );
+      command(6, method, { expression: 'x', functionDeclaration: 'f' }, CHILD);
+      await settle();
+      expect(reply(5)).toHaveProperty('result');
+      expect(reply(6)).toHaveProperty('result');
+      expect(send.mock.calls).toEqual([
+        [method, { expression: 'x', functionDeclaration: 'f', userGesture: false }, undefined],
+        [method, { expression: 'x', functionDeclaration: 'f', userGesture: false }, CHILD],
+      ]);
+    },
+  );
+
+  it('leaves every other command’s parameters as they were', async () => {
+    const send = vi.fn(async () => ({}));
+    const { command } = await announced(send);
+    command(5, 'DOM.getDocument', { depth: 1 }, PAGE_SESSION_ID);
+    await settle();
+    expect(send).toHaveBeenCalledWith('DOM.getDocument', { depth: 1 }, undefined);
+  });
+
+  it('refuses a mouse move that names a button, held or not', async () => {
+    await refusedOnBoth('Input.dispatchMouseEvent', {
+      type: 'mouseMoved',
+      x: 1,
+      y: 1,
+      button: 'left',
+      buttons: 0,
+    });
   });
 
   it('lets the mouse move and the wheel turn, with no button held', async () => {
@@ -614,6 +662,20 @@ describe('the page’s alerts and confirms', () => {
       'Page.javascriptDialogOpening',
       'Page.javascriptDialogClosed',
     ]);
+  });
+
+  // A held dialog Chromium cancels (the page navigated) may send no
+  // javascriptDialogClosed; the next opening on the session says what it is.
+  it('reads each opening afresh, so a cancelled hold leaves nothing behind', async () => {
+    const send = vi.fn(async () => ({}));
+    const { relay, command, reply } = await announced(send);
+    relay.event('Page.javascriptDialogOpening', { type: 'confirm', message: 'm' }, '');
+    // No javascriptDialogClosed: the page went on to another document.
+    relay.event('Page.javascriptDialogOpening', { type: 'beforeunload', message: '' }, '');
+    command(5, 'Page.handleJavaScriptDialog', { accept: true }, PAGE_SESSION_ID);
+    await settle();
+    expect(reply(5)).toHaveProperty('result');
+    expect(send).toHaveBeenCalledWith('Page.handleJavaScriptDialog', { accept: true }, undefined);
   });
 
   it('refuses to answer a dialog main holds, and answers a beforeunload', async () => {
