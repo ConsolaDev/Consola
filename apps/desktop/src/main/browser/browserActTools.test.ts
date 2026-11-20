@@ -159,6 +159,8 @@ class FakeBrowser implements BrowserToolsBrowser {
   goBack = () => {};
   goForward = () => {};
   reload = () => {};
+  holdForToolCall = () => () => {};
+  guestFor = () => undefined;
 }
 
 /** Main's held dialogs, as the tools see them: one tab, opened by hand. */

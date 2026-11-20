@@ -16,6 +16,20 @@ describe('tool calls on a tab', () => {
     expect(pages.inCall('tab1')).toBe(false);
   });
 
+  it('marks a call that needs no page without making its tab live', () => {
+    const pages = new LivePages(() => 0);
+    const mark = pages.hold('tab1', window, { mount: false });
+    expect(mark.added).toBe(false);
+    expect(pages.inCall('tab1')).toBe(true);
+    expect(pages.has('tab1')).toBe(false);
+    // A rule run while it is marked leaves it unloaded: being marked is not being live.
+    expect(pages.evaluate(() => true)).toEqual([]);
+    expect(pages.has('tab1')).toBe(false);
+    mark.release();
+    expect(pages.inCall('tab1')).toBe(false);
+    expect(pages.has('tab1')).toBe(false);
+  });
+
   it('a call from before the tab’s page went cannot let go of a newer call', () => {
     const pages = new LivePages(() => 0);
     const stale = pages.hold('tab1', window);

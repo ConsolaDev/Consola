@@ -1,5 +1,7 @@
+import { EventEmitter } from 'node:events';
 import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import type { WebContents } from 'electron';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   MAX_TABS_PER_SESSION,
@@ -26,6 +28,10 @@ class FakeBrowser implements BrowserToolsBrowser {
   readonly navigated: Array<[string, string]> = [];
   readonly moves: Array<[string, 'back' | 'forward' | 'reload']> = [];
   readonly openOptions: Array<{ keepActiveTab?: boolean } | undefined> = [];
+  /** Marks, moves and releases, in the order they happened. */
+  readonly log: string[] = [];
+  /** The pages of tabs that have one. */
+  readonly guests: Record<string, EventEmitter> = {};
   private ids = 0;
 
   add(sessionId: string, tab: Partial<BrowserTab> & { id: string }): void {
@@ -87,19 +93,32 @@ class FakeBrowser implements BrowserToolsBrowser {
 
   navigate(tabId: string, url: string): boolean {
     this.navigated.push([tabId, url]);
+    this.log.push(`navigate ${tabId}`);
     return true;
   }
 
   goBack(tabId: string): void {
     this.moves.push([tabId, 'back']);
+    this.log.push(`back ${tabId}`);
   }
 
   goForward(tabId: string): void {
     this.moves.push([tabId, 'forward']);
+    this.log.push(`forward ${tabId}`);
   }
 
   reload(tabId: string): void {
     this.moves.push([tabId, 'reload']);
+    this.log.push(`reload ${tabId}`);
+  }
+
+  holdForToolCall(tabId: string, options?: { mount?: boolean }): () => void {
+    this.log.push(`hold ${tabId} mount=${options?.mount ?? true}`);
+    return () => this.log.push(`release ${tabId}`);
+  }
+
+  guestFor(tabId: string): WebContents | undefined {
+    return this.guests[tabId] as unknown as WebContents | undefined;
   }
 }
 
@@ -433,6 +452,35 @@ describe('consola_browser_navigate', () => {
         .isError,
     ).toBe(false);
     expect(browser.moves).toEqual([['mine-agent', 'reload']]);
+  });
+
+  it('marks the tab while it moves it, mounting nothing: the move is the agent using it', async () => {
+    await call('w-1', 'consola_browser_navigate', { tabId: 'mine-person', url: 'example.org' });
+    // The person's own tab, with no page: marked around the move, which only records the address.
+    expect(browser.log).toEqual([
+      'hold mine-person mount=false',
+      'navigate mine-person',
+      'release mine-person',
+    ]);
+  });
+
+  it('keeps a tab with a page marked until the page has loaded what the move asked for', async () => {
+    const page = new EventEmitter();
+    browser.guests['mine-agent'] = page;
+    browser.live['mine-agent'] = { live: true, canGoBack: true };
+    for (const args of [{ url: 'example.org' }, { action: 'back' }, { action: 'reload' }]) {
+      browser.log.length = 0;
+      await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', ...args });
+      expect(browser.log).toEqual(['hold mine-agent mount=false', expect.any(String)]);
+      page.emit('did-stop-loading');
+      expect(browser.log.at(-1)).toBe('release mine-agent');
+    }
+  });
+
+  it('marks nothing for a move it refuses', async () => {
+    await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', action: 'forward' });
+    await call('w-1', 'consola_browser_navigate', { tabId: 'mine-agent', url: 'file:///etc' });
+    expect(browser.log).toEqual([]);
   });
 
   it('asks for exactly one of an address or a move', async () => {

@@ -39,6 +39,24 @@ describe('agentNews', () => {
     expect(agentNews(snapshot(tab('a')), snapshot(tab('a', { agentActive: true })))).toBe(true);
   });
 
+  it('is an agent moving the person’s own tab, which its move marks', () => {
+    const moved = { url: 'https://example.com/moved', loading: true };
+    expect(agentNews(snapshot(tab('a')), snapshot(tab('a', { ...moved, agentActive: true })))).toBe(
+      true,
+    );
+    // The person moving it is not: no mark.
+    expect(agentNews(snapshot(tab('a')), snapshot(tab('a', moved)))).toBe(false);
+    // And the dot lights for it while the panel shows another session.
+    expect(
+      nextAgentDot({
+        dot: false,
+        shown: false,
+        previous: snapshot(tab('a')),
+        next: snapshot(tab('a', { ...moved, agentActive: true })),
+      }),
+    ).toBe(true);
+  });
+
   it('is not an agent tab already there, a call still running, or the person’s tabs', () => {
     const before = snapshot(tab('a', { openedBy: 'agent', agentActive: true }), tab('b'));
     const after = snapshot(

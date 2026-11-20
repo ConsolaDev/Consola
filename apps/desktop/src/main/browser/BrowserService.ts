@@ -439,14 +439,20 @@ export class BrowserService {
    * window to keep the page painting though nobody sees it (an agent reading
    * a page that renders nothing reads nothing) and to mark the tab. Both
    * edges are pushed.
+   *
+   * `mount: false` marks the tab for a call that needs no page (an agent
+   * moving it), blank tabs included, and mounts nothing.
    */
-  public holdForToolCall(tabId: string): (() => void) | null {
+  public holdForToolCall(
+    tabId: string,
+    { mount = true }: { mount?: boolean } = {},
+  ): (() => void) | null {
     const found = this.find(tabId);
     if (!found) return null;
     // Nothing to keep alive on a tab with no page.
-    if (this.isBlank(tabId)) return () => {};
+    if (mount && this.isBlank(tabId)) return () => {};
     const window = this.pageWindowFor(found.sessionId);
-    const { release } = this.pages.hold(tabId, window);
+    const { release } = this.pages.hold(tabId, window, { mount });
     this.applyLiveRule([found.sessionId]);
     return () => {
       const wasActive = this.pages.inCall(tabId);

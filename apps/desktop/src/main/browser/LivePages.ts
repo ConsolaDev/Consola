@@ -74,12 +74,17 @@ export class LivePages {
    * A tool call is under way on a tab: its page stays, and is live if it was
    * not. The returned function ends the call; the tab then counts as just
    * used, so it is not unloaded the instant the call returns.
+   *
+   * `mount: false` is a call that needs no page (an agent sending the tab to
+   * an address): it is marked like any call, but a tab with no page stays
+   * without one.
    */
   public hold(
     tabId: string,
     window: BrowserWindow | undefined,
+    { mount = true }: { mount?: boolean } = {},
   ): { added: boolean; release(): void } {
-    const added = this.add(tabId, window);
+    const added = mount && this.add(tabId, window);
     const token = Symbol(tabId);
     const held = this.calls.get(tabId) ?? new Set<symbol>();
     held.add(token);

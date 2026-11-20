@@ -1002,6 +1002,24 @@ describe('agent calls', () => {
     expect(sent.length).toBe(pushes + 1);
   });
 
+  it('marks a tab for a call that needs no page without mounting one, blank or not', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    service.openTab('s1', '', 'person');
+    for (const tabId of ['tab1', 'tab2']) {
+      const pushes = sent.length;
+      const release = service.holdForToolCall(tabId, { mount: false });
+      expect(tabOf('s1', tabId)).toMatchObject({ live: false, agentActive: true });
+      expect(sent.length).toBe(pushes + 1);
+      expect(
+        last().payload.snapshot.tabs.find((t: { id: string }) => t.id === tabId),
+      ).toMatchObject({ live: false, agentActive: true });
+
+      release?.();
+      expect(tabOf('s1', tabId)).toMatchObject({ live: false, agentActive: false });
+      expect(sent.length).toBe(pushes + 2);
+    }
+  });
+
   it('a call ending on a closed tab pushes nothing', () => {
     service.openTab('s1', 'https://a.com', 'agent');
     const release = service.holdForToolCall('tab1');

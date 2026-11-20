@@ -9,6 +9,7 @@ import {
 } from '../../shared/browser';
 import { checkoutPathForSession, type Workspace } from '../../shared/workspace';
 import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
+import { type AgentMoveBrowser, moveAsAgent } from './agentMove';
 import type { BrowserService } from './BrowserService';
 import { addActTools, type BrowserActToolsDeps } from './browserActTools';
 import {
@@ -38,7 +39,8 @@ export type BrowserToolsBrowser = Pick<
   | 'goBack'
   | 'goForward'
   | 'reload'
->;
+> &
+  AgentMoveBrowser;
 
 export interface BrowserToolsDeps extends BrowserActToolsDeps {
   getWorkspaces(): Workspace[];
@@ -195,6 +197,10 @@ function open(
   });
 }
 
+/**
+ * Every move is checked first and then made as the agent's (`moveAsAgent`),
+ * so a move it refuses marks nothing.
+ */
 function navigate(
   deps: BrowserToolsDeps,
   access: CallerAccess,
@@ -204,7 +210,9 @@ function navigate(
   if (args.url !== undefined && args.action === undefined) {
     const { url, searched } = resolveAddress(args.url);
     // The address is a web one, so only a tab closed since the check is refused.
-    if (!deps.browser.navigate(tab.id, url)) throw new Error(NO_TAB_MESSAGE);
+    if (!moveAsAgent(deps, tab.id, () => deps.browser.navigate(tab.id, url))) {
+      throw new Error(NO_TAB_MESSAGE);
+    }
     return plain({
       tabId: tab.id,
       url,
@@ -213,30 +221,34 @@ function navigate(
   }
   if (args.action !== undefined && args.url === undefined) {
     if (isBlankPageUrl(tab.url)) throw new Error(BLANK_TAB_MESSAGE);
-    return plain({ tabId: tab.id, summary: move(deps.browser, tab, args.action) });
+    const planned = planMove(deps.browser, tab, args.action);
+    moveAsAgent(deps, tab.id, planned.run);
+    return plain({ tabId: tab.id, summary: planned.summary });
   }
   throw new Error(ONE_MOVE_MESSAGE);
 }
 
-/** Back, forward or reload, through main; what it did, in a sentence. */
-function move(
+/** Back, forward or reload, through main, refused when there is nowhere to go; and what it does, in a sentence. */
+function planMove(
   browser: BrowserToolsBrowser,
   tab: BrowserTabSnapshot,
   action: 'back' | 'forward' | 'reload',
-): string {
+): { run(): void; summary: string } {
   switch (action) {
     case 'back':
       if (!tab.canGoBack) throw new Error('This tab has no earlier page to go back to.');
-      browser.goBack(tab.id);
-      return 'Went back.';
+      return { run: () => browser.goBack(tab.id), summary: 'Went back.' };
     case 'forward':
       if (!tab.canGoForward) throw new Error('This tab has no later page to go forward to.');
-      browser.goForward(tab.id);
-      return 'Went forward.';
+      return { run: () => browser.goForward(tab.id), summary: 'Went forward.' };
     case 'reload':
-      browser.reload(tab.id);
-      // A tab with no page loaded has nothing to reload: its next page is fresh anyway.
-      return tab.live ? 'Reloading.' : 'Its page is not loaded now; it loads fresh when next read.';
+      return {
+        run: () => browser.reload(tab.id),
+        // A tab with no page loaded has nothing to reload: its next page is fresh anyway.
+        summary: tab.live
+          ? 'Reloading.'
+          : 'Its page is not loaded now; it loads fresh when next read.',
+      };
   }
 }
 

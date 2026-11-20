@@ -20,7 +20,8 @@ export const useBrowserAgentDotStore = create<BrowserAgentDotState>(() => ({ dot
 
 /**
  * Whether `next` shows an agent doing something `previous` did not: a tab an
- * agent opened that was not there, or a tab whose call has just started. A
+ * agent opened that was not there, or a tab whose call has just started (a
+ * read, an act, or a move, which marks even the person's own tab). A
  * session the window held nothing for reads as having had no tabs, so an
  * agent's tab opened while the window was elsewhere still counts.
  */
