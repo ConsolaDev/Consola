@@ -1,7 +1,7 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { RunRecord } from '@consola/factory-spec';
 import type { Workspace } from '../../shared/workspace';
-import { browserRefusal } from '../browser/browserTools';
+import { browserRefusal } from '../browser/browserToolAccess';
 import { agentContext, type ToolRegistry, type ToolResult } from '../tools/Tool';
 import { mcpToolName } from './names';
 import { asToolResult } from './toolResult';

@@ -12,7 +12,8 @@ import { makeSession, makeWorkspace } from '../conductor/ConductorTools.test-hel
 import { buildSessionServer } from '../mcp/buildSessionServer';
 import { ToolRegistry } from '../tools/Tool';
 import { NO_WINDOW_MESSAGE } from './AgentPages';
-import { ANOTHER_SESSION_MESSAGE, browserTools, type BrowserToolsBrowser } from './browserTools';
+import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
+import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
 

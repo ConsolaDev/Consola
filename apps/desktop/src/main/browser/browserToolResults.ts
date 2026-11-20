@@ -42,7 +42,8 @@ export interface BrowserStatus {
   localServers: LocalServer[];
 }
 
-function untrusted(text: string): TextContent {
+/** Page text as one block, opening with `UNTRUSTED_NOTE`. */
+export function untrusted(text: string): TextContent {
   return { type: 'text', text: `${UNTRUSTED_NOTE}\n\n${text}` };
 }
 
