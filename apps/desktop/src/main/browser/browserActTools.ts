@@ -2,14 +2,22 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
 import {
-  aDialog,
+  type BrowserActToolsDeps,
+  countOf,
+  messageOf,
+  openedDialogContent,
+  pageStepFailure,
+  refInput,
+  staleRefMessage,
+  unlessDialog,
+} from './browserPageSteps';
+import {
   answer,
   type CallerAccess,
   PageTextError,
   plain,
   refuseWhileDialog,
   tabIdInput,
-  type ToolDialogs,
 } from './browserToolAccess';
 import {
   type BrowserToolContent,
@@ -32,26 +40,11 @@ import {
   type ScrollOutcome,
   scrollInPage,
 } from './pageInput';
-import { type HeldDialog, NO_DIALOG_MESSAGE } from './PageDialogs';
-import { PAGE_CALL_TIMEOUT_MS, type PageDriver } from './PageDriver';
-import type { PersonInput } from './PersonInput';
 
-/** What the acting tools need besides the caller's access. */
-export interface BrowserActToolsDeps {
-  driver: Pick<PageDriver, 'withPage'>;
-  person: Pick<PersonInput, 'refusal' | 'noteAgentUse'>;
-  dialogs: ToolDialogs;
-}
+export type { BrowserActToolsDeps } from './browserPageSteps';
 
 const ACTIONS = ['click', 'fill', 'press', 'select', 'hover', 'scroll'] as const;
 type ActAction = (typeof ACTIONS)[number];
-
-/** A ref from a snapshot's outline (`e5`, or `f1e5` inside a frame), and nothing that could be a selector. */
-const REF_PATTERN = /^(f\d+)?e\d+$/;
-const refInput = z
-  .string()
-  .regex(REF_PATTERN, 'A ref is the [ref=…] of an element in your latest snapshot, like e5.')
-  .describe('The ref of an element in your latest snapshot of this tab, like e5.');
 
 export interface ActArgs {
   action: ActAction;
@@ -104,110 +97,7 @@ export function planAct(args: ActArgs): ActPlan {
   }
 }
 
-/** How long `wait_for` waits unless told, and the longest it may. */
-export const DEFAULT_WAIT_MS = 10_000;
-export const MAX_WAIT_MS = 60_000;
-
-export interface WaitArgs {
-  text?: string;
-  ref?: string;
-  selector?: string;
-  url?: string;
-  networkIdle?: boolean;
-  timeoutMs?: number;
-}
-
-/** One wait, checked: what for, and for how long. */
-export type WaitPlan = { timeoutMs: number } & (
-  | { kind: 'text'; text: string }
-  | { kind: 'ref'; ref: string }
-  | { kind: 'selector'; selector: string }
-  | { kind: 'url'; url: string; glob: boolean }
-  | { kind: 'network-idle' }
-);
-
-/** Checks a wait before anything reaches the page: exactly one thing, for at most a minute. */
-export function planWait(args: WaitArgs): WaitPlan {
-  const given = [
-    args.text,
-    args.ref,
-    args.selector,
-    args.url,
-    args.networkIdle || undefined,
-  ].filter((value) => value !== undefined);
-  if (given.length !== 1) {
-    throw new Error('Give exactly one of text, ref, selector, url or networkIdle to wait for.');
-  }
-  const timeoutMs = args.timeoutMs ?? DEFAULT_WAIT_MS;
-  if (timeoutMs > MAX_WAIT_MS) throw new Error(`timeoutMs is at most ${MAX_WAIT_MS} (a minute).`);
-  if (args.text !== undefined) return { kind: 'text', text: args.text, timeoutMs };
-  if (args.ref !== undefined) return { kind: 'ref', ref: args.ref, timeoutMs };
-  if (args.selector !== undefined) return { kind: 'selector', selector: args.selector, timeoutMs };
-  if (args.url !== undefined)
-    return { kind: 'url', url: args.url, glob: args.url.includes('*'), timeoutMs };
-  return { kind: 'network-idle', timeoutMs };
-}
-
-/** What a wait waits for, as a clause, and what holds once it has. */
-function waitWords(plan: WaitPlan): { awaited: string; reached: string } {
-  // The agent's own text, quoted, so it reads as what was asked for and nothing more.
-  switch (plan.kind) {
-    case 'text':
-      return {
-        awaited: `the text ${quoted(plan.text)} to be on the page`,
-        reached: `The text ${quoted(plan.text)} is on the page.`,
-      };
-    case 'ref':
-      return { awaited: `${plan.ref} to be visible`, reached: `${plan.ref} is visible.` };
-    case 'selector':
-      return {
-        awaited: `an element matching ${quoted(plan.selector)} to be visible`,
-        reached: `An element matching ${quoted(plan.selector)} is visible.`,
-      };
-    case 'url':
-      return plan.glob
-        ? {
-            awaited: `the address to match ${quoted(plan.url)}`,
-            reached: `The address matches ${quoted(plan.url)}.`,
-          }
-        : {
-            awaited: `the address to contain ${quoted(plan.url)}`,
-            reached: `The address contains ${quoted(plan.url)}.`,
-          };
-    case 'network-idle':
-      return {
-        awaited: "the page's network to go quiet",
-        reached: "The page's network has gone quiet.",
-      };
-  }
-}
-
-/** Waits on the page as planned; resolves once it holds, or throws Playwright's timeout. */
-async function runWait(page: Page, plan: WaitPlan): Promise<void> {
-  const visible = { state: 'visible' as const, timeout: plan.timeoutMs };
-  switch (plan.kind) {
-    case 'text':
-      return page.getByText(plan.text).first().waitFor(visible);
-    case 'ref':
-      return page.locator(`aria-ref=${plan.ref}`).waitFor(visible);
-    case 'selector':
-      return page.locator(plan.selector).first().waitFor(visible);
-    case 'url':
-      // A commit is enough: the address is what was asked about, not the load.
-      return page.waitForURL(plan.glob ? plan.url : (url) => url.href.includes(plan.url), {
-        timeout: plan.timeoutMs,
-        waitUntil: 'commit',
-      });
-    case 'network-idle':
-      return page.waitForLoadState('networkidle', { timeout: plan.timeoutMs });
-  }
-}
-
 const AFTER = 'Take a snapshot to see what changed.';
-
-function staleRefMessage(ref: string): string {
-  return `There is no element ${ref} on the page now; take a new snapshot (consola_browser_snapshot) for current refs.`;
-}
 
 /** What a refusal thrown in the page means, in the agent's terms. */
 function refusalMessage(reason: ActRefusal, ref: string): string {
@@ -327,66 +217,6 @@ function actFailure(error: unknown, plan: ActPlan): Error {
   return pageStepFailure(error);
 }
 
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-/** A failure's first line, without Playwright's `locator.waitFor: ` and `Error: ` in front. */
-function firstLineOf(error: unknown): string {
-  return firstLine(messageOf(error))
-    .replace(/^[a-zA-Z.]+: /, '')
-    .replace(/^Error: /, '');
-}
-
-/**
- * A step on the page that failed, for any reason but one this module words
- * itself: its first line only, after the untrusted note. Playwright's text
- * echoes the page's (an exception's message, a selector, the markup its call
- * log quotes), and the agent reading it has a shell (Invariant 7).
- */
-function pageStepFailure(error: unknown): PageTextError {
-  return new PageTextError([untrusted(firstLineOf(error) || 'The step failed on the page.')]);
-}
-
-/** How many elements a locator finds now; a failure is a page step's like any other. */
-async function countOf(locator: ReturnType<Page['locator']>): Promise<number> {
-  try {
-    return await locator.count();
-  } catch (error) {
-    throw pageStepFailure(error);
-  }
-}
-
-/**
- * What `work` gives, or the dialog the page opens first. A page showing a
- * dialog answers nothing until it is answered, so a call that waits on it
- * returns at once with the dialog instead; `work` is left to finish whenever
- * the dialog is answered, and its call has ended by then (`signal`).
- */
-async function unlessDialog<T>(
-  dialogs: ToolDialogs,
-  tabId: string,
-  signal: AbortSignal,
-  work: Promise<T>,
-): Promise<{ done: T } | { dialog: HeldDialog }> {
-  work.catch(() => {});
-  return Promise.race([
-    work.then((done) => ({ done })),
-    dialogs.opened(tabId, signal).then((dialog) => ({ dialog })),
-  ]);
-}
-
-/** A dialog opened while a call ran, said after the note (its message is the page's). */
-function openedDialogContent(
-  fields: Record<string, unknown>,
-  when: string,
-  dialog: HeldDialog,
-  then: string,
-): BrowserToolContent[] {
-  const summary = `${when}, the page opened ${aDialog(dialog)} and waits for an answer; answer it with consola_browser_dialog${then}`;
-  return [untrustedJson({ ...fields, summary, pendingDialog: dialog })];
-}
-
 /** Refuses within `PERSON_INPUT_GUARD_MS` of the person's input on the tab. */
 function giveWay(deps: BrowserActToolsDeps, tabId: string): void {
   const refusal = deps.person.refusal(tabId);
@@ -499,8 +329,9 @@ async function runAct(
 }
 
 /**
- * The tools that run in a page: `consola_browser_act`, `_evaluate` and
- * `_wait_for`, on the same access rule as the tools that look.
+ * The tools that act in a page: `consola_browser_act` and `_evaluate`, on the
+ * same access rule as the tools that look (`_wait_for` and `_dialog` are in
+ * browserWaitTool and browserDialogTool).
  *
  * An act, and an evaluate (which can do as much), gives way to the person:
  * it refuses within 3 s of their input on the tab (`PersonInput`), checked
@@ -570,67 +401,6 @@ export function addActTools(
     },
     (args) => answer(() => evaluate(deps, access, args)),
   );
-
-  server.registerTool(
-    'consola_browser_wait_for',
-    {
-      description:
-        "Wait on one of your session's tabs for exactly one of: text to be on the page, an " +
-        'element of your latest snapshot (ref) or a selector to be visible, the address to ' +
-        "contain a text (or match a glob with *), or the page's network to go quiet. Waits " +
-        `${DEFAULT_WAIT_MS / 1000} s unless timeoutMs says otherwise, at most ${MAX_WAIT_MS / 1000} s.`,
-      inputSchema: {
-        tabId: tabIdInput,
-        text: z.string().min(1).optional().describe('Text to wait for on the page.'),
-        ref: refInput.optional(),
-        selector: z
-          .string()
-          .min(1)
-          .optional()
-          .describe(
-            'A Playwright selector to wait for a visible match of: CSS by default, or text=…, ' +
-              'role=…, xpath=….',
-          ),
-        url: z
-          .string()
-          .min(1)
-          .optional()
-          .describe('Text the address should contain, or a glob (with *) it should match.'),
-        networkIdle: z
-          .literal(true)
-          .optional()
-          .describe("Wait for the page's network to go quiet for half a second."),
-        timeoutMs: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe(
-            `How long to wait, in ms: ${DEFAULT_WAIT_MS} unless given, at most ${MAX_WAIT_MS}.`,
-          ),
-      },
-      annotations: { readOnlyHint: true, openWorldHint: true },
-    },
-    (args) => answer(() => waitFor(deps, access, args)),
-  );
-
-  server.registerTool(
-    'consola_browser_dialog',
-    {
-      description:
-        "Answer the alert or confirm a page of your session's browser is waiting on " +
-        '(consola_browser_status lists it as pendingDialog): accept or dismiss it, with text ' +
-        'for a prompt. The page does nothing else until it is answered; one left unanswered is ' +
-        'dismissed after 60 s, and one the person presses in the tab is handed to them.',
-      inputSchema: {
-        tabId: tabIdInput,
-        action: z.enum(['accept', 'dismiss']),
-        text: z.string().optional().describe('For a prompt: the text to answer with.'),
-      },
-      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
-    },
-    (args) => answer(() => answerDialog(deps, access, args)),
-  );
 }
 
 /**
@@ -681,71 +451,6 @@ function evaluateFailure(error: unknown): PageTextError {
     return new PageTextError([untrusted(`The expression threw: ${firstLine(rest)}`)]);
   }
   return pageStepFailure(error);
-}
-
-async function waitFor(
-  deps: BrowserActToolsDeps,
-  access: CallerAccess,
-  args: WaitArgs & { tabId: string },
-): Promise<BrowserToolContent[]> {
-  const tab = access.tab(args.tabId);
-  const plan = planWait(args);
-  refuseWhileDialog(deps.dialogs, tab.id);
-  const words = waitWords(plan);
-  const outcome = await access.stillAllowed(
-    deps.driver.withPage(
-      tab.id,
-      async (page, control) => {
-        const waited = (async () => {
-          if (plan.kind === 'ref' && (await countOf(page.locator(`aria-ref=${plan.ref}`))) === 0) {
-            throw new Error(staleRefMessage(plan.ref));
-          }
-          try {
-            await runWait(page, plan);
-          } catch (error) {
-            if (error instanceof Error && error.name === 'TimeoutError') {
-              throw new Error(
-                `Waited ${plan.timeoutMs / 1000} seconds for ${words.awaited}; it was not.`,
-              );
-            }
-            throw pageStepFailure(error);
-          }
-        })();
-        return unlessDialog(deps.dialogs, tab.id, control.signal, waited);
-      },
-      // Longer than the wait, so the wait's own timeout is what ends it.
-      { deadlineMs: plan.timeoutMs + PAGE_CALL_TIMEOUT_MS },
-    ),
-  );
-  if ('dialog' in outcome) {
-    throw new PageTextError(
-      openedDialogContent({ tabId: tab.id }, 'While it waited', outcome.dialog, '.'),
-    );
-  }
-  return plain({ tabId: tab.id, summary: words.reached });
-}
-
-async function answerDialog(
-  deps: BrowserActToolsDeps,
-  access: CallerAccess,
-  args: { tabId: string; action: 'accept' | 'dismiss'; text?: string },
-): Promise<BrowserToolContent[]> {
-  const tab = access.tab(args.tabId);
-  const pending = deps.dialogs.pendingFor(tab.id);
-  if (!pending) throw new Error(NO_DIALOG_MESSAGE);
-  if (args.text !== undefined && pending.type !== 'prompt') {
-    throw new Error(`Only a prompt dialog takes text; this one is a ${pending.type}.`);
-  }
-  // The page goes on from the answer, so the tab is in the agent's hands from here.
-  deps.person.noteAgentUse(tab.id);
-  const answered = deps.dialogs.answer(tab.id, args.action === 'accept', args.text);
-  // Gone between the two: the page navigated, or the wait ran out.
-  if (!answered) throw new Error(NO_DIALOG_MESSAGE);
-  const verb = args.action === 'accept' ? 'Accepted' : 'Dismissed';
-  return plain({
-    tabId: tab.id,
-    summary: `${verb} the ${answered.type} dialog. Take a snapshot to see what the page did.`,
-  });
 }
 
 async function act(

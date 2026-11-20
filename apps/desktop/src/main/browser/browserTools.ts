@@ -12,6 +12,7 @@ import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
 import { type AgentMoveBrowser, type AgentMoveDeps, moveAsAgent } from './agentMove';
 import type { BrowserService } from './BrowserService';
 import { addActTools, type BrowserActToolsDeps } from './browserActTools';
+import { addDialogTool } from './browserDialogTool';
 import {
   answer,
   CallerAccess,
@@ -21,6 +22,7 @@ import {
   type ToolDialogs,
 } from './browserToolAccess';
 import { type BrowserToolContent, snapshotContent, statusContent } from './browserToolResults';
+import { addWaitTool } from './browserWaitTool';
 import type { PageDriver } from './PageDriver';
 
 const PERSON_TAB_MESSAGE = 'Only a tab the agent opened can be closed.';
@@ -153,6 +155,8 @@ export function browserTools(deps: BrowserToolsDeps): {
       );
 
       addActTools(server, deps, access);
+      addWaitTool(server, deps, access);
+      addDialogTool(server, deps, access);
     },
   };
 }
