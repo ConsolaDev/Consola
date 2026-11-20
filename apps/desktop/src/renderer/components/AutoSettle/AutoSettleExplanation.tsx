@@ -51,8 +51,9 @@ export function AutoSettleExplanation() {
             <p>
               Sessions that sit idle for {days === 1 ? 'a day' : `${days} days`} move to the{' '}
               <strong>Settled</strong> shelf at the bottom of the sidebar, so the list stays about
-              what is happening now. <strong>Nothing was deleted.</strong> Open one, or send it a
-              message, and it comes straight back.
+              what is happening now. <strong>Nothing you worked in was deleted:</strong> only a
+              session that never had a message is removed. Open one, or send it a message, and it
+              comes straight back.
             </p>
             <p>Just moved:</p>
             <ul className="auto-settle-list">

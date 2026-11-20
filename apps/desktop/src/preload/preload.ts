@@ -4,6 +4,7 @@ import type { AttentionChange, AttentionState } from '../shared/attention';
 import type {
   BatchResult,
   Preferences,
+  SettleBatchResult,
   SettleMemento,
   SettleResult,
   SnoozeBatchResult,
@@ -498,7 +499,7 @@ contextBridge.exposeInMainWorld('attentionAPI', {
   wake: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_WAKE, workspaceId, sessionIds);
   },
-  settleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {
+  settleMany: (workspaceId: string, sessionIds: string[]): Promise<SettleBatchResult> => {
     return ipcRenderer.invoke(IPC_CHANNELS.ATTENTION_SETTLE_MANY, workspaceId, sessionIds);
   },
   unsettleMany: (workspaceId: string, sessionIds: string[]): Promise<BatchResult> => {

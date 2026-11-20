@@ -36,6 +36,18 @@ describe('settling with undo', () => {
     expect(toast.action).toBeUndefined();
   });
 
+  it('a session removed for never having a message says so, and offers no Undo', async () => {
+    vi.mocked(attentionBridge.settle).mockResolvedValue({
+      settled: true,
+      memento: {},
+      removed: ['a'],
+    });
+    await settleWithUndo('w', 'a', 'New Session');
+    const [toast] = useToastStore.getState().toasts;
+    expect(toast.message).toBe('Removed New Session: it never had a message.');
+    expect(toast.action).toBeUndefined();
+  });
+
   it('un-settling can be undone too', async () => {
     await unsettleWithUndo('w', 'a', 'Fix login');
     useToastStore.getState().toasts[0].action!.run();

@@ -155,6 +155,7 @@ import { HookSignals, type AttentionSignal } from './attention/hookSignals';
 import { SteadyStatus } from './attention/steadyStatus';
 import { ViewingTracker } from './attention/ViewingTracker';
 import { AutoSettler } from './attention/AutoSettler';
+import { EmptySessionReaper } from './attention/EmptySessionReaper';
 import { settleAndVerify, settleMany, unsettleMany, unsettleSession } from './attention/settling';
 import { Snoozer } from './attention/Snoozer';
 import { HarnessLimitsCache } from './usageLimits/HarnessLimitsCache';
@@ -168,6 +169,7 @@ import { launchFieldsFor as harnessLaunchFields } from '../shared/harness';
 import { PreferencesService } from './state/PreferencesService';
 import type {
   BatchResult,
+  SettleBatchResult,
   SettleMemento,
   SettleResult,
   SnoozeBatchResult,
@@ -985,6 +987,49 @@ export function setupIpcHandlers(): boolean {
   });
   attention.register(attentionSessions);
 
+  // A settled session that never got a message is deleted rather than kept on
+  // the shelf, where it would only be an empty row. Its CLI's own transcript
+  // says whether it ever got one.
+  const emptySessions = new EmptySessionReaper({
+    getWorkspaces: () => workspaces.getAll(),
+    attention: () => attention.snapshot(),
+    isShown: (instanceId) => viewing.isShown(instanceId),
+    hasFirstMessage: async (session) => {
+      // Without its harness record there is no saying where the transcript is.
+      const harness = harnesses.getAll().find((candidate) => candidate.id === session.harnessId);
+      if (!harness) return null;
+      const fields = harnessLaunchFields(harness);
+      const driver = getDriver(fields.driverId);
+      if (!driver.readFirstPrompt) return null;
+      const first = await driver.readFirstPrompt(toHarnessConfig(fields), session.claudeSessionId);
+      return first !== null;
+    },
+    // As a person's delete, so the "you delete the session" rule decides the worktree.
+    remove: async (workspace, session) => {
+      const remove = () => sessionRemover.remove(workspace.id, session);
+      if (!worktreeCleanupService) return remove();
+      // What happens to a worktree is in the cleanup history; no window asked to hear it.
+      await worktreeCleanupService.deleteForPerson(workspace, session, remove, () => {});
+    },
+  });
+  /** A hand settle, with what it shelved that never got a message deleted instead. */
+  const removingEmpty = async <T extends SettleResult | SettleBatchResult>(
+    result: T,
+  ): Promise<T> => {
+    let removed: string[];
+    try {
+      removed = await emptySessions.settled(Object.keys(result.memento));
+    } catch (error) {
+      // The settle itself stands: it is the shelf, with its Undo, rather than nothing.
+      console.error('Could not remove empty settled sessions:', error);
+      return result;
+    }
+    if (removed.length === 0) return result;
+    const memento = { ...result.memento };
+    for (const id of removed) delete memento[id];
+    return { ...result, memento, removed };
+  };
+
   // Old, idle work leaves the list on its own — and the first time it does,
   // every window is told what happened (the renderer reads `pendingAutoSettle`).
   const settler = new AutoSettler({
@@ -996,6 +1041,10 @@ export function setupIpcHandlers(): boolean {
     preferences,
     changed: () => attentionSessions.refresh(),
     onWindowReport: (listener) => viewing.onReport(listener),
+    swept: () =>
+      void emptySessions
+        .sweep()
+        .catch((error) => console.error('Could not remove empty settled sessions:', error)),
   });
   autoSettler = settler;
 
@@ -1062,9 +1111,9 @@ export function setupIpcHandlers(): boolean {
       attentionSessions.refresh();
       return result;
     };
-  ipcMain.handle(
-    IPC_CHANNELS.ATTENTION_SETTLE,
-    withWorkspace<SettleResult>({ settled: false, memento: {} }, (workspace, sessionId) =>
+  const settleOne = withWorkspace<SettleResult>(
+    { settled: false, memento: {} },
+    (workspace, sessionId) =>
       settleAndVerify(
         workspace,
         sessionId,
@@ -1072,7 +1121,9 @@ export function setupIpcHandlers(): boolean {
         () => attentionSessions.read(),
         Date.now(),
       ),
-    ),
+  );
+  ipcMain.handle(IPC_CHANNELS.ATTENTION_SETTLE, (event, workspaceId: unknown, sessionId: unknown) =>
+    removingEmpty(settleOne(event, workspaceId, sessionId)),
   );
   ipcMain.handle(
     IPC_CHANNELS.ATTENTION_UNSETTLE,
@@ -1158,11 +1209,13 @@ export function setupIpcHandlers(): boolean {
       attentionSessions.refresh();
       return result;
     };
+  const settleSeveral = inWorkspace((workspace, ids) =>
+    settleMany(workspace, ids, attentionLedger, () => attentionSessions.read(), Date.now()),
+  );
   ipcMain.handle(
     IPC_CHANNELS.ATTENTION_SETTLE_MANY,
-    inWorkspace((workspace, ids) =>
-      settleMany(workspace, ids, attentionLedger, () => attentionSessions.read(), Date.now()),
-    ),
+    (event, workspaceId: unknown, sessionIds: unknown): Promise<SettleBatchResult> =>
+      removingEmpty<SettleBatchResult>(settleSeveral(event, workspaceId, sessionIds)),
   );
   ipcMain.handle(
     IPC_CHANNELS.ATTENTION_UNSETTLE_MANY,
