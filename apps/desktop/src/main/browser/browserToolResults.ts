@@ -9,8 +9,10 @@ import type { PageSnapshot } from './PageDriver';
  * A page can carry text written to instruct whoever reads it, and the agent
  * reading it has a shell (Invariant 7). So every answer that carries page
  * text, or a string the page chose (a title, an address, a console message),
- * opens with `UNTRUSTED_NOTE`. Answers are bounded: an outline is cut, and a
- * screenshot too large to send is left out and said to be.
+ * opens with `UNTRUSTED_NOTE`, and each such string is quoted or kept on its
+ * one line, so it cannot pose as a line Consola wrote. Answers are bounded:
+ * an outline is cut, and a screenshot too large to send is left out and said
+ * to be.
  */
 
 /** Opens every answer that carries page text. */
@@ -53,8 +55,39 @@ export function untrusted(text: string): TextContent {
   return { type: 'text', text: `${UNTRUSTED_NOTE}\n\n${text}` };
 }
 
+/**
+ * A value as JSON on one line, whatever strings of the page's it holds:
+ * JSON escapes every line break but the two separators U+2028 and U+2029,
+ * so those are escaped too. Undefined for no value, as `JSON.stringify` gives.
+ */
+export function jsonLine(value: unknown): string | undefined {
+  return JSON.stringify(value)?.replace(
+    /[\u2028\u2029]/g,
+    (separator) => `\\u${separator.charCodeAt(0).toString(16)}`,
+  );
+}
+
+/** A value as one line of JSON after the note: a page's strings in it cannot start a line. */
+export function untrustedJson(value: unknown): TextContent {
+  return untrusted(jsonLine(value) ?? 'undefined');
+}
+
+/**
+ * A string the page chose (a title, an address, a console message), quoted
+ * as JSON: nothing in it can start a line of its own, so it cannot pose as
+ * one of the lines Consola writes around it.
+ */
+function quoted(text: string): string {
+  return jsonLine(text) ?? '""';
+}
+
+/** The first line of a text, however its lines are broken. */
+export function firstLine(text: string): string {
+  return text.split(/\r\n|[\n\r\u2028\u2029]/)[0] ?? '';
+}
+
 export function statusContent(status: BrowserStatus): BrowserToolContent[] {
-  return [untrusted(JSON.stringify(status))];
+  return [untrustedJson(status)];
 }
 
 /**
@@ -66,18 +99,20 @@ export function statusContent(status: BrowserStatus): BrowserToolContent[] {
 export function snapshotContent(tabId: string, snapshot: PageSnapshot): BrowserToolContent[] {
   const image = screenshotOf(snapshot);
   const sections = [
-    [`Tab: ${tabId}`, `Address: ${snapshot.url}`, `Title: ${snapshot.title}`].join('\n'),
+    [`Tab: ${tabId}`, `Address: ${quoted(snapshot.url)}`, `Title: ${quoted(snapshot.title)}`].join(
+      '\n',
+    ),
     `Outline:\n${boundedOutline(snapshot.outline)}`,
     listSection(
       'Console errors since the last snapshot',
       snapshot.consoleErrors.map((error) =>
-        error.source ? `${error.text} (${error.source})` : error.text,
+        error.source ? `${quoted(error.text)} at ${quoted(error.source)}` : quoted(error.text),
       ),
       snapshot.dropped.consoleErrors,
     ),
     listSection(
       'Failed requests since the last snapshot',
-      snapshot.failedRequests.map((request) => `${request.url}: ${request.reason}`),
+      snapshot.failedRequests.map((request) => `${quoted(request.url)}: ${quoted(request.reason)}`),
       snapshot.dropped.failedRequests,
     ),
     image.line,
@@ -108,10 +143,10 @@ function cut(text: string, max: number, what: string): string {
 export function evaluateContent(value: unknown): BrowserToolContent[] {
   let json: string | undefined;
   try {
-    json = JSON.stringify(value);
+    json = jsonLine(value);
   } catch (error) {
     // The first line only: JSON's account of a cycle goes on to name the page's properties.
-    const why = (error instanceof Error ? error.message : String(error)).split('\n')[0];
+    const why = firstLine(error instanceof Error ? error.message : String(error));
     throw new Error(
       `The result could not be turned into JSON (${why}); return a plain value: ` +
         'a string, a number, or an array or object of those.',
@@ -128,7 +163,7 @@ function listSection(heading: string, items: string[], dropped: number): string 
 
 function screenshotOf(snapshot: PageSnapshot): { line?: string; block?: ImageContent } {
   if (snapshot.screenshotError) {
-    return { line: `Screenshot: could not be taken (${snapshot.screenshotError}).` };
+    return { line: `Screenshot: could not be taken (${quoted(snapshot.screenshotError)}).` };
   }
   if (!snapshot.png) return {};
   if (snapshot.png.length > MAX_SCREENSHOT_BYTES) {

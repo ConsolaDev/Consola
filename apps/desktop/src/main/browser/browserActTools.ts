@@ -11,7 +11,13 @@ import {
   tabIdInput,
   type ToolDialogs,
 } from './browserToolAccess';
-import { type BrowserToolContent, evaluateContent, untrusted } from './browserToolResults';
+import {
+  type BrowserToolContent,
+  evaluateContent,
+  firstLine,
+  untrusted,
+  untrustedJson,
+} from './browserToolResults';
 import { type KeyPress, parseKeyPress } from './keyPress';
 import {
   type ActRefusal,
@@ -238,7 +244,7 @@ function messageOf(error: unknown): string {
 
 /** A failure's first line, without Playwright's `locator.waitFor: ` and `Error: ` in front. */
 function firstLineOf(error: unknown): string {
-  return (messageOf(error).split('\n')[0] ?? '')
+  return firstLine(messageOf(error))
     .replace(/^[a-zA-Z.]+: /, '')
     .replace(/^Error: /, '');
 }
@@ -280,7 +286,7 @@ function openedDialogContent(
   then: string,
 ): BrowserToolContent[] {
   const summary = `${when}, the page opened ${aDialog(dialog)} and waits for an answer; answer it with consola_browser_dialog${then}`;
-  return [untrusted(JSON.stringify({ ...fields, summary, pendingDialog: dialog }))];
+  return [untrustedJson({ ...fields, summary, pendingDialog: dialog })];
 }
 
 /** Refuses within `PERSON_INPUT_GUARD_MS` of the person's input on the tab. */
@@ -533,7 +539,7 @@ function evaluateFailure(error: unknown): PageTextError {
   const rest = message.startsWith(prefix) ? message.slice(prefix.length) : '';
   // Playwright reports a script's exception as its class and message, like `TypeError: …`.
   if (/^(\w*Error|Uncaught)\b/.test(rest)) {
-    return new PageTextError([untrusted(`The expression threw: ${rest.split('\n')[0]}`)]);
+    return new PageTextError([untrusted(`The expression threw: ${firstLine(rest)}`)]);
   }
   return pageStepFailure(error);
 }
