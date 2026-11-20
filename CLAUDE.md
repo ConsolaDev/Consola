@@ -182,9 +182,16 @@ leave a macOS guest blank for good. DevTools open in a window of their own
   `consolaWindows()`, never `BrowserWindow.getAllWindows()`.
 - **Logins are per workspace.** Its pages share the partition
   `persist:consola-browser-<workspaceId>` (`browserPartitionFor`), whose
-  permission, screen-sharing and download rules `configurePartition`
+  permission, device, screen-sharing and download rules `configurePartition`
   (`sessionPolicy.ts`) sets once. Navigation and popups are guarded per guest
   (`secureGuest`, `installPopupPolicy`), certificates per page.
+- **Electron says yes for a page unless told no.** Left alone it hands a
+  page the first client certificate in the system store and the first
+  matching Bluetooth device, and lets its `beforeunload` keep it.
+  `refusePageRequests` answers each no on every guest (`secureGuest`) and
+  every popup (`hardenPopup`); a new request Electron answers itself goes
+  there. A page never holds an unload: main's own ending of it
+  (`destroyGuest`'s blanking, the navigation guard's revert) must go through.
 - **A page does not outlive its window. The tab list does.** Unlike a PTY, a
   guest needs a DOM element in a window, so a window that closes or changes
   workspace takes its pages (`detachWindow`). Main owns the tabs
@@ -202,10 +209,12 @@ leave a macOS guest blank for good. DevTools open in a window of their own
   the page runs on, and a `window.open` from it then takes main down. Only a
   guest refused as it attaches, still on its first load, is stopped and closed
   (`installGuestPolicy`).
-- **Two Electron traps.** Never stop or load a page inside its own navigation
+- **Three Electron traps.** Never stop or load a page inside its own navigation
   event, which takes the app down (`guardNavigation` waits for it to return).
   Read a web contents' `id` once, as it is created: a destroyed one throws on
   `.id`, and in an event handler the throw is swallowed and the entry leaks.
+  It throws on almost any other read too, so each watcher of a page runs on
+  its own (`isolated`): one that throws must not stop the others.
 - **A page keeps its own keys.** A page or popup with the keyboard gets them
   on its own web contents, so a key rule on the window's, or in the renderer's
   keydown, never hears them. Main takes the app's chords
@@ -246,12 +255,18 @@ a harness switch leaves them alone.
   `webContents.debugger`. Nothing listens on a port: never
   `--remote-debugging-port`, which would expose every window, and never a
   WebSocket. Chromium answers a page's CDP session for the whole app, so
-  `cdpRelayProtocol.ts` is the wall: one page and nothing past it (other
-  targets, browser- and app-wide methods, every site's cookies, where
-  downloads go), no files for the page, no bringing it to front or closing it,
-  no address but http or https. It also swallows Playwright's focus emulation
-  (main's, on only while an act runs) and hides a held dialog from it (it
-  would dismiss it at once). Never loosen it for Playwright.
+  `cdpRelayProtocol.ts` is the wall, an allow-list: a command it does not
+  name (`FORWARDED_COMMANDS`) is refused, and logged. Within it: one page and
+  nothing past it (other targets, every site's cookies, where downloads go),
+  no files for the page, no bringing it to front or closing it, no address
+  but http or https. It also swallows Playwright's focus emulation (main's,
+  on only while an act runs) and hides a held dialog from it (it would
+  dismiss it at once). When Playwright needs a command, ask what it reaches
+  first; never widen the list just to make Playwright work.
+- **A page cannot fill main's memory through an agent.** Page text main keeps
+  (a console error, a dialog's message) is a copy (`cutCopy`), never a slice,
+  which keeps the whole original alive. An agent's connection has a budget
+  in events and size (`relayBudget`); past it the relay closes the connection.
 - **Agent input never takes the person's keyboard or the window's focus.**
   Chromium sends a guest's CDP keys and text to whatever the window has
   focused (the terminal, say), and a CDP press would focus the page in the
@@ -270,20 +285,23 @@ a harness switch leaves them alone.
   from Consola's controls (`personNavigated`: an address, back, forward,
   reload, "Continue anyway" past a certificate, a sign-in answered or
   cancelled), never the window's automatic retry, a timer on a channel of its
-  own that records nothing. An act or evaluate is refused for
-  `PERSON_INPUT_GUARD_MS` after it, which must outlast the user activation a
-  real press leaves, or the agent's script could spend it. A tab is in its
-  opener's hands until the other takes it: the agent by moving it, acting or
-  evaluating on it, answering its dialog, or a call that has to load its page
-  (`noteAgentUse`); the person by their input. That, never a clock, decides
-  its downloads (`decideDownload`). A tab its page opens is the person's, and
-  shown, after their input on the opener within the guard; else it opens
-  behind, the agent's if the opener is in the agent's hands, was opened by
-  one, or has a call on it (`placePopupTab`). A new tool or control that moves
-  a tab, acts or answers on it, or loads its page for an agent must record
-  one or the other, or downloads go by the wrong hands, or an agent acts over
-  the person; looking takes nothing. DevTools open on a page shuts the agent
-  out.
+  own that records nothing. An act, evaluate, move or close gives way for
+  `PERSON_INPUT_GUARD_MS` after it (`giveWay`), which must outlast the user
+  activation a real press leaves, or the agent's script could spend it. A tab
+  is in its opener's hands until the other takes it: the agent by moving it,
+  acting or evaluating on it, answering its dialog, or a call that has to load
+  its page (`noteAgentUse`); the person by their input. A download is decided
+  in this order (`downloadRefusal`): none from a tab in the agent's hands;
+  none while a save dialog already waits in the session; the person's input
+  on the tab within the guard pays for one; else the session gets one
+  uninvited download until the person's next input on any of its tabs. A tab
+  its page opens is the person's, and shown, after their input on the opener
+  within the guard; else it opens behind, the agent's if the opener is in the
+  agent's hands, was opened by one, or has a call on it (`placePopupTab`). A
+  new tool or control that moves a tab, acts or answers on it, or loads its
+  page for an agent must record one or the other, or downloads go by the
+  wrong hands, or an agent acts over the person; looking takes nothing.
+  DevTools open on a page shuts the agent out.
 - **Page content is untrusted.** A page can carry text written to instruct the
   agent, and the agent has a shell. Every answer with page text opens with
   `UNTRUSTED_NOTE`, and each string the page chose stays on one line
