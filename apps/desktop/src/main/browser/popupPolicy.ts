@@ -1,5 +1,5 @@
 import { type BrowserTab, isAllowedPageUrl } from '../../shared/browser';
-import { agentActing, personIsUsing } from './PersonInput';
+import { personIsUsing, type TabHands } from './PersonInput';
 
 /** What `setWindowOpenHandler` is told about a window a page wants to open. */
 export interface PopupRequest {
@@ -119,10 +119,8 @@ export interface PopupTabFacts {
   openerOpenedBy: BrowserTab['openedBy'];
   /** An agent's tool call is on the opener's tab now (its `agentActive`). */
   agentCallInFlight: boolean;
-  /** An agent's act or move is under way on the opener's tab (`PersonInput`). */
-  actInFlight: boolean;
-  /** When the last one ended. */
-  actEndedAt?: number;
+  /** Whose hands the opener's tab is in (`PersonInput.handsOf`). */
+  openerHands: TabHands;
 }
 
 export interface PopupTabPlacement {
@@ -138,16 +136,17 @@ export interface PopupTabPlacement {
  * makes one theirs to look at: input from them in the opener within
  * `PERSON_INPUT_GUARD_MS`, the window `act` gives way to as well. Any other
  * tab opens behind the one showing (Ruling U), and it is the agent's when
- * the opener is an agent's tab or an agent is on it (a call, or an act or
- * move under way or just ended, since what a synthetic click starts reaches
- * main after the click returns), so the agent can close what it caused.
- * Otherwise it stays the person's, behind. Cost if wrong: a tab the person's
- * press opened stays behind, and they click it.
+ * the opener is an agent's tab or an agent is on it: a call, or the tab in
+ * the agent's hands (it moved it or acted there, and the person has not
+ * pressed in it since, so what a synthetic click starts, or the page the
+ * agent sent it to, is the agent's doing). Then the agent can close what it
+ * caused. Otherwise it stays the person's, behind. Cost if wrong: a tab the
+ * person's press opened stays behind, and they click it.
  */
 export function placePopupTab(facts: PopupTabFacts): PopupTabPlacement {
   if (personIsUsing(facts.personInputAt, facts.now)) return { openedBy: 'person', activate: true };
   const agentOnOpener =
-    facts.openerOpenedBy === 'agent' || facts.agentCallInFlight || agentActing(facts);
+    facts.openerOpenedBy === 'agent' || facts.agentCallInFlight || facts.openerHands === 'agent';
   return { openedBy: agentOnOpener ? 'agent' : 'person', activate: false };
 }
 

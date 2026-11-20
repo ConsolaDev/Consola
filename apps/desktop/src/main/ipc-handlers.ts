@@ -39,8 +39,14 @@ import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
-import { decideDownloadFrom, gateDownloads, partitionFor } from './browser/sessionPolicy';
-import { PersonInput, watchLoadsSettling, watchPersonInput } from './browser/PersonInput';
+import {
+  decideDownload,
+  type DownloadPlaces,
+  downloadSource,
+  gateDownloads,
+  partitionFor,
+} from './browser/sessionPolicy';
+import { PersonInput, watchPersonInput } from './browser/PersonInput';
 import { PageDialogs } from './browser/PageDialogs';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
@@ -347,8 +353,8 @@ export function setupIpcHandlers(): boolean {
   });
   const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
   pageDriver = driver;
-  // The person's input per tab, which an agent's acts give way to, and the
-  // agent's acts and moves themselves: a download one starts is cancelled.
+  // The person's input per tab, which an agent's acts give way to, and whose
+  // hands each tab is in: a download from one in the agent's is cancelled.
   const personInput = new PersonInput(
     Date.now,
     (tabId) => browser.pageAvailability(tabId) !== 'missing',
@@ -359,23 +365,29 @@ export function setupIpcHandlers(): boolean {
     isAgentConnected: (guest) => driver.isConnected(guest),
     personIsUsing: (tabId) => personInput.refusal(tabId) !== null,
   });
+  // Whose hands the page's tab is in decides its downloads (Ruling PP): a
+  // popup window by its opener's tab, a page not bound yet by each tab its
+  // window has a page coming for, any other page in a browser partition not at all.
+  const downloadPlaces: DownloadPlaces = {
+    tabsForPage: (contents) => {
+      const host = contents.hostWebContents;
+      const window = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null;
+      return browser.tabsForPage(contents.id, window ?? undefined);
+    },
+    popupOpener: (contents) => {
+      const tabId = browser.popups.openerTabOf(contents.id);
+      return tabId ? browser.tabFor(tabId) : undefined;
+    },
+    handsOf: (tab) => personInput.handsOf(tab.id, tab.openedBy),
+  };
   gateDownloads((from) => {
-    if (!from || from.isDestroyed()) return 'allow';
-    // The tab the page is bound to, or each its window has a page coming for:
-    // a page's first load can start a download before the window binds it.
-    const host = from.hostWebContents;
-    const window = host && !host.isDestroyed() ? BrowserWindow.fromWebContents(host) : null;
-    const tabs = browser.tabsForPage(from.id, window ?? undefined);
-    const decision = decideDownloadFrom(
-      tabs.map((tab) => ({
-        ...personInput.downloadFacts(tab.id),
-        openedByAgent: tab.openedBy === 'agent',
-      })),
-    );
+    const source = downloadSource(from, downloadPlaces);
+    const decision = decideDownload(source);
     if (decision === 'cancel') {
-      const which = tabs.map((tab) => tab.id).join(' or ');
       console.info(
-        `Cancelled a download of an agent's, with no press of the person's, on tab ${which}.`,
+        source.kind === 'unknown'
+          ? 'Cancelled a download from a page that is no tab of a session.'
+          : "Cancelled a download from a tab in an agent's hands.",
       );
     }
     return decision;
@@ -399,30 +411,26 @@ export function setupIpcHandlers(): boolean {
         pageDialogs.handToPerson(tabId);
       },
     );
-    // What settles an agent's move: the page has loaded what it asked for.
-    watchLoadsSettling(
-      guest,
-      () => browser.tabIdForGuest(guestId),
-      (tabId) => personInput.noteLoadSettled(tabId),
-    );
     installPopupPolicy(guest, {
       host: window,
       guestId,
       sessionIdOf: (id) => browser.sessionIdForGuest(id),
+      tabIdOf: (id) => browser.tabIdForGuest(id),
       workspaceId,
       atTabCap: (sessionId) => browser.atTabCap(sessionId),
       // Only the person's own press in the opener makes the page's new tab
       // theirs to look at; any other opens behind, the agent's when an agent
-      // is on the opener (`placePopupTab`), read from what the download gate reads.
+      // is on the opener or has it in its hands (`placePopupTab`).
       openTab: (sessionId, url) => {
         const openerTabId = browser.tabIdForGuest(guestId);
         const opener = browser.snapshotFor(sessionId).tabs.find((tab) => tab.id === openerTabId);
+        const openerOpenedBy = opener?.openedBy ?? 'person';
         const { openedBy, activate } = placePopupTab({
-          ...(openerTabId
-            ? personInput.downloadFacts(openerTabId)
-            : { actInFlight: false, now: Date.now() }),
-          openerOpenedBy: opener?.openedBy ?? 'person',
+          personInputAt: openerTabId ? personInput.lastInput(openerTabId) : undefined,
+          now: Date.now(),
+          openerOpenedBy,
           agentCallInFlight: opener?.agentActive ?? false,
+          openerHands: openerTabId ? personInput.handsOf(openerTabId, openerOpenedBy) : 'person',
         });
         void browser.openTab(sessionId, url, openedBy, { keepActiveTab: !activate });
       },

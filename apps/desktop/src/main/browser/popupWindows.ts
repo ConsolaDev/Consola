@@ -9,12 +9,16 @@ export interface PopupHandle {
   destroy(): void;
 }
 
-/** Whose a popup is, so it can be closed with them. */
+/** Whose a popup is, so it can be closed with them, and judged by its opener. */
 export interface PopupOwner {
   sessionId: string;
   workspaceId: string | undefined;
   /** The Consola window the opener's page lives in. */
   host: unknown;
+  /** The popup's own page (its `webContents.id`). */
+  contentsId: number;
+  /** The tab whose page opened it: what its downloads are decided by (`downloadSource`). */
+  openerTabId: string | null;
 }
 
 /**
@@ -38,6 +42,14 @@ export class PopupRegistry {
 
   public get size(): number {
     return this.open.size;
+  }
+
+  /** The tab whose page opened the popup showing this page, while it is open. */
+  public openerTabOf(contentsId: number): string | undefined {
+    for (const owner of this.open.values()) {
+      if (owner.contentsId === contentsId) return owner.openerTabId ?? undefined;
+    }
+    return undefined;
   }
 
   public closeWhere(match: (owner: PopupOwner) => boolean): void {
@@ -76,6 +88,8 @@ export interface PopupPolicyDeps {
   guestId: number;
   /** The session the guest's tab belongs to, or undefined while unbound. */
   sessionIdOf(guestId: number): string | undefined;
+  /** The tab the guest is bound to, or null while unbound. */
+  tabIdOf(guestId: number): string | null;
   workspaceId: string | undefined;
   atTabCap(sessionId: string): boolean;
   openTab(sessionId: string, url: string): void;
@@ -136,7 +150,7 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
     }
     // One gesture pays for one popup.
     input.consume();
-    const owner: PopupOwner = { sessionId, workspaceId: deps.workspaceId, host: deps.host };
+    const openerTabId = deps.tabIdOf(deps.guestId);
     const max = deps.maxSize();
     const width = Math.min(decision.width, max.width);
     const height = Math.min(decision.height, max.height);
@@ -162,6 +176,13 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
         });
         openPopup = popup;
         hardenPopup(popup, deps.certificates, deps.workspaceId);
+        const owner: PopupOwner = {
+          sessionId,
+          workspaceId: deps.workspaceId,
+          host: deps.host,
+          contentsId: popup.webContents.id,
+          openerTabId,
+        };
         deps.popups.track(popup, owner);
         popup.once('closed', () => {
           deps.popups.forget(popup);

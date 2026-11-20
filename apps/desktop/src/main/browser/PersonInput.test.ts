@@ -2,12 +2,10 @@ import { EventEmitter } from 'node:events';
 import type { WebContents } from 'electron';
 import { describe, expect, it } from 'vitest';
 import {
-  ACT_AFTERMATH_MS,
   PERSON_INPUT_GUARD_MS,
   PERSON_USING_TAB_MESSAGE,
   PersonInput,
   personIsUsing,
-  watchLoadsSettling,
   watchPersonInput,
 } from './PersonInput';
 import { decideDownload } from './sessionPolicy';
@@ -45,126 +43,81 @@ describe('the person comes first', () => {
   });
 });
 
-describe('acts on a tab', () => {
-  it('are in flight from begin to end, and just done for a while after', () => {
-    let now = T0;
-    const person = new PersonInput(() => now);
-    expect(person.downloadFacts('tab1')).toEqual({ actInFlight: false, now: T0 });
-    const first = person.beginAct('tab1');
-    const second = person.beginAct('tab1');
-    first();
-    first();
-    expect(person.downloadFacts('tab1').actInFlight).toBe(true);
-    now = T0 + 500;
-    second();
-    expect(person.downloadFacts('tab1')).toEqual({
-      actInFlight: false,
-      actEndedAt: T0 + 500,
-      now: T0 + 500,
-    });
-    expect(ACT_AFTERMATH_MS).toBe(3_000);
+describe('whose hands a tab is in', () => {
+  /** What the gate decides for a download from the tab, by its hands now. */
+  const download = (person: PersonInput, tabId: string, openedBy: 'person' | 'agent') =>
+    decideDownload({ kind: 'tabs', hands: [person.handsOf(tabId, openedBy)] });
+
+  it("starts in its opener's: an agent's tab is the agent's, also after a restart nobody touched it in", () => {
+    // A fresh record is what a restart leaves.
+    const person = new PersonInput(() => T0);
+    expect(person.handsOf('tab1', 'agent')).toBe('agent');
+    expect(download(person, 'tab1', 'agent')).toBe('cancel');
+    expect(person.handsOf('tab2', 'person')).toBe('person');
+    expect(download(person, 'tab2', 'person')).toBe('allow');
   });
 
-  it('reports the person’s last input beside them', () => {
+  it("is the agent's from its use of the person's tab, however long ago, until the person presses in it", () => {
     let now = T0;
     const person = new PersonInput(() => now);
+    // The agent moves it, or acts on it; its page loads, and starts a download 10 s later.
+    person.noteAgentUse('tab1');
+    now = T0 + 10_000;
+    expect(download(person, 'tab1', 'person')).toBe('cancel');
+    // The person presses in it: theirs again, for good.
     person.noteInput('tab1');
-    now = T0 + 100;
-    expect(person.downloadFacts('tab1')).toMatchObject({ personInputAt: T0, now: T0 + 100 });
+    now = T0 + 60_000;
+    expect(download(person, 'tab1', 'person')).toBe('allow');
+    // The agent acts again, once the person's 3 s are over: the agent's again.
+    expect(person.refusal('tab1')).toBeNull();
+    person.noteAgentUse('tab1');
+    now = T0 + 70_000;
+    expect(download(person, 'tab1', 'person')).toBe('cancel');
+  });
+
+  it("is the person's once they navigate it from the toolbar, which is their input on it too", () => {
+    const person = new PersonInput(() => T0);
+    person.noteAgentUse('tab1');
+    person.notePersonNavigation('tab1');
+    expect(download(person, 'tab1', 'person')).toBe('allow');
+    expect(person.refusal('tab1')).toBe(PERSON_USING_TAB_MESSAGE);
+    // An agent's own tab too, which they took.
+    person.notePersonNavigation('tab2');
+    expect(download(person, 'tab2', 'agent')).toBe('allow');
+  });
+
+  it("is the person's when they press in an agent's tab", () => {
+    const person = new PersonInput(() => T0);
+    person.noteInput('tab1');
+    expect(person.handsOf('tab1', 'agent')).toBe('person');
+  });
+
+  it('reports the person’s last input', () => {
+    const person = new PersonInput(() => T0);
+    expect(person.lastInput('tab1')).toBeUndefined();
+    person.noteInput('tab1');
+    expect(person.lastInput('tab1')).toBe(T0);
   });
 
   it('forgets what no longer matters, so the record stays small', () => {
     let now = T0;
-    const person = new PersonInput(() => now);
-    for (let i = 0; i < 50; i++) {
-      person.noteInput(`tab${i}`);
-      person.beginAct(`tab${i}`)();
-    }
-    now = T0 + 60_000;
-    person.noteInput('fresh');
-    person.beginAct('fresh')();
-    expect(person.size()).toBe(1);
-  });
-});
-
-describe("an agent's move of a tab", () => {
-  it('is in flight until the tab’s page has loaded, however long that takes, then just done for 3 s', () => {
-    let now = T0;
-    const person = new PersonInput(() => now);
-    person.noteAgentMove('tab1');
-    expect(person.downloadFacts('tab1').actInFlight).toBe(true);
-    expect(decideDownload(person.downloadFacts('tab1'))).toBe('cancel');
-    // A tab with no page loads the address only when it is next shown or read.
-    now = T0 + 10 * 60_000;
-    expect(decideDownload(person.downloadFacts('tab1'))).toBe('cancel');
-    person.noteLoadSettled('tab1');
-    expect(person.downloadFacts('tab1')).toEqual({
-      actInFlight: false,
-      actEndedAt: now,
-      now,
-    });
-    const settled = now;
-    now = settled + 2_900;
-    expect(decideDownload(person.downloadFacts('tab1'))).toBe('cancel');
-    now = settled + 3_100;
-    expect(decideDownload(person.downloadFacts('tab1'))).toBe('allow');
-  });
-
-  it('gives way to the person pressing in the tab, as an act does', () => {
-    let now = T0;
-    const person = new PersonInput(() => now);
-    person.noteAgentMove('tab1');
-    now = T0 + 1_000;
-    person.noteInput('tab1');
-    now = T0 + 3_900;
-    expect(decideDownload(person.downloadFacts('tab1'))).toBe('allow');
-  });
-
-  it('is not ended by a load on another tab, and a load with no move pending changes nothing', () => {
-    const person = new PersonInput(() => T0);
-    person.noteAgentMove('tab1');
-    person.noteLoadSettled('tab2');
-    expect(person.downloadFacts('tab1').actInFlight).toBe(true);
-    expect(person.downloadFacts('tab2')).toEqual({ actInFlight: false, now: T0 });
-  });
-
-  it('stays in flight while an act it overlaps ends', () => {
-    const person = new PersonInput(() => T0);
-    const endAct = person.beginAct('tab1');
-    person.noteAgentMove('tab1');
-    endAct();
-    expect(person.downloadFacts('tab1').actInFlight).toBe(true);
-    person.noteLoadSettled('tab1');
-    expect(person.downloadFacts('tab1').actInFlight).toBe(false);
-  });
-
-  it('gives the tab’s next load to the person when they navigate it from the toolbar', () => {
-    let now = T0;
-    const person = new PersonInput(() => now);
-    person.noteAgentMove('tab1');
-    person.notePersonNavigation('tab1');
-    // Their input on the tab, as a press in its page is.
-    expect(person.refusal('tab1')).toBe(PERSON_USING_TAB_MESSAGE);
-    // And their load: once their 3 s are over, nothing of the agent's is left.
-    now = T0 + 3_100;
-    expect(person.downloadFacts('tab1')).toEqual({
-      actInFlight: false,
-      personInputAt: T0,
-      now,
-    });
-  });
-
-  it('is forgotten once its tab is gone, so the record stays small', () => {
-    const tabs = new Set(['tab1', 'tab2']);
+    const tabs = new Set(['kept']);
     const person = new PersonInput(
-      () => T0,
+      () => now,
       (tabId) => tabs.has(tabId),
     );
-    person.noteAgentMove('tab1');
-    person.noteAgentMove('tab2');
-    tabs.delete('tab1');
-    person.noteAgentMove('tab2');
+    for (let i = 0; i < 50; i++) {
+      tabs.add(`tab${i}`);
+      person.noteInput(`tab${i}`);
+      person.noteAgentUse(`tab${i}`);
+    }
+    person.noteAgentUse('kept');
+    // Fifty tabs closed, and their input long past.
+    for (let i = 0; i < 50; i++) tabs.delete(`tab${i}`);
+    now = T0 + 60_000;
+    person.noteAgentUse('kept');
     expect(person.size()).toBe(1);
+    expect(person.handsOf('kept', 'person')).toBe('agent');
   });
 });
 
@@ -199,22 +152,6 @@ describe('hearing the person', () => {
     tabId = null;
     guest.emit('before-input-event', {}, { type: 'keyDown', key: 'b' });
     expect(heard).toEqual(['tab1', 'tab1']);
-  });
-
-  it('hears a page stop loading, for its tab, once it is bound to one', () => {
-    const guest = new FakeGuest();
-    const settled: string[] = [];
-    let tabId: string | null = 'tab1';
-    watchLoadsSettling(
-      guest.asWebContents(),
-      () => tabId,
-      (tab) => settled.push(tab),
-    );
-    guest.emit('did-start-loading');
-    guest.emit('did-stop-loading');
-    tabId = null;
-    guest.emit('did-stop-loading');
-    expect(settled).toEqual(['tab1']);
   });
 
   it('never stops the page from getting the input', () => {

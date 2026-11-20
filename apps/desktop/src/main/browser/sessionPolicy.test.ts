@@ -1,76 +1,76 @@
 import type { Session, WebContents } from 'electron';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { browserPartitionFor } from '../../shared/browser';
+import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
 import {
   configurePartition,
   decideDownload,
-  decideDownloadFrom,
   decidePermission,
   downloadDialogTitle,
+  type DownloadPlaces,
+  downloadSource,
   gateDownloads,
   partitionFor,
 } from './sessionPolicy';
 
-const T0 = 1_700_000_000_000;
-
 describe('decideDownload', () => {
-  it('cancels a download that starts while an agent acts on its tab and the person did not touch it', () => {
-    expect(decideDownload({ actInFlight: true, now: T0 })).toBe('cancel');
-    // A click's download reaches main after the click returns.
-    expect(decideDownload({ actInFlight: false, actEndedAt: T0 - 2_900, now: T0 })).toBe('cancel');
+  it("cancels a download from a page of a tab in the agent's hands, at any time", () => {
+    expect(decideDownload({ kind: 'tabs', hands: ['agent'] })).toBe('cancel');
   });
 
-  it('allows it when the person pressed in that tab within 3 s, act or not', () => {
-    expect(decideDownload({ actInFlight: true, personInputAt: T0 - 2_900, now: T0 })).toBe('allow');
-    expect(decideDownload({ actInFlight: true, personInputAt: T0 - 3_100, now: T0 })).toBe(
-      'cancel',
-    );
+  it("allows one from a tab in the person's hands", () => {
+    expect(decideDownload({ kind: 'tabs', hands: ['person'] })).toBe('allow');
   });
 
-  it('allows it when no agent acted on the tab just now', () => {
-    expect(decideDownload({ actInFlight: false, now: T0 })).toBe('allow');
-    expect(decideDownload({ actInFlight: false, actEndedAt: T0 - 3_100, now: T0 })).toBe('allow');
-    expect(decideDownload({ actInFlight: false, openedByAgent: false, now: T0 })).toBe('allow');
+  it("cancels for a page not bound yet when any tab it may be is in the agent's hands", () => {
+    expect(decideDownload({ kind: 'tabs', hands: ['person', 'agent'] })).toBe('cancel');
+    expect(decideDownload({ kind: 'tabs', hands: ['person', 'person'] })).toBe('allow');
   });
 
-  it('cancels one from a tab an agent opened unless the person pressed in it within 3 s', () => {
-    // Nothing in flight: a page in an agent's tab starting a download on its own.
-    expect(decideDownload({ actInFlight: false, openedByAgent: true, now: T0 })).toBe('cancel');
-    expect(
-      decideDownload({
-        actInFlight: false,
-        openedByAgent: true,
-        personInputAt: T0 - 2_900,
-        now: T0,
-      }),
-    ).toBe('allow');
-    expect(
-      decideDownload({
-        actInFlight: false,
-        openedByAgent: true,
-        personInputAt: T0 - 3_100,
-        now: T0,
-      }),
-    ).toBe('cancel');
+  it('cancels one from a page main cannot place, and allows one with no page at all', () => {
+    expect(decideDownload({ kind: 'unknown' })).toBe('cancel');
+    expect(decideDownload({ kind: 'tabs', hands: [] })).toBe('cancel');
+    expect(decideDownload({ kind: 'none' })).toBe('allow');
   });
 });
 
-describe('decideDownloadFrom', () => {
-  const quiet = { actInFlight: false, now: T0 };
-  const agents = { actInFlight: false, openedByAgent: true, now: T0 };
+describe('downloadSource', () => {
+  const tab = (id: string, openedBy: 'person' | 'agent' = 'person'): BrowserTab => ({
+    id,
+    url: 'https://example.com/',
+    title: '',
+    openedBy,
+  });
+  const page = (id: number, destroyed = false) =>
+    ({ id, isDestroyed: () => destroyed }) as unknown as WebContents;
+  /** Tab 1's page is bound; popup window 20 was opened by tab 2's; page 30 is not bound yet. */
+  const places: DownloadPlaces = {
+    tabsForPage: (contents) =>
+      contents.id === 1 ? [tab('t1')] : contents.id === 30 ? [tab('t3')] : [],
+    popupOpener: (contents) => (contents.id === 20 ? tab('t2', 'agent') : undefined),
+    handsOf: (of) => (of.id === 't1' ? 'person' : 'agent'),
+  };
 
-  it('decides by the one tab a page is bound to', () => {
-    expect(decideDownloadFrom([quiet])).toBe('allow');
-    expect(decideDownloadFrom([agents])).toBe('cancel');
+  it('places a tab’s page by its tab, and a page not bound yet by each tab it may be', () => {
+    expect(downloadSource(page(1), places)).toEqual({ kind: 'tabs', hands: ['person'] });
+    expect(downloadSource(page(30), places)).toEqual({ kind: 'tabs', hands: ['agent'] });
   });
 
-  it('cancels for a page not bound yet when any tab it may be would cancel', () => {
-    expect(decideDownloadFrom([quiet, agents])).toBe('cancel');
-    expect(decideDownloadFrom([quiet, quiet])).toBe('allow');
+  it('places a popup window by the tab whose page opened it', () => {
+    expect(downloadSource(page(20), places)).toEqual({ kind: 'tabs', hands: ['agent'] });
+    const personsOpener: DownloadPlaces = { ...places, handsOf: () => 'person' };
+    expect(decideDownload(downloadSource(page(20), personsOpener))).toBe('allow');
+    expect(decideDownload(downloadSource(page(20), places))).toBe('cancel');
   });
 
-  it('allows a page that can be no tab at all, as before', () => {
-    expect(decideDownloadFrom([])).toBe('allow');
+  it('fails closed for a page in a browser partition that is no tab’s or popup’s, or is gone', () => {
+    expect(downloadSource(page(99), places)).toEqual({ kind: 'unknown' });
+    expect(downloadSource(page(1, true), places)).toEqual({ kind: 'unknown' });
+    expect(decideDownload(downloadSource(page(99), places))).toBe('cancel');
+  });
+
+  it('leaves a download with no page as it was', () => {
+    expect(downloadSource(undefined, places)).toEqual({ kind: 'none' });
+    expect(decideDownload(downloadSource(undefined, places))).toBe('allow');
   });
 });
 

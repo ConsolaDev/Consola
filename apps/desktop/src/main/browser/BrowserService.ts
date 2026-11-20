@@ -646,6 +646,11 @@ export class BrowserService {
     return tabIds.flatMap((tabId) => this.find(tabId)?.tab ?? []);
   }
 
+  /** A tab's record, of whichever session holds it. */
+  public tabFor(tabId: string): BrowserTab | undefined {
+    return this.find(tabId)?.tab;
+  }
+
   /** The session whose tab a guest is bound to, or undefined while it is not. */
   public sessionIdForGuest(guestId: number): string | undefined {
     for (const entry of this.guests.values()) if (entry.guestId === guestId) return entry.sessionId;

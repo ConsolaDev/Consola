@@ -140,7 +140,10 @@ class FakeRelay implements DriverRelay {
 /** The tabs: one of the caller's, one of another session's. */
 class FakeBrowser implements BrowserToolsBrowser {
   readonly tabs: Record<string, BrowserTab[]> = {
-    'w-1': [{ id: 'mine', url: 'http://localhost:5173/', title: 'Mine', openedBy: 'agent' }],
+    'w-1': [
+      { id: 'mine', url: 'http://localhost:5173/', title: 'Mine', openedBy: 'agent' },
+      { id: 'mine-person', url: 'http://localhost:5173/', title: 'Theirs', openedBy: 'person' },
+    ],
     'w-2': [{ id: 'theirs', url: 'http://localhost:5173/', title: 'Theirs', openedBy: 'agent' }],
   };
   snapshotFor(sessionId: string): BrowserSessionSnapshot {
@@ -279,6 +282,11 @@ async function call(name: string, args: Record<string, unknown>, sessionId = 'w-
 const act = (args: Record<string, unknown>) =>
   call('consola_browser_act', { tabId: 'mine', ...args });
 
+/** What the download gate decides now for a download from one of the caller's tabs. */
+function downloadFrom(tabId: string, openedBy: 'person' | 'agent' = 'person') {
+  return decideDownload({ kind: 'tabs', hands: [person.handsOf(tabId, openedBy)] });
+}
+
 describe('consola_browser_act', () => {
   it('clicks by ref inside the page, with focus emulation on only for the act', async () => {
     const result = await act({ action: 'click', ref: 'e5' });
@@ -369,28 +377,23 @@ describe('consola_browser_act', () => {
     expect((await act({ action: 'click', ref: 'e5' })).isError).toBe(false);
   });
 
-  it('marks the act in flight on the tab while it runs, and just done after', async () => {
-    let during: unknown;
-    fakePage.answers.clickInPage = 'clicked';
-    const original = fakePage.locator.bind(fakePage);
-    fakePage.locator = (selector: string) => {
-      const locator = original(selector);
-      return {
-        ...locator,
-        evaluate: async (fn: (...args: never[]) => unknown, arg?: unknown) => {
-          during = person.downloadFacts('mine');
-          return locator.evaluate(fn, arg);
-        },
-      };
+  it("puts the person's tab in the agent's hands before it reaches the page, until the person presses there", async () => {
+    let during: string | undefined;
+    fakePage.during = () => {
+      during = person.handsOf('mine-person', 'person');
     };
-    now = T0 + 10;
-    await act({ action: 'click', ref: 'e5' });
-    expect(during).toMatchObject({ actInFlight: true });
-    expect(person.downloadFacts('mine')).toEqual({
-      actInFlight: false,
-      actEndedAt: T0 + 10,
-      now: T0 + 10,
-    });
+    await act({ action: 'click', ref: 'e5', tabId: 'mine-person' });
+    expect(during).toBe('agent');
+    // What the click started, 10 s on: still the agent's doing.
+    now = T0 + 10_000;
+    expect(downloadFrom('mine-person')).toBe('cancel');
+    // The person presses in the tab: theirs.
+    person.noteInput('mine-person');
+    expect(downloadFrom('mine-person')).toBe('allow');
+    // Once their 3 s are over the agent acts again: the agent's again.
+    now = T0 + 13_100;
+    expect((await act({ action: 'click', ref: 'e5', tabId: 'mine-person' })).isError).toBe(false);
+    expect(downloadFrom('mine-person')).toBe('cancel');
   });
 
   it.each([
@@ -525,22 +528,21 @@ describe('consola_browser_evaluate', () => {
     expect(log).toEqual(['evaluate 1']);
   });
 
-  it('is in flight for the download rule while it runs, so a download it starts is cancelled', async () => {
+  it("puts the person's tab in the agent's hands, so a download it starts, then or later, is cancelled", async () => {
     let decision: string | undefined;
     fakePage.evaluate = async (expression: string) => {
       log.push(`evaluate ${expression}`);
       // The page's will-download, arriving while the expression runs.
-      decision = decideDownload(person.downloadFacts('mine'));
+      decision = downloadFrom('mine-person');
       return null;
     };
-    now = T0 + 10;
-    await evaluate('document.querySelector("a[download]").click()');
-    expect(decision).toBe('cancel');
-    expect(person.downloadFacts('mine')).toEqual({
-      actInFlight: false,
-      actEndedAt: T0 + 10,
-      now: T0 + 10,
+    await call('consola_browser_evaluate', {
+      tabId: 'mine-person',
+      expression: 'document.querySelector("a[download]").click()',
     });
+    expect(decision).toBe('cancel');
+    now = T0 + 10_000;
+    expect(downloadFrom('mine-person')).toBe('cancel');
   });
 
   it('passes on a failure that is not the page throwing as one line, after the note', async () => {
@@ -575,6 +577,12 @@ describe('consola_browser_wait_for', () => {
       `wait text Done ${JSON.stringify({ state: 'visible', timeout: 10_000 })}`,
     ]);
     expect(deadlines).toEqual([10_000 + PAGE_CALL_TIMEOUT_MS]);
+  });
+
+  it("leaves the person's tab in their hands: waiting on a page is looking at it", async () => {
+    await call('consola_browser_wait_for', { tabId: 'mine-person', networkIdle: true });
+    expect(person.handsOf('mine-person', 'person')).toBe('person');
+    expect(downloadFrom('mine-person')).toBe('allow');
   });
 
   it('waits at most 60 s, and refuses longer before reaching the page', async () => {
@@ -738,6 +746,16 @@ describe('consola_browser_dialog', () => {
       ['mine', false, undefined],
     ]);
     expect(begun).toEqual([]);
+  });
+
+  it("takes the tab into the agent's hands, since the page goes on from the answer", async () => {
+    // The person had taken the tab (their press, over 3 s ago).
+    person.noteInput('mine');
+    now = T0 + 3_100;
+    expect(person.handsOf('mine', 'agent')).toBe('person');
+    dialogs.pending = { type: 'confirm', message: 'Download the report?' };
+    await answerDialog({ action: 'accept' });
+    expect(downloadFrom('mine', 'agent')).toBe('cancel');
   });
 
   it('answers a prompt with text, and refuses text for anything else', async () => {

@@ -13,13 +13,22 @@ function fakePopup(): PopupHandle & { destroyed: boolean } {
   };
 }
 
+/** Whose a popup is: its page's id and its opener's tab are made up per test. */
+const owner = (sessionId: string, workspaceId: string, host: string, contentsId = 0) => ({
+  sessionId,
+  workspaceId,
+  host,
+  contentsId,
+  openerTabId: `${sessionId}-tab`,
+});
+
 describe('PopupRegistry', () => {
   it('destroys only the popups the match names', () => {
     const registry = new PopupRegistry();
     const mine = fakePopup();
     const theirs = fakePopup();
-    registry.track(mine, { sessionId: 's1', workspaceId: 'w1', host: 'a' });
-    registry.track(theirs, { sessionId: 's2', workspaceId: 'w2', host: 'b' });
+    registry.track(mine, owner('s1', 'w1', 'a'));
+    registry.track(theirs, owner('s2', 'w2', 'b'));
 
     registry.closeWhere((owner) => owner.sessionId === 's1');
 
@@ -32,8 +41,8 @@ describe('PopupRegistry', () => {
     const registry = new PopupRegistry();
     const gone = fakePopup();
     const open = fakePopup();
-    registry.track(gone, { sessionId: 's1', workspaceId: 'w1', host: 'a' });
-    registry.track(open, { sessionId: 's1', workspaceId: 'w1', host: 'a' });
+    registry.track(gone, owner('s1', 'w1', 'a'));
+    registry.track(open, owner('s1', 'w1', 'a'));
     gone.destroyed = true;
 
     registry.closeAll();
@@ -45,8 +54,18 @@ describe('PopupRegistry', () => {
   it('forgets a popup that closed by itself', () => {
     const registry = new PopupRegistry();
     const popup = fakePopup();
-    registry.track(popup, { sessionId: 's1', workspaceId: 'w1', host: 'a' });
+    registry.track(popup, owner('s1', 'w1', 'a'));
     registry.forget(popup);
     expect(registry.size).toBe(0);
+  });
+
+  it("names the tab whose page opened a popup, by the popup's page, until the popup closes", () => {
+    const registry = new PopupRegistry();
+    const popup = fakePopup();
+    registry.track(popup, owner('s1', 'w1', 'a', 20));
+    expect(registry.openerTabOf(20)).toBe('s1-tab');
+    expect(registry.openerTabOf(21)).toBeUndefined();
+    registry.forget(popup);
+    expect(registry.openerTabOf(20)).toBeUndefined();
   });
 });

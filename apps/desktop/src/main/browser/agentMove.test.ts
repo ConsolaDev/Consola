@@ -26,12 +26,12 @@ class FakeBrowser implements AgentMoveBrowser {
 }
 
 let browser: FakeBrowser;
-/** Hears the move for the download rule, into the same record. */
-let person: { noteAgentMove(tabId: string): void };
+/** Hears that the agent took the tab, into the same record. */
+let person: { noteAgentUse(tabId: string): void };
 
 beforeEach(() => {
   browser = new FakeBrowser();
-  person = { noteAgentMove: (tabId) => browser.events.push(`move noted ${tabId}`) };
+  person = { noteAgentUse: (tabId) => browser.events.push(`move noted ${tabId}`) };
 });
 
 afterEach(() => {
@@ -39,7 +39,7 @@ afterEach(() => {
 });
 
 describe('moveAsAgent', () => {
-  it('notes the move for the download rule first, and marks a tab with no page for the move alone', () => {
+  it("first takes the tab into the agent's hands, and marks a tab with no page for the move alone", () => {
     const result = moveAsAgent({ browser, person }, 'tab1', () => {
       browser.events.push('moved');
       return 'went';

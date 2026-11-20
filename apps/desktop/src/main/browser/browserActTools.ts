@@ -31,7 +31,7 @@ import type { PersonInput } from './PersonInput';
 /** What the acting tools need besides the caller's access. */
 export interface BrowserActToolsDeps {
   driver: Pick<PageDriver, 'withPage'>;
-  person: Pick<PersonInput, 'refusal' | 'beginAct'>;
+  person: Pick<PersonInput, 'refusal' | 'noteAgentUse'>;
   dialogs: ToolDialogs;
 }
 
@@ -368,8 +368,9 @@ async function runAct(page: Page, plan: ActPlan, element: ReturnType<Page['locat
  * person's keyboard (Invariant 6): the relay carries nothing for it but
  * mouse moves, and it presses and types inside the page (`pageInput`), with
  * focus emulation on for exactly as long as it acts (the driver turns it off
- * as the call ends). While either runs, and just after, a download the page
- * starts is cancelled (`decideDownload`). A failure from the page reaches
+ * as the call ends). Either takes the tab into the agent's hands, so a
+ * download its page starts is cancelled until the person next presses in it
+ * (`decideDownload`); so does answering a dialog. A failure from the page reaches
  * the agent as one line after the untrusted note, since Playwright's text
  * can carry the page's. Whatever the page answered reaches the agent only
  * if it may still use the browser once the page has (`stillAllowed`).
@@ -391,7 +392,7 @@ export function addActTools(
         'Acts happen inside the page and never take the person’s keyboard: a key reaches the ' +
         "page's own handlers, with Enter, Space, Tab, Backspace, Delete and typed characters " +
         'doing what they do in a browser. Refused while the person is using the tab. A download ' +
-        'the page starts is cancelled.',
+        'the page starts is cancelled, until the person next clicks or types in the tab.',
       inputSchema: {
         tabId: tabIdInput,
         action: z.enum(ACTIONS),
@@ -489,9 +490,9 @@ export function addActTools(
 
 /**
  * Ruling FF: an expression can click, type and start a download as well as
- * any act, so it is one. It gives way to the person and is in flight for the
- * download rule; it does not turn focus emulation on, since it presses no
- * keys of its own.
+ * any act, so it is one. It gives way to the person and takes the tab into
+ * the agent's hands; it does not turn focus emulation on, since it presses
+ * no keys of its own.
  */
 async function evaluate(
   deps: BrowserActToolsDeps,
@@ -501,31 +502,28 @@ async function evaluate(
   const tab = access.tab(args.tabId);
   refuseWhileDialog(deps.dialogs, tab.id);
   giveWay(deps, tab.id);
-  const endAct = deps.person.beginAct(tab.id);
-  try {
-    const outcome = await access.stillAllowed(
-      deps.driver.withPage(tab.id, async (page, control) => {
-        giveWay(deps, tab.id);
-        const evaluated = page.evaluate(args.expression).catch((error: unknown) => {
-          throw evaluateFailure(error);
-        });
-        return unlessDialog(deps.dialogs, tab.id, control.signal, evaluated);
-      }),
+  // In the agent's hands from here: a download it starts is cancelled, then or later.
+  deps.person.noteAgentUse(tab.id);
+  const outcome = await access.stillAllowed(
+    deps.driver.withPage(tab.id, async (page, control) => {
+      giveWay(deps, tab.id);
+      const evaluated = page.evaluate(args.expression).catch((error: unknown) => {
+        throw evaluateFailure(error);
+      });
+      return unlessDialog(deps.dialogs, tab.id, control.signal, evaluated);
+    }),
+  );
+  if ('dialog' in outcome) {
+    throw new PageTextError(
+      openedDialogContent(
+        { tabId: tab.id },
+        'While the expression ran',
+        outcome.dialog,
+        ". The expression's value is not known.",
+      ),
     );
-    if ('dialog' in outcome) {
-      throw new PageTextError(
-        openedDialogContent(
-          { tabId: tab.id },
-          'While the expression ran',
-          outcome.dialog,
-          ". The expression's value is not known.",
-        ),
-      );
-    }
-    return evaluateContent(outcome.done);
-  } finally {
-    endAct();
   }
+  return evaluateContent(outcome.done);
 }
 
 /** What the page threw, or another failure of the step, as page text. */
@@ -593,6 +591,8 @@ async function answerDialog(
   if (args.text !== undefined && pending.type !== 'prompt') {
     throw new Error(`Only a prompt dialog takes text; this one is a ${pending.type}.`);
   }
+  // The page goes on from the answer, so the tab is in the agent's hands from here.
+  deps.person.noteAgentUse(tab.id);
   const answered = deps.dialogs.answer(tab.id, args.action === 'accept', args.text);
   // Gone between the two: the page navigated, or the wait ran out.
   if (!answered) throw new Error(NO_DIALOG_MESSAGE);
@@ -612,35 +612,32 @@ async function act(
   const plan = planAct(args);
   refuseWhileDialog(deps.dialogs, tab.id);
   giveWay(deps, tab.id);
-  const endAct = deps.person.beginAct(tab.id);
-  try {
-    const outcome = await access.stillAllowed(
-      deps.driver.withPage(tab.id, async (page, control) => {
-        // Mounting the page can take a while; the person may have started on it since.
-        giveWay(deps, tab.id);
-        const acted = (async () => {
-          const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
-          if (element && plan.ref && (await element.count()) === 0) {
-            throw new Error(staleRefMessage(plan.ref));
-          }
-          control.signal.throwIfAborted();
-          await control.setFocusEmulation(true);
-          control.signal.throwIfAborted();
-          try {
-            return await runAct(page, plan, element);
-          } catch (error) {
-            throw actFailure(error, plan);
-          }
-        })();
-        return unlessDialog(deps.dialogs, tab.id, control.signal, acted);
-      }),
-    );
-    const done = { tabId: tab.id, action: plan.action, ...(plan.ref ? { ref: plan.ref } : {}) };
-    if ('dialog' in outcome) {
-      return openedDialogContent(done, 'While acting', outcome.dialog, ', then take a snapshot.');
-    }
-    return plain({ ...done, summary: `${outcome.done} ${AFTER}` });
-  } finally {
-    endAct();
+  // In the agent's hands from here: a download it starts is cancelled, then or later.
+  deps.person.noteAgentUse(tab.id);
+  const outcome = await access.stillAllowed(
+    deps.driver.withPage(tab.id, async (page, control) => {
+      // Mounting the page can take a while; the person may have started on it since.
+      giveWay(deps, tab.id);
+      const acted = (async () => {
+        const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
+        if (element && plan.ref && (await element.count()) === 0) {
+          throw new Error(staleRefMessage(plan.ref));
+        }
+        control.signal.throwIfAborted();
+        await control.setFocusEmulation(true);
+        control.signal.throwIfAborted();
+        try {
+          return await runAct(page, plan, element);
+        } catch (error) {
+          throw actFailure(error, plan);
+        }
+      })();
+      return unlessDialog(deps.dialogs, tab.id, control.signal, acted);
+    }),
+  );
+  const done = { tabId: tab.id, action: plan.action, ...(plan.ref ? { ref: plan.ref } : {}) };
+  if ('dialog' in outcome) {
+    return openedDialogContent(done, 'While acting', outcome.dialog, ', then take a snapshot.');
   }
+  return plain({ ...done, summary: `${outcome.done} ${AFTER}` });
 }

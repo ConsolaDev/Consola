@@ -8,7 +8,7 @@ export type AgentMoveBrowser = Pick<BrowserService, 'holdForToolCall' | 'guestFo
 
 export interface AgentMoveDeps {
   browser: AgentMoveBrowser;
-  person: Pick<PersonInput, 'noteAgentMove'>;
+  person: Pick<PersonInput, 'noteAgentUse'>;
 }
 
 /**
@@ -24,12 +24,13 @@ export interface AgentMoveDeps {
  * `did-stop-loading`), or goes, and at most `CALL_DEADLINE_MS`, like any
  * call. Nothing is focused.
  *
- * Before anything loads, the move is noted (Ruling II): the tab's next load
- * is the agent's, so a download it starts is cancelled like one an act
- * starts (`decideDownload`), whenever that load happens.
+ * Before anything loads, the move takes the tab into the agent's hands
+ * (Ruling PP): a download its page starts, whenever it loads and however
+ * long after, is cancelled until the person next presses in the tab
+ * (`decideDownload`).
  */
 export function moveAsAgent<T>(deps: AgentMoveDeps, tabId: string, move: () => T): T {
-  deps.person.noteAgentMove(tabId);
+  deps.person.noteAgentUse(tabId);
   const release = deps.browser.holdForToolCall(tabId, { mount: false }) ?? (() => {});
   const guest = deps.browser.guestFor(tabId);
   let moved: T;

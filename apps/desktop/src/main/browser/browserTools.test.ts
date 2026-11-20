@@ -233,6 +233,11 @@ function afterNote(text: string): unknown {
   return JSON.parse(text.slice(UNTRUSTED_NOTE.length + 2));
 }
 
+/** What the download gate decides for a download from one of the caller's tabs now. */
+function downloadFrom(tabId: string, openedBy: 'person' | 'agent') {
+  return decideDownload({ kind: 'tabs', hands: [person.handsOf(tabId, openedBy)] });
+}
+
 describe('who gets the browser tools', () => {
   it('gives an ordinary session the browser tools', async () => {
     expect(await toolNames('w-1')).toEqual([
@@ -402,16 +407,14 @@ describe('consola_browser_open', () => {
     });
   });
 
-  it("opens a tab that is the agent's, so a download its page starts with no press of the person's is cancelled", async () => {
+  it("opens a tab in the agent's hands, so a download its page starts is cancelled until the person presses in it", async () => {
     const { text } = await call('w-1', 'consola_browser_open', { url: 'example.org/report.csv' });
     const { tabId } = JSON.parse(text) as { tabId: string };
     const tab = browser.listFor('w-1').find((candidate) => candidate.id === tabId);
     expect(tab?.openedBy).toBe('agent');
-    // What the gate in main decides it by: the tab's owner, and the person's input on it.
-    const facts = { ...person.downloadFacts(tabId), openedByAgent: tab?.openedBy === 'agent' };
-    expect(decideDownload(facts)).toBe('cancel');
+    expect(downloadFrom(tabId, 'agent')).toBe('cancel');
     person.noteInput(tabId);
-    expect(decideDownload({ ...person.downloadFacts(tabId), openedByAgent: true })).toBe('allow');
+    expect(downloadFrom(tabId, 'agent')).toBe('allow');
   });
 
   it('refuses an address that is not a web page', async () => {
@@ -494,7 +497,7 @@ describe('consola_browser_navigate', () => {
     }
   });
 
-  it("makes the tab's next load the agent's, so a download from it is cancelled, and is never the person's input", async () => {
+  it("puts the person's tab in the agent's hands, so a download it starts later is cancelled, and is never the person's input", async () => {
     browser.live['mine-person'] = { live: true, canGoBack: true };
     for (const args of [
       { url: 'example.org/report.csv' },
@@ -503,15 +506,13 @@ describe('consola_browser_navigate', () => {
     ]) {
       person = new PersonInput(() => now);
       await call('w-1', 'consola_browser_navigate', { tabId: 'mine-person', ...args });
-      const facts = person.downloadFacts('mine-person');
-      expect(facts).toEqual({ actInFlight: true, now });
-      expect(decideDownload(facts)).toBe('cancel');
-      // Not the person's: they are not using the tab, and a download is not theirs.
+      expect(person.handsOf('mine-person', 'person')).toBe('agent');
+      // Its page loads, and starts a download on its own 10 s later.
+      now += 10_000;
+      expect(downloadFrom('mine-person', 'person')).toBe('cancel');
+      // Not the person's input: they are not using the tab.
+      expect(person.lastInput('mine-person')).toBeUndefined();
       expect(person.refusal('mine-person')).toBeNull();
-      // Once the page has loaded and 3 s have passed, the tab is the person's again.
-      person.noteLoadSettled('mine-person');
-      now += 3_100;
-      expect(decideDownload(person.downloadFacts('mine-person'))).toBe('allow');
     }
   });
 
@@ -560,6 +561,13 @@ describe('consola_browser_snapshot', () => {
       data: Buffer.from('png').toString('base64'),
       mimeType: 'image/png',
     });
+  });
+
+  it("leaves the person's tab in their hands: looking is not using", async () => {
+    await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-person' });
+    await call('w-1', 'consola_browser_status');
+    expect(person.handsOf('mine-person', 'person')).toBe('person');
+    expect(downloadFrom('mine-person', 'person')).toBe('allow');
   });
 
   it('takes no screenshot unless asked', async () => {

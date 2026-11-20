@@ -129,7 +129,7 @@ describe('placePopupTab', () => {
     now: T0,
     openerOpenedBy: 'person',
     agentCallInFlight: false,
-    actInFlight: false,
+    openerHands: 'person',
   };
   const place = (facts: Partial<PopupTabFacts>) => placePopupTab({ ...quiet, ...facts });
 
@@ -141,7 +141,7 @@ describe('placePopupTab', () => {
         personInputAt: T0 - 2_900,
         openerOpenedBy: 'agent',
         agentCallInFlight: true,
-        actInFlight: true,
+        openerHands: 'agent',
       }),
     ).toEqual({ openedBy: 'person', activate: true });
   });
@@ -162,12 +162,15 @@ describe('placePopupTab', () => {
     expect(place({ agentCallInFlight: true })).toEqual({ openedBy: 'agent', activate: false });
   });
 
-  it("is the agent's when its act or move on the opener is under way, or ended within 3 s", () => {
-    // A synthetic click on a target=_blank link, or a window.open an evaluate ran.
-    expect(place({ actInFlight: true })).toEqual({ openedBy: 'agent', activate: false });
-    // What a click starts reaches main after the click returns.
-    expect(place({ actEndedAt: T0 - 2_900 })).toEqual({ openedBy: 'agent', activate: false });
-    expect(place({ actEndedAt: T0 - 3_100 })).toEqual({ openedBy: 'person', activate: false });
+  it("is the agent's while the opener is in the agent's hands, however long ago it acted there", () => {
+    // A synthetic click on a target=_blank link, a window.open an evaluate ran, or
+    // the page the agent moved the tab to, opening it on its own later.
+    expect(place({ openerHands: 'agent' })).toEqual({ openedBy: 'agent', activate: false });
+    // Once the person pressed there the tab is theirs again (and their press, 3.1 s ago, shows nothing).
+    expect(place({ openerHands: 'person', personInputAt: T0 - 3_100 })).toEqual({
+      openedBy: 'person',
+      activate: false,
+    });
   });
 });
 

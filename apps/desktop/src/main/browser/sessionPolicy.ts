@@ -1,6 +1,6 @@
 import type { Session, Streams, WebContents } from 'electron';
-import { browserPartitionFor } from '../../shared/browser';
-import { agentActing, type DownloadFacts, personIsUsing } from './PersonInput';
+import { type BrowserTab, browserPartitionFor } from '../../shared/browser';
+import type { TabHands } from './PersonInput';
 
 /**
  * What a page may ask the person's machine for.
@@ -29,40 +29,76 @@ export function partitionFor(workspaceId: string): string {
 
 export type DownloadDecision = 'allow' | 'cancel';
 
+/** Where a download came from, as the gate placed its page (`downloadSource`). */
+export type DownloadSource =
+  /** Electron named no page: the app's own download, not a page's. */
+  | { kind: 'none' }
+  /**
+   * A tab's page, or a popup window a tab's page opened: whose hands that tab
+   * is in. A page not bound to its tab yet may be any of several.
+   */
+  | { kind: 'tabs'; hands: readonly TabHands[] }
+  /** A page in a browser partition that is no tab's and no popup's main made. */
+  | { kind: 'unknown' };
+
 /**
- * Whether a download a tab's page started may go on to the save dialog.
+ * Whether a download may go on to the save dialog (Ruling PP).
  *
  * An agent must not start downloads nobody clicked, and each would put a
- * save dialog in front of the person. A download is the person's when they
- * pressed a key or a button in that tab, or navigated it from the toolbar,
- * within the last 3 s. Otherwise it is cancelled when the tab is an agent's
- * (Ruling LL: whatever its page does on its own is the agent's doing), or
- * when an agent's act or move is under way on it, or ended within
- * `ACT_AFTERMATH_MS` (what a click starts reaches main after the click
- * returns). Cost if wrong: a download the person started during an agent's
- * act, or one a page in an agent's tab starts more than 3 s after their
- * click, is cancelled, and they start it again.
+ * save dialog in front of the person. So a download from a tab in the
+ * agent's hands (`PersonInput.handsOf`) is cancelled, however long after the
+ * agent's last move or act it comes, and one from the person's tab goes on.
+ * The person takes a tab back by pressing in it, so their own click on a
+ * download link is always theirs. A page main cannot place is nobody's, so
+ * its download is cancelled; one with no page at all is left as before.
+ * Cost if wrong: after an agent uses one of the person's tabs, a download
+ * that tab starts on its own is cancelled until the person next clicks or
+ * types in it.
  */
-export function decideDownload(facts: DownloadFacts): DownloadDecision {
-  if (personIsUsing(facts.personInputAt, facts.now)) return 'allow';
-  return facts.openedByAgent || agentActing(facts) ? 'cancel' : 'allow';
+export function decideDownload(source: DownloadSource): DownloadDecision {
+  switch (source.kind) {
+    case 'none':
+      return 'allow';
+    case 'unknown':
+      return 'cancel';
+    case 'tabs':
+      return source.hands.length === 0 || source.hands.includes('agent') ? 'cancel' : 'allow';
+  }
+}
+
+/** What the gate places a download's page with. */
+export interface DownloadPlaces {
+  /** The tab a page is bound to, or each its window has a page coming for (`BrowserService.tabsForPage`). */
+  tabsForPage(contents: WebContents): BrowserTab[];
+  /** The tab whose page opened this popup window, when it is one main made. */
+  popupOpener(contents: WebContents): BrowserTab | undefined;
+  handsOf(tab: BrowserTab): TabHands;
 }
 
 /**
- * A download from a page that may be any of these tabs: the one it is bound
- * to, or, before its window has bound it, each tab the window has a page
- * coming for. Cancelled when any of them would cancel it; a page that can be
- * no tab is allowed, as before.
+ * Places the page a download came from. A popup window is judged by the tab
+ * whose page opened it; a page of a tab by that tab, or, while its window has
+ * not bound it yet (its first load can get there first), by each tab the
+ * window has a page coming for. A page that is none of these, or is gone, is
+ * `unknown`.
  */
-export function decideDownloadFrom(candidates: readonly DownloadFacts[]): DownloadDecision {
-  return candidates.some((facts) => decideDownload(facts) === 'cancel') ? 'cancel' : 'allow';
+export function downloadSource(
+  from: WebContents | undefined,
+  places: DownloadPlaces,
+): DownloadSource {
+  if (!from) return { kind: 'none' };
+  if (from.isDestroyed()) return { kind: 'unknown' };
+  const opener = places.popupOpener(from);
+  const tabs = opener ? [opener] : places.tabsForPage(from);
+  if (tabs.length === 0) return { kind: 'unknown' };
+  return { kind: 'tabs', hands: tabs.map((tab) => places.handsOf(tab)) };
 }
 
 /** Decides each download by the page it came from (undefined when Electron names none). */
 export type DownloadGate = (from: WebContents | undefined) => DownloadDecision;
 
 /**
- * Set once main can tell which tab a page is and what was done on it
+ * Set once main can tell which tab a page is and whose hands it is in
  * (`ipc-handlers`), and cleared when it stops; until then every download
  * goes on to its save dialog, as before.
  */
