@@ -15,6 +15,7 @@ import {
   type BrowserToolContent,
   evaluateContent,
   firstLine,
+  quoted,
   untrusted,
   untrustedJson,
 } from './browserToolResults';
@@ -23,6 +24,7 @@ import {
   type ActRefusal,
   actRefusalIn,
   clickInPage,
+  type FillOutcome,
   fillInPage,
   type KeyOutcome,
   pressInPage,
@@ -148,28 +150,29 @@ export function planWait(args: WaitArgs): WaitPlan {
 
 /** What a wait waits for, as a clause, and what holds once it has. */
 function waitWords(plan: WaitPlan): { awaited: string; reached: string } {
+  // The agent's own text, quoted, so it reads as what was asked for and nothing more.
   switch (plan.kind) {
     case 'text':
       return {
-        awaited: `the text "${plan.text}" to be on the page`,
-        reached: `The text "${plan.text}" is on the page.`,
+        awaited: `the text ${quoted(plan.text)} to be on the page`,
+        reached: `The text ${quoted(plan.text)} is on the page.`,
       };
     case 'ref':
       return { awaited: `${plan.ref} to be visible`, reached: `${plan.ref} is visible.` };
     case 'selector':
       return {
-        awaited: `an element matching "${plan.selector}" to be visible`,
-        reached: `An element matching "${plan.selector}" is visible.`,
+        awaited: `an element matching ${quoted(plan.selector)} to be visible`,
+        reached: `An element matching ${quoted(plan.selector)} is visible.`,
       };
     case 'url':
       return plan.glob
         ? {
-            awaited: `the address to match "${plan.url}"`,
-            reached: `The address matches "${plan.url}".`,
+            awaited: `the address to match ${quoted(plan.url)}`,
+            reached: `The address matches ${quoted(plan.url)}.`,
           }
         : {
-            awaited: `the address to contain "${plan.url}"`,
-            reached: `The address contains "${plan.url}".`,
+            awaited: `the address to contain ${quoted(plan.url)}`,
+            reached: `The address contains ${quoted(plan.url)}.`,
           };
     case 'network-idle':
       return {
@@ -227,15 +230,33 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
       return `${ref} opens a colour chooser, which would cover the person's window; fill it with a colour such as #ff0000 instead.`;
     case 'is-select':
       return `${ref} is a list of options; use select with its value or label.`;
+    case 'not-focused':
+      return `${ref} did not take the page's focus (the page moved it, or ${ref} can no longer take it), so nothing reached it; take a new snapshot.`;
   }
 }
+
+/** A sentence of Consola's own about what an act found, passed on as it is. */
+class ActWording extends Error {}
+
+/** The format a field set as a script would takes, for a value it would not take. */
+const SET_FORMATS: Record<string, string> = {
+  date: 'a date like 2026-11-20',
+  time: 'a time like 14:30',
+  month: 'a month like 2026-11',
+  week: 'a week like 2026-W47',
+  'datetime-local': 'a date and time like 2026-11-20T14:30',
+  color: 'a colour like #ff0000',
+  range: 'a number within its range',
+};
 
 /**
  * A failed act, as the agent reads it: a refusal from the page in words,
  * anything else as a page step's failure (`pageStepFailure`).
  */
 function actFailure(error: unknown, plan: ActPlan): Error {
+  if (error instanceof ActWording) return error;
   const reason = actRefusalIn(messageOf(error));
+  if (reason === 'unknown') return new PageTextError([untrusted('The page refused the act.')]);
   if (reason) return new Error(refusalMessage(reason, plan.ref ?? 'The focused element'));
   return pageStepFailure(error);
 }
@@ -259,6 +280,15 @@ function firstLineOf(error: unknown): string {
  */
 function pageStepFailure(error: unknown): PageTextError {
   return new PageTextError([untrusted(firstLineOf(error) || 'The step failed on the page.')]);
+}
+
+/** How many elements a locator finds now; a failure is a page step's like any other. */
+async function countOf(locator: ReturnType<Page['locator']>): Promise<number> {
+  try {
+    return await locator.count();
+  } catch (error) {
+    throw pageStepFailure(error);
+  }
 }
 
 /**
@@ -327,41 +357,74 @@ function describeScroll(plan: Extract<ActPlan, { action: 'scroll' }>, outcome: S
   return `Scrolled the page ${plan.direction} ${outcome.moved} px, to ${outcome.at} of ${outcome.extent}.`;
 }
 
-/** Runs the act on the page; what it did, in a sentence. */
-async function runAct(page: Page, plan: ActPlan, element: ReturnType<Page['locator']> | null) {
+/** What an act did: a sentence, and what the field holds when the page changed the typing (page text). */
+interface ActDone {
+  summary: string;
+  value?: string;
+}
+
+/** What a fill did, in the agent's terms; throws when a set field would not take the value. */
+function describeFill(plan: Extract<ActPlan, { action: 'fill' }>, outcome: FillOutcome): ActDone {
+  const typed = `Typed ${[...plan.text].length} characters into ${plan.ref}`;
+  switch (outcome.how) {
+    case 'typed':
+      return { summary: plan.text === '' ? `Emptied ${plan.ref}.` : `${typed}.` };
+    case 'changed':
+      return {
+        summary: `${typed}, but the page changed what was typed; value is what the field holds now.`,
+        value: outcome.value,
+      };
+    case 'set':
+      return {
+        summary: `Set ${plan.ref}, a ${outcome.kind} field the page's editing cannot type into, to the value given, as a script would.`,
+      };
+    case 'not-set': {
+      const format = SET_FORMATS[outcome.kind];
+      throw new ActWording(
+        format
+          ? `${plan.ref} did not take that value; a ${outcome.kind} field takes ${format}.`
+          : `${plan.ref} did not take that value.`,
+      );
+    }
+  }
+}
+
+/** Runs the act on the page; what it did. */
+async function runAct(
+  page: Page,
+  plan: ActPlan,
+  element: ReturnType<Page['locator']> | null,
+): Promise<ActDone> {
   const root = page.locator(':root');
   switch (plan.action) {
     case 'click':
       await element?.evaluate(clickInPage);
-      return `Clicked ${plan.ref}.`;
+      return { summary: `Clicked ${plan.ref}.` };
     case 'fill': {
-      const how = await element?.evaluate(fillInPage, plan.text);
-      if (how === 'set') {
-        return `Set ${plan.ref} to the text given: the page cannot type into a field of its kind, so its value was set as a script would.`;
-      }
-      return plan.text === ''
-        ? `Emptied ${plan.ref}.`
-        : `Typed ${[...plan.text].length} characters into ${plan.ref}.`;
+      if (!element) throw new Error(NEEDS_REF('fill'));
+      return describeFill(plan, await element.evaluate(fillInPage, plan.text));
     }
     case 'press': {
       const target = element ?? root;
       const outcome = await target.evaluate(pressInPage, { ...plan.press, toFocused: !element });
-      return `Pressed ${plan.key} on ${plan.ref ?? 'the focused element'}; ${keyOutcomeText(outcome)}.`;
+      return {
+        summary: `Pressed ${plan.key} on ${plan.ref ?? 'the focused element'}; ${keyOutcomeText(outcome)}.`,
+      };
     }
     case 'select':
       await element?.selectOption(plan.value);
-      return `Selected the option matching "${plan.value}" in ${plan.ref}.`;
+      return { summary: `Selected the option matching ${quoted(plan.value)} in ${plan.ref}.` };
     case 'hover':
       // Moving the mouse is the one input the browser carries for the agent
       // (no button, no key): the page sees it hover as for the person.
       await element?.hover({ force: true });
-      return `Moved the mouse over ${plan.ref}.`;
+      return { summary: `Moved the mouse over ${plan.ref}.` };
     case 'scroll': {
       const outcome = await (element ?? root).evaluate(scrollInPage, {
         intoView: !!element,
         direction: plan.direction,
       });
-      return describeScroll(plan, outcome);
+      return { summary: describeScroll(plan, outcome) };
     }
   }
 }
@@ -399,8 +462,10 @@ export function addActTools(
         'page by most of a screen in a direction). Then take a snapshot to read the effect. ' +
         'Acts happen inside the page and never take the person’s keyboard: a key reaches the ' +
         "page's own handlers, with Enter, Space, Tab, Backspace, Delete and typed characters " +
-        'doing what they do in a browser. Refused while the person is using the tab. A download ' +
-        'the page starts is cancelled, until the person next clicks or types in the tab.',
+        'doing what they do in a browser. Its clicks and keys are made inside the page, not by ' +
+        'a real mouse or keyboard, so a page that insists on a real press may ignore them. ' +
+        'Refused while the person is using the tab. A download the page starts is cancelled, ' +
+        'until the person next clicks or types in the tab.',
       inputSchema: {
         tabId: tabIdInput,
         action: z.enum(ACTIONS),
@@ -442,7 +507,7 @@ export function addActTools(
     {
       description:
         "Wait on one of your session's tabs for exactly one of: text to be on the page, an " +
-        'element of your latest snapshot (ref) or a CSS selector to be visible, the address to ' +
+        'element of your latest snapshot (ref) or a selector to be visible, the address to ' +
         "contain a text (or match a glob with *), or the page's network to go quiet. Waits " +
         `${DEFAULT_WAIT_MS / 1000} s unless timeoutMs says otherwise, at most ${MAX_WAIT_MS / 1000} s.`,
       inputSchema: {
@@ -453,7 +518,10 @@ export function addActTools(
           .string()
           .min(1)
           .optional()
-          .describe('A CSS selector to wait for a visible match of.'),
+          .describe(
+            'A Playwright selector to wait for a visible match of: CSS by default, or text=…, ' +
+              'role=…, xpath=….',
+          ),
         url: z
           .string()
           .min(1)
@@ -560,7 +628,7 @@ async function waitFor(
       tab.id,
       async (page, control) => {
         const waited = (async () => {
-          if (plan.kind === 'ref' && (await page.locator(`aria-ref=${plan.ref}`).count()) === 0) {
+          if (plan.kind === 'ref' && (await countOf(page.locator(`aria-ref=${plan.ref}`))) === 0) {
             throw new Error(staleRefMessage(plan.ref));
           }
           try {
@@ -628,7 +696,7 @@ async function act(
       giveWay(deps, tab.id);
       const acted = (async () => {
         const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
-        if (element && plan.ref && (await element.count()) === 0) {
+        if (element && plan.ref && (await countOf(element)) === 0) {
           throw new Error(staleRefMessage(plan.ref));
         }
         control.signal.throwIfAborted();
@@ -647,5 +715,9 @@ async function act(
   if ('dialog' in outcome) {
     return openedDialogContent(done, 'While acting', outcome.dialog, ', then take a snapshot.');
   }
-  return plain({ ...done, summary: `${outcome.done} ${AFTER}` });
+  const { summary, value } = outcome.done;
+  // What the field holds is the page's to say: behind the note.
+  if (value !== undefined)
+    return [untrustedJson({ ...done, summary: `${summary} ${AFTER}`, value })];
+  return plain({ ...done, summary: `${summary} ${AFTER}` });
 }

@@ -73,11 +73,12 @@ export function untrustedJson(value: unknown): TextContent {
 }
 
 /**
- * A string the page chose (a title, an address, a console message), quoted
- * as JSON: nothing in it can start a line of its own, so it cannot pose as
- * one of the lines Consola writes around it.
+ * A string the page chose (a title, an address, a console message), or one
+ * an agent wrote into a sentence of Consola's, quoted as JSON: nothing in it
+ * can start a line of its own, so it cannot pose as one of the lines Consola
+ * writes around it.
  */
-function quoted(text: string): string {
+export function quoted(text: string): string {
   return jsonLine(text) ?? '""';
 }
 

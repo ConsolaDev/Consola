@@ -30,12 +30,32 @@ export type ActRefusal =
   | 'not-text'
   | 'file-input'
   | 'color-input'
-  | 'is-select';
+  | 'is-select'
+  | 'not-focused';
 
-/** What a refusal thrown in the page reads as, once Playwright has wrapped it. */
-export function actRefusalIn(message: string): ActRefusal | null {
+/** Every refusal these functions throw, and nothing else. */
+const ACT_REFUSALS: ReadonlySet<string> = new Set<ActRefusal>([
+  'not-visible',
+  'disabled',
+  'covered',
+  'not-editable',
+  'read-only',
+  'not-text',
+  'file-input',
+  'color-input',
+  'is-select',
+  'not-focused',
+]);
+
+/**
+ * What a refusal thrown in the page reads as, once Playwright has wrapped
+ * it: one of Consola's, `'unknown'` for a code it never throws (a page that
+ * patches the DOM can throw anything), or null for no refusal at all.
+ */
+export function actRefusalIn(message: string): ActRefusal | 'unknown' | null {
   const match = /consola-act:([a-z-]+)/.exec(message);
-  return match ? (match[1] as ActRefusal) : null;
+  if (!match) return null;
+  return ACT_REFUSALS.has(match[1]) ? (match[1] as ActRefusal) : 'unknown';
 }
 
 /** The fields of a text field, an input or a textarea, these acts read. */
@@ -156,13 +176,28 @@ export function clickInPage(element: Element): 'clicked' {
 }
 
 /**
- * Replaces what a text field holds with `text`, as typing it would: focuses
- * it, selects what is there, and types through the page's own editing, so
- * the page hears the same input events as for the person's typing. A field
- * the editing cannot type into (a date, a colour, a range) is set as a
- * script would set it, with its input and change events, and says so.
+ * What `fill` did: typed, and the field holds exactly the text; typed, but
+ * the page made something else of it (a maxlength, a mask, a number field
+ * given letters), which it keeps; or, for a field editing cannot type into,
+ * set the value as a script would, and whether the field took it.
  */
-export function fillInPage(element: Element, text: string): 'typed' | 'set' {
+export type FillOutcome =
+  | { how: 'typed' }
+  | { how: 'changed'; value: string }
+  | { how: 'set'; kind: string }
+  | { how: 'not-set'; kind: string };
+
+/**
+ * Replaces what a text field holds with `text`, as typing it would: focuses
+ * it, checks it really has the page's focus (else nothing is typed: the
+ * page's editing types into whatever has it), selects what is there, and
+ * types through the page's own editing, so the page hears the same input
+ * events as for the person's typing. What the page then makes of the typing
+ * is left as it is and said. The kinds of field editing cannot type into
+ * (date, time, month, week, datetime-local, color, range) are set as a script
+ * would set them, with their input and change events.
+ */
+export function fillInPage(element: Element, text: string): FillOutcome {
   const refuse = (reason: string): never => {
     throw new Error(`consola-act:${reason}`);
   };
@@ -184,35 +219,42 @@ export function fillInPage(element: Element, text: string): 'typed' | 'set' {
   if (self.disabled) refuse('disabled');
   if (self.readOnly) refuse('read-only');
 
+  const setKinds = ['date', 'time', 'month', 'week', 'datetime-local', 'color', 'range'];
+  if (tag === 'INPUT' && setKinds.includes(type)) {
+    const prototype = view.HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, text);
+    element.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
+    element.dispatchEvent(new view.Event('change', { bubbles: true }));
+    return self.value === text ? { how: 'set', kind: type } : { how: 'not-set', kind: type };
+  }
+
   self.focus();
+  const root = element.getRootNode() as Document | ShadowRoot;
   if (!field) {
+    // Editable text: the page's focus on it (or on the editing host around it).
+    if (!root.activeElement?.contains(element)) refuse('not-focused');
     const range = doc.createRange();
     range.selectNodeContents(element);
     const selection = doc.getSelection();
     selection?.removeAllRanges();
     selection?.addRange(range);
+    if (!selection?.anchorNode || !element.contains(selection.anchorNode)) refuse('not-focused');
     if (text === '') doc.execCommand('delete');
     else doc.execCommand('insertText', false, text);
-    return 'typed';
+    return { how: 'typed' };
   }
-  if (!['range', 'color'].includes(type)) {
-    try {
-      self.select();
-    } catch {
-      // A kind of field with no selection: set below.
-    }
-    const done =
-      text === ''
-        ? self.value === '' || doc.execCommand('delete')
-        : doc.execCommand('insertText', false, text);
-    if (done && self.value === text) return 'typed';
+  if (root.activeElement !== element) refuse('not-focused');
+  try {
+    self.select();
+  } catch {
+    // A kind of field with no selection of its own: typing goes where the caret is.
   }
-  const prototype =
-    tag === 'INPUT' ? view.HTMLInputElement.prototype : view.HTMLTextAreaElement.prototype;
-  Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, text);
-  element.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
-  element.dispatchEvent(new view.Event('change', { bubbles: true }));
-  return 'set';
+  if (text === '') {
+    if (self.value !== '') doc.execCommand('delete');
+  } else {
+    doc.execCommand('insertText', false, text);
+  }
+  return self.value === text ? { how: 'typed' } : { how: 'changed', value: self.value };
 }
 
 /** A key to press in the page (`keyPress.parseKeyPress`), and where. */
@@ -263,8 +305,14 @@ export function pressInPage(element: Element, press: PageKeyPress): KeyOutcome {
       target = inner;
     }
   } else {
-    // The page's own focus: where a person's keys would go once they were on it.
+    // The page's own focus: where a person's keys would go once they were on
+    // it. The page's editing acts on whatever has it, so nothing is pressed
+    // unless the element really took it (or, in editable text, its host did).
     target.focus();
+    const active = (element.getRootNode() as Document | ShadowRoot).activeElement;
+    const focused =
+      active === element || (!!active && active.contains(element) && target.isContentEditable);
+    if (!focused) throw new Error('consola-act:not-focused');
   }
   const doc = target.ownerDocument;
   const view = doc.defaultView as Window & typeof globalThis;
@@ -316,8 +364,22 @@ export function pressInPage(element: Element, press: PageKeyPress): KeyOutcome {
       doc.execCommand(tag === 'TEXTAREA' ? 'insertText' : 'insertParagraph', false, '\n');
       outcome = 'new-line';
     } else if (textInput && target.form) {
-      target.form.requestSubmit();
-      outcome = 'submitted';
+      // Implicit submission: the form's default button (its first submit
+      // button) is clicked, so a page listening for that click hears it; a
+      // disabled one blocks the submission; with none, the form is submitted.
+      const submitter = Array.from(target.form.elements as unknown as ArrayLike<Field>).find(
+        (control) =>
+          (control.tagName === 'BUTTON' && (control.type ?? 'submit').toLowerCase() === 'submit') ||
+          (control.tagName === 'INPUT' &&
+            ['submit', 'image'].includes((control.type ?? '').toLowerCase())),
+      );
+      if (!submitter) {
+        target.form.requestSubmit();
+        outcome = 'submitted';
+      } else if (!submitter.disabled) {
+        submitter.click();
+        outcome = 'submitted';
+      }
     } else if (
       activatable(
         'a[href], area[href], button, input[type=submit], input[type=reset], input[type=button], input[type=image], summary',

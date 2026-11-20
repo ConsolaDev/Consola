@@ -36,7 +36,11 @@ class FakeElement {
   value?: string;
   disabled?: boolean;
   readOnly?: boolean;
-  form?: { requestSubmit(): void } | null;
+  form?: { requestSubmit(): void; elements?: FakeElement[] } | null;
+  /** False for an element that cannot take focus now (hidden, inert): `focus()` does nothing. */
+  focusable = true;
+  /** What the field keeps of what it is given, as maxlength, a mask or a type's own rule would. */
+  sanitize?: (value: string) => string;
   shadowRoot?: { host: FakeElement; activeElement: FakeElement | null } | null;
   /** A label's control. */
   control?: FakeElement | null;
@@ -125,7 +129,15 @@ class FakeElement {
 
   focus() {
     this.ownerDocument.log.push(`focus@${this.id}`);
+    if (!this.focusable) return;
     this.ownerDocument.activeElement = this;
+    // The page's own focus handlers, which may send it elsewhere.
+    for (const listener of this.listeners.get('focus') ?? []) listener(new FakeEvent('focus', {}));
+  }
+
+  contains(other: FakeElement | null): boolean {
+    for (let node = other; node; node = node.parentNode) if (node === this) return true;
+    return false;
   }
 
   blur() {
@@ -205,19 +217,47 @@ class FakeDocument {
     if (!this.editingWorks || !field) return false;
     const held = field.value;
     if (held !== undefined) {
-      if (command === 'insertText') field.value = this.selectedAll ? value : `${held}${value}`;
-      if (command === 'delete') field.value = this.selectedAll ? '' : held.slice(0, -1);
+      let next = held;
+      if (command === 'insertText') next = this.selectedAll ? (value ?? '') : `${held}${value}`;
+      if (command === 'delete') next = this.selectedAll ? '' : held.slice(0, -1);
+      field.value = field.sanitize ? field.sanitize(next) : next;
     }
     this.selectedAll = false;
     return true;
   }
 
+  /** Where the selection starts, once a range is added. */
+  anchorNode: FakeElement | null = null;
+
   createRange() {
-    return { selectNodeContents: () => this.log.push('range:all') };
+    const range = {
+      node: null as FakeElement | null,
+      selectNodeContents: (node: FakeElement) => {
+        range.node = node;
+        this.log.push('range:all');
+      },
+    };
+    return range;
   }
 
   getSelection() {
-    return { removeAllRanges: () => {}, addRange: () => (this.selectedAll = true) };
+    const doc = this;
+    const selection = {
+      get rangeCount() {
+        return doc.anchorNode ? 1 : 0;
+      },
+      get anchorNode() {
+        return doc.anchorNode;
+      },
+      removeAllRanges: () => {
+        this.anchorNode = null;
+      },
+      addRange: (range: { node: FakeElement | null }) => {
+        this.selectedAll = true;
+        this.anchorNode = range.node;
+      },
+    };
+    return selection;
   }
 
   querySelectorAll(selector: string) {
@@ -229,7 +269,7 @@ function valueSetter() {
   return Object.defineProperty({}, 'value', {
     set(this: FakeElement, value: string) {
       this.assigned = value;
-      this.value = value;
+      this.value = this.sanitize ? this.sanitize(value) : value;
     },
   });
 }
@@ -367,7 +407,7 @@ describe('fillInPage', () => {
   it('types into a field through the page’s editing, replacing what it held', () => {
     const doc = new FakeDocument();
     const field = doc.element('INPUT', 'name', { type: 'text', value: 'old', tabIndex: 0 });
-    expect(fillInPage(page(field), 'Ada')).toBe('typed');
+    expect(fillInPage(page(field), 'Ada')).toEqual({ how: 'typed' });
     expect(doc.log).toEqual(['focus@name', 'select@name', 'exec:insertText:Ada']);
     expect(field.value).toBe('Ada');
   });
@@ -375,24 +415,95 @@ describe('fillInPage', () => {
   it('empties a field with an empty text', () => {
     const doc = new FakeDocument();
     const field = doc.element('TEXTAREA', 'notes', { value: 'old', tabIndex: 0 });
-    expect(fillInPage(page(field), '')).toBe('typed');
+    expect(fillInPage(page(field), '')).toEqual({ how: 'typed' });
     expect(doc.log).toContain('exec:delete');
     expect(field.value).toBe('');
   });
 
-  it('sets a field the editing cannot type into, as a script would, with its events', () => {
+  it.each([['date'], ['time'], ['month'], ['week'], ['datetime-local'], ['color'], ['range']])(
+    'sets a %s field, which editing cannot type into, as a script would, with its events',
+    (type) => {
+      const doc = new FakeDocument();
+      const field = doc.element('INPUT', 'when', { type, value: '', tabIndex: 0 });
+      expect(fillInPage(page(field), 'v')).toEqual({ how: 'set', kind: type });
+      expect(field.assigned).toBe('v');
+      expect(doc.log).not.toContain('exec:insertText:v');
+      expect(doc.log.slice(-2)).toEqual(['input@when', 'change@when']);
+    },
+  );
+
+  it('says when a set field did not take the value', () => {
     const doc = new FakeDocument();
-    doc.editingWorks = false;
-    const date = doc.element('INPUT', 'when', { type: 'date', value: '', tabIndex: 0 });
-    expect(fillInPage(page(date), '2026-11-20')).toBe('set');
-    expect(date.assigned).toBe('2026-11-20');
-    expect(doc.log.slice(-2)).toEqual(['input@when', 'change@when']);
+    const date = doc.element('INPUT', 'when', {
+      type: 'date',
+      value: '',
+      tabIndex: 0,
+      sanitize: (value) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''),
+    });
+    expect(fillInPage(page(date), 'tomorrow')).toEqual({ how: 'not-set', kind: 'date' });
+    expect(fillInPage(page(date), '2026-11-20')).toEqual({ how: 'set', kind: 'date' });
+  });
+
+  it('never overwrites what the page made of the typing, and says what the field holds', () => {
+    const doc = new FakeDocument();
+    // maxlength="3", or a mask, or a number field given letters.
+    const short = doc.element('INPUT', 'code', {
+      type: 'text',
+      value: '',
+      tabIndex: 0,
+      sanitize: (value) => value.slice(0, 3),
+    });
+    expect(fillInPage(page(short), 'abcdef')).toEqual({ how: 'changed', value: 'abc' });
+    expect(short.assigned).toBeUndefined();
+    const number = doc.element('INPUT', 'qty', {
+      type: 'number',
+      value: '',
+      tabIndex: 0,
+      sanitize: (value) => (/^\d*$/.test(value) ? value : ''),
+    });
+    expect(fillInPage(page(number), 'abc')).toEqual({ how: 'changed', value: '' });
+    expect(number.assigned).toBeUndefined();
+  });
+
+  it('types nothing into a field that cannot take the page’s focus', () => {
+    const doc = new FakeDocument();
+    const other = doc.element('INPUT', 'other', { type: 'text', value: '', tabIndex: 0 });
+    other.focus();
+    const field = doc.element('INPUT', 'name', {
+      type: 'text',
+      value: '',
+      tabIndex: 0,
+      focusable: false,
+    });
+    doc.log.length = 0;
+    expect(refusalOf(() => fillInPage(page(field), 'Ada'))).toBe('not-focused');
+    expect(doc.log.filter((entry) => entry.startsWith('exec:'))).toEqual([]);
+    expect(other.value).toBe('');
+  });
+
+  it('types nothing when the page moves the focus away as the field takes it', () => {
+    const doc = new FakeDocument();
+    const trap = doc.element('INPUT', 'trap', { type: 'text', value: '', tabIndex: 0 });
+    const field = doc.element('INPUT', 'name', { type: 'text', value: '', tabIndex: 0 });
+    field.on('focus', () => trap.focus());
+    expect(refusalOf(() => fillInPage(page(field), 'Ada'))).toBe('not-focused');
+    expect(trap.value).toBe('');
+    expect(field.value).toBe('');
+  });
+
+  it('types nothing into editable text the page took the focus from', () => {
+    const doc = new FakeDocument();
+    const trap = doc.element('INPUT', 'trap', { type: 'text', value: '', tabIndex: 0 });
+    const editor = doc.element('DIV', 'editor', { isContentEditable: true, tabIndex: 0 });
+    editor.on('focus', () => trap.focus());
+    expect(refusalOf(() => fillInPage(page(editor), 'rich'))).toBe('not-focused');
+    expect(doc.log.filter((entry) => entry.startsWith('exec:'))).toEqual([]);
   });
 
   it('types into editable text, all of it selected first', () => {
     const doc = new FakeDocument();
     const editor = doc.element('DIV', 'editor', { isContentEditable: true, tabIndex: 0 });
-    expect(fillInPage(page(editor), 'rich')).toBe('typed');
+    expect(fillInPage(page(editor), 'rich')).toEqual({ how: 'typed' });
     expect(doc.log).toEqual(['focus@editor', 'range:all', 'exec:insertText:rich']);
   });
 
@@ -446,12 +557,52 @@ describe('pressInPage', () => {
     expect(doc.log).toEqual(['focus@q', 'keydown@q', 'keyup@q']);
   });
 
+  it('presses nothing on an element that cannot take the page’s focus, or loses it at once', () => {
+    const doc = new FakeDocument();
+    const stuck = doc.element('INPUT', 'stuck', { type: 'text', value: '', focusable: false });
+    expect(refusalOf(() => pressInPage(page(stuck), key({ text: 'a' })))).toBe('not-focused');
+    const trap = doc.element('INPUT', 'trap', { type: 'text', value: '', tabIndex: 0 });
+    const field = doc.element('INPUT', 'name', { type: 'text', value: '', tabIndex: 0 });
+    field.on('focus', () => trap.focus());
+    doc.log.length = 0;
+    expect(refusalOf(() => pressInPage(page(field), key({ text: 'a' })))).toBe('not-focused');
+    expect(doc.log.filter((entry) => entry.startsWith('key') || entry.startsWith('exec:'))).toEqual(
+      [],
+    );
+  });
+
   it('lets the page’s own handler take a key, with nothing else following', () => {
     const doc = new FakeDocument();
     const field = doc.element('INPUT', 'name', { type: 'text', value: '', tabIndex: 0 });
     field.on('keydown', (event) => event.preventDefault());
     expect(pressInPage(page(field), key({ text: 'a' }))).toBe('prevented');
     expect(doc.log).toEqual(['focus@name', 'keydown@name', 'keyup@name']);
+  });
+
+  it('clicks a field’s form’s default button on Enter, as implicit submission does', () => {
+    const doc = new FakeDocument();
+    const reset = doc.element('BUTTON', 'reset', { type: 'reset', tabIndex: 0 });
+    const disabled = doc.element('BUTTON', 'off', { type: 'submit', tabIndex: 0, disabled: true });
+    const search = doc.element('BUTTON', 'search', { type: 'submit', tabIndex: 0 });
+    let submitted = 0;
+    const field = doc.element('INPUT', 'q', {
+      type: 'text',
+      value: '',
+      tabIndex: 0,
+      form: { requestSubmit: () => (submitted += 1), elements: [reset, disabled, search] },
+    });
+    // The default button is the first submit button in the form, and a disabled one blocks it.
+    expect(pressInPage(page(field), key({ key: 'Enter', code: 'Enter', keyCode: 13 }))).toBe(
+      'none',
+    );
+    expect(doc.log).not.toContain('click()@search');
+    expect(submitted).toBe(0);
+    disabled.disabled = false;
+    expect(pressInPage(page(field), key({ key: 'Enter', code: 'Enter', keyCode: 13 }))).toBe(
+      'submitted',
+    );
+    expect(doc.log).toContain('click()@off');
+    expect(submitted).toBe(0);
   });
 
   it('submits a field’s form on Enter', () => {
@@ -461,7 +612,7 @@ describe('pressInPage', () => {
       type: 'text',
       value: '',
       tabIndex: 0,
-      form: { requestSubmit: () => (submitted += 1) },
+      form: { requestSubmit: () => (submitted += 1), elements: [] },
     });
     expect(pressInPage(page(field), key({ key: 'Enter', code: 'Enter', keyCode: 13 }))).toBe(
       'submitted',
