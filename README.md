@@ -91,7 +91,7 @@ Each session has its own shell. Commands keep running when the panel is hidden o
 
 ## Development
 
-Requires **Node.js 22.12+** and **pnpm 10.28.2** (`corepack enable` enables the pinned package manager).
+Requires **Node.js 26.13.1** and **pnpm 10.28.2**. Node 26 no longer bundles corepack, so install pnpm with `npm install -g pnpm@10.28.2`.
 
 ```sh
 git clone https://github.com/ConsolaDev/Consola.git
