@@ -30,7 +30,11 @@ const UNEXPECTED_ELECTRON = "Electron's page dialog event is not what the app ex
 
 export interface ScreenGuard {
   record(): Promise<ScreenRecord>;
-  /** Dialogs the test's own Playwright saw on the app's pages. It never answers them. */
+  /**
+   * Dialogs the test's own Playwright saw, as `page confirm: …` when the
+   * page's own listener heard it and `context confirm: …` for the context's.
+   * It never answers them.
+   */
   testSideDialogs: string[];
 }
 
@@ -103,13 +107,13 @@ export async function keepOffScreen(app: ElectronApplication): Promise<ScreenGua
   });
 
   const testSideDialogs: string[] = [];
-  const hear = (dialog: { type(): string; message(): string }) => {
-    testSideDialogs.push(`${dialog.type()}: ${dialog.message()}`);
+  const hear = (where: 'page' | 'context') => (dialog: { type(): string; message(): string }) => {
+    testSideDialogs.push(`${where} ${dialog.type()}: ${dialog.message()}`);
   };
   const context = app.context();
-  context.on('dialog', hear);
-  context.on('page', (page) => page.on('dialog', hear));
-  for (const page of context.pages()) page.on('dialog', hear);
+  context.on('dialog', hear('context'));
+  context.on('page', (page) => page.on('dialog', hear('page')));
+  for (const page of context.pages()) page.on('dialog', hear('page'));
 
   return {
     record: () =>

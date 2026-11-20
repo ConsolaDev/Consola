@@ -51,10 +51,25 @@ export interface Endpoint {
   token: string;
 }
 
+/** The socket and token a config file names, or null while it is missing or half written. */
+function readEndpoint(configPath: string): Endpoint | null {
+  try {
+    const env = JSON.parse(fs.readFileSync(configPath, 'utf8'))?.mcpServers?.consola?.env;
+    const socketPath = env?.CONSOLA_CONDUCTOR_SOCKET;
+    const token = env?.CONSOLA_CONDUCTOR_TOKEN;
+    return typeof socketPath === 'string' && typeof token === 'string' && token.length > 0
+      ? { socketPath, token }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
 /**
  * The session's socket and token, from the config file main hands the CLI
  * (`<userData>/session-mcp/<sessionId>.json`). It is written when the
- * session's terminal is created, so this waits for it.
+ * session's terminal is created, so this waits until it is there and whole:
+ * read while main is writing it, it can be empty.
  */
 export async function sessionEndpoint(
   app: ElectronApplication,
@@ -63,10 +78,12 @@ export async function sessionEndpoint(
   const userData = await app.evaluate(({ app: electronApp }) => electronApp.getPath('userData'));
   const configPath = path.join(userData, 'session-mcp', `${sessionId}.json`);
   await expect
-    .poll(() => fs.existsSync(configPath), { message: `no MCP config for session ${sessionId}` })
+    .poll(() => readEndpoint(configPath) !== null, {
+      message: `no whole MCP config for session ${sessionId}`,
+    })
     .toBe(true);
-  const env = JSON.parse(fs.readFileSync(configPath, 'utf8')).mcpServers.consola.env;
-  return { socketPath: env.CONSOLA_CONDUCTOR_SOCKET, token: env.CONSOLA_CONDUCTOR_TOKEN };
+  // Written once per run, so whole once read whole.
+  return readEndpoint(configPath) as Endpoint;
 }
 
 /** One content block of a tool's answer. */
@@ -91,20 +108,48 @@ export interface AgentClient {
   close(): Promise<void>;
 }
 
-/** Connects to the session's endpoint with its token, and speaks MCP over the socket. */
-export async function connectAgent(
-  app: ElectronApplication,
-  sessionId: string,
-): Promise<AgentClient> {
-  const { socketPath, token } = await sessionEndpoint(app, sessionId);
+/** The endpoint closed the socket before MCP's `initialize` was answered. */
+class ClosedBeforeInitialize extends Error {}
+
+/** One connection: the handshake, then MCP's `initialize` over the same socket. */
+async function connectOnce({ socketPath, token }: Endpoint): Promise<Client> {
   const socket = net.connect(socketPath);
   await new Promise<void>((resolve, reject) => {
     socket.once('connect', () => resolve());
     socket.once('error', reject);
   });
+  let initialized = false;
+  let closedEarly = false;
+  socket.once('close', () => {
+    if (!initialized) closedEarly = true;
+  });
   socket.write(`${JSON.stringify({ token })}\n`);
   const client = new Client({ name: 'browser-agent-e2e', version: '0.0.0' });
-  await client.connect(new SocketClientTransport(socket));
+  try {
+    await client.connect(new SocketClientTransport(socket));
+  } catch (error) {
+    socket.destroy();
+    if (closedEarly) throw new ClosedBeforeInitialize(String(error));
+    throw error;
+  }
+  initialized = true;
+  return client;
+}
+
+/** Connects to the session's endpoint with its token, and speaks MCP over the socket. */
+export async function connectAgent(
+  app: ElectronApplication,
+  sessionId: string,
+): Promise<AgentClient> {
+  let client: Client;
+  try {
+    client = await connectOnce(await sessionEndpoint(app, sessionId));
+  } catch (error) {
+    if (!(error instanceof ClosedBeforeInitialize)) throw error;
+    // Main writes the file a moment before it has the endpoint in hand, and
+    // closes a connection made in that moment: so once more, and only once.
+    client = await connectOnce(await sessionEndpoint(app, sessionId));
+  }
   return {
     async toolNames() {
       return (await client.listTools()).tools.map((tool) => tool.name).sort();

@@ -5,6 +5,7 @@ import path from 'node:path';
 import {
   type AgentWorkspace,
   closeAgentWorkspace,
+  closingOnFailure,
   inPage,
   launchAgentWorkspace,
   launchGuarded,
@@ -178,13 +179,17 @@ test.describe('who is offered the browser tools', () => {
   let workspace: AgentWorkspace;
 
   test.beforeAll(async () => {
+    // Two launches, a close and two panes: room for a machine other runs are loading.
+    test.setTimeout(90_000);
     // A session's tool policy is main's to set (an automation's sessions are
     // read-only), never a window's: so the records are made in one launch,
     // the policy written into the profile, and the app launched on it again.
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-agent-'));
     const first = await launchGuarded();
-    const seeded = await seedWorkspace(first.page, root, 'Gate', ['Gate reader', 'Gate agent']);
-    const userData = await first.app.evaluate(({ app }) => app.getPath('userData'));
+    const { seeded, userData } = await closingOnFailure(first.app, async () => ({
+      seeded: await seedWorkspace(first.page, root, 'Gate', ['Gate reader', 'Gate agent']),
+      userData: await first.app.evaluate(({ app }) => app.getPath('userData')),
+    }));
     await first.app.close();
     const stateFile = path.join(userData, 'workspaces.json');
     const state = JSON.parse(fs.readFileSync(stateFile, 'utf8')) as {
@@ -195,6 +200,7 @@ test.describe('who is offered the browser tools', () => {
     }
     fs.writeFileSync(stateFile, JSON.stringify(state, null, 2));
 
+    // From here `afterAll` closes the app, whatever fails.
     const second = await launchGuarded(first.userDataDir);
     workspace = { ...second, root, ...seeded };
     for (const name of ['Gate reader', 'Gate agent']) {
@@ -236,6 +242,17 @@ test.describe('who is offered the browser tools', () => {
     const url = fixtures.url('/agent-act.html?t=gate');
     const tabId = await openTab(before, url);
     expect((await before.call('consola_browser_snapshot', { tabId })).isError).toBe(false);
+    const debuggerAttached = () =>
+      app.evaluate(
+        ({ webContents }, prefix) =>
+          webContents
+            .getAllWebContents()
+            .find((c) => c.getType() === 'webview' && c.getURL().startsWith(prefix))
+            ?.debugger.isAttached(),
+        url,
+      );
+    // The agent's connection holds the page between calls.
+    expect(await debuggerAttached()).toBe(true);
 
     await page.evaluate(
       (id) => window.workspaceAPI.updateWorkspace(id, { browserAgentAccess: 'off' }),
@@ -272,18 +289,7 @@ test.describe('who is offered the browser tools', () => {
     const tabs = await page.evaluate((id) => window.browserAPI.get(id), agentId);
     expect(tabs.tabs.map((tab) => tab.id)).toEqual([tabId]);
     // Its hold on the page went with its access: the debugger is free for the person.
-    await expect
-      .poll(() =>
-        app.evaluate(
-          ({ webContents }, prefix) =>
-            webContents
-              .getAllWebContents()
-              .find((c) => c.getType() === 'webview' && c.getURL().startsWith(prefix))
-              ?.debugger.isAttached(),
-          url,
-        ),
-      )
-      .toBe(false);
+    await expect.poll(debuggerAttached).toBe(false);
     await before.close();
   });
 });

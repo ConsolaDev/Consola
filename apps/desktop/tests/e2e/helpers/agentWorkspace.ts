@@ -35,8 +35,24 @@ export async function launchGuarded(
   userDataDir?: string,
 ): Promise<{ app: ElectronApplication; page: Page; screen: ScreenGuard; userDataDir: string }> {
   const launched = await launchElectron({ userDataDir });
-  const screen = await keepOffScreen(launched.app);
+  const screen = await closingOnFailure(launched.app, () => keepOffScreen(launched.app));
   return { ...launched, screen };
+}
+
+/**
+ * What `work` gives; if it fails, the app is closed before the failure goes
+ * on, since a setup that throws leaves nothing for an `afterAll` to close.
+ */
+export async function closingOnFailure<T>(
+  app: ElectronApplication,
+  work: () => Promise<T>,
+): Promise<T> {
+  try {
+    return await work();
+  } catch (error) {
+    await app.close().catch(() => undefined);
+    throw error;
+  }
 }
 
 /** One workspace on `root` with the named sessions, on a stub harness that never prompts. */
@@ -108,12 +124,20 @@ export async function launchAgentWorkspace(
   sessionNames: string[],
 ): Promise<AgentWorkspace> {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'consola-browser-agent-'));
-  const { app, page, screen, userDataDir } = await launchGuarded();
-  const seeded = await seedWorkspace(page, root, workspace, sessionNames);
-  for (const name of sessionNames) {
-    await openSession(app, page, workspace, { name, id: seeded.sessions[name] });
+  try {
+    const { app, page, screen, userDataDir } = await launchGuarded();
+    const seeded = await closingOnFailure(app, async () => {
+      const made = await seedWorkspace(page, root, workspace, sessionNames);
+      for (const name of sessionNames) {
+        await openSession(app, page, workspace, { name, id: made.sessions[name] });
+      }
+      return made;
+    });
+    return { app, page, screen, root, userDataDir, ...seeded };
+  } catch (error) {
+    fs.rmSync(root, { recursive: true, force: true });
+    throw error;
   }
-  return { app, page, screen, root, userDataDir, ...seeded };
 }
 
 export async function closeAgentWorkspace(workspace: AgentWorkspace | undefined): Promise<void> {

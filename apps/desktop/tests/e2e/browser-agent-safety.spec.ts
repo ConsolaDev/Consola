@@ -84,7 +84,17 @@ test.describe('an agent’s input never takes the person’s keyboard', () => {
       const host = window as unknown as { __terminal?: Element | null; __hostKeys?: string[] };
       host.__terminal = document.activeElement;
       host.__hostKeys = [];
-      for (const type of ['keydown', 'keypress', 'keyup', 'beforeinput', 'input', 'paste']) {
+      // Keys and text, and any focus move, even one an act makes and then undoes.
+      for (const type of [
+        'keydown',
+        'keypress',
+        'keyup',
+        'beforeinput',
+        'input',
+        'paste',
+        'focusout',
+        'focusin',
+      ]) {
         window.addEventListener(
           type,
           (event) => {
@@ -138,12 +148,12 @@ test.describe('an agent’s input never takes the person’s keyboard', () => {
         .poll(() => inPage(app, url, "document.getElementById('result').textContent"))
         .toBe(`Found ${name}`);
       expect(await inPage(app, url, 'window.__presses')).toBe(0);
-      // The terminal still has the keyboard, and nothing of the agent's reached the host.
+      // The terminal kept the keyboard throughout, and nothing of the agent's reached the host.
       expect(await host()).toEqual({ sameElement: true, events: [] });
       expect(await hostFocus(page)).toBe('TEXTAREA.xterm-helper-textarea');
     }
-    // The unseen session's page was never put in front of the person.
-    await expect(pageOf(unseenTab)).not.toHaveAttribute('data-presence', 'shown');
+    // The unseen session's page is in this window, and was never put in front of the person.
+    await expect(pageOf(unseenTab)).toHaveAttribute('data-presence', /^(hidden|painting)$/);
 
     // The recorder hears keys that do reach the terminal: the person's own.
     await page.keyboard.press('KeyZ');
@@ -303,6 +313,12 @@ test.describe('a page’s dialog is held for the agent, never shown', () => {
     });
     // Neither confirm was ever handed to Electron's box.
     expect((await screen.record()).boxes).toEqual([]);
+    // The test's own Playwright heard both on the page, and left them alone:
+    // its listener there is what let the app's hold be seen at all.
+    expect(screen.testSideDialogs.filter((heard) => heard.startsWith('page '))).toEqual([
+      'page confirm: Delete everything?',
+      'page confirm: Delete everything?',
+    ]);
   });
 });
 
