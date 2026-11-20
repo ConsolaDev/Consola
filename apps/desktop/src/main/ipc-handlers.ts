@@ -1279,6 +1279,8 @@ export function setupIpcHandlers(): boolean {
       // What happens to a worktree is in the cleanup history; no window asked to hear it.
       await worktreeCleanupService.deleteForPerson(workspace, session, remove, () => {});
     },
+    // A session the person only browsed in was used: its tabs keep it.
+    browserTabs: (session) => browser.snapshotFor(session.id).tabs,
   });
   /** A hand settle, with what it shelved that never got a message deleted instead. */
   const removingEmpty = async <T extends SettleResult | SettleBatchResult>(

@@ -1,4 +1,5 @@
 import type { Attention } from '../../shared/attention';
+import { isBlankPageUrl } from '../../shared/browser';
 import type { Session, Workspace } from '../../shared/workspace';
 import { isAwaitingName } from '../sessionTitles/titleText';
 
@@ -16,6 +17,11 @@ export interface EmptySessionReaperDeps {
   hasFirstMessage(session: Session): Promise<boolean | null>;
   /** Delete the session the way a person's delete does, worktree rules included. */
   remove(workspace: Workspace, session: Session): Promise<void>;
+  /**
+   * The session's browser tabs, as main holds them. Null when they cannot be
+   * read, which keeps the session.
+   */
+  browserTabs(session: Session): readonly { url: string }[] | null;
 }
 
 /**
@@ -36,6 +42,17 @@ export function mayBeEmpty(session: Session): boolean {
 }
 
 /**
+ * Whether the session's browser was used: a tab holds an address, whoever
+ * opened it. A person who only browsed in a session never typed to its
+ * agent, and removing it would close their pages without a word. A blank tab
+ * holds nothing to come back to. Tabs that cannot be read (null) count as
+ * used, so nothing is thrown away unseen.
+ */
+export function browsedIn(tabs: readonly { url: string }[] | null): boolean {
+  return tabs === null || tabs.some((tab) => !isBlankPageUrl(tab.url));
+}
+
+/**
  * Deletes settled sessions that never got a message, rather than keeping
  * them on the Settled shelf. Such a session holds nothing to come back to,
  * so shelving it only keeps an empty row.
@@ -44,7 +61,8 @@ export function mayBeEmpty(session: Session): boolean {
  * after the person settles something by hand, over what they settled. The
  * sweep leaves alone a session a window is showing, since the person may be
  * about to type into it; a hand settle does not, because settling it was the
- * person's own gesture.
+ * person's own gesture. Neither removes a session whose browser was used
+ * (`browsedIn`).
  */
 export class EmptySessionReaper {
   /** One pass at a time, so two never delete the same session. */
@@ -74,7 +92,8 @@ export class EmptySessionReaper {
       (only === undefined || only.has(session.id)) &&
       mayBeEmpty(session) &&
       attention.get(session.id) === 'settled' &&
-      (evenShown || !this.deps.isShown(session.instanceId));
+      (evenShown || !this.deps.isShown(session.instanceId)) &&
+      !this.browsed(session);
 
     const attention = this.deps.attention();
     const candidates = this.deps
@@ -104,6 +123,16 @@ export class EmptySessionReaper {
       }
     }
     return removed;
+  }
+
+  /** `browsedIn`, keeping the session when its tabs cannot be read. */
+  private browsed(session: Session): boolean {
+    try {
+      return browsedIn(this.deps.browserTabs(session));
+    } catch (error) {
+      console.error(`Could not read the browser tabs of session ${session.id}:`, error);
+      return true;
+    }
   }
 
   private locate(sessionId: string): { workspace: Workspace; session: Session } | undefined {
