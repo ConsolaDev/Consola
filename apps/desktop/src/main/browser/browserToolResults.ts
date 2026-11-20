@@ -56,15 +56,24 @@ export function untrusted(text: string): TextContent {
 }
 
 /**
- * A value as JSON on one line, whatever strings of the page's it holds:
- * JSON escapes every line break but the two separators U+2028 and U+2029,
- * so those are escaped too. Undefined for no value, as `JSON.stringify` gives.
+ * The line breaks JSON leaves as they are (it escapes every character below
+ * U+0020): NEL and the two separators, written as their escapes instead.
+ * Text outside JSON (the outline) goes through it too.
+ */
+function escapeSeparators(text: string): string {
+  return text.replace(
+    /[\u0085\u2028\u2029]/g,
+    (separator) => `\\u${separator.charCodeAt(0).toString(16).padStart(4, '0')}`,
+  );
+}
+
+/**
+ * A value as JSON on one line, whatever strings of the page's it holds.
+ * Undefined for no value, as `JSON.stringify` gives.
  */
 export function jsonLine(value: unknown): string | undefined {
-  return JSON.stringify(value)?.replace(
-    /[\u2028\u2029]/g,
-    (separator) => `\\u${separator.charCodeAt(0).toString(16)}`,
-  );
+  const json = JSON.stringify(value);
+  return json === undefined ? undefined : escapeSeparators(json);
 }
 
 /** A value as one line of JSON after the note: a page's strings in it cannot start a line. */
@@ -82,9 +91,9 @@ export function quoted(text: string): string {
   return jsonLine(text) ?? '""';
 }
 
-/** The first line of a text, however its lines are broken. */
+/** The first line of a text, however its lines are broken (every Unicode line terminator). */
 export function firstLine(text: string): string {
-  return text.split(/\r\n|[\n\r\u2028\u2029]/)[0] ?? '';
+  return text.split(/\r\n|[\n\r\v\f\x1c-\x1e\u0085\u2028\u2029]/)[0] ?? '';
 }
 
 export function statusContent(status: BrowserStatus): BrowserToolContent[] {
@@ -122,8 +131,9 @@ export function snapshotContent(tabId: string, snapshot: PageSnapshot): BrowserT
   return image.block ? [text, image.block] : [text];
 }
 
+/** Playwright's YAML as it wrote it, cut, but with no separator a page could start a line with. */
 function boundedOutline(outline: string): string {
-  return cut(outline, MAX_OUTLINE_CHARS, 'outline');
+  return escapeSeparators(cut(outline, MAX_OUTLINE_CHARS, 'outline'));
 }
 
 /** `text` up to `max` characters, then a sentence saying what was left out of the `what`. */

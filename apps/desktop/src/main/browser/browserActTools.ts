@@ -238,23 +238,89 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
 /** A sentence of Consola's own about what an act found, passed on as it is. */
 class ActWording extends Error {}
 
-/** The format a field set as a script would takes, for a value it would not take. */
-const SET_FORMATS: Record<string, string> = {
-  date: 'a date like 2026-11-20',
-  time: 'a time like 14:30',
-  month: 'a month like 2026-11',
-  week: 'a week like 2026-W47',
-  'datetime-local': 'a date and time like 2026-11-20T14:30',
-  color: 'a colour like #ff0000',
-  range: 'a number within its range',
-};
+/**
+ * What an in-page function answered is the page's to shape: the page can
+ * replace what the function uses. So each answer is read against what the
+ * function can return, and only then worded; anything else is this.
+ */
+function unexpectedAnswer(): PageTextError {
+  return new PageTextError([
+    untrusted(
+      'The page answered the act in a way Consola does not know; take a snapshot to see what happened.',
+    ),
+  ]);
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+/** A fill's answer, if it is one `fillInPage` can give, its kind one of the fixed list. */
+function readFillOutcome(value: unknown): FillOutcome {
+  if (!isRecord(value)) throw unexpectedAnswer();
+  if (value.how === 'typed') return { how: 'typed' };
+  if (value.how === 'changed' && typeof value.value === 'string') {
+    return { how: 'changed', value: value.value };
+  }
+  if (
+    (value.how === 'set' || value.how === 'not-set') &&
+    typeof value.kind === 'string' &&
+    SET_FORMATS.has(value.kind)
+  ) {
+    return { how: value.how, kind: value.kind };
+  }
+  throw unexpectedAnswer();
+}
+
+const KEY_OUTCOMES: ReadonlySet<unknown> = new Set<KeyOutcome>([
+  'prevented',
+  'typed',
+  'new-line',
+  'submitted',
+  'activated',
+  'moved-focus',
+  'deleted',
+  'selected-all',
+  'none',
+]);
+
+/** A key press's answer, if it is one `pressInPage` can give. */
+function readKeyOutcome(value: unknown): KeyOutcome {
+  if (KEY_OUTCOMES.has(value)) return value as KeyOutcome;
+  throw unexpectedAnswer();
+}
+
+/** A scroll's numbers, only where the page gave finite ones; else none. */
+function readScroll(value: unknown): ScrollOutcome | null {
+  if (!isRecord(value)) return null;
+  const { moved, at, extent } = value;
+  const finite = [moved, at, extent].every(
+    (number) => typeof number === 'number' && Number.isFinite(number),
+  );
+  return finite ? { moved: moved as number, at: at as number, extent: extent as number } : null;
+}
+
+/**
+ * The kinds of field set as a script would (`fillInPage`), with the format
+ * each takes, for a value it would not take. A map, not an object: a kind
+ * the page names is looked up among these and nothing else (no `__proto__`).
+ */
+const SET_FORMATS: ReadonlyMap<string, string> = new Map([
+  ['date', 'a date like 2026-11-20'],
+  ['time', 'a time like 14:30'],
+  ['month', 'a month like 2026-11'],
+  ['week', 'a week like 2026-W47'],
+  ['datetime-local', 'a date and time like 2026-11-20T14:30'],
+  ['color', 'a colour like #ff0000'],
+  ['range', 'a number within its range'],
+]);
 
 /**
  * A failed act, as the agent reads it: a refusal from the page in words,
  * anything else as a page step's failure (`pageStepFailure`).
  */
 function actFailure(error: unknown, plan: ActPlan): Error {
-  if (error instanceof ActWording) return error;
+  if (error instanceof ActWording || error instanceof PageTextError) return error;
   const reason = actRefusalIn(messageOf(error));
   if (reason === 'unknown') return new PageTextError([untrusted('The page refused the act.')]);
   if (reason) return new Error(refusalMessage(reason, plan.ref ?? 'The focused element'));
@@ -351,8 +417,12 @@ function keyOutcomeText(outcome: KeyOutcome): string {
   }
 }
 
-function describeScroll(plan: Extract<ActPlan, { action: 'scroll' }>, outcome: ScrollOutcome) {
+function describeScroll(
+  plan: Extract<ActPlan, { action: 'scroll' }>,
+  outcome: ScrollOutcome | null,
+) {
   if (plan.ref) return `Scrolled ${plan.ref} into view.`;
+  if (!outcome) return `Scrolled the page ${plan.direction}.`;
   if (outcome.moved === 0) return `The page does not scroll any further ${plan.direction}.`;
   return `Scrolled the page ${plan.direction} ${outcome.moved} px, to ${outcome.at} of ${outcome.extent}.`;
 }
@@ -378,14 +448,11 @@ function describeFill(plan: Extract<ActPlan, { action: 'fill' }>, outcome: FillO
       return {
         summary: `Set ${plan.ref}, a ${outcome.kind} field the page's editing cannot type into, to the value given, as a script would.`,
       };
-    case 'not-set': {
-      const format = SET_FORMATS[outcome.kind];
+    case 'not-set':
+      // The kind is one of SET_FORMATS' (readFillOutcome), so it has a format.
       throw new ActWording(
-        format
-          ? `${plan.ref} did not take that value; a ${outcome.kind} field takes ${format}.`
-          : `${plan.ref} did not take that value.`,
+        `${plan.ref} did not take that value; a ${outcome.kind} field takes ${SET_FORMATS.get(outcome.kind)}.`,
       );
-    }
   }
 }
 
@@ -402,11 +469,13 @@ async function runAct(
       return { summary: `Clicked ${plan.ref}.` };
     case 'fill': {
       if (!element) throw new Error(NEEDS_REF('fill'));
-      return describeFill(plan, await element.evaluate(fillInPage, plan.text));
+      return describeFill(plan, readFillOutcome(await element.evaluate(fillInPage, plan.text)));
     }
     case 'press': {
       const target = element ?? root;
-      const outcome = await target.evaluate(pressInPage, { ...plan.press, toFocused: !element });
+      const outcome = readKeyOutcome(
+        await target.evaluate(pressInPage, { ...plan.press, toFocused: !element }),
+      );
       return {
         summary: `Pressed ${plan.key} on ${plan.ref ?? 'the focused element'}; ${keyOutcomeText(outcome)}.`,
       };
@@ -424,7 +493,7 @@ async function runAct(
         intoView: !!element,
         direction: plan.direction,
       });
-      return { summary: describeScroll(plan, outcome) };
+      return { summary: describeScroll(plan, readScroll(outcome)) };
     }
   }
 }
