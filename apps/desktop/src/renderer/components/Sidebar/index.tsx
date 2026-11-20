@@ -499,7 +499,8 @@ export function Sidebar() {
                   </section>
                 )}
                 {/* Only what was put away, by hand or after sitting idle (see
-              AutoSettler). Nothing is deleted. */}
+              AutoSettler). A session that never had a message is deleted
+              rather than kept here (EmptySessionReaper). */}
                 <section
                   className="sidebar-bucket sidebar-bucket--settled"
                   data-shelf="settled"
