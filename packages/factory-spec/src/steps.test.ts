@@ -152,6 +152,7 @@ const STEP_KEYS: Record<string, string> = {
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
+  // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this table is never awaited.
   then: 'write steps',
   on_failure: 'write steps',
   checkout: 'write steps',

@@ -153,6 +153,7 @@ export const LATER_KEYS: Readonly<Record<string, string>> = {
   gate: 'write steps',
   repeat: 'write steps',
   on_exhausted: 'write steps',
+  // biome-ignore lint/suspicious/noThenProperty: `then:` is a factory.yml key; this table is never awaited.
   then: 'write steps',
   on_failure: 'write steps',
   checkout: 'write steps',
@@ -867,11 +868,13 @@ function ifItemProblems(
       case 'literal':
         return;
       case 'not':
-        return visit(node.operand, true);
+        visit(node.operand, true);
+        return;
       case 'and':
       case 'or':
         visit(node.left, true);
-        return visit(node.right, true);
+        visit(node.right, true);
+        return;
       case 'compare': {
         const { left, right, op } = node;
         const itemSide = left.kind === 'item' ? left : right.kind === 'item' ? right : undefined;

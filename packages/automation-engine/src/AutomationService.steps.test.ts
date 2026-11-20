@@ -1923,7 +1923,7 @@ describe('command steps', () => {
     const seen: unknown[] = [];
     h.world.onCommand = (spec) => {
       const run = h.store.get(String(spec.env.CONSOLA_RUN_ID))!;
-      seen.push({ step: run.steps![0], durable: durable.at(-1)?.steps![0] });
+      seen.push({ step: run.steps![0], durable: durable.at(-1)?.steps?.[0] });
     };
     await h.service.trigger(WORKSPACE_ID, NAME);
     await h.flush();

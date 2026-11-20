@@ -67,7 +67,9 @@ export const TRUSTED_ITEM_FIELDS: readonly string[] = ['key', 'url', 'repo', 'nu
 /** The keys a later slice owns, grouped by what each arrives with, as the validator refuses them. */
 const REFUSED_KEYS = Object.entries(
   Object.entries(LATER_KEYS).reduce<Record<string, string[]>>((groups, [key, arrivesWith]) => {
-    (groups[arrivesWith] ??= []).push(`\`${key}\``);
+    const group = groups[arrivesWith] ?? [];
+    group.push(`\`${key}\``);
+    groups[arrivesWith] = group;
     return groups;
   }, {}),
 )

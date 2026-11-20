@@ -97,7 +97,7 @@ interface RenderContext {
 }
 
 /** One path's value, from the run's item, its steps' records, and their documents in the run folder. */
-function valueOf(
+function valueAt(
   path: TemplatePath,
   { run, definition, event, workspaceId, folder }: RenderContext,
 ): Found {
@@ -149,7 +149,7 @@ function renderValues(
     if (!parsed.ok) return { ok: false, error: `env: ${name}: ${parsed.problem}` };
     let why: string | undefined;
     const rendered = renderTemplate(parsed.parts, (path) => {
-      const found = valueOf(path, context);
+      const found = valueAt(path, context);
       if ('missing' in found) {
         why = found.missing;
         return undefined;
