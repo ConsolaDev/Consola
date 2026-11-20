@@ -732,3 +732,405 @@ test('a second push reads the first review', async () => {
     await sources.close();
   }
 });
+
+const ASSIGNED_REVIEWS = 'review-assigned-prs';
+const ASSIGNED_REVIEWS_TITLE = 'Review pull requests assigned to you';
+
+/** The words a run's summary and Activity give a run queued behind another on its item. */
+const CHECKOUT_WAIT = "waiting for this item's checkout";
+
+/** A pull request in a repository no scope of the workspace holds. */
+const NOT_CLONED_URL = 'https://github.com/sprocket/inventory/pull/7';
+
+/** `publish`'s calls to #51's reviews endpoint in the gh log: one per post begun, logged before it sleeps. */
+function reviewCalls(sources: Sources): string[] {
+  return sources.ghLog().filter((line) => line.startsWith(REVIEWS_CALL));
+}
+
+/** The workspace's factory.yml holding exactly these entries. */
+function writeFactory(sources: Sources, ...entries: string[]): void {
+  const dir = path.join(sources.factoryDir, sources.workspaceId);
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(
+    path.join(dir, 'factory.yml'),
+    `version: 1\nautomations:\n${entries.map((entry) => entry.replace(/^/gm, '  ')).join('\n')}\n`,
+  );
+}
+
+/**
+ * Check now, asked of main the way the button asks it. The button is
+ * disabled while a run of the automation works (`RunNowButton`), so this is
+ * how a test checks then; it waits until that check has ended.
+ */
+async function checkNowFromMain(sources: Sources, name = RE_REVIEW): Promise<void> {
+  const before = (await checkOf(sources, name))?.lastAt;
+  await sources.page.evaluate(
+    async ([workspaceId, automation]) => {
+      await window.automationsAPI.runNow(workspaceId, automation);
+    },
+    [sources.workspaceId, name] as const,
+  );
+  await expect
+    .poll(async () => (await checkOf(sources, name))?.lastAt, { timeout: 15_000 })
+    .not.toBe(before);
+}
+
+/** The one run waiting for approval, approved from the dashboard: Review…, then Start. */
+async function approveWaiting(sources: Sources): Promise<void> {
+  await closePanel(sources.page);
+  const dashboard = dashboardOf(sources.page);
+  await dashboard.getByRole('tab', { name: 'Automations' }).click();
+  const waiting = dashboard.locator('.automations-waiting-card');
+  await expect(waiting).toHaveCount(1, { timeout: 30_000 });
+  await waiting.getByRole('button', { name: 'Review…' }).click();
+  await sidePanel(sources.page)
+    .getByRole('region', { name: 'Waiting for your approval' })
+    .getByRole('button', { name: 'Start', exact: true })
+    .click();
+}
+
+test('a push during a run is held, then runs once', async () => {
+  test.setTimeout(240_000);
+  // `publish` sleeps, so the run is still working when the next push is checked.
+  const sources = await setUpSources({ env: { STUB_GH_SLEEP: '8' } });
+  const { page } = sources;
+  try {
+    await allowedAndBaselined(sources);
+    const first = pushAndPoll(sources);
+    await checkNow(sources);
+    // Its publish has begun and is sleeping: the run is working.
+    await expect.poll(() => reviewCalls(sources).length, { timeout: 60_000 }).toBe(1);
+    expect(sources.posted()).toEqual([]);
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['running']);
+
+    // A push while it works: the check finds #51 changed, and holds it.
+    const second = pushAndPoll(sources);
+    await checkNowFromMain(sources);
+    expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ items: 1, fired: 0 });
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['running']);
+    const dashboard = dashboardOf(page);
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
+    await expect(runItems(page)).toHaveCount(1);
+
+    // The first run ends, having posted at the head it checked out.
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed']);
+    expect(sources.posted()).toHaveLength(1);
+    expect(sources.posted()[0]).toContain(`-f commit_id=${first} `);
+    // Ending fired nothing by itself.
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['completed']);
+
+    // The check after it ends: exactly one more run, at the newest head.
+    await checkNow(sources);
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed', 'completed']);
+    expect(sources.posted()).toHaveLength(2);
+    expect(sources.posted()[1]).toContain(`-f commit_id=${second} `);
+    const [, rerun] = await runsOf(sources, RE_REVIEW);
+    expect(rerun.trigger).toMatchObject({ kind: 'poll' });
+    expect(rerun.checkout).toMatchObject({ head: second });
+
+    // And the check after that has nothing new.
+    await checkNow(sources);
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['completed', 'completed']);
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
+    await expect(runItems(page)).toHaveCount(2);
+  } finally {
+    await sources.close();
+  }
+});
+
+test('a push while a run waits for approval is absorbed', async () => {
+  test.setTimeout(240_000);
+  const sources = await setUpSources();
+  const { page } = sources;
+  try {
+    await openAutomations(page);
+    // The template as a file entry that asks before each run.
+    const confirm = reReviewEntry().replace('\n  mode: auto\n', '\n  mode: confirm\n');
+    expect(confirm).not.toBe(reReviewEntry());
+    writeFactory(sources, confirm);
+    await expect(rowOf(page, RE_REVIEW)).toHaveCount(1, { timeout: 15_000 });
+    await expect(rowOf(page, RE_REVIEW).locator('.automations-allow-pill')).toHaveText(
+      'Needs your OK',
+    );
+    await allow(sources);
+    expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ baseline: true, items: 1 });
+
+    // A push: one run, waiting for the person.
+    pushAndPoll(sources);
+    await checkNow(sources);
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 15_000 })
+      .toEqual(['needs-approval']);
+
+    // Another push while it waits: absorbed into that run, no second one.
+    const newest = pushAndPoll(sources);
+    await checkNow(sources);
+    expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ items: 1, fired: 0 });
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['needs-approval']);
+    expect(sources.launches()).toEqual([]);
+
+    // Approved, it reviews the newest head.
+    await approveWaiting(sources);
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed']);
+    const posted = sources.posted();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toContain(`-f commit_id=${newest} `);
+    const [run] = await runsOf(sources, RE_REVIEW);
+    expect(run.checkout).toMatchObject({ head: newest });
+
+    // The next check finds nothing new: the newest head was this run's.
+    await checkNow(sources);
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['completed']);
+    expect(sources.posted()).toHaveLength(1);
+  } finally {
+    await sources.close();
+  }
+});
+
+test('both templates on one pull request post once', async () => {
+  test.setTimeout(240_000);
+  const sources = await setUpSources({
+    env: {
+      // `fresh` asks what the account last reviewed: whatever was posted.
+      STUB_GH_REVIEWED_FROM_POSTED: '1',
+      // The first run is still posting when the second is created.
+      STUB_GH_SLEEP: '8',
+    },
+  });
+  const { page } = sources;
+  try {
+    // (a) Both templates; the event one baselines on an empty Inbox.
+    const dashboard = await openAutomations(page);
+    await addTemplate(sources, ASSIGNED_REVIEWS_TITLE, ASSIGNED_REVIEWS);
+    await addTemplate(sources, RE_REVIEW_TITLE, RE_REVIEW);
+    const inboxCheck = rowOf(page, ASSIGNED_REVIEWS).getByRole('button', { name: 'Check now' });
+    await inboxCheck.click();
+    await expect(inboxCheck).toBeEnabled();
+
+    // (b) The poll baselines on #51 at its first head.
+    await allow(sources);
+    expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ baseline: true, items: 1 });
+
+    // (c) The author pushes and re-requests the review: #51 is new to both.
+    const pushed = pushAndPoll(sources);
+    sources.writeInbox([51]);
+
+    // (d) The Inbox's run asks once, and is approved; then the poll's check.
+    await closePanel(page);
+    await dashboard.getByRole('tab', { name: 'Automations' }).click();
+    await inboxCheck.click();
+    await expect(inboxCheck).toBeEnabled();
+    await expect
+      .poll(() => runStatuses(sources, ASSIGNED_REVIEWS), { timeout: 30_000 })
+      .toEqual(['needs-approval']);
+    await approveWaiting(sources);
+    await expect.poll(() => reviewCalls(sources).length, { timeout: 60_000 }).toBe(1);
+    expect(await runStatuses(sources, ASSIGNED_REVIEWS)).toEqual(['running']);
+    await checkNow(sources);
+
+    // Two runs on #51; the second waits for the item's checkout while the first works.
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 15_000 })
+      .toEqual(['queued']);
+    const [waiting] = await runsOf(sources, RE_REVIEW);
+    expect(waiting.trigger.item).toMatchObject({ url: PR_URL });
+    await expect
+      .poll(async () => (await runsOf(sources, RE_REVIEW))[0].summary)
+      .toBe(CHECKOUT_WAIT);
+    await closePanel(page);
+    await dashboard.getByRole('tab', { name: 'Activity' }).click();
+    await expect(runItems(page)).toHaveCount(2);
+    await expect(runItems(page).filter({ hasText: CHECKOUT_WAIT })).toHaveCount(1);
+
+    // The first posts at the pushed head; the second then finds it reviewed and posts nothing.
+    await expect
+      .poll(() => runStatuses(sources, ASSIGNED_REVIEWS), { timeout: 60_000 })
+      .toEqual(['completed']);
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed']);
+    const [second] = await runsOf(sources, RE_REVIEW);
+    expect(second.checkout).toMatchObject({ head: pushed });
+    expect(Object.fromEntries((second.steps ?? []).map((step) => [step.id, step.status]))).toEqual({
+      fresh: 'completed',
+      review: 'skipped',
+      publish: 'skipped',
+    });
+    const posted = sources.posted();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]).toContain(`-f commit_id=${pushed} `);
+    expect(reviewCalls(sources)).toHaveLength(1);
+  } finally {
+    await sources.close();
+  }
+});
+
+test('a repository that is not cloned fires nothing', async () => {
+  test.setTimeout(120_000);
+  const sources = await setUpSources();
+  try {
+    await allowedAndBaselined(sources);
+    // #51 as it was, and a pull request whose repository no scope holds.
+    sources.poll([
+      { url: PR_URL, title: PR_TITLE, head: sources.head },
+      { url: NOT_CLONED_URL, title: 'Track stock levels', head: 'f00d' },
+    ]);
+    await checkNow(sources);
+    expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ fired: 0, skipped: 1 });
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual([]);
+    const panel = await openAutomation(sources, RE_REVIEW);
+    await expect(panel.locator('.automations-lead-meta', { hasText: 'skipped' })).toContainText(
+      '1 skipped: their repositories are not in this workspace',
+    );
+    // Nothing tried to check it out or review it.
+    expect(sources.launches()).toEqual([]);
+    expect(sources.ghLog().filter((line) => line.startsWith('pr checkout'))).toEqual([]);
+  } finally {
+    await sources.close();
+  }
+});
+
+test('Run on… runs a chosen pull request, and the next check does not run it again', async () => {
+  test.setTimeout(180_000);
+  const sources = await setUpSources();
+  const { page } = sources;
+  try {
+    await allowedAndBaselined(sources);
+    // Already waiting for a re-review before it was allowed: nothing ran for it.
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual([]);
+
+    const panel = await openAutomation(sources, RE_REVIEW);
+    await panel.getByRole('button', { name: 'Run on…' }).click();
+    const picker = page.getByRole('dialog', { name: 'Run on an item' });
+    const inCheck = picker.getByRole('region', { name: 'In its last check' });
+    const row = inCheck.getByRole('button', { name: /#51/ });
+    await expect(row).toHaveCount(1);
+    await expect(row).toContainText('never run');
+    await row.click();
+
+    // A run on #51 starts, opens in the panel, and completes.
+    await expect(picker).toHaveCount(0);
+    await expect(sidePanel(page).getByRole('list', { name: 'Stages of this run' })).toBeVisible();
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed']);
+    const [run] = await runsOf(sources, RE_REVIEW);
+    expect(run.trigger).toMatchObject({ kind: 'manual', by: 'person' });
+    expect(run.trigger.item).toMatchObject({ url: PR_URL });
+    expect(run.checkout).toMatchObject({ head: sources.head });
+    expect(sources.posted()).toHaveLength(1);
+    expect(sources.posted()[0]).toContain(`-f commit_id=${sources.head} `);
+
+    // The next check, at the same head: it was run, so nothing new.
+    await checkNow(sources);
+    expect(await checkOf(sources, RE_REVIEW)).toMatchObject({ items: 1, fired: 0 });
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['completed']);
+    expect(sources.posted()).toHaveLength(1);
+  } finally {
+    await sources.close();
+  }
+});
+
+test('an agent saves a poll entry and asks for a run; approving runs that run and no check', async () => {
+  test.setTimeout(180_000);
+  const sources = await setUpSources({
+    env: ({ base }) => ({ STUB_CLAUDE_CALLS: path.join(base, 'claude-calls.json') }),
+  });
+  const { page } = sources;
+  try {
+    // What the agent in the session will do: save the template's entry, then ask for a run on #51.
+    fs.writeFileSync(
+      path.join(sources.base, 'claude-calls.json'),
+      JSON.stringify([
+        ['consola_save_automation', { entry: reReviewEntry() }],
+        [
+          'consola_run_automation',
+          { name: RE_REVIEW, work_item: { repo: REPO, number: 51, type: 'pr' } },
+        ],
+      ]),
+    );
+    // An ordinary session, made as a window makes one: full tools, in the scope's folder.
+    const sessionName = 'Set up re-reviews';
+    const created = await page.evaluate(
+      async ([workspaceId, cwd, name]) => {
+        const { workspaces } = await window.workspaceAPI.getSnapshot();
+        const scopeId = workspaces.find((workspace) => workspace.id === workspaceId)!.scopes[0].id;
+        return window.workspaceAPI.createSession(workspaceId, {
+          name,
+          workspaceId,
+          instanceId: 'agent-sets-up-re-reviews',
+          harnessId: 'stub',
+          scopeId,
+          cwd,
+        });
+      },
+      [sources.workspaceId, sources.clone, sessionName] as const,
+    );
+    if (!created) throw new Error('The session was not created.');
+    expect(created.toolPolicy).toBeUndefined();
+    await page.locator('.session-nav-item', { hasText: sessionName }).click();
+
+    // Its agent made both calls: the entry saved, waiting for Allow; the run asked for, waiting.
+    const toolLines = () => sources.claudeLog().filter((line) => line.startsWith('TOOL '));
+    await expect.poll(() => toolLines().length, { timeout: 30_000 }).toBe(2);
+    // Each answer is the tool's JSON, on one line.
+    const answer = (line: string, tool: string) => {
+      expect(line.startsWith(`TOOL ${tool} {`)).toBe(true);
+      return JSON.parse(line.slice(`TOOL ${tool} `.length));
+    };
+    expect(answer(toolLines()[0], 'consola_save_automation')).toMatchObject({
+      name: RE_REVIEW,
+      needsAllow: true,
+      summary: `Added ${RE_REVIEW} in factory.yml. It does not check until the person allows it in Consola.`,
+    });
+    const ran = answer(toolLines()[1], 'consola_run_automation');
+    expect(ran).toMatchObject({ status: 'needs-approval' });
+    expect(await runStatuses(sources, RE_REVIEW)).toEqual(['needs-approval']);
+    const [asked] = await runsOf(sources, RE_REVIEW);
+    expect(asked.trigger).toMatchObject({ kind: 'manual', by: 'agent' });
+    expect(asked.trigger.item).toMatchObject({ url: PR_URL });
+
+    // It waits where a run waits for the person: the sidebar's queue and the Automations page.
+    const queued = page.locator('.run-nav-item', { hasText: RE_REVIEW });
+    await expect(queued).toHaveCount(1);
+    const dashboard = await openAutomations(page);
+    await expect(dashboard.locator('.automations-waiting-card')).toContainText(RE_REVIEW);
+    await expect(rowOf(page, RE_REVIEW).locator('.automations-allow-pill')).toHaveText(
+      'Needs your OK',
+    );
+
+    // Approved from its sidebar row's run page, it runs.
+    await queued.getByRole('button', { name: /waiting for your approval/ }).click();
+    await sidePanel(page)
+      .getByRole('region', { name: 'Waiting for your approval' })
+      .getByRole('button', { name: 'Start', exact: true })
+      .click();
+    await expect
+      .poll(() => runStatuses(sources, RE_REVIEW), { timeout: 60_000 })
+      .toEqual(['completed']);
+    expect(sources.posted()).toHaveLength(1);
+    expect(sources.posted()[0]).toContain(`-f commit_id=${sources.head} `);
+
+    // Approving that run allowed no check: the command never ran, and still waits for Allow.
+    await page.waitForTimeout(2 * TICK_MS + 500);
+    expect(pollCalls(sources)).toEqual([]);
+    expect(await checkOf(sources, RE_REVIEW)).not.toHaveProperty('lastAt');
+    const automation = (await snapshotOf(sources)).automations.find(
+      (candidate) => candidate.name === RE_REVIEW,
+    );
+    expect(automation?.needsAllow).toBe(true);
+    await closePanel(page);
+    await dashboard.getByRole('tab', { name: 'Automations' }).click();
+    await expect(rowOf(page, RE_REVIEW).locator('.automations-allow-pill')).toHaveText(
+      'Needs your OK',
+    );
+  } finally {
+    await sources.close();
+  }
+});
