@@ -1809,6 +1809,8 @@ export function setupIpcHandlers(): boolean {
     dialogs: pageDialogs,
     localServers: (folder) => localServers.listFor(folder),
   });
+  // The tools themselves, for an end-to-end test to put on a server of its own.
+  exposeToTests('browserTools', sessionBrowserTools);
 
   // Every session's private MCP endpoint (see SessionMcpHost): the Consola
   // tools for all, plus the group tools for conductors and the browser tools
