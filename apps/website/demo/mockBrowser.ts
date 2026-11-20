@@ -10,6 +10,7 @@ import {
   MAX_TABS_PER_SESSION,
   isAllowedPageUrl,
   isBlankPageUrl,
+  isLoopbackHost,
   type BrowserAPI,
   type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
@@ -70,6 +71,18 @@ export function browserMock({
     return undefined;
   }
   /**
+   * Sends a tab to a web address, as main does for a tab with no page: the
+   * tab's address is all that changes. The tab's session, or undefined when
+   * there is no such tab or the address is not a web page.
+   */
+  function move(tabId: string, url: string) {
+    const found = find(tabId);
+    if (!found || !isAllowedPageUrl(url)) return undefined;
+    const tabs = found.browser.tabs.map((t) => (t.id === tabId ? { ...t, url } : t));
+    save(found.sessionId, { ...found.browser, tabs });
+    return found.sessionId;
+  }
+  /**
    * Main records a visit when a page commits. None ever does here, so the
    * address the session was sent to is the visit, and the notice says why the
    * page stays empty.
@@ -117,12 +130,18 @@ export function browserMock({
       save(found.sessionId, { ...found.browser, activeTabId: tabId });
     },
     navigate: async (tabId, url) => {
-      const found = find(tabId);
-      if (!found || !isAllowedPageUrl(url)) return false;
-      const tabs = found.browser.tabs.map((t) => (t.id === tabId ? { ...t, url } : t));
-      save(found.sessionId, { ...found.browser, tabs });
-      visit(found.sessionId, url);
+      const sessionId = move(tabId, url);
+      if (!sessionId) return false;
+      visit(sessionId, url);
       return true;
+    },
+    // The window's own retry of an unreachable page on this machine. A timer,
+    // not the person, so it moves the tab and nothing else: no visit and no
+    // notice. Only a loopback address is retried, as main allows. No demo page
+    // is ever unreachable, so nothing here calls it.
+    retry: async (tabId, url) => {
+      if (!isAllowedPageUrl(url) || !isLoopbackHost(new URL(url).hostname)) return false;
+      return move(tabId, url) !== undefined;
     },
     back: async () => {},
     forward: async () => {},
