@@ -61,6 +61,8 @@ beforeEach(() => {
     detachWindow: vi.fn(),
     setVisible: vi.fn(),
     continueCertificate: vi.fn(() => true),
+    // The window's tab shows its dev server as unreachable.
+    retryAddress: vi.fn((tabId: string) => (tabId === 't-mine' ? 'http://localhost:5173/' : null)),
     clearBrowsingData: vi.fn(async () => {}),
   };
   authAnswer = vi.fn(() => true);
@@ -237,6 +239,15 @@ describe('the automatic retry', () => {
   it("moves the tab but records no person's input, so the tab stays in whoever's hands it was", () => {
     expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'http://localhost:5173/')).toBe(true);
     expect(service.navigate).toHaveBeenCalledWith('t-mine', 'http://localhost:5173/');
+    expect(personNavigated).not.toHaveBeenCalled();
+  });
+
+  it('retries only the address the tab shows as unreachable, and nothing else on this machine', () => {
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'http://localhost:3000/')).toBe(false);
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'http://localhost:5173/admin')).toBe(false);
+    service.retryAddress.mockReturnValue(null);
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'http://localhost:5173/')).toBe(false);
+    expect(service.navigate).not.toHaveBeenCalled();
     expect(personNavigated).not.toHaveBeenCalled();
   });
 

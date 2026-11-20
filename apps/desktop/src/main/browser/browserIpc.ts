@@ -132,10 +132,12 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
     if (movedByPerson(event, tabId)) service.goBack(tabId);
   });
   // The window's automatic retry of an unreachable page on this machine: a
-  // timer, not the person, so it records nothing, whatever it is sent, and it
-  // goes only to a loopback address (what the window retries by itself).
+  // timer, not the person, so it records nothing, whatever it is sent. It
+  // loads again only the loopback address the tab shows as unreachable now
+  // (what the window retries by itself), never another.
   ipc.handle(IPC_CHANNELS.BROWSER_RETRY, (event, tabId: string, url: unknown): boolean => {
     if (!ownedTab(event, tabId) || typeof url !== 'string' || !isLoopbackAddress(url)) return false;
+    if (url !== service.retryAddress(tabId)) return false;
     return service.navigate(tabId, url);
   });
   ipc.handle(IPC_CHANNELS.BROWSER_FORWARD, (event, tabId: string) => {

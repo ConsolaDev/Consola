@@ -284,6 +284,20 @@ describe('navigate and commit', () => {
     expect(last().payload.snapshot.tabs[0].error ?? null).toBeNull();
   });
 
+  it('names the address a tab shows as unreachable, which is all the window retries', () => {
+    service.openTab('s1', 'https://a.com', 'person');
+    const guest = new FakeGuest(11);
+    service.bindGuest('tab1', guest.asWebContents(), winA);
+    expect(service.retryAddress('tab1')).toBeNull();
+    guest.emit('did-fail-load', {}, -102, 'ERR_CONNECTION_REFUSED', 'http://localhost:5173/', true);
+    // Not the tab's own address, which is still the page it was on: the one that failed.
+    expect(service.listFor('s1')[0].url).toBe('https://a.com');
+    expect(service.retryAddress('tab1')).toBe('http://localhost:5173/');
+    expect(service.retryAddress('nope')).toBeNull();
+    guest.emit('did-start-loading');
+    expect(service.retryAddress('tab1')).toBeNull();
+  });
+
   it('a failed load keeps its error and is not a visit when its error page commits', () => {
     service.openTab('s1', 'https://a.com', 'person');
     const guest = new FakeGuest(11);

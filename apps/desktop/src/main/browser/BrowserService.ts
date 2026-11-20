@@ -656,6 +656,16 @@ export class BrowserService {
     return this.find(tabId)?.sessionId;
   }
 
+  /**
+   * The address a tab shows as unreachable now, the one its window retries
+   * by itself; null when it shows no such failure. Not the tab's own address,
+   * which stays the page it was on before the load failed.
+   */
+  public retryAddress(tabId: string): string | null {
+    const error = this.live.get(tabId)?.error;
+    return error?.kind === 'unreachable' ? error.url : null;
+  }
+
   /** Whether the tab has a page now, or one is coming for it (it is in the live set). */
   public isLive(tabId: string): boolean {
     return this.pages.has(tabId);

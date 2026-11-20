@@ -183,7 +183,8 @@ export interface BrowserAPI {
   /**
    * The window's own automatic retry of an unreachable page on this machine
    * (a dev server still starting). Moves the tab like `navigate`, but is
-   * nobody's input: a timer is not the person. False for any other address.
+   * nobody's input: a timer is not the person. Only the loopback address the
+   * tab shows as unreachable now is retried; false for any other.
    */
   retry(tabId: string, url: string): Promise<boolean>;
   back(tabId: string): Promise<void>;

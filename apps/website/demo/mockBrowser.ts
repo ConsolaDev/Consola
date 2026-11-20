@@ -10,7 +10,6 @@ import {
   MAX_TABS_PER_SESSION,
   isAllowedPageUrl,
   isBlankPageUrl,
-  isLoopbackHost,
   type BrowserAPI,
   type BrowserHistoryEntry,
   type BrowserSessionSnapshot,
@@ -135,14 +134,10 @@ export function browserMock({
       visit(sessionId, url);
       return true;
     },
-    // The window's own retry of an unreachable page on this machine. A timer,
-    // not the person, so it moves the tab and nothing else: no visit and no
-    // notice. Only a loopback address is retried, as main allows. No demo page
-    // is ever unreachable, so nothing here calls it.
-    retry: async (tabId, url) => {
-      if (!isAllowedPageUrl(url) || !isLoopbackHost(new URL(url).hostname)) return false;
-      return move(tabId, url) !== undefined;
-    },
+    // The window's own retry of an unreachable page on this machine. Main
+    // retries only the address a tab shows as unreachable, and no demo page
+    // ever loads, so none is unreachable: there is never anything to retry.
+    retry: async () => false,
     back: async () => {},
     forward: async () => {},
     reload: async () => {},
