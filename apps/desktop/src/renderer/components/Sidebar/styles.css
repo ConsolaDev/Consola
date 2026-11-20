@@ -285,6 +285,374 @@
   font-size: var(--sidebar-font-size-small);
 }
 
+/* --- The navigation glyph ------------------------------------------------
+
+   Two sliders. Pointed at, or with its menu open, both knobs glide to the
+   middle of their tracks, as if the hand had just set them, and each track
+   shortens under its knob. Settles back on the same curve when the menu
+   closes. Movement only: the glyph's weight and colour are the button's. */
+.navigation-glyph-knob,
+.navigation-glyph-track {
+  transition:
+    transform 280ms var(--ease-out-quart),
+    stroke-dasharray 280ms var(--ease-out-quart);
+}
+
+/* Each track is 11 units long; the gap is longer than the track so only one
+   dash ever shows. */
+.navigation-glyph-track {
+  stroke-dasharray: 11 24;
+}
+
+.sidebar-navigation-settings:hover .navigation-glyph-track,
+.sidebar-navigation-settings[data-state="open"] .navigation-glyph-track {
+  stroke-dasharray: 6 24;
+}
+
+.sidebar-navigation-settings:hover .navigation-glyph-knob--top,
+.sidebar-navigation-settings[data-state="open"] .navigation-glyph-knob--top {
+  transform: translateX(-5px);
+}
+
+.sidebar-navigation-settings:hover .navigation-glyph-knob--bottom,
+.sidebar-navigation-settings[data-state="open"] .navigation-glyph-knob--bottom {
+  transform: translateX(5px);
+}
+
+/* --- The navigation menu ---------------------------------------------------
+
+   It stands beside the sidebar, not over it, so the list it changes stays in
+   view: every choice is answered by the rows themselves. */
+.dropdown-content.navigation-settings {
+  width: 256px;
+  padding: 6px;
+  border-radius: var(--radius-lg);
+  animation: navigation-settings-in 200ms var(--ease-out-expo);
+}
+
+/* From the side it opens on, a few pixels: a panel sliding out from the
+   sidebar's edge rather than a menu falling from the button. */
+@keyframes navigation-settings-in {
+  from {
+    opacity: 0;
+    transform: translateX(-6px);
+  }
+}
+
+.dropdown-content.navigation-settings[data-side="left"] {
+  animation-name: navigation-settings-in-left;
+}
+
+@keyframes navigation-settings-in-left {
+  from {
+    opacity: 0;
+    transform: translateX(6px);
+  }
+}
+
+.navigation-settings-heading {
+  padding: 6px 8px 5px;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  font-weight: var(--font-weight-medium);
+  line-height: 14px;
+}
+
+.navigation-settings .dropdown-separator {
+  margin: 6px 4px;
+}
+
+/* Density: two cards, each a miniature of the sidebar drawn the way that
+   density draws it. The one in use is ringed in the accent. */
+.navigation-density {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  padding: 0 2px 2px;
+}
+
+.navigation-density-option {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 0 0 2px;
+  border-radius: var(--radius-md);
+  outline: none;
+  cursor: pointer;
+}
+
+.navigation-density-frame {
+  display: block;
+  height: 62px;
+  padding: 5px;
+  overflow: hidden;
+  border-radius: var(--radius-md);
+  background: var(--color-bg-sidebar);
+  box-shadow: inset 0 0 0 1px var(--color-border);
+  transition: box-shadow 160ms var(--ease-out-quart);
+}
+
+.navigation-density-option[data-highlighted] .navigation-density-frame {
+  box-shadow: inset 0 0 0 1px var(--color-border-hover);
+}
+
+.navigation-density-option[data-state="checked"] .navigation-density-frame {
+  box-shadow:
+    inset 0 0 0 1.5px var(--color-accent),
+    0 0 0 3px color-mix(in srgb, var(--color-accent) 14%, transparent);
+}
+
+/* Arrow keys reach the cards like any menu item; the ring says which. */
+.navigation-density-option:focus-visible .navigation-density-frame {
+  outline: 1px solid var(--color-accent);
+  outline-offset: 3px;
+}
+
+.navigation-density-label {
+  color: var(--color-text-secondary);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  transition: color var(--transition-fast);
+}
+
+.navigation-density-option[data-highlighted] .navigation-density-label,
+.navigation-density-option[data-state="checked"] .navigation-density-label {
+  color: var(--color-text-primary);
+}
+
+.navigation-density-option[data-state="checked"] .navigation-density-label {
+  font-weight: var(--font-weight-medium);
+}
+
+/* The sketch inside a card. Bars stand for words at the rows' proportions:
+   the name firmer than its metadata, the worktree in its own hue, the live
+   row's state in the accent. */
+/* Clipped inside the frame's padding, so a row cut off at the bottom never
+   paints over the ring the frame draws on its edge. */
+.density-sketch {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  height: 100%;
+  overflow: hidden;
+  transition: opacity 160ms var(--ease-out-quart);
+}
+
+.navigation-density-option[data-state="unchecked"] .density-sketch {
+  opacity: 0.6;
+}
+
+.navigation-density-option[data-state="unchecked"][data-highlighted] .density-sketch {
+  opacity: 1;
+}
+
+.density-sketch-row {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  padding: 4px;
+  border-radius: 3px;
+}
+
+.density-sketch--compact .density-sketch-row {
+  padding-block: 3px;
+}
+
+.density-sketch-row--active {
+  background: color-mix(in srgb, var(--color-text-primary) 7%, transparent);
+}
+
+/* Chosen, the sketch settles in a row at a time: the same motion the list
+   beside the menu has just made, in miniature. */
+.navigation-density-option[data-state="checked"] .density-sketch-row {
+  animation: density-sketch-settle 360ms var(--ease-out-expo) backwards;
+  animation-delay: calc(var(--row, 0) * 40ms);
+}
+
+@keyframes density-sketch-settle {
+  from {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+
+.density-sketch-line {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.density-sketch-mark {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-tertiary) 80%, transparent);
+}
+
+.density-sketch-bar {
+  display: block;
+  flex: none;
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-tertiary) 55%, transparent);
+}
+
+.density-sketch-bar--title {
+  height: 4px;
+  background: color-mix(in srgb, var(--color-text-secondary) 75%, transparent);
+}
+
+.density-sketch-bar--worktree {
+  background: color-mix(in srgb, var(--color-worktree) 60%, transparent);
+}
+
+.density-sketch-end {
+  flex: none;
+  width: 8px;
+  height: 3px;
+  margin-left: auto;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-tertiary) 45%, transparent);
+}
+
+.density-sketch-end--live {
+  background: var(--color-accent);
+}
+
+/* What each row shows: a switch per choice, the mark it governs at its head.
+   A choice switched off dims its mark, so the column of marks reads as a
+   picture of what the rows wear. */
+.navigation-toggle {
+  gap: 10px;
+  padding: 6px 8px;
+  color: var(--color-text-primary);
+}
+
+.navigation-toggle-icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  color: var(--color-text-secondary);
+  transition: opacity 160ms var(--ease-out-quart);
+}
+
+.navigation-toggle[data-state="unchecked"] .navigation-toggle-icon {
+  opacity: 0.45;
+}
+
+.navigation-toggle-worktree {
+  color: var(--color-worktree);
+}
+
+/* The arc a working row turns. It turns here too while the item is pointed
+   at, which is the clearest way to say which section this is. */
+.navigation-toggle-working {
+  box-sizing: border-box;
+  width: 10px;
+  height: 10px;
+  border: 1.5px solid color-mix(in srgb, var(--color-accent) 28%, transparent);
+  border-top-color: var(--color-accent);
+  border-radius: 999px;
+}
+
+.navigation-toggle[data-highlighted] .navigation-toggle-working {
+  animation: status-spin 850ms linear infinite;
+}
+
+.navigation-toggle-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.navigation-toggle-label {
+  font-size: var(--font-size-sm);
+  line-height: 18px;
+}
+
+.navigation-toggle-hint {
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 14px;
+}
+
+/* The switch. The thumb leans the way it is about to go while pressed, a
+   few pixels wider, and slides on release: the press is felt before the
+   state flips. */
+.navigation-switch {
+  position: relative;
+  flex: none;
+  width: 26px;
+  height: 16px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--color-text-primary) 16%, transparent);
+  transition: background 180ms var(--ease-out-quart);
+}
+
+.navigation-switch-thumb {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--color-text-secondary);
+  box-shadow: 0 1px 2px rgb(0 0 0 / 0.25);
+  transition:
+    transform 200ms var(--ease-out-quart),
+    width 120ms var(--ease-out-quart),
+    background 180ms var(--ease-out-quart);
+}
+
+.navigation-toggle[data-state="checked"] .navigation-switch {
+  background: var(--color-accent);
+}
+
+.navigation-toggle[data-state="checked"] .navigation-switch-thumb {
+  /* On the accent fill, in the colour meant for things on it. */
+  background: var(--color-accent-text);
+  transform: translateX(10px);
+}
+
+.navigation-toggle:active .navigation-switch-thumb {
+  width: 15px;
+}
+
+.navigation-toggle[data-state="checked"]:active .navigation-switch-thumb {
+  transform: translateX(7px);
+}
+
+.harness-driver-icon.navigation-toggle-harness {
+  width: 16px;
+  height: 16px;
+}
+
+.harness-driver-icon.navigation-toggle-harness > svg {
+  width: 13px;
+  height: 13px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .navigation-glyph-knob,
+  .navigation-glyph-track,
+  .navigation-switch,
+  .navigation-switch-thumb {
+    transition: none;
+  }
+
+  .dropdown-content.navigation-settings,
+  .navigation-density-option[data-state="checked"] .density-sketch-row,
+  .navigation-toggle[data-highlighted] .navigation-toggle-working {
+    animation: none;
+  }
+}
+
 /* The model, on the meta line beside the harness that runs it: "Opus 4.6",
    not "claude-opus-4-6". One step firmer than the tertiary line around it,
    because it is the one fact on that line a person picks between sessions
@@ -910,6 +1278,138 @@
   font-size: 11px;
   line-height: 20px;
   color: var(--color-text-tertiary);
+}
+
+/* --- The Compact density ---------------------------------------------------
+
+   Every live row on one line, on the shelf's layout (`--compact`) plus what
+   a live row still has to say: the harness at its head, the marks the second
+   line used to spell out, and the state in the trailing column. Same 28px
+   rhythm as the shelf, so the whole list reads as one column of names. */
+.session-row-lead {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 4px;
+  /* 8px to the name, with the text column's own 6px gap. */
+  margin-right: 2px;
+}
+
+.session-nav-item--dense .harness-driver-icon.session-nav-item-harness {
+  width: 16px;
+  height: 16px;
+}
+
+.session-nav-item--dense .harness-driver-icon.session-nav-item-harness > svg {
+  width: 13px;
+  height: 13px;
+}
+
+/* With several harnesses their initials ride beside the mark. One width for
+   all of them, so every name still starts on the same edge. */
+.session-nav-item--dense .session-harness-initials {
+  justify-content: center;
+  min-width: 18px;
+}
+
+.session-nav-item--dense .session-conductor-glyph {
+  font-size: 12px;
+  line-height: 20px;
+}
+
+.session-nav-item--dense .session-row-status {
+  font-size: 11px;
+  line-height: 20px;
+}
+
+/* The scope or folder, while the list mixes them: quieter than the name and
+   the first thing to give way to it. */
+.session-row-place {
+  flex: 0 3 auto;
+  min-width: 3ch;
+  max-width: 40%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--color-text-tertiary);
+  font-size: 11px;
+  line-height: 20px;
+}
+
+.session-row-marks {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  color: var(--color-text-tertiary);
+  transition: opacity 120ms var(--ease-out-quart);
+}
+
+.session-row-mark {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.session-row-mark--labels {
+  font-size: 12px;
+  line-height: 1;
+}
+
+/* The worktree mark wears the worktree hue, like the detailed row's line and
+   the header's chip, so the row and the pane it opens still match. */
+.session-row-mark--worktree {
+  color: var(--color-worktree);
+}
+
+/* Settle takes the trailing corner on hover; the marks and the place step
+   aside with the age rather than peeking out half-covered beside the pill. */
+.session-row-place {
+  transition: opacity 120ms var(--ease-out-quart);
+}
+
+.session-nav-item--dense:has(.session-settle-action):hover .session-row-marks,
+.session-nav-item--dense:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-row-marks,
+.session-nav-item--dense:has(.nav-row-actions[data-open="true"] .session-settle-action)
+  .session-row-marks,
+.session-nav-item--dense:has(.session-settle-action):hover .session-row-place,
+.session-nav-item--dense:has(.session-settle-action):is(:focus-visible, :has(:focus-visible))
+  .session-row-place,
+.session-nav-item--dense:has(.nav-row-actions[data-open="true"] .session-settle-action)
+  .session-row-place {
+  opacity: 0;
+}
+
+/* Switching density, the rows' words settle into their new lines instead of
+   snapping there. Two names for one motion, so a second switch inside the
+   window restarts it. */
+.sidebar[data-density-shift="a"] .session-nav-item-text {
+  animation: density-settle-a 300ms var(--ease-out-quart);
+}
+
+.sidebar[data-density-shift="b"] .session-nav-item-text {
+  animation: density-settle-b 300ms var(--ease-out-quart);
+}
+
+@keyframes density-settle-a {
+  from {
+    opacity: 0.3;
+    transform: translateY(-2px);
+  }
+}
+
+@keyframes density-settle-b {
+  from {
+    opacity: 0.3;
+    transform: translateY(-2px);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar[data-density-shift] .session-nav-item-text {
+    animation: none;
+  }
 }
 
 /* A read-only session wears the lock its terminal toolbar does, so the row
@@ -1784,14 +2284,36 @@ button.shelf-header[data-empty="true"]:hover {
   background: var(--color-border);
 }
 
+/* The scopes row: the filter, and at its end the navigation settings, which
+   shape the same list the filter narrows. Siblings rather than one control,
+   so pointing at the settings does not light the filter up. */
+.sidebar-filter-row {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 2px;
+  margin: 0 var(--space-2) var(--space-1);
+}
+
+.sidebar-filter-row .sidebar-navigation-settings {
+  width: var(--sidebar-row-height);
+  height: var(--sidebar-row-height);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-tertiary);
+}
+
+.sidebar-filter-row .sidebar-navigation-settings:hover,
+.sidebar-filter-row .sidebar-navigation-settings[data-state="open"] {
+  color: var(--color-text-primary);
+}
+
 .sidebar-scope-filter {
   position: relative;
-  flex: none;
+  flex: 1;
   display: flex;
   align-items: center;
-  width: calc(100% - var(--space-2) * 2);
+  min-width: 0;
   height: var(--sidebar-row-height);
-  margin: 0 var(--space-2) var(--space-1);
   border-radius: var(--radius-sm);
   transition:
     background var(--transition-fast),
@@ -2241,9 +2763,6 @@ button.shelf-header[data-empty="true"]:hover {
 @container (max-width: 215px) {
   .sidebar-search-shortcut {
     display: none;
-  }
-  .sidebar-navigation-settings {
-    width: 24px;
   }
   .sidebar-search .new-menu-trigger {
     width: 24px;
