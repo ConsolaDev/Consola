@@ -115,6 +115,55 @@ export async function startFixtureServer(): Promise<FixtureServer> {
 </script>`,
           ),
         );
+      case '/agent-act.html':
+        // What an agent acts on: a button that counts its clicks, a search
+        // form whose answer arrives a moment after Enter, a file input, a
+        // button that asks a confirm, and a link to a file. It counts the
+        // trusted presses it hears (only the person's are), and cancels any
+        // click that reaches its file input, so no chooser could open
+        // whatever the app let through.
+        return send(
+          200,
+          page(
+            'Act fixture',
+            'rgb(255,255,255)',
+            `<h1>Act fixture</h1>
+<p><button id="count">Count</button> <span id="clicks">Not clicked</span></p>
+<form id="search"><label>Query <input id="q" name="q"></label></form>
+<p id="result">No search yet</p>
+<p><label>Attachment <input id="file" type="file"></label></p>
+<p><button id="delete">Delete</button> <span id="answer">Not asked</span></p>
+<p><a id="dl" href="/report.csv">Download report</a></p>
+<script>
+  const byId = (id) => document.getElementById(id);
+  let clicks = 0;
+  window.__fileClicks = 0;
+  window.__presses = 0;
+  byId('count').addEventListener('click', () => {
+    clicks += 1;
+    byId('clicks').textContent = 'Clicked ' + clicks;
+  });
+  byId('search').addEventListener('submit', (event) => {
+    event.preventDefault();
+    const query = byId('q').value;
+    byId('result').textContent = 'Searching for ' + query;
+    setTimeout(() => { byId('result').textContent = 'Found ' + query; }, 300);
+  });
+  byId('delete').addEventListener('click', () => {
+    byId('answer').textContent = 'Answered ' + confirm('Delete everything?');
+  });
+  document.addEventListener('click', (event) => {
+    if (event.target === byId('file')) {
+      window.__fileClicks += 1;
+      event.preventDefault();
+    }
+  }, true);
+  document.addEventListener('mousedown', (event) => {
+    if (event.isTrusted) window.__presses += 1;
+  }, true);
+</script>`,
+          ),
+        );
       case '/report.csv':
         // A file, which a browser downloads rather than shows.
         res.writeHead(200, {
