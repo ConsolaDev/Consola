@@ -1,4 +1,5 @@
-import { isAllowedPageUrl } from '../../shared/browser';
+import { type BrowserTab, isAllowedPageUrl } from '../../shared/browser';
+import { agentActing, personIsUsing } from './PersonInput';
 
 /** What `setWindowOpenHandler` is told about a window a page wants to open. */
 export interface PopupRequest {
@@ -69,7 +70,8 @@ export function parsePopupSize(features: string): PopupSize | null {
  * What a page that calls `window.open` or follows a `target=_blank` link gets.
  *
  * A link wanting a new tab becomes a tab in the opener's session, at any
- * moment: it costs a tab, capped. A sized popup is the one thing a page can
+ * moment: it costs a tab, capped (whose it is and whether it shows is
+ * `placePopupTab`'s to say). A sized popup is the one thing a page can
  * ask for that takes over the screen, so it must follow a click or key of the
  * person's; anything else is a script opening windows on its own. Nothing
  * opens from a popup, which stops a chain of them.
@@ -106,6 +108,47 @@ export function decidePopup(request: PopupRequest, context: PopupContext): Popup
   }
   if (context.atTabCap) return { action: 'deny', reason: 'the session has too many tabs' };
   return { action: 'tab', url: request.url };
+}
+
+/** What main knows about the tab a page opened a new tab from (`decidePopup`'s `tab`). */
+export interface PopupTabFacts {
+  /** When the person last pressed a key or a mouse button in the opener's tab (`PersonInput`). */
+  personInputAt?: number;
+  now: number;
+  /** Who opened the opener's tab. */
+  openerOpenedBy: BrowserTab['openedBy'];
+  /** An agent's tool call is on the opener's tab now (its `agentActive`). */
+  agentCallInFlight: boolean;
+  /** An agent's act or move is under way on the opener's tab (`PersonInput`). */
+  actInFlight: boolean;
+  /** When the last one ended. */
+  actEndedAt?: number;
+}
+
+export interface PopupTabPlacement {
+  openedBy: BrowserTab['openedBy'];
+  /** The new tab becomes the session's active tab; otherwise it opens behind the one showing. */
+  activate: boolean;
+}
+
+/**
+ * Whose a tab a page opened is, and whether it takes the person's view.
+ *
+ * A page opens tabs whenever it likes, and only the person's own press
+ * makes one theirs to look at: input from them in the opener within
+ * `PERSON_INPUT_GUARD_MS`, the window `act` gives way to as well. Any other
+ * tab opens behind the one showing (Ruling U), and it is the agent's when
+ * the opener is an agent's tab or an agent is on it (a call, or an act or
+ * move under way or just ended, since what a synthetic click starts reaches
+ * main after the click returns), so the agent can close what it caused.
+ * Otherwise it stays the person's, behind. Cost if wrong: a tab the person's
+ * press opened stays behind, and they click it.
+ */
+export function placePopupTab(facts: PopupTabFacts): PopupTabPlacement {
+  if (personIsUsing(facts.personInputAt, facts.now)) return { openedBy: 'person', activate: true };
+  const agentOnOpener =
+    facts.openerOpenedBy === 'agent' || facts.agentCallInFlight || agentActing(facts);
+  return { openedBy: agentOnOpener ? 'agent' : 'person', activate: false };
 }
 
 /** A click or key counts as "behind" a popup for this long. */

@@ -29,6 +29,16 @@ export interface DownloadFacts {
   now: number;
 }
 
+/** Whether an agent's act is under way on the tab, or ended within `ACT_AFTERMATH_MS`. */
+export function agentActing(
+  facts: Pick<DownloadFacts, 'actInFlight' | 'actEndedAt' | 'now'>,
+): boolean {
+  return (
+    facts.actInFlight ||
+    (facts.actEndedAt !== undefined && facts.now - facts.actEndedAt < ACT_AFTERMATH_MS)
+  );
+}
+
 /**
  * The person's last input in each tab, and the agent's acts on each.
  *

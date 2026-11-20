@@ -4,8 +4,10 @@ import {
   parsePopupSize,
   PERSON_INPUT_MS,
   PersonInputClock,
+  placePopupTab,
   popupTitle,
   type PopupContext,
+  type PopupTabFacts,
 } from './popupPolicy';
 
 const ready: PopupContext = {
@@ -117,6 +119,55 @@ describe('one popup at a time', () => {
 
   it('still opens tabs while a popup is open', () => {
     expect(open('foreground-tab', '', undefined, { openerHasPopup: true }).action).toBe('tab');
+  });
+});
+
+describe('placePopupTab', () => {
+  const T0 = 1_700_000_000_000;
+  /** A person's tab nobody touched and no agent is on. */
+  const quiet: PopupTabFacts = {
+    now: T0,
+    openerOpenedBy: 'person',
+    agentCallInFlight: false,
+    actInFlight: false,
+  };
+  const place = (facts: Partial<PopupTabFacts>) => placePopupTab({ ...quiet, ...facts });
+
+  it("is the person's, and shows, when they pressed in the opener within 3 s", () => {
+    expect(place({ personInputAt: T0 - 2_900 })).toEqual({ openedBy: 'person', activate: true });
+    // Whoever's tab it is, and whatever an agent is doing there: the person caused it.
+    expect(
+      place({
+        personInputAt: T0 - 2_900,
+        openerOpenedBy: 'agent',
+        agentCallInFlight: true,
+        actInFlight: true,
+      }),
+    ).toEqual({ openedBy: 'person', activate: true });
+  });
+
+  it("opens behind as the agent's from an agent's tab the person last pressed in 3.1 s ago", () => {
+    expect(place({ personInputAt: T0 - 3_100, openerOpenedBy: 'agent' })).toEqual({
+      openedBy: 'agent',
+      activate: false,
+    });
+  });
+
+  it("opens behind, still the person's, from their own tab with no agent on it", () => {
+    expect(place({ personInputAt: T0 - 3_100 })).toEqual({ openedBy: 'person', activate: false });
+    expect(place({})).toEqual({ openedBy: 'person', activate: false });
+  });
+
+  it("opens behind as the agent's from the person's tab while an agent's call is on it", () => {
+    expect(place({ agentCallInFlight: true })).toEqual({ openedBy: 'agent', activate: false });
+  });
+
+  it("is the agent's when its act or move on the opener is under way, or ended within 3 s", () => {
+    // A synthetic click on a target=_blank link, or a window.open an evaluate ran.
+    expect(place({ actInFlight: true })).toEqual({ openedBy: 'agent', activate: false });
+    // What a click starts reaches main after the click returns.
+    expect(place({ actEndedAt: T0 - 2_900 })).toEqual({ openedBy: 'agent', activate: false });
+    expect(place({ actEndedAt: T0 - 3_100 })).toEqual({ openedBy: 'person', activate: false });
   });
 });
 

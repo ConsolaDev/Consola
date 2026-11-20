@@ -35,6 +35,7 @@ import { LocalServers } from './browser/LocalServers';
 import { browserTools } from './browser/browserTools';
 import { registerBrowserHandlers } from './browser/browserIpc';
 import { onGuestAttached } from './browser/guestPolicy';
+import { placePopupTab } from './browser/popupPolicy';
 import { installPopupPolicy } from './browser/popupWindows';
 import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
@@ -389,7 +390,21 @@ export function setupIpcHandlers(): boolean {
       sessionIdOf: (id) => browser.sessionIdForGuest(id),
       workspaceId,
       atTabCap: (sessionId) => browser.atTabCap(sessionId),
-      openTab: (sessionId, url) => void browser.openTab(sessionId, url, 'person'),
+      // Only the person's own press in the opener makes the page's new tab
+      // theirs to look at; any other opens behind, the agent's when an agent
+      // is on the opener (`placePopupTab`), read from what the download gate reads.
+      openTab: (sessionId, url) => {
+        const openerTabId = browser.tabIdForGuest(guestId);
+        const opener = browser.snapshotFor(sessionId).tabs.find((tab) => tab.id === openerTabId);
+        const { openedBy, activate } = placePopupTab({
+          ...(openerTabId
+            ? personInput.downloadFacts(openerTabId)
+            : { actInFlight: false, now: Date.now() }),
+          openerOpenedBy: opener?.openedBy ?? 'person',
+          agentCallInFlight: opener?.agentActive ?? false,
+        });
+        void browser.openTab(sessionId, url, openedBy, { keepActiveTab: !activate });
+      },
       popups: browser.popups,
       certificates: browser.certificates,
       // `webContents` is accepted by the constructor though not typed.

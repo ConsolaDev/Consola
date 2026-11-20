@@ -1,6 +1,6 @@
 import type { Session, Streams, WebContents } from 'electron';
 import { browserPartitionFor } from '../../shared/browser';
-import { ACT_AFTERMATH_MS, type DownloadFacts, personIsUsing } from './PersonInput';
+import { agentActing, type DownloadFacts, personIsUsing } from './PersonInput';
 
 /**
  * What a page may ask the person's machine for.
@@ -41,10 +41,7 @@ export type DownloadDecision = 'allow' | 'cancel';
  * started during an agent's act is cancelled, and they start it again.
  */
 export function decideDownload(facts: DownloadFacts): DownloadDecision {
-  const agentActing =
-    facts.actInFlight ||
-    (facts.actEndedAt !== undefined && facts.now - facts.actEndedAt < ACT_AFTERMATH_MS);
-  return agentActing && !personIsUsing(facts.personInputAt, facts.now) ? 'cancel' : 'allow';
+  return agentActing(facts) && !personIsUsing(facts.personInputAt, facts.now) ? 'cancel' : 'allow';
 }
 
 /** Decides each download by the page it came from (undefined when Electron names none). */
