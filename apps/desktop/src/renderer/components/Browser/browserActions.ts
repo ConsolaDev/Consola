@@ -38,12 +38,15 @@ export async function openInSessionBrowser(sessionId: string, url: string): Prom
  */
 export async function focusSessionAddressBar(sessionId: string): Promise<void> {
   useNavigationStore.getState().setBrowserVisible(true);
+  let tabId: string | null = null;
   try {
     await loadBrowser(sessionId);
     const snapshot = useBrowserStore.getState().snapshots[sessionId];
-    if (!snapshot || !activeTabOf(snapshot)) await browserBridge.open(sessionId, '');
+    const shown = snapshot && activeTabOf(snapshot);
+    tabId = shown ? shown.id : ((await browserBridge.open(sessionId, ''))?.id ?? null);
   } catch (error) {
     console.warn('In-app browser action failed:', error);
   }
-  setTimeout(requestAddressFocus, FOCUS_AFTER_PALETTE_MS);
+  // For that tab's bar, which waits for it if it is not on screen yet.
+  setTimeout(() => requestAddressFocus(tabId), FOCUS_AFTER_PALETTE_MS);
 }

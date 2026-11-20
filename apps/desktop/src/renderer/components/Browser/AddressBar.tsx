@@ -3,9 +3,15 @@ import { createPortal } from 'react-dom';
 import { resolveAddressInput, type BrowserHistoryEntry } from '../../../shared/browser';
 import { suggestFromHistory } from '../../../shared/browserTools';
 import { browserBridge } from '../../services/browserBridge';
-import { useAddressFocusStore } from '../../stores/addressFocusStore';
+import {
+  addressFocusAnswer,
+  settleAddressFocus,
+  useAddressFocusStore,
+} from '../../stores/addressFocusStore';
 
 interface AddressBarProps {
+  /** The tab the bar is for; none while the session has no tab. */
+  tabId: string | null;
   /** What the bar shows while nobody is editing it. */
   address: string;
   /** Opens a resolved address. Resolves false when Consola refused it. */
@@ -25,7 +31,7 @@ interface AddressBarProps {
  * Returns two grid items for the toolbar: the field, and the message row
  * that spans the whole toolbar beneath it.
  */
-export function AddressBar({ address, onOpen }: AddressBarProps) {
+export function AddressBar({ tabId, address, onOpen }: AddressBarProps) {
   const [draft, setDraft] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -40,15 +46,20 @@ export function AddressBar({ address, onOpen }: AddressBarProps) {
 
   const suggestions = suggestFromHistory(history, draft ?? '', { exclude: address });
 
-  // The one place focus moves into the panel, and only because the person
-  // pressed ⌘L (an agent's input never reaches this store).
-  useEffect(
-    () =>
-      useAddressFocusStore.subscribe((state, previous) => {
-        if (state.requests !== previous.requests) inputRef.current?.focus();
-      }),
-    [],
-  );
+  // The one place focus moves into the panel, and only for the person's own
+  // ⌘L, "+" or palette row (an agent's doing never reaches this store). A
+  // request for a tab just opened is taken once its bar is here.
+  useEffect(() => {
+    const act = (answer: ReturnType<typeof addressFocusAnswer>) => {
+      if (answer === 'leave') return;
+      settleAddressFocus();
+      if (answer === 'take') inputRef.current?.focus();
+    };
+    act(addressFocusAnswer(useAddressFocusStore.getState(), tabId, 'shown'));
+    return useAddressFocusStore.subscribe((state, previous) => {
+      if (state.requests !== previous.requests) act(addressFocusAnswer(state, tabId, 'asked'));
+    });
+  }, [tabId]);
 
   const reset = () => {
     setDraft(null);

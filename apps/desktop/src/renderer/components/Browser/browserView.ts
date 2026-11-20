@@ -179,6 +179,34 @@ export function addressText(
   return url === 'about:blank' ? '' : url;
 }
 
+/** Which toolbar the panel has mounted, and the number it is keyed by. */
+export interface ToolbarMount {
+  sessionId: string;
+  tabId: string | null;
+  /** New for each toolbar mounted, so no two in a row share a key. */
+  generation: number;
+}
+
+/**
+ * The toolbar for `tabId` of `sessionId`, after `previous`. A new one for
+ * each tab, so an address being typed and a held error belong to one tab;
+ * but a session's first tab keeps the toolbar of "no tab". Main shows the
+ * first tab of an empty session even when an agent opened it, and a new
+ * toolbar then would take the address field, its draft and its focus away
+ * from the person typing in it.
+ */
+export function nextToolbarMount(
+  previous: ToolbarMount | null,
+  sessionId: string,
+  tabId: string | null,
+): ToolbarMount {
+  if (previous?.sessionId === sessionId) {
+    if (previous.tabId === tabId) return previous;
+    if (previous.tabId === null) return { ...previous, tabId };
+  }
+  return { sessionId, tabId, generation: (previous?.generation ?? 0) + 1 };
+}
+
 /**
  * Where the tab strip scrolls to so a tab is in view: nowhere when it already
  * is, else just far enough, the nearest edge first. A tab wider than the

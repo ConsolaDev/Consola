@@ -6,6 +6,7 @@ import {
   type BrowserTabSnapshot,
 } from '../../../shared/browser';
 import { browserBridge } from '../../services/browserBridge';
+import { requestAddressFocus } from '../../stores/addressFocusStore';
 import { stripScrollToShow, stripWheelDelta, tabLabel } from './browserView';
 import './styles.css';
 
@@ -22,8 +23,8 @@ function noteFailure(action: Promise<unknown>): void {
 /**
  * The session's tabs, in the look of the file preview's tab bar. Each action
  * goes to main, which owns the list and answers with a fresh snapshot; the
- * strip holds no state of its own. The `+` opens a blank tab for the address
- * bar to fill, and stops at the cap. A tab an agent's call is on carries a
+ * strip holds no state of its own. The `+` opens a blank tab, puts the caret
+ * in its address bar, and stops at the cap. A tab an agent's call is on carries a
  * small marker for as long as the call runs.
  *
  * Tabs shrink to a narrow minimum before the strip scrolls, and the `+` sits
@@ -73,7 +74,14 @@ export function BrowserTabStrip({ sessionId, snapshot }: BrowserTabStripProps) {
         aria-label="New tab"
         title={atCap ? `At most ${MAX_TABS_PER_SESSION} tabs` : 'New tab'}
         disabled={atCap}
-        onClick={() => noteFailure(browserBridge.open(sessionId, ''))}
+        onClick={() =>
+          noteFailure(
+            browserBridge.open(sessionId, '').then((opened) => {
+              // The person's own click: the caret goes where the address is typed.
+              if (opened) requestAddressFocus(opened.id);
+            }),
+          )
+        }
       >
         <Plus size={14} />
       </button>

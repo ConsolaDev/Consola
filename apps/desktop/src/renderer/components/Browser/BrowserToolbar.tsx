@@ -26,8 +26,8 @@ interface BrowserToolbarProps {
 /**
  * Back, forward, reload or stop, the address bar, and a way out to the
  * system browser. Every action goes to main by tab id: the page itself is
- * never touched from here. Key it by the tab, so an address being typed and a
- * held error belong to one tab only.
+ * never touched from here. Key it by the tab, as `nextToolbarMount` does, so
+ * an address being typed and a held error belong to one tab only.
  */
 export function BrowserToolbar({ tab, onOpen, instanceId, cwd }: BrowserToolbarProps) {
   const shownError = useShownError(tab);
@@ -88,7 +88,7 @@ export function BrowserToolbar({ tab, onOpen, instanceId, cwd }: BrowserToolbarP
         >
           {loading ? <X size={14} /> : <RotateCw size={14} />}
         </ToolbarButton>
-        <AddressBar address={address} onOpen={onOpen} />
+        <AddressBar tabId={tab?.id ?? null} address={address} onOpen={onOpen} />
         <ToolbarButton
           label="Open in system browser"
           disabled={!isAllowedPageUrl(address)}

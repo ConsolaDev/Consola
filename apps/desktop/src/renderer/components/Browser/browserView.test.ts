@@ -12,6 +12,7 @@ import {
   isBlankUrl,
   liveTabs,
   nextShownError,
+  nextToolbarMount,
   pageIsInert,
   pageKey,
   pagePresence,
@@ -277,6 +278,50 @@ describe('recentPages', () => {
 
   it('is empty for no history', () => {
     expect(recentPages([])).toEqual([]);
+  });
+});
+
+describe('nextToolbarMount', () => {
+  const first = nextToolbarMount(null, 's1', null);
+
+  it('keeps the toolbar while its session and tab stay', () => {
+    expect(nextToolbarMount(first, 's1', null)).toBe(first);
+    const onTab = nextToolbarMount(null, 's1', 't1');
+    expect(nextToolbarMount(onTab, 's1', 't1')).toBe(onTab);
+  });
+
+  it('keeps the toolbar of "no tab" for the session’s first tab, which may be an agent’s', () => {
+    const firstTab = nextToolbarMount(first, 's1', 't1');
+    expect(firstTab).toEqual({ sessionId: 's1', tabId: 't1', generation: first.generation });
+  });
+
+  it('mounts a new toolbar for another tab, for no tab after one, and for another session', () => {
+    const onTab = nextToolbarMount(first, 's1', 't1');
+    const another = nextToolbarMount(onTab, 's1', 't2');
+    expect(another.generation).not.toBe(onTab.generation);
+    const none = nextToolbarMount(another, 's1', null);
+    expect(none.generation).not.toBe(another.generation);
+    const elsewhere = nextToolbarMount(none, 's2', null);
+    expect(elsewhere).toMatchObject({ sessionId: 's2', tabId: null });
+    expect(elsewhere.generation).not.toBe(none.generation);
+    expect(nextToolbarMount(elsewhere, 's1', 't1').generation).not.toBe(elsewhere.generation);
+  });
+
+  it('never gives two toolbars in a row the same key, however often the tabs come and go', () => {
+    let mount = first;
+    const keys = [mount.generation];
+    for (const [session, tabId] of [
+      ['s1', 't1'],
+      ['s1', null],
+      ['s1', 't2'],
+      ['s1', null],
+      ['s2', 't3'],
+    ] as const) {
+      const next = nextToolbarMount(mount, session, tabId);
+      if (next.generation !== mount.generation) keys.push(next.generation);
+      mount = next;
+    }
+    expect(new Set(keys).size).toBe(keys.length);
   });
 });
 

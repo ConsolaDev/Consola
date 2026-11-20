@@ -161,6 +161,52 @@ test.describe('an agent’s input never takes the person’s keyboard', () => {
   });
 });
 
+test.describe('an agent’s first tab in an empty session', () => {
+  let workspace: AgentWorkspace;
+  let agent: AgentClient;
+
+  test.beforeAll(async () => {
+    workspace = await launchAgentWorkspace('Typing', ['Typing session']);
+    agent = await connectAgent(workspace.app, workspace.sessions['Typing session']);
+  });
+
+  test.afterAll(async () => {
+    await agent?.close();
+    await closeAgentWorkspace(workspace);
+  });
+
+  test('leaves what the person is typing in the address bar, and their keyboard there', async () => {
+    const { app, page } = workspace;
+    await showBrowser(page);
+    const field = page.getByRole('textbox', { name: 'Address' });
+    await field.click();
+    await page.keyboard.type('localhost:30');
+    await expect(field).toBeFocused();
+    await page.evaluate(() => {
+      (window as unknown as { __field?: Element | null }).__field = document.activeElement;
+    });
+
+    // Main shows the first tab of an empty session, whoever opened it.
+    const url = fixtures.url('/agent-act.html?t=typing');
+    const tabId = await openTab(agent, url);
+    await expect(page.locator(`.browser-tab[data-tab-id="${tabId}"]`)).toHaveAttribute(
+      'aria-selected',
+      'true',
+    );
+    await loaded(app, url);
+
+    // The same field, still holding the person's draft and their keyboard.
+    expect(
+      await page.evaluate(
+        () => document.activeElement === (window as unknown as { __field?: Element }).__field,
+      ),
+    ).toBe(true);
+    await expect(field).toHaveValue('localhost:30');
+    await page.keyboard.type('00');
+    await expect(field).toHaveValue('localhost:3000');
+  });
+});
+
 test.describe('the person comes first', () => {
   let workspace: AgentWorkspace;
   let agent: AgentClient;

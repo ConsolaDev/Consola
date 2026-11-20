@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, type KeyboardEvent } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from 'react';
 import { browserBridge } from '../../services/browserBridge';
 import { matchBrowserFocusedShortcut } from '../../../shared/shortcuts';
 import { closeFind, useBrowserFindStore } from '../../stores/browserFindStore';
@@ -7,7 +7,7 @@ import { clearAgentDot } from '../../stores/browserAgentDotStore';
 import { useBrowserPanelFocusStore } from '../../stores/browserPanelFocusStore';
 import { showBrowserSlot } from '../../stores/browserSlotStore';
 import { activeTabOf, loadBrowser, useBrowserSnapshot } from '../../stores/browserStore';
-import { isBlankUrl } from './browserView';
+import { isBlankUrl, nextToolbarMount } from './browserView';
 import { BrowserEmptyTab } from './BrowserEmptyTab';
 import { handleBrowserAction } from './handleBrowserAction';
 import { FindBar } from './FindBar';
@@ -32,6 +32,12 @@ interface BrowserPanelProps {
 export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) {
   const snapshot = useBrowserSnapshot(sessionId);
   const tab = activeTabOf(snapshot);
+
+  // One toolbar per tab, except that a session's first tab keeps the one it
+  // had with none (`nextToolbarMount`): the person may be typing in it.
+  const [mounted, setMounted] = useState(() => nextToolbarMount(null, sessionId, tab?.id ?? null));
+  const toolbar = nextToolbarMount(mounted, sessionId, tab?.id ?? null);
+  if (toolbar !== mounted) setMounted(toolbar);
 
   useEffect(() => {
     void loadBrowser(sessionId);
@@ -93,7 +99,7 @@ export function BrowserPanel({ sessionId, instanceId, cwd }: BrowserPanelProps) 
     >
       <BrowserTabStrip sessionId={sessionId} snapshot={snapshot} />
       <BrowserToolbar
-        key={`${sessionId}:${tab?.id ?? ''}`}
+        key={toolbar.generation}
         tab={tab}
         onOpen={open}
         instanceId={instanceId}

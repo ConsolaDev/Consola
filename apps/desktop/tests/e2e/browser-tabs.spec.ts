@@ -372,6 +372,31 @@ test.describe('in-app browser tabs', () => {
     await expect(newTab(page)).toBeEnabled();
   });
 
+  test('"+" puts the caret in the new tab’s address bar', async () => {
+    await openSession(page, 'Alpha');
+    await showBrowser(page);
+
+    // The session's first tab.
+    await newTab(page).click();
+    await expect(tabs(page)).toHaveCount(1);
+    await expect(address(page)).toBeFocused();
+    await page.keyboard.type(`${fixtures.host}/a.html`);
+    await page.keyboard.press('Enter');
+    await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/a.html')]);
+
+    // One beside a page, which gets a toolbar of its own.
+    await newTab(page).click();
+    await expect(tabs(page)).toHaveCount(2);
+    await expect(tabs(page).nth(1)).toHaveAttribute('aria-selected', 'true');
+    await expect(address(page)).toBeFocused();
+    await expect(address(page)).toHaveValue('');
+    await page.keyboard.type(`${fixtures.host}/b.html`);
+    await page.keyboard.press('Enter');
+    await expect
+      .poll(async () => (await tabsOf(page, ids.alpha.sessionId)).tabs.map((t) => t.url))
+      .toEqual([fixtures.url('/a.html'), fixtures.url('/b.html')]);
+  });
+
   test('with twelve tabs, "+" and the active tab stay in view, narrow or wide', async () => {
     await openSession(page, 'Alpha');
     await showBrowser(page);
