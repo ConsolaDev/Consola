@@ -1643,6 +1643,9 @@ button.shelf-header[data-empty="true"]:hover {
 }
 
 .tree-row {
+  /* The chevron's column. The conductor's row starts after it, and so do its
+     children: everything inside the tree is measured from this one width. */
+  --tree-toggle-width: 16px;
   display: flex;
   flex-direction: column;
   row-gap: 2px;
@@ -1660,7 +1663,7 @@ button.shelf-header[data-empty="true"]:hover {
   flex: none;
   align-items: center;
   justify-content: center;
-  width: 16px;
+  width: var(--tree-toggle-width);
   height: 20px;
   padding: 0;
   border: none;
@@ -1677,14 +1680,30 @@ button.shelf-header[data-empty="true"]:hover {
   outline: 1px solid var(--color-accent);
   outline-offset: -1px;
 }
+/* Children start where their conductor's row starts, past the chevron's
+   column, and their text sits one step in from its text. Starting them at the
+   list's edge instead put a child's text left of its own conductor's, level
+   with the list, so a tree whose children all stay in view (a finished tree,
+   folded to the children that finished) read as rows of the list. The line
+   down the chevron's column ties them to it once the conductor scrolls away. */
 .tree-row-children {
+  position: relative;
   display: flex;
   flex-direction: column;
   row-gap: 2px;
+  margin-left: var(--tree-toggle-width);
+}
+.tree-row-children::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(var(--tree-toggle-width) / -2);
+  width: 1px;
+  background: var(--color-border);
+  pointer-events: none;
 }
 
-/* Children sit one step in from their conductor. Padding rather than margin, so
-   hover and active backgrounds still run to the list's edge. */
 .session-nav-item--child {
   padding-left: calc(var(--sidebar-row-padding-x) + var(--space-3));
 }
@@ -1704,7 +1723,7 @@ button.shelf-header[data-empty="true"]:hover {
 
 .tree-row-more {
   align-self: flex-start;
-  margin: 0 0 0 calc(var(--sidebar-row-padding-x) + var(--space-3) + 16px);
+  margin: 0 0 0 calc(var(--tree-toggle-width) + var(--sidebar-row-padding-x) + var(--space-3));
   padding: 0 6px;
   border: 0;
   border-radius: 999px;
