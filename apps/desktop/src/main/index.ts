@@ -89,15 +89,20 @@ app.whenReady().then(() => {
   restoreWindowLayout(getKnownWorkspaceIds(), viewMemoryPort());
 
   if (process.platform === 'darwin') {
-    const menu =
-      Menu.getApplicationMenu() ??
-      Menu.buildFromTemplate([
-        { role: 'appMenu' },
-        { role: 'fileMenu' },
-        { role: 'editMenu' },
-        { role: 'viewMenu' },
-        { role: 'windowMenu' },
-      ]);
+    // Built here rather than taken from Electron's default, whose File menu
+    // binds ⌘W to Close Window. With one window open that reads as quitting
+    // Consola, so ⌘W goes to the renderer instead (closeShortcut.ts) and the
+    // window takes ⇧⌘W, as it does in a browser.
+    const menu = Menu.buildFromTemplate([
+      { role: 'appMenu' },
+      {
+        label: 'File',
+        submenu: [{ role: 'close', label: 'Close Window', accelerator: 'Shift+Command+W' }],
+      },
+      { role: 'editMenu' },
+      { role: 'viewMenu' },
+      { role: 'windowMenu' },
+    ]);
     const applicationMenu = menu.items[0]?.submenu;
     if (applicationMenu) {
       const showSettings = (section?: 'updates') => {

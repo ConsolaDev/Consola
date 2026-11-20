@@ -37,6 +37,7 @@ import type {
   WorkspaceSnapshot,
   WindowContext,
   WorkspaceView,
+  QuitShortcutState,
   ActivateWorkspaceResult,
   WorkItemLaunchResult,
   RunActionInSessionResult,
@@ -664,6 +665,9 @@ contextBridge.exposeInMainWorld('windowAPI', {
 
   onActivateSession: (callback: (sessionId: string) => void) =>
     subscribe<string>(IPC_CHANNELS.WINDOW_ACTIVATE_SESSION, callback),
+
+  onQuitShortcut: (callback: (state: QuitShortcutState) => void) =>
+    subscribe<QuitShortcutState>(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, callback),
 });
 
 // Session storage types

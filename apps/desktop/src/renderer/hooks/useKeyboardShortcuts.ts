@@ -4,6 +4,8 @@ import { useWorkspaceStore } from '../stores/workspaceStore';
 import { useEffect } from 'react';
 import { useNavigationStore } from '../stores/navigationStore';
 import { useSettingsStore } from '../stores/settingsStore';
+import { usePreviewTabStore } from '../stores/previewTabStore';
+import { closeTarget, isCloseShortcut } from '../utils/closeShortcut';
 import {
   isCommandPaletteShortcut,
   isWorkingShelfShortcut,
@@ -92,6 +94,13 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
         return;
       }
 
+      // ⌘W closes the nearest thing on screen; held, it closes one.
+      if (isCloseShortcut(event)) {
+        event.preventDefault();
+        if (!event.repeat) closeNearest();
+        return;
+      }
+
       const isMod = event.metaKey || event.ctrlKey;
 
       // Cmd/Ctrl + \ : Toggle sidebar
@@ -152,4 +161,19 @@ export function useKeyboardShortcuts(options: UseKeyboardShortcutsOptions = {}) 
     onTogglePalette,
     onOpenScopedPalette,
   ]);
+}
+
+/** Close whatever `closeTarget` names, if anything. */
+function closeNearest(): void {
+  const navigation = useNavigationStore.getState();
+  const preview = usePreviewTabStore.getState();
+  const target = closeTarget({
+    overlay: navigation.overlay,
+    activeSessionId: navigation.activeSessionId,
+    activePreviewTabId: preview.activeTabId,
+  });
+  // Leaving the overlay returns to the session it lay over, exactly as
+  // clicking that session's row does.
+  if (target === 'overlay') navigation.setActiveSession(navigation.activeSessionId);
+  else if (target === 'preview-tab' && preview.activeTabId) preview.closeTab(preview.activeTabId);
 }

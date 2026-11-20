@@ -573,4 +573,8 @@ export interface WindowAPI {
   onWorkspaceChanged: (callback: (workspaceId: string | null) => void) => () => void;
   /** A notification click chose a session; this window should show it. */
   onActivateSession: (callback: (sessionId: string) => void) => () => void;
+  /** ⌘Q went down or was let go in this window; quitting needs a hold or a second press. */
+  onQuitShortcut: (callback: (state: QuitShortcutState) => void) => () => void;
 }
+
+export type QuitShortcutState = 'down' | 'up';
