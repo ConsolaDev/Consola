@@ -5,6 +5,7 @@ import { execFileSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { MOVED_ROW_PRESS_MS } from '../../src/renderer/sidebar/shiftGuard';
 import { launchElectron } from './helpers/electron';
 
 /**
@@ -775,6 +776,32 @@ async function checkNowFromMain(sources: Sources, name = RE_REVIEW): Promise<voi
     .not.toBe(before);
 }
 
+/**
+ * Click `target` in a sidebar row once the list has left the row where it is
+ * for longer than the sidebar's shift guard holds a row it moved
+ * (`MOVED_ROW_PRESS_MS`): a press on a row that just moved, or just arrived,
+ * is dropped by design, so a click cannot land on a row that slid under it.
+ * Playwright's own "stable" is two frames, too short for that rule.
+ */
+async function clickWhenRowSettles(row: Locator, target: Locator): Promise<void> {
+  let last = '';
+  let since = Date.now();
+  await expect
+    .poll(
+      async () => {
+        const box = JSON.stringify(await row.boundingBox());
+        if (box !== last) {
+          last = box;
+          since = Date.now();
+        }
+        return Date.now() - since;
+      },
+      { intervals: [100], timeout: 15_000 },
+    )
+    .toBeGreaterThan(MOVED_ROW_PRESS_MS + 100);
+  await target.click();
+}
+
 /** The one run waiting for approval, approved from the dashboard: Review…, then Start. */
 async function approveWaiting(sources: Sources): Promise<void> {
   await closePanel(sources.page);
@@ -1074,7 +1101,9 @@ test('an agent saves a poll entry and asks for a run; approving runs that run an
     );
     if (!created) throw new Error('The session was not created.');
     expect(created.toolPolicy).toBeUndefined();
-    await page.locator('.session-nav-item', { hasText: sessionName }).click();
+    // Just arrived in the sidebar, so it takes a press only once it stays put.
+    const sessionRow = page.locator('.session-nav-item', { hasText: sessionName });
+    await clickWhenRowSettles(sessionRow, sessionRow);
 
     // Its agent made both calls: the entry saved, waiting for Allow; the run asked for, waiting.
     const toolLines = () => sources.claudeLog().filter((line) => line.startsWith('TOOL '));
@@ -1106,7 +1135,10 @@ test('an agent saves a poll entry and asks for a run; approving runs that run an
     );
 
     // Approved from its sidebar row's run page, it runs.
-    await queued.getByRole('button', { name: /waiting for your approval/ }).click();
+    await clickWhenRowSettles(
+      queued,
+      queued.getByRole('button', { name: /waiting for your approval/ }),
+    );
     await sidePanel(page)
       .getByRole('region', { name: 'Waiting for your approval' })
       .getByRole('button', { name: 'Start', exact: true })
