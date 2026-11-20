@@ -446,7 +446,7 @@ describe('fillInPage', () => {
     },
   );
 
-  it('says when a set field did not take the value', () => {
+  it('says what a set field holds when it is not what was given', () => {
     const doc = new FakeDocument();
     const date = doc.element('INPUT', 'when', {
       type: 'date',
@@ -454,8 +454,36 @@ describe('fillInPage', () => {
       tabIndex: 0,
       sanitize: (value) => (/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : ''),
     });
-    expect(fillInPage(page(date), 'tomorrow')).toEqual({ how: 'not-set', kind: 'date' });
+    expect(fillInPage(page(date), 'tomorrow')).toEqual({
+      how: 'set-other',
+      kind: 'date',
+      value: '',
+    });
     expect(fillInPage(page(date), '2026-11-20')).toEqual({ how: 'set', kind: 'date' });
+    // A colour input lowercases, a range clamps: they took it, as what they hold.
+    const colour = doc.element('INPUT', 'tint', {
+      type: 'color',
+      value: '#000000',
+      tabIndex: 0,
+      sanitize: (value) => value.toLowerCase(),
+    });
+    expect(fillInPage(page(colour), '#FF0000')).toEqual({
+      how: 'set-other',
+      kind: 'color',
+      value: '#ff0000',
+    });
+  });
+
+  it('never hands back what a password field holds', () => {
+    const doc = new FakeDocument();
+    const secret = doc.element('INPUT', 'pw', {
+      type: 'password',
+      value: '',
+      tabIndex: 0,
+      sanitize: (value) => value.slice(0, 4),
+    });
+    expect(fillInPage(page(secret), 'hunter2')).toEqual({ how: 'changed-hidden' });
+    expect(fillInPage(page(secret), 'hunt')).toEqual({ how: 'typed' });
   });
 
   it('never overwrites what the page made of the typing, and says what the field holds', () => {

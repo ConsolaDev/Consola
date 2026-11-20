@@ -139,11 +139,12 @@ function boundedOutline(outline: string): string {
 /** `text` up to `max` characters, then a sentence saying what was left out of the `what`. */
 function cut(text: string, max: number, what: string): string {
   if (text.length <= max) return text;
-  const left = text.length - max;
-  return (
-    `${text.slice(0, max)}\n` +
-    `(The ${what} was cut at ${max} of ${text.length} characters; ${left} were left out.)`
-  );
+  return `${text.slice(0, max)}\n${cutSentence(text.length, max, what)}`;
+}
+
+/** The sentence that says a text of `length` characters was cut at `max`. */
+export function cutSentence(length: number, max: number, what: string): string {
+  return `(The ${what} was cut at ${max} of ${length} characters; ${length - max} were left out.)`;
 }
 
 /**

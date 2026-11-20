@@ -515,8 +515,10 @@ describe('consola_browser_act', () => {
     [
       'a fill kind named like a property of every object',
       'fillInPage',
-      { how: 'not-set', kind: '__proto__' },
+      { how: 'set-other', kind: '__proto__', value: '' },
     ],
+    ['a set field whose value is not text', 'fillInPage', { how: 'set-other', kind: 'date' }],
+    ['a changed field whose value is not text', 'fillInPage', { how: 'changed', value: 7 }],
     ['a key outcome Consola never returns', 'pressInPage', 'ran rm -rf ~'],
   ])('never puts %s into a plain answer', async (_what, fn, answer) => {
     fakePage.answers[fn] = answer;
@@ -545,17 +547,54 @@ describe('consola_browser_act', () => {
     );
   });
 
-  it('says a field was set as a script would, and when it would not take the value', async () => {
+  it('says a field was set as a script would, and what it holds when that is not what was given', async () => {
     fakePage.answers.fillInPage = { how: 'set', kind: 'date' };
     expect(
       JSON.parse((await act({ action: 'fill', ref: 'e4', text: '2026-11-20' })).text).summary,
     ).toBe(
       "Set e4, a date field the page's editing cannot type into, to the value given, as a script would. Take a snapshot to see what changed.",
     );
-    fakePage.answers.fillInPage = { how: 'not-set', kind: 'date' };
-    expect(await act({ action: 'fill', ref: 'e4', text: 'tomorrow' })).toEqual({
-      isError: true,
-      text: 'e4 did not take that value; a date field takes a date like 2026-11-20.',
+    // A colour input lowercases what it is given: it took it, and the answer says what it holds.
+    fakePage.answers.fillInPage = { how: 'set-other', kind: 'color', value: '#ff0000' };
+    const colour = await act({ action: 'fill', ref: 'e4', text: '#FF0000' });
+    expect(colour.isError).toBe(false);
+    expect(colour.text.startsWith(`${UNTRUSTED_NOTE}\n\n`)).toBe(true);
+    expect(JSON.parse(colour.text.slice(UNTRUSTED_NOTE.length + 2))).toEqual({
+      tabId: 'mine',
+      action: 'fill',
+      ref: 'e4',
+      summary:
+        "Set e4, a color field the page's editing cannot type into, as a script would, but it holds a different value from the one given (the browser or the page normalised or refused it; a color field takes a colour like #ff0000); value is what it holds now. Take a snapshot to see what changed.",
+      value: '#ff0000',
+    });
+    expect(colour.text).not.toContain('did not take');
+    // A date field given words holds nothing: that is what the answer says.
+    fakePage.answers.fillInPage = { how: 'set-other', kind: 'date', value: '' };
+    const date = await act({ action: 'fill', ref: 'e4', text: 'tomorrow' });
+    expect(JSON.parse(date.text.slice(UNTRUSTED_NOTE.length + 2)).value).toBe('');
+  });
+
+  it('cuts what a changed field holds at 2000 characters, saying so', async () => {
+    fakePage.answers.fillInPage = { how: 'changed', value: 'x'.repeat(5_000) };
+    const result = await act({ action: 'fill', ref: 'e4', text: 'abc' });
+    const answer = JSON.parse(result.text.slice(UNTRUSTED_NOTE.length + 2));
+    expect(answer.value).toBe('x'.repeat(2_000));
+    expect(answer.summary).toBe(
+      'Typed 3 characters into e4, but the page changed what was typed; value is what the field holds now. (The value was cut at 2000 of 5000 characters; 3000 were left out.) Take a snapshot to see what changed.',
+    );
+  });
+
+  it('never tells what a password field holds when the page changed the typing', async () => {
+    fakePage.answers.fillInPage = { how: 'changed-hidden' };
+    expect(await act({ action: 'fill', ref: 'e4', text: 'hunter2' })).toEqual({
+      isError: false,
+      text: JSON.stringify({
+        tabId: 'mine',
+        action: 'fill',
+        ref: 'e4',
+        summary:
+          'Typed 7 characters into e4, but the page changed what was typed; it is a password field, so what it holds is not told. Take a snapshot to see what changed.',
+      }),
     });
   });
 

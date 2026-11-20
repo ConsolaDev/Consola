@@ -21,6 +21,7 @@ import {
 } from './browserToolAccess';
 import {
   type BrowserToolContent,
+  cutSentence,
   evaluateContent,
   firstLine,
   quoted,
@@ -125,9 +126,6 @@ function refusalMessage(reason: ActRefusal, ref: string): string {
   }
 }
 
-/** A sentence of Consola's own about what an act found, passed on as it is. */
-class ActWording extends Error {}
-
 /**
  * What an in-page function answered is the page's to shape: the page can
  * replace what the function uses. So each answer is read against what the
@@ -149,15 +147,14 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function readFillOutcome(value: unknown): FillOutcome {
   if (!isRecord(value)) throw unexpectedAnswer();
   if (value.how === 'typed') return { how: 'typed' };
+  if (value.how === 'changed-hidden') return { how: 'changed-hidden' };
   if (value.how === 'changed' && typeof value.value === 'string') {
     return { how: 'changed', value: value.value };
   }
-  if (
-    (value.how === 'set' || value.how === 'not-set') &&
-    typeof value.kind === 'string' &&
-    SET_FORMATS.has(value.kind)
-  ) {
-    return { how: value.how, kind: value.kind };
+  if (typeof value.kind !== 'string' || !SET_FORMATS.has(value.kind)) throw unexpectedAnswer();
+  if (value.how === 'set') return { how: 'set', kind: value.kind };
+  if (value.how === 'set-other' && typeof value.value === 'string') {
+    return { how: 'set-other', kind: value.kind, value: value.value };
   }
   throw unexpectedAnswer();
 }
@@ -210,7 +207,7 @@ const SET_FORMATS: ReadonlyMap<string, string> = new Map([
  * anything else as a page step's failure (`pageStepFailure`).
  */
 function actFailure(error: unknown, plan: ActPlan): Error {
-  if (error instanceof ActWording || error instanceof PageTextError) return error;
+  if (error instanceof PageTextError) return error;
   const reason = actRefusalIn(messageOf(error));
   if (reason === 'unknown') return new PageTextError([untrusted('The page refused the act.')]);
   if (reason) return new Error(refusalMessage(reason, plan.ref ?? 'The focused element'));
@@ -263,25 +260,38 @@ interface ActDone {
   value?: string;
 }
 
-/** What a fill did, in the agent's terms; throws when a set field would not take the value. */
+/** How much of what a field holds an answer carries; plenty for a field. */
+const MAX_FIELD_VALUE_CHARS = 2_000;
+
+/** What a field holds, as an answer carries it: cut, with a sentence saying so. */
+function heldValue(summary: string, value: string): ActDone {
+  if (value.length <= MAX_FIELD_VALUE_CHARS) return { summary, value };
+  return {
+    summary: `${summary} ${cutSentence(value.length, MAX_FIELD_VALUE_CHARS, 'value')}`,
+    value: value.slice(0, MAX_FIELD_VALUE_CHARS),
+  };
+}
+
+/** What a fill did, in the agent's terms. */
 function describeFill(plan: Extract<ActPlan, { action: 'fill' }>, outcome: FillOutcome): ActDone {
   const typed = `Typed ${[...plan.text].length} characters into ${plan.ref}`;
+  const changed = `${typed}, but the page changed what was typed`;
   switch (outcome.how) {
     case 'typed':
       return { summary: plan.text === '' ? `Emptied ${plan.ref}.` : `${typed}.` };
     case 'changed':
-      return {
-        summary: `${typed}, but the page changed what was typed; value is what the field holds now.`,
-        value: outcome.value,
-      };
+      return heldValue(`${changed}; value is what the field holds now.`, outcome.value);
+    case 'changed-hidden':
+      return { summary: `${changed}; it is a password field, so what it holds is not told.` };
     case 'set':
       return {
         summary: `Set ${plan.ref}, a ${outcome.kind} field the page's editing cannot type into, to the value given, as a script would.`,
       };
-    case 'not-set':
+    case 'set-other':
       // The kind is one of SET_FORMATS' (readFillOutcome), so it has a format.
-      throw new ActWording(
-        `${plan.ref} did not take that value; a ${outcome.kind} field takes ${SET_FORMATS.get(outcome.kind)}.`,
+      return heldValue(
+        `Set ${plan.ref}, a ${outcome.kind} field the page's editing cannot type into, as a script would, but it holds a different value from the one given (the browser or the page normalised or refused it; a ${outcome.kind} field takes ${SET_FORMATS.get(outcome.kind)}); value is what it holds now.`,
+        outcome.value,
       );
   }
 }

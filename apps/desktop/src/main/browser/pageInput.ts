@@ -178,14 +178,18 @@ export function clickInPage(element: Element): 'clicked' {
 /**
  * What `fill` did: typed, and the field holds exactly the text; typed, but
  * the page made something else of it (a maxlength, a mask, a number field
- * given letters), which it keeps; or, for a field editing cannot type into,
- * set the value as a script would, and whether the field took it.
+ * given letters), which it keeps, with what it holds (never for a password
+ * field: what it holds may be what the person typed); or, for a field
+ * editing cannot type into, set the value as a script would, and what the
+ * field holds when that is not the text (a colour lowercased, a range
+ * clamped, a date given words emptied).
  */
 export type FillOutcome =
   | { how: 'typed' }
   | { how: 'changed'; value: string }
+  | { how: 'changed-hidden' }
   | { how: 'set'; kind: string }
-  | { how: 'not-set'; kind: string };
+  | { how: 'set-other'; kind: string; value: string };
 
 /**
  * Replaces what a text field holds with `text`, as typing it would: focuses
@@ -225,7 +229,9 @@ export function fillInPage(element: Element, text: string): FillOutcome {
     Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, text);
     element.dispatchEvent(new view.Event('input', { bubbles: true, composed: true }));
     element.dispatchEvent(new view.Event('change', { bubbles: true }));
-    return self.value === text ? { how: 'set', kind: type } : { how: 'not-set', kind: type };
+    return self.value === text
+      ? { how: 'set', kind: type }
+      : { how: 'set-other', kind: type, value: self.value };
   }
 
   const root = element.getRootNode() as Document | ShadowRoot;
@@ -259,7 +265,8 @@ export function fillInPage(element: Element, text: string): FillOutcome {
   } else {
     doc.execCommand('insertText', false, text);
   }
-  return self.value === text ? { how: 'typed' } : { how: 'changed', value: self.value };
+  if (self.value === text) return { how: 'typed' };
+  return type === 'password' ? { how: 'changed-hidden' } : { how: 'changed', value: self.value };
 }
 
 /** A key to press in the page (`keyPress.parseKeyPress`), and where. */
