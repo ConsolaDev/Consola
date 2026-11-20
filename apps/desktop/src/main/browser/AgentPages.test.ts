@@ -17,6 +17,8 @@ class FakeBrowser implements AgentPagesBrowser {
   availability: Record<string, PageAvailability> = {};
   guests: Record<string, WebContents> = {};
   holds: Record<string, number> = {};
+  /** Tabs with a page now (shown, or kept after being shown). */
+  live = new Set<string>();
   readonly releases: string[] = [];
   private readonly watchers = new Set<(tabId: string, guest: WebContents) => void>();
 
@@ -40,6 +42,10 @@ class FakeBrowser implements AgentPagesBrowser {
     return this.guests[tabId];
   }
 
+  isLive(tabId: string): boolean {
+    return this.live.has(tabId);
+  }
+
   onGuestBound(watcher: (tabId: string, guest: WebContents) => void): () => void {
     this.watchers.add(watcher);
     return () => this.watchers.delete(watcher);
@@ -61,15 +67,48 @@ const guest = (id: number, devToolsOpen = false) =>
 
 let browser: FakeBrowser;
 let pages: AgentPages;
+let mounted: string[];
 
 beforeEach(() => {
   vi.useFakeTimers();
   browser = new FakeBrowser();
-  pages = new AgentPages(browser);
+  mounted = [];
+  pages = new AgentPages(browser, (tabId) => mounted.push(tabId));
 });
 
 afterEach(() => {
   vi.useRealTimers();
+});
+
+// Ruling PP, addendum: the load an agent's call causes is the agent's doing.
+describe('a call that mounts a page', () => {
+  it('says so as it mounts a page that was not live, before the page binds', async () => {
+    browser.availability.tab1 = 'ready';
+    const call = pages.beginToolCall('tab1');
+    expect(mounted).toEqual(['tab1']);
+    browser.bind('tab1', guest(7));
+    await call;
+    expect(mounted).toEqual(['tab1']);
+  });
+
+  it('says nothing for a page already live, bound or still binding', async () => {
+    browser.availability.tab1 = 'ready';
+    browser.live.add('tab1');
+    browser.guests.tab1 = guest(7);
+    await pages.beginToolCall('tab1');
+    browser.availability.tab2 = 'ready';
+    browser.live.add('tab2');
+    const binding = pages.beginToolCall('tab2');
+    browser.bind('tab2', guest(8));
+    await binding;
+    expect(mounted).toEqual([]);
+  });
+
+  it('says nothing for a call refused before it holds anything', async () => {
+    browser.availability.tab1 = 'blank';
+    await expect(pages.beginToolCall('tab1')).rejects.toThrow(BLANK_TAB_MESSAGE);
+    expect(mounted).toEqual([]);
+  });
 });
 
 describe('AgentPages.beginToolCall', () => {

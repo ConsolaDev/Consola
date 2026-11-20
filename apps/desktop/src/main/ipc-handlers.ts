@@ -346,7 +346,9 @@ export function setupIpcHandlers(): boolean {
   browserService = browser;
   // An agent's calls on a tab, and the Playwright connections behind them. A
   // connection ends with the page it drives.
-  const agentPages = new AgentPages(browser);
+  // A tab whose page an agent's call is what loads is in the agent's hands
+  // from that moment (Ruling PP's addendum).
+  const agentPages = new AgentPages(browser, (tabId) => personInput.noteAgentUse(tabId));
   const driver = new PageDriver({
     calls: agentPages,
     // A dialog held for an agent whose connection ended is nobody's: dismissed.

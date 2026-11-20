@@ -27,7 +27,7 @@ function refusalFor(availability: PageAvailability): string | null {
 /** What a call needs of `BrowserService`. */
 export type AgentPagesBrowser = Pick<
   BrowserService,
-  'pageAvailability' | 'holdForToolCall' | 'guestFor' | 'onGuestBound'
+  'pageAvailability' | 'holdForToolCall' | 'guestFor' | 'onGuestBound' | 'isLive'
 >;
 
 /** One agent tool call on one tab: its live page, held until `end`. */
@@ -51,7 +51,15 @@ export interface AgentCall {
  * looks, if they look.
  */
 export class AgentPages {
-  constructor(private readonly browser: AgentPagesBrowser) {}
+  /**
+   * `mounted` hears a tab whose page this call is what loads: the tab had no
+   * page live, so the load (and whatever the page does as it loads, a
+   * download included) is the agent's doing (Ruling PP's addendum).
+   */
+  constructor(
+    private readonly browser: AgentPagesBrowser,
+    private readonly mounted: (tabId: string) => void = () => {},
+  ) {}
 
   /**
    * Starts a call on a tab and resolves once its page is bound. Refuses a
@@ -68,8 +76,10 @@ export class AgentPages {
       // no DevTools.
       (this.browser.guestFor(tabId)?.isDevToolsOpened() ? DEVTOOLS_OPEN_MESSAGE : null);
     if (refusal) throw new Error(refusal);
+    const mounts = !this.browser.isLive(tabId);
     const end = this.browser.holdForToolCall(tabId);
     if (!end) throw new Error(NO_TAB_MESSAGE);
+    if (mounts) this.mounted(tabId);
     try {
       return { guest: await this.ensureLive(tabId), end };
     } catch (error) {

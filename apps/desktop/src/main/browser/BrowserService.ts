@@ -656,6 +656,11 @@ export class BrowserService {
     return this.find(tabId)?.sessionId;
   }
 
+  /** Whether the tab has a page now, or one is coming for it (it is in the live set). */
+  public isLive(tabId: string): boolean {
+    return this.pages.has(tabId);
+  }
+
   /** Whether a window shows this tab's page to the person now (its panel open on it, uncovered). */
   public isShown(tabId: string): boolean {
     return this.pages.windowShowing(tabId) !== undefined;

@@ -1056,8 +1056,10 @@ describe('agent calls', () => {
     expect(service.sessionIdForTab('tab1')).toBe('s1');
     expect(service.sessionIdForTab('nope')).toBeUndefined();
     expect(service.isShown('tab1')).toBe(false);
+    expect(service.isLive('tab1')).toBe(false);
     service.setVisible(winA, 's1', 'tab1');
     expect(service.isShown('tab1')).toBe(true);
+    expect(service.isLive('tab1')).toBe(true);
     service.setVisible(winA, null, null);
     expect(service.isShown('tab1')).toBe(false);
   });
