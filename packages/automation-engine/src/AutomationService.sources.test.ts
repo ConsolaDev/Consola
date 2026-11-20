@@ -951,6 +951,7 @@ describe('firing', () => {
     end?: (h: SourcesHarness, run: RunRecord, gate: { release?: () => void }) => Promise<void>;
   }
 
+  // biome-ignore-start lint/suspicious/noThenProperty: a row’s `then` is what the item does next; the table is never awaited.
   const STATES: Array<[string, StateRow]> = [
     [
       'needs-approval',
@@ -1083,6 +1084,7 @@ describe('firing', () => {
       },
     ],
   ];
+  // biome-ignore-end lint/suspicious/noThenProperty: end of the table above
 
   it.each(STATES)('the run on #51 is %s when its head moves', async (_state, row) => {
     let h = await watching(row.entry, row.options);
