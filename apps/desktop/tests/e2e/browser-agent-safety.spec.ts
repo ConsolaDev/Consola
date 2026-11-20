@@ -9,7 +9,7 @@ import {
   showBrowser,
 } from './helpers/agentWorkspace';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
-import { guestGuarded } from './helpers/screenGuard';
+import { expectOffScreen } from './helpers/screenGuard';
 import { type AgentClient, connectAgent } from './helpers/sessionMcp';
 import { afterNote, openTab, plainAnswer, refIn } from './helpers/toolAnswers';
 
@@ -245,7 +245,7 @@ test.describe('a page’s dialog is held for the agent, never shown', () => {
     const read = await agent.call('consola_browser_snapshot', { tabId });
     expect(read.isError, read.text).toBe(false);
     // Nothing the page raises can reach the screen before this goes on.
-    expect(await guestGuarded(app, url)).toBe(true);
+    await expectOffScreen(app, url);
     const dialog = { type: 'confirm', message: 'Delete everything?' };
 
     const raised = await agent.call('consola_browser_act', {
@@ -330,7 +330,7 @@ test.describe('a download nobody clicked', () => {
     });
     await showBrowser(page);
     await loaded(app, url);
-    expect(await guestGuarded(app, url)).toBe(true);
+    await expectOffScreen(app, url);
 
     const read = await agent.call('consola_browser_snapshot', { tabId: tab!.id });
     expect(read.isError, read.text).toBe(false);

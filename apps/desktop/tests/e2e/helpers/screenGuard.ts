@@ -1,4 +1,4 @@
-import type { ElectronApplication } from '@playwright/test';
+import { type ElectronApplication, expect } from '@playwright/test';
 
 /**
  * What keeps an end-to-end run's dialogs and downloads off the person's
@@ -16,12 +16,17 @@ export interface ScreenRecord {
 
 interface GuardGlobals {
   __screenGuard?: ScreenRecord & {
-    /** Web contents whose Electron dialog listener was swapped for the recorder. */
-    dialogsGuarded: number[];
+    /** How many `-run-dialog` listeners each web contents had as it was created, by id. */
+    dialogListenersFound: Record<number, number>;
+    /** The recorder that took the place of Electron's listener, by web contents. */
+    recorders: WeakMap<object, unknown>;
     /** Pages whose partition has the download canceller. */
     downloadsGuarded: number[];
   };
 }
+
+/** What the guard check says when Electron is not as the app's dialog takeover expects. */
+const UNEXPECTED_ELECTRON = "Electron's page dialog event is not what the app expects";
 
 export interface ScreenGuard {
   record(): Promise<ScreenRecord>;
@@ -35,7 +40,12 @@ export interface ScreenGuard {
  * - each web contents' Electron `-run-dialog` listener (the one that shows a
  *   native box) is swapped for a recorder as it is created; the app then
  *   takes the recorder over (`PageDialogs.takeOver`), so a dialog it hands
- *   "to Electron" is recorded and dismissed, never shown;
+ *   "to Electron" is recorded and dismissed, never shown. Only when Electron's
+ *   is the one listener there, which is also what the app's takeover checks:
+ *   any other count is an Electron the app was not written for, left exactly
+ *   as it is (the takeover then sees what it would in production), and the
+ *   page counts as unguarded, so no test raises a dialog on it
+ *   (`expectOffScreen`);
  * - a `will-download` listener after the app's records what the app decided
  *   and cancels the download whatever that was, so no save dialog opens;
  * - every page of the test's own Playwright gets a `dialog` listener that
@@ -49,19 +59,19 @@ export async function keepOffScreen(app: ElectronApplication): Promise<ScreenGua
     const guard: NonNullable<GuardGlobals['__screenGuard']> = {
       boxes: [],
       downloads: [],
-      dialogsGuarded: [],
+      dialogListenersFound: {},
+      recorders: new WeakMap(),
       downloadsGuarded: [],
     };
     main.__screenGuard = guard;
     const guardedPartitions = new WeakSet<Electron.Session>();
     electronApp.on('web-contents-created', (_event, contents) => {
       const events = contents as unknown as NodeJS.EventEmitter;
-      for (const listener of events.listeners('-run-dialog')) {
-        events.removeListener('-run-dialog', listener as (...args: unknown[]) => void);
-      }
-      events.on(
-        '-run-dialog',
-        (
+      const electrons = events.listeners('-run-dialog');
+      guard.dialogListenersFound[contents.id] = electrons.length;
+      if (electrons.length === 1) {
+        events.removeListener('-run-dialog', electrons[0] as (...args: unknown[]) => void);
+        const recorder = (
           details: { dialogType?: unknown; messageText?: unknown } | undefined,
           callback: (success: boolean, input: string) => void,
         ) => {
@@ -72,9 +82,10 @@ export async function keepOffScreen(app: ElectronApplication): Promise<ScreenGua
           });
           // Nobody sees it to answer it: dismissed, so the page does not wait on it.
           callback(false, '');
-        },
-      );
-      guard.dialogsGuarded.push(contents.id);
+        };
+        events.on('-run-dialog', recorder);
+        guard.recorders.set(contents, recorder);
+      }
       if (contents.getType() !== 'webview') return;
       const partition = contents.session;
       if (!guardedPartitions.has(partition)) {
@@ -111,23 +122,53 @@ export async function keepOffScreen(app: ElectronApplication): Promise<ScreenGua
 }
 
 /**
- * Whether the page at `urlPrefix` is kept from showing a dialog box and a
- * save dialog: its Electron dialog listener was swapped as it was created,
- * one listener answers its dialogs (the app's, over the recorder), and its
- * partition has the download canceller. Checked before a test raises either.
+ * Why the page at `urlPrefix` is not kept from showing a dialog box or a save
+ * dialog, or null when it is: Electron's one dialog listener was swapped for
+ * the recorder as the page was created, the app has since taken the recorder
+ * over (one listener, and not the recorder itself), and its partition has the
+ * download canceller.
  */
-export function guestGuarded(app: ElectronApplication, urlPrefix: string): Promise<boolean> {
-  return app.evaluate(({ webContents }, prefix) => {
-    const guard = (globalThis as unknown as GuardGlobals).__screenGuard;
-    const guest = webContents
-      .getAllWebContents()
-      .find((contents) => contents.getType() === 'webview' && contents.getURL().startsWith(prefix));
-    if (!guard || !guest) return false;
-    const events = guest as unknown as NodeJS.EventEmitter;
-    return (
-      guard.dialogsGuarded.includes(guest.id) &&
-      events.listenerCount('-run-dialog') === 1 &&
-      guard.downloadsGuarded.includes(guest.id)
-    );
-  }, urlPrefix);
+export function offScreenProblem(
+  app: ElectronApplication,
+  urlPrefix: string,
+): Promise<string | null> {
+  return app.evaluate(
+    ({ webContents }, args) => {
+      const guard = (globalThis as unknown as GuardGlobals).__screenGuard;
+      if (!guard) return 'The screen guard was never installed.';
+      const guest = webContents
+        .getAllWebContents()
+        .find(
+          (contents) =>
+            contents.getType() === 'webview' && contents.getURL().startsWith(args.prefix),
+        );
+      if (!guest) return `There is no page at ${args.prefix}.`;
+      const found = guard.dialogListenersFound[guest.id];
+      const recorder = guard.recorders.get(guest);
+      if (found !== 1 || !recorder) {
+        return `${args.unexpected}: the page had ${found ?? 'an unknown number of'} "-run-dialog" listeners as it was created, not Electron's one, so nothing was swapped and no dialog may be raised on it.`;
+      }
+      const now = (guest as unknown as NodeJS.EventEmitter).listeners('-run-dialog');
+      if (now.length !== 1) {
+        return `${args.unexpected}: the page has ${now.length} "-run-dialog" listeners now, not the app's one.`;
+      }
+      if (now[0] === recorder) {
+        return 'The app did not take the page\'s dialogs over (PageDialogs.takeOver): its one "-run-dialog" listener is still the recorder.';
+      }
+      if (!guard.downloadsGuarded.includes(guest.id)) {
+        return "The page's partition has no download canceller.";
+      }
+      return null;
+    },
+    { prefix: urlPrefix, unexpected: UNEXPECTED_ELECTRON },
+  );
+}
+
+/**
+ * Stops the test unless the page at `urlPrefix` is kept off the screen
+ * (`offScreenProblem`). Called before a test raises a dialog or a download.
+ */
+export async function expectOffScreen(app: ElectronApplication, urlPrefix: string): Promise<void> {
+  const problem = await offScreenProblem(app, urlPrefix);
+  expect(problem, 'the page must be kept off the screen before anything is raised').toBeNull();
 }
