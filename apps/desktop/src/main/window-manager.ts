@@ -4,6 +4,7 @@ import type { WindowContext, AutomationsRequest, WorkspaceView } from '../shared
 import { JsonStateFile } from './state/JsonStateFile';
 import { IPC_CHANNELS } from '../shared/constants';
 import { isBackgroundTest } from './test-mode';
+import { createQuitShortcut } from './quitShortcut';
 
 /**
  * The open windows, and which workspace each one holds.
@@ -96,6 +97,24 @@ export function createWindow(
     }
     return { action: 'deny' };
   });
+
+  // ⌘Q quits only when held or pressed twice (quitShortcut.ts). macOS only:
+  // elsewhere the quit chord is Ctrl+Q, which the terminal needs as a byte.
+  if (process.platform === 'darwin') {
+    const quitShortcut = createQuitShortcut({
+      notify: (state) => {
+        if (!window.isDestroyed())
+          window.webContents.send(IPC_CHANNELS.WINDOW_QUIT_SHORTCUT, state);
+      },
+      conceal: () => {
+        if (window.isDestroyed()) return;
+        if (window.isFullScreen()) window.setFullScreen(false);
+        window.setOpacity(0);
+      },
+      quit: () => app.quit(),
+    });
+    window.webContents.on('before-input-event', quitShortcut);
+  }
 
   // Captured now, not in the handler: by the time 'closed' fires Electron has
   // destroyed webContents, and reading .id off it throws — silently, because
