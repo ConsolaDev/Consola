@@ -1,7 +1,16 @@
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import type { Page } from 'playwright-core';
 import { z } from 'zod';
-import { answer, type CallerAccess, PageTextError, plain, tabIdInput } from './browserToolAccess';
+import {
+  aDialog,
+  answer,
+  type CallerAccess,
+  PageTextError,
+  plain,
+  refuseWhileDialog,
+  tabIdInput,
+  type ToolDialogs,
+} from './browserToolAccess';
 import { type BrowserToolContent, evaluateContent, untrusted } from './browserToolResults';
 import { type KeyPress, parseKeyPress } from './keyPress';
 import {
@@ -15,6 +24,7 @@ import {
   type ScrollOutcome,
   scrollInPage,
 } from './pageInput';
+import { type HeldDialog, NO_DIALOG_MESSAGE } from './PageDialogs';
 import { PAGE_CALL_TIMEOUT_MS, type PageDriver } from './PageDriver';
 import type { PersonInput } from './PersonInput';
 
@@ -22,6 +32,7 @@ import type { PersonInput } from './PersonInput';
 export interface BrowserActToolsDeps {
   driver: Pick<PageDriver, 'withPage'>;
   person: Pick<PersonInput, 'refusal' | 'beginAct'>;
+  dialogs: ToolDialogs;
 }
 
 const ACTIONS = ['click', 'fill', 'press', 'select', 'hover', 'scroll'] as const;
@@ -243,6 +254,36 @@ function pageStepFailure(error: unknown): PageTextError {
   return new PageTextError([untrusted(firstLineOf(error) || 'The step failed on the page.')]);
 }
 
+/**
+ * What `work` gives, or the dialog the page opens first. A page showing a
+ * dialog answers nothing until it is answered, so a call that waits on it
+ * returns at once with the dialog instead; `work` is left to finish whenever
+ * the dialog is answered, and its call has ended by then (`signal`).
+ */
+async function unlessDialog<T>(
+  dialogs: ToolDialogs,
+  tabId: string,
+  signal: AbortSignal,
+  work: Promise<T>,
+): Promise<{ done: T } | { dialog: HeldDialog }> {
+  work.catch(() => {});
+  return Promise.race([
+    work.then((done) => ({ done })),
+    dialogs.opened(tabId, signal).then((dialog) => ({ dialog })),
+  ]);
+}
+
+/** A dialog opened while a call ran, said after the note (its message is the page's). */
+function openedDialogContent(
+  fields: Record<string, unknown>,
+  when: string,
+  dialog: HeldDialog,
+  then: string,
+): BrowserToolContent[] {
+  const summary = `${when}, the page opened ${aDialog(dialog)} and waits for an answer; answer it with consola_browser_dialog${then}`;
+  return [untrusted(JSON.stringify({ ...fields, summary, pendingDialog: dialog }))];
+}
+
 /** Refuses within `PERSON_INPUT_GUARD_MS` of the person's input on the tab. */
 function giveWay(deps: BrowserActToolsDeps, tabId: string): void {
   const refusal = deps.person.refusal(tabId);
@@ -426,6 +467,24 @@ export function addActTools(
     },
     (args) => answer(() => waitFor(deps, access, args)),
   );
+
+  server.registerTool(
+    'consola_browser_dialog',
+    {
+      description:
+        "Answer the alert or confirm a page of your session's browser is waiting on " +
+        '(consola_browser_status lists it as pendingDialog): accept or dismiss it, with text ' +
+        'for a prompt. The page does nothing else until it is answered; one left unanswered is ' +
+        'dismissed after 60 s, and one the person presses in the tab is handed to them.',
+      inputSchema: {
+        tabId: tabIdInput,
+        action: z.enum(['accept', 'dismiss']),
+        text: z.string().optional().describe('For a prompt: the text to answer with.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: true, openWorldHint: true },
+    },
+    (args) => answer(() => answerDialog(deps, access, args)),
+  );
 }
 
 /**
@@ -440,18 +499,28 @@ async function evaluate(
   args: { tabId: string; expression: string },
 ): Promise<BrowserToolContent[]> {
   const tab = access.tab(args.tabId);
+  refuseWhileDialog(deps.dialogs, tab.id);
   giveWay(deps, tab.id);
   const endAct = deps.person.beginAct(tab.id);
   try {
-    const value = await deps.driver.withPage(tab.id, async (page) => {
+    const outcome = await deps.driver.withPage(tab.id, async (page, control) => {
       giveWay(deps, tab.id);
-      try {
-        return await page.evaluate(args.expression);
-      } catch (error) {
+      const evaluated = page.evaluate(args.expression).catch((error: unknown) => {
         throw evaluateFailure(error);
-      }
+      });
+      return unlessDialog(deps.dialogs, tab.id, control.signal, evaluated);
     });
-    return evaluateContent(value);
+    if ('dialog' in outcome) {
+      throw new PageTextError(
+        openedDialogContent(
+          { tabId: tab.id },
+          'While the expression ran',
+          outcome.dialog,
+          ". The expression's value is not known.",
+        ),
+      );
+    }
+    return evaluateContent(outcome.done);
   } finally {
     endAct();
   }
@@ -476,28 +545,58 @@ async function waitFor(
 ): Promise<BrowserToolContent[]> {
   const tab = access.tab(args.tabId);
   const plan = planWait(args);
+  refuseWhileDialog(deps.dialogs, tab.id);
   const words = waitWords(plan);
-  await deps.driver.withPage(
+  const outcome = await deps.driver.withPage(
     tab.id,
-    async (page) => {
-      if (plan.kind === 'ref' && (await page.locator(`aria-ref=${plan.ref}`).count()) === 0) {
-        throw new Error(staleRefMessage(plan.ref));
-      }
-      try {
-        await runWait(page, plan);
-      } catch (error) {
-        if (error instanceof Error && error.name === 'TimeoutError') {
-          throw new Error(
-            `Waited ${plan.timeoutMs / 1000} seconds for ${words.awaited}; it was not.`,
-          );
+    async (page, control) => {
+      const waited = (async () => {
+        if (plan.kind === 'ref' && (await page.locator(`aria-ref=${plan.ref}`).count()) === 0) {
+          throw new Error(staleRefMessage(plan.ref));
         }
-        throw pageStepFailure(error);
-      }
+        try {
+          await runWait(page, plan);
+        } catch (error) {
+          if (error instanceof Error && error.name === 'TimeoutError') {
+            throw new Error(
+              `Waited ${plan.timeoutMs / 1000} seconds for ${words.awaited}; it was not.`,
+            );
+          }
+          throw pageStepFailure(error);
+        }
+      })();
+      return unlessDialog(deps.dialogs, tab.id, control.signal, waited);
     },
     // Longer than the wait, so the wait's own timeout is what ends it.
     { deadlineMs: plan.timeoutMs + PAGE_CALL_TIMEOUT_MS },
   );
+  if ('dialog' in outcome) {
+    throw new PageTextError(
+      openedDialogContent({ tabId: tab.id }, 'While it waited', outcome.dialog, '.'),
+    );
+  }
   return plain({ tabId: tab.id, summary: words.reached });
+}
+
+async function answerDialog(
+  deps: BrowserActToolsDeps,
+  access: CallerAccess,
+  args: { tabId: string; action: 'accept' | 'dismiss'; text?: string },
+): Promise<BrowserToolContent[]> {
+  const tab = access.tab(args.tabId);
+  const pending = deps.dialogs.pendingFor(tab.id);
+  if (!pending) throw new Error(NO_DIALOG_MESSAGE);
+  if (args.text !== undefined && pending.type !== 'prompt') {
+    throw new Error(`Only a prompt dialog takes text; this one is a ${pending.type}.`);
+  }
+  const answered = deps.dialogs.answer(tab.id, args.action === 'accept', args.text);
+  // Gone between the two: the page navigated, or the wait ran out.
+  if (!answered) throw new Error(NO_DIALOG_MESSAGE);
+  const verb = args.action === 'accept' ? 'Accepted' : 'Dismissed';
+  return plain({
+    tabId: tab.id,
+    summary: `${verb} the ${answered.type} dialog. Take a snapshot to see what the page did.`,
+  });
 }
 
 async function act(
@@ -507,31 +606,34 @@ async function act(
 ): Promise<BrowserToolContent[]> {
   const tab = access.tab(args.tabId);
   const plan = planAct(args);
+  refuseWhileDialog(deps.dialogs, tab.id);
   giveWay(deps, tab.id);
   const endAct = deps.person.beginAct(tab.id);
   try {
-    const summary = await deps.driver.withPage(tab.id, async (page, control) => {
+    const outcome = await deps.driver.withPage(tab.id, async (page, control) => {
       // Mounting the page can take a while; the person may have started on it since.
       giveWay(deps, tab.id);
-      const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
-      if (element && plan.ref && (await element.count()) === 0) {
-        throw new Error(staleRefMessage(plan.ref));
-      }
-      control.signal.throwIfAborted();
-      await control.setFocusEmulation(true);
-      control.signal.throwIfAborted();
-      try {
-        return await runAct(page, plan, element);
-      } catch (error) {
-        throw actFailure(error, plan);
-      }
+      const acted = (async () => {
+        const element = plan.ref ? page.locator(`aria-ref=${plan.ref}`) : null;
+        if (element && plan.ref && (await element.count()) === 0) {
+          throw new Error(staleRefMessage(plan.ref));
+        }
+        control.signal.throwIfAborted();
+        await control.setFocusEmulation(true);
+        control.signal.throwIfAborted();
+        try {
+          return await runAct(page, plan, element);
+        } catch (error) {
+          throw actFailure(error, plan);
+        }
+      })();
+      return unlessDialog(deps.dialogs, tab.id, control.signal, acted);
     });
-    return plain({
-      tabId: tab.id,
-      action: plan.action,
-      ...(plan.ref ? { ref: plan.ref } : {}),
-      summary: `${summary} ${AFTER}`,
-    });
+    const done = { tabId: tab.id, action: plan.action, ...(plan.ref ? { ref: plan.ref } : {}) };
+    if ('dialog' in outcome) {
+      return openedDialogContent(done, 'While acting', outcome.dialog, ', then take a snapshot.');
+    }
+    return plain({ ...done, summary: `${outcome.done} ${AFTER}` });
   } finally {
     endAct();
   }

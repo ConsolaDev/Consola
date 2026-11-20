@@ -11,7 +11,14 @@ import { checkoutPathForSession, type Workspace } from '../../shared/workspace';
 import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
 import type { BrowserService } from './BrowserService';
 import { addActTools, type BrowserActToolsDeps } from './browserActTools';
-import { answer, CallerAccess, plain, tabIdInput } from './browserToolAccess';
+import {
+  answer,
+  CallerAccess,
+  plain,
+  refuseWhileDialog,
+  tabIdInput,
+  type ToolDialogs,
+} from './browserToolAccess';
 import { type BrowserToolContent, snapshotContent, statusContent } from './browserToolResults';
 import type { PageDriver } from './PageDriver';
 
@@ -37,6 +44,7 @@ export interface BrowserToolsDeps extends BrowserActToolsDeps {
   getWorkspaces(): Workspace[];
   browser: BrowserToolsBrowser;
   driver: Pick<PageDriver, 'snapshot' | 'withPage'>;
+  dialogs: ToolDialogs;
   /** Servers listening from a folder (`LocalServers.listFor`, bounded at 2 s). */
   localServers(folder: string | undefined): Promise<LocalServer[]>;
 }
@@ -71,9 +79,10 @@ export function browserTools(deps: BrowserToolsDeps): {
         {
           description:
             "Your session's browser tabs: tabId, address, title, whether it is loading, whether " +
-            "it is the tab the person's browser panel shows (active), who opened it, and whether " +
-            "an agent's call is on it now (agentActive). Also the local servers running from your " +
-            "session's folder. Loads no page.",
+            "it is the tab the person's browser panel shows (active), who opened it, whether " +
+            "an agent's call is on it now (agentActive), and a dialog its page is waiting on " +
+            '(pendingDialog; answer it with consola_browser_dialog). Also the local servers ' +
+            "running from your session's folder. Loads no page.",
           inputSchema: {},
           annotations: { readOnlyHint: true, openWorldHint: false },
         },
@@ -152,15 +161,19 @@ async function status(deps: BrowserToolsDeps, access: CallerAccess): Promise<Bro
     .localServers(checkoutPathForSession(workspace, session))
     .catch(() => []);
   return statusContent({
-    tabs: tabs.map((tab) => ({
-      tabId: tab.id,
-      url: tab.url,
-      title: tab.title,
-      loading: tab.loading,
-      active: tab.id === activeTabId,
-      openedBy: tab.openedBy,
-      agentActive: tab.agentActive,
-    })),
+    tabs: tabs.map((tab) => {
+      const pendingDialog = deps.dialogs.pendingFor(tab.id);
+      return {
+        tabId: tab.id,
+        url: tab.url,
+        title: tab.title,
+        loading: tab.loading,
+        active: tab.id === activeTabId,
+        openedBy: tab.openedBy,
+        agentActive: tab.agentActive,
+        ...(pendingDialog ? { pendingDialog } : {}),
+      };
+    }),
     localServers,
   });
 }
@@ -233,6 +246,7 @@ async function snapshot(
   args: { tabId: string; screenshot?: boolean },
 ): Promise<BrowserToolContent[]> {
   const tab = access.tab(args.tabId);
+  refuseWhileDialog(deps.dialogs, tab.id);
   const page = await deps.driver.snapshot(tab.id, { screenshot: args.screenshot ?? false });
   return snapshotContent(tab.id, page);
 }

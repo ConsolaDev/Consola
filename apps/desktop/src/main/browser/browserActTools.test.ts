@@ -14,6 +14,7 @@ import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
 import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import type { CdpRelayOptions } from './CdpRelay';
 import { UNTRUSTED_NOTE } from './browserToolResults';
+import { NO_DIALOG_MESSAGE, type HeldDialog } from './PageDialogs';
 import { type DriverRelay, PAGE_CALL_TIMEOUT_MS, PageDriver } from './PageDriver';
 import { PERSON_USING_TAB_MESSAGE, PersonInput } from './PersonInput';
 import { decideDownload } from './sessionPolicy';
@@ -160,7 +161,41 @@ class FakeBrowser implements BrowserToolsBrowser {
   reload = () => {};
 }
 
+/** Main's held dialogs, as the tools see them: one tab, opened by hand. */
+class FakeDialogs {
+  pending?: HeldDialog;
+  readonly answered: Array<[string, boolean, string | undefined]> = [];
+  private readonly heard: Array<(dialog: HeldDialog) => void> = [];
+  pendingFor(tabId: string) {
+    return tabId === 'mine' ? this.pending : undefined;
+  }
+  opened(tabId: string, signal: AbortSignal): Promise<HeldDialog> {
+    if (tabId === 'mine' && this.pending) return Promise.resolve(this.pending);
+    return new Promise((resolve) => {
+      if (tabId !== 'mine' || signal.aborted) return;
+      this.heard.push(resolve);
+      signal.addEventListener('abort', () => this.heard.splice(this.heard.indexOf(resolve), 1));
+    });
+  }
+  /** The page opens one. */
+  open(dialog: HeldDialog) {
+    this.pending = dialog;
+    for (const heard of this.heard.splice(0)) heard(dialog);
+  }
+  answer(tabId: string, accept: boolean, text?: string) {
+    const dialog = this.pendingFor(tabId);
+    if (!dialog) return undefined;
+    this.pending = undefined;
+    this.answered.push([tabId, accept, text]);
+    return dialog;
+  }
+  get listening() {
+    return this.heard.length;
+  }
+}
+
 let workspaces: Workspace[];
+let dialogs: FakeDialogs;
 let now: number;
 let person: PersonInput;
 let fakePage: FakePage;
@@ -172,6 +207,7 @@ const clients: Client[] = [];
 
 beforeEach(() => {
   log = [];
+  dialogs = new FakeDialogs();
   now = T0;
   person = new PersonInput(() => now);
   fakePage = new FakePage();
@@ -219,6 +255,7 @@ async function call(name: string, args: Record<string, unknown>, sessionId = 'w-
       browser: new FakeBrowser(),
       driver,
       person,
+      dialogs,
       localServers: async () => [],
     }),
     getWorkspaces: () => workspaces,
@@ -591,5 +628,135 @@ describe('consola_browser_wait_for', () => {
     const result = await waitFor({ ref: 'e5' });
     expect(result.isError).toBe(true);
     expect(result.text).toMatch(/^There is no element e5 on the page now/);
+  });
+});
+
+describe('a dialog on the page', () => {
+  const confirm: HeldDialog = { type: 'confirm', message: 'Delete everything?' };
+  const afterNote = (text: string) => {
+    expect(text.startsWith(`${UNTRUSTED_NOTE}\n\n`)).toBe(true);
+    return JSON.parse(text.slice(UNTRUSTED_NOTE.length + 2));
+  };
+  const blocked =
+    'The page is showing a confirm dialog and waits for an answer; answer it with consola_browser_dialog first.';
+
+  it('stops an act, an evaluate and a wait before they reach a page waiting on one', async () => {
+    dialogs.pending = confirm;
+    expect(await act({ action: 'click', ref: 'e5' })).toEqual({ isError: true, text: blocked });
+    expect(await call('consola_browser_evaluate', { tabId: 'mine', expression: '1' })).toEqual({
+      isError: true,
+      text: blocked,
+    });
+    expect(await call('consola_browser_wait_for', { tabId: 'mine', text: 'x' })).toEqual({
+      isError: true,
+      text: blocked,
+    });
+    expect(begun).toEqual([]);
+  });
+
+  it('opened by an act: the act returns at once, saying so after the note, and focus emulation goes off', async () => {
+    fakePage.locator = ((original) => (selector: string) => ({
+      ...original(selector),
+      evaluate: async (fn: (...args: never[]) => unknown) => {
+        log.push(`${fn.name} ${selector}`);
+        dialogs.open(confirm);
+        // The page stays blocked on it until it is answered.
+        return new Promise(() => {});
+      },
+    }))(fakePage.locator.bind(fakePage));
+    const result = await act({ action: 'click', ref: 'e9' });
+    expect(result.isError).toBe(false);
+    expect(afterNote(result.text)).toEqual({
+      tabId: 'mine',
+      action: 'click',
+      ref: 'e9',
+      summary:
+        'While acting, the page opened a confirm dialog and waits for an answer; answer it with consola_browser_dialog, then take a snapshot.',
+      pendingDialog: confirm,
+    });
+    expect(log.at(-1)).toBe('focus emulation off');
+    expect(dialogs.listening).toBe(0);
+  });
+
+  it('opened by an evaluate or during a wait: an error that says so, after the note', async () => {
+    fakePage.evaluate = async () => {
+      dialogs.open(confirm);
+      return new Promise(() => {});
+    };
+    const evaluated = await call('consola_browser_evaluate', {
+      tabId: 'mine',
+      expression: 'confirm("x")',
+    });
+    expect(evaluated.isError).toBe(true);
+    expect(afterNote(evaluated.text)).toEqual({
+      tabId: 'mine',
+      summary:
+        "While the expression ran, the page opened a confirm dialog and waits for an answer; answer it with consola_browser_dialog. The expression's value is not known.",
+      pendingDialog: confirm,
+    });
+
+    dialogs.pending = undefined;
+    fakePage.getByText = () => ({
+      first: () => ({
+        waitFor: async () => {
+          dialogs.open(confirm);
+          return new Promise<void>(() => {});
+        },
+      }),
+    });
+    const waited = await call('consola_browser_wait_for', { tabId: 'mine', text: 'Done' });
+    expect(waited.isError).toBe(true);
+    expect(afterNote(waited.text).summary).toBe(
+      'While it waited, the page opened a confirm dialog and waits for an answer; answer it with consola_browser_dialog.',
+    );
+  });
+});
+
+describe('consola_browser_dialog', () => {
+  const answerDialog = (args: Record<string, unknown>) =>
+    call('consola_browser_dialog', { tabId: 'mine', ...args });
+
+  it('accepts or dismisses the dialog the page is waiting on', async () => {
+    dialogs.pending = { type: 'confirm', message: 'Delete everything?' };
+    expect(JSON.parse((await answerDialog({ action: 'accept' })).text)).toEqual({
+      tabId: 'mine',
+      summary: 'Accepted the confirm dialog. Take a snapshot to see what the page did.',
+    });
+    dialogs.pending = { type: 'alert', message: 'Saved' };
+    expect(JSON.parse((await answerDialog({ action: 'dismiss' })).text).summary).toBe(
+      'Dismissed the alert dialog. Take a snapshot to see what the page did.',
+    );
+    expect(dialogs.answered).toEqual([
+      ['mine', true, undefined],
+      ['mine', false, undefined],
+    ]);
+    expect(begun).toEqual([]);
+  });
+
+  it('answers a prompt with text, and refuses text for anything else', async () => {
+    dialogs.pending = { type: 'prompt', message: 'Name?' };
+    await answerDialog({ action: 'accept', text: 'Ada' });
+    expect(dialogs.answered).toEqual([['mine', true, 'Ada']]);
+    dialogs.pending = { type: 'confirm', message: 'Sure?' };
+    expect(await answerDialog({ action: 'accept', text: 'yes' })).toEqual({
+      isError: true,
+      text: 'Only a prompt dialog takes text; this one is a confirm.',
+    });
+    expect(dialogs.pending).toBeDefined();
+  });
+
+  it('says when nothing is waiting', async () => {
+    expect(await answerDialog({ action: 'accept' })).toEqual({
+      isError: true,
+      text: NO_DIALOG_MESSAGE,
+    });
+    expect(NO_DIALOG_MESSAGE).toBe('There is no dialog open on this tab.');
+  });
+
+  it('refuses another session’s tab', async () => {
+    expect(await answerDialog({ tabId: 'theirs', action: 'accept' })).toEqual({
+      isError: true,
+      text: ANOTHER_SESSION_MESSAGE,
+    });
   });
 });

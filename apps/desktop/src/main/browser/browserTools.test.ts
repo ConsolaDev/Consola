@@ -16,6 +16,7 @@ import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
 import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
+import type { HeldDialog } from './PageDialogs';
 import { PersonInput } from './PersonInput';
 
 /** The parts of `BrowserService` the tools use: an in-memory tab list, with what was asked of it. */
@@ -118,6 +119,8 @@ let snapshot: ReturnType<
   typeof vi.fn<(tabId: string, options?: { screenshot?: boolean }) => Promise<PageSnapshot>>
 >;
 let localServers: ReturnType<typeof vi.fn<(folder: string | undefined) => Promise<LocalServer[]>>>;
+/** Dialogs main holds, by tab. */
+let held: Record<string, HeldDialog>;
 const clients: Client[] = [];
 
 beforeEach(() => {
@@ -145,6 +148,7 @@ beforeEach(() => {
   browser.add('w-1', { id: 'mine-agent', openedBy: 'agent', title: 'Agent page' });
   browser.add('w-2', { id: 'theirs', openedBy: 'agent', title: 'Not yours' });
   snapshot = vi.fn(async () => page());
+  held = {};
   localServers = vi.fn(async () => [{ port: 5173, command: 'node', url: 'http://localhost:5173' }]);
 });
 
@@ -162,6 +166,11 @@ async function clientFor(sessionId: string): Promise<Client> {
       browser,
       driver: { snapshot, withPage: vi.fn() },
       person: new PersonInput(),
+      dialogs: {
+        pendingFor: (tabId) => held[tabId],
+        opened: () => new Promise(() => {}),
+        answer: () => undefined,
+      },
       localServers,
     }),
     getWorkspaces: () => workspaces,
@@ -205,6 +214,7 @@ describe('who gets the browser tools', () => {
     expect(await toolNames('w-1')).toEqual([
       'consola_browser_act',
       'consola_browser_close',
+      'consola_browser_dialog',
       'consola_browser_evaluate',
       'consola_browser_navigate',
       'consola_browser_open',
@@ -236,6 +246,7 @@ describe('who gets the browser tools', () => {
       consola_browser_act: false,
       consola_browser_evaluate: false,
       consola_browser_wait_for: true,
+      consola_browser_dialog: false,
     });
     const destructive = Object.fromEntries(
       tools.map((tool) => [tool.name, tool.annotations?.destructiveHint]),
@@ -341,6 +352,17 @@ describe('consola_browser_status', () => {
     // The session's own checkout: here, its scope's folder.
     expect(localServers).toHaveBeenCalledWith('/repos/app');
     expect(snapshot).not.toHaveBeenCalled();
+  });
+
+  it('lists a dialog a page is waiting on, under the note, on its tab only', async () => {
+    held['mine-agent'] = { type: 'confirm', message: 'Delete everything?' };
+    const { text } = await call('w-1', 'consola_browser_status');
+    const { tabs } = afterNote(text) as { tabs: Array<Record<string, unknown>> };
+    expect(tabs.find((tab) => tab.tabId === 'mine-agent')?.pendingDialog).toEqual({
+      type: 'confirm',
+      message: 'Delete everything?',
+    });
+    expect(tabs.find((tab) => tab.tabId === 'mine-person')).not.toHaveProperty('pendingDialog');
   });
 });
 
@@ -457,6 +479,15 @@ describe('consola_browser_snapshot', () => {
   it('takes no screenshot unless asked', async () => {
     await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-person' });
     expect(snapshot).toHaveBeenCalledWith('mine-person', { screenshot: false });
+  });
+
+  it('refuses a page waiting on a dialog, which cannot be read until it is answered', async () => {
+    held['mine-agent'] = { type: 'alert', message: 'Saved' };
+    expect(await call('w-1', 'consola_browser_snapshot', { tabId: 'mine-agent' })).toMatchObject({
+      isError: true,
+      text: 'The page is showing an alert dialog and waits for an answer; answer it with consola_browser_dialog first.',
+    });
+    expect(snapshot).not.toHaveBeenCalled();
   });
 
   it("answers the driver's refusal as a tool error", async () => {

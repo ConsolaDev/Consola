@@ -40,6 +40,7 @@ import { exposeToTests, isBackgroundTest } from './test-mode';
 import { forwardGuestShortcuts } from './browser/guestShortcuts';
 import { decideDownload, gateDownloads, partitionFor } from './browser/sessionPolicy';
 import { PersonInput, watchPersonInput } from './browser/PersonInput';
+import { PageDialogs } from './browser/PageDialogs';
 import { randomUUID } from 'node:crypto';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
@@ -338,12 +339,22 @@ export function setupIpcHandlers(): boolean {
   // An agent's calls on a tab, and the Playwright connections behind them. A
   // connection ends with the page it drives.
   const agentPages = new AgentPages(browser);
-  const driver = new PageDriver({ calls: agentPages });
+  const driver = new PageDriver({
+    calls: agentPages,
+    // A dialog held for an agent whose connection ended is nobody's: dismissed.
+    disconnected: (guest) => pageDialogs.letGo(guest),
+  });
   const stopForgettingPages = browser.onGuestGone((tabId, guest) => driver.forget(tabId, guest));
   pageDriver = driver;
   // The person's input per tab, which an agent's acts give way to, and the
   // acts themselves: a download one starts is cancelled.
   const personInput = new PersonInput();
+  // A page's alerts and confirms, held for the agent while one drives it.
+  const pageDialogs = new PageDialogs({
+    tabIdFor: (guestId) => browser.tabIdForGuest(guestId),
+    isAgentConnected: (guest) => driver.isConnected(guest),
+    personIsUsing: (tabId) => personInput.refusal(tabId) !== null,
+  });
   gateDownloads((from) => {
     const tabId = from && !from.isDestroyed() ? browser.tabIdForGuest(from.id) : null;
     if (!tabId) return 'allow';
@@ -353,7 +364,7 @@ export function setupIpcHandlers(): boolean {
     }
     return decision;
   });
-  exposeToTests('browserAgent', { calls: agentPages, driver, personInput });
+  exposeToTests('browserAgent', { calls: agentPages, driver, personInput, pageDialogs });
   // Watch each page from the moment it attaches: the renderer binds it only
   // after dom-ready, when its first load may already have finished or failed.
   // Here rather than in `secureGuest` because only an accepted guest has a
@@ -362,10 +373,15 @@ export function setupIpcHandlers(): boolean {
     browser.noteAttached(guest, guestId);
     browser.guardGuest(guest, window, workspaceId, guestId);
     forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
+    pageDialogs.takeOver(guest, guestId);
     watchPersonInput(
       guest,
       () => browser.tabIdForGuest(guestId),
-      (tabId) => personInput.noteInput(tabId),
+      (tabId) => {
+        personInput.noteInput(tabId);
+        // A page waiting on a dialog held for the agent looks frozen: it is the person's now.
+        pageDialogs.handToPerson(tabId);
+      },
     );
     installPopupPolicy(guest, {
       host: window,
@@ -1790,6 +1806,7 @@ export function setupIpcHandlers(): boolean {
     browser,
     driver,
     person: personInput,
+    dialogs: pageDialogs,
     localServers: (folder) => localServers.listFor(folder),
   });
 

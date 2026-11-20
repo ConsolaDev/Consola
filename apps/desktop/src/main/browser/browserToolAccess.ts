@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { BrowserTabSnapshot } from '../../shared/browser';
 import type { Session, Workspace } from '../../shared/workspace';
 import type { BrowserService } from './BrowserService';
+import type { HeldDialog, PageDialogs } from './PageDialogs';
 import type { BrowserToolContent } from './browserToolResults';
 
 /**
@@ -72,6 +73,27 @@ export class CallerAccess {
       .tabs.find((candidate) => candidate.id === tabId);
     if (!tab) throw new Error(ANOTHER_SESSION_MESSAGE);
     return tab;
+  }
+}
+
+/** What the tools need of the dialogs main holds for the agent. */
+export type ToolDialogs = Pick<PageDialogs, 'pendingFor' | 'opened' | 'answer'>;
+
+/** "an alert dialog", "a confirm dialog", "a prompt dialog". */
+export function aDialog(dialog: HeldDialog): string {
+  return `${dialog.type === 'alert' ? 'an' : 'a'} ${dialog.type} dialog`;
+}
+
+/**
+ * Refuses a call on a page that is waiting on an answer to a dialog: until
+ * it has one, the page answers nothing else, so the call would only wait.
+ */
+export function refuseWhileDialog(dialogs: ToolDialogs, tabId: string): void {
+  const pending = dialogs.pendingFor(tabId);
+  if (pending) {
+    throw new Error(
+      `The page is showing ${aDialog(pending)} and waits for an answer; answer it with consola_browser_dialog first.`,
+    );
   }
 }
 

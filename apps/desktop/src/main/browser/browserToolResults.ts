@@ -1,5 +1,6 @@
 import type { ImageContent, TextContent } from '@modelcontextprotocol/sdk/types.js';
 import type { BrowserTab, LocalServer } from '../../shared/browser';
+import type { HeldDialog } from './PageDialogs';
 import type { PageSnapshot } from './PageDriver';
 
 /**
@@ -38,6 +39,8 @@ export interface StatusTab {
   openedBy: BrowserTab['openedBy'];
   /** An agent's call is on it right now. */
   agentActive: boolean;
+  /** A dialog the page is waiting on an answer to (`consola_browser_dialog`). */
+  pendingDialog?: HeldDialog;
 }
 
 export interface BrowserStatus {
