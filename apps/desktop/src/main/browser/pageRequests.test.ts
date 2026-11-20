@@ -42,6 +42,8 @@ const requests: Array<[string, unknown[], unknown[] | null]> = [
   ['select-client-certificate', ['https://example.com/', [{ subjectName: 'Me' }]], []],
   // A Bluetooth device: none, rather than the first that matches.
   ['select-bluetooth-device', [[{ deviceId: 'nearby', deviceName: 'Phone' }]], ['']],
+  // A page's `beforeunload`: ignored, so the page goes, rather than kept with no word.
+  ['will-prevent-unload', [], null],
 ];
 
 describe.each(installers)('%s', (_who, install) => {

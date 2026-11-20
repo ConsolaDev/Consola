@@ -28,8 +28,8 @@ export interface PopupOwner {
  * outside the app's own, so nothing but this list stands between a session
  * ending and a page of it staying on screen.
  *
- * Closing is `destroy()`, not `close()`: a page's `beforeunload` can veto a
- * close, and a popup whose owner is gone must go regardless.
+ * Closing is `destroy()`, not `close()`: a popup whose owner is gone must go
+ * at once, without waiting on its page to unload.
  */
 export class PopupRegistry {
   private readonly open = new Map<PopupHandle, PopupOwner>();
@@ -214,8 +214,8 @@ function closeOnCloseShortcut(popup: BrowserWindow): void {
     const decision = decideGuestShortcut(input);
     if (decision?.action.kind !== 'close') return;
     event.preventDefault();
-    // As the window's own close button would: the page's `beforeunload` may
-    // still keep it open.
+    // As the window's own close button would; the page's `beforeunload`
+    // cannot keep it open (`refusePageRequests`).
     if (decision.send && !popup.isDestroyed()) popup.close();
   });
 }
