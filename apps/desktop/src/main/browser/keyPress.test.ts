@@ -69,10 +69,18 @@ describe('parseKeyPress', () => {
     expect(parseKeyPress('Alt+x').text).toBeUndefined();
   });
 
-  it.each([[''], ['Foo'], ['Control+'], ['Super+a'], ['ab'], ['Shift']])(
-    'refuses %j, saying what it takes',
-    (spec) => {
-      expect(() => parseKeyPress(spec)).toThrow(/Use a key name such as Enter/);
-    },
-  );
+  it.each([
+    [''],
+    ['Foo'],
+    ['Control+'],
+    ['Super+a'],
+    ['ab'],
+    ['Shift'],
+    ['__proto__'],
+    ['constructor'],
+    ['toString'],
+    ['Control+hasOwnProperty'],
+  ])('refuses %j, saying what it takes', (spec) => {
+    expect(() => parseKeyPress(spec)).toThrow(/Use a key name such as Enter/);
+  });
 });

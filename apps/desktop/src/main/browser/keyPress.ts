@@ -21,27 +21,36 @@ export interface KeyPress {
   text?: string;
 }
 
-const NAMED_KEYS: Record<string, { key: string; code: string; keyCode: number; text?: string }> = {
-  enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
-  tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
-  escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
-  esc: { key: 'Escape', code: 'Escape', keyCode: 27 },
-  backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
-  delete: { key: 'Delete', code: 'Delete', keyCode: 46 },
-  del: { key: 'Delete', code: 'Delete', keyCode: 46 },
-  insert: { key: 'Insert', code: 'Insert', keyCode: 45 },
-  space: { key: ' ', code: 'Space', keyCode: 32, text: ' ' },
-  arrowup: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
-  arrowdown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
-  arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
-  arrowright: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
-  home: { key: 'Home', code: 'Home', keyCode: 36 },
-  end: { key: 'End', code: 'End', keyCode: 35 },
-  pageup: { key: 'PageUp', code: 'PageUp', keyCode: 33 },
-  pagedown: { key: 'PageDown', code: 'PageDown', keyCode: 34 },
-};
-for (let n = 1; n <= 12; n++)
-  NAMED_KEYS[`f${n}`] = { key: `F${n}`, code: `F${n}`, keyCode: 111 + n };
+type NamedKey = { key: string; code: string; keyCode: number; text?: string };
+
+/**
+ * The keys an agent can name, by their lower-case name. A map, not an
+ * object, so a name such as `__proto__` or `constructor` finds nothing.
+ */
+const NAMED_KEYS = new Map<string, NamedKey>(
+  Object.entries({
+    enter: { key: 'Enter', code: 'Enter', keyCode: 13 },
+    tab: { key: 'Tab', code: 'Tab', keyCode: 9 },
+    escape: { key: 'Escape', code: 'Escape', keyCode: 27 },
+    esc: { key: 'Escape', code: 'Escape', keyCode: 27 },
+    backspace: { key: 'Backspace', code: 'Backspace', keyCode: 8 },
+    delete: { key: 'Delete', code: 'Delete', keyCode: 46 },
+    del: { key: 'Delete', code: 'Delete', keyCode: 46 },
+    insert: { key: 'Insert', code: 'Insert', keyCode: 45 },
+    space: { key: ' ', code: 'Space', keyCode: 32, text: ' ' },
+    arrowup: { key: 'ArrowUp', code: 'ArrowUp', keyCode: 38 },
+    arrowdown: { key: 'ArrowDown', code: 'ArrowDown', keyCode: 40 },
+    arrowleft: { key: 'ArrowLeft', code: 'ArrowLeft', keyCode: 37 },
+    arrowright: { key: 'ArrowRight', code: 'ArrowRight', keyCode: 39 },
+    home: { key: 'Home', code: 'Home', keyCode: 36 },
+    end: { key: 'End', code: 'End', keyCode: 35 },
+    pageup: { key: 'PageUp', code: 'PageUp', keyCode: 33 },
+    pagedown: { key: 'PageDown', code: 'PageDown', keyCode: 34 },
+  } satisfies Record<string, NamedKey>),
+);
+for (let n = 1; n <= 12; n++) {
+  NAMED_KEYS.set(`f${n}`, { key: `F${n}`, code: `F${n}`, keyCode: 111 + n });
+}
 
 type Modifier = 'ctrlKey' | 'shiftKey' | 'altKey' | 'metaKey';
 
@@ -107,8 +116,8 @@ export function parseKeyPress(spec: string, platform: string = process.platform)
     if (!modifier) refuse();
     else held[modifier] = true;
   }
-  const named = NAMED_KEYS[name.toLowerCase()];
-  let base: { key: string; code: string; keyCode: number; text?: string };
+  const named = NAMED_KEYS.get(name.toLowerCase());
+  let base: NamedKey;
   if (named && name.length > 1) base = named;
   else if ([...name].length === 1) {
     const character = held.shiftKey && /^[a-z]$/.test(name) ? name.toUpperCase() : name;
