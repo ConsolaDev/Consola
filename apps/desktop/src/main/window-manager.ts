@@ -12,7 +12,7 @@ import {
   forgetConsolaContents,
   registerConsolaContents,
 } from './windowRegistry';
-import { createQuitShortcut } from './quitShortcut';
+import { attachQuitGuard, createQuitShortcut } from './quitShortcut';
 
 const DEV_SERVER_ORIGIN = 'http://localhost:5173';
 
@@ -185,16 +185,17 @@ export function createWindow(
 
 /**
  * Holds ⌘Q back in `contents` by `window`'s own guard: a page the window
- * shows, or a popup one of its pages opened. Whatever has the keyboard gets
+ * shows, a popup one of its pages opened, or a page's DevTools window. Whatever has the keyboard gets
  * the key on its own web contents, so without this the window's guard never
  * sees it and the menu's Quit takes one press. One guard for all of them, so
  * a second press counts wherever the first one landed, and the hint shows in
  * the window.
  */
 export function shareQuitGuard(window: BrowserWindow, contents: WebContents): void {
-  if (window.isDestroyed()) return;
+  if (window.isDestroyed() || contents.isDestroyed()) return;
   const guard = quitGuards.get(window.webContents.id);
-  if (guard) contents.on('before-input-event', guard);
+  // Once per contents, however often it is handed over (`attachQuitGuard`).
+  if (guard) attachQuitGuard(contents, guard);
 }
 
 /** Which workspace a window holds, or undefined if it is not in the registry. */

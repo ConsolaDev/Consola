@@ -167,3 +167,26 @@ export function createQuitShortcut(
     timer = setTimeout(release, QUIT_HOLD_MS + RELEASE_GRACE_MS);
   };
 }
+
+/** What `attachQuitGuard` needs of a web contents. */
+interface GuardedContents {
+  on(event: 'before-input-event', listener: ReturnType<typeof createQuitShortcut>): unknown;
+}
+
+/** The web contents a guard is on already. */
+const guardedContents = new WeakSet<object>();
+
+/**
+ * Puts a window's guard on another web contents (a page it shows, a popup, a
+ * page's DevTools), once. A second attach would run the guard twice for one
+ * key: the second run would read the first as a press just before, and one
+ * ⌘Q would quit.
+ */
+export function attachQuitGuard(
+  contents: GuardedContents,
+  guard: ReturnType<typeof createQuitShortcut>,
+): void {
+  if (guardedContents.has(contents)) return;
+  guardedContents.add(contents);
+  contents.on('before-input-event', guard);
+}

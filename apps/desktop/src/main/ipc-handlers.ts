@@ -423,6 +423,12 @@ export function setupIpcHandlers(): boolean {
     browser.guardGuest(guest, window, workspaceId, guestId);
     forwardGuestShortcuts(guest, window, () => browser.tabIdForGuest(guestId));
     shareQuitGuard(window, guest);
+    // A page's DevTools open in a window of their own, which has the keyboard
+    // when the person types there: ⌘Q is held back there too.
+    guest.on('devtools-opened', () => {
+      const devTools = guest.devToolsWebContents;
+      if (devTools) shareQuitGuard(window, devTools);
+    });
     pageDialogs.takeOver(guest, guestId);
     watchPersonInput(
       guest,

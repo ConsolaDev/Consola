@@ -106,9 +106,11 @@ export interface PopupPolicyDeps {
   hidden?: boolean;
   /**
    * Holds ⌘Q back in the popup by the host window's own guard, so the popup
-   * is no way around it (macOS; elsewhere there is no guard to share).
+   * is no way around it (macOS; elsewhere there is no guard to share, and it
+   * does nothing). Required: a caller that left it out would leave popups
+   * unguarded without a word.
    */
-  guardQuit?(contents: WebContents): void;
+  guardQuit(contents: WebContents): void;
 }
 
 /**
@@ -207,7 +209,7 @@ export function installPopupPolicy(guest: WebContents, deps: PopupPolicyDeps): v
         });
         openPopup = popup;
         hardenPopup(popup, deps.certificates, deps.workspaceId);
-        deps.guardQuit?.(popup.webContents);
+        deps.guardQuit(popup.webContents);
         closeOnCloseShortcut(popup);
         const owner: PopupOwner = {
           sessionId,
