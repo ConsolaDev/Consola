@@ -10,6 +10,7 @@ import {
 import { checkoutPathForSession, type Workspace } from '../../shared/workspace';
 import { BLANK_TAB_MESSAGE, NO_TAB_MESSAGE } from './AgentPages';
 import type { BrowserService } from './BrowserService';
+import { addActTools, type BrowserActToolsDeps } from './browserActTools';
 import { answer, CallerAccess, plain, tabIdInput } from './browserToolAccess';
 import { type BrowserToolContent, snapshotContent, statusContent } from './browserToolResults';
 import type { PageDriver } from './PageDriver';
@@ -32,10 +33,10 @@ export type BrowserToolsBrowser = Pick<
   | 'reload'
 >;
 
-export interface BrowserToolsDeps {
+export interface BrowserToolsDeps extends BrowserActToolsDeps {
   getWorkspaces(): Workspace[];
   browser: BrowserToolsBrowser;
-  driver: Pick<PageDriver, 'snapshot'>;
+  driver: Pick<PageDriver, 'snapshot' | 'withPage'>;
   /** Servers listening from a folder (`LocalServers.listFor`, bounded at 2 s). */
   localServers(folder: string | undefined): Promise<LocalServer[]>;
 }
@@ -137,6 +138,8 @@ export function browserTools(deps: BrowserToolsDeps): {
         },
         (args) => answer(() => close(deps, access, args)),
       );
+
+      addActTools(server, deps, access);
     },
   };
 }

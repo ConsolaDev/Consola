@@ -16,6 +16,7 @@ import { ANOTHER_SESSION_MESSAGE } from './browserToolAccess';
 import { browserTools, type BrowserToolsBrowser } from './browserTools';
 import { UNTRUSTED_NOTE } from './browserToolResults';
 import type { PageSnapshot } from './PageDriver';
+import { PersonInput } from './PersonInput';
 
 /** The parts of `BrowserService` the tools use: an in-memory tab list, with what was asked of it. */
 class FakeBrowser implements BrowserToolsBrowser {
@@ -159,7 +160,8 @@ async function clientFor(sessionId: string): Promise<Client> {
     browserTools: browserTools({
       getWorkspaces: () => workspaces,
       browser,
-      driver: { snapshot },
+      driver: { snapshot, withPage: vi.fn() },
+      person: new PersonInput(),
       localServers,
     }),
     getWorkspaces: () => workspaces,
@@ -199,8 +201,9 @@ function afterNote(text: string): unknown {
 }
 
 describe('who gets the browser tools', () => {
-  it('gives an ordinary session the five tools', async () => {
+  it('gives an ordinary session the browser tools', async () => {
     expect(await toolNames('w-1')).toEqual([
+      'consola_browser_act',
       'consola_browser_close',
       'consola_browser_navigate',
       'consola_browser_open',
@@ -217,7 +220,7 @@ describe('who gets the browser tools', () => {
     expect(await toolNames('o-1')).toEqual([]);
   });
 
-  it('marks only status and snapshot as reading', async () => {
+  it('marks only status and snapshot as reading, and the acts as able to destroy', async () => {
     const { tools } = await (await clientFor('w-1')).listTools();
     const hints = Object.fromEntries(
       tools.map((tool) => [tool.name, tool.annotations?.readOnlyHint]),
@@ -228,7 +231,12 @@ describe('who gets the browser tools', () => {
       consola_browser_open: false,
       consola_browser_navigate: false,
       consola_browser_close: false,
+      consola_browser_act: false,
     });
+    const destructive = Object.fromEntries(
+      tools.map((tool) => [tool.name, tool.annotations?.destructiveHint]),
+    );
+    expect(destructive).toMatchObject({ consola_browser_act: true });
   });
 });
 

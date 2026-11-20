@@ -1789,6 +1789,7 @@ export function setupIpcHandlers(): boolean {
     getWorkspaces: () => workspaces.getAll(),
     browser,
     driver,
+    person: personInput,
     localServers: (folder) => localServers.listFor(folder),
   });
 

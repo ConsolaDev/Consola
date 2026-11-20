@@ -94,7 +94,9 @@ async function unseenTab(page: Page, seeded: Seeded): Promise<string> {
 
 /** The part of Playwright's page in main these tests use. */
 interface DriverPage {
-  locator(selector: string): { click(options?: { timeout?: number }): Promise<void> };
+  locator(selector: string): {
+    evaluate(pageFunction: (element: unknown) => unknown): Promise<unknown>;
+  };
   waitForFunction(
     expression: string,
     arg?: unknown,
@@ -220,21 +222,30 @@ function pageHasFocus(app: ElectronApplication, urlPrefix: string): Promise<bool
   }, urlPrefix);
 }
 
-/** Clicks the element an outline's ref names, through the driver, as an agent's act would; the error, if any. */
+/**
+ * Clicks the element an outline's ref names, through the driver, as an
+ * agent's act does: inside the page, with the act's own function from main's
+ * build (the relay refuses a press through the browser). The error, if any.
+ */
 function clickRef(app: ElectronApplication, tabId: string, ref: string): Promise<string | null> {
   return app.evaluate(
     async (_electron, args) => {
       const { driver } = (globalThis as unknown as MainGlobals).__consolaTest.browserAgent;
+      const mainModule = process.mainModule;
+      if (!mainModule) throw new Error('main has no module to load the act from');
+      const { clickInPage } = mainModule.require(args.pageInput) as {
+        clickInPage: (element: unknown) => unknown;
+      };
       try {
         await driver.withPage(args.tabId, (page) =>
-          page.locator(`aria-ref=${args.ref}`).click({ timeout: 5_000 }),
+          page.locator(`aria-ref=${args.ref}`).evaluate(clickInPage),
         );
         return null;
       } catch (error) {
         return error instanceof Error ? error.message : String(error);
       }
     },
-    { tabId, ref },
+    { tabId, ref, pageInput: path.join(__dirname, '../../dist/main/main/browser/pageInput.js') },
   );
 }
 
@@ -400,7 +411,7 @@ test.describe('an agent call on a page', () => {
     expect(again.consoleErrors).toEqual([]);
     expect(again.failedRequests).toEqual([]);
 
-    // Inert keeps the person out, not the agent: its input still reaches the page.
+    // Inert keeps the person out, not the agent: its act still reaches the page.
     const greet = seen.outline?.match(/button "Greet" \[ref=(e\d+)\]/)?.[1] ?? '';
     expect(await clickRef(app, tabId, greet)).toBeNull();
     // "Hi, " with an empty name, which Chromium trims.
