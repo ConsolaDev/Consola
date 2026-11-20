@@ -55,7 +55,8 @@ function firstLineOf(error: unknown): string {
  * A step on the page that failed, for any reason but one these tools word
  * themselves: its first line only, after the untrusted note. Playwright's text
  * echoes the page's (an exception's message, a selector, the markup its call
- * log quotes), and the agent reading it has a shell (Invariant 7).
+ * log quotes), and the agent reading it has a shell: page text must never
+ * pass for Consola's.
  */
 export function pageStepFailure(error: unknown): PageTextError {
   return new PageTextError([untrusted(firstLineOf(error) || 'The step failed on the page.')]);

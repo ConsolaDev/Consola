@@ -163,7 +163,11 @@ const COOKIE_COMMANDS = new Set([
   'Network.clearBrowserCookies',
 ]);
 
-/** Invariant 6 (agent input never focuses anything), and closing a tab is Consola's. */
+/**
+ * Bringing the page to the front would take the window's focus from the
+ * person, and closing or crashing it is Consola's to do, never the agent's
+ * through the page.
+ */
 const PERSON_PAGE_COMMANDS = new Set(['Page.bringToFront', 'Page.close', 'Page.crash']);
 
 /** The Target commands a page's sessions keep, each checked further against what the relay knows. */
@@ -180,13 +184,14 @@ function carriesFiles(params: Record<string, unknown>): boolean {
 }
 
 /**
- * Invariant 6, as Task 19's runs found it on a `<webview>` guest. Chromium
- * hands a guest's CDP keys and text to whatever the WINDOW has focused (the
- * person's terminal, when it has the keyboard: the probe typed into it), and
- * a trusted press (a mouse button, a touch, a tap) makes the page the
- * window's focused element, taking the keyboard from the person. Only moving
- * the mouse and turning the wheel, with no button held, leave both alone, so
- * the agent's acts press and type inside the page itself instead.
+ * Agent input must never take the person's keyboard or the window's focus,
+ * and on a `<webview>` guest both are at stake. Chromium hands a guest's CDP
+ * keys and text to whatever the WINDOW has focused (the person's terminal,
+ * when it has the keyboard: seen typed there on Electron 43), and a trusted
+ * press (a mouse button, a touch, a tap) makes the page the window's focused
+ * element, taking the keyboard from the person. Only moving the mouse and
+ * turning the wheel, with no button held, leave both alone, so the agent's
+ * acts press and type inside the page itself instead.
  */
 function inputRefusal(method: string, params: Record<string, unknown>): string | undefined {
   if (TYPING_COMMANDS.has(method)) {
@@ -275,7 +280,7 @@ const UNKNOWN_REASON = 'the browser tools never send it, so it is not passed on'
 const SCRIPT_COMMANDS = new Set(['Runtime.evaluate', 'Runtime.callFunctionOn']);
 
 /**
- * Ruling MM: an agent's script never carries a user gesture. Playwright runs
+ * An agent's script never carries a user gesture. Playwright runs
  * every page function with `userGesture: true`, which hands it transient user
  * activation: a click it dispatches could then open a file or colour chooser
  * over the person's window, ask for fullscreen, or anything else a page
@@ -304,7 +309,8 @@ export function refusalOnPage(method: string, params: Record<string, unknown>): 
   if (APP_WIDE_MEMORY_COMMANDS.has(method)) return 'it acts on the whole app, not this tab';
   if (COOKIE_COMMANDS.has(method)) return 'it reaches every site’s cookies in the workspace';
   if (method === 'Page.setDownloadBehavior') return 'where downloads go is Consola’s to decide';
-  // Ruling P: no agent file uploads in this version.
+  // No files reach a page from an agent: a file it handed over could be any
+  // the person's account can read.
   if (
     method === 'DOM.setFileInputFiles' ||
     (method === 'Input.dispatchDragEvent' && carriesFiles(params))
@@ -313,7 +319,7 @@ export function refusalOnPage(method: string, params: Record<string, unknown>): 
   }
   if (PERSON_PAGE_COMMANDS.has(method)) return 'the page is the person’s to focus and close';
   if (domain === 'Input') return inputRefusal(method, params);
-  // Ruling Q: the same rule as an address the person types. Main's own
+  // The same rule as an address the person types: web pages only. Main's own
   // navigation check stays as the other wall.
   if (
     method === 'Page.navigate' &&

@@ -15,7 +15,7 @@ export interface AgentMoveDeps {
  * Runs an agent's move of one of its session's tabs (an address, back,
  * forward or reload) and returns what `move` gives.
  *
- * Moving a tab is using it (Ruling DD), even the person's own and even the
+ * Moving a tab is using it, even the person's own and even the
  * one they are looking at, so the move marks the tab as any call does
  * (`agentActive`): the strip shows the marker, and a window not showing the
  * session dots its globe. The mark mounts nothing. A tab with no page only
@@ -24,8 +24,8 @@ export interface AgentMoveDeps {
  * `did-stop-loading`), or goes, and at most `CALL_DEADLINE_MS`, like any
  * call. Nothing is focused.
  *
- * Before anything loads, the move takes the tab into the agent's hands
- * (Ruling PP): a download its page starts, whenever it loads and however
+ * Before anything loads, the move takes the tab into the agent's hands: a
+ * download its page starts, whenever it loads and however
  * long after, is cancelled until the person next presses in the tab
  * (`decideDownload`).
  */

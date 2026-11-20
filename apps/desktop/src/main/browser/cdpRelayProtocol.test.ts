@@ -187,7 +187,7 @@ describe('page commands', () => {
     const { command, written } = await announced(send);
     command(5, 'Runtime.evaluate', { expression: '1+1' }, PAGE_SESSION_ID);
     await settle();
-    // With its user gesture taken off (Ruling MM).
+    // With its user gesture taken off: an agent's script opens no chooser.
     expect(send).toHaveBeenCalledWith(
       'Runtime.evaluate',
       { expression: '1+1', userGesture: false },
@@ -265,7 +265,7 @@ describe('page commands', () => {
 // Chromium answers the page's own debugger session for far more than the page:
 // it lists every target in the app, Consola's own window included, attaches to
 // any of them, and sets where downloads go. So the page's sessions get only
-// what drives the page itself (reviewer's escape.js and files.js probes).
+// what drives the page itself.
 describe('what the page’s own sessions may not do', () => {
   const sessions = [PAGE_SESSION_ID, CHILD];
 
@@ -420,7 +420,7 @@ describe('what the page’s own sessions may not do', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  // Ruling P: no agent file uploads in this version.
+  // No files reach a page from an agent.
   it('never hands a local file to the page', async () => {
     await refusedOnBoth('DOM.setFileInputFiles', { files: ['/etc/hosts'], nodeId: 3 });
     await refusedOnBoth('Input.dispatchDragEvent', {
@@ -448,10 +448,11 @@ describe('what the page’s own sessions may not do', () => {
     });
   });
 
-  // Invariant 6. Chromium hands a guest's CDP keys and text to whatever the
-  // window has focused (the person's terminal, when it has the keyboard), and
-  // a trusted press makes the page the window's focused element: Task 19's
-  // probes saw both. Only moving the mouse and the wheel are input-free.
+  // Agent input must never take the person's keyboard: Chromium hands a
+  // guest's CDP keys and text to whatever the window has focused (the
+  // person's terminal, when it has the keyboard), and a trusted press makes
+  // the page the window's focused element. Only moving the mouse and the
+  // wheel are input-free.
   it.each([
     ['Input.dispatchKeyEvent', { type: 'keyDown', key: 'a', text: 'a' }],
     ['Input.insertText', { text: 'rm -rf ~' }],
@@ -487,7 +488,7 @@ describe('what the page’s own sessions may not do', () => {
     await refusedOnBoth(method, params);
   });
 
-  // Ruling MM: an agent's script never carries a user gesture, so nothing it
+  // An agent's script never carries a user gesture, so nothing it
   // runs can open a file or colour chooser, go fullscreen, or anything else a
   // page allows only on a real press.
   it.each([['Runtime.evaluate'], ['Runtime.callFunctionOn']])(
@@ -551,7 +552,7 @@ describe('what the page’s own sessions may not do', () => {
     expect(send).toHaveBeenCalledTimes(2);
   });
 
-  // Task 16 re-review: these three act on every process of the app, not on the page.
+  // These three act on every process of the app, not on the page.
   it.each([
     ['Memory.simulatePressureNotification', { level: 'critical' }],
     ['Memory.setPressureNotificationsSuppressed', { suppressed: true }],
@@ -560,7 +561,8 @@ describe('what the page’s own sessions may not do', () => {
     await refusedOnBoth(method, params);
   });
 
-  // Invariant 6, and closing a tab is Consola's, never the agent's through the page.
+  // Bringing the page to the front would take the window's focus, and closing
+  // a tab is Consola's, never the agent's through the page.
   it.each([['Page.bringToFront'], ['Page.close'], ['Page.crash']])(
     'refuses %s on the person’s page',
     async (method) => {
@@ -568,7 +570,7 @@ describe('what the page’s own sessions may not do', () => {
     },
   );
 
-  // Ruling Q: the same rule as an address the person types; main's
+  // The same rule as an address the person types; main's
   // did-start-navigation check stays as the other wall.
   it.each([
     ['file:///etc/hosts'],

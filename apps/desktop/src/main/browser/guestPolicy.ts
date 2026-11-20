@@ -222,7 +222,8 @@ export function installGuestPolicy(
         delete (webPreferences as Record<string, unknown>)[key];
     }
     Object.assign(webPreferences, allowed);
-    // Also set on params: the attribute is read from there too.
+    // The element's `preload` attribute reaches Electron through `params`,
+    // not the preferences: taken off there too.
     delete (params as { preload?: string }).preload;
     deps.prepare(params.partition as string);
   });

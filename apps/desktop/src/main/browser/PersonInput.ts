@@ -4,8 +4,9 @@ import { isolated } from './isolated';
 
 /**
  * How long after the person last pressed a key or a mouse button in a tab an
- * agent may not act on it, a dialog there is not held for the agent, and a
- * tab its page opens is the person's (Ruling UU). It must outlast the
+ * agent may not act on it, move it or close it, a dialog there is not held
+ * for the agent, a tab its page opens is the person's, and a download from
+ * it is theirs. It must outlast the
  * transient activation a real press leaves the page: Chromium keeps it for
  * about 5 s (`kActivationLifespan`), and a script run in that time (an
  * agent's evaluate, or a page handler an act sets off) could use the
@@ -24,8 +25,9 @@ export function personIsUsing(lastInputAt: number | undefined, now: number): boo
 }
 
 /**
- * Whose hands a tab is in, for what its page does on its own (Ruling PP):
- * a download it starts is cancelled while it is in the agent's.
+ * Whose hands a tab is in, for what its page does on its own: a download it
+ * starts is cancelled while it is in the agent's, since an agent must not
+ * put save dialogs nobody asked for in front of the person.
  */
 export type TabHands = 'agent' | 'person';
 
@@ -33,18 +35,22 @@ export type TabHands = 'agent' | 'person';
  * The person's last input in each tab, and whose hands each tab is in.
  *
  * An agent never takes the person's keyboard, and it gives way when the
- * person is using a tab: `act` refuses within `PERSON_INPUT_GUARD_MS` of
- * their input there (`refusal`). Only the person's input is ever recorded:
- * what reaches a page's `before-input-event` and `before-mouse-event` as a
- * key or button going down, and the tab moves they make from Consola's own
- * toolbar (`notePersonNavigation`). The relay lets an agent's Playwright send
- * nothing through the browser but mouse moves and the wheel
- * (`cdpRelayProtocol`), and acts press and type inside the page itself, so
- * no act of the agent's ever arrives here as a press.
+ * person is using a tab: act, evaluate, navigate and close refuse within
+ * `PERSON_INPUT_GUARD_MS` of their input there (`refusal`). Only the
+ * person's input is ever recorded: what reaches a page's
+ * `before-input-event` and `before-mouse-event` as a key or button going
+ * down, and what they do from Consola's own controls
+ * (`notePersonNavigation`): an address, back, forward, a reload or a hard
+ * reload, "Continue anyway" past a certificate, a sign-in answered or
+ * cancelled. Never the window's automatic retry. The relay lets an agent's
+ * Playwright send nothing through the browser but a buttonless mouse move or
+ * wheel (`cdpRelayProtocol`), and acts press and type inside the page
+ * itself, so no act of the agent's ever arrives here as a press.
  *
  * A tab is in the hands of whoever opened it, until the other takes it: the
- * agent by moving it, acting on it or answering its dialog (`noteAgentUse`),
- * the person by pressing in it or moving it from the toolbar. Looking at a
+ * agent by moving it, acting or evaluating on it, answering its dialog, or a
+ * call that has to load its page (`noteAgentUse`); the person by their input
+ * on it. Looking at a
  * page takes nothing. There is no clock in this: a page the agent sent the
  * tab to can start a download long after it loads, and that is still the
  * agent's doing until the person takes the tab back. Nothing of this is
@@ -84,14 +90,19 @@ export class PersonInput {
   }
 
   /**
-   * The person sent this tab somewhere from Consola's toolbar (an address,
-   * back, forward, a reload): their input on it, as a press in its page is.
+   * The person moved or answered for this tab from Consola's controls (an
+   * address, back, forward, a reload or hard reload, "Continue anyway", a
+   * sign-in answered or cancelled): their input on it, as a press in its
+   * page is.
    */
   public notePersonNavigation(tabId: string): void {
     this.noteInput(tabId);
   }
 
-  /** The agent moved this tab, acted on it, or answered its dialog: it is in the agent's hands. */
+  /**
+   * The agent moved this tab, acted or evaluated on it, answered its dialog,
+   * or a call of its loaded its page: it is in the agent's hands.
+   */
   public noteAgentUse(tabId: string): void {
     this.forgetStale();
     this.hands.set(tabId, 'agent');

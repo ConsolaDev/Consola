@@ -817,9 +817,9 @@ export class BrowserService {
 
   /**
    * Starts remembering what a just-attached guest does. The renderer binds a
-   * guest only after `dom-ready`, by which time its first load may already
-   * have started, redirected or failed; `bindGuest` claims this record so the
-   * tab shows that rather than a quiet page.
+   * guest once its element has attached, by which time its first load may
+   * already have started, redirected or failed; `bindGuest` claims this
+   * record so the tab shows that rather than a quiet page.
    */
   public noteAttached(guest: WebContents, guestId: number): void {
     this.dropPending(guestId);

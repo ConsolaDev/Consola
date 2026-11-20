@@ -1,7 +1,10 @@
 import type { WebContents } from 'electron';
 import { cutCopy } from './ownCopy';
 
-/** A dialog held for the agent is dismissed on its own after this long (Ruling Z). */
+/**
+ * A dialog held for the agent is dismissed on its own after this long: a
+ * page waiting on an answer nobody gives would wait for good.
+ */
 export const DIALOG_HOLD_MS = 60_000;
 
 /** How much of what a page writes in a dialog is kept; the rest is counted. */
@@ -44,19 +47,23 @@ export interface DialogHoldFacts {
   agentAllowed: boolean;
   /** An agent's connection is open on the page. */
   agentConnected: boolean;
-  /** The person pressed in the tab within `PERSON_INPUT_GUARD_MS`. */
+  /**
+   * The person gave input on the tab within `PERSON_INPUT_GUARD_MS`: a key or
+   * button going down in its page, or a move or answer from Consola's
+   * controls (`PersonInput`).
+   */
   personUsing: boolean;
-  /** The tab is in the agent's hands (Ruling PP's record). */
+  /** The tab is in the agent's hands (`PersonInput.handsOf`). */
   inAgentHands: boolean;
   /** A window shows the tab's page to the person now. */
   onScreen: boolean;
 }
 
 /**
- * Ruling NN: a dialog is held for the agent only while an agent may and can
- * answer it, and it is not the person's: the tab's session passes the access
- * rule, an agent's connection is open on the page, the person did not press
- * in the tab within `PERSON_INPUT_GUARD_MS`, and either the tab is in the
+ * A dialog is held for the agent only while an agent may and can answer it,
+ * and it is not the person's: the tab's session passes the access rule, an
+ * agent's connection is open on the page, the person gave no input on the
+ * tab within `PERSON_INPUT_GUARD_MS`, and either the tab is in the
  * agent's hands or its page is not on screen for the person. Anything else
  * is Electron's, as on a page no agent ever touched. Cost if wrong: on a
  * page the person is watching but has not touched since an agent used it, a

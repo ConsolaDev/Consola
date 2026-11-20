@@ -70,7 +70,8 @@ function resolveAddress(input: string): { url: string; searched: boolean } {
  *
  * Every tab id must be one of the caller's. Navigation goes through main's
  * own (`BrowserService`), by the person's address rules, never Playwright's.
- * Nothing here shows the panel or focuses anything (Invariant 6): an agent's
+ * Nothing here shows the panel or focuses anything, since agent input must
+ * never take the person's keyboard or the window's focus: an agent's
  * tab opens behind the one the person is looking at. Answers that carry page
  * text open with the untrusted note (`browserToolResults`).
  */

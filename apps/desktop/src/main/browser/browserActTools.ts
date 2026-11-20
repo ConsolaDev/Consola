@@ -357,8 +357,9 @@ async function runAct(
  * it refuses within `PERSON_INPUT_GUARD_MS` (6 s) of their input on the tab
  * (`PersonInput`), checked before the page is reached and again once it is,
  * so it never runs on the activation their press left. It never takes the
- * person's keyboard (Invariant 6): the relay carries nothing for it but
- * mouse moves, and it presses and types inside the page (`pageInput`), with
+ * person's keyboard or the window's focus: the relay carries nothing for it
+ * but a buttonless mouse move or wheel, and it presses and types inside the
+ * page (`pageInput`), with
  * focus emulation on for exactly as long as it acts (the driver turns it off
  * as the call ends). Either takes the tab into the agent's hands, so a
  * download its page starts is cancelled until the person next presses in it
@@ -425,8 +426,8 @@ export function addActTools(
 }
 
 /**
- * Ruling FF: an expression can click, type and start a download as well as
- * any act, so it is one. It gives way to the person and takes the tab into
+ * An expression can click, type and start a download as well as any act, so
+ * it is one. It gives way to the person and takes the tab into
  * the agent's hands; it does not turn focus emulation on, since it presses
  * no keys of its own.
  */

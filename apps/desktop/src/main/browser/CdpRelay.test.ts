@@ -154,7 +154,7 @@ describe('CdpRelay as Playwright’s transport', () => {
       result: { result: { type: 'number', value: 2 } },
       sessionId: PAGE_SESSION_ID,
     });
-    // With its user gesture taken off (Ruling MM).
+    // With its user gesture taken off: an agent's script opens no chooser.
     expect(fake.commands).toEqual([
       { method: 'Runtime.evaluate', params: { expression: '1+1', userGesture: false } },
     ]);
@@ -209,8 +209,8 @@ describe('CdpRelay as Playwright’s transport', () => {
     ).toHaveProperty('sessionId', 'IFRAME-SESSION');
   });
 
-  // The reviewer's escape.js and files.js probes, against the fake: none of
-  // these may reach the debugger from the page's own session.
+  // What a page's session could otherwise reach (other targets, downloads,
+  // files), against the fake: none of it may reach the debugger.
   it('keeps the page’s session to the page: no other target, no downloads, no files', async () => {
     const { fake, call, announce } = open();
     await announce();

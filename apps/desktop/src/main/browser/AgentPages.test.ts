@@ -80,7 +80,7 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-// Ruling PP, addendum: the load an agent's call causes is the agent's doing.
+// The load an agent's call causes is the agent's doing, and the tab is in its hands.
 describe('a call that mounts a page', () => {
   it('says so as it mounts a page that was not live, before the page binds', async () => {
     browser.availability.tab1 = 'ready';

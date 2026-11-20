@@ -7,7 +7,7 @@ import type { PageSnapshot } from './PageDriver';
  * What the browser tools answer an agent with, built without IO.
  *
  * A page can carry text written to instruct whoever reads it, and the agent
- * reading it has a shell (Invariant 7). So every answer that carries page
+ * reading it has a shell. So every answer that carries page
  * text, or a string the page chose (a title, an address, a console message),
  * opens with `UNTRUSTED_NOTE`, and each such string is quoted or kept on its
  * one line, so it cannot pose as a line Consola wrote. Answers are bounded:

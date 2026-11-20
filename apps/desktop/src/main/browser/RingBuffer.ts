@@ -3,8 +3,8 @@
  * pushed out before anyone read them.
  *
  * How much a page logs is up to the page, so main keeps only a bounded tail
- * of it (spec, "Bounded memory"): an unbounded record of a page's events is
- * what crashed T3 Code's main process.
+ * of it: an unbounded record of a page's events is what crashed T3 Code's
+ * main process.
  */
 export class RingBuffer<T> {
   private items: T[] = [];

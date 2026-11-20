@@ -673,7 +673,7 @@ describe('consola_browser_evaluate', () => {
     });
   });
 
-  // Ruling FF: an expression can click, type and start a download, so it is an act.
+  // An expression can click, type and start a download, so it is an act.
   it('refuses within the guard after the person’s input on the tab, touching nothing, and runs just after', async () => {
     person.noteInput('mine');
     now = T0 + PERSON_INPUT_GUARD_MS - 100;
@@ -901,8 +901,8 @@ describe('a dialog on the page', () => {
 describe('a download after a dialog the agent raised', () => {
   // The act returns early with the dialog while the page's script is only
   // suspended: whatever ends the hold resumes it, and a download it starts
-  // then is still the agent's doing (Ruling PP: the tab stays in the agent's
-  // hands until the person presses in it, however long that takes).
+  // then is still the agent's doing (the tab stays in the agent's hands until
+  // the person presses in it, however long that takes).
   beforeEach(() => {
     dialogs.tab = 'mine-person';
     fakePage.locator = ((original) => (selector: string) => ({

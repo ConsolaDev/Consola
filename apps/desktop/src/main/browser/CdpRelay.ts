@@ -41,7 +41,7 @@ function detachQuietly(pageDebugger: Debugger): void {
  * Lets `playwright-core` drive one guest page: pass the relay itself to
  * `chromium.connectOverCDP(relay)`, so the agent's browser tools get
  * Playwright's element finding and waiting on top of a page the person can
- * see (spec decision 5).
+ * see, rather than a browser of its own the person cannot.
  *
  * It is Playwright's in-process transport, not a server. Nothing listens on
  * any port, so there is no address for another process or a web page to
@@ -178,12 +178,10 @@ export class CdpRelay implements ConnectOverCDPTransport {
    *
    * Seen on Electron 43, in a window that never had OS focus: turned on and
    * off with nothing in between, `document.hasFocus()` returns to false.
-   * Task 19's probes then found why CDP typing only seemed to need a click
-   * first: Chromium delivers a guest's CDP keys and text to whatever the
-   * window has focused, and a CDP click is what made that the page. Both
-   * are refused now (`cdpRelayProtocol`), and acts type inside the page; the
-   * emulation is what gives them the focus events and `hasFocus()` a rich
-   * editor waits for.
+   * The relay refuses CDP keys, text and presses (`cdpRelayProtocol`: they
+   * land wherever the window's keyboard is), and acts press and type inside
+   * the page; this emulation is what gives them the focus events and
+   * `hasFocus()` a rich editor waits for.
    */
   public async setFocusEmulation(enabled: boolean): Promise<void> {
     if (this.closed) throw new Error('The relay is closed.');

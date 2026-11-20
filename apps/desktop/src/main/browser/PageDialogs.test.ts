@@ -80,7 +80,7 @@ beforeEach(() => {
   dialogs.takeOver(guest.asWebContents(), guest.id);
 });
 
-// Ruling NN: held only when an agent can answer it and it is not the person's.
+// Held only when an agent can answer it and it is not the person's.
 describe('shouldHoldDialog', () => {
   const held: DialogHoldFacts = {
     agentAllowed: true,

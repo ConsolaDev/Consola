@@ -43,18 +43,20 @@ export interface AgentCall {
  * (`ensureLive`).
  *
  * A page needs a window: it is a `<webview>` element, and only the window
- * holding the workspace can draw it (Invariant 4). So a tab with no page is
+ * holding the workspace can draw it (a guest dies with an element that
+ * moves, so it lives in that one window's host). So a tab with no page is
  * held, which makes it live in main's reckoning; the snapshot that says so
  * has that window mount it, painting but unseen, and the call goes on once
  * the element's guest binds. Nothing here opens the panel or focuses
- * anything (Invariant 6): the page appears only where the person already
- * looks, if they look.
+ * anything, since agent input must never take the person's keyboard or the
+ * window's focus: the page appears only where the person already looks, if
+ * they look.
  */
 export class AgentPages {
   /**
    * `mounted` hears a tab whose page this call is what loads: the tab had no
    * page live, so the load (and whatever the page does as it loads, a
-   * download included) is the agent's doing (Ruling PP's addendum).
+   * download included) is the agent's doing, and the tab is in its hands.
    */
   constructor(
     private readonly browser: AgentPagesBrowser,

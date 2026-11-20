@@ -342,7 +342,7 @@ export function setupIpcHandlers(): boolean {
   // An agent's calls on a tab, and the Playwright connections behind them. A
   // connection ends with the page it drives.
   // A tab whose page an agent's call is what loads is in the agent's hands
-  // from that moment (Ruling PP's addendum).
+  // from that moment: whatever the page does as it loads is the agent's doing.
   const agentPages = new AgentPages(browser, (tabId) => personInput.noteAgentUse(tabId));
   const driver = new PageDriver({
     calls: agentPages,
@@ -372,7 +372,7 @@ export function setupIpcHandlers(): boolean {
     );
   };
   // A page's alerts and confirms, held for the agent only while it may and
-  // can answer them and they are not the person's (Ruling NN).
+  // can answer them and they are not the person's (`shouldHoldDialog`).
   const pageDialogs = new PageDialogs({
     tabIdFor: (guestId) => browser.tabIdForGuest(guestId),
     agentAllowed: (tabId) => refusalForTab(tabId) === null,
@@ -414,8 +414,8 @@ export function setupIpcHandlers(): boolean {
   });
   gateDownloads(createDownloadGate(downloadPlaces, sessionDownloads));
   exposeToTests('browserAgent', { calls: agentPages, driver, personInput, pageDialogs });
-  // Watch each page from the moment it attaches: the renderer binds it only
-  // after dom-ready, when its first load may already have finished or failed.
+  // Watch each page from the moment it attaches: the renderer binds it to its
+  // tab a moment later, when its first load may already have finished or failed.
   // Here rather than in `secureGuest` because only an accepted guest has a
   // host window worth forwarding to; a refused one is closed straight away.
   const stopWatchingGuests = onGuestAttached((guest, window, workspaceId, guestId) => {

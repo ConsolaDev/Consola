@@ -135,7 +135,8 @@ export interface PopupTabPlacement {
  * A page opens tabs whenever it likes, and only the person's own press
  * makes one theirs to look at: input from them in the opener within
  * `PERSON_INPUT_GUARD_MS`, the window `act` gives way to as well. Any other
- * tab opens behind the one showing (Ruling U), and it is the agent's when
+ * tab opens behind the one showing, never taking the person's view, and it
+ * is the agent's when
  * the opener is an agent's tab or an agent is on it: a call, or the tab in
  * the agent's hands (it moved it or acted there, and the person has not
  * pressed in it since, so what a synthetic click starts, or the page the
@@ -158,9 +159,10 @@ export const PERSON_INPUT_MS = 1_500;
  * not say whether a `window.open` came from a gesture, so main watches the
  * input that reached the page instead.
  *
- * Only a person's input may `touch()` this. Input an agent dispatches (CDP
- * `Input.*` from the browser tools) also raises `input-event`, and must not
- * count as a person's gesture.
+ * Only a person's input may `touch()` this: a mouse button or a key going
+ * down that the page gets (`installPopupPolicy`). An agent sends no presses
+ * through the browser (the relay refuses all `Input` but a buttonless mouse
+ * move or wheel), so nothing of its reaches here.
  */
 export class PersonInputClock {
   private last = Number.NEGATIVE_INFINITY;

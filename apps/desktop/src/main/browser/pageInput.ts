@@ -2,8 +2,8 @@
  * An agent's acts, done inside the page.
  *
  * Not through the browser's input: on a `<webview>` guest Chromium hands CDP
- * keys and text to whatever the window has focused (the probe of Task 19
- * typed into the person's terminal), and a trusted press makes the page the
+ * keys and text to whatever the window has focused (seen typing into the
+ * person's terminal on Electron 43), and a trusted press makes the page the
  * window's focused element, taking the keyboard from the person. The relay
  * refuses both (`cdpRelayProtocol`). So a click is a pointer and mouse
  * sequence dispatched on the element the press would land on, typing goes
@@ -106,7 +106,7 @@ export function clickInPage(element: Element): 'clicked' {
   const hit = atPoint as HTMLElement;
   // A click on a file or colour input, or on a label for one, opens a chooser
   // over the person's window. The relay already takes the user gesture that
-  // would let it (Ruling MM); this refuses it outright, and says why.
+  // would let it (`withoutUserGesture`); this refuses it outright, and says why.
   const chooserOf = (start: Element): string | null => {
     for (let at: Element | null = start; at; at = at.parentElement) {
       const control = at.tagName === 'LABEL' ? (at as HTMLLabelElement).control : at;

@@ -13,7 +13,7 @@ import { decideDownload, QUIET_SESSION } from './sessionPolicy';
 const T0 = 1_700_000_000_000;
 
 describe('the person comes first', () => {
-  // Ruling UU: as long as the activation a real press leaves the page (about 5 s), and a margin.
+  // As long as the activation a real press leaves the page (about 5 s), and a margin.
   it('is using a tab for 6 seconds after pressing in it', () => {
     expect(PERSON_INPUT_GUARD_MS).toBe(6_000);
     expect(personIsUsing(T0, T0 + PERSON_INPUT_GUARD_MS - 100)).toBe(true);

@@ -372,7 +372,8 @@ describe('clickInPage', () => {
     expect(doc.log).toEqual([]);
   });
 
-  // Ruling MM's second wall: a chooser would cover the person's window.
+  // The second wall behind the relay's taking of the user gesture: a chooser
+  // would cover the person's window.
   it.each([
     ['a file input', { tagName: 'INPUT', type: 'file' }, 'file-input'],
     ['a colour input', { tagName: 'INPUT', type: 'color' }, 'color-input'],
@@ -613,7 +614,7 @@ describe('pressInPage', () => {
     );
   });
 
-  // I3: in editable text the page's editing acts at the caret, wherever it is in the
+  // In editable text the page's editing acts at the caret, wherever it is in the
   // editing host, so a press named at one paragraph must have its caret there.
   const editorWith = (doc: FakeDocument, ...ids: string[]) => {
     const host = doc.element('DIV', 'editor', { isContentEditable: true, tabIndex: 0 });

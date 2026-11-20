@@ -76,7 +76,8 @@ export interface CallerAccessDeps {
 
 /**
  * One session's hold on the browser, from the endpoint its call arrived on
- * (Invariant 5): never from an argument, and asked afresh on every call.
+ * (the session's own MCP socket): never from an argument, which an agent
+ * could set to another session's, and asked afresh on every call.
  */
 export class CallerAccess {
   constructor(

@@ -339,9 +339,9 @@ class Connection {
  * an agent call on the tab (`AgentPages.beginToolCall`, which holds the tab
  * and waits for its live page), connects Playwright to that page if it is not
  * connected yet, runs the caller's steps, and ends the call however they
- * finish. One connection per live tab, each over its own `CdpRelay`: Ruling O
- * hands the relay to `chromium.connectOverCDP` in process, so nothing listens
- * on any port.
+ * finish. One connection per live tab, each over its own `CdpRelay`, handed
+ * to `chromium.connectOverCDP` in process, so nothing listens on any port
+ * for another process or a page to find.
  *
  * A connection lasts until the tab's page goes (`forget`, from
  * `BrowserService.onGuestGone`), the tab gets another page, the app quits
@@ -354,7 +354,8 @@ class Connection {
  * was reported alike, so news that arrives after the tab moved on to another
  * page, or after a call was given up on, changes nothing.
  *
- * Nothing here focuses anything or brings a page to the front (Invariant 6).
+ * Nothing here focuses anything or brings a page to the front: agent input
+ * must never take the person's keyboard or the window's focus.
  */
 export class PageDriver {
   private readonly connections = new Map<string, Connection>();
