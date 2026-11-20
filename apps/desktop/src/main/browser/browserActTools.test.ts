@@ -16,7 +16,7 @@ import type { CdpRelayOptions } from './CdpRelay';
 import { UNTRUSTED_NOTE } from './browserToolResults';
 import { NO_DIALOG_MESSAGE, type HeldDialog } from './PageDialogs';
 import { type DriverRelay, PAGE_CALL_TIMEOUT_MS, PageDriver } from './PageDriver';
-import { PERSON_USING_TAB_MESSAGE, PersonInput } from './PersonInput';
+import { PERSON_INPUT_GUARD_MS, PERSON_USING_TAB_MESSAGE, PersonInput } from './PersonInput';
 import { decideDownload } from './sessionPolicy';
 
 const T0 = 1_700_000_000_000;
@@ -369,16 +369,16 @@ describe('consola_browser_act', () => {
     expect(log).toEqual(['count aria-ref=e5']);
   });
 
-  it('refuses within 3 s of the person’s input on the tab, touching nothing', async () => {
+  it('refuses within the guard after the person’s input on the tab, touching nothing', async () => {
     person.noteInput('mine');
-    now = T0 + 2_900;
+    now = T0 + PERSON_INPUT_GUARD_MS - 100;
     expect(await act({ action: 'click', ref: 'e5' })).toEqual({
       isError: true,
       text: PERSON_USING_TAB_MESSAGE,
     });
     expect(begun).toEqual([]);
     expect(log).toEqual([]);
-    now = T0 + 3_100;
+    now = T0 + PERSON_INPUT_GUARD_MS + 100;
     expect((await act({ action: 'click', ref: 'e5' })).isError).toBe(false);
   });
 
@@ -395,8 +395,8 @@ describe('consola_browser_act', () => {
     // The person presses in the tab: theirs.
     person.noteInput('mine-person');
     expect(downloadFrom('mine-person')).toBe('allow');
-    // Once their 3 s are over the agent acts again: the agent's again.
-    now = T0 + 13_100;
+    // Once their guard is over the agent acts again: the agent's again.
+    now = T0 + 10_000 + PERSON_INPUT_GUARD_MS + 100;
     expect((await act({ action: 'click', ref: 'e5', tabId: 'mine-person' })).isError).toBe(false);
     expect(downloadFrom('mine-person')).toBe('cancel');
   });
@@ -621,14 +621,14 @@ describe('consola_browser_evaluate', () => {
   });
 
   // Ruling FF: an expression can click, type and start a download, so it is an act.
-  it('refuses within 3 s of the person’s input on the tab, touching nothing, and runs at 3.1 s', async () => {
+  it('refuses within the guard after the person’s input on the tab, touching nothing, and runs just after', async () => {
     person.noteInput('mine');
-    now = T0 + 2_900;
+    now = T0 + PERSON_INPUT_GUARD_MS - 100;
     fakePage.evaluateAnswer = 1;
     expect(await evaluate('1')).toEqual({ isError: true, text: PERSON_USING_TAB_MESSAGE });
     expect(begun).toEqual([]);
     expect(log).toEqual([]);
-    now = T0 + 3_100;
+    now = T0 + PERSON_INPUT_GUARD_MS + 100;
     expect((await evaluate('1')).isError).toBe(false);
     expect(log).toEqual(['evaluate 1']);
   });
@@ -905,9 +905,9 @@ describe('consola_browser_dialog', () => {
   });
 
   it("takes the tab into the agent's hands, since the page goes on from the answer", async () => {
-    // The person had taken the tab (their press, over 3 s ago).
+    // The person had taken the tab (their press, longer ago than the guard).
     person.noteInput('mine');
-    now = T0 + 3_100;
+    now = T0 + PERSON_INPUT_GUARD_MS + 100;
     expect(person.handsOf('mine', 'agent')).toBe('person');
     dialogs.pending = { type: 'confirm', message: 'Download the report?' };
     await answerDialog({ action: 'accept' });

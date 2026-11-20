@@ -3,6 +3,7 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { PERSON_INPUT_GUARD_MS } from '../../src/main/browser/PersonInput';
 import { launchElectron } from './helpers/electron';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 
@@ -279,8 +280,8 @@ test.describe('whose hands a tab is in', () => {
     await expect.poll(() => guestUrls(app)).toEqual([fixtures.url('/opener.html')]);
     const opener = (await tabsOf(page, sessionId)).tabs[0];
     await connectAgent(app, sessionId);
-    // More than 3 s after the person typed the address, so the agent may act.
-    await page.waitForTimeout(3_100);
+    // Past the guard after the person typed the address, so the agent may act.
+    await page.waitForTimeout(PERSON_INPUT_GUARD_MS + 100);
     const focus = await hostFocus(page);
 
     const read = await tool(app, 'consola_browser_snapshot', { tabId: opener.id });
@@ -341,8 +342,8 @@ test.describe('whose hands a tab is in', () => {
     );
     await expect.poll(() => downloads(app)).toEqual([{ url: report, cancelledByApp: false }]);
 
-    // More than 3 s on, the agent sends the tab to the file itself: cancelled.
-    await page.waitForTimeout(3_100);
+    // Past the guard, the agent sends the tab to the file itself: cancelled.
+    await page.waitForTimeout(PERSON_INPUT_GUARD_MS + 100);
     expect(
       (await tool(app, 'consola_browser_navigate', { tabId: tab.id, url: report })).isError,
     ).toBe(false);

@@ -13,22 +13,23 @@ import { decideDownload } from './sessionPolicy';
 const T0 = 1_700_000_000_000;
 
 describe('the person comes first', () => {
-  it('is using a tab for 3 seconds after pressing in it', () => {
-    expect(PERSON_INPUT_GUARD_MS).toBe(3_000);
-    expect(personIsUsing(T0, T0 + 2_900)).toBe(true);
-    expect(personIsUsing(T0, T0 + 3_100)).toBe(false);
+  // Ruling UU: as long as the activation a real press leaves the page (about 5 s), and a margin.
+  it('is using a tab for 6 seconds after pressing in it', () => {
+    expect(PERSON_INPUT_GUARD_MS).toBe(6_000);
+    expect(personIsUsing(T0, T0 + PERSON_INPUT_GUARD_MS - 100)).toBe(true);
+    expect(personIsUsing(T0, T0 + PERSON_INPUT_GUARD_MS + 100)).toBe(false);
     expect(personIsUsing(undefined, T0)).toBe(false);
   });
 
-  it('refuses an act 2.9 s after the person’s input on that tab, and allows it at 3.1 s', () => {
+  it('refuses an act just inside the guard after the person’s input on that tab, and allows it just after', () => {
     let now = T0;
     const person = new PersonInput(() => now);
     person.noteInput('tab1');
-    now = T0 + 2_900;
+    now = T0 + PERSON_INPUT_GUARD_MS - 100;
     expect(person.refusal('tab1')).toBe(PERSON_USING_TAB_MESSAGE);
     expect(PERSON_USING_TAB_MESSAGE).toBe('The person is using this tab.');
     expect(person.refusal('tab2')).toBeNull();
-    now = T0 + 3_100;
+    now = T0 + PERSON_INPUT_GUARD_MS + 100;
     expect(person.refusal('tab1')).toBeNull();
   });
 
@@ -36,9 +37,10 @@ describe('the person comes first', () => {
     let now = T0;
     const person = new PersonInput(() => now);
     person.noteInput('tab1');
-    now = T0 + 2_000;
+    now = T0 + PERSON_INPUT_GUARD_MS - 1_000;
     person.noteInput('tab1');
-    now = T0 + 4_000;
+    // Past the first input's guard, inside the second's.
+    now = T0 + PERSON_INPUT_GUARD_MS + 500;
     expect(person.refusal('tab1')).toBe(PERSON_USING_TAB_MESSAGE);
   });
 });
@@ -68,7 +70,7 @@ describe('whose hands a tab is in', () => {
     person.noteInput('tab1');
     now = T0 + 60_000;
     expect(download(person, 'tab1', 'person')).toBe('allow');
-    // The agent acts again, once the person's 3 s are over: the agent's again.
+    // The agent acts again, once the person's guard is over: the agent's again.
     expect(person.refusal('tab1')).toBeNull();
     person.noteAgentUse('tab1');
     now = T0 + 70_000;

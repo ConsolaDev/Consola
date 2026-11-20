@@ -101,7 +101,7 @@ describe('shouldHoldDialog', () => {
     expect(shouldHoldDialog({ ...held, agentConnected: false })).toBe(false);
   });
 
-  it('never within 3 s of the person’s press in the tab', () => {
+  it('never within the guard after the person’s press in the tab (PERSON_INPUT_GUARD_MS)', () => {
     expect(shouldHoldDialog({ ...held, personUsing: true })).toBe(false);
   });
 

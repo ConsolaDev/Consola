@@ -124,7 +124,7 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   });
   // The person's own moves of a tab: input of theirs on it, so the tab is in
   // their hands for its downloads (`decideDownload`), and an agent's act gives
-  // way to them for 3 s.
+  // way to them for `PERSON_INPUT_GUARD_MS`.
   ipc.handle(IPC_CHANNELS.BROWSER_NAVIGATE, (event, tabId: string, url: string): boolean =>
     movedByPerson(event, tabId) ? service.navigate(tabId, String(url ?? '')) : false,
   );

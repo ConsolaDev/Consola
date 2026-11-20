@@ -43,7 +43,7 @@ export interface DialogHoldFacts {
   agentAllowed: boolean;
   /** An agent's connection is open on the page. */
   agentConnected: boolean;
-  /** The person pressed in the tab within the last 3 s. */
+  /** The person pressed in the tab within `PERSON_INPUT_GUARD_MS`. */
   personUsing: boolean;
   /** The tab is in the agent's hands (Ruling PP's record). */
   inAgentHands: boolean;
@@ -55,11 +55,12 @@ export interface DialogHoldFacts {
  * Ruling NN: a dialog is held for the agent only while an agent may and can
  * answer it, and it is not the person's: the tab's session passes the access
  * rule, an agent's connection is open on the page, the person did not press
- * in the tab within 3 s, and either the tab is in the agent's hands or its
- * page is not on screen for the person. Anything else is Electron's, as on a
- * page no agent ever touched. Cost if wrong: on a page the person is
- * watching but has not touched since an agent used it, a dialog is held for
- * the agent instead of shown; a press in the page hands it over.
+ * in the tab within `PERSON_INPUT_GUARD_MS`, and either the tab is in the
+ * agent's hands or its page is not on screen for the person. Anything else
+ * is Electron's, as on a page no agent ever touched. Cost if wrong: on a
+ * page the person is watching but has not touched since an agent used it, a
+ * dialog is held for the agent instead of shown; a press in the page hands
+ * it over.
  */
 export function shouldHoldDialog(facts: DialogHoldFacts): boolean {
   return (
@@ -125,15 +126,15 @@ function boundedMessage(value: unknown): string {
  * `consola_browser_dialog` answers it through Electron's own callback. The
  * relay keeps the dialog from Playwright (`cdpRelayProtocol`).
  *
- * The person comes first. A dialog raised within 3 s of their input on the
- * tab, or on their own tab while they can see it, is theirs, shown as ever;
- * and pressing in a tab whose dialog is held hands it to them, since a page
- * that waits on an answer it never shows looks frozen. A held dialog is
- * dismissed when the agent's connection to the page ends (as it does when
- * access goes, or the session does), and on its own after `DIALOG_HOLD_MS`.
- * While it is held, focus emulation stays on for the page: the switch going
- * off is answered by the page only once the dialog is. With no agent
- * connected, nothing changes.
+ * The person comes first. A dialog raised within `PERSON_INPUT_GUARD_MS` of
+ * their input on the tab, or on their own tab while they can see it, is
+ * theirs, shown as ever; and pressing in a tab whose dialog is held hands
+ * it to them, since a page that waits on an answer it never shows looks
+ * frozen. A held dialog is dismissed when the agent's connection to the
+ * page ends (as it does when access goes, or the session does), and on its
+ * own after `DIALOG_HOLD_MS`. While it is held, focus emulation stays on for
+ * the page: the switch going off is answered by the page only once the
+ * dialog is. With no agent connected, nothing changes.
  *
  * Electron runs `prompt()` in the page itself (it throws "prompt() is not
  * supported."), so only alerts and confirms ever reach main.

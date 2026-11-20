@@ -334,8 +334,9 @@ async function runAct(
  * browserWaitTool and browserDialogTool).
  *
  * An act, and an evaluate (which can do as much), gives way to the person:
- * it refuses within 3 s of their input on the tab (`PersonInput`), checked
- * before the page is reached and again once it is. It never takes the
+ * it refuses within `PERSON_INPUT_GUARD_MS` (6 s) of their input on the tab
+ * (`PersonInput`), checked before the page is reached and again once it is,
+ * so it never runs on the activation their press left. It never takes the
  * person's keyboard (Invariant 6): the relay carries nothing for it but
  * mouse moves, and it presses and types inside the page (`pageInput`), with
  * focus emulation on for exactly as long as it acts (the driver turns it off

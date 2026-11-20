@@ -1,8 +1,18 @@
 import type { WebContents } from 'electron';
 import type { BrowserTab } from '../../shared/browser';
 
-/** How long after the person last pressed a key or a mouse button in a tab an agent may not act on it. */
-export const PERSON_INPUT_GUARD_MS = 3_000;
+/**
+ * How long after the person last pressed a key or a mouse button in a tab an
+ * agent may not act on it, a dialog there is not held for the agent, and a
+ * tab its page opens is the person's (Ruling UU). It must outlast the
+ * transient activation a real press leaves the page: Chromium keeps it for
+ * about 5 s (`kActivationLifespan`), and a script run in that time (an
+ * agent's evaluate, or a page handler an act sets off) could use the
+ * person's press to open a file chooser or go fullscreen. 6 s is that 5 s
+ * and a margin for the time between main hearing the press and the page
+ * taking it.
+ */
+export const PERSON_INPUT_GUARD_MS = 6_000;
 
 /** What `act` answers within `PERSON_INPUT_GUARD_MS` of the person's input on the tab. */
 export const PERSON_USING_TAB_MESSAGE = 'The person is using this tab.';

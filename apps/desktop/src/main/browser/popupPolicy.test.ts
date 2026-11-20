@@ -9,6 +9,7 @@ import {
   type PopupContext,
   type PopupTabFacts,
 } from './popupPolicy';
+import { PERSON_INPUT_GUARD_MS } from './PersonInput';
 
 const ready: PopupContext = {
   openerKnown: true,
@@ -133,12 +134,15 @@ describe('placePopupTab', () => {
   };
   const place = (facts: Partial<PopupTabFacts>) => placePopupTab({ ...quiet, ...facts });
 
-  it("is the person's, and shows, when they pressed in the opener within 3 s", () => {
-    expect(place({ personInputAt: T0 - 2_900 })).toEqual({ openedBy: 'person', activate: true });
+  const inside = T0 - PERSON_INPUT_GUARD_MS + 100;
+  const past = T0 - PERSON_INPUT_GUARD_MS - 100;
+
+  it("is the person's, and shows, when they pressed in the opener within the guard", () => {
+    expect(place({ personInputAt: inside })).toEqual({ openedBy: 'person', activate: true });
     // Whoever's tab it is, and whatever an agent is doing there: the person caused it.
     expect(
       place({
-        personInputAt: T0 - 2_900,
+        personInputAt: inside,
         openerOpenedBy: 'agent',
         agentCallInFlight: true,
         openerHands: 'agent',
@@ -146,15 +150,15 @@ describe('placePopupTab', () => {
     ).toEqual({ openedBy: 'person', activate: true });
   });
 
-  it("opens behind as the agent's from an agent's tab the person last pressed in 3.1 s ago", () => {
-    expect(place({ personInputAt: T0 - 3_100, openerOpenedBy: 'agent' })).toEqual({
+  it("opens behind as the agent's from an agent's tab the person last pressed in just past the guard", () => {
+    expect(place({ personInputAt: past, openerOpenedBy: 'agent' })).toEqual({
       openedBy: 'agent',
       activate: false,
     });
   });
 
   it("opens behind, still the person's, from their own tab with no agent on it", () => {
-    expect(place({ personInputAt: T0 - 3_100 })).toEqual({ openedBy: 'person', activate: false });
+    expect(place({ personInputAt: past })).toEqual({ openedBy: 'person', activate: false });
     expect(place({})).toEqual({ openedBy: 'person', activate: false });
   });
 
@@ -166,8 +170,8 @@ describe('placePopupTab', () => {
     // A synthetic click on a target=_blank link, a window.open an evaluate ran, or
     // the page the agent moved the tab to, opening it on its own later.
     expect(place({ openerHands: 'agent' })).toEqual({ openedBy: 'agent', activate: false });
-    // Once the person pressed there the tab is theirs again (and their press, 3.1 s ago, shows nothing).
-    expect(place({ openerHands: 'person', personInputAt: T0 - 3_100 })).toEqual({
+    // Once the person pressed there the tab is theirs again (and their press, past the guard, shows nothing).
+    expect(place({ openerHands: 'person', personInputAt: past })).toEqual({
       openedBy: 'person',
       activate: false,
     });
