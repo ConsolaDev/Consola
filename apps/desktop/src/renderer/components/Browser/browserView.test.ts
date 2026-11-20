@@ -12,6 +12,7 @@ import {
   isBlankUrl,
   liveTabs,
   nextShownError,
+  pageIsInert,
   pageKey,
   pagePresence,
   recentPages,
@@ -130,6 +131,18 @@ describe('pagePresence', () => {
     expect(pagePresence('t', null, true)).toBe('painting');
     expect(pagePresence('t', 'other', false)).toBe('hidden');
     expect(pagePresence('t', null, false)).toBe('hidden');
+  });
+});
+
+describe('pageIsInert', () => {
+  it('makes a page kept painting unseen unreachable to the person, and only that one', () => {
+    // Invisible but laid out over the slot (or the whole window): without
+    // `inert` it could still be tabbed into, clicked or read aloud.
+    expect(pageIsInert('painting')).toBe(true);
+    expect(pageIsInert('shown')).toBe(false);
+    // Already out of reach: `display: none` takes it out of focus order,
+    // hit testing and the accessibility tree.
+    expect(pageIsInert('hidden')).toBe(false);
   });
 });
 

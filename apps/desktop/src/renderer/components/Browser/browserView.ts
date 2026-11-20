@@ -101,6 +101,17 @@ export function pagePresence(
 }
 
 /**
+ * Whether the person is kept out of a page altogether (`inert`): one kept
+ * painting for an agent. It is invisible, yet laid out over the slot or, with
+ * no slot on screen, the whole window, so without it the person could tab
+ * into a page they cannot see, click it, or have it read aloud. A hidden page
+ * is already out of reach (`display: none`), and a shown one is theirs.
+ */
+export function pageIsInert(presence: PagePresence): boolean {
+  return presence === 'painting';
+}
+
+/**
  * The error drawn over a page. Main clears a tab's error the moment a new
  * load starts, so a retry would flash the page underneath (Chromium's own
  * error page) for as long as the attempt takes. The last error is held

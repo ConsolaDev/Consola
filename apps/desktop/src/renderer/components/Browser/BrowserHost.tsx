@@ -25,6 +25,7 @@ import {
   hostOrder,
   pageKey,
   liveTabs,
+  pageIsInert,
   pagePresence,
   retryDelayMs,
   visibleTabId,
@@ -198,7 +199,12 @@ function BrowserPage({ sessionId, tab, partition, presence, onRefused }: Browser
   };
 
   return (
-    <div className="browser-page" data-presence={presence} data-tab-id={tabId}>
+    <div
+      className="browser-page"
+      data-presence={presence}
+      data-tab-id={tabId}
+      inert={pageIsInert(presence)}
+    >
       <webview
         ref={webviewRef}
         className="browser-page-webview"

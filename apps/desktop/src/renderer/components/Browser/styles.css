@@ -260,7 +260,11 @@
   display: none;
 }
 
-/* Still rendering frames for whoever reads it, but not seen and not clickable. */
+/*
+ * Still rendering frames for whoever reads it, but not seen and not clickable.
+ * The element is also `inert` (`pageIsInert`), so it cannot be tabbed into or
+ * read aloud either.
+ */
 .browser-page[data-presence="painting"] {
   opacity: 0;
   pointer-events: none;
