@@ -304,9 +304,15 @@ test('the sidebar row opens the dashboard on its empty state', async () => {
     await expect(empty).toContainText('Automations');
     await expect(empty.getByRole('button', { name: 'New automation' })).toBeVisible();
     // The templates are offered right there, below it.
-    await expect(empty.locator('.automations-template')).toHaveCount(4);
+    await expect(empty.locator('.automations-template')).toHaveCount(5);
     await expect(
       empty.locator('.automations-template').filter({ hasText: 'Clean up stale sessions' }),
+    ).toBeVisible();
+    // The fifth, a poll: it checks only once the person allows it.
+    await expect(
+      empty
+        .locator('.automations-template')
+        .filter({ hasText: 'Re-review pull requests with new commits' }),
     ).toBeVisible();
   } finally {
     await sprocket.close();
