@@ -4,19 +4,16 @@ import os from 'node:os';
 import path from 'node:path';
 import {
   type AgentWorkspace,
-  afterNote,
   closeAgentWorkspace,
   inPage,
   launchAgentWorkspace,
   launchGuarded,
   openSession,
-  openTab,
-  refIn,
   seedWorkspace,
-  UNTRUSTED_NOTE,
 } from './helpers/agentWorkspace';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
 import { type AgentClient, connectAgent } from './helpers/sessionMcp';
+import { afterNote, openTab, refIn, UNTRUSTED_NOTE } from './helpers/toolAnswers';
 
 /**
  * A session's agent and its browser, through the session's real MCP

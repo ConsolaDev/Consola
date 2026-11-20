@@ -3,18 +3,15 @@ import type { ElectronApplication, Page } from '@playwright/test';
 import path from 'node:path';
 import {
   type AgentWorkspace,
-  afterNote,
   closeAgentWorkspace,
-  guestGuarded,
   inPage,
   launchAgentWorkspace,
-  openTab,
-  plainAnswer,
-  refIn,
   showBrowser,
 } from './helpers/agentWorkspace';
 import { type FixtureServer, startFixtureServer } from './helpers/fixtureServer';
+import { guestGuarded } from './helpers/screenGuard';
 import { type AgentClient, connectAgent } from './helpers/sessionMcp';
+import { afterNote, openTab, plainAnswer, refIn } from './helpers/toolAnswers';
 
 /**
  * What an agent's use of the browser may never do to the person, through the
