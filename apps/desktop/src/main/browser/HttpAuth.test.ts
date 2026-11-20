@@ -101,6 +101,15 @@ describe('AuthPrompts', () => {
     expect(callback).toHaveBeenCalledTimes(1);
   });
 
+  it('names the tab a request is for, to the window that was asked only', () => {
+    ask();
+    expect(prompts.requestTab(host, 'req1')).toBe('t1');
+    expect(prompts.requestTab(other, 'req1')).toBeNull();
+    expect(prompts.requestTab(host, 'nope')).toBeNull();
+    prompts.answer(host, 'req1', null);
+    expect(prompts.requestTab(host, 'req1')).toBeNull();
+  });
+
   it('cancels when the window answers null', () => {
     const callback = ask();
     prompts.answer(host, 'req1', null);

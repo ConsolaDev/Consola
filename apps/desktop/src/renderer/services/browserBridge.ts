@@ -47,6 +47,14 @@ export const browserBridge = {
     return window.browserAPI.navigate(tabId, url);
   },
 
+  /**
+   * Retry an unreachable page on this machine by itself, on a timer: never
+   * the person's input on the tab (the person's own "Try again" is `navigate`).
+   */
+  retry(tabId: string, url: string): Promise<boolean> {
+    return window.browserAPI.retry(tabId, url);
+  },
+
   back(tabId: string): Promise<void> {
     return window.browserAPI.back(tabId);
   },

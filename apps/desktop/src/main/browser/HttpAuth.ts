@@ -157,6 +157,12 @@ export class AuthPrompts {
    * `window` is not the one asked. Anything but well-formed credentials
    * cancels.
    */
+  /** The tab a request is for, to the window that was asked; null otherwise, or while its page is unbound. */
+  public requestTab(window: BrowserWindow, id: string): string | null {
+    const entry = this.pending.get(id);
+    return entry && entry.host === window ? entry.tabId : null;
+  }
+
   public answer(window: BrowserWindow, id: string, credentials: unknown): boolean {
     const entry = this.pending.get(id);
     if (!entry || entry.host !== window) return false;

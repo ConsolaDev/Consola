@@ -185,6 +185,7 @@ export const IPC_CHANNELS = {
   BROWSER_CLOSE: 'browser:close', // Close a tab
   BROWSER_ACTIVATE: 'browser:activate', // Make a tab the visible one
   BROWSER_NAVIGATE: 'browser:navigate', // Send a tab to an address
+  BROWSER_RETRY: 'browser:retry', // A shown tab's automatic retry of an unreachable page on this machine: never the person's input
   BROWSER_BACK: 'browser:back',
   BROWSER_FORWARD: 'browser:forward',
   BROWSER_RELOAD: 'browser:reload',

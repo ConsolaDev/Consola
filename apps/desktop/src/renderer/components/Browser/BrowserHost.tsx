@@ -310,7 +310,8 @@ function useAutoRetry(
     if (attempts.current.url !== retryUrl) attempts.current = { url: retryUrl, count: 0 };
     const timer = setTimeout(() => {
       attempts.current.count += 1;
-      noteFailure(browserBridge.navigate(tabId, retryUrl));
+      // Its own path: a timer is not the person, so this takes no tab from an agent.
+      noteFailure(browserBridge.retry(tabId, retryUrl));
     }, retryDelayMs(attempts.current.count));
     return () => clearTimeout(timer);
     // `shownError` is a new object for every failed attempt, which is what

@@ -180,6 +180,12 @@ export interface BrowserAPI {
   activate(tabId: string): Promise<void>;
   /** False when the address is not a web address or the tab is not the window's. */
   navigate(tabId: string, url: string): Promise<boolean>;
+  /**
+   * The window's own automatic retry of an unreachable page on this machine
+   * (a dev server still starting). Moves the tab like `navigate`, but is
+   * nobody's input: a timer is not the person. False for any other address.
+   */
+  retry(tabId: string, url: string): Promise<boolean>;
   back(tabId: string): Promise<void>;
   forward(tabId: string): Promise<void>;
   reload(tabId: string): Promise<void>;

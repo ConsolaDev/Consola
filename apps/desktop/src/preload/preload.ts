@@ -102,6 +102,7 @@ contextBridge.exposeInMainWorld('browserAPI', {
   close: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_CLOSE, tabId),
   activate: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_ACTIVATE, tabId),
   navigate: (tabId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_NAVIGATE, tabId, url),
+  retry: (tabId, url) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_RETRY, tabId, url),
   back: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_BACK, tabId),
   forward: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_FORWARD, tabId),
   reload: (tabId) => ipcRenderer.invoke(IPC_CHANNELS.BROWSER_RELOAD, tabId),

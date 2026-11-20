@@ -6,6 +6,7 @@ import type {
   LocalServer,
 } from '../../shared/browser';
 import type { ZoomStep } from '../../shared/browserTools';
+import { isLoopbackHost } from '../../shared/browser';
 import { IPC_CHANNELS } from '../../shared/constants';
 import type { guardedIpc } from '../guardedIpc';
 import type { BrowserService } from './BrowserService';
@@ -34,12 +35,26 @@ export interface BrowserIpcDeps {
   personNavigated(tabId: string): void;
 }
 
+/** A web address on this machine, which is all the window retries by itself. */
+function isLoopbackAddress(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    return (
+      (parsed.protocol === 'http:' || parsed.protocol === 'https:') &&
+      isLoopbackHost(parsed.hostname)
+    );
+  } catch {
+    return false;
+  }
+}
+
 const CHANNELS = [
   IPC_CHANNELS.BROWSER_GET,
   IPC_CHANNELS.BROWSER_OPEN,
   IPC_CHANNELS.BROWSER_CLOSE,
   IPC_CHANNELS.BROWSER_ACTIVATE,
   IPC_CHANNELS.BROWSER_NAVIGATE,
+  IPC_CHANNELS.BROWSER_RETRY,
   IPC_CHANNELS.BROWSER_BACK,
   IPC_CHANNELS.BROWSER_FORWARD,
   IPC_CHANNELS.BROWSER_RELOAD,
@@ -116,6 +131,13 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
   ipc.handle(IPC_CHANNELS.BROWSER_BACK, (event, tabId: string) => {
     if (movedByPerson(event, tabId)) service.goBack(tabId);
   });
+  // The window's automatic retry of an unreachable page on this machine: a
+  // timer, not the person, so it records nothing, whatever it is sent, and it
+  // goes only to a loopback address (what the window retries by itself).
+  ipc.handle(IPC_CHANNELS.BROWSER_RETRY, (event, tabId: string, url: unknown): boolean => {
+    if (!ownedTab(event, tabId) || typeof url !== 'string' || !isLoopbackAddress(url)) return false;
+    return service.navigate(tabId, url);
+  });
   ipc.handle(IPC_CHANNELS.BROWSER_FORWARD, (event, tabId: string) => {
     if (movedByPerson(event, tabId)) service.goForward(tabId);
   });
@@ -167,14 +189,19 @@ export function registerBrowserHandlers(deps: BrowserIpcDeps): { remove(): void 
     return captured ? await deps.saveCapture(captured.sessionId, captured.png) : null;
   });
 
+  // The person chose to go on past a refused certificate: their input on the tab.
   ipc.handle(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, (event, tabId: string): boolean =>
-    ownedTab(event, tabId) ? service.continueCertificate(tabId) : false,
+    movedByPerson(event, tabId) ? service.continueCertificate(tabId) : false,
   );
   // The request id alone is not authority: main only accepts it from the
   // window that was asked, so another window cannot answer, or cancel, for it.
+  // An answer, or a cancel, is the person's input on the tab that asked.
   ipc.handle(IPC_CHANNELS.BROWSER_AUTH_ANSWER, (event, id: string, credentials: unknown) => {
     const window = deps.windowForSender(event.sender);
-    if (window && typeof id === 'string') service.auth.answer(window, id, credentials);
+    if (!window || typeof id !== 'string') return;
+    const tabId = service.auth.requestTab(window, id);
+    if (tabId) deps.personNavigated(tabId);
+    service.auth.answer(window, id, credentials);
   });
   // No argument, like history: a window clears its own workspace and no other.
   ipc.handle(IPC_CHANNELS.BROWSER_CLEAR_DATA, async (event) => {

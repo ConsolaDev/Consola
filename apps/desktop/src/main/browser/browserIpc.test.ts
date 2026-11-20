@@ -13,6 +13,7 @@ const partition = { name: 'partition of w1' };
 let handlers: Map<string, Handler>;
 let service: Record<string, ReturnType<typeof vi.fn>>;
 let authAnswer: ReturnType<typeof vi.fn>;
+let authRequestTab: ReturnType<typeof vi.fn>;
 let personNavigated: ReturnType<typeof vi.fn<(tabId: string) => void>>;
 let workspace: string | undefined;
 let window: { once: ReturnType<typeof vi.fn> } | undefined;
@@ -63,13 +64,17 @@ beforeEach(() => {
     clearBrowsingData: vi.fn(async () => {}),
   };
   authAnswer = vi.fn(() => true);
+  authRequestTab = vi.fn((_window: unknown, id: string) => (id === 'req1' ? 't-mine' : null));
   personNavigated = vi.fn<(tabId: string) => void>();
   deps = {
     ipc: {
       handle: (channel, listener) => handlers.set(channel, listener as Handler),
       removeHandler: (channel) => handlers.delete(channel),
     },
-    service: { ...service, auth: { answer: authAnswer } } as unknown as BrowserService,
+    service: {
+      ...service,
+      auth: { answer: authAnswer, requestTab: authRequestTab },
+    } as unknown as BrowserService,
     workspaceForSender: () => workspace,
     windowForSender: () => window as unknown as BrowserWindow | undefined,
     sessionInWorkspace: (sessionId, ws) => sessionId === 's-mine' && ws === 'w1',
@@ -205,12 +210,48 @@ describe('tab-scoped handlers', () => {
     expect(personNavigated).not.toHaveBeenCalled();
   });
 
-  it('nothing but a move from the toolbar counts as the person navigating', () => {
+  it("choosing to continue past a certificate is the person's input on the tab, heard first", () => {
+    service.continueCertificate.mockImplementation(() => {
+      expect(personNavigated).toHaveBeenCalledWith('t-mine');
+      return true;
+    });
+    call(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, 't-mine');
+    expect(personNavigated).toHaveBeenCalledTimes(1);
+    call(IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE, 't-foreign');
+    expect(personNavigated).toHaveBeenCalledTimes(1);
+  });
+
+  it('nothing but a move from the toolbar or a certificate continue counts as the person navigating', () => {
     for (const [channel, , extra] of tabCalls) {
-      if (moving.includes(channel)) continue;
+      if (moving.includes(channel) || channel === IPC_CHANNELS.BROWSER_CERTIFICATE_CONTINUE)
+        continue;
       call(channel, 't-mine', ...extra);
     }
     expect(personNavigated).not.toHaveBeenCalled();
+  });
+});
+
+// N1: a timer is not the person. The automatic retry of an unreachable page on
+// this machine has its own channel, which can never record the person's input.
+describe('the automatic retry', () => {
+  it("moves the tab but records no person's input, so the tab stays in whoever's hands it was", () => {
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'http://localhost:5173/')).toBe(true);
+    expect(service.navigate).toHaveBeenCalledWith('t-mine', 'http://localhost:5173/');
+    expect(personNavigated).not.toHaveBeenCalled();
+  });
+
+  it('retries only an address on this machine, on one of the window’s tabs', () => {
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'https://example.com/')).toBe(false);
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 'not an address')).toBe(false);
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-mine', 42)).toBe(false);
+    expect(call(IPC_CHANNELS.BROWSER_RETRY, 't-foreign', 'http://localhost:5173/')).toBe(false);
+    expect(service.navigate).not.toHaveBeenCalled();
+    expect(personNavigated).not.toHaveBeenCalled();
+  });
+
+  it("leaves the person's own navigation recorded as theirs", () => {
+    call(IPC_CHANNELS.BROWSER_NAVIGATE, 't-mine', 'http://localhost:5173/');
+    expect(personNavigated).toHaveBeenCalledWith('t-mine');
   });
 });
 
@@ -220,6 +261,19 @@ describe('sign-in answers and clearing data', () => {
   it('hands an answer to the service on behalf of the sender window only', () => {
     call(IPC_CHANNELS.BROWSER_AUTH_ANSWER, 'req1', { username: 'u', password: 'p' });
     expect(auth()).toHaveBeenCalledWith(window, 'req1', { username: 'u', password: 'p' });
+  });
+
+  it("an answer to a tab's sign-in is the person's input on that tab, heard first", () => {
+    authAnswer.mockImplementation(() => {
+      expect(personNavigated).toHaveBeenCalledWith('t-mine');
+      return true;
+    });
+    call(IPC_CHANNELS.BROWSER_AUTH_ANSWER, 'req1', null);
+    expect(authRequestTab).toHaveBeenCalledWith(window, 'req1');
+    expect(personNavigated).toHaveBeenCalledTimes(1);
+    // A request this window was not asked, or one of a page not bound to a tab: nobody's.
+    call(IPC_CHANNELS.BROWSER_AUTH_ANSWER, 'req-other', null);
+    expect(personNavigated).toHaveBeenCalledTimes(1);
   });
 
   it('ignores an answer with no window or a request id that is not text', () => {
